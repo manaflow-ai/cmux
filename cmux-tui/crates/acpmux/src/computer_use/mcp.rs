@@ -48,6 +48,13 @@ fn fallback_session() -> String {
 /// agent's own is turned off), so it is not presented as a second choice
 /// (`cmux computer-use mcp --primary`).
 pub async fn run(primary: bool) -> Result<()> {
+    run_on(SocketDaemon::from_env(), primary).await
+}
+
+/// [`run`] on a given cmux-tui daemon: `cmux computer-use mcp` passes the
+/// socket the CLI resolves for every command (`--socket`, `CMUX_TUI_SOCKET`,
+/// else the app it is bundled in), not `main`, which no app runs.
+pub async fn run_on(daemon: SocketDaemon, primary: bool) -> Result<()> {
     let var = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
     // `cmux computer-use mcp` started by an agent's own config: its session
     // is the one cmux names in the agent's env.
@@ -58,8 +65,7 @@ pub async fn run(primary: bool) -> Result<()> {
     crate::parent_watch::exit_with_parent();
     // The agent's cmux workspace (its pane's or its chat's env): its name tags the agent's cursor.
     let workspace = var(WORKSPACE_ENV);
-    let caller =
-        Arc::new(Caller::new(SocketDaemon::from_env(), session, label).with_workspace(workspace));
+    let caller = Arc::new(Caller::new(daemon, session, label).with_workspace(workspace));
     serve(caller, primary, tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout()).await
 }
 
