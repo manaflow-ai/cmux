@@ -222,6 +222,13 @@ targets:
       - target: CmuxMobileNotificationContent
       # Opens sealed pushes (verify/notifications-trust.md).
       - target: CmuxMobileNotificationService
+    postCompileScripts:
+      - name: Scratch measure (not for merge)
+        script: |
+          mkdir -p "$SRCROOT/../artifacts/ios-sim"
+          (xcrun ld -v 2>&1; echo; man ld 2>/dev/null | col -b) > "$SRCROOT/../artifacts/ios-sim/ld-man.txt" || true
+          ls -la "$BUILT_PRODUCTS_DIR" > "$SRCROOT/../artifacts/ios-sim/products.txt" || true
+          cp "$DERIVED_FILE_DIR/cmux-link-order.txt" "$SRCROOT/../artifacts/ios-sim/" 2>/dev/null || true
     # UI tests run with `xcodebuild test -scheme CmuxMobileApp` on one simulator (verify/parity/pq_tabs.py).
     scheme:
       testTargets:
@@ -263,6 +270,8 @@ targets:
         # welcome hides "Continue with Apple" everywhere else (it could only fail).
         CMUX_MOBILE_APPLE_SIGN_IN: "NO"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        OTHER_LDFLAGS: $(inherited) -Wl,-map,$(SRCROOT)/../artifacts/ios-sim/linkmap.txt
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
       configs:
         Production:
