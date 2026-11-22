@@ -250,9 +250,8 @@ pub fn table() -> Value {
 
 /// [`table`] as the committed file's text.
 pub fn table_text() -> String {
-    let mut text = serde_json::to_string_pretty(&table()).expect("table renders");
-    text.push('\n');
-    text
+    // A Value's alternate Display is the pretty form and cannot fail.
+    format!("{:#}\n", table())
 }
 
 #[cfg(test)]
