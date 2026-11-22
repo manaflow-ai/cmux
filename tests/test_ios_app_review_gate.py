@@ -143,9 +143,69 @@ class AppReviewGateTests(unittest.TestCase):
         lint.check_appstore_config()
         self.assertIn("appstore.config-missing", self.rules(lint))
 
+    def test_the_internal_submission_lane_needs_testflight_and_cmux_internals_bundle(self) -> None:
+        project = self.root / "cmux-next-ios/project.yml"
+        project.write_text(project.read_text().replace(
+            "  configs:\n    AppStore:", "  configs:\n    TestFlight:\n      CMUX_MOBILE_APP_BUNDLE_ID: dev.cmux.app.internal\n    AppStore:"))
+        lint = gate.Lint(self.root, "internal-submission")
+        lint.check_appstore_config()
+        self.assertEqual(self.rules(lint), set())
+        project.write_text(project.read_text().replace(
+            "CMUX_MOBILE_APP_BUNDLE_ID: dev.cmux.app.internal", "CMUX_MOBILE_APP_BUNDLE_ID: dev.cmux.app.other"))
+        lint = gate.Lint(self.root, "internal-submission")
+        lint.check_appstore_config()
+        self.assertIn("appstore.bundle-id", self.rules(lint))
+        project.write_text(project.read_text().replace("  TestFlight: release\n", ""))
+        lint = gate.Lint(self.root, "internal-submission")
+        lint.check_appstore_config()
+        self.assertIn("appstore.config-missing", self.rules(lint))
+
+    def test_only_the_submission_lanes_run_the_configuration_check_in_lint(self) -> None:
+        checked = {}
+        for lane in gate.LANES:
+            out = self.root / f"lint-{lane}.json"
+            gate.main(["lint", "--source-root", str(self.root), "--lane", lane, "--json", str(out)])
+            checked[lane] = "appstore-config" in json.loads(out.read_text())["checked"]
+        self.assertEqual(checked, {"appstore": True, "internal": False, "internal-submission": True})
+
+    def test_the_internal_submission_lane_holds_entitlements_to_the_app_store_rules(self) -> None:
+        ents = {"get-task-allow": True, "aps-environment": "development",
+                "com.apple.developer.networking.networkextension": ["packet-tunnel-provider"]}
+        submission = gate.Lint(self.root, "internal-submission")
+        submission.check_entitlements(ents, "x")
+        internal = gate.Lint(self.root, "internal")
+        internal.check_entitlements(ents, "x")
+        self.assertEqual(self.rules(submission), {"entitlement.debug", "entitlement.aps", "entitlement.vpn"})
+        self.assertEqual(self.rules(internal), set(), "the ordinary internal lane is unchanged")
+
+    def test_the_internal_submission_binary_must_be_cmux_internal_without_vpn(self) -> None:
+        app = self.root / "Payload/CmuxMobileApp.app"
+        app.mkdir(parents=True)
+        (app / "PrivacyInfo.xcprivacy").write_text("x")
+        (app / "CmuxMobileApp").write_bytes(b"\x00NEVPNManager\x00")
+        for bundle_id, lane, want in (("dev.cmux.app.internal", "internal-submission", {"api.vpn"}),
+                                      ("com.cmux.app", "internal-submission", {"api.vpn", "binary.bundle-id"}),
+                                      ("dev.cmux.app.internal", "internal", set())):
+            (app / "Info.plist").write_bytes(plistlib.dumps({
+                "CFBundleExecutable": "CmuxMobileApp", "CFBundleIdentifier": bundle_id,
+                "ITSAppUsesNonExemptEncryption": False, "CmuxMobileAppleSignIn": "YES"}))
+            lint = gate.Lint(self.root, lane)
+            lint.check_app_bundle(app)
+            self.assertEqual(self.rules(lint) & {"api.vpn", "binary.bundle-id"}, want, (bundle_id, lane))
+
+    def test_an_internal_submission_is_never_judged_without_asc_validate(self) -> None:
+        out = self.root / "report.md"
+        for lane, want in (("internal-submission", True), ("internal", False), ("appstore", False)):
+            lint_json = self.root / f"lint-{lane}.json"
+            lint_json.write_text(json.dumps({"lane": lane, "checked": [], "findings": []}))
+            gate.main(["report", "--lint", str(lint_json), "--asc-skipped", "--out", str(out)])
+            self.assertEqual("asc validate did not run" in out.read_text(), want, lane)
+
     def test_asc_validates_the_app_store_configurations_version(self) -> None:
         self.assertEqual(gate.marketing_version(self.root, "appstore"), "1.0.0")
         self.assertEqual(gate.marketing_version(self.root, "internal"), "1.2.0")
+        # cmux INTERNAL as a submission: the TestFlight configuration sets no version of its own.
+        self.assertEqual(gate.marketing_version(self.root, "internal-submission"), "1.2.0")
 
     def test_missing_store_metadata_is_a_clear_blocker(self) -> None:
         import shutil
