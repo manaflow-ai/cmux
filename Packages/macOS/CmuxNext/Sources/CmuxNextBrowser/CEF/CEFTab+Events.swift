@@ -268,6 +268,14 @@ extension CEFTab {
         return try await runtime.devTools(browserID, method: method, payload: params, timeout: timeout)
     }
 
+    /// ``devTools(method:params:timeout:)`` sent now, in this tab's call order, with its answer awaited later: calls
+    /// started one after another in one turn reach Chromium in that order, and their answers come in about one round
+    /// trip instead of one each.
+    public func startDevTools(method: String, params: [String: any Sendable]) -> @MainActor @Sendable () async throws -> String {
+        guard let browserID, !isClosed else { return { throw BrowserTabError.closed } }
+        return runtime.startDevTools(browserID, method: method, payload: params)
+    }
+
     // MARK: Find
 
     public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult {
