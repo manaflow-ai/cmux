@@ -521,7 +521,7 @@ async fn every_peer_row_field_is_named_in_the_schema() {
     peer.seed_features(&[crate::agent_login::FEATURE]);
     let row = peer.summary();
     assert_eq!(row["agentLogin"], true, "{row}");
-    let schema: Value = serde_json::from_str(crate::schema::SCHEMA).unwrap();
+    let schema: Value = serde_json::from_str(&crate::schema::SCHEMA.inflate()).unwrap();
     let doc = schema["methods"]["_acpmux/peers"]["result"]["peers"]
         .as_str()
         .expect("_acpmux/peers documents its rows")
