@@ -18,7 +18,7 @@
 //!    (no Hide) until the session ends;
 //! 4. every result and every audit line names the driver's version and build;
 //! 5. classic cmux (`com.cmuxterm.app`) is never launched, activated or acted
-//!    on, even when the agent asks.
+//!    on, even when the agent asks (it is listed only as denied, untitled).
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -421,7 +421,7 @@ fn duress_5_classic_cmux_is_never_launched_or_used() {
     // `status` names it in the deny list it reports; any other result that
     // names classic cmux must be a refusal.
     for (name, out) in run.outs.iter().filter(|(name, o)| {
-        name != "status"
+        !matches!(name.as_str(), "status" | "list_windows")
             && (o.body.to_string().contains(CLASSIC_APP) || o.body.to_string().contains("\"cmux\""))
     }) {
         assert!(out.is_error, "{name} used classic cmux: {}", out.body);
@@ -439,13 +439,14 @@ fn duress_5_classic_cmux_is_never_launched_or_used() {
             out.body
         );
     }
-    // Not even listed to the agent.
-    let windows = &run.outs[1].1;
-    assert!(
-        !windows.body.to_string().contains(&format!("\"{CLASSIC_WINDOW}\"")),
-        "{}",
-        windows.body
-    );
+    // Listed only as denied, with its title withheld, so the agent knows to
+    // leave it alone.
+    let windows = run.outs[1].1.body["windows"].as_array().cloned().unwrap_or_default();
+    let classic: Vec<&Value> = windows.iter().filter(|w| w["app_id"] == CLASSIC_APP).collect();
+    for w in &classic {
+        assert_eq!(w["denied"], json!(true), "{w}");
+        assert_eq!(w["title"], json!(""), "{w}");
+    }
     // And nothing was activated: the person's app is still in front.
     assert_eq!(run.rig.desktop.focus.lock().unwrap().clone(), Some(victim_front()));
 }
