@@ -514,7 +514,6 @@ fn hub_with_chat(id: &str) -> (Arc<Hub>, Arc<Session>) {
     (hub, session)
 }
 
-#[tokio::test]
 /// Surge admission is a preview (`labs.previewFeatures`): off, the burst that would be held
 /// takes the path it took before the surge inbox, with nothing held or counted.
 #[tokio::test]
