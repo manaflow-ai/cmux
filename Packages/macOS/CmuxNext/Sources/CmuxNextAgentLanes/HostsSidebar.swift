@@ -209,7 +209,7 @@ public final class HostsSidebar {
         add(Self.addID, addHost)
         for machine in machines {
             var info = SidebarItemInfo(title: machine.name, symbol: symbol(for: machine))
-            info.caption = caption(for: machine)
+            info.caption = machine.stateWord
             info.tooltip = machine.failure
             info.indent = 1
             info.isMissing = !machine.isConnected && !machine.isConnecting && machine.serverState == nil
@@ -227,19 +227,5 @@ public final class HostsSidebar {
         case .ssh: "terminal"
         case .server, .joined: "server.rack"
         }
-    }
-
-    private static func caption(for machine: MachineSectionRow) -> String {
-        if machine.failed { return MachineRowStrings.failed }
-        if let state = machine.serverState {
-            switch state {
-            case .paused: return MachineRowStrings.paused
-            case .resuming: return MachineRowStrings.resuming
-            case .failed: return MachineRowStrings.failed
-            case .deleted: return MachineRowStrings.deleted
-            }
-        }
-        if machine.isConnecting { return MachineRowStrings.connecting }
-        return machine.isConnected ? MachineRowStrings.connected : MachineRowStrings.offline
     }
 }

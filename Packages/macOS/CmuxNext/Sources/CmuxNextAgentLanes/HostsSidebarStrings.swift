@@ -1,7 +1,7 @@
 import Foundation
 
 /// The sidebar Hosts section's titles (HostsSidebar.xcstrings). Its state words are the Machines page's
-/// (`MachineRowStrings`).
+/// (`MachineSectionRow.stateWord`).
 nonisolated enum HostsSidebarStrings {
     static var hosts: String { text("hostsSidebar.header", "Hosts") }
     static var addHost: String { text("hostsSidebar.addHost", "Add Host…") }
