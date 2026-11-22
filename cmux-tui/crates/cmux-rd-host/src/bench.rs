@@ -1199,6 +1199,8 @@ fn link_io() -> Res<ViewerIo> {
         turn: Vec::new(),
         relay_only: false,
     })?;
+    // A host that dies without a close ends this viewer instead of freezing it.
+    net.set_peer_lost(Some(std::time::Duration::from_micros(cmux_rd_link::PEER_LOST_US)));
     for c in answer.candidates.iter().filter_map(|c| Candidate::from_wire(c)) {
         net.add_remote_candidate(c);
     }

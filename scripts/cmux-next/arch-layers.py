@@ -24,7 +24,7 @@ plans/cmux-next/architecture-layers.json, then prints:
 The closure comes from the git objects at HEAD of --repo (default this checkout) and its manifests and Swift from
 that working tree. With --dump and no --repo the dump is the whole graph (a dump describes one package).
 
-This is a report for the refactor lane, not a CI gate (Lawrence 2026-10-23: no new CI gates).
+This is a report for the refactor lane, not a CI gate (Lawrence 2026-10-23: no new CI gates, lifted 2026-11-18).
 The inventory of singletons, broadcasts and DEBUG-only code is PL-guardrails'
 plans/cmux-next/codebase-health.md; `--counts` prints the grep counts the design doc used, except observers: those
 are arch_counts.py's observer_sites (the ratchet's row: registrations counted through wrappers such as
