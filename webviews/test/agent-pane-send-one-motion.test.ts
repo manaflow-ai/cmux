@@ -15,9 +15,8 @@ import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-const ENTRY = "agent-pane.composer-send-one-motion";
-
 await requireBrowserLane("agent-pane-send-one-motion.test.ts", async () => {
+  const ENTRY = "agent-pane.composer-send-one-motion";
   setDefaultTimeout(240_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -59,7 +58,7 @@ await requireBrowserLane("agent-pane-send-one-motion.test.ts", async () => {
         // Scrolled up while a turn runs, the queued prompt's send can bounce the rows for one frame on
         // the base code as well (a separate cause): its play records the phases without failing.
         if (busy === "busy" && place === "scrolled-up") {
-          test.todo(`${variant}: the queued send's one-frame bounce`);
+          test.todo(`${variant}: the queued send's one-frame bounce`, () => {});
           continue;
         }
         test(`${variant}: the send moves in one phase`, async () => {
