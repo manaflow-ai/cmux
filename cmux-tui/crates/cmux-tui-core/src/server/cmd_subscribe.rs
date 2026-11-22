@@ -505,7 +505,11 @@ pub(super) fn subscribed_event_name(event: &MuxEvent) -> Option<&str> {
         MuxEvent::ClientListInvalidated => "client-list-invalidated",
         MuxEvent::PairingRequested(_) => "pairing-requested",
         MuxEvent::PairingResolved { .. } => "pairing-resolved",
-        MuxEvent::AppsChanged(payload) | MuxEvent::TasksChanged(payload) => {
+        MuxEvent::AgentSessionShareChanged { .. } => "agent-session-share-changed",
+        MuxEvent::AppsChanged(payload)
+        | MuxEvent::TasksChanged(payload)
+        | MuxEvent::ComputerUseActivity(payload)
+        | MuxEvent::ComputerUsePreview(payload) => {
             return payload.get("event").and_then(Value::as_str);
         }
         MuxEvent::ChatsChanged { .. } | MuxEvent::GitHubChanged { .. } | MuxEvent::Empty => {
