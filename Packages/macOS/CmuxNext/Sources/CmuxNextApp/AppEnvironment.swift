@@ -2,6 +2,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextOnboarding
 import CmuxNextTerminal
@@ -33,6 +34,9 @@ struct AppEnvironment: Sendable {
     /// `CMUX_NEXT_TEST_WINDOW_SCREEN` / `CMUX_NEXT_TEST_WINDOW_FRAME` with
     /// no-activate: where windows open for agent screenshots.
     let testWindow: TestWindowPlacement?
+    /// `CMUX_NEXT_LAUNCH_DISPLAY`: the display shell windows open on (`LaunchDisplay`), the
+    /// built-in one by default in a tagged dev build (#51115); nil keeps the usual placement.
+    var launchDisplay: LaunchDisplay? = nil
     /// Mark this run for crash recovery (`AppRunMarker`): only the real app
     /// process, never tests that build `AppServices`.
     var marksRun = false
@@ -119,6 +123,7 @@ struct AppEnvironment: Sendable {
             authCaptureFixture: authCaptureFixture,
             captureShellHome: captureShellHome(environment),
             testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),
+            launchDisplay: LaunchDisplay.parse(environment[LaunchDisplay.environmentKey], isDevBuild: launch.tag != nil),
             terminalEnvironment: terminalEnvironment(launch: launch, environment: environment).merging(openFiles?.childEnvironment ?? [:]) { $1 },
             cloudConfiguration: nil,
             ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),
