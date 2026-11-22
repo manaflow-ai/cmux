@@ -14,7 +14,8 @@
 //   bun scripts/chat-sim.ts --sweep ~/.acpmux/sessions [--jobs 4]   (replay every chat there, grouped)
 //
 // Exit status: 0 with no violations, 1 with any (2: bad arguments).
-import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
+import { join } from "node:path";
 import { runSimulation, summarize, type SimResult } from "../src/agent-session/acpmux/sim/run";
 import { sanitizeRecords } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, type SimScenario } from "../src/agent-session/acpmux/sim/script";
