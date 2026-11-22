@@ -95,7 +95,7 @@ import UIKit
             list.layoutIfNeeded()
             let bottom = list.contentSize.height - list.bounds.height + list.adjustedContentInset.bottom
             list.setContentOffset(CGPoint(x: 0, y: max(-list.adjustedContentInset.top, bottom)), animated: false)
-            settle()
+            scrolled()
         }
 
         func scroll(toTopOf item: Int, plus extra: CGFloat = 0) {
