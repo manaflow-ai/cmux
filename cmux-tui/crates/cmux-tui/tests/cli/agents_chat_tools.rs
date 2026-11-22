@@ -35,6 +35,12 @@ fn machine_with(name: &str, config: Value) -> Daemon {
     let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
     let trust = json!({work.to_str().unwrap(): "trusted"});
     fs::write(daemon.dir.join("acpmux/trust.json"), trust.to_string()).unwrap();
+    // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
+    std::fs::set_permissions(
+        daemon.dir.join("acpmux/trust.json"),
+        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
+    )
+    .unwrap();
     acpmux_daemon(&daemon, &["start"]);
     daemon
 }
@@ -558,6 +564,12 @@ fn a_chat_send_that_cannot_reach_its_chat_fails_with_its_receipt() {
     // a hosted agent outlives a plain shutdown, and the next daemon adopts it.
     acpmux_daemon(&daemon, &["shutdown", "--end-agents"]);
     fs::write(daemon.dir.join("acpmux/config.json"), acpmux_config(false).to_string()).unwrap();
+    // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
+    std::fs::set_permissions(
+        daemon.dir.join("acpmux/config.json"),
+        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
+    )
+    .unwrap();
     acpmux_daemon(&daemon, &["start"]);
 
     let (code, receipt) =
