@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "build": "4500862920401",
+  "notes": "notes/4500862920401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 49843,
+      "title": "dev-loop startup_loop: the process watcher sees an app that LaunchServices exec'd",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49908,
+      "title": "NIGHTLY main hot: byte scans on the agent inbound path; busy terminals' launch frames back off",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49249,
+      "title": "cmux vm runner new: make or resume a Freestyle runner from any machine",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49249/hv-8df8f427ec20-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 48813,
+      "title": "Add named transcript widths to the agent chat look",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48869,
+      "title": "sidebar: find a pinned workspace's row on screen",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49769,
+      "title": "Live updates: daemon updates with no restart via cmux app try channel (\"not even need the user to restart to update\")",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49345,
+      "title": "acpmux: fix the remaining flaky reds in the lib suite",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49199,
+      "title": "fix(composer): each fast drop or paste gets its own native paths, and a short answer keeps them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49951,
+      "title": "test: read the route step through step_run (the step now calls a script)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48811,
+      "title": "Match the reference thinking dots: three stages on the live line and Jump to latest",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/48811/thinking-dots-live-line-and-jump.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 49912,
+      "title": "cmux-rd channel build drops debuginfo: 32.8 to 6.0 MB per Linux arch (CMUX-570)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49771,
+      "title": "acpmux new: keep a lone name, honor --stay/--wait, skip stale placement hosts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46939,
+      "title": "cmux app try .: copy the closest published build the tree swaps into, not only the installed nightly",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49260,
+      "title": "acpmux tests: a held stream row, a rate-limit hold and the 11k startup stop racing the runner",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49894,
+      "title": "cmux-rd 0.2.8; the lock may trail the crate by one pendingRelease",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49927,
+      "title": "tour.py: accept capture shot objects so nightly tours pass --check",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49393,
+      "title": "cmux-next-ios: link_stat report of a phone's link path, RTT, loss and setup, read from the Worker's logs",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
