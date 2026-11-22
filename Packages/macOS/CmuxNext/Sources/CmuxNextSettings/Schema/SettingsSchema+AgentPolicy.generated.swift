@@ -54,7 +54,7 @@ extension SettingsSchema {
         "app.showMenuBarIcon",
         // The language cmux's own text is in; ends no work.
         "app.language",
-        "tabs.overflow",
+        "tabs.overflow", "tabs.shellIconTheme",
         // How tabs are listed (looks only)
         "tabs.verticalTabs", "tabs.verticalTabsExpandOnHover",
         // Whether a lone chat's tab draws (looks only)
