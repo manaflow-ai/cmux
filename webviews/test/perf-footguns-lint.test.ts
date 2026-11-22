@@ -141,3 +141,33 @@ test("save-time lint reports incomplete JSX without stopping the dev server", as
   expect(findings[0]?.line).toBe(1);
   expect(findings[0]?.message).toContain("Expected corresponding JSX closing tag");
 });
+
+test("building an Intl formatter points at the shared cache (src/ui/intl.ts)", () => {
+  const sources = [
+    // The pre-cache shape of compactTokens (turnTokensModel.ts): a formatter per turn footer.
+    [
+      "export const compact = (l: string, n: number) => new Intl.NumberFormat(l, { notation: 'compact' }).format(n);",
+      1,
+    ],
+    ["export const day = (at: number) => new Intl.DateTimeFormat(undefined, { month: 'short' }).format(at);", 1],
+    // timestampText's default locale: a constructor per call too.
+    ["export const zone = () => new Intl.DateTimeFormat().resolvedOptions().timeZone;", 1],
+    ["export const has = typeof Intl.Segmenter === 'function';", 0],
+    ["import { intl } from './intl'; export const compact = (n: number) => intl.NumberFormat('en').format(n);", 0],
+  ] as const;
+  const files = sources.map(([code], index) => {
+    const file = join(directory, `intl-${index}.ts`);
+    writeFileSync(file, code);
+    return file;
+  });
+  const diagnostics = lint(files);
+  for (const [index, [code, expected]] of sources.entries()) {
+    const own = diagnostics.filter((d) => d.filename.endsWith(`/intl-${index}.ts`));
+    expect(
+      own.filter((d) => d.code.includes("no-intl-construct")),
+      code,
+    ).toHaveLength(expected);
+  }
+  const shared = lint([resolve(import.meta.dir, "../src/ui/intl.ts")]);
+  expect(shared.filter((d) => d.code.includes("no-intl-construct"))).toHaveLength(0);
+}, 30_000);
