@@ -216,27 +216,46 @@ impl Hub {
         let inbox = req.socket.clone().unwrap_or_default();
         let token = req.token.clone().unwrap_or_default();
         let (started, launched_for) = prove_claude(claimed, &claude_home, &inbox).await?;
-        let Some(code) = req.code.as_deref() else {
-            let (name, why) = if req.auto {
-                match self.auto_plan(claimed, &req.name).await {
-                    auto::Plan::Reachable(name) => {
-                        return Ok(json!({"reachable": true, "name": name}));
-                    }
-                    auto::Plan::Taken => {
-                        return Err(RpcError::invalid_params(format!(
-                            "session name {:?} is taken: run `acpmux register NAME` with another name",
-                            req.name
-                        ))
-                        .with_data(json!({"reason": "register.name_taken"})));
-                    }
-                    auto::Plan::Code(name) => (name, Why::Send(crate::host_pressure::host_name())),
-                }
-            } else {
-                (req.name.clone(), Why::Asked)
-            };
-            return send_code(claimed, &claude_home, &token, &name, started, why).await;
+        // A registered chat whose Claude Code restarted takes its new process in one step: the
+        // name is already this conversation's, the process it was registered to is gone, and the
+        // kernel says the caller's process was started for this conversation (`--resume ID`).
+        // Those are the proofs a takeover below asks of any registration; the code adds none.
+        let rebind = if req.code.is_none() && req.auto {
+            self.restarted_registration(claimed, launched_for.as_deref()).await
+        } else {
+            None
         };
-        take_code(claimed.pid, code, started, &inbox, &token, &req.name)?;
+        if rebind.is_some() {
+            tracing::info!(
+                "register: chat of conversation {} taken over by its restarted process {} in one step",
+                claimed.session_id,
+                claimed.pid
+            );
+        } else {
+            let Some(code) = req.code.as_deref() else {
+                let (name, why) = if req.auto {
+                    match self.auto_plan(claimed, &req.name).await {
+                        auto::Plan::Reachable(name) => {
+                            return Ok(json!({"reachable": true, "name": name}));
+                        }
+                        auto::Plan::Taken => {
+                            return Err(RpcError::invalid_params(format!(
+                                "session name {:?} is taken: run `acpmux register NAME` with another name",
+                                req.name
+                            ))
+                            .with_data(json!({"reason": "register.name_taken"})));
+                        }
+                        auto::Plan::Code(name) => {
+                            (name, Why::Send(crate::host_pressure::host_name()))
+                        }
+                    }
+                } else {
+                    (req.name.clone(), Why::Asked)
+                };
+                return send_code(claimed, &claude_home, &token, &name, started, why).await;
+            };
+            take_code(claimed.pid, code, started, &inbox, &token, &req.name)?;
+        }
         let (family, agent_session_id, cwd, tags, pid) = match &found {
             Found::Claude(p) => (
                 "claude",
@@ -246,7 +265,9 @@ impl Hub {
                 Some(p.pid),
             ),
         };
-        let name = req.name.clone();
+        // A restarted chat keeps the name it is registered under, whatever this send asked for.
+        let rebound = rebind.is_some();
+        let name = rebind.unwrap_or_else(|| req.name.clone());
         // One registration at a time: the name check below and the rename after it are one step,
         // so two sessions registering the same name at once never both get it.
         static REGISTERING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -359,9 +380,16 @@ impl Hub {
             &session,
             "mux",
             "registered",
-            json!({"name": name, "family": family, "pid": pid, "token": token_kept}),
+            json!({"name": name, "family": family, "pid": pid, "token": token_kept, "rebound": rebound}),
         );
+        // A chat closed when its old process ended shows its conversation again
+        // (`live_chat.rs`): the registration just proved a live process runs it.
+        if watched {
+            self.revive_live_chat(&session, pid, "registered");
+        }
         Ok(json!({
+            "registered": true,
+            "rebound": rebound,
             "sessionId": session.id,
             "name": name,
             "family": family,
@@ -371,6 +399,55 @@ impl Hub {
             "token": if token_kept { "registered" } else { "none" },
         }))
     }
+}
+
+impl Hub {
+    /// The name of the registered chat of `claimed`'s conversation, when `claimed` may take it
+    /// over in one step ([`takes_over_in_one_step`]); None sends the code as before.
+    async fn restarted_registration(
+        &self,
+        claimed: &crate::claude_peers::Peer,
+        launched_for: Option<&str>,
+    ) -> Option<String> {
+        let stores = super::adoption::store_families(&*self.config.read().await);
+        let shown = {
+            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            super::adoption::adopted_in(&sessions, &stores, "claude", &claimed.session_id)
+        }?;
+        let kept = crate::claude_peers::kept_token(&crate::config::home(), &shown.id);
+        let claude_home = self.harness_homes().claude;
+        let recorded_live = tokio::task::spawn_blocking(move || {
+            kept.is_some_and(|k| {
+                k.started.is_some()
+                    && crate::claude_peers::started_at(&claude_home, k.pid) == k.started
+            })
+        })
+        .await
+        .unwrap_or(true);
+        takes_over_in_one_step(
+            is_registered(&shown),
+            recorded_live,
+            launched_for,
+            &claimed.session_id,
+        )
+        .then(|| shown.read_meta(|m| m.name.clone()))
+    }
+}
+
+/// Whether a caller proven to be Claude Code (`prove_claude`) takes its conversation's chat over
+/// with no code: the chat is `registered` (its name was proven this conversation's once), the
+/// process it is registered to no longer runs (`recorded_live`), and the kernel's record of the
+/// caller's launch names this `conversation` (`--resume ID`, which no file rewrites). Leo,
+/// 2026-11-22: "if you can't reliably communicate back and forth from the desktop app, that's a
+/// product thing we need to fix": every Claude Code restart used to leave the chat `registration
+/// stale` until its model ran `acpmux register NAME` and then the `--code` line by hand.
+pub(super) fn takes_over_in_one_step(
+    registered: bool,
+    recorded_live: bool,
+    launched_for: Option<&str>,
+    conversation: &str,
+) -> bool {
+    registered && !recorded_live && launched_for == Some(conversation)
 }
 
 /// Why a code goes to a session: `acpmux register NAME` asked, or `acpmux send` from the chat's
@@ -623,6 +700,20 @@ mod tests {
         let asked = code_text("desktop-zoe", "c0de", &Why::Asked);
         assert!(asked.contains("acpmux register desktop-zoe --code c0de"), "{asked}");
         assert!(!asked.contains("acpmux send"), "{asked}");
+    }
+
+    /// Repro (cosmic-gray, 2026-11-22): desktop-leo's Claude Code restarted (now process 35713,
+    /// launched with `--resume=03214b87-...`) and its row said `registration stale ... run
+    /// acpmux register desktop-leo`, then a `--code` step. Its next automatic step takes the chat
+    /// over at once; any other caller still gets the code.
+    #[test]
+    fn a_restarted_registered_chat_is_taken_over_in_one_step() {
+        let conv = "03214b87-953d-4ecf-98ae-93d337878273";
+        assert!(takes_over_in_one_step(true, false, Some(conv), conv));
+        assert!(!takes_over_in_one_step(false, false, Some(conv), conv), "never registered");
+        assert!(!takes_over_in_one_step(true, true, Some(conv), conv), "its process still runs");
+        assert!(!takes_over_in_one_step(true, false, None, conv), "not started for it");
+        assert!(!takes_over_in_one_step(true, false, Some("other"), conv), "another one");
     }
 
     #[test]
