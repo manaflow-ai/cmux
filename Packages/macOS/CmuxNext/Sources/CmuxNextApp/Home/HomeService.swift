@@ -84,6 +84,8 @@ final class HomeService {
     @ObservationIgnored let ensureOwner = HomeEnsureOwnerWait() // the ensure whose Chief tab step is on the owner
     /// The last step the home workspace setup reached, for `debug.home`.
     @ObservationIgnored var homeWorkspaceStep = "not started"
+    /// The last step the Chief tab's setup reached, beside the home workspace's (``HomeChiefTabStep``).
+    @ObservationIgnored var chiefTabStep = HomeChiefTabStep.notStarted
     /// The chief tab creation's idempotency key (one per creation).
     @ObservationIgnored let chiefTabKey = HomeChiefTabKey()
     @ObservationIgnored let chiefHomes = HomeChiefHomes() // each Home's turn actions; Start now on a queued agent

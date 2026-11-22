@@ -155,15 +155,15 @@ enum AgentChatCopyHandlers {
 }
 
 private enum AgentChatCopyStrings {
-    static var notAChat: String { String(localized: "agentChat.copy.notAChat", defaultValue: "Focus a started agent chat first.", table: "Handlers", bundle: .module) }
-    static var noName: String { String(localized: "agentChat.copyName.noName", defaultValue: "The focused chat has no agent name yet.", table: "Handlers", bundle: .module) }
-    static var noHarnessSession: String { String(localized: "agentChat.copyHarnessSessionID.noSession", defaultValue: "The focused chat has no harness session ID yet.", table: "Handlers", bundle: .module) }
-    static var noConversation: String { String(localized: "agentChat.copyConversation.noConversation", defaultValue: "The focused chat has no conversation to copy yet.", table: "Handlers", bundle: .module) }
-    static var noDetails: String { String(localized: "agentChat.copySessionDetails.noDetails", defaultValue: "The focused chat has no session details to copy yet.", table: "Handlers", bundle: .module) }
-    static var noCWD: String { String(localized: "agentChat.copyWorkingDirectory.noCWD", defaultValue: "The focused chat has no working directory yet.", table: "Handlers", bundle: .module) }
-    static var noHost: String { String(localized: "agentChat.copyHost.noHost", defaultValue: "The focused chat has no host name yet.", table: "Handlers", bundle: .module) }
-    static var noFiles: String { String(localized: "agentChat.copySessionFilePaths.noFiles", defaultValue: "The focused chat has no session files on this Mac.", table: "Handlers", bundle: .module) }
-    static var noFile: String { String(localized: "agentChat.copySessionFile.noFile", defaultValue: "The focused chat has no such file on this Mac.", table: "Handlers", bundle: .module) }
-    static var fileUnreadable: String { String(localized: "agentChat.copySessionFile.unreadable", defaultValue: "The file could not be read as text.", table: "Handlers", bundle: .module) }
-    static var copyFailed: String { String(localized: "agentChat.copyConversation.failed", defaultValue: "The focused chat could not provide its conversation.", table: "Handlers", bundle: .module) }
+    static var notAChat: String { String(localized: "agentChat.copy.notAChat", defaultValue: "Focus a started agent chat first.", table: "Handlers", bundle: .module.inAppLanguage) }
+    static var noName: String { String(localized: "agentChat.copyName.noName", defaultValue: "The focused chat has no agent name yet.", table: "Handlers", bundle: .module.inAppLanguage) }
+    static var noHarnessSession: String { String(localized: "agentChat.copyHarnessSessionID.noSession", defaultValue: "The focused chat has no harness session ID yet.", table: "Handlers", bundle: .module.inAppLanguage) }
+    static var noConversation: String { String(localized: "agentChat.copyConversation.noConversation", defaultValue: "The focused chat has no conversation to copy yet.", table: "Handlers", bundle: .module.inAppLanguage) }
+    static var noDetails: String { String(localized: "agentChat.copySessionDetails.noDetails", defaultValue: "The focused chat has no session details to copy yet.", table: "Handlers", bundle: .module.inAppLanguage) }
+    static var noCWD: String { String(localized: "agentChat.copyWorkingDirectory.noCWD", defaultValue: "The focused chat has no working directory yet.", table: "Handlers", bundle: .module.inAppLanguage) }
+    static var noHost: String { String(localized: "agentChat.copyHost.noHost", defaultValue: "The focused chat has no host name yet.", table: "Handlers", bundle: .module.inAppLanguage) }
+    static var noFiles: String { String(localized: "agentChat.copySessionFilePaths.noFiles", defaultValue: "The focused chat has no session files on this Mac.", table: "Handlers", bundle: .module.inAppLanguage) }
+    static var noFile: String { String(localized: "agentChat.copySessionFile.noFile", defaultValue: "The focused chat has no such file on this Mac.", table: "Handlers", bundle: .module.inAppLanguage) }
+    static var fileUnreadable: String { String(localized: "agentChat.copySessionFile.unreadable", defaultValue: "The file could not be read as text.", table: "Handlers", bundle: .module.inAppLanguage) }
+    static var copyFailed: String { String(localized: "agentChat.copyConversation.failed", defaultValue: "The focused chat could not provide its conversation.", table: "Handlers", bundle: .module.inAppLanguage) }
 }

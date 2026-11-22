@@ -112,6 +112,11 @@
   color: var(--page-text);
 }
 
+/* The Examples toggle is a shelf, not a category: it sits at the row's far end. */
+.apps-chip-shelf {
+  margin-inline-start: auto;
+}
+
 .apps-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
@@ -242,11 +247,17 @@
   color: var(--page-text-2);
 }
 
-/* Preview and Install wrap as one group, pushed to the end of the footer's last line. */
+/* Preview and Install wrap as one group, pushed to the end of the footer's last line. The group
+   never shrinks: when Installed joins the footer, WebKit would otherwise narrow the action. */
 .apps-card-actions {
   display: flex;
+  flex-shrink: 0;
   gap: 6px;
   margin-left: auto;
+}
+
+.apps-card-actions > .apps-button {
+  flex-shrink: 0;
 }
 
 .apps-rows {
@@ -454,47 +465,6 @@
   color: var(--page-text-2);
 }
 
-.apps-detail-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 14px;
-}
-
-.apps-detail-title {
-  flex: 1 1 180px;
-  min-width: 0;
-}
-
-.apps-detail-name {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
-.apps-detail-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  color: var(--page-text-2);
-  font-size: 11px;
-  margin-top: 4px;
-}
-
-.apps-detail-actions {
-  display: flex;
-  gap: 8px;
-}
-
-/* The page is full width; running text stops at a readable line length. */
-.apps-detail-description {
-  max-width: 72ch;
-  margin: 0;
-  line-height: 1.45;
-}
-
 .apps-section h2 {
   margin: 0 0 8px;
   font-size: 12px;
@@ -519,7 +489,6 @@
   border: 1px solid var(--page-separator);
 }
 
-.apps-scopes,
 .apps-deploy-targets,
 .apps-versions {
   list-style: none;
@@ -528,13 +497,6 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.apps-scope {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  align-items: baseline;
 }
 
 .apps-versions li,
@@ -937,31 +899,602 @@ code {
   padding: 10px 14px 14px;
 }
 
-.apps-adds {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.apps-add {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-}
-
-.apps-add-title {
-  font-weight: 500;
-  overflow-wrap: anywhere;
-}
-
 .apps-setting {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   max-width: 360px;
+}
+
+/* A deep link to an app the store does not list lands on Discover with this one quiet line. */
+.apps-notice {
+  display: block;
+  padding: 0 0 12px;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+}
+
+/* Discover's hero (HeroCard; browse=hero): the featured app's text and action on the left, a
+   screenshot of it in use on the right, on a quietly tinted panel. Narrow columns stack them. */
+.apps-heroes {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.apps-hero {
+  display: grid;
+  grid-template-columns: minmax(240px, 2fr) minmax(0, 3fr);
+  align-items: center;
+  gap: 24px;
+  padding: 24px;
+  border: 1px solid var(--page-separator);
+  border-radius: 16px;
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--page-selection) 55%, transparent),
+    color-mix(in srgb, var(--page-elevated) 20%, transparent)
+  );
+  overflow: hidden;
+}
+
+.apps-hero-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.apps-hero-eyebrow {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--page-text-3);
+}
+
+.apps-hero-open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: start;
+}
+
+.apps-hero-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.apps-hero-name {
+  font-size: var(--text-heading);
+  font-weight: 600;
+  letter-spacing: var(--text-heading--letter-spacing);
+  overflow-wrap: anywhere;
+}
+
+.apps-hero-tagline {
+  margin: 0;
+  max-width: 44ch;
+  color: var(--page-text);
+  font-size: var(--text-title);
+  line-height: 1.35;
+  text-wrap: pretty;
+}
+
+.apps-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.apps-hero-art {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.apps-hero-shot {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+  object-fit: cover;
+  object-position: top left;
+  border-radius: 12px;
+  border: 1px solid var(--page-separator);
+  box-shadow: var(--elevation-2);
+}
+
+@container apps-discover (max-width: 620px) {
+  .apps-hero {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 16px;
+    gap: 16px;
+  }
+}
+
+/* Store list rows (ListRow; browse=list, the Raycast Store): icon, name and one line, category
+   tags, publisher and the action in aligned columns, hairlines between rows. */
+.apps-list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--page-separator);
+}
+
+.apps-list-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 200px) minmax(0, 120px) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 8px;
+  border-bottom: 1px solid var(--page-separator);
+}
+
+.apps-list-row:hover {
+  background: var(--page-hover);
+}
+
+.apps-list-open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: start;
+}
+
+.apps-list-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.apps-list-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.apps-tag {
+  border-radius: 999px;
+  padding: 0 8px;
+  background: var(--page-hover);
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  white-space: nowrap;
+}
+
+.apps-list-action {
+  justify-self: end;
+}
+
+@container apps-discover (max-width: 620px) {
+  .apps-list-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .apps-list-row > .apps-list-chips,
+  .apps-list-row > .apps-card-meta {
+    display: none;
+  }
+}
+
+/* A listing's page (AppDetailView; listing= carousel, stacked, compact). The header holds the big
+   icon, name, tagline, meta line and the actions; the facts are label/value rows (dl). */
+.apps-listing {
+  container: apps-listing / inline-size;
+  gap: 24px;
+}
+
+.apps-listing-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.apps-listing-header > .apps-icon {
+  box-shadow: var(--elevation-1);
+}
+
+.apps-listing-title {
+  flex: 1 1 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding-top: 4px;
+}
+
+.apps-listing-name {
+  margin: 0;
+  font-size: calc(var(--text-heading) * 1.3);
+  font-weight: 600;
+  letter-spacing: var(--text-heading--letter-spacing);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.apps-listing-tagline {
+  margin: 0;
+  color: var(--page-text-2);
+  font-size: var(--text-title);
+  line-height: 1.35;
+}
+
+.apps-listing-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 4px;
+  color: var(--page-text-3);
+  font-size: var(--text-detail);
+}
+
+/* "cmux · Developer Tools · Free": a middle dot between the meta line's parts. */
+.apps-listing-meta > * + *::before {
+  content: "·";
+  margin-inline-end: 8px;
+  color: var(--page-text-3);
+}
+
+.apps-listing-publisher {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.apps-listing-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.apps-listing-actions .apps-button,
+.apps-hero-actions .apps-button {
+  padding: 4px 16px;
+  border-radius: var(--ds-radius-control);
+}
+
+.apps-listing-actions .apps-button.primary,
+.apps-hero-actions .apps-button.primary {
+  background: var(--page-text);
+  color: var(--page-elevated);
+  font-weight: 600;
+}
+
+/* Their primary label is heavier, so both labels reserve its width: Install to Remove keeps the size. */
+.apps-listing-actions .apps-action-label-size,
+.apps-hero-actions .apps-action-label-size {
+  font-weight: 600;
+}
+
+.apps-listing-description {
+  max-width: 72ch;
+  margin: 0;
+  font-size: var(--text-body);
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+/* The default: the carousel and description in a main column, the facts on the right (the
+   mocks' Reads / Shows up in / Version column); one column when the page is narrow. */
+.apps-listing-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
+  align-items: start;
+  gap: 32px;
+}
+
+.apps-listing-main,
+.apps-listing-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+@container apps-listing (max-width: 760px) {
+  .apps-listing-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .apps-listing-header {
+    flex-wrap: wrap;
+  }
+
+  .apps-listing-actions {
+    flex-basis: 100%;
+    padding-top: 0;
+  }
+}
+
+/* Stacked (the iOS App Store): the facts as an Information grid under the description. */
+.apps-listing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 24px 32px;
+  padding-top: 16px;
+  border-top: 1px solid var(--page-separator);
+}
+
+.apps-listing.stacked .apps-screenshot {
+  height: auto;
+  max-height: 280px;
+}
+
+/* Compact (the Raycast Store): one readable column. */
+.apps-listing.compact {
+  max-width: 720px;
+  gap: 16px;
+}
+
+.apps-listing.compact .apps-listing-name {
+  font-size: var(--text-heading);
+}
+
+.apps-listing.compact .apps-section {
+  padding-top: 16px;
+  border-top: 1px solid var(--page-separator);
+}
+
+/* The screenshot carousel: the selected screenshot large, thumbnails under it. */
+.apps-carousel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.apps-carousel-main {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: contain;
+  border-radius: 12px;
+  border: 1px solid var(--page-separator);
+  background: var(--page-hover);
+}
+
+.apps-carousel-thumbs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.apps-carousel-thumb {
+  flex: none;
+  width: 96px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  opacity: 0.65;
+}
+
+.apps-carousel-thumb.selected {
+  border-color: var(--page-text-2);
+  opacity: 1;
+}
+
+.apps-carousel-thumb img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+/* Facts: a label column and a value column (Shows up in, Information). */
+.apps-facts {
+  display: grid;
+  grid-template-columns: minmax(96px, 120px) minmax(0, 1fr);
+  gap: 8px 16px;
+  margin: 0;
+}
+
+.apps-fact {
+  display: contents;
+}
+
+.apps-fact dt {
+  color: var(--page-text-3);
+}
+
+.apps-fact dd {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.apps-fact-line {
+  display: block;
+}
+
+.apps-listing-aside .apps-section h2,
+.apps-listing-grid .apps-section h2 {
+  color: var(--page-text);
+  font-size: var(--text-body);
+}
+
+/* Permissions in plain words: a heading per kind of access, the app's reasons under it. */
+.apps-perms {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.apps-perm-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.apps-perm-heading {
+  color: var(--page-text);
+  font-weight: 600;
+}
+
+.apps-perm-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.apps-perm {
+  color: var(--page-text-2);
+  line-height: 1.4;
+}
+
+.apps-perm .apps-badge {
+  margin-inline-start: 8px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--page-hover);
+}
+
+/* A grant row's reason under its heading, with its Optional and risk marks. */
+.apps-grant-reason {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  color: var(--page-text-2);
+  line-height: 1.4;
+}
+
+/* On a listing's page the Enabled switch lines up with the permission switches above it. */
+.apps-listing .apps-setting {
+  max-width: none;
+}
+
+/* The Customize cmux… card above the Cloud banner (CustomizeFeature.tsx). */
+.apps-customize-feature {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--page-separator);
+  border-radius: 12px;
+}
+
+.apps-customize-feature-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* Open: every verified look and switch group, then the link to Settings > Customize. */
+.apps-customize-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--page-separator);
+}
+
+.apps-customize-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+}
+
+.apps-customize-heading {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--page-text-3);
+}
+
+.apps-customize-link {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+}
+
+.apps-customize-link:hover {
+  text-decoration: underline;
+}
+
+.apps-customize-feature-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+}
+
+.apps-customize-feature-title {
+  font-size: var(--text-title);
+  font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
+}
+
+.apps-customize-feature-body {
+  font-size: var(--text-detail);
+  line-height: 1.4;
+  color: var(--page-text-2);
+  text-wrap: pretty;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+.apps-customize-looks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.apps-customize-look {
+  padding: var(--grid-half-step) 8px;
+  border: 1px solid var(--page-separator);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-caption);
+}
+
+.apps-customize-look:hover {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+
+.apps-customize-more {
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+}
+
+@media (max-width: 520px) {
+  .apps-customize-feature-head {
+    flex-wrap: wrap;
+  }
 }

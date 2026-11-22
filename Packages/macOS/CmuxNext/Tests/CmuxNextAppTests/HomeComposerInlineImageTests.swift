@@ -376,11 +376,19 @@ import UniformTypeIdentifiers
         h.view.layoutSubtreeIfNeeded()
         let end = (h.field.string as NSString).length
         let caret = try #require(h.field.caretRects(at: [end]).fresh.first ?? nil)
-        let tlm = try #require(h.field.textLayoutManager)
+        // The picture's line, in the field's text container: the field is TextKit 1 since 903bd5ecc345 (a key
+        // costs its line, not its draft), so its line comes from the layout manager, not TextKit 2's fragments.
         var line = CGRect.zero
-        tlm.enumerateTextLayoutFragments(from: tlm.documentRange.location, options: [.ensuresLayout]) { f in
-            line = f.layoutFragmentFrame
-            return false
+        if let tlm = h.field.textLayoutManager {
+            tlm.enumerateTextLayoutFragments(from: tlm.documentRange.location, options: [.ensuresLayout]) { f in
+                line = f.layoutFragmentFrame
+                return false
+            }
+        } else {
+            let lm = try #require(h.field.layoutManager, "the field has neither TextKit")
+            let container = try #require(h.field.textContainer)
+            lm.ensureLayout(for: container)
+            line = lm.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil)
         }
         let bottom = line.maxY + h.field.textContainerOrigin.y
         #expect(line.height > Fixture.lineHeight + 4, "the picture makes the line taller (\(line))")

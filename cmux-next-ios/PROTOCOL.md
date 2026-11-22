@@ -152,8 +152,8 @@ Worker was deployed before its database migration; the message names it), `membe
 | Method + path | Body / result |
 | --- | --- |
 | `POST /v1/devices` | `{deviceId, kind, name, teamId, wgPublicKey?, machineId?, siblingDeviceIds?}` → `{device:{deviceId,ownerUserId,teamId,kind,name,wgPublicKey,machineId?,createdAt,updatedAt,lastSeenAt}}` (upsert; caller must be a team member; a deviceId owned by another user is `403 not_owner`). `machineId` (added 2026-10-21, "Machine id" above; every Mac list, `hello` and `presence` carries it, and omits the key for a Mac that has none) is a Mac's only: 32 lowercase hex digits, else `400`; omitted keeps the stored one. `siblingDeviceIds` (with `machineId`, at most 16 UUIDs) are the device ids of other cmux builds found on the same Mac (their `device-id` files): each that is a Mac of the caller with no machine id yet gets this one, so a deleted build's record is listed as that computer's; another owner's device, a phone or a Mac that reported its own machine id is never changed |
-| `GET /v1/teams/:teamId/macs` | → `{macs:[{deviceId,name,online,lastSeenAt,ownerUserId,machineId}]}`: the caller's own Macs registered in `teamId` (caller must be a member). Changed in 0.10.0: a teammate's Macs are never listed (before, every Mac of the team was), so `ownerUserId` is always the caller |
-| `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId,machineId}]}`: the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from the caller's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
+| `GET /v1/teams/:teamId/macs` | → `{macs:[{deviceId,name,online,lastSeenAt,ownerUserId,machineId,quietMs?}]}` (`quietMs` added 2026-11-21: "Mac freshness"): the caller's own Macs registered in `teamId` (caller must be a member). Changed in 0.10.0: a teammate's Macs are never listed (before, every Mac of the team was), so `ownerUserId` is always the caller |
+| `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId,machineId,quietMs?}]}` (`quietMs` added 2026-11-21: "Mac freshness"): the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from the caller's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
 | `GET /v1/teams/:teamId/prefs` | → `{color, emoji, transparent}` for the caller (per user per team; `transparent` added in 0.12.0, always `false` without an icon) |
 | `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null, transparent?: boolean}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace). `transparent` (0.12.0) draws that grapheme with no background; `true` needs one (`400` otherwise; `false` is always accepted), `color` stays stored as the fallback for clients that predate it, an `emoji` change to `null` or `""` turns it off, and a PUT that sets `color` without `transparent` (any older build) turns it off. Answers the stored `{color, emoji, transparent}` |
 | `POST /v1/teams` | `{name}` (1 to 64 characters, trimmed, no control characters; 3 a minute per user) → `{team:{id,name}}`: creates a Stack team with the caller as creator and first member, using the project's server key (Stack refuses client-side team creation), then grants the caller `team_admin` so the web team settings treat them as its admin. If that grant fails, the team is deleted again and the route answers `502 team_create_failed`. `503 team_creation_unavailable` when the Worker has no server key for the caller's project; `403`/`502 team_create_failed` when Stack refuses. New clients list, create, rename and delete teams through the web team API (`/api/teams`, docs/team-settings-and-invites.md); this route stays for older builds. |
@@ -245,8 +245,8 @@ device: a newer connection closes the older with code 4000 `replaced` (no
 offline presence in between); a Mac re-registered into another team is
 closed with 4001 `moved`.
 
-- server → client on connect: `{"type":"hello","you":deviceId,"macs":[{deviceId,name,online,lastSeenAt,ownerUserId}]}` (the user's own Macs in the socket's team)
-- server → the user's sockets of the Mac's team: `{"type":"presence","mac":{deviceId,name,online,lastSeenAt,machineId}}` (`machineId` added 2026-10-21; also in `hello.macs`, and sent again when a registration gives an older build its machine id); a deleted Mac's last presence adds `"removed":true` (0.7.0), and clients drop it from their lists
+- server → client on connect: `{"type":"hello","you":deviceId,"macs":[{deviceId,name,online,lastSeenAt,ownerUserId,quietMs?}]}` (the user's own Macs in the socket's team; `quietMs`: "Mac freshness" below)
+- server → the user's sockets of the Mac's team: `{"type":"presence","mac":{deviceId,name,online,lastSeenAt,machineId,quietMs?}}` (`machineId` added 2026-10-21; `quietMs` added 2026-11-21, "Mac freshness" below; also in `hello.macs`, and sent again when a registration gives an older build its machine id); a deleted Mac's last presence adds `"removed":true` (0.7.0), and clients drop it from their lists
 - client → server → peer: `{"type":"signal","to":deviceId,"from":deviceId,"sessionId":uuid,"payload":P}`.
   A `from` other than the socket's own deviceId is refused with `bad_request`.
   On every forwarded signal the DO sets `"fromUserId": <sender's Stack userId>`,
@@ -408,6 +408,75 @@ sender's user (same `sub` in the same Stack project), or the reply direction of 
 is bound to the two devices of its first admitted signal. Since 0.10.0 the hub is the sender's own, so another
 user's device is not in it at all: a signal to it is refused `not_owner` whether that device is online or not
 (never `offline`, which would confirm it exists).
+
+### Mac freshness (added 2026-11-21, backward compatible)
+
+`online` says the Mac's signaling socket is open. A Mac that sleeps keeps it
+half open, so `online` can stay true for minutes. Every Mac listing (`hello`,
+`presence`, `GET /v1/teams/:teamId/macs`, `GET /v1/me/macs`, and so
+`POST /v1/me/bootstrap`) now also carries `quietMs` for an online Mac: how
+many ms ago the hub last heard that socket, from its connect or its last
+application `ping` ("Connection setup"). The hub keeps the ping's time
+without waking, so this costs nothing per ping.
+
+- `quietMs` is relative to the hub's clock when it answered, so the phone's
+  clock does not matter. Absent when the Mac is offline, and from a hub that
+  predates it. Clients that do not know it ignore it.
+- The Mac host pings every 15 s. A Mac with `quietMs` under 18000 (the
+  link's `FRESH_WITHIN`, the hub's `FRESH_MS`) is awake: dial it now. One
+  past it is online but probably asleep.
+- A `presence` frame is sent only when a Mac connects, disconnects, or
+  changes its registration, never per ping. So `quietMs` in a frame is its
+  age at send time; it says nothing about later silence. The phone reads a
+  fresh listing (the next `hello` or Mac route) to learn it again.
+- The hub's `online` and its rules for closing sockets do not change.
+
+### Link stats (`link_stat`; added 2026-11-21, backward compatible)
+
+The phone reports which path its link to a Mac takes and how it performs,
+on its signaling socket, so production can see path, RTT, loss and setup
+time (`cmux-mobile-link/src/link_stat.rs`). Phone to service only; nothing
+is forwarded, and the service never answers it.
+
+```json
+{"type":"link_stat","v":1,"transport":"wireguard","path":"turn-tls","reason":"first",
+ "setupMs":812,"marks":{"signaling_open":120,"dial_start":130,"link_ready":700,"first_pong":812},
+ "rtt":{"n":3,"p50":41,"p95":77,"max":80},"pings":3,"lost":0,"switches":1,
+ "net":"cellular","upS":2,"lib":"0.1.0"}
+```
+
+- `transport`: `wireguard` or `webrtc`. `path`: `direct`, `turn`, `turn-tls`
+  (WireGuard over TURN on TCP/TLS) or `none` (no working route right now).
+- `reason`: `first` (once the link's first ping is answered, or 5 s after it
+  came up), `periodic` (every 60 s while up), `path` (the path changed; at
+  most one per 10 s, a change inside that only counts in `switches`), `end`
+  (the link closed; `end` is then `app`, `keepalive`, `transport` or `other`).
+- `setupMs` and `marks` (first stat only): ms from the app's `connect` to the
+  first pong (else `link_ready`), and the dial's step marks from a fixed list.
+- `rtt`: the link's ping round trips since the last stat (nearest-rank p50 and
+  p95, max; absent with no sample). `pings`: pings sent since the last stat;
+  `lost`: pings neither answered nor waiting, counted once (a pong that comes
+  after its ping was counted lost does not take it back). `switches`: path
+  changes since the link came up. `net`: `cellular` or `other` (the app's last
+  `set_cellular_path`). `upS`: seconds up. `lib`: the link library version.
+- Bounded: every stat is under 768 bytes; ms values are clamped to 600000.
+  It names no user, device, session or address.
+
+The service (`TeamHub.linkStat`) takes it only from a phone socket, under the
+socket's text rate limit, and drops silently (no error frame: a session-less
+error fails every dial in flight) a frame over 2048 bytes, a malformed one, or
+one within 5 s of the socket's last (an `end` stat excepted). It writes one
+Workers Logs line, `{"event":"link_stat",...}`: the frame's fields checked
+against fixed words or clamped (`rtt` flattened to `rttN`, `rttP50`, `rttP95`,
+`rttMax`), plus `kind`, `ingressColo`, `country` and `continent` (where the
+socket's upgrade entered Cloudflare, `req.cf`) and `hubColo` (where the user's
+hub runs). No user or device id is logged. `scripts/cmux-next/link-stats.py`
+reads them back.
+
+A Worker older than the frame answers it `{"type":"error","code":"bad_request",
+"message":"unknown frame type"}` without `sessionId`. The phone takes that
+answer, within 30 s of a stat it sent, as the refusal of the stat: it never
+reaches a dial, and that socket sends no more stats.
 
 ## Link (inside either transport)
 
@@ -831,8 +900,9 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   its own channel's tag, strips the SEI before decoding, and starts at its
   first keyframe; it never learns when the lane switched tabs otherwise.
 - `appearance` (`appearance-v1`, 2026-11-12): the Mac's theme and wallpaper. Since
-  2026-11-13 the phone's chrome takes only the accent and the terminal theme from it: its
-  own backgrounds stay the stock ones. Since 2026-11-17 its agent chat takes `chat` (below). One JSON frame now and on every change, nothing before the
+  2026-11-22 the phone's chrome (backgrounds, surfaces, text, fills, accent) follows it again
+  and the wallpaper shows behind the sidebar and Home, while Match Mac theme is on (the
+  default); off, the phone's stock look (2026-11-13 to 11-22 the chrome stayed stock). Since 2026-11-17 its agent chat takes `chat` (below). One JSON frame now and on every change, nothing before the
   Mac app sent its first one: `{"theme": {"background", "foreground", "palette": [8 or
   16 "#rrggbb"], "selection_background"?, "selection_foreground"?, "cursor"?, "accent",
   "accent_color"?, "background_opacity"}, "wallpaper": {"id", "bytes", "tint_opacity"} |
@@ -845,8 +915,9 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   selection, bold, contrast, faint and cursor opacity, palette generation, blending,
   colorspace, search colors). hostd drops any other key and any value that is not a plain
   color, number, flag, enum or palette entry. The phone's terminals of that Mac reset each
-  of those keys and load these lines, live, whatever Mac the phone focuses and whatever its
-  Match Mac theme switch says (that switch is the accent's); a frame without `terminal` (an
+  of those keys and load these lines, live, whatever Mac the phone focuses, while its
+  Match Mac theme switch is on (the default; off, terminals show the phone's stock black,
+  since 2026-11-22); a frame without `terminal` (an
   older Mac) stands in with `theme`'s colors. Since 2026-11-14 a frame may also carry
   `"look"`, the rest of what the Mac's windows show, every field optional (absent: the
   phone's own default): `{"chrome_style"?: appearance.chromeStyle (`default`, `card`,
@@ -873,12 +944,13 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   Mac's `ThemeScope.shownWindowOpacity`), 1 without. A Mac at its defaults (Ghostty's
   colors `#282c34`/`#ffffff`, no picture, no bubble colors) sends no `chat`, and the phone
   keeps its stock chat. The phone draws it in the agent chat only while Match Mac theme is
-  on; the rest of its chrome stays stock.
+  on.
 - `appearance-wallpaper` (`appearance-v1`): `{"id"}` streams that picture's bytes (a JPEG
   or PNG, at most 8 MB), then `eof`; `stale` when the Mac shows another one now,
   `not_found` when it shows none. Machines need the View grant for both. The phone
-  stopped reading this service on 2026-11-13 and reads it again since 2026-11-17, only for
-  the picture a frame's `chat` names, once per id (size and SHA-256 checked, one kept).
+  stopped reading this service on 2026-11-13 and reads it again since 2026-11-17 (the picture a frame's `chat` names) and since 2026-11-22
+  for any frame's `wallpaper` while Match Mac theme is on, once per id (size and SHA-256
+  checked, one kept).
 - `echo`: test service.
 - `version` (link protocol 2, added 2026-10-14): one data frame
   `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it
@@ -1399,6 +1471,16 @@ isOther?, options: [{label, description?}]}]}` while the agent waits on it
 answers it on that Mac by typing into the terminal (`send`) while
 `read-screen` shows the question; see SECURITY.md "Answering a terminal
 agent's question from the phone".
+
+A Claude Code terminal's approval (its PermissionRequest hook, for any tool but
+AskUserQuestion and ExitPlanMode) rides the same way: the `list-notifications`
+row carries `approval` `{harness: "claude", tool, command?, target?,
+description?}` while the agent waits on it (memory only; cmux-tui
+`agent_hook_live_approval`, `session.journal.append` `live_approval`). The
+Feed shows it as a permission card with Allow once (types `1`) and Deny
+(Escape), sent only after its own `list-notifications` request still carries
+it and `read-screen` shows its dialog at the bottom of the screen; see SECURITY.md "Answering a terminal agent's
+approval from the phone".
 
 ### Phone actions
 

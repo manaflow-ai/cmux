@@ -58,7 +58,7 @@ class CheckClassTests(unittest.TestCase):
 
 class AdvisoryOutTests(unittest.TestCase):
     def run_main(self, red: dict[str, str], *flags: str) -> int:
-        def run_check(_webviews, check):
+        def run_check(_webviews, check, fixit=False):
             return (1, red[check] + "\n") if check in red else (0, "")
 
         with mock.patch.object(checks, "run_check", run_check), contextlib.redirect_stdout(io.StringIO()) as out:

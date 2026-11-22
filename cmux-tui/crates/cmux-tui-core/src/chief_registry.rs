@@ -308,6 +308,7 @@ impl ChiefStore {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA fullfsync=ON;
+             PRAGMA secure_delete=ON;
              CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
              CREATE TABLE IF NOT EXISTS chief (
                id TEXT PRIMARY KEY NOT NULL,

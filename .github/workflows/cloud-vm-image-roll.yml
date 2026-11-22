@@ -62,6 +62,10 @@ concurrency:
   group: "${{ github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'cmux-vm: image roll ') || startsWith(github.event.head_commit.message, 'cmux-vm: image rollback ')) && format('cloud-vm-image-roll-own-{0}', github.run_id) || 'cloud-vm-image-roll' }}"
   cancel-in-progress: false
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   platform-readiness:
     if: github.event_name == 'workflow_dispatch' && inputs.platform_readiness
@@ -290,10 +294,22 @@ jobs:
         with:
           persist-credentials: false
           ref: feat-cmux-next
-          # Full history without blobs: image-roll-push.sh asks auto-roll.ts behind whether the roll's pin is older
-          # than the tip's, which a shallow window cannot answer (it refuses one).
-          fetch-depth: 0
-          filter: blob:none
+      # Full history without blobs: image-roll-push.sh asks auto-roll.ts behind whether the roll's pin is older
+      # than the tip's, which a shallow window cannot answer (it refuses one). Only feat-cmux-next's: checkout's
+      # fetch-depth 0 took every branch and tag, then fetched the tip's blobs lazily in one request, which GitHub
+      # timed out (HTTP 408, run 44956612935, a good bake dropped). The tip comes with its blobs above.
+      - name: Fetch feat-cmux-next's history without blobs
+        run: |
+          set -euo pipefail
+          # A reused pool workspace can hold full history already, and --unshallow refuses a complete repository.
+          unshallow=()
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then unshallow=(--unshallow); fi
+          for try in 1 2 3; do
+            git -c protocol.version=2 fetch --no-tags --no-recurse-submodules --filter=blob:none "${unshallow[@]}" origin \
+              +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next && exit 0
+            echo "history fetch try $try failed; retrying"; sleep $((try * 15))
+          done
+          exit 1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -356,12 +372,14 @@ jobs:
           sparse-checkout: workers/cmux-vm/wrangler.jsonc
       # cmux-platform's CLOUD_VM_API_IMAGE pins (its root wrangler.jsonc): approve never trims one from a list. Production,
       # 2026-11-20: the pin was an auto-rolled id a roll trimmed, and a create that booted it answered image_withdrawn.
+      # cmux-bot is installed on every repository (pr-autofix's installation does not have cmux-platform: roll
+      # 44852142963's mint answered 404, 2026-11-20). Read-only, cmux-platform alone.
       - name: Mint the cmux-platform read token (its image pins)
         id: pins-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
-          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           owner: manaflow-ai
           repositories: cmux-platform
           permission-contents: read
@@ -410,7 +428,7 @@ jobs:
   # one open cloud-image-roll issue. The GITHUB_TOKEN writes both; its push to the record branch starts nothing.
   report:
     needs: [plan, bake, promote]
-    if: always() && needs.plan.outputs.roll == 'true'
+    if: ${{ !cancelled() && needs.plan.outputs.roll == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:

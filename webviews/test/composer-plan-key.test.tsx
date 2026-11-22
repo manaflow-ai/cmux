@@ -132,3 +132,26 @@ test("Toggle Plan Mode works in a chat whose agent reported its modes after the 
   await act(async () => void openComposerControl("togglePlan", translate));
   expect(picked).toEqual(["plan"]);
 });
+
+test("a toolbar button invokes this chat's plan action and omits unavailable actions", async () => {
+  const { MockAppPanelsClient } = await import("../src/apps/scene/panelsMock");
+  const { appPanelsDevClient, installAppPanelsDevClient } = await import("../src/apps/scene/panelsClient");
+  const previous = appPanelsDevClient();
+  const client = new MockAppPanelsClient();
+  client.toolbarButtons = [
+    { action: "composer.planMode", label: "Change plan mode" },
+    { action: "unavailable.action", label: "Missing action" },
+  ];
+  installAppPanelsDevClient(client);
+  try {
+    const picked: string[] = [];
+    await draw(chat("default"), (modeId) => void picked.push(modeId));
+    const button = host.querySelector<HTMLButtonElement>('button[aria-label="Change plan mode"]');
+    expect(button).toBeTruthy();
+    expect(host.querySelector('[aria-label="Missing action"]')).toBeNull();
+    await act(async () => button!.click());
+    expect(picked).toEqual(["plan"]);
+  } finally {
+    installAppPanelsDevClient(previous);
+  }
+});
