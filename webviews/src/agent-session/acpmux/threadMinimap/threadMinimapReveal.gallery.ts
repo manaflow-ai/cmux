@@ -21,7 +21,9 @@ export default agentPaneEntry({
   title: "Prompt rail reveal intent",
   area: "Agent pane",
   height: 640,
-  widths: { quarter: 160, third: 220, half: 320 },
+  // quarter, third and half split widths (WidthName keys: the URL takes only narrow|normal|wide, and a px
+  // width under 240 is clamped).
+  widths: { narrow: 160, normal: 220, wide: 320 },
   anchors: [{ selector: ".acpmux-scroll" }],
   covers: ["agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimap"],
   experiment: {
