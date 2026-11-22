@@ -130,3 +130,19 @@ test(`chat simulator: a ${LONG ? "monstrously " : ""}long run (${LONG ? "10k+" :
   expect(result.virtualMs).toBeGreaterThan((LONG ? 30 : 6) * 3_600_000);
   expect(broken(result, "b-")).toEqual([]);
 }, 300_000);
+
+// Leo, 2026-11-22 06:46Z: "maybe it was some conflict with the ask thing?" A permission ask while the turn streams
+// folds, hides and rebuilds no row: every row drawn before the ask is drawn after it, with the same fold.
+test("permission-ask-mid-stream: the ask and its answer fold, hide and rebuild no row", () => {
+  const result = runSimulation(SCENARIOS["permission-ask-mid-stream"]!());
+  expect(result.violations.map((violation) => `${violation.rule} ${violation.label}: ${violation.detail}`)).toEqual([]);
+  for (const label of ["permission asked", "permission allowed"]) {
+    const at = result.traces.findIndex((step) => step.label === label);
+    expect(at).toBeGreaterThan(0);
+    const [before, after] = [result.traces[at - 1]!, result.traces[at]!];
+    expect({ label, folds: after.folds, rerendered: after.rerendered }).toEqual({ label, folds: [], rerendered: [] });
+    const drawn = new Map((after.rows ?? []).map((row) => [row.id, row.fold]));
+    const lost = (before.rows ?? []).filter((row) => !row.live && drawn.get(row.id) !== row.fold);
+    expect({ label, lost }).toEqual({ label, lost: [] });
+  }
+});

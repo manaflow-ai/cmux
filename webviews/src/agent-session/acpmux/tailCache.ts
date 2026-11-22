@@ -13,6 +13,7 @@ import { peerCopyTail, type PeerCopy } from "./peerCopy";
 import { postNative } from "./native";
 import type { EventRecord } from "./direct";
 import type { QueuedPrompt } from "./model";
+import type { WakeFolds } from "./conversation/wakeFolds";
 
 /// A chat as the page last read it. What it says about the chat's *past* is drawn on the next
 /// open; what it says about what the chat is *doing* is not (direct.ts `drawKeptTail`).
@@ -29,7 +30,28 @@ export type KeptTail = {
   /// A fork's tail drawn from the chat it forked (forkTail.ts): the seq it branched at, through
   /// which its attach checks these rows against acpmux's own page of the fork.
   forkedThrough?: number;
+  /// The folds the reader left open or closed in the chat when the tail was kept (App.tsx
+  /// `expanded`, its opened groups and view toggles; conversation/wakeFolds.ts), so a reloaded page
+  /// draws its first frame with them, as the last frame drew (Leo, 2026-11-22: "expanded then
+  /// collapsed tool calls"). Read back with `readWakeFolds`.
+  folds?: WakeFolds;
 };
+
+/// Where a tail's folds come from: the pane (App.tsx), which holds them. None outside a pane.
+let foldsSource: ((sessionId: string) => WakeFolds | undefined) | undefined;
+/// The pane's open folds of each chat, read when a tail of it is kept (direct.ts `currentTail`).
+/// Returns the call that stops it, which leaves a source set since in place.
+export function keepTailFoldsWith(source: (sessionId: string) => WakeFolds | undefined): () => void {
+  foldsSource = source;
+  return () => {
+    if (foldsSource === source) foldsSource = undefined;
+  };
+}
+/// The folds the pane holds of `sessionId` now, for its tail.
+export function tailFoldsFor(sessionId: string): WakeFolds | undefined {
+  const folds = foldsSource?.(sessionId);
+  return folds && folds.session === sessionId ? folds : undefined;
+}
 
 /// Chats whose tail is kept, and the events kept of each: the newest ones, as many as an attach
 /// page holds, so a visit that paged older history in (megabytes of records) is not what the next
@@ -487,6 +509,8 @@ function tailFromHost(value: unknown): KeptTail | undefined {
     configSeq: typeof tail.configSeq === "number" ? tail.configSeq : 0,
     usageFromSeq: typeof tail.usageFromSeq === "number" ? tail.usageFromSeq : 0,
     ...(typeof tail.forkedThrough === "number" ? { forkedThrough: tail.forkedThrough } : {}),
+    // Checked where it is read (`readWakeFolds`): only its own chat's, only ids.
+    ...(typeof tail.folds === "object" && tail.folds !== null ? { folds: tail.folds } : {}),
   };
 }
 
@@ -504,6 +528,7 @@ function isEventRecord(value: unknown): value is EventRecord {
 
 /// Test seam: a fresh page, holding no tails of its own (the host keeps its own).
 export function resetKeptTailsForTests(): void {
+  foldsSource = undefined;
   keptTails.clear();
   readAheadTails.clear();
   reading.clear();

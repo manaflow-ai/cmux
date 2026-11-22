@@ -124,6 +124,48 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 
+  // Leo, 2026-11-22 06:46Z: "maybe it was some conflict with the ask thing?" An edit waits on a permission card
+  // while the agent's thoughts keep streaming; the ask is answered and the turn goes on. The ask must fold,
+  // rebuild or move none of the rows (test/reload-first-frame-folds.test.tsx mounts the card in the real pane).
+  "permission-ask-mid-stream": () => {
+    const b = sim(
+      "permission-ask-mid-stream",
+      "A turn's edit waits on a permission card while thoughts stream, then is allowed and the turn ends.",
+    );
+    b.prompt("Land the retry fix on the branch.");
+    workTurn(b, 2, { middleText: false });
+    b.say(PARAGRAPH, { chunks: 6 });
+    const edit = b.nextCallId();
+    b.tool("Edit src/api/client.ts", { kind: "edit", path: "src/api/client.ts", open: true });
+    b.record(
+      "mux",
+      "permission_request",
+      {
+        permissionId: "perm-1",
+        request: {
+          toolCall: { toolCallId: edit, title: "Confirm base unchanged for edited files", kind: "edit" },
+          options: [
+            { optionId: "deny", name: "Deny", kind: "reject_once" },
+            { optionId: "allow", name: "Allow once", kind: "allow_once" },
+          ],
+        },
+      },
+      200,
+      "permission asked",
+    );
+    b.think("While that waits: the second caller needs the same cap.", { chunks: 6, chunkMs: 400 });
+    b.record(
+      "mux",
+      "permission_decision",
+      { permissionId: "perm-1", outcome: { outcome: "selected", optionId: "allow" } },
+      8_000,
+      "permission allowed",
+    );
+    b.toolEnd(edit);
+    b.say("Applied the fix to both callers.");
+    return b.turnEnd().build();
+  },
+
   "reader-scroll": () => {
     const b = sim(
       "reader-scroll",
