@@ -31,7 +31,7 @@ import WebKit
 /// until the new document has painted and its content stopped changing, then fades out (``Motion``'s pane fade): no
 /// blank frames, the pane just changes.
 @MainActor
-public final class WebBundleGracefulReload {
+final class WebBundleGracefulReload {
     /// The most times one cover asks the new document whether it settled (``settled(_:)``).
     static let settleAsks = 200
 
@@ -65,7 +65,7 @@ public final class WebBundleGracefulReload {
 
     /// Reloads `views` from `tree` (nil: the bundle) through `served`, each at its safe point. A later
     /// call replaces the views still waiting from an earlier one.
-    public func reload(_ views: [WKWebView], to tree: URL?, served: WebBundleServedViews) {
+    func reload(_ views: [WKWebView], to tree: URL?, served: WebBundleServedViews) {
         generation &+= 1
         self.tree = tree
         self.served = served
@@ -82,7 +82,7 @@ public final class WebBundleGracefulReload {
     }
 
     /// How many views still wait for their safe point (tests).
-    public var waitingCount: Int { waiting.count }
+    var waitingCount: Int { waiting.count }
 
     /// Asks every waiting view, reloads the ones that may, and books the next look for the rest.
     func look() async {
