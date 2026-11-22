@@ -134,7 +134,7 @@ async fn queue_once(
 
 /// How far a send got once it left the sender: the word its first stdout line and `--json`'s
 /// `state` give, so a script reads success from the exit code and this word, never from the
-/// human sentence after it (fs-agent-lane-1 resent one report 7 times on 2026-11-22: its retry
+/// human sentence after it (a lane resent one report 7 times on 2026-11-22: its retry
 /// loop read `held in its inbox` and `queued` as failures).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SentState {
