@@ -166,8 +166,15 @@ concurrency:
   # called run (a submission) always finishes.
   cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   plan:
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     outputs:
@@ -235,6 +242,7 @@ jobs:
             .github/ios-review-gate-devices.json
             .github/scripts/ios_review_gate_devices.py
             scripts/ci/xcode-pins.txt
+            cmux-next-ios/project.yml
           sparse-checkout-cone-mode: false
       - name: Which device legs take a Mac
         id: devices
@@ -242,13 +250,45 @@ jobs:
           # The list describes manaflow-ai's macOS 26 pool; another
           # repository's image walks every family, as before.
           TRUST: ${{ github.repository_owner == 'manaflow-ai' }}
+          EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
           code=0
           python3 -I gate/.github/scripts/ios_review_gate_devices.py plan \
             --devices gate/.github/ios-review-gate-devices.json --pins gate/scripts/ci/xcode-pins.txt \
             --trust "$TRUST" --out-dir "$RUNNER_TEMP/planned" \
-            >> "$GITHUB_OUTPUT" 2> "$RUNNER_TEMP/devices.txt" || code=$?
+            > "$RUNNER_TEMP/plan.out" 2> "$RUNNER_TEMP/devices.txt" || code=$?
+          # A pull request does not walk the iPad leg while the app is iPhone-only (every
+          # TARGETED_DEVICE_FAMILY in cmux-next-ios/project.yml is "1"). On iPad such an app runs
+          # in compatibility mode: the iPhone layout in a phone-sized window, the same screens the
+          # iPhone leg walks. Leo, 2026-11-21: "for connection and ci, we can simply
+          # move. and go." The leg took a second Mac for 24 min (p50) on every app pull request.
+          # feat-cmux-next pushes, dispatches and the production pipeline's call still walk it,
+          # so an iPad-only break still shows before an upload. The report reads the skip
+          # marker written here (--expect-device-or-skipped ipad on a pull request).
+          # The device decision (`devices`) is unchanged, so every leg's image check is too.
+          if [ "$code" = 0 ] && [ "$EVENT" = pull_request ] && grep -qE '^\s*TARGETED_DEVICE_FAMILY:' gate/cmux-next-ios/project.yml \
+            && ! grep -E '^\s*TARGETED_DEVICE_FAMILY:' gate/cmux-next-ios/project.yml | grep -q 2; then
+            reason="pull request: the app is iPhone-only (TARGETED_DEVICE_FAMILY 1); feat-cmux-next pushes and the production pipeline walk the iPad leg"
+            python3 -I -c '
+          import json, sys
+          path, reason, marker = sys.argv[1], sys.argv[2], sys.argv[3]
+          lines = open(path).read().splitlines()
+          out = []
+          for line in lines:
+              key, _, value = line.partition("=")
+              if key in ("families", "skipped"):
+                  items = json.loads(value)
+                  items = [f for f in items if f != "ipad"] if key == "families" else sorted(set(items) | {"ipad"})
+                  line = f"{key}={json.dumps(items)}"
+              out.append(line)
+          open(path, "w").write("\n".join(out) + "\n")
+          with open(marker, "w") as f:
+              f.write(json.dumps({"family": "ipad", "skipped": True, "planned": True, "reason": reason}) + "\n")
+          ' "$RUNNER_TEMP/plan.out" "$reason" "$RUNNER_TEMP/planned/ipad.skipped.json"
+            echo "- ipad: not walked on this pull request ($reason)" >> "$RUNNER_TEMP/devices.txt"
+          fi
+          cat "$RUNNER_TEMP/plan.out" >> "$GITHUB_OUTPUT"
           tee -a "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/devices.txt"
           exit "$code"
       - name: Upload the planned skips
@@ -265,6 +305,9 @@ jobs:
   lint:
     needs: plan
     name: Guideline lint (${{ needs.plan.outputs.lane }})
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     permissions:
@@ -347,6 +390,9 @@ jobs:
   reviewer-path:
     needs: plan
     name: Reviewer path (${{ needs.plan.outputs.lane }}, ${{ matrix.family }})
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     # One job per device, side by side: each builds the app (about 6
     # minutes) and walks one device (about 20), where one job walking all
     # three in a row took about 45 minutes. A family with no simulator on
@@ -549,6 +595,10 @@ jobs:
           xctestrun="$(find "$DERIVED/Build/Products" -name '*.xctestrun' | head -n 1)"
           xcrun simctl boot "$udid" 2>/dev/null || true
           xcrun simctl bootstatus "$udid" -b
+          # A fixed status bar: the clock and battery are not the app, and the
+          # report's screen diff against feat-cmux-next counted them as changes.
+          xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 \
+            --cellularMode active --cellularBars 4 --wifiBars 3 || true
           # iPad runs in dark mode, iPhone and Duo in light, so both
           # appearances are walked every run.
           if [ "$family" = ipad ]; then xcrun simctl ui "$udid" appearance dark || true; fi
@@ -731,6 +781,11 @@ jobs:
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
+    # actions: read lets the screen diff download the newest feat-cmux-next
+    # push run's review-gate-path-* stills (scripts/ci/ios_gate_screen_diff.py).
+    permissions:
+      contents: read
+      actions: read
     outputs:
       blocking: ${{ steps.report.outputs.blocking }}
     steps:
@@ -741,6 +796,7 @@ jobs:
           sparse-checkout: |
             cmux-next-ios/scripts
             cmux-next-ios/AppStoreReview
+            scripts/ci
       # A pull request is judged on its base's known blockers, never on a list
       # it could edit to pin its own regression.
       - name: Checkout the base's known blockers
@@ -760,7 +816,11 @@ jobs:
         id: report
         env:
           ASC_RESULT: ${{ needs.asc-validate.result }}
+          EVENT: ${{ github.event_name }}
           JUDGED_SHA: ${{ needs.plan.outputs.sha }}
+          # The screen diff reads feat-cmux-next's push runs with it.
+          GH_TOKEN: ${{ github.token }}
+          GATE_LANE: ${{ needs.plan.outputs.lane }}
           # A direct push or pull_request run fails on a new blocker only:
           # the ones in known-blockers.json were there before it. A
           # submission (dispatch, or a call from the production pipeline)
@@ -776,7 +836,10 @@ jobs:
           # its skip marker (no Duo simulator on the image).
           # download-artifact puts a lone artifact straight into in/, not
           # in/<name>/, so find the files by name wherever they landed.
-          args+=(--expect-lint --expect-device iphone --expect-device ipad --expect-device-or-skipped duo)
+          args+=(--expect-lint --expect-device iphone --expect-device-or-skipped duo)
+          # A pull request on the iPhone-only app leaves the plan's iPad skip marker instead
+          # (see "Which device legs take a Mac"); every other run must have the iPad result.
+          if [ "$EVENT" = pull_request ]; then args+=(--expect-device-or-skipped ipad); else args+=(--expect-device ipad); fi
           while IFS= read -r f; do args+=(--skipped "$f"); done < <(find in -name '*.skipped.json' -type f | sort)
           while IFS= read -r f; do args+=(--lint "$f"); done < <(find in -name 'lint-*.json' -type f | sort)
           for fam in iphone ipad duo; do
@@ -812,6 +875,22 @@ jobs:
               echo '```json'; cat "$f"; echo '```'; } | tee -a review-gate.md >> "$GITHUB_STEP_SUMMARY"
             code=1
           done < <(find in -name 'device-plan-mismatch.json' -type f | sort)
+          # Each family's stills against the newest feat-cmux-next push run's,
+          # by attachment name: changed, new and removed screens, each
+          # justified by a `Visual-change: <screen or *>: <why>` line in the
+          # pull request body or not. It warns only and never sets $code.
+          if [ -f scripts/ci/ios_gate_screen_diff.py ]; then
+            timeout 420 python3 -I scripts/ci/ios_gate_screen_diff.py --head-root in \
+              --family iphone --family ipad --family duo --fetch-baseline --lane "$GATE_LANE" \
+              --work "$RUNNER_TEMP/screen-baseline" --out "$RUNNER_TEMP/screens.md" \
+              || echo "::warning::the iOS screen diff did not finish"
+            if [ -f "$RUNNER_TEMP/screens.md" ]; then
+              # Also into the log: a step summary has no API to read it back with.
+              tee -a review-gate.md "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/screens.md"
+              unjustified="$(grep -m1 -oE '[0-9]+ iOS screens differ from feat-cmux-next with no Visual-change line' "$RUNNER_TEMP/screens.md" || true)"
+              if [ -n "$unjustified" ]; then echo "::warning::$unjustified (see the run summary)"; fi
+            fi
+          fi
           exit $code
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
