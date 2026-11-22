@@ -179,14 +179,12 @@ impl Mp4Writer {
         if self.samples.is_empty() || sps.len() < 4 {
             return Err(io::Error::other("no frame was recorded"));
         }
-        let first = self.samples[0].at;
         let last = self.samples[self.samples.len() - 1].at;
         // The last frame shows until the end, at least one tick.
         let tail = ticks(end).saturating_sub(last).max(1);
         let mut deltas: Vec<u64> = self.samples.windows(2).map(|w| w[1].at - w[0].at).collect();
         deltas.push(tail);
         let duration: u64 = deltas.iter().sum();
-        let _ = first;
         let movie_duration = duration * MOVIE_TIMESCALE / TIMESCALE;
 
         let moov = self.moov(&sps, &pps, &deltas, duration, movie_duration);
@@ -437,8 +435,11 @@ fn be64(b: &[u8], at: usize) -> Result<u64, String> {
     Ok((u64::from(be32(b, at)?) << 32) | u64::from(be32(b, at + 4)?))
 }
 
-/// The child boxes of `body`: (type, payload).
-fn children(body: &[u8]) -> Result<Vec<([u8; 4], &[u8])>, String> {
+/// One box: (type, payload).
+type BoxRef<'a> = ([u8; 4], &'a [u8]);
+
+/// The child boxes of `body`.
+fn children(body: &[u8]) -> Result<Vec<BoxRef<'_>>, String> {
     let mut out = Vec::new();
     let mut at = 0usize;
     while at + 8 <= body.len() {

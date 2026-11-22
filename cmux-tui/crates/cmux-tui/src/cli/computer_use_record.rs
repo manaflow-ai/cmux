@@ -18,7 +18,7 @@ use super::{GlobalArgs, Outcome, caller, new_call_id, print, with_machine};
 
 /// What `record` was asked to do.
 #[derive(Debug, Clone, PartialEq)]
-pub(super) enum RecordRequest {
+pub(in crate::cli) enum RecordRequest {
     /// Record for `seconds` and save the file.
     Whole { out: String, seconds: f64, options: Value, machine: Option<String> },
     /// Start one and return.
@@ -64,10 +64,18 @@ pub(super) fn parse(rest: &[&str]) -> Result<RecordRequest, String> {
             "--id" => id = Some(value.to_owned()),
             "--machine" => machine = Some(value.to_owned()),
             "--seconds" => seconds = Some(number(word, value)?),
-            "--max-seconds" => options.set("max_seconds", json!(number(word, value)?)),
-            "--display" => options.set("display", json!(value)),
-            "--fps" => options.set("fps", json!(whole(word, value)?)),
-            _ => options.set("max_edge", json!(whole(word, value)?)),
+            "--max-seconds" => {
+                options.set("max_seconds", json!(number(word, value)?));
+            }
+            "--display" => {
+                options.set("display", json!(value));
+            }
+            "--fps" => {
+                options.set("fps", json!(whole(word, value)?));
+            }
+            _ => {
+                options.set("max_edge", json!(whole(word, value)?));
+            }
         }
     }
     match verb {
@@ -105,12 +113,11 @@ fn save(
     let partial = format!("{out}.partial-{}", std::process::id());
     let written = (|| -> Result<u64, (String, String)> {
         let write_failed = |e: std::io::Error| ("write_failed".to_owned(), format!("{out}: {e}"));
-        if machine.is_none() {
-            if let Some(path) = body.get("path").and_then(Value::as_str) {
-                if let Ok(bytes) = std::fs::copy(path, &partial) {
-                    return Ok(bytes);
-                }
-            }
+        if machine.is_none()
+            && let Some(path) = body.get("path").and_then(Value::as_str)
+            && let Ok(bytes) = std::fs::copy(path, &partial)
+        {
+            return Ok(bytes);
         }
         let id = body.get("recording_id").and_then(Value::as_str).unwrap_or_default();
         let mut file = std::fs::File::create(&partial).map_err(write_failed)?;
