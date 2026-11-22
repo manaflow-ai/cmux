@@ -1601,7 +1601,7 @@ try {
       const styleEvents: TraceEvent[] = [];
       let styleFrame = "";
       if (styleCdp) {
-        styleCdp.on("Tracing.dataCollected", (data: { value: TraceEvent[] }) => styleEvents.push(...data.value));
+        styleCdp.on("Tracing.dataCollected", (data) => styleEvents.push(...(data.value as unknown as TraceEvent[])));
         const tree = (await styleCdp.send("Page.getFrameTree")) as { frameTree: { frame: { id: string } } };
         styleFrame = tree.frameTree.frame.id;
         await styleCdp.send("Tracing.start", {
