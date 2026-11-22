@@ -5242,6 +5242,8 @@ jobs:
     timeout-minutes: 75
     permissions:
       contents: read
+      actions: read # the previous nightly's visual-gate artifact (desktop_visual_diff.py)
+      pull-requests: read # the Visual-change lines of the pull requests since it
     outputs:
       verdict: ${{ steps.verdict.outputs.verdict }}
       blocks: ${{ steps.verdict.outputs.blocks }}
@@ -5319,6 +5321,15 @@ jobs:
           VISUAL_GATE_REQUIRE_2X: ${{ vars.NIGHTLY_NEXT_VISUAL_GATE_REQUIRE_2X }}
           CAPTURE_OUTCOME: ${{ steps.capture.outcome }}
         run: bash scripts/ci/nightly-steps/visual-gate-verdict.sh
+
+      # Warn only: states whose pixels changed since the previous nightly with no Visual-change line.
+      - name: Diff the states against the previous nightly
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 9
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: perl -e 'alarm shift; exec @ARGV' 480 python3 -I scripts/ci/desktop_visual_diff.py --head-root "$RUNNER_TEMP/visual-gate" --head-sha "$BUILD_SHA" --fetch-baseline --work "$RUNNER_TEMP/desktop-visual-baseline" --out "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the stills and the report
         id: upload-keep-the-stills-and-the-report
