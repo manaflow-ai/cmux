@@ -518,7 +518,12 @@ impl Hub {
                 }
                 // A harness title made from the first input stops before a client context
                 // (prompt_context.rs), so a Cmd-I chat titles from the person's words.
-                if let Some(title) = update.get("title").and_then(Value::as_str) {
+                // A chat someone named (`titles::NAMED`: a rename, a starter's name) keeps the
+                // title its name gave: a harness title after it put the old name back in every
+                // list (Leo, 2026-11-22: "I DON'T KNOW WHO'S BEEN RENAMED TO WHAT").
+                let named = m.title_source.as_deref() == Some(super::titles::NAMED);
+                if let Some(title) = update.get("title").and_then(Value::as_str).filter(|_| !named)
+                {
                     let title = cmux_chat_index::without_client_context(title).trim_end();
                     if !title.is_empty() {
                         retitled = m.title.as_deref() != Some(title);
