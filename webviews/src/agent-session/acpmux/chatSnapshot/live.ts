@@ -2,6 +2,7 @@
 // soon as the bundle runs, takes over from the copy in one frame once it drew the chat itself, and
 // writes the copy the next launch draws (capture.ts), from the visible window only.
 import { captureMiss, captureSnapshot } from "./capture";
+import { liveComposerTakes, watchLiveComposer } from "./liveComposer";
 import {
   SNAPSHOT_GLOBAL,
   SNAPSHOT_HOST_TAG,
@@ -11,7 +12,7 @@ import {
   type SnapshotLive,
 } from "./shared";
 
-type Shown = { at: number; swappedAt?: number };
+type Shown = { at: number; composerAt?: number; swappedAt?: number };
 
 function shown(): Shown | undefined {
   if (typeof window === "undefined") return undefined;
@@ -35,11 +36,15 @@ export function showsChatSnapshot(): boolean {
 }
 
 /// When the snapshot drew and when the live page took over, in `performance.now()` time (layoutWatch.ts).
-export function chatSnapshotTimes(): { painted_ms: number; swapped_ms: number | null } | undefined {
+export function chatSnapshotTimes():
+  | { painted_ms: number; composer_live_ms: number | null; swapped_ms: number | null }
+  | undefined {
   const value = shown();
   if (!value) return undefined;
   return {
     painted_ms: Math.round(value.at),
+    // When the live composer showed through the copy (liveComposer.ts): typing and clicks from then.
+    composer_live_ms: value.composerAt === undefined ? null : Math.round(value.composerAt),
     swapped_ms: value.swappedAt === undefined ? null : Math.round(value.swappedAt),
   };
 }
@@ -159,6 +164,14 @@ export function reportChatSnapshot(
     // card's Allow, a shortcut). The press is consumed, with the rest of its gesture (its pointerup
     // and click). A wheel ends the copy and scrolls. Stops with the copy.
     const end = (event?: Event) => {
+      // The live composer showing through the copy (liveComposer.ts) takes its own typing and
+      // clicks, and the copy stays; a press on another of its controls ends the copy and acts.
+      const composer = event ? liveComposerTakes(event) : undefined;
+      if (composer === "keep") return;
+      if (composer === "reveal") {
+        removeChatSnapshot();
+        return stop();
+      }
       // Only a press on the copy is consumed: once it is gone, input reaches the page as usual.
       if (event && event.type !== "wheel" && showsChatSnapshot()) {
         event.preventDefault();
@@ -171,9 +184,11 @@ export function reportChatSnapshot(
     };
     const timer = window.setTimeout(end, SNAPSHOT_HOLD_MS);
     const events = ["pointerdown", "keydown", "wheel"] as const;
+    const stopComposer = watchLiveComposer();
     const stop = () => {
       window.clearTimeout(timer);
       for (const name of events) window.removeEventListener(name, end, true);
+      stopComposer();
     };
     for (const name of events) window.addEventListener(name, end, { capture: true, passive: name === "wheel" });
     stopCopyInput = stop;
