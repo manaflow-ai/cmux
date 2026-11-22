@@ -1312,7 +1312,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         if draft || rowsUnchanged, compose.fieldRect == oldField, fieldTop == oldFieldTop {
             // cmux: a draft changes no thread row (an open thread rebuilt every row per key: RowBuilder.rows).
             if !draft { rebuildThread(state, at: t) }
-            updateThumb()
+            // cmux: a draft key moves no row and no scroll: the thumb stays where it is.
+            if !draft { updateThumb() }
             CATransaction.commit()
             phase("caCommit")
             return
@@ -2476,6 +2477,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     }
 
     private func updateThumb() {
+        thumbPasses += 1  // cmux: tests (a draft key places no thumb)
         let st = store.state
         let n = max(1, st.conversation.messages.count)
         let rowFrac = model.count > 0 ? CGFloat(firstVisibleRow) / CGFloat(model.count) : 1
@@ -2884,11 +2886,19 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         for (v, spec) in zip(threadViews, threadSpecs) where v.frame.insetBy(dx: 0, dy: RowDraw.margin).contains(p) {
             switch spec.kind {
             case let .replies(_, ref, _):
+                // cmux: only the "N Replies" words drill in; the rest of the line is empty space, whose click closes
+                // the view (PaneThread.clicked, Lawrence 2026-11-18: "clicking some space fails to close it").
+                guard MessagesWindowView.threadRowControl(spec, frame: v.frame)?.contains(p) == true else { continue }
                 return .dispatch(.openThreadPath([root] + ThreadTree.path(to: ref, root: root, in: s.conversation.messages)))
             case let .separator(bold, rest) where spec.key == MessagesWindowView.crumbKey:
                 // The breadcrumb: "< Back" pops one branch; a name opens that level (the last is this one).
                 let x = p.x - v.frame.minX
-                guard let target = MessagesWindowView.crumbTarget(x: x, bold: bold, rest: rest, names: threadCrumbNames, spec: spec) else { return .handled }
+                guard let target = MessagesWindowView.crumbTarget(x: x, bold: bold, rest: rest, names: threadCrumbNames, spec: spec) else {
+                    // cmux: between the breadcrumb's words nothing happens; beside them the line is empty space, whose
+                    // click closes the view (PaneThread.clicked, Lawrence 2026-11-18).
+                    if MessagesWindowView.crumbWords(bold: bold, rest: rest, spec: spec).contains(x) { return .handled }
+                    continue
+                }
                 let path = s.ui.threadPath
                 let keep = target < 0 ? path.count - 1 : target
                 guard keep >= 0, keep < path.count else { return .handled }
@@ -2904,6 +2914,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// `HostHooks.threadHeader` again.
     /// cmux: how many times an open thread view's rows were derived (``rebuildThread``): tests.
     private(set) var threadRowPasses = 0
+    /// cmux: how often the scroll thumb was placed (read by tests).
+    private(set) var thumbPasses = 0
 
     func threadHeaderDidChange() {
         guard store.state.ui.threadMode == .tree, store.state.ui.openThread != nil, threadClosing == 0 else { return }
@@ -3005,6 +3017,13 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
     /// Which breadcrumb item is under `x` (row coordinates): -1 the back control, i the i-th name
     /// (0: the root), nil none. The same widths as the separator drawing (RowDraw.drawStatic).
+    /// cmux: the x span (row coordinates) the breadcrumb's words cover, as `crumbTarget` reads them, 8 pt wider each side.
+    static func crumbWords(bold: String, rest: String, spec: RowSpec) -> ClosedRange<CGFloat> {
+        let total = RowDraw.receiptParts(bold, " " + rest).reduce(0) { $0 + TextDraw.width($1.0, font: $1.1, kern: RowDraw.captionKern) }
+        let x0 = spec.metrics.centerX - total / 2
+        return (x0 - 8)...(x0 + total + 8)
+    }
+
     static func crumbTarget(x: CGFloat, bold: String, rest: String, names: [String], spec: RowSpec) -> Int? {
         let parts = RowDraw.receiptParts(bold, " " + rest)
         guard let b = parts.first, let r = parts.last else { return nil }

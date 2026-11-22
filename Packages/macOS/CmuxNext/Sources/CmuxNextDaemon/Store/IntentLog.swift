@@ -38,7 +38,7 @@ enum IntentUndo: Equatable {
     indirect case guessedTab(hidden: HiddenTab, provisional: IntentUndo?)
     /// The provisional screen shown in workspace `key`, and whether the workspace itself was the
     /// provisional one (inserted) rather than the daemon's.
-    case createdWorkspace(key: WorkspaceKey, inserted: Bool)
+    case createdWorkspace(key: WorkspaceKey, inserted: Bool, hidden: HiddenScreens)
     /// What a dock's overlay changed (``ProvisionalDock``).
     case dockTab(ProvisionalDock.Undo)
     /// A creation whose stand-in tab the person closed while the creation goes on (a dock's fresh tab,
@@ -95,6 +95,9 @@ struct PendingIntent {
     var held = false
     /// The slow request log's clock when the intent was shown (``SlowRequestLog/uptime``); 0: no log.
     var shownAt: UInt64 = 0
+    /// A tab move's place by the tabs beside it, read after its first apply: each later apply puts the tab there
+    /// again, so the move's index is not used on a list that changed meanwhile (``TabMovePlace``).
+    var movePlace: TabMovePlace?
 }
 
 /// The ordered log of pending intents. Pure bookkeeping: the store applies
@@ -257,6 +260,19 @@ struct IntentLog {
         closedTabs.removeAll { surfaces.contains($0.surface) }
     }
 
+    /// The created tabs still to report to the app, oldest first: the stand-in's tab id, whether it is a page tab
+    /// (the store has one report for each kind) and the daemon's tab. The daemon's tab of a creation arrives while
+    /// the pending intents are lifted, so the app hears of it when that apply ends (``OverlayReports``).
+    private var createdToReport: [(id: String, page: Bool, tab: TabModel)] = []
+
+    mutating func noteCreatedToReport(_ id: String, page: Bool, tab: TabModel) { createdToReport.append((id, page, tab)) }
+
+    /// The created tabs to report now; none is left to report after this call.
+    mutating func takeCreatedToReport() -> [(id: String, page: Bool, tab: TabModel)] {
+        defer { createdToReport = [] }
+        return createdToReport
+    }
+
     /// Whether daemon surface `surface` took a recently created stand-in's place.
     func replacedAStandIn(_ surface: SurfaceID) -> Bool { replacedStandIns.contains { $0.surface == surface } }
 
@@ -339,6 +355,14 @@ struct IntentLog {
     @discardableResult
     mutating func setUndo(_ undo: IntentUndo?, at index: Int) -> Bool {
         entries.modify(checked: index) { $0.undo = undo }
+    }
+
+    /// What an apply of entry `index` left (``IntentOverlay/show(_:in:)``): its inverse, and a tab move's place.
+    mutating func setShown(_ shown: (undo: IntentUndo?, place: TabMovePlace?), at index: Int) -> Bool {
+        entries.modify(checked: index) { entry in
+            entry.undo = shown.undo
+            entry.movePlace = shown.place
+        }
     }
 
     private mutating func noteSettled(_ transaction: ClientTransactionID) {

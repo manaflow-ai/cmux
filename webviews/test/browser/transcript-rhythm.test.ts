@@ -12,6 +12,7 @@ import {
   TRANSCRIPT_BLOCK_GAP,
   TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_FOOTER_GAP,
+  TRANSCRIPT_LIVE_STEP_GAP,
   gridLength,
 } from "../../src/agent-session/acpmux/transcriptGrid";
 import { pinLiveTurnRuns } from "../support/liveTurnRuns";
@@ -162,9 +163,11 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
           // A run and the prose by it: the run gap (design/transcript-spacing.md rule 4).
           for (const gap of state.gaps)
             expect(Math.abs(gap - gridLength("gap-run") * scale), "run gap").toBeLessThanOrEqual(0.5);
-          expect(Math.abs(state.liveUnderRun - gridLength("gap-run") * scale), "live line run gap").toBeLessThanOrEqual(
-            0.5,
-          );
+          // The live line under a run: the gap over it is transcriptGrid.ts's TRANSCRIPT_LIVE_STEP_GAP.
+          expect(
+            Math.abs(state.liveUnderRun - TRANSCRIPT_LIVE_STEP_GAP * scale),
+            "live line gap under a run",
+          ).toBeLessThanOrEqual(0.5);
           expect(Math.abs(state.inner - 12 * scale), "paragraph gap").toBeLessThanOrEqual(0.5);
           // Over a floating stack the newest line rests the rest gap over it (model.ts REST_GAP, Leo
           // 2026-11-01: "more space between composer and latest messages"); docked in flow, the

@@ -11,7 +11,8 @@ What runs, per area touched by the change:
 * webviews/ and cmux-tui/frontends/web/: the package's own `check` script from
   its package.json (the exact step CI runs: Oxfmt, Oxlint with the type check,
   and webviews' source checks such as check:browser-lanes). The `&&` pieces of
-  that script run at once, so the hook costs the slowest piece, not the sum.
+  that script run side by side, one per core this process may use (at most 8) and the type-aware ones one per
+  two cores, so on a big machine the hook costs the slowest piece, not the sum, and on a small one it waits.
 * A check runs when any input it reads changes. A source-check piece (`python3 ../scripts/cmux-next/X.py`)
   that reads files outside its package's triggers declares them next to its own path constants, as a
   module-level `INPUTS` tuple (read with `ast`, never run; see declared_inputs()). A change that touches one
@@ -87,7 +88,7 @@ type-aware lint and type check (tsgolint, about 9 GB and 5 GB on webviews), ever
 and a package with no node_modules. CI's `web lint` job and the PR's fast gates run them, or
 `cmux-ci test` on a build box. Elsewhere, every command this script spawns (installs, builds,
 checks) goes through spawn(), which outside CI runs it under `nice` with capped Go threads, Go
-heap and Node heap.
+heap and Node heap, and the checks run at most one per core (run_checks).
 """
 from __future__ import annotations
 
@@ -95,6 +96,7 @@ import argparse
 import ast
 import concurrent.futures
 import contextlib
+import fcntl
 import fnmatch
 import hashlib
 import json
@@ -118,6 +120,14 @@ FIX_COMMAND = "scripts/web-lint.sh --fix"
 MIN_SKIP_REASON = 20
 # "0" (or false/no/off/skip): this host runs no heavy check. Set by the host, e.g. from a fleet registry.
 LOCAL_HEAVY_ENV = "CMUX_LOCAL_HEAVY_CHECKS"
+# Leo, 2026-11-22, on a type check that went red in CI: "should've been caught and fixed faster". A host that runs no
+# heavy check by policy (66 of 68 lane hosts, so every lane VM pushed with no type check and no Oxlint) may still run
+# them when it says how much free memory that takes (GiB) and has it now: the type check and type-aware lint peak
+# at about 5 and 9 GB, with GOMEMLIMIT and the Node heap capped below. One such push at a time per host
+# (HEAVY_LOCK): a second push while one runs stays light rather than doubling the peak. Unset: light, as before.
+LOCAL_HEAVY_FREE_ENV = "CMUX_LOCAL_HEAVY_WHEN_FREE_GB"
+HEAVY_LOCK = "cmux-web-lint-heavy.lock"
+_heavy_lock = None
 # --timings: each setup step and check says on stderr when it starts and how long it took, as it happens, so a run
 # stopped by its job's timeout names the step it stalled in (a `bun install` that never returns printed nothing).
 PHASES = False
@@ -1157,23 +1167,75 @@ def light_pieces(repo: Path, package: ScriptPackage, script: str, mode: str, rea
     return light
 
 
-def local_heavy_checks() -> bool:
-    """False when the host said it runs no heavy piece (CMUX_LOCAL_HEAVY_CHECKS=0). CI always runs every piece:
-    a runner that inherits the host setting still runs the full type-aware check."""
+def local_heavy_checks(mode: str = "web lint") -> bool:
+    """False when the host said it runs no heavy piece (CMUX_LOCAL_HEAVY_CHECKS=0), unless it also set
+    CMUX_LOCAL_HEAVY_WHEN_FREE_GB and free_memory_heavy() lets it. CI always runs every piece: a runner that inherits
+    the host setting still runs the full type-aware check."""
     if in_ci():
         return True
-    return os.environ.get(LOCAL_HEAVY_ENV, "").strip().lower() not in ("0", "false", "no", "off", "skip")
+    if os.environ.get(LOCAL_HEAVY_ENV, "").strip().lower() not in ("0", "false", "no", "off", "skip"):
+        return True
+    return free_memory_heavy(mode)
+
+
+def available_gib(meminfo: str = "/proc/meminfo") -> float | None:
+    """MemAvailable in GiB, or None where it cannot be read (macOS, no /proc)."""
+    try:
+        with open(meminfo) as handle:
+            for line in handle:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) / (1024 * 1024)
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def free_memory_heavy(mode: str, meminfo: str = "/proc/meminfo") -> bool:
+    """True when CMUX_LOCAL_HEAVY_WHEN_FREE_GB names a floor this host's free memory meets and no other push on the
+    host holds HEAVY_LOCK; this process then holds it until it exits. Says which way it went, either way."""
+    global _heavy_lock
+    raw = os.environ.get(LOCAL_HEAVY_FREE_ENV, "").strip()
+    if not raw:
+        return False
+    try:
+        floor = float(raw)
+    except ValueError:
+        print(f"{mode}: {LOCAL_HEAVY_FREE_ENV}={raw!r} is not a number of GiB; type check left to CI.", file=sys.stderr)
+        return False
+    free = available_gib(meminfo)
+    if free is None or free < floor:
+        shown = "unknown" if free is None else f"{free:.1f} GiB"
+        print(f"{mode}: free memory {shown} is under {floor:g} GiB; the type check and Oxlint are left to CI.",
+              file=sys.stderr)
+        return False
+    path = Path(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()) / HEAVY_LOCK
+    try:
+        handle = open(path, "a")
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print(f"{mode}: another push on this host is running the type check; this one leaves it to CI.",
+              file=sys.stderr)
+        return False
+    _heavy_lock = handle
+    print(f"{mode}: {free:.1f} GiB free (floor {floor:g}): running the type check and Oxlint here.", file=sys.stderr)
+    return True
 
 
 def in_ci() -> bool:
     return os.environ.get("GITHUB_ACTIONS") == "true" or os.environ.get("CI", "").lower() in ("1", "true")
 
 
+def usable_cores() -> int:
+    """The cores this process may run on (its affinity, which a VM, cgroup or taskset narrows), at least one."""
+    cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 2)
+    return max(1, cores)
+
+
 def capped_env(env: dict[str, str] | None) -> dict[str, str]:
     """ENV outside CI: half the cores (at most 8) for Go, a soft Go heap goal, a capped Node heap. A value the
     caller already set is kept."""
     env = dict(os.environ if env is None else env)
-    env.setdefault("GOMAXPROCS", str(max(1, min(8, (os.cpu_count() or 2) // 2))))
+    env.setdefault("GOMAXPROCS", str(max(1, min(8, usable_cores() // 2))))
     env.setdefault("GOMEMLIMIT", HEAVY_GOMEMLIMIT)
     node = env.get("NODE_OPTIONS", "")
     if "--max-old-space-size" not in node:
@@ -1589,32 +1651,40 @@ def weighty(piece: str, scripts: dict, seen: tuple[str, ...] = ()) -> bool:
     return False
 
 
-def heavy_slots() -> int | None:
-    """How many WEIGHTY checks (and ESLint runs) run at once: in CI one per two cores this process may use, at least
-    one; elsewhere no bound (capped_env and nice keep them off a person's machine)."""
-    if not in_ci():
-        return None
-    cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 2)
-    return max(1, cores // 2)
+def heavy_slots() -> int:
+    """How many WEIGHTY checks (and ESLint runs) run at once, in CI or not: one per two cores this process may use,
+    at least one. nice lowers their priority, not the run queue: on a 2 vCPU lane VM with no bound the hook ran about
+    8 checks at once for 141 s at load 17.8 (2026-11-15). A busy machine makes the hook slower, never makes it fail."""
+    return max(1, usable_cores() // 2)
+
+
+def check_slots() -> int:
+    """How many check jobs run at once: one per core this process may use, at most 8."""
+    return min(8, usable_cores())
 
 
 def run_checks(repo: Path, plan: Plan, jobs: list[tuple]) -> list[Result]:
-    """Every check job, at most 8 at once and the weighty ones at most heavy_slots() at once, started first; the
-    results in JOBS' order."""
-    slots = heavy_slots()
+    """Every check job, at most check_slots() at once and the weighty ones at most heavy_slots() at once, started
+    first; the results in JOBS' order."""
     scripts = {package.directory: package_scripts(repo, package) for package in plan.script_packages}
-    weighs = [slots is not None and (job[0] in plan.eslint_files or isinstance(job[1], str)
-                                     and weighty(job[1], scripts.get(job[0], {}))) for job in jobs]
-    gate = threading.BoundedSemaphore(slots) if slots else None
+    weighs = [job[0] in plan.eslint_files or isinstance(job[1], str) and weighty(job[1], scripts.get(job[0], {}))
+              for job in jobs]
+    gate = threading.BoundedSemaphore(heavy_slots())
+    cores = threading.BoundedSemaphore(check_slots())
 
     def check(index: int) -> Result:
+        # A weighty check waits for its own slot before a core's, so a queued one never keeps a light check from
+        # running; a check's phase starts once it holds its slots, so a queued one is never named as running.
         if not weighs[index]:
-            return run(*jobs[index])
-        with gate:  # a check's phase starts once it holds a slot, so a queued one is never named as running
+            with cores:
+                return run(*jobs[index])
+        with gate, cores:
             return run(*jobs[index])
 
     order = sorted(range(len(jobs)), key=lambda index: not weighs[index])
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(8, len(jobs)))) as pool:
+    # A thread per job: the slots, not the pool, bound what runs, so weighty jobs waiting on the gate never hold every
+    # worker while light ones queue behind them.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(jobs))) as pool:
         futures = {index: pool.submit(check, index) for index in order}
         return [futures[index].result() for index in range(len(jobs))]
 
@@ -1631,7 +1701,7 @@ def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool 
         if failures:
             return failures
         directories = [p.directory for p in plan.script_packages] + list(plan.eslint_files)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(directories))) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(check_slots(), len(directories)))) as pool:
             installs = [r for r in pool.map(lambda d: install(repo, d, stale.get(d)), directories) if r]
         if installs:
             return installs
@@ -1725,15 +1795,27 @@ def in_place_cache(repo: Path, head: str | None) -> bool:
 
 def is_checked_out(repo: Path, sha: str) -> bool:
     """The checkout is exactly `sha`: HEAD is it, nothing is modified or untracked, and no file is left out by a
-    sparse checkout (git status is clean in one that lacks most of the commit)."""
+    sparse checkout (git status is clean in one that lacks most of the commit). A clone with no work tree (a bare
+    mirror the hook pushes from, REPO its git dir) is never checked out: its commits are linted in a tree of their
+    own, and `git status` there dies with "must be run in a work tree"."""
+    if not has_work_tree(repo):
+        return False
     return (git(repo, "rev-parse", "HEAD").strip() == git(repo, "rev-parse", f"{sha}^{{commit}}").strip()
             and not git(repo, "status", "--porcelain", "--untracked-files=normal").strip()
             and not is_sparse(repo))
 
 
+def has_work_tree(repo: Path) -> bool:
+    """REPO is a checkout, not a clone with no work tree (a bare mirror or core.bare clone root, REPO its git dir)."""
+    return git(repo, "rev-parse", "--is-inside-work-tree", check=False).strip() == "true"
+
+
 def is_sparse(repo: Path) -> bool:
     """The checkout leaves files of the index out: an index entry has the skip-worktree bit (`git ls-files -t`
-    tags it S). Not core.sparseCheckout: a shared config can say true for a checkout that holds every file."""
+    tags it S). Not core.sparseCheckout: a shared config can say true for a checkout that holds every file. A clone
+    with no work tree has no checkout to leave files out of (its index is not one)."""
+    if not has_work_tree(repo):
+        return False
     return any(entry.startswith("S ") for entry in git(repo, "ls-files", "-t", "-z").split("\0"))
 
 
@@ -1814,6 +1896,35 @@ def load_compare():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+# --new-only: the file (one repo-relative path per line) of the paths the change touches, for a check that is a pure
+# function of each file (webviews' check:compiler-bails) to read only those. Its findings on the other files are the
+# base's, which a full run on every feat-cmux-next push (cmux-next-web-lint.yml, no --new-only) already holds. The
+# merge and the --new-only base run read the same list. check:compiler-bails compiled all 2,977 agent-chat files
+# serially on every pull request: 65 s of the fast gates' 159 s step (job 136902872282, 2026-11-21).
+CHANGED_FILES_ENV = "CMUX_WEB_LINT_CHANGED_FILES"
+
+
+@contextlib.contextmanager
+def changed_files_env(files: list[str] | None):
+    """CHANGED_FILES_ENV naming a file of FILES while the checks run; unset (every check reads every file) when None."""
+    if files is None:
+        yield
+        return
+    handle, name = tempfile.mkstemp(prefix="web-lint-changed-", suffix=".txt")
+    previous = os.environ.get(CHANGED_FILES_ENV)
+    try:
+        with os.fdopen(handle, "w") as out:
+            out.write("".join(f"{path}\n" for path in files))
+        os.environ[CHANGED_FILES_ENV] = name
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(CHANGED_FILES_ENV, None)
+        else:
+            os.environ[CHANGED_FILES_ENV] = previous
+        Path(name).unlink(missing_ok=True)
 
 
 def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list[Result], heavy: bool = True) -> None:
@@ -1915,6 +2026,11 @@ def main(argv: list[str] | None = None) -> int:
     heads: dict[str | None, list[str]] = {}
     if args.base:
         heads[None if args.fix else args.head] = changed_files(repo, args.base, args.head)
+    elif args.all and not args.pre_push:
+        # Every package is checked, whatever changed (below), so no push range is needed: in CI's shallow checkout
+        # of a commit no remote ref names, that range cannot be told, and asking for it refused the whole run
+        # (cmux-ci test, run 44991179215: "nothing was linted").
+        heads[None if args.fix else args.head] = []
     else:
         push_range = load_push_range(args.trusted_scripts_dir.resolve() if args.trusted_scripts_dir else None)
         try:
@@ -1941,7 +2057,7 @@ def main(argv: list[str] | None = None) -> int:
             heads.setdefault(None if args.fix else head, []).extend(own_files(repo, own, head))
 
     started = time.monotonic()
-    heavy = local_heavy_checks()
+    heavy = local_heavy_checks(mode)
     results: list[Result] = []
     for head, changed in heads.items():
         files = sorted(set(changed))
@@ -2000,7 +2116,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             print(f"{mode}: this worktree is a sparse checkout: the checks run on a lint tree of the {len(only)} "
                   f"files of {head[:12]} they read.", file=sys.stderr)
-        with tree_of(repo, head, directories, only) as tree:
+        scoped = files if args.new_only and not args.all else None
+        with tree_of(repo, head, directories, only) as tree, changed_files_env(scoped):
             if args.pre_push and not refuse_escapes(tree, plan, mode, read):
                 continue
             found = run_plan(tree, plan, args.fix, cache=tree == repo, heavy=heavy, mode=mode)

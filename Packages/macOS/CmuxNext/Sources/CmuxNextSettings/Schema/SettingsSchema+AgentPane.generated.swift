@@ -5,6 +5,9 @@ extension AgentPaneReplySetting {
     /// `agentPane.links.outsideRoots`: What a path chip outside the session's folders does: opens like one inside them (open), asks first (confirm) or draws as plain text (text). A path on the deny list (~/.ssh, keys, .env files) is always plain text.
     public nonisolated static let outsideRootsPath = ["agentPane", "links", "outsideRoots"]
     public nonisolated static let outsideRootsDefault: AgentPaneReplySetting.OutsideRoots = .open
+    /// `agentPane.links.openCitationsInEditor`.
+    public nonisolated static let openCitationsInEditorPath = ["agentPane", "links", "openCitationsInEditor"]
+    public nonisolated static let openCitationsInEditorDefault = false
     /// `agentPane.images.remote`: A web image in a reply loads after a click (click), never (never) or at once (always); every load goes through the host's fetch rules.
     public nonisolated static let remoteImagesPath = ["agentPane", "images", "remote"]
     public nonisolated static let remoteImagesDefault: AgentPaneReplySetting.RemoteImages = .click
@@ -27,7 +30,7 @@ nonisolated enum AgentPaneSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.outsideRoots", "Files Outside the Project"),
-                help: SettingsText.keyed("settings.agentPane.outsideRoots.help", "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open."),
+                help: SettingsText.keyed("settings.agentPane.outsideRoots.help", "What a link to a file outside the chat's folders does. Keys and .env files never open."),
                 summary: SettingsText.keyed("settings.agentPane.outsideRoots.summary", "File links outside the chat's folders"),
                 kind: .choice([
                     SettingChoice(AgentPaneReplySetting.OutsideRoots.confirm.rawValue, SettingsText.keyed("settings.choice.agentPaneConfirm", "Ask First")),
@@ -36,6 +39,16 @@ nonisolated enum AgentPaneSettingsSchema {
                 ]),
                 default: .string(AgentPaneReplySetting.outsideRootsDefault.rawValue),
                 keywords: ["agent", "chat", "link", "path", "file", "outside", "project"]
+            ),
+            SettingDescriptor(
+                AgentPaneReplySetting.openCitationsInEditorPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.openCitationsInEditor", "Open File Citations in Text Editor"),
+                help: SettingsText.keyed("settings.agentPane.openCitationsInEditor.help", "Open local chat links that name a line in your chosen text editor."),
+                kind: .toggle,
+                default: .bool(AgentPaneReplySetting.openCitationsInEditorDefault),
+                keywords: ["chat", "file", "line", "editor"]
             ),
             SettingDescriptor(
                 AgentPaneReplySetting.remoteImagesPath,
@@ -57,7 +70,7 @@ nonisolated enum AgentPaneSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.needsYou", "Needs You"),
-                help: SettingsText.keyed("settings.agentPane.needsYou.help", "A badge in the chat header counts what your agents wait on; a click lists every ask with its answers. New agent tabs."),
+                help: SettingsText.keyed("settings.agentPane.needsYou.help", "A badge in the chat header counts what your agents wait on."),
                 kind: .toggle,
                 default: .bool(AgentPaneNeedsYouSetting.enabledDefault),
                 keywords: ["agent", "chat", "needs you", "inbox", "asks", "approvals", "badge"]

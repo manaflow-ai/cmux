@@ -106,6 +106,24 @@ if CMUX_WEB_BUNDLES_NO_INSTALL=1 run > "$WORK/out" 2>&1; then fail "NO_INSTALL w
 rm -f "$WORK/bin/curl"
 printf '#!/bin/sh\necho %s\n' "$BUN_PIN" > "$WORK/bin/bun"
 
+# A host whose node is too old downloads the pinned node for its own OS and CPU, as nodejs.org
+# names them: a Linux step (a fleet step routed to Linux) got the darwin build, which cannot run there.
+for host in "Linux x86_64 linux-x64" "Linux aarch64 linux-arm64" "Darwin arm64 darwin-arm64" "Darwin x86_64 darwin-x64"; do
+  read -r kernel machine want <<<"$host"
+  printf '#!/bin/sh\ncase "$1" in -s) echo %s ;; -m) echo %s ;; *) echo %s ;; esac\n' "$kernel" "$machine" "$kernel" > "$WORK/bin/uname"
+  # node 20: its version check (`node -e`) fails.
+  printf '#!/bin/sh\n[ "$1" = -e ] && exit 1\necho v20.0.0\n' > "$WORK/bin/node"
+  printf '#!/bin/sh\nfor a in "$@"; do case "$a" in https://*) echo "$a" >> "%s/urls" ;; esac; done\nexit 1\n' "$WORK" > "$WORK/bin/curl"
+  chmod +x "$WORK/bin/uname" "$WORK/bin/node" "$WORK/bin/curl"
+  rm -rf "$WORK/state" "$WORK/cache" "$WORK/urls"; mkdir -p "$WORK/state"
+  run > "$WORK/out" 2>&1 || true
+  # Any pinned version (the pin may move); only the OS and CPU part is under test.
+  grep -qE "^https://nodejs.org/dist/v[0-9.]+/node-v[0-9.]+-$want\.tar\.gz$" "$WORK/urls" 2> /dev/null ||
+    fail "$kernel $machine must download node-vX-$want: $(cat "$WORK/urls" 2> /dev/null)"
+done
+rm -f "$WORK/bin/uname" "$WORK/bin/curl"
+printf '#!/bin/sh\necho v24.11.1\n' > "$WORK/bin/node"
+
 # The Swift lane calls it before it builds a CmuxNext package.
 for phase_fn in run_suite run_package_tests; do
   body=$(awk "/^$phase_fn\\(\\) \\{/,/^\\}/" scripts/ci/package-test-lane.sh)

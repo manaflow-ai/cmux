@@ -1,6 +1,7 @@
 // Initial geometry of PermissionCard and QuestionCard, before their ResizeObserver reports.
 // Keep the frame on the shared grid; interactive expansion is still measured by the transcript.
 import { layout, prepare, prepareWithSegments, layoutWithLines } from "@chenglou/pretext";
+import "../measureContext";
 import typeScale from "../../../../../schemas/type-scale/type-scale.json";
 import { chatDensityTextScale, drawnFontSize, chatDisplay, chatMetrics } from "../chatDisplay";
 import { chatUiFontVariables, chatUiMeasureStack, chatUiTracking } from "../chatUiFont";
@@ -28,7 +29,7 @@ const padding = gridLength("cards-padding");
 /// The face the card is drawn in, `--font-ui`: the chat's Interface Font (chatUiFont.ts) as the
 /// canvas can measure it, the macOS system stack by default. A canvas can't read CSS variables.
 export function cardFont(): string {
-  return chatUiMeasureStack(chatDisplay().uiFont);
+  return chatUiMeasureStack(chatDisplay().uiFont, chatDisplay().uiFamily);
 }
 
 /// The letter-spacing the card's text at `size` px is drawn with, in px: its type-scale step's
@@ -37,7 +38,8 @@ export function cardFont(): string {
 /// token when it isn't the size's own: the buttons draw body-size labels with detail's tracking.
 export function cardLetterSpacing(size: number, step?: string): number {
   const name = step ?? typeScale.steps.find((entry) => entry.size === size)?.name;
-  return name ? chatUiTracking(chatDisplay().uiFont, name) * size : 0;
+  // A font pack's family draws at its designed spacing (chatUiFontVariables).
+  return name && !chatDisplay().uiFamily ? chatUiTracking(chatDisplay().uiFont, name) * size : 0;
 }
 
 // The same line breaker as prose estimates, using the card's UI font rather than chat text size.
@@ -192,7 +194,7 @@ function questionHeight(question: AgentQuestion, width: number, bubbleScale = 1)
     const by = answer.respondent;
     const display = chatDisplay();
     const metrics = chatMetrics(display);
-    const tracking = chatUiFontVariables(display.uiFont)["--cv-tracking"];
+    const tracking = chatUiFontVariables(display.uiFont, display.uiFamily)["--cv-tracking"];
     let letterSpacing = tracking ? Number.parseFloat(tracking) : 0;
     if (tracking?.endsWith("em")) letterSpacing *= drawnFontSize(display);
     // The bubble's 16 px sides and 10 px block padding (conversation.css .cv-user__bubble).
