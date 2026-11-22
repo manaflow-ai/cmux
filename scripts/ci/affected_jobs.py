@@ -149,6 +149,36 @@ def load_map(text: str) -> tuple[list[str], list[Job]]:
     return list(data.get("workspace_inputs", [])), jobs
 
 
+def ios_proof_spec(text: str) -> dict:
+    """MAP's ios_sim_proof: which changed files are rendered iOS files, and the XCUITest suites the proof runs."""
+    return json.loads(text)["ios_sim_proof"]
+
+
+def not_visible(path: str, entry: str) -> bool:
+    if entry == "*.md":
+        return path.endswith(".md")
+    if entry.startswith("/"):
+        return entry in "/" + path
+    return path.startswith(entry) if entry.endswith("/") else path == entry
+
+
+def rendered_ios(changed: list[str], spec: dict) -> list[str]:
+    """The CHANGED files the ios_sim_proof runs for: under a root and no not_visible entry, or under ui_tests."""
+    return [path for path in changed
+            if path.startswith(spec["ui_tests"]) and not path.endswith(".md")
+            or any(path.startswith(root) for root in spec["roots"])
+            and not any(not_visible(path, entry) for entry in spec["not_visible"])]
+
+
+def proof_suites(files: list[str], spec: dict) -> list[str]:
+    """The CmuxMobileAppUITests suites the proof runs: every *UITests.swift directly under ui_tests in FILES (the
+    head's tree), less the skip_suites names."""
+    skip = re.compile(spec["skip_suites"])
+    names = (posixpath.basename(f)[:-len(".swift")] for f in files
+             if posixpath.dirname(f) + "/" == spec["ui_tests"] and f.endswith("UITests.swift"))
+    return sorted(name for name in names if not skip.search(name))
+
+
 def under(path: str, entry: str) -> bool:
     entry = entry.rstrip("/")
     return path == entry or path.startswith(entry + "/")
@@ -746,8 +776,28 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("check")
     paths = sub.add_parser("paths", help="the paths: globs a workflow's trigger needs for its routed jobs")
     paths.add_argument("--workflow", required=True)
+    proof = sub.add_parser("ios-proof", help="whether BASE..HEAD changes a rendered iOS file, and the suites to run")
+    proof.add_argument("--base", required=True)
+    proof.add_argument("--head", default="HEAD")
     args = parser.parse_args(argv)
     root = args.repo
+
+    if args.command == "ios-proof":
+        spec = ios_proof_spec((root / MAP).read_text(encoding="utf-8"))
+        changed = changed_paths(root, args.base, args.head)
+        # An unreadable diff runs the proof: evidence, never fewer runs.
+        files = rendered_ios(changed, spec) if changed is not None else ["(the diff could not be read)"]
+        listed = subprocess.run(["git", "-C", str(root), "ls-tree", "--name-only", args.head, spec["ui_tests"]],
+                                capture_output=True, text=True, check=True).stdout.split()
+        suites = proof_suites(listed, spec)
+        run = bool(files) and bool(suites)
+        for path in files:
+            print(f"rendered: {path}")
+        print(f"run={'true' if run else 'false'} suites={','.join(suites)}")
+        if "GITHUB_OUTPUT" in os.environ:
+            with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+                out.write(f"run={'true' if run else 'false'}\nsuites={','.join(suites)}\n")
+        return 0
 
     if args.command == "check":
         with git_tree.GitTree(root) as tree:

@@ -519,3 +519,101 @@ jobs:
           path: .same-tree/kit-tests
           enableCrossOsArchive: true
           key: ${{ fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].key }}
+
+  # RFD 0029 step 2 (cmuxterm-hq#18218): a pull request that changes a rendered iOS file gets the fleet
+  # simulator step with the XCUITest suite at its head, on every push, so nobody asks for the proof by hand
+  # (35 and 60 min request to result, 13 pull requests queued, 2026-11-22). Its result at the head is the
+  # "flow working end to end in a simulator" the `iOS-hold: proven` route asks for (cmux-next-ios/CLAUDE.md).
+  # Which files are rendered is decided by what they are (scripts/ci/affected-jobs.json ios_sim_proof), never by
+  # a claim. It produces evidence and is not a required check: it changes nothing about what blocks a merge.
+  sim-proof-route:
+    name: iOS simulator proof route
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_EVAL_STEP_GATEWAY != '' }}
+    runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.route.outputs.run }}
+      suites: ${{ steps.route.outputs.suites }}
+    steps:
+      # The merge of the head onto the base tip and that tip (depth 2): HEAD^1..HEAD is the pull request's own
+      # files, as test-ios.yml's detect-ios-changes reads them. Trees only (blob:none).
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          filter: blob:none
+          sparse-checkout: scripts/ci
+          sparse-checkout-cone-mode: false
+
+      - name: Does it change a rendered iOS file
+        id: route
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          base="$(git rev-parse HEAD^1)"
+          # Not the merge of the head (no merge ref, a stale one): diff the base tip with the head itself.
+          if [ "$(git rev-parse HEAD^2 2>/dev/null)" != "$HEAD_SHA" ]; then
+            git fetch --no-tags --quiet --filter=blob:none --depth=1 origin "$HEAD_SHA"
+          fi
+          python3 scripts/ci/affected_jobs.py ios-proof --base "$base" --head HEAD | tee -a "$GITHUB_STEP_SUMMARY"
+
+  sim-proof:
+    name: iOS simulator proof (XCUITest at the head)
+    needs: sim-proof-route
+    if: ${{ needs.sim-proof-route.outputs.run == 'true' && vars.CI_EVAL_STEP_GATEWAY != '' }}
+    # A thin cmux-ci client on the build-fleet gateway runner, as cmux-next-iphone-clips.yml's record job: the
+    # controller runs the step on a fleet simulator Mac (class simulator).
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    steps:
+      - name: Run the XCUITest suite on a fleet simulator
+        id: step
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SUITES: ${{ needs.sim-proof-route.outputs.suites }}
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          [[ -x "$client" ]] || { echo "::error title=iOS simulator proof::$client is not installed on runner $RUNNER_NAME"; exit 1; }
+          [[ "$SUITES" =~ ^[A-Za-z0-9,]+$ ]] || { echo "::error title=iOS simulator proof::bad suite list '$SUITES'"; exit 1; }
+          log="$RUNNER_TEMP/sim-proof.log"
+          "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$HEAD_SHA" --timeout 7200 \
+            --arg test --arg "ui=$SUITES" --arg video --artifact artifacts/ios-sim/evidence.zip 2>&1 | tee "$log"
+          status="${PIPESTATUS[0]}"
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+          mkdir -p "$RUNNER_TEMP/sim-proof"
+          # A red step still uploads its evidence (--failed): the screens of a failed test are the point.
+          if [ -n "$step" ]; then
+            "$client" artifact "$step" "$RUNNER_TEMP/sim-proof/evidence.zip" \
+              || "$client" artifact --failed "$step" "$RUNNER_TEMP/sim-proof/evidence.zip" \
+              || echo "::warning title=iOS simulator proof::step $step returned no evidence"
+          fi
+          {
+            echo "### iOS simulator proof at $HEAD_SHA"
+            echo
+            echo "- fleet step: ${step:-(none)}, exit $status"
+            echo "- suites: ${SUITES//,/, }"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Keep the evidence
+        id: upload
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-sim-proof-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/sim-proof/evidence.zip
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Link the evidence
+        if: ${{ !cancelled() && steps.upload.outputs.artifact-url != '' }}
+        env:
+          URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          echo "- evidence (screens, ui-video.mp4, per-test results): $URL" >> "$GITHUB_STEP_SUMMARY"
