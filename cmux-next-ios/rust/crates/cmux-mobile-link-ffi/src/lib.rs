@@ -18,7 +18,6 @@ mod browser;
 mod classic_leftovers;
 mod link_side;
 mod terminal_chat;
-mod terminal_history;
 mod terminal_prediction;
 mod terminal_projection;
 
@@ -28,11 +27,8 @@ pub use link_side::{LinkOpenSide, link_open_side};
 pub use terminal_chat::{
     TabFace, TerminalChatCandidate, TerminalChatFaces, TerminalChatFacts, TerminalChatSwap,
 };
-pub use terminal_history::{
-    DEFAULT_HISTORY_CAP_BYTES, DeliveredHistory, HistoryFetch, HistoryRow, TerminalDeliveredHistory, VtRow,
-};
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
-pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
+pub use terminal_projection::{HistoryFetch, ProjectionSegment, ProjectionStats, TerminalProjection};
 
 uniffi::setup_scaffolding!();
 

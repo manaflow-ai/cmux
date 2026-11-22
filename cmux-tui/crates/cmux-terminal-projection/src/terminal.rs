@@ -113,6 +113,9 @@ pub struct Terminal {
     /// Rows dropped from the front of `history` (its limit) since the last reset.
     pub history_dropped: u64,
     history_limit: usize,
+    /// Bytes `history` holds ([`row_bytes`]), at most `history_cap_bytes`.
+    history_bytes: usize,
+    history_cap_bytes: usize,
     cursor: Cursor,
     /// The primary screen's cursor while the alternate screen is up.
     primary_cursor: Cursor,
@@ -164,6 +167,12 @@ pub struct Terminal {
     utf8_need: usize,
 }
 
+/// Bytes one scrollback row holds: the row and its cells (8 bytes each;
+/// trailing empty cells are dropped).
+pub fn row_bytes(row: &Row) -> usize {
+    std::mem::size_of::<Row>() + row.cells.len() * std::mem::size_of::<Cell>()
+}
+
 impl Terminal {
     pub fn new(cols: usize, rows: usize, history_limit: usize) -> Terminal {
         let cols = cols.max(1);
@@ -177,6 +186,8 @@ impl Terminal {
             history: VecDeque::new(),
             history_dropped: 0,
             history_limit,
+            history_bytes: 0,
+            history_cap_bytes: usize::MAX,
             cursor: Cursor::default(),
             primary_cursor: Cursor::default(),
             saved: [Saved::default(); 2],
@@ -813,12 +824,14 @@ impl Terminal {
 
     fn full_reset(&mut self) {
         let (cols, rows, limit) = (self.cols, self.rows, self.history_limit);
+        let cap_bytes = self.history_cap_bytes;
         let styles = std::mem::take(&mut self.styles);
         let graphemes = std::mem::take(&mut self.graphemes);
         let links = std::mem::take(&mut self.links);
         let passthrough = std::mem::take(&mut self.passthrough);
         let replies = std::mem::take(&mut self.replies);
         *self = Terminal::new(cols, rows, limit);
+        self.history_cap_bytes = cap_bytes;
         // Interned strings stay valid for cells still on the phone.
         self.styles = styles;
         self.graphemes = graphemes;
@@ -1210,11 +1223,118 @@ impl Terminal {
         let keep = row.cells.iter().rposition(|c| *c != Cell::default()).map_or(0, |i| i + 1);
         row.cells.truncate(keep);
         row.cells.shrink_to_fit();
+        self.history_bytes += row_bytes(&row);
         self.history.push_back(row);
-        while self.history.len() > self.history_limit {
-            self.history.pop_front();
+        self.trim_history();
+    }
+
+    /// Drops the oldest rows past the row limit or the byte cap.
+    fn trim_history(&mut self) {
+        while self.history.len() > self.history_limit
+            || (self.history_bytes > self.history_cap_bytes && !self.history.is_empty())
+        {
+            if let Some(row) = self.history.pop_front() {
+                self.history_bytes = self.history_bytes.saturating_sub(row_bytes(&row));
+            }
             self.history_dropped += 1;
         }
+    }
+
+    /// Bytes the scrollback holds (its rows' cells and the rows themselves).
+    pub fn history_bytes(&self) -> usize {
+        self.history_bytes
+    }
+
+    /// Bounds the scrollback by rows and by bytes (0: no byte cap); the
+    /// oldest rows past either go.
+    pub fn set_history_cap(&mut self, rows: usize, bytes: usize) {
+        self.history_limit = rows.max(1);
+        self.history_cap_bytes = if bytes == 0 { usize::MAX } else { bytes };
+        self.trim_history();
+    }
+
+    /// The host's number of `history[0]`: the rows of its scrollback this
+    /// model never had (a replay that starts inside it, as
+    /// `history_rows_omitted`). The view starts over: its rows are numbered
+    /// anew.
+    pub fn set_history_origin(&mut self, omitted: u64) {
+        if self.history_dropped != omitted {
+            self.history_dropped = omitted;
+            self.reset_needed = true;
+        }
+    }
+
+    /// The host rows to fetch next, never one this model holds or had: up
+    /// to `chunk` rows just above `history[0]`, as (first row, rows). None
+    /// at the host's first row or when the scrollback is full.
+    pub fn older_fetch(&self, chunk: usize) -> Option<(u64, usize)> {
+        let room = self.history_limit.saturating_sub(self.history.len());
+        if self.history_dropped == 0
+            || chunk == 0
+            || room == 0
+            || self.history_bytes >= self.history_cap_bytes
+        {
+            return None;
+        }
+        let rows = (chunk.min(room) as u64).min(self.history_dropped);
+        Some((self.history_dropped - rows, rows as usize))
+    }
+
+    /// Puts a fetched page of older host rows above `history[0]`, with no
+    /// reset: `page` is rows `start..` as VT bytes, each ended by CRLF, at
+    /// the host's width. Rows the model already holds are skipped; a page
+    /// that ends above `history[0]` (a gap) is refused. Takes the newest
+    /// rows first and stops at the row limit or the byte cap. Returns the
+    /// rows added.
+    pub fn prepend_history(&mut self, start: u64, page: &[u8]) -> usize {
+        let mut scratch = Terminal::new(self.cols, 1, usize::MAX);
+        for &byte in page {
+            scratch.advance(byte);
+        }
+        if scratch
+            .primary
+            .first()
+            .is_some_and(|row| row.cells.iter().any(|c| *c != Cell::default()))
+        {
+            scratch.advance(b'\r');
+            scratch.advance(b'\n');
+        }
+        let rows = scratch.history.len() as u64;
+        let end = start + rows;
+        if end < self.history_dropped || start >= self.history_dropped {
+            return 0;
+        }
+        // Rows at or past `history_dropped` are held already.
+        let skip = (end - self.history_dropped) as usize;
+        let mut added = 0;
+        let mut page_rows = std::mem::take(&mut scratch.history);
+        page_rows.truncate(page_rows.len() - skip);
+        while let Some(mut row) = page_rows.pop_back() {
+            let cost = row_bytes(&row);
+            if self.history.len() >= self.history_limit
+                || self.history_bytes.saturating_add(cost) > self.history_cap_bytes
+            {
+                break;
+            }
+            for cell in &mut row.cells {
+                if cell.style != 0 {
+                    let mut style = scratch.styles.get(cell.style);
+                    if style.link != 0 {
+                        style.link = self.links.id(scratch.links.get(style.link));
+                    }
+                    cell.style = self.styles.id(style);
+                }
+                if cell.ch & GRAPHEME != 0 {
+                    cell.ch =
+                        GRAPHEME | self.graphemes.id(scratch.graphemes.get(cell.ch & !GRAPHEME));
+                }
+            }
+            self.history_bytes += cost;
+            self.history.push_front(row);
+            self.history_dropped -= 1;
+            added += 1;
+        }
+        added
     }
 
     fn erase_display(&mut self, mode: u16) {
@@ -1266,6 +1386,7 @@ impl Terminal {
             }
             3 if !self.alt_active => {
                 self.history.clear();
+                self.history_bytes = 0;
                 self.history_dropped = 0;
                 self.reset_needed = true;
             }
@@ -1701,5 +1822,93 @@ mod tests {
             glyphs(&term, 0),
             vec![("\u{915}\u{93F}".to_string(), true), (".".to_string(), false)]
         );
+    }
+
+    fn page(range: std::ops::Range<u64>) -> Vec<u8> {
+        range.map(|n| format!("row {n}\r\n")).collect::<String>().into_bytes()
+    }
+
+    fn history_text(term: &Terminal) -> Vec<String> {
+        term.history.iter().map(|row| text(term, row)).collect()
+    }
+
+    #[test]
+    fn the_byte_cap_drops_the_oldest_rows() {
+        let mut term = Terminal::new(20, 1, 1_000);
+        term.set_history_cap(
+            1_000,
+            3 * row_bytes(&Row { cells: vec![Cell::default(); 5], ..Row::default() }),
+        );
+        feed(&mut term, &String::from_utf8(page(0..10)).unwrap());
+        assert_eq!(history_text(&term), ["row 7", "row 8", "row 9"]);
+        assert_eq!(term.history_dropped, 7);
+        assert!(term.history_bytes() <= 3 * (std::mem::size_of::<Row>() + 5 * 8));
+        feed(&mut term, "\x1b[3J");
+        assert_eq!(term.history_bytes(), 0);
+    }
+
+    #[test]
+    fn a_page_goes_above_the_oldest_row_without_a_reset() {
+        let mut term = Terminal::new(20, 1, 1_000);
+        feed(&mut term, &String::from_utf8(page(100..103)).unwrap());
+        term.set_history_origin(100);
+        term.reset_needed = false;
+        assert_eq!(term.older_fetch(40), Some((60, 40)));
+        assert_eq!(term.prepend_history(60, &page(60..100)), 40);
+        assert_eq!(term.history_dropped, 60);
+        assert_eq!(history_text(&term)[..2], ["row 60", "row 61"]);
+        assert_eq!(history_text(&term)[39..41], ["row 99", "row 100"]);
+        assert!(!term.reset_needed);
+        // Rows held already are skipped; a page above a gap is refused.
+        assert_eq!(term.prepend_history(50, &page(50..70)), 10);
+        assert_eq!(term.history_dropped, 50);
+        assert_eq!(term.prepend_history(10, &page(10..40)), 0);
+        assert_eq!(term.history.len(), 53);
+    }
+
+    #[test]
+    fn the_fetch_plan_asks_each_row_once_and_stops_at_the_first() {
+        let mut term = Terminal::new(20, 1, 100_000);
+        feed(&mut term, "row 4999\r\n");
+        term.set_history_origin(4_999);
+        let mut asked = 0;
+        while let Some((start, rows)) = term.older_fetch(2_000) {
+            asked += rows;
+            assert_eq!(term.prepend_history(start, &page(start..start + rows as u64)), rows);
+        }
+        assert_eq!(asked, 4_999);
+        assert_eq!(term.history_dropped, 0);
+        assert_eq!(history_text(&term)[0], "row 0");
+        assert_eq!(term.history.len(), 5_000);
+    }
+
+    #[test]
+    fn a_page_stops_at_the_byte_cap() {
+        let mut term = Terminal::new(20, 1, 1_000);
+        feed(&mut term, "row 100\r\n");
+        term.set_history_origin(100);
+        let one = term.history_bytes();
+        term.set_history_cap(1_000, 4 * one);
+        assert_eq!(term.prepend_history(50, &page(50..100)), 3);
+        assert_eq!(history_text(&term), ["row 97", "row 98", "row 99", "row 100"]);
+        assert_eq!(term.prepend_history(40, &page(40..97)), 0);
+    }
+
+    #[test]
+    fn a_page_keeps_its_styles_graphemes_and_links() {
+        let mut term = Terminal::new(20, 1, 1_000);
+        feed(&mut term, "\x1b[1;34mnew\x1b[0m\r\n");
+        term.set_history_origin(1);
+        let older = "\x1b[38;2;1;2;3;48;5;22mdiff\x1b[0m e\u{301} \x1b]8;;https://x.test\x07link\x1b]8;;\x07\r\n";
+        assert_eq!(term.prepend_history(0, older.as_bytes()), 1);
+        let row = term.history[0].clone();
+        assert_eq!(text(&term, &row), "diff e\u{301} link");
+        let style = term.styles.get(row.cells[0].style);
+        assert_eq!(style.fg, crate::style::Color::Rgb(1, 2, 3));
+        assert_eq!(style.bg, crate::style::Color::Indexed(22));
+        let link = term.styles.get(row.cells[7].style).link;
+        assert_eq!(term.links.get(link), ";https://x.test");
+        assert_eq!(text(&term, &term.history[1]), "new");
+        assert_eq!(term.styles.get(term.history[1].cells[0].style).flags, crate::style::BOLD);
     }
 }

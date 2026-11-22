@@ -85,14 +85,20 @@ public final class MockTerminalSession: TerminalSession {
     /// DEBUG bench: an older-row fetch is on its way (`claudepaged`).
     public var historyFetchPending: Bool { paged?.fetching ?? false }
     /// DEBUG bench: the "Mac" still holds rows older than the phone's (`claudepaged`).
-    public var olderRowsHeldBack: Bool { paged.map { $0.allowance < $0.next - 1 - rows } ?? false }
+    public var olderRowsHeldBack: Bool {
+        #if os(iOS)
+        if paged != nil, let held = projected { return held.olderRows() > 0 || held.olderFetch(chunk: 1) != nil }
+        #endif
+        return paged.map { $0.allowance < $0.next - 1 - rows } ?? false
+    }
     /// DEBUG bench (`claudepaged ... after`): the bytes fed to the mirror
     /// from the phone's own delivered rows (no link), per fetch.
     public private(set) var localFeeds: [Int] = []
     #if os(iOS)
-    /// `claudepaged ... after`: the rows the phone was delivered, in Rust
-    /// (`TerminalDeliveredHistory`); a fetch asks only for rows above them.
-    private var delivered: TerminalDeliveredHistory?
+    /// `claudepaged ... after`: the rows the phone was delivered, held in
+    /// the projection's scrollback (`cmux-terminal-projection`, Rust); a
+    /// fetch asks only for rows above its oldest one.
+    private var projected: TerminalProjection?
     #endif
 
     private enum Program {
@@ -301,7 +307,7 @@ public final class MockTerminalSession: TerminalSession {
     /// rows held before it, the screen and the live region).
     private func loadOlderPaged() -> Bool {
         #if os(iOS)
-        if let store = delivered { return loadNeverSent(store) }
+        if let held = projected { return loadNeverSent(held) }
         #endif
         guard var state = paged, !state.fetching, state.allowance < state.next - 1 - rows else { return false }
         state.fetching = true
@@ -341,42 +347,54 @@ public final class MockTerminalSession: TerminalSession {
 
     #if os(iOS)
     /// `claudepaged ... after`: the fetch asks the "Mac" for only the rows
-    /// above the oldest one delivered (`replay_history_start` /
-    /// `replay_history_rows`), so the link carries none twice; the page
-    /// goes above them in the Rust store, and the mirror is reset and fed
-    /// from the store (Ghostty cannot put rows above its scrollback).
-    private func loadNeverSent(_ store: TerminalDeliveredHistory) -> Bool {
-        guard var state = paged, !state.fetching, let fetch = store.nextFetch(chunk: UInt32(state.chunk)) else { return false }
+    /// above the oldest one held (`replay_history_start` /
+    /// `replay_history_rows`), so the link carries none twice; the page goes
+    /// above them in the projection's scrollback without a reset there, and
+    /// the mirror is reset and fed from it (Ghostty cannot put rows above
+    /// its scrollback).
+    private func loadNeverSent(_ held: TerminalProjection) -> Bool {
+        guard var state = paged, !state.fetching else { return false }
+        let fetch = held.olderFetch(chunk: UInt32(clamping: state.chunk))
+        guard fetch != nil || held.olderRows() > 0 else { return false }
         state.fetching = true
         paged = state
-        historyFetches += 1
-        fetchAsks.append(ProcessInfo.processInfo.systemUptime)
-        // Store row n is the transcript's row n + 1.
-        let first = Int(fetch.start) + 1, end = first + Int(fetch.rows)
-        let page = (first..<end).map { MockPagedHistory.row($0) }
-        let bytes = page.reduce(0) { $0 + $1.utf8.count + 2 }
-        let delay = state.link.ms(bytes: bytes, fetch: historyFetches)
-        linkMs.append(delay)
+        // Projection row n is the transcript's row n + 1.
+        var page: [String] = []
+        var first = 0, bytes = 0, delay = 0
+        if let fetch {
+            historyFetches += 1
+            fetchAsks.append(ProcessInfo.processInfo.systemUptime)
+            first = Int(fetch.start) + 1
+            page = (first..<first + Int(fetch.rows)).map { MockPagedHistory.row($0) + "\r\n" }
+            bytes = page.reduce(0) { $0 + $1.utf8.count }
+            delay = state.link.ms(bytes: bytes, fetch: historyFetches)
+            linkMs.append(delay)
+        }
         let task = Task { [weak self] in
-            try? await self?.pause(delay)
+            if delay > 0 { try? await self?.pause(delay) }
             guard let self, !Task.isCancelled, var state = self.paged, case .agentCLI = self.program else { return }
             state.fetching = false
-            var tally = MockReplayRows()
-            for (offset, row) in page.enumerated() {
-                let rowBytes = row.utf8.count + 2
-                if first + offset >= state.oldestSent { tally.sentRows += 1; tally.sentBytes += rowBytes } else { tally.neverRows += 1; tally.neverBytes += rowBytes }
+            if let fetch {
+                var tally = MockReplayRows()
+                for (offset, row) in page.enumerated() {
+                    if first + offset >= state.oldestSent { tally.sentRows += 1; tally.sentBytes += row.utf8.count } else { tally.neverRows += 1; tally.neverBytes += row.utf8.count }
+                }
+                _ = held.prependHistory(start: fetch.start, page: Data(page.joined().utf8))
+                state.oldestSent = min(state.oldestSent, first)
+                self.replayRows.append(tally)
+                self.replays.append((ProcessInfo.processInfo.systemUptime, bytes))
             }
-            _ = store.prependOlder(start: fetch.start, rows: page.map { Data($0.utf8) })
-            let oldest = Int(store.firstRow() ?? fetch.start) + 1
-            state.oldestSent = min(state.oldestSent, oldest)
-            state.allowance = max(0, state.next - self.rows - oldest)
             self.paged = state
-            let local = store.vtFrom(from: 0)
-            self.replayRows.append(tally)
-            self.replays.append((ProcessInfo.processInfo.systemUptime, bytes))
+            var local = Data()
+            for segment in held.loadOlder(hostRows: UInt32(clamping: held.olderRows())) {
+                switch segment {
+                case .paint(let chunk), .reset(let chunk), .raw(let chunk): local.append(chunk)
+                case .alternate: break
+                }
+            }
             self.localFeeds.append(local.count)
             self.handler?(.output(TerminalReclaimHold.reset))
-            self.write(String(decoding: local, as: UTF8.self) + Self.claudeRegion(tick: state.tick, rule: state.rule))
+            self.handler?(.output(local))
         }
         tasks.append(task)
         return true
@@ -552,7 +570,7 @@ public final class MockTerminalSession: TerminalSession {
         program = .shell
         paged = nil
         #if os(iOS)
-        delivered = nil
+        projected = nil
         #endif
         setAlternate(false, program: "zsh")
         busy = false
@@ -708,8 +726,9 @@ public final class MockTerminalSession: TerminalSession {
             // redrawn every MS ms with a new transcript row every 6th frame,
             // throughout (fetches included). KBIT, JITTER and LOSS% model a
             // cmux-fault link profile (link-profiles.json) on each fetch.
-            // `after`: the phone keeps its delivered rows (Rust) and each
-            // fetch carries only the CHUNK rows above them.
+            // `after`: the phone keeps its delivered rows (the projection's
+            // scrollback, Rust) and each fetch carries only the CHUNK rows
+            // above them.
             func number(_ index: Int, _ fallback: Int) -> Int { parts.count > index ? Int(parts[index]) ?? fallback : fallback }
             let count = max(1, number(1, 12_000)), chunk = max(1, number(2, 2_000))
             let rtt = max(0, number(3, 60)), delay = max(10, number(4, 80))
@@ -722,14 +741,16 @@ public final class MockTerminalSession: TerminalSession {
                                 lossPercent: parts.count > 7 ? Double(parts[7]) ?? 0 : 0)
             paged = MockPagedHistory(next: count + 1, allowance: 0, chunk: chunk, link: link, rule: rule,
                                      oldestSent: max(1, count + 1 - rows))
+            let attach = "\u{1B}[H\u{1B}[2J\u{1B}[3J" + (max(1, count + 1 - rows)...count).map { MockPagedHistory.row($0) + "\r\n" }.joined()
+                + Self.claudeRegion(tick: 0, rule: rule)
             #if os(iOS)
-            // `after`: the phone keeps the rows it is delivered (Rust store).
-            delivered = parts.contains("after") ? TerminalDeliveredHistory(capBytes: 0) : nil
-            delivered?.pushNewest(first: UInt64(max(1, count + 1 - rows) - 1),
-                                  rows: (max(1, count + 1 - rows)...count).map { Data(MockPagedHistory.row($0).utf8) })
+            // `after`: the phone keeps the rows it is delivered, in the
+            // projection's scrollback (Rust), numbered as the Mac's.
+            projected = parts.contains("after") ? MockPagedHistory.held(columns: columns, rows: rows) : nil
+            _ = projected?.feed(bytes: Data(attach.utf8), paint: false)
+            projected?.setHistoryOrigin(omitted: UInt64(max(1, count + 1 - rows) - 1))
             #endif
-            write("\u{1B}[H\u{1B}[2J\u{1B}[3J" + (max(1, count + 1 - rows)...count).map { MockPagedHistory.row($0) + "\r\n" }.joined()
-                + Self.claudeRegion(tick: 0, rule: rule))
+            write(attach)
             let task = Task { [weak self] in
                 while !Task.isCancelled {
                     do { try await self?.pause(delay) } catch { return }
@@ -738,13 +759,14 @@ public final class MockTerminalSession: TerminalSession {
                     var out = "\r\u{1B}[3A\u{1B}[J"
                     if state.tick % 6 == 0 {
                         out += MockPagedHistory.row(state.next) + "\r\n"
-                        #if os(iOS)
-                        self.delivered?.pushNewest(first: UInt64(state.next - 1), rows: [Data(MockPagedHistory.row(state.next).utf8)])
-                        #endif
                         state.next += 1
                     }
                     self.paged = state
-                    self.write(out + Self.claudeRegion(tick: state.tick, rule: state.rule))
+                    out += Self.claudeRegion(tick: state.tick, rule: state.rule)
+                    #if os(iOS)
+                    _ = self.projected?.feed(bytes: Data(out.utf8), paint: false)
+                    #endif
+                    self.write(out)
                 }
             }
             tasks.append(task)
@@ -1016,6 +1038,17 @@ struct MockPagedHistory {
     /// newest rows by `chunk` up to 10,000, then #43189's 4,000-row window
     /// moved up 1,500 rows, with the screen). After: the rows above the
     /// screen once, through the Rust store's own fetch plan.
+    #if os(iOS)
+    /// The phone's projection of the mock Mac terminal, holding its
+    /// scrollback (no row limit; `capBytes` 0: no byte cap).
+    static func held(columns: Int, rows: Int, capBytes: UInt64 = 32 << 20) -> TerminalProjection {
+        let held = TerminalProjection(hostCols: UInt32(clamping: columns), hostRows: UInt32(clamping: rows))
+        held.setHistoryCap(rows: 10_000_000, bytes: capBytes)
+        _ = held.setViewport(cols: UInt32(clamping: columns), rows: UInt32(clamping: rows))
+        return held
+    }
+    #endif
+
     static func scrollBack(total: Int, chunk: Int, screen: Int, after: Bool) -> (bytes: Int, fetches: Int) {
         var prefix = [0]
         prefix.reserveCapacity(total + 1)
@@ -1025,13 +1058,15 @@ struct MockPagedHistory {
         var fetches = 0, sent = 0
         #if os(iOS)
         if after {
-            let store = TerminalDeliveredHistory(capBytes: 0)
-            store.pushNewest(first: UInt64(screenFirst - 1), rows: (screenFirst...total).map { Data(row($0).utf8) })
-            while let fetch = store.nextFetch(chunk: UInt32(chunk)) {
+            let store = Self.held(columns: 200, rows: screen, capBytes: 0)
+            _ = store.feed(bytes: Data((screenFirst...total).map { row($0) + "\r\n" }.joined().utf8), paint: false)
+            store.setHistoryOrigin(omitted: UInt64(screenFirst - 1))
+            while let fetch = store.olderFetch(chunk: UInt32(clamping: chunk)) {
                 let first = Int(fetch.start) + 1, last = first + Int(fetch.rows) - 1
                 fetches += 1
                 sent += bytes(first, last)
-                guard store.prependOlder(start: fetch.start, rows: (first...last).map { Data(row($0).utf8) }) > 0 else { break }
+                let page = (first...last).map { row($0) + "\r\n" }.joined()
+                guard store.prependHistory(start: fetch.start, page: Data(page.utf8)) > 0 else { break }
             }
             return (sent, fetches)
         }

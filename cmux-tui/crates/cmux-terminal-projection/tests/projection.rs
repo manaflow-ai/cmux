@@ -566,3 +566,49 @@ fn random_streams_keep_the_phone_identical() {
         }
     }
 }
+
+#[test]
+fn fetched_pages_go_above_the_oldest_row_and_none_is_fetched_twice() {
+    // The host has 12,000 lines; the phone attached with the last 1,000
+    // (the replay omitted 11,000) and streams more after that.
+    let all = numbered(12_100);
+    let line = |n: u64| format!("{n:05} {}\r\n", "word ".repeat(5 + n as usize % 17)).into_bytes();
+    let mut host = exact(120, 40, 100_000);
+    host.set_history_cap(100_000, 8 << 20);
+    let mut phone = Phone::new(54, 38);
+    phone.apply(host.set_viewport(54, 38));
+    let attach: Vec<u8> = (11_000..12_000).flat_map(line).collect();
+    feed(&mut host, &mut phone, &attach);
+    host.set_history_origin(11_000);
+    let mut phone = Phone::new(54, 38);
+    phone.apply(host.paint().into_iter().collect());
+    assert_same(&host, &phone, "attached");
+    let mut fetched = 0u64;
+    let mut asked = std::collections::BTreeSet::new();
+    let mut streamed = 12_000;
+    while let Some((start, rows)) = host.older_fetch(2_000) {
+        assert!(start + rows as u64 <= 11_000, "only rows never delivered");
+        assert!((start..start + rows as u64).all(|n| asked.insert(n)), "a row asked twice");
+        let page: Vec<u8> = (start..start + rows as u64).flat_map(line).collect();
+        fetched += page.len() as u64;
+        assert_eq!(host.prepend_history(start, &page), rows);
+        // Output keeps streaming between pages, painted as a diff.
+        let before = phone.resets;
+        feed(&mut host, &mut phone, &line(streamed));
+        streamed += 1;
+        assert_eq!(phone.resets, before, "a page resets nothing");
+        let mut fresh = Phone::new(54, 38);
+        fresh.apply(host.load_older(rows));
+        phone = fresh;
+        assert_same(&host, &phone, "after a page");
+    }
+    assert_eq!(asked.len(), 11_000);
+    let older: usize = all.len();
+    assert!(fetched < older as u64, "fetched {fetched} of {older} bytes");
+    assert_eq!(host.terminal().history_dropped, 0);
+    let first = String::from_utf8(line(0)).unwrap();
+    let held = host.terminal();
+    let text: String =
+        held.history[0].cells.iter().filter(|c| c.ch != 0).map(|c| held.cell_text(*c)).collect();
+    assert!(first.starts_with(text.trim_end()), "{text}");
+}

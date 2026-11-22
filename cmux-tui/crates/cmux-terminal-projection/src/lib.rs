@@ -194,6 +194,37 @@ impl Projection {
     }
 
     /// The next paint starts the phone's terminal over.
+    /// Bounds the scrollback by rows and by bytes (0: no byte cap).
+    pub fn set_history_cap(&mut self, rows: usize, bytes: usize) {
+        self.term.set_history_cap(rows, bytes);
+    }
+
+    /// Bytes the scrollback holds.
+    pub fn history_bytes(&self) -> usize {
+        self.term.history_bytes()
+    }
+
+    /// The host's scrollback rows above the oldest one held (a replay that
+    /// started inside it: `history_rows_omitted`), so fetches number rows
+    /// as the host does.
+    pub fn set_history_origin(&mut self, omitted: u64) {
+        self.term.set_history_origin(omitted);
+    }
+
+    /// The next fetch of host rows never delivered: up to `chunk` rows just
+    /// above the oldest held, as (first row, rows); `replay_history_start`
+    /// and `replay_history_rows`. None: nothing older, or the cap is full.
+    pub fn older_fetch(&self, chunk: usize) -> Option<(u64, usize)> {
+        self.term.older_fetch(chunk)
+    }
+
+    /// Puts a fetched page (rows `start..`, CRLF-ended VT at the host's
+    /// width) above the oldest row held, with no reset of the model: the
+    /// rows become [`Projection::older_rows`] for [`Projection::load_older`].
+    pub fn prepend_history(&mut self, start: u64, page: &[u8]) -> usize {
+        self.term.prepend_history(start, page)
+    }
+
     pub fn request_reset(&mut self) {
         if let Some(view) = &mut self.view {
             view.request_reset();

@@ -31,6 +31,14 @@ pub struct ProjectionStats {
     pub resets: u64,
 }
 
+/// Mac scrollback rows to fetch: `replay_history_start` and
+/// `replay_history_rows` of a window attach.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct HistoryFetch {
+    pub start: u64,
+    pub rows: u32,
+}
+
 #[derive(uniffi::Object)]
 pub struct TerminalProjection {
     inner: Mutex<Projection>,
@@ -103,6 +111,40 @@ impl TerminalProjection {
     /// of the scrollback, as a reset. Empty when the surface has all of it.
     pub fn load_older(&self, host_rows: u32) -> Vec<ProjectionSegment> {
         segments(self.inner().load_older(usize::try_from(host_rows).unwrap_or(usize::MAX)))
+    }
+
+    /// Bounds the Mac scrollback the phone holds by rows and by bytes
+    /// (0: no byte cap); the oldest rows past either go.
+    pub fn set_history_cap(&self, rows: u64, bytes: u64) {
+        self.inner().set_history_cap(
+            usize::try_from(rows).unwrap_or(usize::MAX),
+            usize::try_from(bytes).unwrap_or(usize::MAX),
+        );
+    }
+
+    /// Bytes the held scrollback takes.
+    pub fn history_bytes(&self) -> u64 {
+        u64::try_from(self.inner().history_bytes()).unwrap_or(u64::MAX)
+    }
+
+    /// The Mac's scrollback rows above the oldest one held (the attach
+    /// replay's `history_rows_omitted`), so fetches number rows as it does.
+    pub fn set_history_origin(&self, omitted: u64) {
+        self.inner().set_history_origin(omitted);
+    }
+
+    /// The next fetch: up to `chunk` Mac rows just above the oldest held,
+    /// never one delivered before. None: nothing older, or the cap is full.
+    pub fn older_fetch(&self, chunk: u32) -> Option<HistoryFetch> {
+        let (start, rows) = self.inner().older_fetch(usize::try_from(chunk).unwrap_or(usize::MAX))?;
+        Some(HistoryFetch { start, rows: u32::try_from(rows).unwrap_or(u32::MAX) })
+    }
+
+    /// A fetched page (Mac rows `start..`, each CRLF-ended, at the Mac's
+    /// width) goes above the oldest row held, without a reset; rows held
+    /// already are skipped. Returns the rows added; ``load_older`` shows them.
+    pub fn prepend_history(&self, start: u64, page: Vec<u8>) -> u32 {
+        u32::try_from(self.inner().prepend_history(start, &page)).unwrap_or(u32::MAX)
     }
 
     /// The next paint starts the surface over.

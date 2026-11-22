@@ -38,7 +38,7 @@ final class TerminalTUILagReproUITests: XCTestCase {
     }
 
     // After: the same pans with the phone keeping the rows it was
-    // delivered (Rust `TerminalDeliveredHistory`), each fetch carrying only
+    // delivered (the projection's scrollback, Rust), each fetch carrying only
     // the rows above them (`claudepaged ... after`). Same step, same worker.
     @MainActor func testPagedPanOverGoodWifiKeepingDelivered() throws {
         try pan(profile: "good-wifi@1", spec: "12000 2000 2 80 40000 0 0 after", arm: "after")
