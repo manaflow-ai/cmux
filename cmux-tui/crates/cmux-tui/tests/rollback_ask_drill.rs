@@ -42,9 +42,9 @@
 //!   `/tmp`, read with `df -Pk /tmp`. Below 2 times the state's forecast
 //!   size + 10 GB, or when the read gives no number, the state is not made.
 //! - THE TIME: this test's own budget of 25 minutes, checked before each
-//!   state is made and again before each part's measure. The runner ends
-//!   the test at 30 minutes; the longest measure after a check is the 240 s
-//!   of part (i).
+//!   state is made, before each copy of a session in a make, and again
+//!   before each part's measure. The runner ends the test at 30 minutes; the
+//!   longest measure after a check is the 240 s of part (i).
 //!
 //! A guard that stops a part gives the line `NOT RUN` with its cause for
 //! the parts that are left of that size, and the test passes.
@@ -560,8 +560,8 @@ struct State {
 
 impl State {
     /// `Err` = the state is not made, with the cause: a guard before the
-    /// make, or a failure of the make. The folder is deleted then too (the
-    /// drop of `folder`).
+    /// make, the time guard in the make, or a failure of the make. The folder
+    /// is deleted then too (the drop of `folder`).
     fn new(part: &str, sessions: usize, began: Instant) -> Result<Self, Stop> {
         guards(began, sessions)?;
         let folder = Folder::new(part);
@@ -607,6 +607,9 @@ impl State {
             )));
         }
         for copy in 1..sessions {
+            // A make that passes the budget stops here: the drop of `folder`
+            // deletes the state, and the size gets its line `NOT RUN`.
+            budget(began)?;
             let name = format!("{session}-{copy:04}");
             let to = root.join(&name);
             fs::create_dir(&to).map_err(|error| format!("copy {copy}: {error}"))?;
