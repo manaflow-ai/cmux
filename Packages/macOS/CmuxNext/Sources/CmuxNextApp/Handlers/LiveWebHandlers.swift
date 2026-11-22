@@ -25,7 +25,7 @@ enum LiveWebHandlers {
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let bundled = context.services.bundledCLI
-        Task { _ = await bundled.resolve(); _ = await BundledCLIRun.expireStaleLayers(bundled) } // task-owner: none; a bounded file read, then stale layers off
+        Task { await BundledCLIRun.atLaunch(bundled) } // task-owner: none; bounded CLI runs: stale layers off, code layers refreshed once per app commit
         let noCLI: @MainActor () -> String? = { bundled.known == nil ? LiveWebStrings.noCLI : nil }
         registry.bindEffect(startID, unavailable: noCLI, effect: { invocation in
             guard let cli = bundled.known else { return .refused(LiveWebStrings.noCLI) }
