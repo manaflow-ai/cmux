@@ -51,6 +51,7 @@ mod exit_reason;
 mod fallback_start;
 pub(crate) mod session_auth;
 pub(crate) mod settled_view;
+mod subagent_expiry;
 pub(crate) mod subagent_resume;
 pub(crate) mod subagent_retry;
 pub(crate) use crate::turn_errors;

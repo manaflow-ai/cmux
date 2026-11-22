@@ -223,6 +223,20 @@ impl Hub {
                             // show it (`subagent_retry.rs`).
                             tap_hub.observe_task_line(&tap_session, line);
                         }
+                        // What ends a subagent whose end the bridge could not tell
+                        // (`subagents::expiry`): the status Claude gave its task, and Claude's
+                        // whole list of the tasks that still run.
+                        if !muted && let Some(line) = params.as_ref() {
+                            match method.as_str() {
+                                "claude.system.task_notification" => {
+                                    tap_hub.subagent_task_notified(&tap_session, line)
+                                }
+                                "claude.system.background_tasks_changed" => {
+                                    tap_hub.subagent_tasks_changed(&tap_session, line)
+                                }
+                                _ => {}
+                            }
+                        }
                         // Raw stream-json line; translated messages follow. Claude's echo of a
                         // prompt (`--replay-user-messages`) carries its model-sized copies, and
                         // its assistant and user lines the bodies those messages carry.
@@ -361,6 +375,7 @@ impl Hub {
                 let before = tree.background_running();
                 let running_before = tree.running_count();
                 tree.set_roots(own.iter().chain(&retired).map(String::as_str));
+                tree.set_clock(crate::store::now_ms());
                 subagent = tree.annotate_live(params, !kind.ends_with(".replay"));
                 background_changed = tree.background_running() != before;
                 running_changed = tree.running_count() != running_before;
@@ -504,6 +519,11 @@ impl Hub {
                     rec.msg.pointer("/params/_meta/acpmux/subagents").and_then(Value::as_array)
             {
                 tap_hub.observe_subagents(&tap_session, events);
+            }
+            // A subagent quiet past its bound ages out (`subagents::expiry`), checked at most
+            // once a minute as the chat's lines arrive.
+            if d == "in" && !muted {
+                tap_hub.sweep_aged_subagents(&tap_session, false);
             }
             logged
         })
