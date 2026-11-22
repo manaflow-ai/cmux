@@ -151,20 +151,23 @@ const moves = new Map<string, ComputerUsePreviewMove>();
 let shown: ComputerUsePreview | null = null;
 const listeners = new Set<() => void>();
 
-/// Bumped on every change, so a card drawn from a prop (the gallery, a test) redraws on a move.
-let version = 0;
-
 function notify(): void {
-  version += 1;
   shown = withMoves(current);
   for (const listener of listeners) listener();
 }
 
 function withMoves(card: ComputerUsePreview | null): ComputerUsePreview | null {
-  if (!card) return null;
-  const move = moves.get(card.session);
+  return card && withMove(card, moves.get(card.session), card.session === closed);
+}
+
+/// `card` with the person's `move` over it; `closedHere`: the person closed it on this page.
+function withMove(
+  card: ComputerUsePreview,
+  move: ComputerUsePreviewMove | undefined,
+  closedHere: boolean,
+): ComputerUsePreview | null {
   // Closed here and the host does not keep a hidden card (an older host): gone, as before.
-  if (card.session === closed && card.hidden !== true && move?.hidden !== true) return null;
+  if (closedHere && card.hidden !== true && move?.hidden !== true) return null;
   if (!move) return card;
   const { hidden, ...place } = move;
   const merged: ComputerUsePreview = {
@@ -304,13 +307,18 @@ export function useComputerUsePreview(): ComputerUsePreview | null {
   return useSyncExternalStore(subscribe, currentComputerUsePreview, currentComputerUsePreview);
 }
 
-const currentVersion = () => version;
-
 /// `card` with the person's moves over it, redrawn on each move: the card draws a move at once
 /// whoever gave it the card (the app's store already has them; this adds nothing then).
 export function useComputerUsePreviewMoves(card: ComputerUsePreview | null): ComputerUsePreview | null {
-  useSyncExternalStore(subscribe, currentVersion, currentVersion);
-  return withMoves(card);
+  // The session's own move and closed flag are the snapshots (a move stores a new object), so a
+  // memoized render (React Compiler) keys on them: a store read whose result went unused let
+  // the compiler keep the card drawn before the move.
+  const session = card?.session;
+  const moveOf = () => (session === undefined ? undefined : moves.get(session));
+  const closedOf = () => session !== undefined && session === closed;
+  const move = useSyncExternalStore(subscribe, moveOf, moveOf);
+  const closedHere = useSyncExternalStore(subscribe, closedOf, closedOf);
+  return card && withMove(card, move, closedHere);
 }
 
 declare global {

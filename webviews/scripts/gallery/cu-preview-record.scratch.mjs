@@ -66,7 +66,9 @@ try {
       try {
         await page.goto(url(variant, scheme), { waitUntil: "domcontentloaded" });
         await ready(page);
-        if (scheme === "dark") console.log(JSON.stringify({ play: variant, report: await playReport(page) }).slice(0, 1500));
+        const report = await playReport(page);
+        if (report && report.status !== "pass") failures += 1;
+        console.log(JSON.stringify({ play: variant, scheme, report }).slice(0, 1500));
         await wait(page, 900);
         const file = path.join(out, "stills", `${variant}-${scheme}.png`);
         await page.screenshot({ path: file });
