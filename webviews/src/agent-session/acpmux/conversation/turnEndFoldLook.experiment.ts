@@ -13,7 +13,7 @@ export const turnEndFoldLook = defineExperiment({
   arms: {
     fade: {
       label: "Fade, then close (shipped)",
-      description: "The folded rows fade in 40 ms, then the rows around them close on the 180 ms settle.",
+      description: "The folded rows fade in 40 ms, then the rows around them close on the house settle.",
     },
     tuck: { label: "Tuck", description: "The folded rows slide up under the Worked for line as they fade." },
     stagger: { label: "Stagger", description: "The folded rows fade from the last up, one after another." },
@@ -29,7 +29,10 @@ export const turnEndFoldLook = defineExperiment({
       label: "Cascade",
       description: "The folded rows fold up into the Worked for line one after another, top first.",
     },
-    glide: { label: "Glide", description: "A soft-start ease-in-out over 240 ms in place of the settle's ease-out." },
+    glide: {
+      label: "Glide",
+      description: "A soft-start ease-in-out over the large motion step in place of the settle's ease-out.",
+    },
     spring: { label: "Spring", description: "A critically damped spring (no overshoot) over 360 ms." },
     wait: {
       label: "Hold, then fold",

@@ -5,6 +5,10 @@
 // Leo, 2026-11-22: "the big fold we do for claude is not good looking enough. it looks like a gash collapsing."
 //
 //   bun scripts/fold-variants-record.ts [--looks fade,tuck,...] [--out DIR] [--ffmpeg PATH] [--scenario replay]
+//     [--fixture FILE.ndjson --end STEP --tag NAME]
+//
+// `--fixture` records a recorded chat from outside the repo (copied under node_modules/ for the dev server,
+// never committed) up to the turn end at step `--end`; `--tag` names its clips fold-TAG-LOOK.mp4.
 //
 // The page is test/browser/fold-variants.html (the chat-sim big-claude-turn scenario, drawn by the real
 // VirtualTranscript with motion on). Frames come from Chrome's screencast with their own timestamps, so the
@@ -22,7 +26,12 @@ const value = (name: string) => {
 const webviews = path.resolve(import.meta.dir, "..");
 const out = path.resolve(value("--out") ?? "/tmp/fold-variants");
 const ffmpeg = value("--ffmpeg") ?? "ffmpeg";
-const scenario = value("--scenario") ?? "big-claude-turn";
+const fixture = value("--fixture");
+const end = value("--end") === undefined ? undefined : Number(value("--end"));
+const tag = value("--tag");
+const scenario = fixture
+  ? `url:/node_modules/.fold-fixtures/${path.basename(fixture)}`
+  : (value("--scenario") ?? "big-claude-turn");
 const { TURN_END_LOOKS } = await import("../src/agent-session/acpmux/conversation/turnEndFold");
 const looks = value("--looks")?.split(",") ?? [...TURN_END_LOOKS];
 const WIDTH = 720;
@@ -110,6 +119,12 @@ if (import.meta.main) {
   const { warmViteServer } = await import("../test/support/warmDevServer");
   await warmViteServer(vite, PAGE);
   const { port } = vite.httpServer!.address() as { port: number };
+  if (fixture) {
+    const { copyFileSync } = await import("node:fs");
+    mkdirSync(path.join(webviews, "node_modules/.fold-fixtures"), { recursive: true });
+    copyFileSync(fixture, path.join(webviews, "node_modules/.fold-fixtures", path.basename(fixture)));
+  }
+  const name = (look: string) => (tag ? `${tag}-${look}` : look);
   const browser = await chromium.launch({ headless: true });
   mkdirSync(out, { recursive: true });
   const results: Record<string, unknown> = {};
@@ -119,7 +134,7 @@ if (import.meta.main) {
     page.on("console", (m) => m.type() === "warning" && console.error(m.text()));
     await page.goto(`http://127.0.0.1:${port}${PAGE}?width=${WIDTH}&height=${HEIGHT}`, { timeout: 180_000 });
     await page.waitForFunction(() => "__fold" in window, undefined, { timeout: 120_000 });
-    const frames = path.join(out, `frames-${look}`);
+    const frames = path.join(out, `frames-${name(look)}`);
     rmSync(frames, { recursive: true, force: true });
     mkdirSync(frames, { recursive: true });
     const cdp = await page.context().newCDPSession(page);
@@ -132,18 +147,19 @@ if (import.meta.main) {
     });
     await cdp.send("Page.startScreencast", { format: "jpeg", quality: 90, everyNthFrame: 1 });
     const run = (await page.evaluate(
-      ([look, scenario]) =>
-        (window as unknown as { __fold: { run(look: string, name: string): Promise<unknown> } }).__fold.run(
-          look!,
-          scenario!,
-        ),
-      [look, scenario],
+      ([look, scenario, end]) =>
+        (
+          window as unknown as {
+            __fold: { run(look: string, name: string, tailMs?: number, end?: number): Promise<unknown> };
+          }
+        ).__fold.run(look as string, scenario as string, undefined, end as number | undefined),
+      [look, scenario, end] as const,
     )) as Run;
     await cdp.send("Page.stopScreencast");
     const numbers = measure(run);
     results[look] = numbers ?? { error: "no fold played" };
     console.log(`${look.padEnd(10)} ${JSON.stringify(numbers)}`);
-    writeFileSync(path.join(out, `${look}.samples.json`), JSON.stringify(run));
+    writeFileSync(path.join(out, `${name(look)}.samples.json`), JSON.stringify(run));
     if (numbers && shots.length) {
       // Page time to wall time: performance.timeOrigin + t.
       const from = run.startedAt + numbers.foldStart - 500;
@@ -157,7 +173,7 @@ if (import.meta.main) {
         .join("\n");
       const listFile = path.join(frames, "list.txt");
       writeFileSync(listFile, `${list}\nfile '${kept.at(-1)?.file}'\n`);
-      const clip = path.join(out, `fold-${look}.mp4`);
+      const clip = path.join(out, `fold-${name(look)}.mp4`);
       const made = spawnSync(
         ffmpeg,
         [
@@ -186,7 +202,7 @@ if (import.meta.main) {
     }
     await page.close();
   }
-  writeFileSync(path.join(out, "results.json"), JSON.stringify(results, null, 1));
+  writeFileSync(path.join(out, tag ? `results-${tag}.json` : "results.json"), JSON.stringify(results, null, 1));
   await browser.close();
   await vite.close();
 }

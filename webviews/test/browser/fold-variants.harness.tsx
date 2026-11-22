@@ -103,6 +103,11 @@ function bigClaudeTurn(): SimScenario {
 }
 
 async function scenarioNamed(name: string): Promise<SimScenario> {
+  // `url:PATH`: a recorded chat (ndjson) the dev server serves, such as one fetched outside the repo.
+  if (name.startsWith("url:")) {
+    const text = await (await fetch(name.slice(4))).text();
+    return replayScenario(name.slice(4), parseRecords(text));
+  }
   if (name === "replay") {
     const text = (await import("../fixtures/chat-sim/replay-lane-session.ndjson?raw")).default as string;
     return replayScenario("replay-lane-session", parseRecords(text));
@@ -143,14 +148,21 @@ function sampleFrame(): Sample {
   return { t: performance.now(), folding: !!thread?.hasAttribute(TURN_END_ATTR), rows };
 }
 
+// fixed-wait: the steps' real clock is what this page records; a turn plays at the pace a live one does.
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const painted = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
-/** Plays the chat with fold look `look`, and returns every frame's rows from its last turn's end on. */
-async function run(look: string, name = "big-claude-turn", tailMs = 1_400) {
-  const scenario = await scenarioNamed(name);
+/// Plays the chat with fold look `look`, and returns every frame's rows from its last turn's end on.
+/// `end` picks another turn's end (a step index; the chat stops there), and the steps until shortly
+/// before it play without waiting, so a long recorded chat reaches its big fold in seconds.
+async function run(look: string, name = "big-claude-turn", tailMs = 1_400, end?: number) {
+  const whole = await scenarioNamed(name);
+  const scenario = end === undefined ? whole : { ...whole, steps: whole.steps.slice(0, end + 1) };
   flushSync(() => show({ rows: [], working: false, sends: 0, look }));
-  await sleep(50);
-  const lastEnd = scenario.steps.findLastIndex((step) => step.label.startsWith("turn_result"));
+  await painted();
+  let lastEnd = scenario.steps.length - 1;
+  while (lastEnd > 0 && !scenario.steps[lastEnd]!.label.startsWith("turn_result")) lastEnd -= 1;
+  const fastUntil = end === undefined ? 0 : lastEnd - 40;
   const sampleFrom = Math.max(0, lastEnd - 4);
   const samples: Sample[] = [];
   let sampling = false;
@@ -175,11 +187,16 @@ async function run(look: string, name = "big-claude-turn", tailMs = 1_400) {
       }
       flushSync(() => show({ rows, working: state.working, sends, look }));
       if (sampling) marks.push({ step: index, t: performance.now(), label: step.label });
-      await sleep(index >= sampleFrom ? STEP_MS * 2 : STEP_MS);
+      if (index < fastUntil) {
+        // fixed-wait: a yield to the event loop while fast-forwarding, so the page stays responsive.
+        if (index % 50 === 0) await sleep(0);
+        // fixed-wait: the gap between two steps of the chat is the timing being recorded.
+      } else await sleep(index >= sampleFrom ? STEP_MS * 2 : STEP_MS);
       return rows.map(() => undefined);
     },
     { rowsInTraceUpTo: 0 },
   );
+  // fixed-wait: the frames after the turn's end are the fold being recorded, for a set time.
   await sleep(tailMs);
   sampling = false;
   const result = { look, samples, marks, startedAt: performance.timeOrigin };

@@ -18,7 +18,7 @@
 // above it come down to meet the folded line. Reduce Motion, `data-agent-motion="off"` or no Web
 // Animations: the swap applies at once and nothing here runs. The work is bounded by the rows
 // mounted now (the view's window), never the whole chat.
-import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
+import { MOTION_MS, MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { bezierAt, cssBezier, parseBezier, type CubicBezier } from "../../../ui/cubicBezier";
 import { currentChatMetrics } from "../chatDisplay";
 import { EXIT_EASING, exitLeadMs } from "./exitLead";
@@ -219,7 +219,7 @@ export function turnEndLook(node: Element): TurnEndLook {
 }
 
 /// `glide`'s curve: a soft start and a soft landing, so no one frame takes the move's biggest step first.
-const GLIDE = { ms: 240, easing: "cubic-bezier(0.4, 0, 0.2, 1)" };
+const GLIDE = { ms: MOTION_MS.large, easing: "cubic-bezier(0.4, 0, 0.2, 1)" };
 /// `spring`'s length: a critically damped spring sampled as a CSS linear() curve (it starts still and
 /// never overshoots: Leo's "decelerate, no overshoot").
 const SPRING_MS = 360;
