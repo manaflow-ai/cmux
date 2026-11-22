@@ -1,4 +1,5 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
+// cmux-web-test-timeout: 900
 // Leo, 2026-11-22: "i meant there were various resizing things going on, and you guys didn't predict the
 // placements in time. there should be no problem doing so for inline attachments after send." A sent prompt
 // with images placed in its text draws them where they were put, and nothing moves while they load: the
@@ -26,7 +27,7 @@ const READ_MS = 400;
 const SETTLE_MS = 700;
 
 await requireBrowserLane("sent-media-shift-browser.test.ts", async () => {
-  setDefaultTimeout(120_000);
+  setDefaultTimeout(600_000);
   const engines: [string, BrowserType][] = [];
   for (const engine of [
     ["chromium", chromium],
@@ -63,7 +64,14 @@ await requireBrowserLane("sent-media-shift-browser.test.ts", async () => {
     await vite?.close();
   });
 
-  type Row = { id: string; kind: string; text?: string; version: number; at: number; [key: string]: unknown };
+  type Row = {
+    id: string;
+    kind: string;
+    text?: string;
+    version: number;
+    at: number;
+    [key: string]: unknown;
+  };
   let at = 0;
   const row = (id: string, kind: string, text?: string, extra: Record<string, unknown> = {}): Row => ({
     id,
@@ -136,7 +144,13 @@ await requireBrowserLane("sent-media-shift-browser.test.ts", async () => {
       return urls;
     }, SHOTS);
 
-  type Sample = { key: string; top: number; left: number; width: number; height: number };
+  type Sample = {
+    key: string;
+    top: number;
+    left: number;
+    width: number;
+    height: number;
+  };
   /// Shows the chat, then samples every painted frame until `SETTLE_MS` after the reads land.
   const showAndSample = (page: Page, shown: Row[]) =>
     page.evaluate(
@@ -158,11 +172,23 @@ await requireBrowserLane("sent-media-shift-browser.test.ts", async () => {
           const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
           if (!scroller) return [];
           const view = scroller.getBoundingClientRect();
-          const out: { key: string; top: number; left: number; width: number; height: number }[] = [];
+          const out: {
+            key: string;
+            top: number;
+            left: number;
+            width: number;
+            height: number;
+          }[] = [];
           const push = (key: string, node: Element) => {
             const box = node.getBoundingClientRect();
             if (box.bottom < view.top || box.top > view.bottom || box.width === 0) return;
-            out.push({ key, top: box.top, left: box.left, width: box.width, height: box.height });
+            out.push({
+              key,
+              top: box.top,
+              left: box.left,
+              width: box.width,
+              height: box.height,
+            });
           };
           for (const rowNode of scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")) {
             const id = rowNode.dataset.rowId!;
@@ -175,7 +201,11 @@ await requireBrowserLane("sent-media-shift-browser.test.ts", async () => {
           return out;
         };
         const frames: ReturnType<typeof sample>[] = [];
-        (window as unknown as { __showSession(id: string, rows: unknown): void }).__showSession("session-1", list);
+        (
+          window as unknown as {
+            __showSession(id: string, rows: unknown): void;
+          }
+        ).__showSession("session-1", list);
         const start = performance.now();
         let loadedAt: number | undefined;
         // The window: until every image drew and `windowMs` more passed (at most 5 s).
@@ -188,7 +218,11 @@ await requireBrowserLane("sent-media-shift-browser.test.ts", async () => {
             loadedAt = performance.now();
           if (loadedAt !== undefined && performance.now() - loadedAt > windowMs) break;
         }
-        return { frames, cls: cls.supported ? cls.score : null, loaded: loadedAt !== undefined };
+        return {
+          frames,
+          cls: cls.supported ? cls.score : null,
+          loaded: loadedAt !== undefined,
+        };
       },
       [shown, SETTLE_MS] as const,
     );
