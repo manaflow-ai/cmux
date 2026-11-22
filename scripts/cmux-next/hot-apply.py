@@ -120,7 +120,8 @@ another pauses it), so they add up to the run:
 
   plan      reading the app's commit and sorting the diff (live_apply.py)
   key       SHA's cmux-tui tree key and web source key (the web key checks SHA out sparsely)
-  fetch     downloads from files.cmux.com (the web bundle's own sha256 check is inside it)
+  fetch     downloads from files.cmux.com (a build's files download at once, each hashed as it
+            streams in; the web bundle's own sha256 check is inside it)
   verify    the sha256 checks of what was fetched and of what was put in place
   backup    the copies of what the app had, kept for `rollback`
   find      the daemons running from the app (ps, lsof, `server status`)
@@ -143,7 +144,8 @@ them from there, checks each against the sha256 it was fetched with, and only sw
 has published SHA (`glaeda-gh wait run` on the publish run, then `prefetch`); try-pr.sh and an agent
 that merges can run it right away. A part the app already runs is skipped: a `bin/cmux` (and its
 companions) that already hash to SHA's build, and an overlay whose commit has SHA's web key. The
-receipt names it under `unchanged`. An apply that changed nothing leaves last.json, and so
+receipt names it under `unchanged`. A build file the cache lacks but the app's bin/ already has (same
+sha256) is copied from there, not downloaded. An apply that changed nothing leaves last.json, and so
 `rollback`, to the apply before it. The web cache keeps the newest WEB_KEEP keys.
 
 Exit 0: applied and checked (or nothing to apply). 1: a check failed (rolled back). 2: usage.
@@ -153,6 +155,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import concurrent.futures
 import contextlib
 import hashlib
 import importlib.util
@@ -792,11 +795,23 @@ def live_from(repo: Path, sha: str, limit: int = LIVE_FROM_MAX) -> dict:
     compatibility remains separate; it can apply parts and report the other layers as left.
     At most `limit` commits; `floor` is that commit, or None when the walk stopped at the limit. The
     signed Mac live update file names them (scripts/ci/cmux-machine-channel.py --purpose mac-live)."""
-    out: dict = {"sha": sha, "live_from": [], "floor": None, "floor_paths": []}
+    out: dict = {"sha": sha, "live_from": [], "floor": None, "floor_paths": [],
+                 "daemon_from": [], "daemon_floor": None, "daemon_floor_paths": []}
+    # daemon_from: the wider list of app commits that can run SHA's bin files beside their own app (daemon ABI
+    # only: the FFI pin and the Rust the Swift build reads). The nightly-live channel (`cmux app try channel`)
+    # reads it: it swaps only the daemon part and never claims the app is at SHA, so Swift, resources and web
+    # (which comes on its own channel) merged since the app's build wait for the next nightly. live_from stays
+    # the whole-app list, so a CLI that reads only live_from claims nothing new.
+    whole_app = True
     for commit in git(repo, "rev-list", "--first-parent", f"--max-count={limit}", sha).split():
-        out["live_from"].append(commit)
-        if paths := pins_daemon(repo, commit, whole_app=True):
-            out["floor"], out["floor_paths"] = commit, paths[:20]
+        out["daemon_from"].append(commit)
+        if whole_app:
+            out["live_from"].append(commit)
+            if paths := pins_daemon(repo, commit, whole_app=True):
+                out["floor"], out["floor_paths"] = commit, paths[:20]
+                whole_app = False
+        if paths := pins_daemon(repo, commit):
+            out["daemon_floor"], out["daemon_floor_paths"] = commit, paths[:20]
             break
     return out
 
@@ -924,6 +939,9 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
 
 
 def triple() -> str:
+    """This host's build target; CMUX_HOT_APPLY_TRIPLE names another (a Linux measure fetching a Mac's build)."""
+    if os.environ.get("CMUX_HOT_APPLY_TRIPLE"):
+        return os.environ["CMUX_HOT_APPLY_TRIPLE"]
     arch = "aarch64" if platform.machine() in ("arm64", "aarch64") else "x86_64"
     return f"{arch}-apple-darwin" if sys.platform == "darwin" else f"{arch}-unknown-linux-musl"
 
@@ -943,8 +961,9 @@ def cached(copy: Path, want: str) -> bool:
         return copy.is_file() and sha256_file(copy) == want
 
 
-def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
-    """SHA's cmux binary for this host, checked against the tree's completion.json and .sha256."""
+def cmux_job(key: str, state: Path) -> tuple[str, str, Path]:
+    """SHA's cmux binary for this host as a build job (URL, its sha256, its copy under state/builds/),
+    the sha256 checked between the tree's completion.json and .sha256."""
     name = f"cmux-tui-{triple()}"
     completion = json.loads(fetch_kept(f"{TUI_BASE}/{key}/completion.json", lists_binary(name)))
     if completion.get("key") != key:
@@ -953,39 +972,78 @@ def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
     published = fetch_kept(f"{TUI_BASE}/{key}/{name}.sha256").decode().split()[0]
     if not want or want != published:
         raise RuntimeError(f"{name}: completion.json says {want}, {name}.sha256 says {published}")
-    return fetch_build_file(f"{TUI_BASE}/{key}/{name}", want, state / "builds" / want / "cmux"), want
+    return f"{TUI_BASE}/{key}/{name}", want, state / "builds" / want / "cmux"
 
 
-def fetch_build_file(url: str, want: str, copy: Path) -> Path:
-    """URL into COPY (state/builds/SHA256/FILE), checked against WANT; a COPY that still hashes to it is kept."""
-    if not cached(copy, want):
-        body = fetch(url)
-        with PHASES("verify"):
-            if hashlib.sha256(body).hexdigest() != want:
-                raise RuntimeError(f"{url} does not hash to {want}")
+FETCH_WORKERS = 4  # a build is the daemon and six companions (~160 MB); one connection each, this many at once
+
+
+def fetch_build_files(jobs: list[tuple[str, str, Path]], seeds: Path | None = None) -> None:
+    """Each (URL, WANT, COPY) into COPY (state/builds/SHA256/FILE), checked against WANT. A COPY that still
+    hashes to WANT is kept; else a file of COPY's name in SEEDS (the app's bin/) that hashes to it is copied,
+    not downloaded (an app that already runs that build); the rest download at once, each hashed as it streams
+    to disk and kept only when it is WANT."""
+    missing = [job for job in jobs if not cached(job[2], job[1]) and not seeded(job[1], job[2], seeds)]
+    if not missing:
+        return
+    with PHASES("fetch"), concurrent.futures.ThreadPoolExecutor(min(FETCH_WORKERS, len(missing))) as pool:
+        for done in [pool.submit(download_into, *job) for job in missing]:
+            done.result()  # the first failure raises, after every download has ended
+
+
+def seeded(want: str, copy: Path, seeds: Path | None) -> bool:
+    """COPY made from SEEDS/COPY.name when that file hashes to WANT: no download."""
+    seed = seeds / copy.name if seeds else None
+    if seed is None or not seed.is_file():
+        return False
+    with PHASES("verify"):
         copy.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part:
-            part.write(body)
+        with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part, open(seed, "rb") as source:
+            digest = hashlib.sha256()
+            while chunk := source.read(1 << 20):
+                digest.update(chunk)
+                part.write(chunk)
+        if digest.hexdigest() != want:
+            os.unlink(part.name)
+            return False
         os.chmod(part.name, 0o755)
         os.replace(part.name, copy)
-    return copy
+        return True
 
 
-def fetch_companions(key: str, state: Path) -> dict[str, tuple[Path, str] | None]:
-    """The companions of tree KEY's build for this host, each checked against the sha256 of the
+def download_into(url: str, want: str, copy: Path, timeout: float = 300) -> None:
+    """URL streamed into COPY, kept only when it hashes to WANT. Runs in a worker thread: no PHASES here."""
+    copy.parent.mkdir(parents=True, exist_ok=True)
+    request = urllib.request.Request(url, headers={"User-Agent": "cmux-hot-apply/1"})
+    with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part:
+        try:
+            digest = hashlib.sha256()
+            with urllib.request.urlopen(request, timeout=timeout) as answer:
+                while chunk := answer.read(1 << 20):
+                    digest.update(chunk)
+                    part.write(chunk)
+            if digest.hexdigest() != want:
+                raise RuntimeError(f"{url} does not hash to {want}")
+        except BaseException:
+            part.close()
+            os.unlink(part.name)
+            raise
+    os.chmod(part.name, 0o755)
+    os.replace(part.name, copy)
+
+
+def companion_jobs(key: str, state: Path) -> dict[str, tuple[str, str, Path] | None]:
+    """The companions of tree KEY's build for this host as build jobs, each with the sha256 of the
     commit-addressed manifest its source.json names; None for one that build published none of."""
     owner = json.loads(fetch_kept(f"{TUI_BASE}/{key}/source.json")).get("commit") or ""
     if not SHA.fullmatch(owner):
         raise RuntimeError(f"{TUI_BASE}/{key}/source.json names no commit, so its companions are unknown")
     binaries = json.loads(fetch_kept(f"{COMMIT_BASE}/{owner}/manifest.json")).get("binaries", {})
-    out: dict[str, tuple[Path, str] | None] = {}
+    out: dict[str, tuple[str, str, Path] | None] = {}
     for artifact, file in COMPANIONS:
         asset = f"cmux-tui-{artifact}-{triple()}"
         want = binaries.get(asset)
-        if not want:
-            out[file] = None
-            continue
-        out[file] = (fetch_build_file(f"{COMMIT_BASE}/{owner}/{asset}", want, state / "builds" / want / file), want)
+        out[file] = (f"{COMMIT_BASE}/{owner}/{asset}", want, state / "builds" / want / file) if want else None
     return out
 
 
@@ -1008,20 +1066,24 @@ def team_signed(key: str, team: str | None) -> dict | None:
     return signed if files["cmux"] else None
 
 
-def fetch_build(key: str, state: Path, team: str | None) -> tuple[Path, str, dict[str, tuple[Path, str] | None], str]:
+def fetch_build(key: str, state: Path, team: str | None,
+                seeds: Path | None = None) -> tuple[Path, str, dict[str, tuple[Path, str] | None], str]:
     """Tree KEY's cmux and companions for this host: (cmux, its sha256, companions, which build). An app
-    signed by TEAM takes the Team-signed set when there is one, else (and an ad-hoc app always) the tree."""
+    signed by TEAM takes the Team-signed set when there is one, else (and an ad-hoc app always) the tree.
+    SEEDS (the app's bin/) gives the files it already has with the same sha256, so they are not downloaded."""
     signed = team_signed(key, team)
     if not signed:
-        new, want = fetch_cmux(key, state)
-        return new, want, fetch_companions(key, state), "ad-hoc"
-    out: dict[str, tuple[Path, str] | None] = {}
-    for file, entry in signed["files"].items():
-        want = entry["sha256"] if entry else None
-        out[file] = want and (fetch_build_file(f"{TUI_BASE}/{key}/{TEAM_SIGNED}/{want}/{file}", want,
-                                               state / "builds" / want / file), want)
+        jobs = {"cmux": cmux_job(key, state), **companion_jobs(key, state)}
+        build = "ad-hoc"
+    else:
+        jobs = {file: (f"{TUI_BASE}/{key}/{TEAM_SIGNED}/{entry['sha256']}/{file}", entry["sha256"],
+                       state / "builds" / entry["sha256"] / file) if entry else None
+                for file, entry in signed["files"].items()}
+        build = f"team-signed ({team})"
+    fetch_build_files([job for job in jobs.values() if job], seeds)
+    out = {file: (job[2], job[1]) if job else None for file, job in jobs.items()}
     new, want = out.pop("cmux")
-    return new, want, out, f"team-signed ({team})"
+    return new, want, out, build
 
 
 def local_companions(binary: Path, state: Path) -> dict[str, tuple[Path, str] | None]:
@@ -1843,7 +1905,7 @@ def command_apply(args) -> int:
                 new, want = keep(state, Path(args.binary))
                 companions = local_companions(Path(args.binary), state)
             else:
-                new, want, companions, build = fetch_build(planned["tree_key"], state, app_team(app))
+                new, want, companions, build = fetch_build(planned["tree_key"], state, app_team(app), app / BIN)
                 receipt["steps"]["build"] = build
             # The file itself, whatever plan read: a --binary, or a build plan could not read.
             why = unverifiable(file_team(new), app_team(app), "SHA's cmux" if not args.binary else args.binary)
@@ -1935,9 +1997,11 @@ def command_apply(args) -> int:
 
 def dry_run(repo: Path, args, planned: dict, parts: list[str], receipt: dict, state: Path, t0: float) -> int:
     """What `apply` would fetch and verify, fetched and verified; nothing in the app changes."""
+    app = Path(args.app)
     try:
         if "rust" in parts and not args.binary:
-            new, want, companions, build = fetch_build(planned["tree_key"], state, planned.get("app_team"))
+            new, want, companions, build = fetch_build(planned["tree_key"], state, planned.get("app_team"),
+                                                       None if args.base else app / BIN)
             receipt["steps"]["rust"] = {"to": want, "copy": str(new), "build": build}
             receipt["steps"]["companions"] = {f: (c[1] if c else None) for f, c in companions.items()}
         if "web" in parts:
