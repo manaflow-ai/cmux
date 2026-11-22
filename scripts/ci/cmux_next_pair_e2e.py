@@ -63,6 +63,9 @@ from cmux_next_cloud_pair_proof import allowlist_public_cloud_artifact, read_pro
 PAGE = "cmux.mobile-pairing"
 RIG_MAC_NAME = "0 e2e rig Mac"
 PAIRED = re.compile(r"phone (\w+) paired from this Mac's pairing code")
+# The phone's two lines on a pairing code (LiveCoordinator+PairInvite.swift): it refused it, or took it.
+CODE_REFUSED = re.compile(r"pairing code for a space this account is not in")
+CODE_TAKEN = re.compile(r"pairing code for (?!a space this account is not in)")
 # The upload leg: past the old 100 MiB cap and not a multiple of LinkUpload's 192 KiB chunk.
 UPLOAD_BYTES = (150 << 20) + 12_345
 UPLOAD_NAME = "cmux-upload-probe.bin"
@@ -528,10 +531,16 @@ def main():
                                                        "compact", "--predicate", pairing_logs],
                                                       capture_output=True, text=True).stdout)
             connected = wait_for(lambda: status().get("connectedPhones", 0) >= 1, 60, every=2)
-            took_code = phone_log.wait(re.compile(r"pairing code for"), 0)
+            # LiveCoordinator+PairInvite.swift logs "pairing code for <mac>" when it takes the code and
+            # "pairing code for a space this account is not in" when it refuses it (the phone lists no such
+            # Mac: another account, or another build space); only the first is taking it.
+            refused_code = phone_log.wait(CODE_REFUSED, 0)
+            took_code = phone_log.wait(CODE_TAKEN, 0)
+            code_verdict = ("refused the code: it lists no Mac of it (another account or build space)" if refused_code
+                            else "took the code" if took_code else "never logged taking the code")
             note(f"- pairing: {'PAIRED, phone ' + paired.group(1) if paired else 'NOT paired'} "
                  f"({took:.0f} s after the link opened, no Allow prompt, no seed; the phone "
-                 f"{'took' if took_code else 'never logged taking'} the code); Mac lists "
+                 f"{code_verdict}); Mac lists "
                  f"{last.get('connectedPhones', 0)} connected phone(s){'' if connected else ' (none in 60 s)'}; "
                  f"phone {phone_shot('phone-paired')}; Mac {mac_shot('mac-pairing-paired')}")
             phone_launch()
