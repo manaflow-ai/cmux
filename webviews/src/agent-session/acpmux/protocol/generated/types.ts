@@ -1104,7 +1104,9 @@ export interface ProcessKillParams {
 
 export interface ProcessListParams {
   _meta?: RequestMeta;
+  calls?: unknown;
   cursor?: unknown;
+  endedWithin?: unknown;
   limit?: unknown;
   recent?: unknown;
   sessionId?: unknown;
