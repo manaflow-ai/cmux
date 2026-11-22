@@ -40,6 +40,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     @Bindable private var macTheme = CmuxMobileMacTheme.shared
     @State private var confirmsSignOut = false
     @State private var editingTeam: Team?
+    /// Settings → Home row status (off by default; `CmuxMobileHomeRowLook`).
+    @AppStorage(CmuxMobilePreferences.Key.homeRowLook) private var homeRowLook = CmuxMobileHomeRowLook.now.rawValue
     /// One device list for the "Devices" count here and the Devices page.
     @State private var deviceList = SettingsDeviceList()
     @State private var notificationPermission: NotificationPermission?
@@ -129,6 +131,16 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         SettingsLabel("Compact workspace list", symbol: "rectangle.grid.1x2")
                     }
                     .accessibilityIdentifier("settings.compactWorkspaceList")
+                    // Home rows say where each agent is, in Workspaces' words (off by default).
+                    Picker(selection: $homeRowLook) {
+                        ForEach(CmuxMobileHomeRowLook.allCases, id: \.rawValue) { look in
+                            Text(look.title).tag(look.rawValue)
+                        }
+                    } label: {
+                        SettingsLabel("Home row status", symbol: "text.bubble")
+                    }
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier("settings.homeRowLook")
                     NavigationLink(value: SettingsRoute.longPressMenus) {
                         SettingsLabel("Long-Press Menus", symbol: "contextualmenu.and.cursorarrow")
                     }

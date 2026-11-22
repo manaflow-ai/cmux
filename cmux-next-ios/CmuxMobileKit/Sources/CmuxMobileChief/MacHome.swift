@@ -426,7 +426,48 @@ public final class MacHomeFeed {
         lastChange = nil
     }
 
+    /// What a waiting row's agent asks, by row id, for Home Row Status's words ("is asking
+    /// permission", "has a question") and the tile's short ask. The Mac's `home-inbox` rows do not
+    /// carry the ask yet, so only demos fill this; the Mac Chief's own ask comes from its session.
+    var pendingAsks: [String: HomeRowStatus.PendingAsk] = [:]
+
     #if DEBUG
+    /// Home Row Status's demo (`home-needs-you`): one row per state the setting names, with no
+    /// link: the Chief asking permission (pinned), an agent with a question, one working, one
+    /// done and unread, and read conversations.
+    public func seedNeedsYouRows(macID: String, macChief: String? = nil) {
+        let chiefRow = macChief ?? "conv-mac-chief"
+        let stamp = ISO8601DateFormatter()
+        let rows: [(id: String, kind: String, name: String, chief: String?, state: String?, unread: Int, pinned: Bool, minutes: Double, preview: String)] = [
+            (chiefRow, "chief", "Chief", "agent_mux", "waiting", 1, true, 1,
+             "Heads up: Claude in cmux is asking to run cargo test -p cnx-link. Want me to allow it?"),
+            ("conv-claude", "chief", "Claude", "agent_claude", "waiting", 1, false, 2, "Refactor transport layer"),
+            ("conv-codex", "chief", "Codex", "agent_codex", "waiting", 1, false, 25, "Resolve merge conflicts"),
+            ("conv-builder", "chief", "Builder", "agent_builder", "working", 0, false, 3, "Fix pricing page layout"),
+            ("conv-reviewer", "chief", "Reviewer", "agent_reviewer", "idle", 2, false, 12, "Audit runner labels: 3 hosts relabelled."),
+            ("conv-infra", "group", "Infra", nil, nil, 1, false, 90, "Lawrence: the mini fleet is back up."),
+            ("conv-design", "channel", "Design", nil, nil, 0, false, 60 * 5, "New tab bar mocks are in the folder."),
+        ]
+        pendingAsks = [
+            chiefRow: HomeRowStatus.PendingAsk(kind: .permission, text: "Allow cargo test -p cnx-link?"),
+            "conv-claude": HomeRowStatus.PendingAsk(kind: .permission, text: "Allow git push origin main?"),
+            "conv-codex": HomeRowStatus.PendingAsk(kind: .question, text: "Keep ours or theirs in Package.swift?"),
+        ]
+        setRows(rows.compactMap { row -> MacHomeRow? in
+            var wire: [String: Any] = ["id": row.id, "kind": row.kind, "name": row.name, "unread": row.unread, "preview": row.preview,
+                                       "activity_at": stamp.string(from: Date().addingTimeInterval(-row.minutes * 60)),
+                                       "pinned": row.pinned]
+            if row.pinned { wire["pin_position"] = 0 }
+            if let chief = row.chief {
+                wire["chief"] = chief
+                wire["chief_state"] = row.state
+            }
+            return MacHomeRow(wire: wire)
+        }, complete: true)
+        self.macID = macID
+        macChiefID = chiefRow
+    }
+
     /// The list scroll rig (verify/listperf/): `count` rows shaped like a busy Mac's Home
     /// (four pinned, some Chiefs working, long Markdown previews), with no link.
     public func seedStressRows(count: Int, macID: String) {
