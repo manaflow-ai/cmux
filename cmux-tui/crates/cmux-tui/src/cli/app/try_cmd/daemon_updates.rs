@@ -251,7 +251,7 @@ pub(crate) fn spawn(_session: &str, _socket: Option<PathBuf>) {}
 fn worker(session: &str, socket: Option<PathBuf>) {
     std::thread::sleep(START_DELAY);
     let mut last_line = String::new();
-    let mut child: Option<std::process::Child> = None;
+    let mut child: Option<cmux_process::Child> = None;
     loop {
         // One apply at a time: a child still running holds every look.
         let running = child.as_mut().is_some_and(|c| matches!(c.try_wait(), Ok(None)));
@@ -277,7 +277,7 @@ fn worker(session: &str, socket: Option<PathBuf>) {
 
 /// One look: the started apply and its log line, else why nothing started.
 #[cfg(target_os = "macos")]
-fn check(session: &str, socket: Option<&Path>) -> Result<(String, std::process::Child), String> {
+fn check(session: &str, socket: Option<&Path>) -> Result<(String, cmux_process::Child), String> {
     let exe = std::env::current_exe().ok().and_then(|exe| exe.canonicalize().ok());
     let app = exe.as_deref().and_then(crate::app_identity::containing_app_bundle);
     let info = app.as_deref().and_then(|app| {
@@ -333,26 +333,27 @@ fn check(session: &str, socket: Option<&Path>) -> Result<(String, std::process::
     Ok((line, started))
 }
 
-/// `bin/cmux --json app try channel --app <app>` in its own process group, so
-/// the hand-off that ends this daemon does not end it.
+/// `bin/cmux --json app try channel --app <app>` in its own process group,
+/// detached, so the hand-off that ends this daemon does not end it.
 #[cfg(target_os = "macos")]
-fn start_apply(app: &Path, store: &Store) -> Result<std::process::Child, String> {
-    use std::os::unix::process::CommandExt as _;
+fn start_apply(app: &Path, store: &Store) -> Result<cmux_process::Child, String> {
     let log = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(store.root.join(LOG_FILE))
         .map_err(|e| e.to_string())?;
     let err = log.try_clone().map_err(|e| e.to_string())?;
-    std::process::Command::new(app.join(live::BIN).join("cmux"))
+    let mut child = cmux_process::Command::new(app.join(live::BIN).join("cmux"))
         .args(["--json", "app", "try", "channel", "--app"])
         .arg(app)
-        .stdin(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
         .stdout(log)
         .stderr(err)
         .process_group(0)
         .spawn()
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    child.detach("the apply hands this daemon off and must outlive it");
+    Ok(child)
 }
 
 /// The daemon's activity snapshot: one `subscribe-activity` on its own socket,
