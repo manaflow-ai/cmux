@@ -13,6 +13,7 @@
 use super::{Conn, Hub, Message, RpcError, Value, json, peer_text};
 use crate::hub::list_guard::RequestStage;
 use crate::hub::row_log;
+use crate::no_panic::LockExt as _;
 use cmux_json::JsonSet as _;
 use std::cell::RefCell;
 use std::future::Future;
