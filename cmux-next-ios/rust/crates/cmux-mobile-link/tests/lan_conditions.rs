@@ -44,6 +44,8 @@
 //! - `NETCOND_STREAM_RADIO` (`shared` default, or `own`): `own` gives the stream its own radio
 //!   (its own shaper and source address), as a second socket behind a real NAT gets its own
 //!   mapping; the shaper is one mapping per radio (it answers "whichever spoke last").
+//!   `stopped` brings the stream up on the shared radio, then stops it before the path dials
+//!   (the second dial alone on a link a first session just used).
 
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -316,19 +318,24 @@ async fn cold(profile: &LinkProfile, path: &str, run: u64, seed: u64, echo_count
     let trace = Trace::new();
     let mac = Mac::start().await;
     let radio = Radio::start(&mac, profile, seed, &trace).await;
-    let own_radio = std::env::var("NETCOND_STREAM_RADIO").is_ok_and(|value| value == "own");
+    let stream_mode = std::env::var("NETCOND_STREAM_RADIO").unwrap_or_default();
+    let own_radio = stream_mode == "own";
     let stream_radio = if stream_kib > 0 && own_radio {
         Some(Radio::start(&mac, profile, seed + 1_000, &trace).await)
     } else {
         None
     };
-    let load = if stream_kib > 0 {
+    let mut load = if stream_kib > 0 {
         stream_load(&mac, stream_radio.as_ref().unwrap_or(&radio), stream_kib).await
     } else {
         None
     };
     if stream_kib > 0 {
         emit(profile, path, "stream_up", Some(if load.is_some() { 1.0 } else { 0.0 }), run, seed);
+    }
+    if stream_mode == "stopped" {
+        load = None;
+        tokio::time::sleep(Duration::from_millis(500)).await;
     }
     if matches!(profile.disruption, Some(Disruption::InternetDown)) {
         radio.internet_down();
