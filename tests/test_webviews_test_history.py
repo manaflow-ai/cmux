@@ -871,6 +871,53 @@ class Fetch(unittest.TestCase):
         self.assertIn("steps.history-restore.outcome == 'success'", record[:record.index("run: |")])
 
 
+class PassedBefore(unittest.TestCase):
+    """A newer head's shard reads the files its previous head passed (ci-web.yml reuses those its change cannot reach)."""
+
+    def test_the_newest_earlier_run_on_the_branch_is_read_and_forks_and_this_run_are_not(self):
+        def art(id, at, run, branch="lane/x", head_repo=7):
+            return {"id": id, "name": "react-apps-passed-shard3", "created_at": at, "expired": False,
+                    "archive_download_url": f"https://api.example/artifacts/{id}/zip",
+                    "workflow_run": {"id": run, "head_branch": branch, "repository_id": 7, "head_repository_id": head_repo}}
+
+        def zipped(commit, files):
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w") as archive:
+                archive.writestr("commit", commit + "\n")
+                archive.writestr("files", files)
+            return buf.getvalue()
+
+        listing = json.dumps({"artifacts": [art(1, "2026-11-22T01:00:00Z", 11), art(2, "2026-11-22T02:00:00Z", 12),
+                                            art(3, "2026-11-22T03:00:00Z", 13, head_repo=9),
+                                            art(4, "2026-11-22T04:00:00Z", 14, branch="other"),
+                                            art(5, "2026-11-22T05:00:00Z", 99)]}).encode()
+        calls = []
+
+        def get(url, token):
+            calls.append((url, token))
+            if "/actions/artifacts?" in url:
+                return 200, {}, listing
+            if url == "https://api.example/artifacts/2/zip":
+                return 302, {"Location": "https://blob.example/2"}, b""
+            if url == "https://blob.example/2":
+                return 200, {}, zipped("a" * 40, "test/a.test.ts\n")
+            return 404, {}, b""
+
+        out = Path(self.enterContext(tempfile.TemporaryDirectory())) / "before"
+        said = history.passed_before("o/r", "lane/x", 3, 99, out, get=get)
+        self.assertIn("from run 12", said)
+        self.assertEqual((out / "commit").read_text().strip(), "a" * 40)
+        self.assertEqual((out / "files").read_text(), "test/a.test.ts\n")
+        self.assertEqual(len(calls), 3)
+        self.assertIsNone(calls[2][1])  # the storage host never gets the token
+
+    def test_a_failed_read_writes_nothing(self):
+        out = Path(self.enterContext(tempfile.TemporaryDirectory())) / "before"
+        said = history.passed_before("o/r", "lane/x", 1, 99, out, get=lambda url, token: (403, {}, b""))
+        self.assertIn("403", said)
+        self.assertFalse(out.exists())
+
+
 class Workflow(unittest.TestCase):
     def job(self, name):
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -946,13 +993,13 @@ class Workflow(unittest.TestCase):
         block = job[job.index("    permissions:\n"):].split("\n    ", 3)
         self.assertEqual(block[1:3], ["  contents: read", "  actions: read"])
 
-    def test_only_the_history_jobs_ask_for_actions_read(self):
-        # The history is an artifact: listing and downloading it takes actions: read, nothing more.
-        for name in ("webviews-test-history", "react-apps-base-check"):
+    def test_only_the_artifact_reading_jobs_ask_for_actions_read(self):
+        # The history and a shard's passes at the previous head (passed-before) are artifacts: listing and downloading
+        # them takes actions: read, nothing more.
+        for name in ("webviews-test-history", "react-apps-base-check", "react-apps-check-shard"):
             job = self.job(name)
             block = job[job.index("    permissions:\n"):].split("\n    ", 3)
             self.assertEqual(block[1:3], ["  contents: read", "  actions: read"], name)
-        self.assertNotIn("permissions:", self.job("react-apps-check-shard"))
 
     def test_the_replay_fetches_the_history_unless_the_head_results_say_no_reds(self):
         # Head results it cannot read are unknown, not "no reds": skipping the fetch then left the flaky list empty.
@@ -1301,6 +1348,20 @@ class Workflow(unittest.TestCase):
         self.assertEqual(compare["env"]["KNOWN_REPLAY"], "${{ steps.history.outputs.replay }}")
         self.assertIn('base-replay-files', compare["run"])
         self.assertIn('base-known.json', compare["run"])
+
+    def test_every_run_the_history_job_records_writes_the_inputs_key(self):
+        # Keyed on push alone, batch ticks wrote no key and their history job failed "no single inputs key"
+        # (run 44980099868), so the base reds froze and pull request shards alone-retried base reds to the deadline.
+        import yaml
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        steps = jobs["react-apps-check-shard"]["steps"]
+        test = next(s for s in steps if s.get("id") == "webview-tests")
+        upload = next(s for s in steps if s.get("id") == "history-upload")
+        recorded = upload["if"].removeprefix("${{ !cancelled() && ").removesuffix(" }}")
+        self.assertEqual(test["env"]["CMUX_WEB_TEST_RECORD_HISTORY"], "${{ " + recorded + " && '1' || '0' }}")
+        self.assertIn(recorded, jobs["webviews-test-history"]["if"])
+        self.assertIn('if [ "${CMUX_WEB_TEST_RECORD_HISTORY:-0}" = 1 ]; then\n'
+                      '  python3 ../scripts/ci/webviews_test_history.py inputs >', test["run"])
 
     def test_the_history_job_records_the_key_the_shards_computed_and_never_an_empty_one(self):
         # The history job's checkout is sparse; inputs() reads routed files it does not have (#40223 review).

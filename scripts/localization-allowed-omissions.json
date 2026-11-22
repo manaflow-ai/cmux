@@ -7694,6 +7694,29 @@
       "fr": "Agent is the standard noun for an AI agent in French, spelled as in English (as home.info.agent)."
     }
   },
+  "sidebar.hoverCard.origin.script": {
+    "source": "Script",
+    "identityLocales": {
+      "fr": {
+        "reason": "Script is the standard French word for a program script.",
+        "values": [
+          "Script"
+        ]
+      },
+      "it": {
+        "reason": "Script is the standard Italian loanword for a program script.",
+        "values": [
+          "Script"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Script is the standard Brazilian Portuguese loanword for a program script.",
+        "values": [
+          "Script"
+        ]
+      }
+    }
+  },
   "settings.remote.screenSharingProfile.ultra": {
     "source": "Ultra",
     "identityLocales": {
