@@ -144,7 +144,7 @@ def push_paths(workflow_text: str) -> list[str]:
             in_paths = line.strip() == "paths:"
             continue
         if in_paths and line.strip().startswith("- "):
-            out.append(line.strip()[2:].strip().strip("'\""))
+            out.append(re.split(r"\s+#", line.strip()[2:], maxsplit=1)[0].strip().strip("'\""))
     return out
 
 

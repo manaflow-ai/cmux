@@ -228,7 +228,7 @@ class CancelSuperseded(unittest.TestCase):
 
     def test_no_dispatch_cancels_nothing(self):
         # Not due (no cmux-next push path changed): the last run is the newest verdict and stays.
-        api = FakeApi([(OLD, T0)], TIP, files=["README.md"])
+        api = FakeApi([(OLD, T0)], TIP, files=["docs/blog/notes.md"])
         api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
         self.assertIsNone(kick(api, Clock(T0 + 20 * 60)))
         self.assertEqual(api.cancelled, [])
@@ -301,7 +301,7 @@ class Kick(unittest.TestCase):
 
     def test_a_tip_whose_landings_change_no_cmux_next_push_path_is_left_alone(self):
         # The same paths that start a cmux-next push run: a docs-only burst runs no base tier.
-        api = FakeApi([(OLD, T0)], TIP, files=["README.md", "docs/blog/post.md"])
+        api = FakeApi([(OLD, T0)], TIP, files=["docs/blog/notes.md", "docs/blog/post.md"])
         self.assertIsNone(kick(api, Clock(T0 + 20 * 60)))
         self.assertEqual(api.dispatched, [])
 

@@ -1695,9 +1695,10 @@ class Excusing(unittest.TestCase):
                 self.assertFalse([route for route in self.gh.routes if "/runs/70" in route and "/jobs?" in route])
 
     def test_tree_jobs_are_jobs_of_the_suites_that_defer_them(self):
-        # Only a tip daemon suite or base tier run defers its tree jobs; a name outside them skips nothing.
+        # Only a tip daemon suite or base tier run defers its tree jobs; a name outside them skips nothing. The
+        # checks job runs in the first run itself (cmux-next.yml checks skips a same-tree run), never deferred.
         self.assertLessEqual(excuse.TREE_JOBS, excuse.SUITES["cmux-next base tier · "])
-        self.assertLessEqual(excuse.SUITES["cmux-next tip daemon suite · "], excuse.TREE_JOBS)
+        self.assertLessEqual(excuse.SUITES["cmux-next tip daemon suite · "] - {excuse.CHECKS_JOB_NAME}, excuse.TREE_JOBS)
 
     def test_a_first_run_still_counts_for_the_jobs_it_runs_itself(self):
         # Generated files run in the first run itself (path routing's generated_host), never in its
