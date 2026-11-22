@@ -19,6 +19,7 @@ fleet-test-compile.yml check; fleet/compile-check stays the app compile.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -388,10 +389,14 @@ class PullRequestRunsOnlyWithFullCiTests(unittest.TestCase):
         self.assertRegex(job, r"(?m)^    needs: plan$")
         self.assertNotIn("always()", job)
 
-    def test_the_tip_compile_still_runs_on_every_push(self) -> None:
+    def test_the_tip_compile_still_runs_after_every_merge(self) -> None:
+        # 2026-11-21: in the post-merge batch (suite tip-test-compile), not on each push.
         tip = (ROOT / ".github" / "workflows" / "cmux-next-tip-test-compile.yml").read_text()
-        self.assertIn("branches: [feat-cmux-next]", tip)
+        self.assertIn("workflow_call:", tip)
         self.assertNotIn("full-ci", tip)
+        suite = json.loads((ROOT / ".github" / "post-merge-batch.json").read_text())["suites"]["tip-test-compile"]
+        self.assertEqual(suite["workflow"], "cmux-next-tip-test-compile.yml")
+        self.assertIn("Packages/**", suite["paths"])
 
 
 class AdvisoryVerdictTests(unittest.TestCase):
