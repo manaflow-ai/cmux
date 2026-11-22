@@ -4,7 +4,7 @@
 // daemon's settings write keeps (cmux-config store/write.rs, newest first, at most 8), so a change
 // from the CLI, the palette or this page is in it alike; the page only draws it and writes
 // appearance.background on a click.
-import { FOLDER_PREFIX } from "./wallpaperSwitch";
+import { BACKGROUND_KEY, DYNAMIC_KEY, FOLDER_PREFIX, type WallpaperWrite } from "./wallpaperSwitch";
 
 export const RECENTS_KEY = "appearance.backgroundRecents";
 
@@ -13,6 +13,12 @@ export type RecentKind = "folder" | "shuffle" | "none" | "mode" | "picture";
 export type RecentTile = { id: string; kind: RecentKind; title: string };
 
 type Titled = { id: string; title: string };
+
+/** A recent pick's writes: the background, and sun mode off as Switch Automatically's Off turns it,
+ * so a static picture never keeps appearance.backgroundDynamic "time" (the CLI's `back` does the same). */
+export function recentWrites(id: string, dynamic: unknown): WallpaperWrite[] {
+  return [[BACKGROUND_KEY, id], ...(dynamic === "time" ? [[DYNAMIC_KEY, null] as const] : [])];
+}
 
 /** The kind of a background id, as the strip draws it. */
 export function recentKind(id: string): RecentKind {

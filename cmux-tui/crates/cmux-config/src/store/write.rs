@@ -81,6 +81,15 @@ pub(super) fn apply_write(state: &State, op: Op) -> Result<Applied, Refusal> {
             return Err(Refusal::FileUnreadable { message: problem.clone() });
         }
         next.recompute();
+        // Once per write, so an edit batch records the background it started from.
+        let text = match record_background(state, &next, text)? {
+            Recorded::Same(text) => text,
+            Recorded::Changed(text) => {
+                next.read_file(super::FileRead::Text(text.clone()));
+                next.recompute();
+                text
+            }
+        };
         next.revision = state.revision + 1;
         // Every applied write bumps the revision once, even when no value changed.
         let keys = diff::changed_keys(&state.effective, &next.effective);
@@ -218,58 +227,59 @@ fn set_text(
             || state.team.defaults.contains_key(&row.key);
         if remove_default && !below && row.default.clone().map(canonical).as_ref() == Some(&value) {
             let text = remove_pruning(without_replaced(source.to_string(), &path)?, &path)?;
-            return record_background(state, source, text, &path);
+            return Ok(text);
         }
     }
     if row.is_none() {
         check_row_overlap(state, &path)?;
     }
     let text = without_replaced(source.to_string(), &path)?;
-    let text = jsonc::set(&text, &path, &value).map_err(unreadable)?;
-    record_background(state, source, text, &path)
+    jsonc::set(&text, &path, &value).map_err(unreadable)
 }
 
 const BACKGROUND: [&str; 2] = ["appearance", "background"];
 const BACKGROUND_RECENTS: [&str; 2] = ["appearance", "backgroundRecents"];
 
-/// After a write of `appearance.background` from any surface, the background it replaced goes
-/// first in `appearance.backgroundRecents` (Leo, 2026-11-22: "it was cumbersome back then to
-/// switch back"), and the new one leaves the list. An unset background is its default; nothing is
-/// recorded when the value did not change or a policy manages the recents.
-fn record_background(
-    state: &State,
-    before: &str,
-    after: String,
-    path: &[String],
-) -> Result<String, Refusal> {
-    if *path != BACKGROUND {
-        return Ok(after);
-    }
+enum Recorded {
+    Same(String),
+    Changed(String),
+}
+
+/// The background cmux shows: the effective value (theme, file, team defaults, recommended), else
+/// the schema default.
+fn shown_background(state: &State) -> Option<String> {
+    let path = parts(&BACKGROUND);
+    value_at(&state.effective.root, &path)
+        .cloned()
+        .or_else(|| state.schema.row_at(&path).and_then(|row| row.default.clone()))
+        .and_then(|value| value.as_str().map(str::to_string))
+}
+
+/// After a write that changes the background shown, from any surface, the background it replaced
+/// goes first in `appearance.backgroundRecents` (Leo, 2026-11-22: "it was cumbersome back then to
+/// switch back"), and the new one leaves the list. Nothing is recorded when the shown value did
+/// not change or a policy manages the recents.
+fn record_background(state: &State, next: &State, text: String) -> Result<Recorded, Refusal> {
     let recents_path = parts(&BACKGROUND_RECENTS);
     if check_managed(state, &recents_path).is_err() {
-        return Ok(after);
+        return Ok(Recorded::Same(text));
     }
-    let shown = |text: &str| -> Result<Option<String>, Refusal> {
-        let root = jsonc::parse(text).map_err(unreadable)?;
-        let value = value_at(&root, path)
-            .cloned()
-            .or_else(|| state.schema.row_at(path).and_then(|row| row.default.clone()));
-        Ok(value.and_then(|value| value.as_str().map(str::to_string)))
+    let (Some(previous), now) = (shown_background(state), shown_background(next)) else {
+        return Ok(Recorded::Same(text));
     };
-    let (Some(previous), next) = (shown(before)?, shown(&after)?) else { return Ok(after) };
-    if next.as_deref() == Some(previous.as_str()) {
-        return Ok(after);
+    if now.as_deref() == Some(previous.as_str()) {
+        return Ok(Recorded::Same(text));
     }
-    let root = jsonc::parse(&after).map_err(unreadable)?;
+    let root = jsonc::parse(&text).map_err(unreadable)?;
     let old = recents_of(value_at(&root, &recents_path));
     // The background now shown is not a recent one: the list is what one click goes back to.
     let mut recents = record_recent(&old, &previous);
-    recents.retain(|recent| Some(recent) != next.as_ref());
+    recents.retain(|recent| Some(recent) != now.as_ref());
     if recents == old {
-        return Ok(after);
+        return Ok(Recorded::Same(text));
     }
     let value = Value::Array(recents.into_iter().map(Value::String).collect());
-    jsonc::set(&after, &recents_path, &value).map_err(unreadable)
+    Ok(Recorded::Changed(jsonc::set(&text, &recents_path, &value).map_err(unreadable)?))
 }
 
 /// `text` without the retired key the row at `path` replaced, so the old key
@@ -321,7 +331,7 @@ fn reset_text(
     } else {
         jsonc::remove(&text, &path).map_err(unreadable)?
     };
-    record_background(state, source, text, &path)
+    Ok(text)
 }
 
 /// Removes every schema key and every shortcut override. Custom actions,

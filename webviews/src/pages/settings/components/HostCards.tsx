@@ -16,7 +16,7 @@ import { BackdropScopePicker, FOLLOW_ID, useWorkspaceBackground, WorkspaceOpacit
 import { SettingRow } from "./SettingRow";
 import { WallpaperSwitch } from "./WallpaperSwitch";
 import { RecentBackgrounds } from "./RecentBackgrounds";
-import { RECENTS_KEY, recentTiles } from "../recentBackgrounds";
+import { RECENTS_KEY, recentTiles, recentWrites } from "../recentBackgrounds";
 import {
   DARK_KEY,
   DYNAMIC_KEY,
@@ -227,6 +227,15 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     }
     endPreview();
   };
+  const chooseRecent = async (id: string) => {
+    cancelDwell();
+    // In order, stopping at a refusal: the background first, then sun mode off with it.
+    for (const [key, value] of recentWrites(id, switchValues.dynamic)) {
+      const result = await (value === null ? store.reset(key) : store.set(key, value));
+      if (!result.ok) break;
+    }
+    endPreview();
+  };
   // `attribution` null: the name alone (an Apple wallpaper). `video`: a moving wallpaper, marked
   // over its first frame. `pending`: a macOS wallpaper macOS has not downloaded, dimmed with a
   // cloud; a click opens the Wallpaper pane, which downloads it.
@@ -329,7 +338,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
             schedule: t("settingsWindow.wallpaperSwitch.schedule"),
           })}
           disabled={!state.readable}
-          onChoose={choose}
+          onChoose={chooseRecent}
         />
       )}
       {/* The happy path first: one background for every window, or one that turns on its own. */}

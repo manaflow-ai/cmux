@@ -2,7 +2,8 @@ public import CmuxNextActions
 
 extension BackdropSelectionSetting {
     /// Switch to Previous Background and Recent Backgrounds… (Leo, 2026-11-22: "it was cumbersome back
-    /// then to switch back"): one write of `appearance.background` through `save`; the settings owner
+    /// then to switch back"): a write of `appearance.background` through `save` (and `appearance.backgroundDynamic` reset from
+    /// `time`, so a static pick never inherits sun mode); the settings owner
     /// records the replaced one in appearance.backgroundRecents, so toggling twice comes back. With
     /// nothing earlier (or a pick that is not a background) `openPicker` opens Settings' background
     /// picker, as Change Background… does. Recent Backgrounds… lists the recents by name.
@@ -20,7 +21,10 @@ extension BackdropSelectionSetting {
                 do { try openPicker(invocation) } catch { return .refused(String(describing: error)) }
                 return .done
             }
+            // Sun mode goes off with a recent pick, as the Settings strip and `cmux wallpaper back` do.
+            let sunMode = dynamicMode(root()) == .time
             if let refusal = save(configPath, .string(raw)) { return .refused(refusal) }
+            if sunMode, let refusal = save(dynamicPath, nil) { return .refused(refusal) }
             return .done
         }
         registry.bindEffect("appearance.previousBackground", effect: { use(previous(in: root()), $0) })

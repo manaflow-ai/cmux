@@ -4,7 +4,7 @@
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
 import { installDom } from "./testDom";
-import { recentKind, recentTiles } from "./recentBackgrounds";
+import { recentKind, recentTiles, recentWrites } from "./recentBackgrounds";
 
 const restore = installDom();
 afterAll(() => restore());
@@ -76,4 +76,12 @@ test("with no recents there is no strip", async () => {
   const { page, card: backdrop } = await card({ "appearance.background": "starryNight" });
   expect(backdrop.querySelector(".backdrop-recent")).toBeNull();
   page.unmount();
+});
+
+test("a recent pick turns sun mode off with it, as Switch Automatically's Off does", () => {
+  expect(recentWrites("folder:/Users/me/Walls", "time")).toEqual([
+    ["appearance.background", "folder:/Users/me/Walls"],
+    ["appearance.backgroundDynamic", null],
+  ]);
+  expect(recentWrites("starryNight", "appearance")).toEqual([["appearance.background", "starryNight"]]);
 });

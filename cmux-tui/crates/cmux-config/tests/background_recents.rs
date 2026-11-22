@@ -6,7 +6,7 @@ use cmux_config::schema::{Kind, previous_background};
 use cmux_config::theme_file::is_look;
 use cmux_config::{
     Domains, Edit, EditKind, FileRead, ManagedPreferences, Op, Origin, Schema, State, Target,
-    TeamPolicyLayer, WriteMeta, apply,
+    TeamPolicyLayer, ThemeRead, WriteMeta, apply,
 };
 use serde_json::{Value, json};
 
@@ -112,4 +112,70 @@ fn managed_recents_are_left_alone() {
     };
     let written = apply(&state_with("{}", managed), op).unwrap().write.unwrap();
     assert_eq!(recents(&written), Value::Null, "{written}");
+}
+
+fn edit(state: &State, edits: Vec<Edit>) -> String {
+    apply(state, Op::Edit { edits, meta: user() })
+        .expect("the edit applies")
+        .write
+        .expect("the file changes")
+}
+
+fn set_edit(key: &str, value: Value) -> Edit {
+    Edit { target: Target::Key(key.to_string()), kind: EditKind::Set(value) }
+}
+
+#[test]
+fn a_background_from_below_the_file_is_the_one_recorded() {
+    // Not the schema default: the recommended background was the one on screen.
+    let mut managed = ManagedPreferences::default();
+    managed.recommended.insert("appearance.background".to_string(), json!("daily"));
+    let op = Op::Set {
+        target: Target::Key("appearance.background".to_string()),
+        value: json!("folder:/Users/me/Art"),
+        meta: user(),
+    };
+    let written = apply(&state_with("{}", managed), op).unwrap().write.unwrap();
+    assert_eq!(recents(&written), json!(["daily"]), "{written}");
+}
+
+#[test]
+fn a_theme_background_is_the_one_recorded() {
+    let file = r#"{"appearance":{"themeFile":"mine"}}"#;
+    let (state, _) = state_with("{}", ManagedPreferences::default()).reload_with_theme(
+        FileRead::Text(file.to_string()),
+        ManagedPreferences::default(),
+        |name| {
+            Some(ThemeRead {
+                name: name.to_string(),
+                read: Some(Ok(r#"{"appearance.background": "daily"}"#.to_string())),
+                folder: None,
+            })
+        },
+    );
+    // The app keeps a background picked over a theme as a theme file exception.
+    let written = edit(
+        &state,
+        vec![
+            set_edit("appearance.themeFileExceptions", json!(["appearance.background"])),
+            set_edit("appearance.background", json!("folder:/Users/me/Art")),
+        ],
+    );
+    assert_eq!(recents(&written), json!(["daily"]), "{written}");
+}
+
+#[test]
+fn an_edit_batch_records_only_the_background_it_started_from() {
+    let start = set("{}", "daily");
+    let state = state_with(&start, ManagedPreferences::default());
+    let written = edit(
+        &state,
+        vec![
+            set_edit("appearance.background", json!("folder:/Users/me/Art")),
+            set_edit("appearance.background", json!("folder:/Users/me/Photos")),
+        ],
+    );
+    let list = recents(&written);
+    assert_eq!(list.get(0), Some(&json!("daily")), "{written}");
+    assert!(!list.as_array().unwrap().contains(&json!("folder:/Users/me/Art")), "{written}");
 }
