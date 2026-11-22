@@ -667,6 +667,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
         run: ./scripts/check-control-plane-types.sh
 
+      # The CmuxNextDaemon request types cmux-tui/bindings/codegen/swift_app generates from the Rust-derived
+      # cmux-tui/spec/sdk-schema.json: a hand edit of a *.generated.swift file under Requests/ fails here.
+      - name: Validate generated CmuxNext daemon request types
+        if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
+        run: python3 cmux-tui/bindings/codegen/swift_app/generate.py --check
+
       # Runs web/scripts/check-complexity.mjs against scratch repositories, so
       # it needs the Bun set up above rather than the `ci` group's Python only.
       - name: Validate web complexity source enumeration

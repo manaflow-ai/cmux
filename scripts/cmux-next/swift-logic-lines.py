@@ -150,6 +150,8 @@ GENERATORS = (
      "scripts/agent-icons/generate.py"),
     ("Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/CtlWireModels.swift", "quicktype"),
     ("Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/V2WireModels.swift", "quicktype"),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/*/*.generated.swift",
+     "cmux-tui/bindings/codegen/swift_app"),
 )
 # The claim opens the comment line: prose that mentions generated values (`// The defaults are generated from`) is
 # none.

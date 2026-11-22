@@ -2,16 +2,6 @@ import Foundation
 
 // `bookmarks-v1` reads and creation (plans/cmux-next/bookmarks.md 2.1).
 
-/// `list-bookmarks`: one profile's nodes, ordered by parent then index.
-public struct ListBookmarksRequest: DaemonRequest {
-    public typealias Response = BookmarkList
-    public static let command = "list-bookmarks"
-    public static let requiredCapability: String? = DaemonCapability.bookmarks.rawValue
-    public var browserProfileID: String
-    public init(browserProfileID: String) { self.browserProfileID = browserProfileID }
-    enum CodingKeys: String, CodingKey { case browserProfileID = "browser_profile_id" }
-}
-
 /// `create-bookmark`: an existing `bookmark` id returns the stored node.
 public struct CreateBookmarkRequest: DaemonRequest {
     public typealias Response = BookmarkResult

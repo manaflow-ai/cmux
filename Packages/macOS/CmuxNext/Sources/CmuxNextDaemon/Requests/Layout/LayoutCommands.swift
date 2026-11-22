@@ -1,20 +1,5 @@
 import Foundation
 
-/// Divider drag. Reuse one `transaction` per gesture so undo coalesces.
-public struct SetSplitRatioRequest: DaemonRequest {
-    public typealias Response = EmptyResponse
-    public static let command = "set-split-ratio"
-    public var split: SplitID
-    /// Clamped by the daemon to 0.05...0.95.
-    public var ratio: Double
-    public var transaction: UInt64?
-    public init(split: SplitID, ratio: Double, transaction: UInt64? = nil) {
-        self.split = split
-        self.ratio = ratio
-        self.transaction = transaction
-    }
-}
-
 /// A split's divider drawn or not (`split-divider-visibility-v1`): a hidden divider draws no line
 /// and still drags. The daemon keeps it on the split node, so it persists with the layout.
 public struct SetDividerVisibleRequest: DaemonRequest {
