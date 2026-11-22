@@ -31,21 +31,24 @@ fn decide(facts: Value) -> Value {
 #[test]
 fn automatic_update_idle_operation_requires_complete_idle_facts() {
     let mut facts = json!({"enabled": true, "idleMinutes": 15,
-        "inputIdleSeconds": 900, "runningTurns": 0, "unsentDrafts": 0});
+        "inputIdleSeconds": 900, "unsentDrafts": 0});
     assert_eq!(
         decide(facts.clone()),
         json!({"install": true, "hold": null, "away": {"kind": "idle", "seconds": 900.0}})
     );
     for (field, value, reason) in [
         ("enabled", json!(false), "off"),
-        ("runningTurns", json!(1), "agentWorking"),
         ("unsentDrafts", json!(1), "unsentDraft"),
-        ("runningTurns", Value::Null, "unknown"),
+        ("unsentDrafts", Value::Null, "unknown"),
     ] {
         let mut held = facts.clone();
         held[field] = value;
         assert_eq!(decide(held), json!({"install": false, "hold": {"reason": reason}}));
     }
+    // A running agent turn never holds it (an old app still sends the count; it is ignored).
+    let mut working = facts.clone();
+    working["runningTurns"] = json!(4);
+    assert_eq!(decide(working)["install"], json!(true));
     facts["inputIdleSeconds"] = json!(899);
     assert_eq!(
         decide(facts),
@@ -57,7 +60,7 @@ fn automatic_update_idle_operation_requires_complete_idle_facts() {
 #[test]
 fn missing_idle_interval_keeps_the_fifteen_minute_default() {
     let facts = json!({"enabled": true, "inputIdleSeconds": 60,
-        "runningTurns": 0, "unsentDrafts": 0});
+        "unsentDrafts": 0});
     assert_eq!(
         decide(facts),
         json!({"install": false,
@@ -67,12 +70,12 @@ fn missing_idle_interval_keeps_the_fifteen_minute_default() {
 
 #[test]
 fn invalid_requests_and_unknown_operations_never_authorize_installation() {
-    for request in [b"{".as_slice(), br#"{"runningTurns":-1}"#, br#"{"runningTurns":0.5}"#] {
+    for request in [b"{".as_slice(), br#"{"unsentDrafts":-1}"#, br#"{"unsentDrafts":0.5}"#] {
         assert_eq!(call(request, c"window_update_idle_install").0, ERR_INVALID);
     }
     assert_eq!(call(b"{}", c"window_update_not_an_operation").0, ERR_INVALID);
     assert_eq!(
-        decide(json!({"enabled":true, "runningTurns":0, "unsentDrafts":0})),
+        decide(json!({"enabled":true, "unsentDrafts":0})),
         json!({"install":false,"hold":{"reason":"unknown"}})
     );
 }
@@ -81,7 +84,7 @@ fn invalid_requests_and_unknown_operations_never_authorize_installation() {
 #[test]
 fn a_locked_screen_installs_and_a_declined_install_backs_off() {
     let locked = json!({"enabled": true, "idleMinutes": 15, "inputIdleSeconds": 5,
-        "screenLocked": true, "runningTurns": 0, "unsentDrafts": 0});
+        "screenLocked": true, "unsentDrafts": 0});
     assert_eq!(
         decide(locked.clone()),
         json!({"install": true, "hold": null, "away": {"kind": "screenLocked"}})

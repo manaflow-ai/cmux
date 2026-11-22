@@ -1,11 +1,12 @@
-//! Update when idle (`updates.installWhenIdle`, off by default): whether a
+//! Update when idle (`updates.installWhenIdle`; on by default in NIGHTLY, off
+//! in release, the build default the app names): whether a
 //! downloaded app update may install and relaunch the app now (Leo,
 //! 2026-11-19: "when it's idle, it's able to ... update automatically ...
 //! maybe even having it as an opt-in option would be pretty interesting.
 //! Yeah, like update when idle").
 //!
 //! The app reads the facts (seconds since the last keyboard or pointer input,
-//! this Mac's agent turns, the unsent drafts) and asks here once a second
+//! the screen lock, the unsent drafts) and asks here once a second
 //! while a staged update waits; it installs on [`Hold`] none. The relaunch keeps
 //! every terminal, agent host and running turn (the daemons outlive the app),
 //! but it never starts while the person could be cut off:
@@ -18,11 +19,16 @@
 //!   unreadable idle time with the screen not known locked is never away;
 //! - an automatic install the app just declined (it did not quit): it backs
 //!   off ([`retry_after_seconds`]) instead of retrying every second;
-//! - an agent turn running on this Mac: its streaming chat would blink away;
 //! - an unsent draft in a composer: the person is mid-message;
-//! - any of those unknown (the daemon did not answer): never guess.
+//! - drafts unknown (the daemon did not answer): never guess.
 //!
-//! The input check comes first, so the app reads the agents only once the
+//! A running agent turn does not hold it: Leo's agents are always mid-turn, so
+//! that hold would never let it fire, and the turn runs in the daemon, which
+//! the app relaunch leaves running (Leo, 2026-11-22: "cosmic-gray was supposed
+//! to auto-update when i was away from the keyboard. like, auto be de facto
+//! able to click the restart button"). The relaunched app reattaches to it.
+//!
+//! The input check comes first, so the app reads the drafts only once the
 //! person has been away long enough.
 
 use serde::{Deserialize, Serialize};
@@ -42,9 +48,6 @@ pub struct IdleFacts {
     /// Seconds since the last keyboard or pointer input anywhere on the Mac;
     /// none when the app could not read it.
     pub input_idle_seconds: Option<f64>,
-    /// Agent turns running on this Mac (the app's chats and its Home chief);
-    /// none when the daemon did not answer.
-    pub running_turns: Option<u32>,
     /// Composers holding typed text not sent yet; none when unknown.
     pub unsent_drafts: Option<u32>,
     /// Whether the console session's screen is locked (`CGSSessionScreenIsLocked`);
@@ -62,7 +65,6 @@ impl Default for IdleFacts {
             enabled: false,
             idle_minutes: 15.0,
             input_idle_seconds: None,
-            running_turns: None,
             unsent_drafts: None,
             screen_locked: None,
             declined_installs: 0,
@@ -83,11 +85,9 @@ pub enum Hold {
         #[serde(rename = "secondsLeft")]
         seconds_left: f64,
     },
-    /// An agent turn runs.
-    AgentWorking,
     /// A composer holds an unsent message.
     UnsentDraft,
-    /// Input, turns or drafts could not be read.
+    /// Input or drafts could not be read.
     Unknown,
     /// The last automatic install was declined; `seconds_left` until the next try.
     Backoff {
@@ -197,11 +197,10 @@ pub fn decide(facts: &IdleFacts) -> Decision {
             return Decision::hold(Hold::Backoff { seconds_left: wait - since });
         }
     }
-    match (facts.running_turns, facts.unsent_drafts) {
-        (None, _) | (_, None) => Decision::hold(Hold::Unknown),
-        (Some(turns), _) if turns > 0 => Decision::hold(Hold::AgentWorking),
-        (_, Some(drafts)) if drafts > 0 => Decision::hold(Hold::UnsentDraft),
-        _ => Decision { install: true, hold: None, away: Some(away) },
+    match facts.unsent_drafts {
+        None => Decision::hold(Hold::Unknown),
+        Some(drafts) if drafts > 0 => Decision::hold(Hold::UnsentDraft),
+        Some(_) => Decision { install: true, hold: None, away: Some(away) },
     }
 }
 

@@ -5,13 +5,12 @@ fn idle(minutes_away: f64) -> IdleFacts {
         enabled: true,
         idle_minutes: 15.0,
         input_idle_seconds: Some(minutes_away * 60.0),
-        running_turns: Some(0),
         unsent_drafts: Some(0),
         ..IdleFacts::default()
     }
 }
 
-/// Away 15 minutes, no turn, no draft: it installs.
+/// Away 15 minutes, no draft: it installs.
 #[test]
 fn installs_after_the_idle_time_with_nothing_running() {
     assert_eq!(
@@ -35,18 +34,22 @@ fn recent_input_holds_with_the_time_left() {
     assert_eq!(decide(&idle(10.0)).hold, Some(Hold::NotIdle { seconds_left: 300.0 }));
 }
 
-/// The input check comes first: the app need not read the agents while the person is at the Mac.
+/// The input check comes first: the app need not read the drafts while the person is at the Mac.
 #[test]
-fn recent_input_wins_over_unknown_agents() {
-    let facts = IdleFacts { running_turns: None, unsent_drafts: None, ..idle(1.0) };
+fn recent_input_wins_over_unknown_drafts() {
+    let facts = IdleFacts { unsent_drafts: None, ..idle(1.0) };
     assert!(matches!(decide(&facts).hold, Some(Hold::NotIdle { .. })));
 }
 
-/// Never mid-turn: a running agent turn holds it however long the person is away.
+/// A running agent turn does not hold it (Leo's agents are always mid-turn): the turn runs in the
+/// daemon, which the relaunch leaves running. An old app's `runningTurns` field is ignored.
 #[test]
-fn a_running_turn_holds_it() {
-    let facts = IdleFacts { running_turns: Some(1), ..idle(600.0) };
-    assert_eq!(decide(&facts).hold, Some(Hold::AgentWorking));
+fn a_running_turn_does_not_hold_it() {
+    let request: IdleFacts = serde_json::from_value(serde_json::json!({
+        "enabled": true, "idleMinutes": 15, "inputIdleSeconds": 900, "runningTurns": 3, "unsentDrafts": 0
+    }))
+    .unwrap();
+    assert!(decide(&request).install);
 }
 
 /// Never over an unsent message.
@@ -62,7 +65,6 @@ fn unknown_facts_hold_it() {
     for facts in [
         IdleFacts { input_idle_seconds: None, ..idle(600.0) },
         IdleFacts { input_idle_seconds: Some(f64::NAN), ..idle(600.0) },
-        IdleFacts { running_turns: None, ..idle(600.0) },
         IdleFacts { unsent_drafts: None, ..idle(600.0) },
     ] {
         assert_eq!(decide(&facts).hold, Some(Hold::Unknown), "{facts:?}");
@@ -88,12 +90,9 @@ fn the_reply_wire_shape() {
         held,
         serde_json::json!({ "install": false, "hold": { "reason": "notIdle", "secondsLeft": 60.0 } })
     );
-    let working =
-        serde_json::to_value(decide(&IdleFacts { running_turns: Some(3), ..idle(20.0) })).unwrap();
-    assert_eq!(
-        working,
-        serde_json::json!({ "install": false, "hold": { "reason": "agentWorking" } })
-    );
+    let draft =
+        serde_json::to_value(decide(&IdleFacts { unsent_drafts: Some(1), ..idle(20.0) })).unwrap();
+    assert_eq!(draft, serde_json::json!({ "install": false, "hold": { "reason": "unsentDraft" } }));
     let go = serde_json::to_value(decide(&idle(20.0))).unwrap();
     assert_eq!(
         go,
@@ -117,7 +116,7 @@ fn the_reply_wire_shape() {
         serde_json::json!({ "install": false, "hold": { "reason": "backoff", "secondsLeft": 40.0 } })
     );
     let request: IdleFacts = serde_json::from_value(serde_json::json!({
-        "enabled": true, "idleMinutes": 15, "inputIdleSeconds": 901.5, "runningTurns": 0, "unsentDrafts": 0
+        "enabled": true, "idleMinutes": 15, "inputIdleSeconds": 901.5, "unsentDrafts": 0
     }))
     .unwrap();
     assert!(decide(&request).install);
@@ -158,20 +157,16 @@ fn the_away_reading() {
     assert_eq!(away(Some(-1.0), None, 600.0), Err(None));
 }
 
-/// Locked still waits for a running turn and an unsent draft, and for unknown agents.
+/// Locked still waits for an unsent draft, and for unknown drafts.
 #[test]
-fn locked_still_waits_for_agents_and_drafts() {
+fn locked_still_waits_for_drafts() {
     let locked = |f: IdleFacts| IdleFacts { screen_locked: Some(true), ..f };
-    assert_eq!(
-        decide(&locked(IdleFacts { running_turns: Some(1), ..idle(0.0) })).hold,
-        Some(Hold::AgentWorking)
-    );
     assert_eq!(
         decide(&locked(IdleFacts { unsent_drafts: Some(1), ..idle(0.0) })).hold,
         Some(Hold::UnsentDraft)
     );
     assert_eq!(
-        decide(&locked(IdleFacts { running_turns: None, ..idle(0.0) })).hold,
+        decide(&locked(IdleFacts { unsent_drafts: None, ..idle(0.0) })).hold,
         Some(Hold::Unknown)
     );
 }
