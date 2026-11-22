@@ -1643,6 +1643,8 @@ jobs:
             bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
             bash scripts/cmux-next/tests/bundle-acpmux-alias.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-acpmux-only.test.sh
+            bash scripts/cmux-next/tests/resolve-acpmux.test.sh
+            bash scripts/cmux-next/tests/resolve-acpmux-tree-archs.test.sh
             bash scripts/cmux-next/tests/bundle-cmux-tui-screen-detection.test.sh
             bash scripts/cmux-next/tests/write-daemon-capabilities.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-linux-fetch.test.sh
@@ -3634,7 +3636,7 @@ jobs:
   # Why: docs/ci/cmux-next-workflow-notes.md#note-205
   fast-tier-cargo:
     needs: [push-head-preflight, path_route]
-    if: ${{ !cancelled() && (inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci') && (github.event_name != 'pull_request' || needs.path_route.outputs.fast_tier_cargo != 'false') }}
+    if: ${{ !cancelled() && (inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'))) && (github.event_name != 'pull_request' || needs.path_route.outputs.fast_tier_cargo != 'false') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci') }}
     name: cmux-next fast tier (cargo)
     concurrency:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci' && format('-label-{0}', github.run_id) || github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier-cargo', github.ref) || format('cmux-next-run-{0}-fast-tier-cargo', github.run_id) }}
