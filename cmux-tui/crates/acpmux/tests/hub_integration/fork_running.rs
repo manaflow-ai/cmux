@@ -137,3 +137,51 @@ async fn a_claude_chat_forks_while_its_tool_call_runs_and_its_turn_goes_on() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A Claude chat forks while its reply streams, by both ways in. Claude Code stores a reply only
+/// once it ends, so the chat's transcript holds none of it yet; each fork shows the partial reply
+/// and its own conversation ends with it too, not with an empty answer its agent would fill with
+/// "No response requested." (cmux#50021). The chat's own conversation gets the reply once.
+#[tokio::test]
+async fn a_claude_chat_forked_while_its_reply_streams_remembers_the_partial_reply() {
+    let root = std::env::temp_dir().join(format!("acpmux-fork-stream-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "streaming"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(method::SESSION_PROMPT, prompt(&id, "first")).await.unwrap();
+    let gate = root.join("gate");
+    c.send(method::SESSION_PROMPT, prompt(&id, &format!("stream-hold: {}", gate.display()))).await;
+    until("the streamed reply", || text_of(&hub, &id).contains("streamed so far")).await;
+
+    let f1 = c.request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()})).await;
+    let f1 = f1.unwrap_or_else(|e| panic!("a working chat forks now: {e}"));
+    let f2 = c.request(FORK_OP, json!({"sessionId": id, "live": true})).await;
+    let f2 = f2.unwrap_or_else(|e| panic!("a working chat forks now again: {e}"));
+    for f in [&f1, &f2] {
+        let fid = f["sessionId"].as_str().unwrap().to_owned();
+        assert!(
+            text_of(&hub, &fid).contains("streamed so far"),
+            "the fork shows the partial reply"
+        );
+        let h = claude_history(&hub, &mut c, &fid).await;
+        assert!(h["prompts"][1].as_str().is_some_and(|p| p.starts_with("stream-hold: ")), "{h}");
+        // "first"'s answer, the partial reply, then history-probe's own answer.
+        assert_eq!(h["replies"], json!(["ok", "streamed so far", "ok"]), "{h}");
+        assert_eq!(h["unresolved"], json!([]), "{h}");
+    }
+
+    std::fs::write(&gate, "").unwrap();
+    until("the chat's turn to end", || kinds(&hub, &id, "turn_result").len() == 2).await;
+    let source = claude_history(&hub, &mut c, &id).await;
+    assert_eq!(source["replies"], json!(["ok", "streamed so far", "ok"]), "{source}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}

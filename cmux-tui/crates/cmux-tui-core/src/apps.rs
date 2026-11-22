@@ -67,6 +67,8 @@ pub(crate) fn person_locale() -> &'static str {
 }
 
 #[cfg(unix)]
+mod mcp_tools;
+#[cfg(unix)]
 mod mirror;
 #[cfg(unix)]
 mod open_tokens;
@@ -111,6 +113,8 @@ pub(crate) mod storage;
 mod store;
 #[cfg(unix)]
 mod store_panels;
+#[cfg(unix)]
+mod store_sections;
 #[cfg(unix)]
 mod store_trust;
 #[cfg(unix)]
