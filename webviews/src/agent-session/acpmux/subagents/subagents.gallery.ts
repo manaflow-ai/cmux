@@ -346,7 +346,7 @@ export default agentPaneEntry({
       ]),
     },
     "recovered-end-no-time": {
-      note: "A subagent whose end acpmux recovered after a restart, its start never read, pointed at: its line and its hover card name no time (\"Disconnected\", never \"Disconnected · 0s\"); the finished one keeps 1m 30s.",
+      note: 'A subagent whose end acpmux recovered after a restart, its start never read, pointed at: its line and its hover card name no time ("Disconnected", never "Disconnected · 0s"); the finished one keeps 1m 30s.',
       theme: { subagentTray: true },
       snapshot: RECOVERED_END,
       play: async (ctx) => {
