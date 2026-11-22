@@ -168,15 +168,9 @@ receipt). Their Linux tests: `python3 ios/tests/test_cnx_review.py`.
 
 ## Landing an iOS PR
 
-A PR that changes iOS code waits for Aziz's review. It lands without him only when it's proven
-correct and fully functional, with its implications written in the PR. merge_hold reads one line in
-the PR body:
+Since 2026-11-22, an iOS PR lands like any other `feat-cmux-next` PR: green CI plus an agent review
+SHIP at the exact head. Leo lifted the iOS review hold for all iOS PRs that day ("yes we lift for all
+ios prs just go"). Aziz gets a heads-up, not a gate: post one short comment on the PR that mentions
+him so he knows it's coming. His reviews are welcome as follow-ups.
 
-- `iOS-hold: strict fix`: a basic correctness fix, plus an independent review SHIP at the exact head
-  that confirms it.
-- `iOS-hold: proven`: a test that fails without the change and passes with it (run links), the flow
-  working end to end in a simulator or on a device, a `## Implications` section, and a review SHIP at
-  the exact head that confirms all three.
-
-A change that flips a default stays with Leo. Docs (`*.md`) and `cmux-next-ios/verify/` hold nothing.
-Either way, post a comment on the PR that mentions Aziz so he knows it's coming.
+A change that flips a default stays with Leo.
