@@ -73,7 +73,7 @@ import { focusAfterEscape } from "../../ui/escapeFocus";
 import type { RunModeRows } from "./sandboxRun";
 import { machineLoadWarning, type MachineResources } from "./machineResources";
 import { useComposerSettings } from "./composerSettings";
-import { useLinkDownSaid } from "./afterDelay";
+import { useConnectionQuiet } from "../../ui/lasting";
 import { repickMachine, type RepickMachine } from "./cloudRepick";
 import { CONTEXT_LABELS, splitForMiddleTruncation } from "./composerContextModel";
 import {
@@ -854,7 +854,7 @@ export function ComposerContext({
   const machineCardShown = started && environmentsShown && layout === "combined" && !waiting && !savedPick;
   const { card: machineCardRows, dot: machineDot } = useMachineCard(currentPickerComputer, Boolean(machineCardShown));
   // The machine chip's live dot keeps its filled look while the machine's link comes up or comes back
-  // on its own, for the shared bound (afterDelay.ts LINK_DOWN_SAID_MS, from acpmux's `downSince`): a
+  // on its own, for the shared bound (ui/lasting.ts CONNECTION_QUIET_MS, schemas/notice-timing): a
   // blip draws no ring and no "Not connected" (Leo, 2026-11-14: "i also want all our connectivity stuff
   // to shut up and load faster"; 2026-11-16: "obviously if it isn't interactive im not connected").
   // A refused sign-in or an update the machine needs, and a Cloud machine asleep, show at once.
@@ -866,7 +866,7 @@ export function ComposerContext({
     computerState !== "updateRequired" &&
     computerState !== "paused" &&
     computerState !== "resuming";
-  const computerDipSaid = useLinkDownSaid(computerDipping, currentComputer?.downSince);
+  const computerDipSaid = useConnectionQuiet(computerDipping);
   // After the last hook: nothing to show yet draws the bare strip.
   if (!currentComputer && !currentFolder && !projectChoices) return <div className="acpmux-composer-strip" />;
   // What every environment control shares: the list, the pick, setup and Cloud's run mode.

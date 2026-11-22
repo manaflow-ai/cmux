@@ -2105,9 +2105,9 @@ test("a machine that crosses the unavailable time while the list is closed is gr
 // The machine chip's live dot while the picked machine's link dips and comes back on its own (Leo,
 // 2026-11-14: "i also want all our connectivity stuff to shut up and load faster"): a link that comes
 // up in 0.8 s or heals in 6 s never draws "Not connected"; one down for 15 s says so once it has lasted
-// the shared bound (afterDelay.ts LINK_DOWN_SAID_MS), and a refused sign-in says so at once.
+// the shared bound (ui/lasting.ts CONNECTION_QUIET_MS), and a refused sign-in says so at once.
 test("three chips: the machine chip's dot stays quiet through a link that comes back inside the bound", async () => {
-  const { LINK_DOWN_SAID_MS } = await import("../src/agent-session/acpmux/afterDelay");
+  const { CONNECTION_QUIET_MS } = await import("../src/ui/lasting");
   await mount(true, shipped);
   const prompt = host.querySelector("textarea")!;
   prompt.focus();
@@ -2133,7 +2133,7 @@ test("three chips: the machine chip's dot stays quiet through a link that comes 
       17_000,
       notConnected,
     );
-    expect(lasting).toBe(15_000 - LINK_DOWN_SAID_MS);
+    expect(lasting).toBe(15_000 - CONNECTION_QUIET_MS);
     expect(dot()?.getAttribute("data-connected")).toBe("true");
     // A refused sign-in needs the person: it is said at once.
     await link("authFailed")();
