@@ -9,6 +9,7 @@
 //!   trait, selected by [`TransportKind`].
 //! - [`hybrid`]: the phone's WebRTC media session beside a WireGuard link.
 //! - [`keepalive`]: the phone's one keepalive clock (Align Keepalives).
+//! - [`path_report`]: one log line per path change and per 10 s (path, srtt).
 
 pub mod api;
 pub mod build_space;
@@ -19,6 +20,7 @@ pub mod hybrid;
 pub mod keepalive;
 pub mod link;
 pub mod media;
+pub mod path_report;
 mod send_queue;
 pub mod signaling;
 #[cfg(feature = "testing")]

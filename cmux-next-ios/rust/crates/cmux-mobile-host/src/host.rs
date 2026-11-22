@@ -621,6 +621,24 @@ async fn answer_session(
             });
         }
     });
+    // Path and srtt on every path change and every 10 s (path_report.rs): a
+    // relay link, its resets and its round trip, readable from this log.
+    let report_session = session_id.clone();
+    let path_report = tokio::spawn(cmux_mobile_link::path_report::run(
+        connected.path.clone(),
+        connected.link.rtt(),
+        move |line| {
+            tracing::info!(
+                session_id = report_session,
+                path = ?line.path,
+                srtt_ms = ?line.srtt_ms(),
+                rtt_ms = ?line.rtt_ms(),
+                changes = line.changes,
+                reason = ?line.reason,
+                "link path rtt"
+            );
+        },
+    ));
     let auth = Arc::new(crate::pairing::LinkAuth::default());
     // The phone may open a WebRTC media session for this link's video.
     let _hybrid = match (&peer.video, connected.webrtc_media) {
@@ -675,6 +693,7 @@ async fn answer_session(
     }
     let reason = connected.link.closed().await;
     path_watch.abort();
+    path_report.abort();
     drop_watch.abort();
     tracing::info!(session_id, reason, "link down");
     control::emit(&Event::PhoneDown { session_id, reason });
