@@ -130,7 +130,7 @@ extension BrowserOmnibarSetting {
     public nonisolated static let inlineAutocompleteDefault = true
     /// `browser.omnibar.maxRows`.
     public nonisolated static let maxRowsPath = ["browser", "omnibar", "maxRows"]
-    public nonisolated static let maxRowsDefault: Double = 8
+    public nonisolated static let maxRowsDefault: Double = 6
     public nonisolated static let maxRowsRange: ClosedRange<Double> = 3...15
     /// `browser.omnibar.calculator`.
     public nonisolated static let calculatorPath = ["browser", "omnibar", "calculator"]
