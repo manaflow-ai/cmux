@@ -116,13 +116,44 @@ const tagged = (records: readonly EventRecord[], tag: string, sessionId: string)
   }
   return out;
 };
+/// acpmux's record of a subagent it started (`_meta.acpmux.subagents`, cmux-tui subagents.rs): what the tray lists.
+const spawned = (sessionId: string, tag: string, toolCallId: unknown, at: number): EventRecord =>
+  ({
+    sessionId,
+    seq: 0,
+    at: at + 50,
+    dir: "in",
+    kind: "subagent_spawned",
+    msg: {
+      method: "session/update",
+      params: {
+        sessionId,
+        update: { sessionUpdate: "subagent_spawned" },
+        _meta: {
+          acpmux: {
+            subagents: [
+              {
+                id: `${tag}-scanner`,
+                parent: null,
+                name: `${tag} scanner`,
+                state: "running",
+                ...(typeof toolCallId === "string" ? { toolCallId } : {}),
+              },
+            ],
+          },
+        },
+      },
+    },
+  }) as unknown as EventRecord;
 /// A turn that starts a subagent and is still running, after `records`: the tray and the card have it to draw.
 const subagentTail = (after: readonly EventRecord[], tag: string, sessionId: string) => {
   const b = sim("tail", "a running subagent");
   b.prompt(`${tag} find every flaky test in the repo.`);
   b.say(`${tag} has a subagent scanning the CI logs while it reads the suite.`);
   b.tool(`${tag} scan the last 50 CI logs for flaky tests`, { kind: "think", tool: "Agent", open: true });
-  const built = b.build().events;
+  const built = [...b.build().events];
+  const call = [...built].reverse().find((record) => record.kind === "tool_call");
+  built.push(spawned(sessionId, tag, (call?.msg as any)?.params?.update?.toolCallId, call?.at ?? 0));
   const lastSeq = after.at(-1)?.seq ?? 0;
   const lastAt = after.at(-1)?.at ?? Date.UTC(2026, 10, 1);
   const firstAt = built[0]?.at ?? 0;
@@ -144,8 +175,10 @@ for (let index = 0; index < CHATS; index += 1) {
   let rest: EventRecord[] = [];
   if (RUNNING && index === 0) {
     const cut = simChat({ name: baseLog.name, records: all }, { running: true, restRecords: SIM_RATE * 120 });
-    events = cut.served;
-    rest = cut.rest;
+    // Its running turn has a subagent too, so the tray is there to switch back to; the rest moves one seq on.
+    const last = cut.served.at(-1)!;
+    events = [...cut.served, { ...spawned(id, tag, undefined, last.at), seq: last.seq + 1 }];
+    rest = cut.rest.map((record) => ({ ...record, seq: record.seq + 1 }));
   } else events = [...all, ...subagentTail(all, tag, id)];
   const opener = [...events].reverse().find((record) => record.kind === "user_message");
   const msg = (opener?.msg ?? {}) as { turnId?: string; promptId?: string; text?: string };
@@ -173,6 +206,7 @@ for (let index = 0; index < CHATS; index += 1) {
   });
 }
 const byId = new Map(chats.map((chat) => [chat.id, chat]));
+const zeroServed = chats[0]!.events.length;
 
 // The stand-in acpmux.
 type Ws = { send(data: string): unknown };
@@ -190,9 +224,7 @@ const resetChats = () => {
   stream.sent = 0;
   stream.armed = RUNNING;
   const zero = chats[0]!;
-  const served = zero.events.length - (zero as { streamedIn?: number }).streamedIn! || zero.events.length;
-  zero.events.length = served;
-  (zero as { streamedIn?: number }).streamedIn = 0;
+  zero.events.length = zeroServed;
   zero.session.lastSeq = zero.events.at(-1)?.seq ?? 0;
 };
 const startStream = () => {
@@ -206,7 +238,6 @@ const startStream = () => {
       for (; stream.next < due; stream.next += 1) {
         const event = { ...zero.rest[stream.next]!, at: Date.now() };
         zero.events.push(event);
-        (zero as { streamedIn?: number }).streamedIn = ((zero as { streamedIn?: number }).streamedIn ?? 0) + 1;
         zero.session.lastSeq = event.seq;
         stream.sent += 1;
         const frame = JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event });
@@ -321,7 +352,11 @@ try {
           calls.push({ method: message.method, sessionId, bytes: 0, at: Date.now() });
           return;
         }
-        const reply = JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) });
+        const reply = JSON.stringify({
+          jsonrpc: "2.0",
+          id: message.id,
+          result: answer(message.method, message.params),
+        });
         calls.push({ method: message.method, sessionId, bytes: reply.length, at: Date.now() });
         ws.send(reply);
       },
@@ -347,15 +382,18 @@ try {
         {
           name: "pane-mount-sites-variant",
           enforce: "pre",
-          transform(code: string, id: string) {
-            if (edits.length === 0 || !id.split("?")[0]!.endsWith("/agent-session/acpmux/App.tsx")) return null;
-            let next = code;
+          // load, not transform: the source as it is on disk, before any other plugin (the React Compiler) reads it.
+          load(id: string) {
+            const file = id.split("?")[0]!;
+            if (edits.length === 0 || !file.endsWith("/agent-session/acpmux/App.tsx")) return null;
+            let next = fs.readFileSync(file, "utf8");
             for (const [from, to] of edits) {
-              if (!next.includes(from)) throw new Error(`variant ${variant}: App.tsx no longer holds ${JSON.stringify(from)}`);
+              if (!next.includes(from))
+                throw new Error(`variant ${variant}: App.tsx no longer holds ${JSON.stringify(from)}`);
               next = next.replace(from, to);
               applied += 1;
             }
-            return { code: next, map: null };
+            return next;
           },
         },
       ],
@@ -416,7 +454,11 @@ try {
         }
         override send(data: Parameters<WebSocket["send"]>[0]): void {
           if (typeof data === "string") {
-            const request = JSON.parse(data) as { id?: string | number; method?: string; params?: { sessionId?: string } };
+            const request = JSON.parse(data) as {
+              id?: string | number;
+              method?: string;
+              params?: { sessionId?: string };
+            };
             if (request.method === "_acpmux/attach" && request.id !== undefined && request.params?.sessionId) {
               this.attaches.set(request.id, request.params.sessionId);
               state.attachSent.push({ sessionId: request.params.sessionId, at: performance.now() });
@@ -487,7 +529,11 @@ try {
     console.log(`\nrow 6, New Tab page, CPU ${CPU}x, medians of ${ROUNDS} [min to max]`);
     for (const variant of VARIANTS) {
       const of = rounds.filter((round) => round.variant === variant);
-      const col = (key: keyof NewTabRound, digits = 0) => stat(of.map((round) => round[key] as number), digits);
+      const col = (key: keyof NewTabRound, digits = 0) =>
+        stat(
+          of.map((round) => round[key] as number),
+          digits,
+        );
       console.log(
         `  ${variant.padEnd(12)} painted ${col("paintedMs")} ms, quiet from ${col("quietAtMs")} ms, script ${col("scriptMs")} ms, ` +
           `tasks ${col("taskMs")} ms, JS heap ${col("heapMb", 2)} MB, DOM nodes ${col("nodes")}, elements ${col("elements")}, ` +
@@ -526,7 +572,9 @@ try {
           const view = scroller.getBoundingClientRect();
           return [...scroller.querySelectorAll<HTMLElement>("[data-row-id]")].some((row) => {
             const box = row.getBoundingClientRect();
-            return box.height > 0 && box.bottom > view.top && box.top < view.bottom && row.textContent?.includes(`${tag} `);
+            return (
+              box.height > 0 && box.bottom > view.top && box.top < view.bottom && row.textContent?.includes(`${tag} `)
+            );
           });
         },
         tag,
@@ -536,7 +584,9 @@ try {
       page.evaluate(
         (id) =>
           (
-            window as unknown as { cmuxAcpmuxActions: Record<string, (params: Record<string, unknown>) => Promise<unknown>> }
+            window as unknown as {
+              cmuxAcpmuxActions: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+            }
           ).cmuxAcpmuxActions["chat.select"]!({ sessionId: id }),
         id,
       );
@@ -569,9 +619,14 @@ try {
             cardBefore: boolean;
             cardRemounted: boolean | null;
           }>((resolve) => {
-            const ms = (window as unknown as {
-              __ms: { attachReplies: { sessionId: string; at: number }[]; attachSent: { sessionId: string; at: number }[] };
-            }).__ms;
+            const ms = (
+              window as unknown as {
+                __ms: {
+                  attachReplies: { sessionId: string; at: number }[];
+                  attachSent: { sessionId: string; at: number }[];
+                };
+              }
+            ).__ms;
             const tray = document.querySelector(".acpmux-running-tray");
             const card = document.querySelector(".acpmux-summary-card:not(.acpmux-summary-card--reserve)");
             const inView = () => {
@@ -581,7 +636,10 @@ try {
               return [...scroller.querySelectorAll<HTMLElement>("[data-row-id]")].some((row) => {
                 const box = row.getBoundingClientRect();
                 return (
-                  box.height > 0 && box.bottom > view.top && box.top < view.bottom && row.textContent?.includes(`${tag} `)
+                  box.height > 0 &&
+                  box.bottom > view.top &&
+                  box.top < view.bottom &&
+                  row.textContent?.includes(`${tag} `)
                 );
               });
             };
@@ -614,7 +672,9 @@ try {
               requestAnimationFrame(() => setTimeout(tick, 0));
             };
             void (
-              window as unknown as { cmuxAcpmuxActions: Record<string, (params: Record<string, unknown>) => Promise<unknown>> }
+              window as unknown as {
+                cmuxAcpmuxActions: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+              }
             ).cmuxAcpmuxActions["chat.select"]!({ sessionId: id });
             requestAnimationFrame(() => setTimeout(tick, 0));
           }),
@@ -631,7 +691,10 @@ try {
         for (const node of profile.nodes) {
           const url = node.callFrame.url;
           const file = url ? path.basename(new URL(url, "http://x").pathname) : "";
-          where.set(node.id, file.endsWith(".js") ? mapper(file, node.callFrame.lineNumber, node.callFrame.columnNumber) : "");
+          where.set(
+            node.id,
+            file.endsWith(".js") ? mapper(file, node.callFrame.lineNumber, node.callFrame.columnNumber) : "",
+          );
         }
         trayMs = 0;
         cardMs = 0;
@@ -691,12 +754,15 @@ try {
         const of = rounds.filter((round) => round.variant === variant && round.arm === arm);
         const col = (key: keyof SwitchRound, digits = 0) =>
           stat(
-            of.map((round) => round[key]).filter((value): value is number => typeof value === "number" && !Number.isNaN(value)),
+            of
+              .map((round) => round[key])
+              .filter((value): value is number => typeof value === "number" && !Number.isNaN(value)),
             digits,
           );
         const yes = (key: keyof SwitchRound) => `${of.filter((round) => round[key] === true).length}/${of.length}`;
         const methods: Record<string, number[]> = {};
-        for (const round of of) for (const [method, n] of Object.entries(round.methods)) (methods[method] ??= []).push(n);
+        for (const round of of)
+          for (const [method, n] of Object.entries(round.methods)) (methods[method] ??= []).push(n);
         console.log(
           `  ${variant.padEnd(8)} ${arm.padEnd(8)} first ${col("firstMs")} ms, live ${col("liveMs")} ms, script ${col("scriptMs")} ms, ` +
             `requests ${col("requests")}, answer bytes ${col("bytes")}, tray self ${col("trayMs", 1)} ms, card self ${col("cardMs", 1)} ms; ` +
