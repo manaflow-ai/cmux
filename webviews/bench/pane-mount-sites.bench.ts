@@ -116,13 +116,44 @@ const tagged = (records: readonly EventRecord[], tag: string, sessionId: string)
   }
   return out;
 };
+/// acpmux's record of a subagent it started (`_meta.acpmux.subagents`, cmux-tui subagents.rs): what the tray lists.
+const spawned = (sessionId: string, tag: string, toolCallId: unknown, at: number): EventRecord =>
+  ({
+    sessionId,
+    seq: 0,
+    at: at + 50,
+    dir: "in",
+    kind: "subagent_spawned",
+    msg: {
+      method: "session/update",
+      params: {
+        sessionId,
+        update: { sessionUpdate: "subagent_spawned" },
+        _meta: {
+          acpmux: {
+            subagents: [
+              {
+                id: `${tag}-scanner`,
+                parent: null,
+                name: `${tag} scanner`,
+                state: "running",
+                ...(typeof toolCallId === "string" ? { toolCallId } : {}),
+              },
+            ],
+          },
+        },
+      },
+    },
+  }) as unknown as EventRecord;
 /// A turn that starts a subagent and is still running, after `records`: the tray and the card have it to draw.
 const subagentTail = (after: readonly EventRecord[], tag: string, sessionId: string) => {
   const b = sim("tail", "a running subagent");
   b.prompt(`${tag} find every flaky test in the repo.`);
   b.say(`${tag} has a subagent scanning the CI logs while it reads the suite.`);
   b.tool(`${tag} scan the last 50 CI logs for flaky tests`, { kind: "think", tool: "Agent", open: true });
-  const built = b.build().events;
+  const built = [...b.build().events];
+  const call = [...built].reverse().find((record) => record.kind === "tool_call");
+  built.push(spawned(sessionId, tag, (call?.msg as any)?.params?.update?.toolCallId, call?.at ?? 0));
   const lastSeq = after.at(-1)?.seq ?? 0;
   const lastAt = after.at(-1)?.at ?? Date.UTC(2026, 10, 1);
   const firstAt = built[0]?.at ?? 0;
@@ -144,8 +175,10 @@ for (let index = 0; index < CHATS; index += 1) {
   let rest: EventRecord[] = [];
   if (RUNNING && index === 0) {
     const cut = simChat({ name: baseLog.name, records: all }, { running: true, restRecords: SIM_RATE * 120 });
-    events = cut.served;
-    rest = cut.rest;
+    // Its running turn has a subagent too, so the tray is there to switch back to; the rest moves one seq on.
+    const last = cut.served.at(-1)!;
+    events = [...cut.served, { ...spawned(id, tag, undefined, last.at), seq: last.seq + 1 }];
+    rest = cut.rest.map((record) => ({ ...record, seq: record.seq + 1 }));
   } else events = [...all, ...subagentTail(all, tag, id)];
   const opener = [...events].reverse().find((record) => record.kind === "user_message");
   const msg = (opener?.msg ?? {}) as { turnId?: string; promptId?: string; text?: string };
