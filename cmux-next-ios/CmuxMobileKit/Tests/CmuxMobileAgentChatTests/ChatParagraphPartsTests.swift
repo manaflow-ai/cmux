@@ -35,6 +35,23 @@ import Testing
         #expect(parts.allSatisfy { $0.id == block.id })
     }
 
+    /// A paragraph whose marks never close within a window (a code span opened on its first
+    /// line, a stray star, ANSI `[31m` brackets) still splits: each part closes what is open at its
+    /// end and opens it again at the next part's start, so every part draws as the paragraph did.
+    @Test func aParagraphWithOpenMarksStillSplits() throws {
+        var lines = ["`start of a code span that never closes"]
+        lines += (1..<100).map { "\u{1B}[31merror\u{1B}[0m line \($0) of the log *note" }
+        let block = MarkdownBlock(id: 0, kind: .paragraph(lines.joined(separator: "\n")))
+        let parts = ChatParagraphParts.split(block)
+        #expect(parts.count >= 2, "\(parts.count) parts for 100 lines")
+        for (number, part) in parts.enumerated() {
+            guard case .paragraph(let text) = part.kind else { continue }
+            let marks = ChatParagraphParts.Marks().after(text.split(separator: "\n", omittingEmptySubsequences: false)[...])
+            #expect(marks.isEmpty || number == parts.count - 1, "part \(number) closes its marks: \(marks)")
+            #expect(text.split(separator: "\n").count <= 2 * ChatParagraphParts.maxLines, "part \(number) is at most twice the window")
+        }
+    }
+
     /// Drawn one under the other with the paragraph's line spacing, the parts are as tall as the
     /// paragraph: rows that come in as parts move nothing the reader sees (0.5 pt).
     @Test func thePartsAreAsTallAsTheParagraph() throws {
