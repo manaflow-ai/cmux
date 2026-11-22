@@ -38,6 +38,7 @@ dependencies = [
  "cmux-embed",
  "cmux-fault",
  "cmux-file-lock",
+ "cmux-forum-hosted",
  "cmux-git",
  "cmux-host",
  "cmux-host-budget",
@@ -1884,6 +1885,17 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-forum-hosted"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
 ]
 
 [[package]]

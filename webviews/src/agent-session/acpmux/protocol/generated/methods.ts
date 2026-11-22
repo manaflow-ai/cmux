@@ -68,7 +68,10 @@ export interface AcpmuxRequests {
   "_acpmux/race/stats": { params: unknown; result: unknown };
   "_acpmux/forum/ack": { params: unknown; result: unknown };
   "_acpmux/forum/announce": { params: unknown; result: unknown };
+  "_acpmux/forum/post": { params: unknown; result: unknown };
+  "_acpmux/forum/reply": { params: unknown; result: unknown };
   "_acpmux/forum/rules": { params: ForumRulesParams; result: unknown };
+  "_acpmux/forum/search": { params: unknown; result: unknown };
   "_acpmux/set_tools": { params: SetToolsParams; result: unknown };
   "_acpmux/set_directories": { params: unknown; result: unknown };
   "_acpmux/project_new": { params: unknown; result: unknown };
@@ -467,7 +470,10 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/race/stats", kind: "request", acp: false, typed: false },
   { name: "_acpmux/forum/ack", kind: "request", acp: false, typed: false },
   { name: "_acpmux/forum/announce", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/forum/post", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/forum/reply", kind: "request", acp: false, typed: false },
   { name: "_acpmux/forum/rules", kind: "request", acp: false, typed: true },
+  { name: "_acpmux/forum/search", kind: "request", acp: false, typed: false },
   { name: "_acpmux/set_tools", kind: "request", acp: false, typed: true },
   { name: "_acpmux/set_directories", kind: "request", acp: false, typed: false },
   { name: "_acpmux/project_new", kind: "request", acp: false, typed: false },
