@@ -173,3 +173,82 @@ fn a_translucent_text_color_is_measured_as_drawn() {
         check(&[&ops], Surface::Widget).into_iter().filter(|f| f.check == "contrast").collect();
     assert!(contrast.iter().any(|f| f.message.contains("light surface")), "{contrast:?}");
 }
+
+#[test]
+fn stat_and_chart_with_their_variants_and_states_have_no_design_warnings() {
+    let ops = scene(&[
+        (
+            "Stat",
+            json!({"value": "1,284", "label": "Requests", "delta": "+12%", "trend": "up", "variant": "prominent"}),
+        ),
+        ("Stat", json!({"value": "—", "state": "loading"})),
+        ("Chart", json!({"values": [1, 4, 2, 8], "kind": "bar", "variant": "subtle"})),
+        (
+            "Chart",
+            json!({"values": [], "kind": "line", "state": "empty", "stateMessage": "No data"}),
+        ),
+        ("Badge", json!({"text": "3", "tone": "accent", "variant": "standard"})),
+        ("Row", json!({"title": "Build", "state": "error", "stateMessage": "Offline"})),
+        ("Toggle", json!({"value": true, "state": null})),
+    ]);
+    assert_eq!(checks(&ops, Surface::Widget), Vec::<&str>::new());
+}
+
+#[test]
+fn an_unknown_variant_or_state_names_the_ones_the_component_draws() {
+    let ops = scene(&[
+        ("Badge", json!({"text": "3", "variant": "loud"})),
+        ("Stat", json!({"value": "1", "state": "busy"})),
+        ("Toggle", json!({"value": true, "variant": "prominent"})),
+    ]);
+    let findings = check(&[&ops], Surface::Widget);
+    let found: Vec<_> = findings.iter().filter(|f| f.check == "component").collect();
+    assert_eq!(found.len(), 3, "{findings:?}");
+    assert!(found[0].fix.contains("\"standard\", \"prominent\", \"subtle\""), "{}", found[0].fix);
+    assert!(found[1].fix.contains("\"loading\", \"error\", \"empty\""), "{}", found[1].fix);
+    assert_eq!(found[2].fix, "use \"standard\"");
+}
+
+#[test]
+fn a_variant_or_state_on_a_layout_node_draws_nothing_and_warns() {
+    let ops = scene(&[("VStack", json!({"variant": "prominent", "state": "loading"}))]);
+    let findings = check(&[&ops], Surface::Widget);
+    let found: Vec<_> = findings.iter().filter(|f| f.check == "component").collect();
+    assert_eq!(found.len(), 2, "{findings:?}");
+    assert!(found[1].fix.contains("EmptyState"), "{}", found[1].fix);
+}
+
+#[test]
+fn a_chart_with_no_values_an_unknown_kind_or_too_many_values_warns() {
+    let many: Vec<u32> = (0..70).collect();
+    let ops = scene(&[
+        ("Chart", json!({"values": [], "kind": "line"})),
+        ("Chart", json!({"values": [1, 2], "kind": "pie"})),
+        ("Chart", json!({"values": many, "kind": "bar"})),
+    ]);
+    let findings = check(&[&ops], Surface::Widget);
+    let messages: Vec<_> =
+        findings.iter().filter(|f| f.check == "component").map(|f| f.message.as_str()).collect();
+    assert_eq!(messages.len(), 3, "{findings:?}");
+    assert!(messages[0].contains("no values"), "{}", messages[0]);
+    assert!(messages[1].contains("\"pie\""), "{}", messages[1]);
+    assert!(messages[2].contains("more than 64"), "{}", messages[2]);
+}
+
+/// The gallery's recorded components (webviews' Components.gallery.tsx, recorded by
+/// cmux-app-host/js/test/components.test.ts) pass every check as a widget.
+#[test]
+fn the_components_gallery_passes_the_design_check() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../webviews/src/apps/scene/fixtures/components-scenes.json"
+    );
+    let value: Value =
+        serde_json::from_str(&std::fs::read_to_string(path).expect("the fixture reads")).unwrap();
+    let scenes = scenes_in("components-scenes.json", &value);
+    assert_eq!(scenes.len(), 4);
+    for (name, ops) in &scenes {
+        let findings = check(&[ops], Surface::Widget);
+        assert!(findings.is_empty(), "{name}: {findings:?}");
+    }
+}

@@ -5,7 +5,7 @@
 // wiggle); a widget draws only what is inside. The helpers are plain views built on the scene
 // DSL: use them, mix them with VStack and Text, or ignore them.
 
-import { ForEach, HStack, Icon, ProgressView, Spacer, Text, VStack, type View, Circle, Line, ZStack } from "./index.ts"
+import { EmptyState, ForEach, HStack, Icon, ProgressView, Spacer, Text, VStack, type ComponentState, type View, Circle, Line, ZStack } from "./index.ts"
 
 /** A widget's size, as Apple's widget families: small is a 1x1 tile, medium 2x1, large 2x2. */
 export type WidgetSize = "small" | "medium" | "large"
@@ -143,9 +143,13 @@ export function WidgetSymbol(name: string | (() => string), options: { size?: nu
   return Icon(name).size(options.size ?? 20).color(options.tint ?? "primary")
 }
 
-/** A gauge: a 0 to 1 bar with an optional caption beside it (a battery, a progress, a ring's value). */
-export function Gauge(value: number | (() => number), options: { label?: string | (() => string); tint?: string } = {}): View {
-  const bar = ProgressView(value)
+/** A gauge: a 0 to 1 bar with an optional caption beside it (a battery, a progress, a ring's value).
+ * `state` draws the host's loading, error or empty state in place of the bar. */
+export function Gauge(
+  value: number | (() => number),
+  options: { label?: string | (() => string); tint?: string; state?: ComponentState | null | (() => ComponentState | null) } = {}
+): View {
+  const bar = options.state === undefined ? ProgressView(value) : ProgressView(value).state(options.state)
   const tinted = options.tint ? bar.color(options.tint) : bar
   if (options.label === undefined) return tinted
   return VStack({ spacing: 2, alignment: "leading" }, [tinted, Caption(options.label)])
@@ -160,10 +164,16 @@ export type ListItem = { id: string; title: string; detail?: string; trailing?: 
  * medium, 6 to 8 in a large), each a title, an optional detail under it and a trailing value.
  * Rows slide in and out as the list changes; the host animates it.
  */
-export function RowList(items: () => readonly ListItem[], options: { max?: number; spacing?: Space } = {}): View {
+export function RowList(
+  items: () => readonly ListItem[],
+  options: { max?: number; spacing?: Space; state?: () => ComponentState | null; stateMessage?: () => string | null } = {}
+): View {
   const max = options.max ?? 4
+  const state = options.state
   return VStack({ spacing: options.spacing ?? 6, alignment: "leading" }, [
-    ForEach({ items: () => (items() ?? []).slice(0, max), key: (item) => item.id }, (item) => {
+    // `state` (loading, error, empty) draws the host's state in the list's place: an EmptyState in it.
+    state ? () => (state() ? EmptyState({ title: "" }).state(state, options.stateMessage ?? null) : null) : null,
+    ForEach({ items: () => (state?.() ? [] : (items() ?? []).slice(0, max)), key: (item) => item.id }, (item) => {
       const leading = item().symbol
         ? Icon(() => item().symbol ?? "").size(WIDGET_TYPE.label).color(() => item().tint ?? "accent")
         : VStack([]).frame({ width: 3, minHeight: 28 }).background(() => item().tint ?? "accent").cornerRadius(1.5)
