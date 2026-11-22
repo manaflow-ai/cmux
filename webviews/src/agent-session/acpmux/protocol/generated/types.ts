@@ -34,6 +34,7 @@ export interface AcpmuxRequestMeta {
   harness?: unknown;
   harnessFrom?: unknown;
   host?: unknown;
+  ifNameTaken?: unknown;
   inlineParts?: unknown;
   interrupt?: unknown;
   localAppToken?: unknown;
