@@ -530,7 +530,7 @@ jobs:
     # pool writer marked 8, 16 and 32 vCPU dead and linux_16 held 2 vCPU, where these shards and
     # react-apps-base-early queued over an hour (run 44304196887 attempt 2) while 4 vCPU started them.
     # The widths and minutes below fit whatever size the pool holds.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ((github.event_name == 'push' || github.event.inputs.tick == 'true') || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ((github.event_name == 'push' || github.event.inputs.tick == 'true') || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && (vars.CI_REACT_SHARD_RUNNER || vars.CI_LINUX_GATE_OWNED_RUNNER) || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # The 10-minute siblings in this workflow, plus the browser engines and the
     # browser-lane suites they run. The full suite grew to 22 min in one process.
     # Deterministic file shards keep per-file isolation. Each shard warms one
@@ -594,6 +594,20 @@ jobs:
           git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/pr-changed-files"
           echo "CMUX_PR_CHANGED_FILES=$RUNNER_TEMP/pr-changed-files" >> "$GITHUB_ENV"
 
+      # A Freestyle react-class runner (CI_REACT_SHARD_RUNNER) boots from a snapshot that already
+      # holds Bun's package cache, the Playwright browsers and their apt packages, and names them
+      # in the runner's environment. The runner's environment is not the workflow `env` context,
+      # so a shell step reads it. Anywhere else this prints warm=false and the caches restore.
+      - name: Read the runner's warm react caches
+        id: warm-react
+        run: |
+          if [ -n "${CMUX_WARM_REACT:-}" ] && [ -d "${BUN_INSTALL_CACHE_DIR:-/nonexistent}" ] && [ -d "${PLAYWRIGHT_BROWSERS_PATH:-/nonexistent}" ]; then
+            echo "warm react caches $CMUX_WARM_REACT: $BUN_INSTALL_CACHE_DIR $PLAYWRIGHT_BROWSERS_PATH"
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "warm=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -604,12 +618,14 @@ jobs:
       # cache Bun's package blobs on this lane so a new source key
       # does not redownload the lockfile from scratch.
       - name: Cache Bun package cache
+        if: steps.warm-react.outputs.warm != 'true'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
       - name: Cache Playwright browsers
+        if: steps.warm-react.outputs.warm != 'true'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/ms-playwright
@@ -717,6 +733,7 @@ jobs:
       # without these engines; before, they skipped themselves and passed.
       - name: Cache Playwright's apt packages
         id: playwright-apt
+        if: steps.warm-react.outputs.warm != 'true'
         continue-on-error: true
         uses: ./.github/actions/playwright-apt-cache
         with:
@@ -986,7 +1003,7 @@ jobs:
   react-apps-base-early:
     needs: web-subarea-scope
     if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci') && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ((github.event_name == 'push' || github.event.inputs.tick == 'true') || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ((github.event_name == 'push' || github.event.inputs.tick == 'true') || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && (vars.CI_REACT_SHARD_RUNNER || vars.CI_LINUX_GATE_OWNED_RUNNER) || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     continue-on-error: true
     # A stuck early shard must not hold the base check past what its own replay costs. Over 11-20..21 (24 h feed,
     # 1,507 runs of these two shards) 615 successes had a median of 85 s and a p97 of 200 s; 811 runs ended
@@ -1152,7 +1169,7 @@ jobs:
   react-apps-base-check:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ((github.event_name == 'push' || github.event.inputs.tick == 'true') || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ((github.event_name == 'push' || github.event.inputs.tick == 'true') || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && (vars.CI_REACT_SHARD_RUNNER || vars.CI_LINUX_GATE_OWNED_RUNNER) || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # 55: the base replay and the head re-run of up to 25 files each (13 files took about 6 minutes alone). The base's
     # replays after the first share what is left of it (the compare step's JOB_TIMEOUT_MINUTES and REPLAY_RESERVE).
     timeout-minutes: 55
