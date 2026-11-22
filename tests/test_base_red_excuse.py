@@ -13759,6 +13759,57 @@ class EveryReportedFailureIsNamed(unittest.TestCase):
                          UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, self.CARGO, self.CARGO))
 
 
+class ANestedCargoRunIsCountedAgainstItsOwnBlock(unittest.TestCase):
+    """cmux#50285: a test that re-execs its own test binary with a filter prints a whole nested libtest summary inside
+    the parent target's `---- NAME stdout ----` dump. Counted against the names its runner printed since the previous
+    summary, that nested `0 passed; 1 failed; ... 6808 filtered out` matched its own one name and then emptied the
+    tally, so the target's real `9 failed` summary read as unnamed and no PR could be excused against that base red
+    (cmux job 137195667407). Each cargo summary now counts the names of its own `failures:` block (test_reds.py's
+    CARGO_LISTED, landed for the same class as #50988 while this PR waited on a rebase): these four cases pin the
+    whole live shape at the base_red_excuse layer -- the nested summary, a summary reporting more than its block
+    names, a block name no `test NAME ... FAILED` line named (a doc test: still unnamed, #41166's review F2), and a
+    log cut short before its block, which falls back to the runner's leftover names. Detector:
+    `tests/test_base_red_excuse.py` `ANestedCargoRunIsCountedAgainstItsOwnBlock`."""
+
+    NESTED = ["running 1 test", "test m::re_execs ... FAILED", "", "failures:", "",
+              "failures:", "    m::re_execs", "",
+              "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6808 filtered out; finished in 0.01s",
+              "", "", ""]
+
+    def target(self, nested=None, block=None, failed=2):
+        """One libtest target's lines: its two `... FAILED` lines, a stdout dump each (NESTED printed inside the
+        second, as the re-exec prints it), then its own `failures:` block (BLOCK, default both names) and summary."""
+        names = ["m::first", "m::re_execs"]
+        lines = ["running 6810 tests", "test m::passes ... ok"]
+        lines += [f"test {name} ... FAILED" for name in names]
+        lines += ["", "failures:", "", "---- m::first stdout ----",
+                  "thread 'm::first' panicked at src/a.rs:1:1:", "assertion failed", ""]
+        lines += ["---- m::re_execs stdout ----"] + list(nested or []) + [""]
+        lines += ["failures:"] + [f"    {name}" for name in (block or names)] + [""]
+        return lines + [f"test result: FAILED. 6724 passed; {failed} failed; 76 ignored; 0 measured; "
+                        "0 filtered out; finished in 431.31s"]
+
+    def test_the_nested_summary_does_not_empty_the_targets_tally(self):
+        self.assertEqual(TR.runner_unnamed(self.target(self.NESTED)), [])
+        self.assertEqual(TR.runner_unnamed(self.target()), [])
+
+    def test_a_summary_reporting_more_than_its_block_names_is_unnamed(self):
+        lines = self.target(self.NESTED, failed=3)
+        self.assertEqual(TR.runner_unnamed(lines), [lines[-1]])
+
+    def test_a_block_name_no_failure_line_named_is_unnamed(self):
+        # A failing doc test's `test src/lib.rs - parse (line 3) ... FAILED` is a name no parser reads, so the
+        # third failure its block names can still be told from no other (#41166's review F2).
+        lines = self.target(block=["m::first", "m::re_execs", "src/lib.rs - parse (line 3)"], failed=3)
+        self.assertEqual(TR.runner_unnamed(lines), [lines[-1]])
+
+    def test_a_log_cut_short_before_its_block_falls_back_to_the_names_since(self):
+        cut = [line for line in self.target() if not line.startswith("    ") and line != "failures:"]
+        self.assertEqual(TR.runner_unnamed(cut), [])
+        self.assertEqual(TR.runner_unnamed([line for line in cut if "FAILED" not in line or "result" in line]),
+                         [cut[-1]])
+
+
 def bun_lines(results=(), recap=(), fail=None):
     """One bun invocation of test/a.test.ts: RESULTS printed in the run, a recap of RECAP titles, ` N fail`."""
     out = ["bun test v1.3.0", "test/a.test.ts:"]
