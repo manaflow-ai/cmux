@@ -32,6 +32,9 @@ extension AgentPaneComposerSetting {
     /// `agentPane.newChatsIn`: Where a new chat runs when its composer picks nothing (agentPane.newChatsIn); the page decides (runLocationDefault.ts). Leo, 2026-10-31: "whenever i start a chat it should be able to send me to cloud autommatically".
     public nonisolated static let newChatsInPath = ["agentPane", "newChatsIn"]
     public nonisolated static let newChatsInDefault: AgentPaneNewChatPlace = .local
+    /// `agentPane.sessionWorktrees`.
+    public nonisolated static let sessionWorktreesPath = ["agentPane", "sessionWorktrees"]
+    public nonisolated static let sessionWorktreesDefault: AgentPaneSessionWorktrees = .off
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -156,6 +159,20 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 ]),
                 default: .string(AgentPaneComposerSetting.newChatsInDefault.rawValue),
                 keywords: ["cloud", "new chat", "start", "machine", "vm", "remote", "this mac", "local", "run"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.sessionWorktreesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.sessionWorktrees", "Session Worktrees"),
+                help: SettingsText.keyed("settings.agentPane.sessionWorktrees.help", "Choose where to keep worktrees for local chats and forks."),
+                kind: .choice([
+                    SettingChoice(AgentPaneSessionWorktrees.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice(AgentPaneSessionWorktrees.shared.rawValue, SettingsText.keyed("settings.choice.sessionWorktreesShared", "Shared Worktree Folder")),
+                    SettingChoice(AgentPaneSessionWorktrees.project.rawValue, SettingsText.keyed("settings.choice.sessionWorktreesProject", "Inside Project")),
+                ]),
+                default: .string(AgentPaneComposerSetting.sessionWorktreesDefault.rawValue),
+                keywords: ["git", "worktree", "fork", "folder"]
             ),
         ]
     }
