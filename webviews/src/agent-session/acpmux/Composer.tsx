@@ -1,6 +1,6 @@
 import { acpmuxPerf } from "./perf";
 import { holdFlag, resumeOrFail, setRef } from "./heldFlag";
-import { useStableHandlers } from "./stableHandlers";
+import { usePropChurn, useStableHandlers } from "./stableHandlers";
 import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
@@ -524,7 +524,9 @@ type Props = {
 /// its identity while nothing the composer shows changed (composer/composerView.ts), so a transcript
 /// change (a tool call, a row added) leaves it be.
 export function Composer(props: Props) {
-  return <MemoComposer {...useStableHandlers(props)} />;
+  const stable = useStableHandlers(props);
+  usePropChurn("composer", stable, acpmuxPerf.enabled, (key) => acpmuxPerf.render(key));
+  return <MemoComposer {...stable} />;
 }
 
 /// The prompt box with the agent's `/` command menu:

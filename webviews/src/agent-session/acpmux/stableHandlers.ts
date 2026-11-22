@@ -29,3 +29,16 @@ export function useStableHandlers<P extends object>(props: P): P {
   }
   return stable as P;
 }
+
+/// Counts, under `name.prop:KEY` in acpmuxPerf's renders, each prop of a memoized component whose
+/// identity changed since the last render of its parent: the props that draw it again. Inert until a
+/// debug call turns measurement on (`cmuxAcpmuxDebug.renders()`), so a test can name what churned.
+export function usePropChurn(name: string, props: object, enabled: boolean, count: (key: string) => void): void {
+  const last = useRef<Record<string, unknown> | undefined>(undefined);
+  const now = props as Record<string, unknown>;
+  const before = last.current;
+  last.current = now;
+  if (!enabled || !before) return;
+  for (const key of new Set([...Object.keys(before), ...Object.keys(now)]))
+    if (!Object.is(before[key], now[key])) count(`${name}.prop:${key}`);
+}
