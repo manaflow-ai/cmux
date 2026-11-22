@@ -4,7 +4,8 @@ public import CmuxNextSidebar
 /// The values of the sidebar band's items (`SidebarModel.itemInfo`), made from the App's state: the built-ins, the
 /// apps and the workspaces a layout places, and the built-ins the list draws in a group or a machine list.
 @MainActor
-public enum SidebarBandItems {
+public struct SidebarBandItems {
+    public init() {}
     /// The registry action each built-in runs.
     public static let builtInActions: [SidebarBuiltIn: ActionID] = [
         .home: "home.show",
