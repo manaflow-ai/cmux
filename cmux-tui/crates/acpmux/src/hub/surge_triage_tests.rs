@@ -250,6 +250,8 @@ async fn a_restart_triages_a_held_backlog_larger_than_the_inbox_keeps() {
     }
     hub.surge_triage_journals.lock().unwrap().clear();
     *s.inbox() = Default::default();
+    // The restore itself resumes the backlog (`resume_after_restore`), with no new arrival.
+    scheduled(&hub, &s);
     hub.restore_inbox(&s);
     assert!(s.inbox().items.len() <= super::super::inbox::KEEP, "memory keeps only the newest");
     wait_idle(&hub, &s).await;

@@ -521,8 +521,24 @@ async fn with_the_surge_preview_off_a_burst_is_not_held() {
     for on in [false, true] {
         let (hub, session) = hub_with_chat(if on { "preview-on" } else { "preview-off" });
         hub.set_surge_inbox(Some(on));
+        // A finished turn, so a burst after it is one the surge holder would take.
+        for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+            let msg = json!({"turnSeq":1,"turnId":"finished","status":"completed"});
+            session.time_breakdown.lock().unwrap().record(&EventRecord {
+                seq,
+                at,
+                kind: kind.into(),
+                dir: "mux".into(),
+                msg,
+                host_seq: None,
+            });
+        }
         let blocks = [json!({"type":"text","text":"Runner is still busy"})];
-        let opts = PromptOptions { agent: Some("runner".into()), ..Default::default() };
+        let opts = PromptOptions {
+            agent: Some("runner".into()),
+            class: Some(PromptClass::Fyi),
+            ..Default::default()
+        };
         let held = ["first", "second", "third", "fourth"]
             .iter()
             .filter(|id| {
