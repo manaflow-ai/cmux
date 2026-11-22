@@ -685,8 +685,9 @@ struct AgentChatLoadingState: View {
     }
 }
 
-/// Kept rows show while the chat is away from the Mac or catches up with it; after
-/// ``QuietStatusGate/threshold`` one quiet line by the composer says so
+/// Kept rows show while the chat is away from the Mac or catches up with it, and nothing says so
+/// (Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray... with the spinner, i want it to
+/// just work"). The one line by the composer is a send that truly failed
 /// (``AgentChatStore/connectionLine``). Never a pill over the rows.
 struct AgentChatConnectionLine: View {
     let store: AgentChatStore

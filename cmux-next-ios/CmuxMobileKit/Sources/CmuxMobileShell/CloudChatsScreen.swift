@@ -166,7 +166,7 @@ struct CloudChatsConnecting: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            CmuxSpinner(label: Text("Connecting to \(machine) through \(mac)…"))
+            CmuxSpinner(label: Text("Opening \(machine)…"))
             // The text is "Up to 40 s" for the first 5 s: no redraw until it counts.
             TimelineView(ElapsedTextSchedule(since: since, quietSeconds: 5)) { context in
                 let elapsed = Int(context.date.timeIntervalSince(since))

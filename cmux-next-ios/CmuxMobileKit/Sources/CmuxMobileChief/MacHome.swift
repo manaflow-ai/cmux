@@ -328,9 +328,10 @@ public struct HomeConnectionStatus: Equatable, Sendable {
         return HomeConnectionStatus(kind: kind, isRetrying: retrying, detail: detail, empty: empty)
     }
 
-    /// The connecting line when no rows show and no empty state applies.
-    public static func connectingTitle(macName: String?) -> String {
-        String(localized: "Connecting to \(macName ?? String(localized: "your Mac"))…")
+    /// The loading line when no rows show and no empty state applies: what is coming, never the
+    /// link (Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray... with the spinner, i want it to just work").
+    public static func connectingTitle(macName _: String?) -> String {
+        String(localized: "Loading conversations…")
     }
 }
 

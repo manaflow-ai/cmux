@@ -304,7 +304,7 @@ struct AgentChatsScreen: View {
     private var content: some View {
         switch model.phase {
         case .loading:
-            CmuxSpinner(label: Text(model.reconnecting ? "Connecting to your Mac…" : "Loading chats…"))
+            CmuxSpinner(label: Text("Loading chats…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("agentChats.loading")
         case .failed(let message):
@@ -329,8 +329,9 @@ struct AgentChatsScreen: View {
             // The kept rows show while the Mac's newest page loads; a plain refresh says "Updating…"
             // in the nav bar subtitle (see body), so no row is inserted above them and nothing
             // shifts. A dropped or quiet link still says so here, in its own row.
-            if model.reconnecting {
-                ListStatusRow(model.stale ? .stale : .reconnecting)
+            // A link coming back says nothing over the kept rows; only one gone past the bound does.
+            if model.reconnecting, model.stale {
+                ListStatusRow(.stale)
                     .accessibilityIdentifier("agentChats.reconnecting")
             }
             ForEach(rows) { chat in

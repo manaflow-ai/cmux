@@ -105,12 +105,13 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     private var homeBanner: ConnectionBannerState? {
         guard let status = connectionStatus, keptRowsShow else { return nil }
         let mac = macTag ?? String(localized: "your Mac")
-        if status.isRetrying { return .reconnecting(to: mac, identity: homeMacID) }
+        // A link coming back says nothing over the kept rows (Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray... with the spinner, i want it to just work").
+        if status.isRetrying { return nil }
         switch status.kind {
         case .macOffline: return .macOffline(mac, identity: homeMacID)
         case .unreachable: return ConnectionBannerState.connectionFailed.identified(homeMacID)
         case .failed: return .refreshFailed(identity: homeMacID)
-        case .connecting: return .connecting(to: mac, identity: homeMacID)
+        case .connecting: return nil
         }
     }
 
@@ -397,8 +398,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 // Rows that exist but are still loading never show as an empty list.
                 switch listNote(searching: searching) {
                 case .connecting:
-                    loadingNote(String(localized: "Connecting to \(macTag ?? String(localized: "your Mac"))…"),
-                                identifier: "home.note.connecting")
+                    loadingNote(HomeConnectionStatus.connectingTitle(macName: macTag), identifier: "home.note.connecting")
                 case .loading:
                     loadingNote(String(localized: "Loading conversations…"), identifier: "home.note.loading")
                 case .updating, .none:

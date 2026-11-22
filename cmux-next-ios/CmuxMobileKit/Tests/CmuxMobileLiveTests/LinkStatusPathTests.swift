@@ -79,7 +79,7 @@ import Testing
         let banner = LiveCoordinator.waitingBanner(
             macName: "Studio", transport: .wireGuard, reason: timedOut, attempt: 2, wasConnected: true,
             relayAvailable: true)
-        #expect(banner == .reconnecting(to: "Studio"))
+        #expect(banner == nil, "a link coming back says nothing (Leo 2026-11-22)")
     }
 
     /// Still unreachable after the first redials (about half a minute): say
@@ -146,10 +146,10 @@ import Testing
     @Test func normalStatusDoesNotExposeDiagnostics() {
         let secretError = "list-workspaces reply is not an object"
         let failed = LinkMachine.Phase.waiting(.webRTC, attempt: 2, reason: secretError, retryIn: .seconds(1))
-        #expect(failed.statusLine(macName: "Studio") == "Reconnecting…")
+        #expect(failed.statusLine(macName: "Studio") == nil)
         #expect(failed.diagnosticLine(macName: "Studio")?.contains(secretError) == true)
         #expect(LinkMachine.Phase.macOffline.statusLine(macName: "Studio") == "Offline")
-        #expect(LinkMachine.Phase.connecting(.wireGuard, attempt: 1).statusLine(macName: "Studio") == "Reconnecting…")
+        #expect(LinkMachine.Phase.connecting(.wireGuard, attempt: 1).statusLine(macName: "Studio") == nil)
         let connected = LinkMachine.Phase.connected(.wireGuard, .turnTLS, rttMillis: 27)
         #expect(connected.statusLine(macName: "Studio", media: .up(.turn, rttMillis: 12)) == "Connected")
         #expect(connected.diagnosticLine(macName: "Studio", media: .up(.turn, rttMillis: 12))

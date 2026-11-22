@@ -987,7 +987,7 @@ public struct WorkspacesList: View {
         case .connecting:
             VStack(spacing: 12) {
                 CmuxSpinner()
-                Text("Connecting to \(displayName(mac))…")
+                Text("Loading workspaces…")
                     .font(theme.type.rowSubtitle)
                     .foregroundStyle(theme.colors.label2)
             }
