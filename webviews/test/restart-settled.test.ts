@@ -3,7 +3,7 @@
 // (bench/linkModel.ts) and the numbers read from a relaunch's painted frames (bench/restartSettled.ts).
 import { describe, expect, test } from "bun:test";
 import { LinkPipe, linkProfile, linkProfiles, schedule } from "../bench/linkModel";
-import { movedPx, restartSettled } from "../bench/restartSettled";
+import { goneRows, movedPx, restartSettled } from "../bench/restartSettled";
 import { classifyFrames, type FrameRecord } from "../src/agent-session/acpmux/firstLoadFrames";
 
 describe("link model", () => {
@@ -67,7 +67,15 @@ describe("restart to settled", () => {
     const frames = [frame(80, rows), frame(96, rows), frame(700, rows)];
     const got = restartSettled(frames, classifyFrames(frames), 650);
     // motion-allow: a frame time in the fixture, not a motion step.
-    expect(got).toEqual({ firstContentMs: 80, settledMs: 650, shifts: 0, shiftPxMax: 0, shiftPxSum: 0 });
+    expect(got).toEqual({
+      firstContentMs: 80,
+      settledMs: 650,
+      shifts: 0,
+      shiftPxMax: 0,
+      shiftPxSum: 0,
+      goneRows: 0,
+      goneFrames: 0,
+    });
   });
 
   test("a move after the live chat showed settles at the move, and counts how far it went", () => {
@@ -87,6 +95,29 @@ describe("restart to settled", () => {
     const rows = [{ id: "a", top: 100 }];
     const frames = [frame(80, rows)];
     expect(restartSettled(frames, classifyFrames(frames), null).settledMs).toBeNull();
+  });
+
+  test("rows a reload drew and the settled chat folded away count once each, with the frames that showed them", () => {
+    // Leo, 2026-11-22: "they get folded/hidden anyways: so its quite pointless ... to stream them in".
+    const frames = [
+      frame(80, [
+        { id: "call-1", top: 100 },
+        { id: "call-2", top: 140 },
+      ]),
+      frame(96, [
+        { id: "call-1", top: 100 },
+        { id: "call-2", top: 140 },
+        { id: "reply", top: 180 },
+      ]),
+      frame(700, [
+        { id: "worked", top: 100 },
+        { id: "reply", top: 140 },
+      ]),
+    ];
+    expect(goneRows(frames)).toEqual({ rows: 2, frames: 2 });
+    expect(restartSettled(frames, classifyFrames(frames), 650)).toMatchObject({ goneRows: 2, goneFrames: 2 });
+    expect(goneRows([frame(80, [{ id: "a", top: 100 }])])).toEqual({ rows: 0, frames: 0 });
+    expect(goneRows([])).toEqual({ rows: 0, frames: 0 });
   });
 
   test("a composer that grew counts its growth; sub-pixel rounding counts nothing", () => {
