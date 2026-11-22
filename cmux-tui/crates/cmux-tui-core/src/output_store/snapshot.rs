@@ -379,6 +379,9 @@ struct Plan {
     /// A flood the next snapshot covers (`LogState::flooded`).
     flooded: bool,
     pending: usize,
+    /// The digest of the last stored byte (`LogState::tail_digest`): pending
+    /// bytes under a screen of this digest are held redraws.
+    tail_digest: Option<u64>,
     /// The tail file continues the stored snapshot up to the unwritten bytes.
     tail_continues: bool,
     /// Snapshot mode: the time left in a write backoff.
@@ -399,6 +402,7 @@ impl Plan {
             compaction_spaced: state.compaction_wait().is_zero(),
             flooded: state.flooded,
             pending: state.pending.len(),
+            tail_digest: state.tail_digest,
             tail_continues: state.snapshot_generation.as_deref() == Some(&*state.generation)
                 && state.tail_end == Some(state.pending_start),
             retry_wait: state.retry_wait(),
@@ -466,7 +470,10 @@ impl Plan {
             || (changed && self.interval_due)
             || (self.tail_bytes >= super::TAIL_MAX_BYTES && self.compaction_spaced)
             || (self.flooded && self.compaction_spaced)
-            || self.pending >= super::TAIL_IDLE_BYTES
+            // Held redraws past the idle cap only: a flood's pending bytes
+            // change the screen and go to the tail (then to the flood hold),
+            // not to a snapshot at every pass.
+            || (self.pending >= super::TAIL_IDLE_BYTES && self.tail_digest == Some(digest))
     }
 }
 
