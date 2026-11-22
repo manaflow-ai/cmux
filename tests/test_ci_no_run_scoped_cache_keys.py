@@ -223,7 +223,8 @@ def per_ref_saves() -> list[str]:
                     condition += f" {save_if}"
                 # A same-tree receipt (scripts/ci/same_tree_reuse.py) is one JSON file of a few hundred bytes,
                 # keyed by the tree it vouches for: it cannot crowd the 10 GB store, and the same pull request's
-                # re-runs and re-pushes of that tree are what read it.
+                # re-runs and re-pushes of that tree are what read it. A react shard's receipt
+                # (scripts/ci/react_shard_receipt.py, a green shard's result map and summaries, a few kB) is the same.
                 if str(inputs.get("path", "")).startswith(".same-tree/"):
                     continue
                 # A composite that takes its condition from an input leaves the ref to its callers.

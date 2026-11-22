@@ -1307,6 +1307,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether new nonpersistent Cloud agent machines opt into the Mac pause/resume experiment: the person decides this lifecycle change.",
+      "keys": [
+        "labs.pauseAgentMachines"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "On, a live code build loads Swift patches into the running app: only the person turns that on.",
       "keys": [
         "labs.liveCode"
