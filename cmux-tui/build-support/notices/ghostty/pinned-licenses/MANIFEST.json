@@ -324,6 +324,8 @@
     "pkg/simdutf": {
       "covered_by": "pinned:simdutf",
       "files": {
+        "vendor/LICENSE-APACHE": "3d34610fc6b5e1b0bfe4e2f36171c2d62c28ef05cb8d704f5a0073be41a43b3d",
+        "vendor/LICENSE-MIT": "fc8dbc04e03ad4efc08a647ffe7f995b811a95bc04c0e85a56d5277c6593fa5f",
         "vendor/simdutf.cpp": "38dc5481dc4b7eef95cea8056b84d940419288100f317ecaff683bd89f163263",
         "vendor/simdutf.h": "d3501fc2143f0edc5c84e6bb013a7fdb8ccd95514f7fd0816669248e62676301"
       },
