@@ -622,17 +622,20 @@ export function playTurnEnd(
       return before && !arrives(node, index) ? startTop(node, before.top) - tops[index]! : 0;
     });
     const curve = parseBezier(easing);
+    // Heights from the pass's reads (`heights`), never the rows' offsetHeight: this runs after the
+    // pass's first animation started, where each read forced a style pass (R2; cmux#48689 read
+    // 46,640 of them in one turn's end, turn-end-fold-restyle.browser.test.ts).
     const clearFraction = (index: number) => {
       if (!curve) return 1;
       const top = tops[index]!;
-      const bottom = top + nodes[index]!.offsetHeight;
+      const bottom = top + heights[index]!;
       let last = -1;
       for (let step = 0; step <= 200; step++) {
         const progress = bezierAt(curve, step / 200);
         const overlaps = nodes.some((other, k) => {
           if (k === index || drift[k] === 0 || arrives(other, k)) return false;
           const drawn = tops[k]! + drift[k]! * (1 - progress);
-          return Math.min(bottom, drawn + other.offsetHeight) - Math.max(top, drawn) > 0.5;
+          return Math.min(bottom, drawn + heights[k]!) - Math.max(top, drawn) > 0.5;
         });
         if (overlaps) last = step;
       }
