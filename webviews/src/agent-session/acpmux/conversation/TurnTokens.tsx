@@ -14,20 +14,25 @@ import { uncachedTokens } from "../tokenSplit";
 import { formatDuration } from "./turns";
 import { Clock } from "../../../ui/Typography";
 import { compactTokens, workingTokens, hasTokens, tokenDetail } from "./turnTokensModel";
+import { WithFacts } from "../chips/FactsHoverCard";
 /// The tokens' span (no separator before it). `split` wins over `total` when both are known.
 export function TurnTokens({ total, split }: { total?: number; split?: TurnTokenSplit }) {
   const t = useT();
   const language = usePaneLanguage();
   if (hasTokens(split))
     return (
-      <span className="cv-worked__tokens is-split" aria-description={tokenDetail(t, language, split)}>
-        <span className="cv-worked__tokens-part">
-          {t("turn.tokens.out", { tokens: compactTokens(language, split.output) })}
-        </span>
-        <span className="cv-worked__tokens-part">
-          {t("turn.tokens.in", { tokens: compactTokens(language, uncachedTokens(split)) })}
-        </span>
-      </span>
+      <WithFacts facts={[{ value: tokenDetail(t, language, split) }]}>
+        {(facts) => (
+          <span {...facts} className="cv-worked__tokens is-split">
+            <span className="cv-worked__tokens-part">
+              {t("turn.tokens.out", { tokens: compactTokens(language, split.output) })}
+            </span>
+            <span className="cv-worked__tokens-part">
+              {t("turn.tokens.in", { tokens: compactTokens(language, uncachedTokens(split)) })}
+            </span>
+          </span>
+        )}
+      </WithFacts>
     );
   if (!total) return null;
   return <span className="cv-worked__tokens">{workingTokens(t, language, total)}</span>;
