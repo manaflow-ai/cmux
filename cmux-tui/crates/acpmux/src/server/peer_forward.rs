@@ -39,7 +39,9 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // A glyph is a pure function of the id: answered here for a peer's session too.
     method::SESSION_SIGNATURE,
     method::MUX_STATUS,
+    method::MUX_PERF,
     method::MUX_SESSIONS,
+    method::MUX_USAGE,
     method::MUX_WEB_MODES,
     method::MUX_WEB_TOKEN_ROTATE,
     method::MUX_HARNESSES,
@@ -107,6 +109,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/host_notice",
     "_acpmux/host_health",
     "_acpmux/place",
+    "_acpmux/move_targets",
     "_acpmux/models",
     crate::catalog::RPC_GET,
     crate::catalog::RPC_REFRESH,

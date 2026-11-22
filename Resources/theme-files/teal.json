@@ -1,0 +1,35 @@
+// Teal: a bright teal look on deep sea-green glass. It names no picture of its own, so
+// bring yours: copy this file to ~/.config/cmux/themes/teal.json (yours wins over this one), put
+// your pictures in ~/.config/cmux/themes/teal/, and uncomment the "folder:teal" line below. If
+// macOS Desktop already rotates a folder of your own pictures, use that folder
+// instead: set the line to "folder:/absolute/path/to/that/folder". The window then shuffles it,
+// a new one every 15 minutes. Save and the running app repaints at once; no artwork ships here.
+{
+  "name": "Teal",
+  "description": "Bright teal on sea-green glass; shuffles your own picture folder.",
+
+  // The terminal theme, and its own colors (appearance.themeEdits of that theme).
+  "appearance.theme": "Soft Blue",
+  "colors": { "background": "#0b1d1f", "foreground": "#e6f7f5", "selection": "#17494a", "accent": "#39c5bb" },
+  "appearance.accent": "theme",
+
+  // Your pictures, shuffled: a folder beside this file. A shipped file can't name one (it would
+  // resolve in your folder, which may not exist), so until you do, your own background stays.
+  // "appearance.background": "folder:teal",
+  "appearance.backgroundRotation": "15m",
+  "appearance.backgroundOpacity": 0.82,
+
+  // The sidebar: a deeper teal glass with a hairline edge, sections as cards.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#082022",
+  "appearance.surfaces.sidebar.opacity": 0.78,
+  "sidebar.border": true,
+  "sidebar.sectionLook": "card",
+
+  // The pane background behind every terminal.
+  "appearance.surfaces.terminal.color": "#0b1d1f",
+  "appearance.surfaces.terminal.opacity": 0.85,
+
+  "terminal.fontFamily": "Menlo",
+  "terminal.fontSize": 14
+}

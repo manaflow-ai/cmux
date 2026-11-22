@@ -202,6 +202,20 @@ fn resolve_within(
     env: &[(OsString, OsString)],
     timeout: Duration,
 ) -> CmuxEntry {
+    let deadline = Instant::now() + timeout;
+    resolve_until(codex, args, cwd, env, deadline, |child| child.exited_within(timeout))
+}
+
+/// [`resolve_within`] with the wait for the child's exit supplied: `exited` reports whether it
+/// exited by `deadline`. Tests end the wait on an event of their own instead of a wall clock.
+fn resolve_until(
+    codex: &Path,
+    args: &[OsString],
+    cwd: &Path,
+    env: &[(OsString, OsString)],
+    deadline: Instant,
+    exited: impl FnOnce(&mut cmux_process::Child) -> std::io::Result<bool>,
+) -> CmuxEntry {
     use std::io::Read as _;
     let config = config_args(args);
     let getenv = |key: &str| env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
@@ -219,7 +233,6 @@ fn resolve_within(
         .stderr(cmux_process::Stdio::piped())
         // Its own process group, so a timeout ends whatever it started too.
         .process_group(0);
-    let deadline = Instant::now() + timeout;
     let Ok(mut child) = command.spawn() else { return CmuxEntry::Unknown };
     // Each pipe is read on a thread of its own, which sends what it read when the pipe closes.
     // A reader that cannot start drops its sender, so its receiver reads as no answer.
@@ -243,7 +256,7 @@ fn resolve_within(
         child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
     );
     // Unreaped until after the group kill below, so the group id cannot name another process.
-    let exited = child.exited_within(timeout);
+    let exited = exited(&mut child);
     // Whatever it started and left running ends with it, so no process outlives the question
     // and nothing it left holds the output open.
     #[cfg(unix)]
@@ -617,13 +630,26 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
         let pid_file = root.join("pid");
-        let slow = fake_codex(&root, &format!("sleep 30 & echo $! > {pid_file:?}; wait"));
-        let started = Instant::now();
-        assert_eq!(
-            resolve_within(&slow, &[], &root, &[], Duration::from_millis(300)),
-            CmuxEntry::Unknown
+        let written = root.join("pid.tmp");
+        let slow = fake_codex(
+            &root,
+            &format!("sleep 30 & echo $! > {written:?}; mv {written:?} {pid_file:?}; wait"),
         );
-        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+        // The deadline passes once the resolver's child has started its own (the pid file is
+        // there), not at a wall-clock time a loaded runner may reach before the shell gets there.
+        let timed_out = std::cell::Cell::new(None);
+        let entry = resolve_until(&slow, &[], &root, &[], Instant::now(), |_| {
+            let deadline = Instant::now() + Duration::from_secs(30);
+            while !pid_file.exists() {
+                assert!(Instant::now() < deadline, "the fake codex never started its child");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            timed_out.set(Some(Instant::now()));
+            Ok(false)
+        });
+        assert_eq!(entry, CmuxEntry::Unknown);
+        let ended = timed_out.get().unwrap().elapsed();
+        assert!(ended < Duration::from_secs(2), "{ended:?}");
         let left = fake_codex(
             &root,
             r#"sleep 30 & printf '{"transport":{"type":"streamable_http"}}'; exit 0"#,

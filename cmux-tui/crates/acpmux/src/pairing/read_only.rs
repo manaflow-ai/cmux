@@ -29,6 +29,7 @@ const ALLOWED: &[&str] = &[
     method::MUX_INFO,
     method::MUX_EVENTS,
     method::MUX_ATTACHMENT,
+    method::MUX_TURN_SHOTS,
     method::MUX_QUEUE_TEXT,
     method::MUX_ROWS,
     method::MUX_HISTORY,

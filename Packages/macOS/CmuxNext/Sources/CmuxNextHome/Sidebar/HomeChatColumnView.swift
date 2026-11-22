@@ -1,25 +1,29 @@
 import AppKit
 import CmuxNextDesign
 
-/// The Home split's chat column: the page's chat (`content`, filling the column) with the chat's
-/// compose button over its top-left at every list width, as in Messages (hidden only while the
-/// New Message page is on screen). The button is the content's
-/// sibling, so a conversation or the New Message page the page adds to `content` never covers it.
+/// The Home split's chat column: the page's chat (`content`, filling the column) with the Chats
+/// button (shows or folds the conversation list) and the chat's compose button over its top-left
+/// at every list width, as in Messages (compose hides only while the New Message page is on
+/// screen). The buttons are the content's siblings, so a conversation or the New Message page the
+/// page adds to `content` never covers them.
 final class HomeChatColumnView: NSView, WindowControlsAvoiding {
     let content: NSView
     let compose: HomeChatComposeButton
+    let chats: HomeChatListButton
     /// The compose button's left inset and its centre's distance from the top: the list header's
     /// row (`HomeSidebarHeaderLayout.band`), where the traffic lights sit.
     static let composeInset: CGFloat = 12
     static let composeCenterY: CGFloat = HomeSidebarHeaderLayout.band / 2
 
-    init(content: NSView, compose: HomeChatComposeButton) {
+    init(content: NSView, compose: HomeChatComposeButton, chats: HomeChatListButton = HomeChatListButton()) {
         self.content = content
         self.compose = compose
+        self.chats = chats
         super.init(frame: content.frame)
         content.frame = bounds
         content.autoresizingMask = [.width, .height]
         addSubview(content)
+        addSubview(chats)
         compose.isHidden = true
         addSubview(compose)
     }
@@ -77,6 +81,8 @@ final class HomeChatColumnView: NSView, WindowControlsAvoiding {
         if let lights = windowControls.over, lights.minX < frame.maxX + Metrics.space3 {
             frame.origin.x = max(frame.minX, (lights.maxX + Metrics.space3).rounded(.up))
         }
-        compose.frame = frame
+        chats.frame = frame
+        // Compose sits right of Chats, one gap apart, on the same line.
+        compose.frame = frame.offsetBy(dx: side + Metrics.space2, dy: 0)
     }
 }
