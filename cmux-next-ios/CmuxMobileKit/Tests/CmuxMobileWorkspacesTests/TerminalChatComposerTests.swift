@@ -10,8 +10,8 @@ import Testing
 
 /// The chat face of a terminal tab is editable (Leo, 2026-11-22: "dont have it read only. just do it
 /// properly"). Its chat is the Mac's View Only watch, which acpmux refuses a prompt, so Send types the
-/// prompt into the tab's terminal (Rust `terminal_chat_prompt`) and Stop sends Escape. The toggle sits
-/// beside the Tabs button.
+/// prompt into the tab's terminal (Rust `terminal_chat_prompt`) and Stop sends Escape. The toggle is a
+/// key pinned beside the composer key (DEBUG builds can place it elsewhere to compare).
 @MainActor @Suite(.serialized)
 struct TerminalChatComposerTests {
     /// A terminal content that records what the chat face sends it.
@@ -19,7 +19,8 @@ struct TerminalChatComposerTests {
         var typed: [String] = []
         var interrupted: [String] = []
         var connected = true
-        var keyBarToggle: [String: Bool] = [:]
+        var keyBarToggle: [String: TerminalChatKeySlot] = [:]
+        var toggleActions: [String: @MainActor () -> Void] = [:]
 
         func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView { AnyView(EmptyView()) }
         func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView { AnyView(EmptyView()) }
@@ -30,8 +31,9 @@ struct TerminalChatComposerTests {
             return true
         }
         func interrupt(_ tab: WorkspaceTab, in workspace: Workspace) { interrupted.append(tab.id) }
-        func setKeyBarChatToggle(first: Bool, action: (@MainActor () -> Void)?, for tab: WorkspaceTab, in workspace: Workspace) {
-            keyBarToggle[tab.id] = action != nil
+        func setKeyBarChatToggle(_ slot: TerminalChatKeySlot, action: (@MainActor () -> Void)?, for tab: WorkspaceTab, in workspace: Workspace) {
+            keyBarToggle[tab.id] = action == nil ? nil : slot
+            toggleActions[tab.id] = action
         }
     }
 
@@ -82,22 +84,20 @@ struct TerminalChatComposerTests {
         #expect(chat.clientError == AgentChatStore.terminalAttachmentsNotice)
     }
 
-    @Test func theToggleSitsBesideTheTabsButtonAndSwapsTheFace() throws {
+    @Test func theToggleIsAKeyPinnedBesideTheComposerKeyAndSwapsTheFace() throws {
         let terminal = TypingTerminal()
         let source = Self.make(terminal)
         let workspace = try #require(source.workspace)
         let tab = try #require(source.workspaceTab("s1"))
-        let action = try #require(source.kitTab(tab, in: workspace).trailingAction)
-        #expect(action.title == "Show Chat")
-        source.performTrailingAction(action, in: "s1")
-        #expect(source.showsChatFace(tab, in: workspace))
-        let back = try #require(source.kitTab(tab, in: workspace).trailingAction)
-        #expect(back.title == "Show Terminal")
-        source.performTrailingAction(back, in: "s1")
-        #expect(!source.showsChatFace(tab, in: workspace))
-        // Release keeps Show Chat out of the key bar.
         source.placeKeyBarChatToggle(tab, in: workspace, offered: true)
-        #expect(terminal.keyBarToggle["s1"] == false)
+        #expect(terminal.keyBarToggle["s1"] == .pinned)
+        try #require(terminal.toggleActions["s1"])()
+        #expect(source.showsChatFace(tab, in: workspace))
+        // The default places no second toggle in the address capsule.
+        #expect(source.kitTab(tab, in: workspace).trailingAction == nil)
+        // Not offered: no key.
+        source.placeKeyBarChatToggle(tab, in: workspace, offered: false)
+        #expect(terminal.keyBarToggle["s1"] == nil)
     }
 
     @Test func noToggleAndNoComposerWhenTheSettingIsOff() throws {

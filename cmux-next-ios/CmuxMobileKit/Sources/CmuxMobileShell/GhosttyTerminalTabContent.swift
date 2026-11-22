@@ -483,8 +483,13 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         host(for: tab, in: workspace).model.pressEscape()
     }
 
-    func setKeyBarChatToggle(first: Bool, action: (@MainActor () -> Void)?, for tab: WorkspaceTab, in workspace: Workspace) {
-        host(for: tab, in: workspace).model.keyBarChatToggle = action.map { KeyBarChatToggle(slot: first ? .first : .last, action: $0) }
+    func setKeyBarChatToggle(_ slot: TerminalChatKeySlot, action: (@MainActor () -> Void)?, for tab: WorkspaceTab, in workspace: Workspace) {
+        let keySlot: KeyBarChatToggle.Slot = switch slot {
+        case .pinned: .pinned
+        case .first: .first
+        case .last: .last
+        }
+        host(for: tab, in: workspace).model.keyBarChatToggle = action.map { KeyBarChatToggle(slot: keySlot, action: $0) }
     }
 
     /// Each tab's card view, made once per slot: a card body is a lookup.

@@ -66,6 +66,7 @@ struct TerminalKeyBar: View {
                     Joystick(engine: model.joystickEngine)
                     KeyCap(key: .composer, model: model)
                         .accessibilityLabel(model.composerPresented ? "Hide Text Field" : "Show Text Field")
+                    if let toggle = model.keyBarChatToggle, toggle.slot == .pinned { ChatToggleKey(toggle: toggle) }
                 }
                 .padding(.leading, TerminalDockMetrics.horizontalInset)
             }
@@ -226,8 +227,8 @@ struct KeyCap: View {
     }
 }
 
-/// Show Chat in the scroller, for a terminal tab that also has a chat face (a DEBUG
-/// placement of the terminal and chat toggle; Release keeps it beside the Tabs button).
+/// Show Chat, for a terminal tab that also has a chat face: pinned after the composer key
+/// (the default), or a DEBUG placement's first or last scroller key.
 struct ChatToggleKey: View {
     let toggle: KeyBarChatToggle
 
@@ -246,9 +247,9 @@ struct ChatToggleKey: View {
     }
 }
 
-/// The key bar's Show Chat key: where it goes and what a tap does.
+/// The key row's Show Chat key: where it goes and what a tap does.
 public struct KeyBarChatToggle {
-    public enum Slot: Sendable { case first, last }
+    public enum Slot: Sendable { case pinned, first, last }
     public var slot: Slot
     public var action: @MainActor () -> Void
 

@@ -266,13 +266,13 @@ extension WorkspaceTabsSource {
     }
 
     /// The Show Chat / Show Terminal button beside the Tabs button (the page menu's row,
-    /// one tap away), on half of a pair. Nil elsewhere, and when a DEBUG placement puts
-    /// the terminal face's toggle in the key bar instead.
+    /// one tap away), on half of a pair, in the DEBUG `.toolbar` placement. Nil elsewhere:
+    /// the default puts the toggle in the key row (`placeKeyBarChatToggle`, `ShowTerminalKey`).
     func terminalChatToolbarAction(_ tab: WorkspaceTab, in workspace: Workspace) -> TabsKitTrailingAction? {
         let faces = pairFaces(tab, in: workspace)
         guard faces.offered else { return nil }
         let chatShown = face(of: tab, faces: faces) == .chat
-        guard chatShown || TerminalChatTogglePlacement.current == .toolbar else { return nil }
+        guard TerminalChatTogglePlacement.current == .toolbar else { return nil }
         return chatShown
             ? TabsKitTrailingAction(id: Self.toggleTerminalChatID, title: "Show Terminal", systemImage: "terminal")
             : TabsKitTrailingAction(id: Self.toggleTerminalChatID, title: "Show Chat", systemImage: "bubble.left")
@@ -285,13 +285,14 @@ extension WorkspaceTabsSource {
 
     static let toggleTerminalChatID = "tab.toggleTerminalChat"
 
-    /// The DEBUG key bar placements: Show Chat as the scroller's first or last key.
+    /// The terminal face's Show Chat key: pinned beside the composer key (the default), or a
+    /// DEBUG placement's first or last scroller key; none in the `.toolbar` placement.
     func placeKeyBarChatToggle(_ tab: WorkspaceTab, in workspace: Workspace, offered: Bool) {
         let placement = TerminalChatTogglePlacement.current
         let tabID = tab.id
         let action: (@MainActor () -> Void)? = offered && placement != .toolbar
             ? { [weak self] in self?.swapTerminalChat(tabID, to: .chat) } : nil
-        terminal.setKeyBarChatToggle(first: placement == .keyBarFirst, action: action, for: tab, in: workspace)
+        terminal.setKeyBarChatToggle(placement.keyBarSlot ?? .pinned, action: action, for: tab, in: workspace)
     }
 
     /// Whether terminal `tab` shows its chat face now (its key bar and keyboard stay away then).
@@ -373,20 +374,65 @@ struct TerminalChatPage<Terminal: View>: View {
 }
 #endif
 
-/// Where the terminal face shows its Show Chat toggle. Release always uses `.toolbar`;
-/// DEBUG builds read `CMUX_TERMINAL_CHAT_TOGGLE` (`toolbar`, `keybar-first`, `keybar-last`)
-/// so the three placements can be recorded side by side. The chat face has no key bar,
-/// so its Show Terminal stays beside the Tabs button in every placement.
+/// Where the terminal and chat toggle goes. Release: `.pinned`, a key beside the terminal
+/// face's composer key and the same key over the chat face's composer. DEBUG builds read
+/// `CMUX_TERMINAL_CHAT_TOGGLE` (`pinned`, `keybar-first`, `keybar-last`, `toolbar`) so the
+/// placements can be recorded side by side. The chat face has no key bar: every key bar
+/// placement puts its Show Terminal key over the composer.
 public enum TerminalChatTogglePlacement: String, Sendable {
-    case toolbar
+    case pinned
     case keyBarFirst = "keybar-first"
     case keyBarLast = "keybar-last"
+    /// The address capsule's trailing slot, beside the Tabs button, on both faces.
+    case toolbar
 
     public static var current: TerminalChatTogglePlacement {
         #if DEBUG
-        ProcessInfo.processInfo.environment["CMUX_TERMINAL_CHAT_TOGGLE"].flatMap(Self.init(rawValue:)) ?? .toolbar
+        ProcessInfo.processInfo.environment["CMUX_TERMINAL_CHAT_TOGGLE"].flatMap(Self.init(rawValue:)) ?? .pinned
         #else
-        .toolbar
+        .pinned
         #endif
+    }
+
+    var keyBarSlot: TerminalChatKeySlot? {
+        switch self {
+        case .pinned: .pinned
+        case .keyBarFirst: .first
+        case .keyBarLast: .last
+        case .toolbar: nil
+        }
+    }
+}
+
+/// Where in the terminal face's key row Show Chat goes.
+public enum TerminalChatKeySlot: Sendable {
+    /// Pinned, right after the composer key.
+    case pinned
+    /// The scroller's first key.
+    case first
+    /// The scroller's last key.
+    case last
+}
+
+/// The chat face's Show Terminal key, over its composer: the key row's look (a 28 pt glass
+/// key with its label), where the terminal face pins Show Chat.
+struct ShowTerminalKey: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label("Terminal", systemImage: "terminal")
+                .labelStyle(.titleAndIcon)
+                .font(.system(size: 14, weight: .medium))
+                .lineLimit(1)
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 8)
+                .frame(height: 28)
+                .contentShape(.rect(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityLabel("Show Terminal")
+        .accessibilityIdentifier("terminal.chat.showTerminal")
     }
 }

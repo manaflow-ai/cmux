@@ -75,7 +75,7 @@ public protocol TerminalTabContent: AnyObject {
     /// The tab's chat face's Stop: Escape to the terminal's program.
     func interrupt(_ tab: WorkspaceTab, in workspace: Workspace)
     /// Puts Show Chat in the tab's key bar (`action` nil: takes it out).
-    func setKeyBarChatToggle(first: Bool, action: (@MainActor () -> Void)?, for tab: WorkspaceTab, in workspace: Workspace)
+    func setKeyBarChatToggle(_ slot: TerminalChatKeySlot, action: (@MainActor () -> Void)?, for tab: WorkspaceTab, in workspace: Workspace)
     /// Replaces the title pill's subtitle (the working directory) while the
     /// tab's state matters more, e.g. "Reattaching…" after a slow reattach
     /// (design/terminal P5). Nil keeps the directory. Read during view
@@ -104,7 +104,7 @@ extension TerminalTabContent {
     public func submitPrompt(_ text: String, for tab: WorkspaceTab, in workspace: Workspace,
                              notSent: @escaping @MainActor () -> Void) -> Bool { false }
     public func interrupt(_ tab: WorkspaceTab, in workspace: Workspace) {}
-    public func setKeyBarChatToggle(first: Bool, action: (@MainActor () -> Void)?, for tab: WorkspaceTab, in workspace: Workspace) {}
+    public func setKeyBarChatToggle(_ slot: TerminalChatKeySlot, action: (@MainActor () -> Void)?, for tab: WorkspaceTab, in workspace: Workspace) {}
     public func statusSubtitle(for tab: WorkspaceTab) -> String? { nil }
     public func sceneActiveChanged(_ active: Bool) {}
     public func observeOutput(_ owner: AnyObject, _ handler: @escaping @MainActor (String?, String) -> Void) {}

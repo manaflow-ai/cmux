@@ -2479,7 +2479,14 @@ struct WorkspaceTabAccessory: View {
                 // The agent chat's own composer (Leo, 2026-11-22: "dont have it read only"): what
                 // it sends is typed into the terminal (`terminalChatInput`). No key bar over it.
                 if let store = source.terminalChatFaceStore(tab, in: workspace) {
-                    AgentChatBottomStack(store: store, surface: source.surface("\(tab.id)#chat"))
+                    VStack(alignment: .leading, spacing: 6) {
+                        // The toggle as a key beside where the terminal face pins its composer key.
+                        if TerminalChatTogglePlacement.current != .toolbar {
+                            ShowTerminalKey { source.swapTerminalChat(tab.id, to: .terminal) }
+                                .padding(.leading, 16)
+                        }
+                        AgentChatBottomStack(store: store, surface: source.surface("\(tab.id)#chat"))
+                    }
                 }
             case .terminal:
                 let context = context
