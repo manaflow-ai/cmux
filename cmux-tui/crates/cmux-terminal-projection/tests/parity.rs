@@ -1422,3 +1422,278 @@ fn projection_matches_a_real_resize_cell_by_cell() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// What one scroll step costs.
+//
+// Leo, 2026-11-22: "the scroll occurs or whatever on f***ing mac / then it
+// delays on my actual iphone display. thats the asinine part."
+//
+// `claude_code_scroll.vt` is a real Claude Code session (2.1.330, fullscreen
+// renderer, `CLAUDE_CODE_NO_FLICKER=1`, 120x40 PTY): a long reply, then 30
+// mouse-wheel steps up, 30 down, 8 PageUp and 8 PageDown, one input every
+// ~500 ms. `claude_code_scroll.steps` lists every PTY read as it came:
+// `t_ms offset len phase`, so a read is one write batch the Mac forwards.
+// This test replays it read by read through the Mac's terminal and the
+// projection (phone 54x38, compact) and reports, per scroll step, the bytes
+// and batches, the rows the step wrote and changed, and whether it scrolled a
+// region (DECSTBM with SU/SD or IND/RI) or rewrote the rows.
+
+/// Escape-sequence counts and the rows written, from the bytes alone.
+#[derive(Default)]
+struct StepBytes {
+    stbm: usize,
+    su_sd: usize,
+    ind_ri: usize,
+    rows_written: std::collections::BTreeSet<i64>,
+}
+
+fn scan_step(bytes: &[u8], mut row: i64, rows: i64) -> (StepBytes, i64) {
+    let mut out = StepBytes::default();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == 0x1b && i + 1 < bytes.len() {
+            match bytes[i + 1] {
+                b'[' => {
+                    let mut j = i + 2;
+                    let start = j;
+                    while j < bytes.len() && (0x20..0x40).contains(&bytes[j]) {
+                        j += 1;
+                    }
+                    let Some(&fin) = bytes.get(j) else { break };
+                    let params = std::str::from_utf8(&bytes[start..j]).unwrap_or("");
+                    let private = params.starts_with(['?', '<', '>', '=']);
+                    let n = |k: usize| -> i64 {
+                        params
+                            .split(';')
+                            .nth(k)
+                            .and_then(|p| p.parse().ok())
+                            .filter(|&v| v > 0)
+                            .unwrap_or(1)
+                    };
+                    if !private {
+                        match fin {
+                            b'r' => out.stbm += 1,
+                            b'S' | b'T' => out.su_sd += 1,
+                            b'H' | b'f' => row = n(0) - 1,
+                            b'd' => row = n(0) - 1,
+                            b'A' => row -= n(0),
+                            b'B' | b'e' => row += n(0),
+                            b'E' => row += n(0),
+                            b'F' => row -= n(0),
+                            _ => {}
+                        }
+                        row = row.clamp(0, rows - 1);
+                    }
+                    i = j + 1;
+                    continue;
+                }
+                b']' | b'P' | b'_' | b'^' => {
+                    // String sequences: up to BEL or ST.
+                    let mut j = i + 2;
+                    while j < bytes.len()
+                        && bytes[j] != 0x07
+                        && !(bytes[j] == 0x1b && bytes.get(j + 1) == Some(&b'\\'))
+                    {
+                        j += 1;
+                    }
+                    i = j + if bytes.get(j) == Some(&0x07) { 1 } else { 2 };
+                    continue;
+                }
+                b'D' | b'M' => {
+                    out.ind_ri += 1;
+                    row = (row + if bytes[i + 1] == b'D' { 1 } else { -1 }).clamp(0, rows - 1);
+                    i += 2;
+                    continue;
+                }
+                b'E' => {
+                    row = (row + 1).min(rows - 1);
+                    i += 2;
+                    continue;
+                }
+                _ => {
+                    i += 2;
+                    continue;
+                }
+            }
+        }
+        match b {
+            b'\n' | 0x0b | 0x0c => row = (row + 1).min(rows - 1),
+            0x00..=0x1f | 0x7f => {}
+            _ => {
+                out.rows_written.insert(row);
+            }
+        }
+        i += 1;
+    }
+    (out, row)
+}
+
+fn screen_rows(term: &Vt) -> Vec<String> {
+    let snap = snapshot(term);
+    let top = snap.rows.len().saturating_sub(usize::from(term.rows()));
+    snap.rows[top..]
+        .iter()
+        .map(|(cells, _)| cells.iter().map(|r| format!("{:?}", Key::of(r))).collect())
+        .collect()
+}
+
+fn pct(sorted: &[usize], p: f64) -> usize {
+    if sorted.is_empty() {
+        return 0;
+    }
+    let i = ((sorted.len() as f64 - 1.0) * p).round() as usize;
+    sorted[i.min(sorted.len() - 1)]
+}
+
+#[test]
+fn a_claude_code_scroll_step_costs() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/parity/real");
+    let bytes = std::fs::read(dir.join("claude_code_scroll.vt")).unwrap();
+    let steps = std::fs::read_to_string(dir.join("claude_code_scroll.steps")).unwrap();
+    let host = (120usize, 40usize);
+    let phone_grid = (54usize, 38usize);
+    let mut reads: Vec<(f64, usize, usize, String)> = Vec::new();
+    for line in steps.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
+        let mut f = line.split_whitespace();
+        let t: f64 = f.next().unwrap().parse().unwrap();
+        let off: usize = f.next().unwrap().parse().unwrap();
+        let len: usize = f.next().unwrap().parse().unwrap();
+        reads.push((t, off, len, f.next().unwrap().to_string()));
+    }
+    assert_eq!(
+        reads.iter().map(|r| r.2).sum::<usize>(),
+        bytes.len(),
+        "the steps file covers the recording"
+    );
+
+    let mut run = Run::new(host, phone_grid, true);
+    #[derive(Default)]
+    struct Step {
+        name: String,
+        bytes: usize,
+        batches: usize,
+        phone_bytes: usize,
+        phone_batches: usize,
+        rows_written: usize,
+        rows_changed: usize,
+        stbm: usize,
+        su_sd: usize,
+        ind_ri: usize,
+        span_ms: f64,
+    }
+    let mut out: Vec<Step> = Vec::new();
+    let mut row: i64 = 0;
+    let mut i = 0;
+    while i < reads.len() {
+        let phase = reads[i].3.clone();
+        let scroll = phase.starts_with("wheel_") || phase.starts_with("page");
+        let before = scroll.then(|| screen_rows(&run.mac));
+        let mut step = Step { name: phase.clone(), ..Step::default() };
+        let t0 = reads[i].0;
+        let mut chunk = Vec::new();
+        while i < reads.len() && reads[i].3 == phase {
+            let (t, off, len, _) = &reads[i];
+            let data = &bytes[*off..*off + *len];
+            chunk.extend_from_slice(data);
+            let out_before = run.bytes_out;
+            run.mac.vt_write(data);
+            let segments = run.projection.feed(data, true);
+            step.phone_batches += segments
+                .iter()
+                .filter(|s| matches!(s, Segment::Paint(b) | Segment::Raw(b) | Segment::Reset(b) if !b.is_empty()))
+                .count()
+                .min(1);
+            run.apply(segments);
+            let _ = run.projection.take_replies();
+            step.phone_bytes += run.bytes_out - out_before;
+            step.bytes += len;
+            step.batches += 1;
+            step.span_ms = t - t0;
+            i += 1;
+        }
+        let (scan, next_row) = scan_step(&chunk, row, host.1 as i64);
+        row = next_row;
+        if let Some(before) = before {
+            let after = screen_rows(&run.mac);
+            step.rows_changed = before.iter().zip(&after).filter(|(a, b)| a != b).count();
+            step.rows_written = scan.rows_written.len();
+            step.stbm = scan.stbm;
+            step.su_sd = scan.su_sd;
+            step.ind_ri = scan.ind_ri;
+            out.push(step);
+        }
+    }
+    assert!(out.len() >= 60, "the recording has its scroll steps ({})", out.len());
+
+    let mut table = String::from(
+        "| step | bytes | batches | bytes to phone | phone batches | rows written | rows changed | DECSTBM | SU/SD | IND/RI | span ms |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n",
+    );
+    for s in &out {
+        let _ = writeln!(
+            table,
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {:.1} |",
+            s.name,
+            s.bytes,
+            s.batches,
+            s.phone_bytes,
+            s.phone_batches,
+            s.rows_written,
+            s.rows_changed,
+            s.stbm,
+            s.su_sd,
+            s.ind_ri,
+            s.span_ms
+        );
+    }
+    let mut summary = String::from(
+        "| per scroll step | p50 | p95 | max | per minute at 1 step / 16 ms (p50 / max) |\n|---|---:|---:|---:|---:|\n",
+    );
+    let col = |f: &dyn Fn(&Step) -> usize| {
+        let mut v: Vec<usize> = out.iter().map(f).collect();
+        v.sort_unstable();
+        (pct(&v, 0.5), pct(&v, 0.95), *v.last().unwrap())
+    };
+    let per_min = 60_000.0 / 16.0;
+    for (name, f, rate) in [
+        ("PTY bytes (Mac forwards)", &(|s: &Step| s.bytes) as &dyn Fn(&Step) -> usize, true),
+        ("PTY write batches", &|s: &Step| s.batches, true),
+        ("bytes to phone (projection)", &|s: &Step| s.phone_bytes, true),
+        ("phone batches", &|s: &Step| s.phone_batches, true),
+        ("rows written (of 40)", &|s: &Step| s.rows_written, false),
+        ("rows changed (of 40)", &|s: &Step| s.rows_changed, false),
+        ("DECSTBM", &|s: &Step| s.stbm, false),
+        ("SU/SD", &|s: &Step| s.su_sd, false),
+        ("IND/RI", &|s: &Step| s.ind_ri, false),
+    ] {
+        let (p50, p95, max) = col(f);
+        let rate = if rate {
+            format!("{:.0} / {:.0}", p50 as f64 * per_min, max as f64 * per_min)
+        } else {
+            String::new()
+        };
+        let _ = writeln!(summary, "| {name} | {p50} | {p95} | {max} | {rate} |");
+    }
+    let full = out.iter().filter(|s| s.rows_written >= host.1 - 4).count();
+    let region = out.iter().filter(|s| s.stbm + s.su_sd + s.ind_ri > 0).count();
+    let _ = writeln!(
+        summary,
+        "\n{} scroll steps; {} write {}+ of the {} rows (full-screen repaint); {} use a scroll region or SU/SD/IND/RI.",
+        out.len(),
+        full,
+        host.1 - 4,
+        host.1,
+        region
+    );
+    println!("Claude Code scroll, per step:\n{table}");
+    println!(
+        "Claude Code scroll, summary (real recording, 120x40, phone {}x{} compact):\n{summary}",
+        phone_grid.0, phone_grid.1
+    );
+    if let Ok(dir) = std::env::var("PARITY_OUT") {
+        let dir = PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("scroll.md"), format!("{summary}\n{table}")).unwrap();
+    }
+}
