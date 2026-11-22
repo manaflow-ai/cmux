@@ -23,7 +23,7 @@
 /// The entrance keyframes a generic row's own animation plays (conversation.css).
 const ENTRANCES = new Set(["cv-enter", "cv-enter-fade"]);
 
-type Frames = {
+export type Frames = {
   request: (run: () => void) => number;
   cancel: (handle: number) => void;
   post: (run: () => void) => () => void;
@@ -45,7 +45,7 @@ function postAfterFrame(run: () => void): () => void {
   return cancel;
 }
 
-const windowFrames = (): Frames | undefined =>
+export const windowFrames = (): Frames | undefined =>
   typeof requestAnimationFrame === "function"
     ? {
         request: (run) => requestAnimationFrame(() => run()),
@@ -66,9 +66,22 @@ function isEntrance(animation: Animation): boolean {
 /// the layout effect of the commit that mounts the row, before it paints. Returns the cancel.
 export function holdEntranceForFirstFrame(row: Element, frames: Frames | undefined = windowFrames()): () => void {
   if (!frames || typeof row.getAnimations !== "function") return () => {};
-  const held = row.getAnimations().filter((animation) => animation.playState === "running" && isEntrance(animation));
-  if (held.length === 0) return () => {};
-  for (const animation of held) {
+  return holdForFirstFrame(
+    row.getAnimations().filter((animation) => animation.playState === "running" && isEntrance(animation)),
+    frames,
+  );
+}
+
+/// Holds `animations` at time zero through the next frame's rendering and plays them from a task that
+/// frame posts (the new chat's entrance, newChatEntrance.ts, holds its own Web Animations here). One
+/// still paused when the task runs plays; one a page hide finished stays finished. Returns the cancel,
+/// which drops the frame request and the posted task alike.
+export function holdForFirstFrame(
+  animations: readonly Animation[],
+  frames: Frames | undefined = windowFrames(),
+): () => void {
+  if (!frames || animations.length === 0) return () => {};
+  for (const animation of animations) {
     animation.pause();
     animation.currentTime = 0;
   }
@@ -77,7 +90,7 @@ export function holdEntranceForFirstFrame(row: Element, frames: Frames | undefin
     handle = undefined;
     cancelPosted = frames.post(() => {
       cancelPosted = undefined;
-      for (const animation of held) if (animation.playState === "paused") animation.play();
+      for (const animation of animations) if (animation.playState === "paused") animation.play();
     });
   });
   return () => {

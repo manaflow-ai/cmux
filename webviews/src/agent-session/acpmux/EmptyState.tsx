@@ -1,8 +1,10 @@
+import { useLayoutEffect, useRef } from "react";
 import { FolderIcon } from "./NewTabPage";
 import { ProjectChooser, type Project } from "./ProjectChooser";
 import { useT } from "./i18n";
 import { EMPTY_STATE_LABELS } from "./emptyStateModel";
 import { TourOffer, type TourOfferActions } from "./repoTour/TourOffer";
+import { NEW_CHAT_ENTRANCE, playNewChatEntrance, type NewChatEntrance } from "./newChatEntrance";
 /// The hero's project picker (cx-9g0w): the chat's folder choices and what a pick does.
 export type EmptyStateProjects = {
   projects: Project[];
@@ -19,17 +21,27 @@ export type EmptyStateProjects = {
 /// A new chat's hero, centered in place of the empty transcript and kept quiet:
 /// a small prompt glyph and one line naming the session's project. With `picker` the project's
 /// name is a picker (ChatGPT style): a pick moves the new chat to that folder. With `tour`, a folder no chat has
-/// used yet offers a repo tour under the question (repoTour/TourOffer.tsx).
+/// used yet offers a repo tour under the question (repoTour/TourOffer.tsx). On mount the hero and the
+/// composer under it settle in on one spring (newChatEntrance.ts); `entrance` picks the motion.
 export function EmptyState({
   project,
   picker,
   tour,
+  entrance = NEW_CHAT_ENTRANCE,
 }: {
   project?: string;
   picker?: EmptyStateProjects;
   tour?: TourOfferActions;
+  entrance?: NewChatEntrance;
 }) {
   const t = useT();
+  const hero = useRef<HTMLDivElement>(null);
+  // The mount's entrance only: a new project or tour later is the same hero, already at rest.
+  const entranceOnMount = useRef(entrance);
+  useLayoutEffect(() => {
+    const play = playNewChatEntrance(hero.current, entranceOnMount.current);
+    return () => play?.stop();
+  }, []);
   const [before, after] = t(EMPTY_STATE_LABELS.promptIn).split("{project}");
   const chooser = picker && (
     <ProjectChooser
@@ -47,7 +59,7 @@ export function EmptyState({
     />
   );
   return (
-    <div className="acpmux-empty">
+    <div ref={hero} className="acpmux-empty">
       <div className="acpmux-empty-title-anchor">
         <h2 className="acpmux-empty-title">
           {project ? (
