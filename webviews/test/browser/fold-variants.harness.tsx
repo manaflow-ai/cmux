@@ -22,6 +22,7 @@ import {
 } from "../../src/agent-session/acpmux/conversation/turnEndFold";
 import { TURN_FOLD_GHOST } from "../../src/agent-session/acpmux/conversation/turnFold";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
+import { fuzzScenario } from "./fold-fuzz.scenario";
 import { runSimulationAsync } from "../../src/agent-session/acpmux/sim/run";
 import { parseRecords } from "../../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, sim, type SimScenario, SIM_START } from "../../src/agent-session/acpmux/sim/script";
@@ -42,6 +43,8 @@ globalThis.__cmuxPaneStrings = { en: strings.en };
 const query = new URLSearchParams(location.search);
 /** The real gap between two steps, capped: the turn plays in a few seconds, its end at its own pace. */
 const STEP_MS = Number(query.get("step")) || 70;
+/** A fuzz seed's longest real gap between two steps: long enough for any fold to finish between them. */
+const FUZZ_GAP_CAP_MS = Number(query.get("gapCap")) || 900;
 
 type PaneState = {
   rows: readonly AcpmuxRow[];
@@ -231,6 +234,7 @@ function matrixTurn(cell: MatrixCell): SimScenario {
 }
 
 async function scenarioNamed(name: string): Promise<SimScenario> {
+  if (name.startsWith("fuzz:")) return fuzzScenario(Number(name.slice(5))).scenario;
   if (name.startsWith("matrix:")) return matrixTurn(JSON.parse(decodeURIComponent(name.slice(7))) as MatrixCell);
   // `url:PATH`: a recorded chat (ndjson) the dev server serves, such as one fetched outside the repo.
   if (name.startsWith("url:")) {
@@ -249,6 +253,9 @@ type Sample = {
   t: number;
   folding: boolean;
   view: number;
+  /** The transcript's whole height and scroll offset (the fold fuzzer's total-height check). */
+  scrollHeight: number;
+  scrollTop: number;
   rows: [key: string, top: number, height: number, ink: number, shownTop?: number, shownHeight?: number][];
   /** Every mounted row, in view or not: its key, its top from the thread's top, its height and its kind
    *  (the `acpmux-KIND` class), so a run can add up the turn's height frame by frame. */
@@ -307,7 +314,15 @@ function sampleFrame(): Sample {
     const ink = Number(style.opacity) * Number(getComputedStyle(element.firstElementChild!).opacity);
     if (view) rows.push(["fold-card", top - view.top, Math.max(0, bottom - top), ink]);
   }
-  return { t: performance.now(), folding: !!thread?.hasAttribute(TURN_END_ATTR), view: view?.height ?? 0, rows, all };
+  return {
+    t: performance.now(),
+    folding: !!thread?.hasAttribute(TURN_END_ATTR),
+    view: view?.height ?? 0,
+    scrollHeight: scroller?.scrollHeight ?? 0,
+    scrollTop: scroller?.scrollTop ?? 0,
+    rows,
+    all,
+  };
 }
 
 // fixed-wait: the steps' real clock is what this page records; a turn plays at the pace a live one does.
@@ -326,15 +341,19 @@ async function run(
 ) {
   // A matrix cell plays its window on the steps' own clock (capped at 1.5 s a gap), so its timing is the chat's.
   const virtual = name.startsWith("matrix:");
-  const whole = await scenarioNamed(name);
+  // A fuzz seed (scripts/fold-fuzz.ts) names its own fold turn end and window, and plays the window on
+  // the steps' own clock (gaps capped at `FUZZ_GAP_CAP_MS`), so when each record lands is the seed's.
+  const fuzz = name.startsWith("fuzz:") ? fuzzScenario(Number(name.slice(5))) : undefined;
+  const whole = fuzz?.scenario ?? (await scenarioNamed(name));
   const scenario = end === undefined ? whole : { ...whole, steps: whole.steps.slice(0, end + 1) };
   flushSync(() => show({ rows: [], working: false, sends: 0, look, ...options }));
   await painted();
   let lastEnd = scenario.steps.length - 1;
   while (lastEnd > 0 && !scenario.steps[lastEnd]!.label.startsWith("turn_result")) lastEnd -= 1;
-  const fastUntil = end === undefined ? (virtual ? lastEnd - 60 : 0) : lastEnd - 40;
+  if (fuzz) lastEnd = fuzz.foldAt;
+  const fastUntil = fuzz ? fuzz.windowFrom : end === undefined ? (virtual ? lastEnd - 60 : 0) : lastEnd - 40;
   // Sampled from the turn's last calls on, so a row that changes for the turn's end before the fold is seen.
-  const sampleFrom = Math.max(0, lastEnd - 16);
+  const sampleFrom = fuzz ? fuzz.windowFrom : Math.max(0, lastEnd - 16);
   const samples: Sample[] = [];
   let sampling = false;
   let marks: { step: number; t: number; label: string }[] = [];
@@ -374,6 +393,10 @@ async function run(
         // fixed-wait: a yield to the event loop while fast-forwarding, so the page stays responsive.
         if (index % 50 === 0) await sleep(0);
         // fixed-wait: the gap between two steps of the chat is the timing being recorded.
+      } else if (fuzz) {
+        const next = scenario.steps[index + 1];
+        // fixed-wait: the seed's own gap to its next record is the timing being fuzzed.
+        if (next) await sleep(Math.min(FUZZ_GAP_CAP_MS, Math.max(0, next.at - step.at)));
       } else await sleep(index >= sampleFrom ? STEP_MS * 2 : STEP_MS);
       return rows.map(() => undefined);
     },
@@ -382,8 +405,11 @@ async function run(
   // fixed-wait: the frames after the turn's end are the fold being recorded, for a set time.
   await sleep(tailMs);
   sampling = false;
-  const view = document.querySelector<HTMLElement>(".acpmux-scroll")?.clientHeight ?? 0;
-  const result = { look, samples, marks, startedAt: performance.timeOrigin, view };
+  const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+  const view = scroller?.clientHeight ?? 0;
+  // The scroll-anchoring arm in force: the browser's own (`overflow-anchor`) or the transcript's alone.
+  const overflowAnchor = scroller ? getComputedStyle(scroller).overflowAnchor : "";
+  const result = { look, samples, marks, startedAt: performance.timeOrigin, view, overflowAnchor, foldAt: lastEnd };
   marks = [];
   return result;
 }
@@ -398,4 +424,8 @@ Object.assign(root.style, {
   flexDirection: "column",
 });
 createRoot(root).render(<Pane />);
-Object.assign(window, { __fold: { run, sampleFrame } });
+/// Resizes the pane in place (the fold fuzzer reuses one page across seeds and split sizes).
+function size(width: number, height: number) {
+  Object.assign(root.style, { width: `${width}px`, height: `${height}px` });
+}
+Object.assign(window, { __fold: { run, sampleFrame, size } });
