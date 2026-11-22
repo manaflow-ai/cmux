@@ -1,13 +1,17 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { shownCategories } from "../categories";
 import { useSettingsState, useStore } from "../context";
 import { filterPlaces, filterRows, joinConsentPlaces } from "../search";
 import { valueOf } from "../store";
 import { t, text } from "../strings";
-import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
+import { CHIEF_PET_ROWS } from "../cardRows";
 import { AskCmuxRow } from "./AskCmuxRow";
-import { JoinGroup } from "./DevicesCard";
 import { GroupList } from "./GroupList";
+
+// The Chief Pet card (and its characters' art) loads when a search first shows its rows, not with the page.
+const ChiefPetCard = lazy(() => import("./ChiefPetCard").then(({ ChiefPetCard }) => ({ default: ChiefPetCard })));
+// Settings > Devices' join consent switches, likewise, when a search first matches one.
+const JoinGroup = lazy(() => import("./DevicesCard").then(({ JoinGroup }) => ({ default: JoinGroup })));
 
 /**
  * Matching rows from every category, editable in place, grouped by category. Every
@@ -78,8 +82,16 @@ export function SearchResults({ query }: { query: string }) {
           >
             <div className="collapse-body">
               <h2 className="result-section-title">{text(category.title)}</h2>
-              {petRows && petRows.size > 0 && <ChiefPetCard query={query} visibleRows={petRows} />}
-              {joinShown && <JoinGroup join={join} only={shownPlaces} query={query} />}
+              {petRows && petRows.size > 0 && (
+                <Suspense fallback={null}>
+                  <ChiefPetCard query={query} visibleRows={petRows} />
+                </Suspense>
+              )}
+              {joinShown && join && (
+                <Suspense fallback={null}>
+                  <JoinGroup join={join} only={shownPlaces} query={query} />
+                </Suspense>
+              )}
               <GroupList groups={groups} query={query} shown={shown} mounted={mounted} />
             </div>
           </section>

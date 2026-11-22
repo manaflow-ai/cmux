@@ -1,3 +1,4 @@
+import { BrowserSidebar } from "./browser/BrowserSidebar";
 import { composerHealthHarness } from "./composerPickerEntries";
 import { forkMenuRows } from "./header/forkMenu";
 import { useFold } from "./conversation/fold";
@@ -197,8 +198,8 @@ import {
   CloudTypingPrewarm,
   cloudIdentityKept,
   cloudTypingMachineID,
-  type CloudIdentityView,
   sameNewChat,
+  type CloudIdentityView,
 } from "./cloudTypingPrewarm";
 import { CloudComposeReservation, reservedCloudCall } from "./cloudComposeReservation";
 import { harnessProfiles } from "./harnessProfiles";
@@ -588,6 +589,7 @@ import { HarnessStatusCard } from "./HarnessStatusCard";
 import type { LocalCommand } from "./localCommands";
 import {
   cloudPageRefusal,
+  pageOnOtherMachine,
   cloudRunsHere,
   composerAgentLocal,
   cloudFolderGrants,
@@ -606,11 +608,10 @@ import {
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
-  pageOnOtherMachine,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
-import { folderRunLocation, newChatRunLocation, defaultFolderFor } from "./runLocationDefault";
+import { defaultFolderFor, folderRunLocation, newChatRunLocation } from "./runLocationDefault";
 import {
   lastNewChatPlace,
   pickedRunLocation,
@@ -13936,6 +13937,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         aria-label={composerSnapshot.summary?.title || t("header.agentChat")}
         style={inTabRow ? tabRowStyle(tabRow) : undefined}
       >
+        {document.documentElement.hasAttribute("data-cmux-browser-pane") && connected && (
+          <BrowserSidebar
+            sessions={snapshot.sessions}
+            workspaces={snapshot.browserWorkspaces}
+            selected={snapshot.sessionId}
+            onSelect={selectSession}
+            onRefresh={() => void directClient.current?.refreshBrowserWorkspaces()}
+          />
+        )}
         {steering && steerQueueOn ? (
           <SteerQueue
             items={steerItems}
