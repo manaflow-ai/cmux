@@ -27,11 +27,23 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | xbench | `perf-bench.sh` (`scripts/perf-bench/xbench.py`); `--import` reads `results.json` and `scripts/perf-bench/baseline/*.json` | Against other browsers, and the resource budget rows. |
 | idle | `perf-10x-idle.sh` | Idle CPU, wakeups and footprint per process kind. |
 | tui-idle | `tui-idle-ram.sh` (`tui-idle-ram.py`, `dhat-top.py`) on Linux CI | The idle cmux-tui daemon's anonymous PSS, PSS, threads, binary sections and (dhat=1) Rust heap at commits. |
+| daemon-latency | `tui-idle-ram.sh runs=0 latency=1` (`cmux-tui/scripts/bench-daemon-latency.py`, acpmux `start_under_load_bench`) on Linux CI | bin/cmux hot paths at commits in alternating rounds: daemon requests, the CLI end to end, acpmux send to first token (cold and warm). One run per commit, so `compare` matches the sides. |
 | acpmux-watch-bytes | acpmux `hub/stream_tell_tests.rs` (cargo, Linux CI) | Bytes one acpmux watcher is sent while 20 chats stream and the list is read 60 times. |
 | typing | `webviews/bench/composer-typing.bench.ts` (load modes L0-L3, Chromium and WebKit) on Linux CI | Composer keydown-to-paint p95/p99 and key integrity under idle, stream, ten streaming documents and a 100k-row stream. |
 | mcp-fanout | `mcp-fanout.sh` (`mcp-fanout.py`) on a fleet Mac, any published app (`app=`) | MCP tool-server processes, RSS, idle CPU per kind at N open chats; first cmux tool call latency. |
+| ext-reload | `ext-reload-nightly.sh` (`ext-reload-nightly.py`, `edit-repaint.py` in read-back mode) on a fleet Mac, any published app (`dmg=`) | Extension hot reload on a NIGHTLY: save to the watcher's reload, and save to shown in the window per case, with no rebuild asked. |
 | workspace-factory | `workspace-factory.sh` (`workspace-factory/`, the `wsfactory` Rust factory) on a fleet Mac | A per-job throwaway workspace (APFS clone of a read-only seed) against today's cold and warm-slot step workspaces: start, build, cache hit, disk left behind. |
+| stress | `split-spring.sh --suite=stress` (`scripts/cmux-next/stress-bench.py`, `stress_load.py`; the cli angle runs `scripts/stress-cli-socket-api.py`) on the exclusive bench worker | The app under extreme stress, one angle per launch (cpu/thread starvation, many streaming mock chats with long transcripts, many workspaces with output floods, CLI/socket flood, memory past RAM into swap): frame p50/p95, dropped frames, input latency, daemon RTT, app CPU, footprint, hangs, baseline and stress window each. |
+| dev-loop | `dev-loop-ceiling.sh` (`dev-loop/<loop>.sh`, `dev-loop/bound.py`) on a fleet Mac | Edit to running for web swap, daemon restart, Swift inject and the startup loop, each over its simulated stage-floor bound; worst ratio (goal dev-loop-ceiling). |
+| coord-sim | `coord-sim-linux.sh` (crate `cmux-tui/crates/coord-sim`) on Linux CI; also the perf cron's coord-sim part | Several synthetic coordinator chats at once into a release acpmux: event delivery p50/p95/p99, lost and duplicated events, attach and first paint under load, history paging, prompt ack and echo, daemon RSS and its slope, memory and CPU per chat. |
 
+
+## Dev loop
+
+| name | what it measures | ticket / owner | last touched | status |
+|---|---|---|---|---|
+| `dev-loop-ceiling.sh` | Runs each `dev-loop/<loop>.sh` on one Mac, then `dev-loop/bound.py` (dev-loop bench). | goal dev-loop-ceiling | 2026-11-21 | active |
+| `dev-loop/bound.py` | Each loop's p50 over the Monte Carlo critical path of its stage floors; writes report.json. | goal dev-loop-ceiling | 2026-11-21 | active |
 
 ## Launch and update
 
@@ -115,7 +127,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `pane-overflow-fade.sh` | Native presentation-layer measurement of the pane overflow fade. | - | 2026-10-28 | active |
 | `pane-overflow-bundle-setup.py` | Keeps historical bundle installs from deleting tracked placeholder docs. | - | 2026-10-26 | active |
 | `fullscreen-transition.sh` | Full screen enter and leave: lag, layout passes, resizes. | fullscreen-lag | 2026-10-27 | active |
-| `edit-repaint.sh` | Edit to repaint for cmux-next.json edits and extension saves. | - | 2026-11-13 | active |
+| `edit-repaint.sh` | Edit to repaint for cmux-next.json edits and customize saves (section, rows, pane), a palette command and a key binding. | - | 2026-11-19 | active |
 | `replay-build-bench.sh` | terminal VT replay build time, one text layout against two. | - | 2026-11-01 | active |
 | `pane-main-profile.sh` | One Instruments profile of the pane's 20 MB prompt bench. | - | 2026-10-05 | stale |
 | `pane-native-transport.sh` | Agent pane native transport against the page-world WebSocket. | - | 2026-11-07 | active |
@@ -144,12 +156,14 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `dhat-top.py` | Top allocation sites at a dhat profile's peak. | - | 2026-11-15 | active |
 | `infinite-items.py` | Time-compressed run of N workspaces, tabs and chats against the daemons. | CMUX-571 | 2026-11-15 | active |
 | `infinite-items-linux.sh` | Infinite items on Linux, daemons plus headless chat pages. | CMUX-571 | 2026-11-15 | active |
+| `perf-cron-linux.sh` | One perf cron Linux part on a Linux pool worker, for the build controller. | - | 2026-11-21 | active |
 | `infinite-items-profile.sh` | dhat heap profile of the daemons per item. | CMUX-571 | 2026-11-15 | active |
-| `tui-idle-ram.sh` | Idle cmux-tui daemon memory on Linux at commits (bench tui-idle). | CMUX-571 | 2026-11-16 | active |
+| `tui-idle-ram.sh` | Idle cmux-tui daemon memory on Linux at commits (bench tui-idle); with latency=1 its hot-path latency (bench daemon-latency). | CMUX-571 | 2026-11-16 | active |
 | `tui-idle-ram.py` | One idle headless daemon: smaps, threads, mappings, children. | CMUX-571 | 2026-11-16 | active |
 | `chat-disk-growth.py` | One live chat's history bytes per simulated hour. | - | 2026-11-15 | active |
 | `chat-disk-growth-linux.sh` | Linux entry for chat-disk-growth.py at 100,000 rows. | - | 2026-11-15 | active |
 | `daemon-restart-linux.sh` | Daemon restart to a non-empty chat attach (god_daemon.rs small and god homes), median of up to 3 runs; the perf cron's daemon-restart part. | - | 2026-11-18 | active |
+| `coord-sim-linux.sh` | Several synthetic coordinator chats at once against a release acpmux on Linux (bench coord-sim). | coord-sim | 2026-11-19 | active |
 | `journal-writes.py` | Bytes the acpmux journal writes per hour and write amplification. | hq#11322 | 2026-11-15 | active |
 | `qos-load-bench.sh` | Effect of agent load on foreground work, with and without the QoS tier. | cmux#27587 | 2026-10-29 | active |
 | `qos-load-bench` | C probes (probe.c, spin.c) for qos-load-bench.sh. | cmux#27587 | 2026-10-29 | active |
@@ -232,6 +246,10 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `try-pr-live-share.py` | Share of recent NEXT PRs that try-pr.sh puts in with no app build. | - | 2026-11-07 | active |
 | `try-pr-side-instance.sh` | try-pr.sh to a side instance, timed to loading the PR's page. | - | 2026-11-04 | active |
 | `ext-hot-reload.sh` | Extension hot reload read-back test from DEV and Release builds. | - | 2026-11-14 | active |
+| `ext-reload-nightly.sh` | Extension hot reload on a published NIGHTLY: the activity example saved under a watching ext dev and read back with no rebuild asked (the watcher's reload, the daemon's loaded copy, open views), and edit-repaint.py in read-back mode. | - | 2026-11-19 | active |
+| `ext-reload-nightly.py` | App half of ext-reload-nightly.sh. | - | 2026-11-19 | active |
+| `ext-rows-nightly.sh` | Extension rows closed in code read back on a published NIGHTLY side instance, CLI and daemon ops only: web panes, background activation, link openers, the New Tab page, `ext new` for every kind, composer commands and mentions, chat-widget routing. | - | 2026-11-19 | active |
+| `ext-rows-nightly.py` | App half of ext-rows-nightly.sh: one function per row. | - | 2026-11-19 | active |
 | `rift-eval.sh` | APFS clone workspaces vs git worktree for an agent's first green build. | - | 2026-11-11 | active |
 | `nightly-cas-identity.sh` | Byte proof: a build with a reused compilation cache equals a clean build. | - | 2026-10-20 | active |
 | `import-set-xcode.sh` | Import-set check stub cost with Xcode incremental builds. | - | 2026-10-18 | active |

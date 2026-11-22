@@ -67,7 +67,7 @@ extension AppActions {
         #if DEBUG || CMUX_BENCH_HOOKS
         services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel, homes: services.home.chiefHomes))
         #endif
-        registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
+        registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }; services.onboarding.chief.bindMeetChief(into: registry)
         // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it;
         // the sidebar's Home entry, so a dock showing Channels goes back to Messages (cx-frn2y).
         registry.bind("home.show") { if showHome(services), services.home.dockMode == .channels { HomeDockTab.view(services)?.switchTo(.messages) } }
