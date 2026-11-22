@@ -72,6 +72,28 @@ impl super::Peer {
     }
 }
 
+impl super::Peer {
+    /// The first failed step of this link when it is down (`peer_diagnosis.rs`), from the
+    /// same facts its state notes carry plus the carrier its last attempt used.
+    pub(crate) fn diagnosis(&self, link: &Link) -> Option<crate::peer_diagnosis::Diagnosis> {
+        let observed = self.observed(link);
+        let carrier = self.facts.lock_or_recover().carrier;
+        crate::peer_diagnosis::diagnose(
+            &self.name,
+            &crate::peer_diagnosis::Evidence {
+                link: observed.link,
+                carrier,
+                cause: observed.cause,
+                reason: observed.reason,
+                error: observed.error.as_deref(),
+                last_seen: observed.last_seen,
+                attempts: link.attempts,
+            },
+            crate::store::now_ms(),
+        )
+    }
+}
+
 /// `state` as the whole link state: a down link whose last attempt was refused for its token
 /// is `authFailed`, which a person fixes, not a retry. A down link with an [`OfflineReason`] is
 /// `offline`, never `reconnecting`: retrying alone will not heal it, and the reason says what

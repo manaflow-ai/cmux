@@ -13689,6 +13689,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       <HostUnavailableLine
         message={hostWords.line}
         detail={hostWords.detail}
+        diagnosis={hostWords.diagnosis}
         retrying={retryQueued}
         onRetry={() => retryHost.current?.()}
         // The pane asks again by itself unless asking cannot change the answer: a chat too large to

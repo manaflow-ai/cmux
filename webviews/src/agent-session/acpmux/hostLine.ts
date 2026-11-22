@@ -93,12 +93,70 @@ export function peerLinkLine(failure: PeerLinkFailure, t: Translate, machineName
   return machine ? t("host.peerUnreachable", { machine }) : t("host.peerUnreachableUnnamed");
 }
 
+/// The steps of a machine link, in order (acpmux `peer_diagnosis.rs` `Step`).
+export const LINK_STEPS = ["client", "account", "transport", "hostDaemon", "provider"] as const;
+export type LinkStep = (typeof LINK_STEPS)[number];
+export type LinkStepStatus = "ok" | "failed" | "unknown";
+/// The one thing to do about the failed step (`peer_diagnosis.rs` `NextAction`).
+export const LINK_ACTIONS = [
+  "checkNetwork",
+  "signIn",
+  "authorizeKey",
+  "verifyHostKey",
+  "enableSsh",
+  "wakeMachine",
+  "startMachine",
+  "startDaemon",
+  "restartDaemon",
+  "freeDisk",
+  "reconnect",
+] as const;
+export type LinkAction = (typeof LINK_ACTIONS)[number];
+
+/// acpmux's first failed step of a chat's machine link that is down (`diagnosis` on a
+/// `peer_unreachable` refusal, `peer_diagnosis.rs`): acpmux decides it, the pane only draws it.
+export type LinkDiagnosis = {
+  /// The machine the action is done on (its safe name).
+  machine: string;
+  failedStep: LinkStep;
+  steps: { step: LinkStep; status: LinkStepStatus }[];
+  action: LinkAction;
+  /// A retry alone will not clear it: the line names the step instead of "Reconnecting…".
+  needsPerson: boolean;
+  /// What Copy Details copies; acpmux builds it with no error text, URL or token.
+  detail: string;
+};
+
+const STATUSES = new Set<string>(["ok", "failed", "unknown"]);
+const isStep = (value: unknown): value is LinkStep => LINK_STEPS.includes(value as LinkStep);
+
+/// The diagnosis a `peer_unreachable` refusal carries, when it has a well-formed one: a word this
+/// pane does not know (a newer acpmux) reads as none, so the line stays the plain one.
+export function linkDiagnosis(error: unknown): LinkDiagnosis | undefined {
+  const raw = fieldsOf(fieldsOf(fieldsOf(error)?.data)?.diagnosis);
+  if (!raw) return undefined;
+  const { machine, failedStep, steps, action, needsPerson, detail } = raw;
+  if (typeof machine !== "string" || !machine || !isStep(failedStep)) return undefined;
+  if (!LINK_ACTIONS.includes(action as LinkAction) || typeof detail !== "string") return undefined;
+  if (!Array.isArray(steps)) return undefined;
+  const rows = steps.flatMap((row) => {
+    const fields = fieldsOf(row);
+    return fields && isStep(fields.step) && typeof fields.status === "string" && STATUSES.has(fields.status)
+      ? [{ step: fields.step, status: fields.status as LinkStepStatus }]
+      : [];
+  });
+  return { machine, failedStep, steps: rows, action: action as LinkAction, needsPerson: needsPerson === true, detail };
+}
+
 export type HostLineText = {
   /// The one plain line.
   line: string;
   /// The failure in acpmux's own words, shown only behind the line's Details; absent when the line
   /// already says all of it.
   detail?: string;
+  /// acpmux's first failed step of the chat's machine link, when a person must act on it: the
+  /// line names that step, and Details shows the steps, the one action and Copy Details.
+  diagnosis?: LinkDiagnosis;
 };
 
 /// The line for a failure the pane says, in plain words. The chat's machine is named when acpmux or
@@ -111,6 +169,10 @@ export function hostLineText(error: unknown, message: string, t: Translate, mach
   const peer = peerLinkFailure(error) ?? peerLinkFailure(message);
   const raw = message.trim();
   if (peer) {
+    const diagnosis = linkDiagnosis(error);
+    if (diagnosis?.needsPerson) {
+      return { line: t(`host.step.${diagnosis.failedStep}.line`, { machine: diagnosis.machine }), diagnosis };
+    }
     const line = peerLinkLine(peer, t, machineName);
     return raw && raw !== line ? { line, detail: raw } : { line };
   }

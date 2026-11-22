@@ -8,8 +8,8 @@ import { join } from "node:path";
 import { translate } from "./i18n";
 import { AcpmuxRpcError } from "./handoff/protocol";
 import { NativeError } from "./nativeError";
-import { HOST_ERROR_DEADLINE_MS, hostErrorShows, hostIsReconnecting } from "./hostRetry";
-import { PEER_LINK_DEADLINE_MS, hostLineText, isRawDaemonText, peerLinkFailure } from "./hostLine";
+import { HOST_ERROR_DEADLINE_MS, hostErrorShows, hostIsReconnecting, hostSelfRetrying } from "./hostRetry";
+import { PEER_LINK_DEADLINE_MS, hostLineText, isRawDaemonText, linkDiagnosis, peerLinkFailure } from "./hostLine";
 
 // acpmux's refusal for a request on a peer that is down, as the daemon words it (peer_link.rs
 // `unreachable_error`) and as direct.ts hands it on (`reason` copied from `data.reason`).
@@ -173,4 +173,39 @@ test("cloudMachineAsleep: paused and starting stages sleep, ready and failed do 
     false,
     false,
   ]);
+});
+
+// acpmux's first failed step of a down machine link (peer_diagnosis.rs), as `data.diagnosis`.
+const withDiagnosis = (diagnosis: Record<string, unknown>) =>
+  rpc(LEOS, { reason: "peer_unreachable", retryable: true, peer: "box", peerState: "reconnecting", diagnosis });
+const KEY_REFUSED = {
+  machine: "box",
+  failedStep: "account",
+  steps: [
+    { step: "client", status: "ok" },
+    { step: "account", status: "failed" },
+    { step: "transport", status: "unknown" },
+  ],
+  action: "authorizeKey",
+  needsPerson: true,
+  detail: "machine: box\nnext: authorizeKey",
+};
+
+test("the pane reads acpmux's diagnosis and drops words it does not know", () => {
+  expect(linkDiagnosis(withDiagnosis(KEY_REFUSED))).toEqual(KEY_REFUSED as never);
+  expect(linkDiagnosis(withDiagnosis({ ...KEY_REFUSED, failedStep: "router" }))).toBeUndefined();
+  expect(linkDiagnosis(withDiagnosis({ ...KEY_REFUSED, action: "rebootEverything" }))).toBeUndefined();
+  expect(linkDiagnosis(withDiagnosis({ ...KEY_REFUSED, machine: "" }))).toBeUndefined();
+  const odd = linkDiagnosis(withDiagnosis({ ...KEY_REFUSED, steps: [{ step: "client", status: "maybe" }] }));
+  expect(odd?.steps).toEqual([]);
+  expect(linkDiagnosis(unreachable("reconnecting"))).toBeUndefined();
+});
+
+test("a failure a person must fix stops Reconnecting… and names its step; one that heals does not", () => {
+  const fix = withDiagnosis(KEY_REFUSED);
+  expect(hostSelfRetrying(fix, false)).toBe(false);
+  expect(hostLineText(fix, "", translate).line).toBe("box didn't accept this device's sign-in.");
+  const heals = withDiagnosis({ ...KEY_REFUSED, failedStep: "transport", action: "wakeMachine", needsPerson: false });
+  expect(hostSelfRetrying(heals, false)).toBe(hostSelfRetrying(unreachable("reconnecting"), false));
+  expect(hostLineText(heals, "", translate).diagnosis).toBeUndefined();
 });

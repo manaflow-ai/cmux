@@ -258,12 +258,22 @@ impl Peer {
     /// The refusal for a request while the link is down (`peer_link.rs`).
     pub fn unreachable_error(&self) -> RpcError {
         let error = self.last_error.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        crate::peer_link::unreachable_error(
+        let link = self.link();
+        let mut refusal = crate::peer_link::unreachable_error(
             &self.name,
-            &self.link(),
+            &link,
             error.as_deref(),
             crate::store::now_ms(),
-        )
+        );
+        // The first failed step, its one action and a sanitized detail (`peer_diagnosis.rs`).
+        // A peer daemon's connection never sees it: `redact.rs` `hide_unreachable_peer`
+        // rebuilds the data without it.
+        if let (Some(diagnosis), Some(data)) =
+            (self.diagnosis(&link), refusal.data.as_mut().and_then(Value::as_object_mut))
+        {
+            data.insert("diagnosis".into(), serde_json::to_value(diagnosis).unwrap_or(Value::Null));
+        }
+        refusal
     }
 
     /// Receives every later settled connect attempt.
@@ -750,6 +760,7 @@ impl Peer {
             "health": health,
             "healthAt": health_at,
             "paths": paths, "linkStats": link_stats,
+            "diagnosis": self.diagnosis(&link),
         })
     }
 

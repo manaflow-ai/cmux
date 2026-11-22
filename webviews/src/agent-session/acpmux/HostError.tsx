@@ -5,6 +5,8 @@ import { HOST_ERROR_DEADLINE_MS, type HostRestoring, hostRecoveryLine } from "./
 import { useNow } from "./subagents/subagentGroupModel";
 import { useT } from "./i18n";
 import { waitedText } from "./hostErrorModel";
+import type { LinkDiagnosis } from "./hostLine";
+import { copyTextResult } from "./conversation/clipboard";
 
 /// A chat acpmux would not start (a folder harness without its Enable or Trust): the reason above
 /// the composer as the shared notice (ui/Notice.tsx), with its own `hint` (null: none) and button
@@ -57,6 +59,11 @@ export function HostError({
 /// person and the chat comes back by itself (Leo, 2026-11-12: "the recovery needs to be a lot better
 /// and it shouldn't talk so much bullshit"; "try what? no, it should just automatically do stuff").
 /// Only a failure asking again cannot clear keeps its message and its one action.
+///
+/// A chat's machine whose first failed step needs a person (`diagnosis`, acpmux
+/// `peer_diagnosis.rs`) says that step on the line ("Sign-in", "Agent service"…), and its Details
+/// shows the steps in order, the one thing to do and on which machine, and Copy Details: the
+/// detail acpmux built with no error text, URL or token (competitor teardown row 8).
 export function HostUnavailableLine({
   message,
   detail,
@@ -65,9 +72,11 @@ export function HostUnavailableLine({
   restarting,
   onRestart,
   selfRetrying = true,
+  diagnosis,
 }: {
   message: string;
   detail?: string;
+  diagnosis?: LinkDiagnosis;
   retrying?: boolean;
   onRetry?(): void;
   restarting?: boolean;
@@ -100,7 +109,7 @@ export function HostUnavailableLine({
             </button>
           )
         )}
-        {detail && (
+        {(detail || diagnosis) && (
           <button
             type="button"
             className="acpmux-host-line-details"
@@ -112,11 +121,41 @@ export function HostUnavailableLine({
           </button>
         )}
       </div>
-      {detail && open && (
+      {diagnosis && open && <LinkDiagnosisDetail id={detailId} diagnosis={diagnosis} />}
+      {detail && !diagnosis && open && (
         <p id={detailId} className="acpmux-host-line-detail selectable">
           {detail}
         </p>
       )}
+    </div>
+  );
+}
+
+/// The Details of a machine link acpmux diagnosed: each step in order with what is known of it,
+/// the one action naming its machine, and Copy Details.
+function LinkDiagnosisDetail({ id, diagnosis }: { id: string; diagnosis: LinkDiagnosis }) {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  const mark = { ok: "\u2713", failed: "\u2715", unknown: "\u2013" } as const;
+  return (
+    <div id={id} className="acpmux-host-line-detail acpmux-host-diagnosis" data-failed-step={diagnosis.failedStep}>
+      <ol className="acpmux-host-diagnosis-steps">
+        {diagnosis.steps.map(({ step, status }) => (
+          <li key={step} data-status={status} aria-label={`${t(`host.step.${step}`)}: ${t(`host.step.${status}`)}`}>
+            <span aria-hidden="true">{mark[status]}</span> {t(`host.step.${step}`)}
+          </li>
+        ))}
+      </ol>
+      <p className="acpmux-host-diagnosis-action">
+        {t(`host.action.${diagnosis.action}`, { machine: diagnosis.machine })}
+      </p>
+      <button
+        type="button"
+        className="acpmux-host-line-quiet"
+        onClick={() => void copyTextResult(diagnosis.detail).then((done) => setCopied(done))}
+      >
+        {t(copied ? "host.copiedDetails" : "host.copyDetails")}
+      </button>
     </div>
   );
 }
