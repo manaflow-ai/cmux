@@ -33,9 +33,17 @@ extension PaneCommitMotionTests {
 
     /// `others`: more screens of the window, not shown. `pane`: the pane that zooms. `surfaces`: each pane's content
     /// is a producer that a change waits for (`Commit.Surface`); the zoom's own surfaces report in the key's turn, so
-    /// the zoom shows in the first frame.
-    static func zooming(frames: Int, others: [LayoutScreen] = [], pane: PaneID = "p4", surfaces: Bool = false) throws -> Zooming {
-        let harness = Commit.Harness(Zoom.screens() + others, focused: pane, holds: false, surfaces: surfaces)
+    /// the zoom shows in the first frame. `padding`: the style has this padding round each pane's content, so a pane's
+    /// content rect is smaller than its cell; with `cards`, the style has a card for each pane too.
+    static func zooming(frames: Int, others: [LayoutScreen] = [], pane: PaneID = "p4", surfaces: Bool = false, padding: CGFloat = 0,
+                        cards: Bool = false) throws -> Zooming {
+        let harness = Commit.Harness(Zoom.screens() + others, focused: pane, holds: false, surfaces: surfaces) { model in
+            guard padding > 0 else { return }
+            model.followsDesignMetrics = false
+            model.baseStyle.panePadding = padding
+            model.baseStyle.floatingPanes = cards
+            if cards { model.baseStyle.dividerThickness = 0 }
+        }
         let all = ["p1", "p2", "p3", "p4"] as [PaneID]
         var begun = false
         defer { if !begun { harness.window.closeAfterTest() } }
@@ -64,10 +72,11 @@ extension PaneCommitMotionTests {
     /// The zoom key's turn changes nothing on the screen. The first frame after it has the pane at its screen's size,
     /// with a move from its place in the grid; the panes it covers show at their places; and the dim comes over them
     /// on a fade from nothing, in the pane veil's time. The dim never covers the pane that zooms: at the start, the
-    /// middle and the end of the move its parts leave the pane's content clear. The frame that ends the motion shows
-    /// the zoomed pane alone with no dim, in the zoom's time.
+    /// middle and the end of the move its parts leave the pane's whole cell clear, the band of padding round its
+    /// content too (the style of this row has a padding). The frame that ends the motion shows the zoomed pane alone
+    /// with no dim, in the zoom's time.
     @Test func aZoomMovesItsPaneWhileTheDimComesOverTheOthers() throws {
-        let zoom = try Self.zooming(frames: 0)
+        let zoom = try Self.zooming(frames: 0, padding: 6)
         defer { zoom.harness.window.closeAfterTest() }
         let harness = zoom.harness, screen = zoom.screen
         let fade = try Dim.fade()
@@ -93,12 +102,15 @@ extension PaneCommitMotionTests {
         #expect(coming.duration == fade, "the dim's fade on its layer is over \(coming.duration) s, not the pane veil's \(fade) s")
         // The dim's parts in the layout root's coordinates, as `PaneZoomDimTests.misses` reads them.
         let parts = (dim.layer.sublayers ?? []).map { Self.move(of: $0) }
-        let hole = (from: zoom.places.clear.hole, to: harness.root.convert(host.contentRect, from: host))
+        try #require(!Commit.near(zoom.places.clear.cell, zoom.places.clear.hole) && !host.wholeCard,
+                     "SETUP: the pane that zooms has no band of padding round its content, or its clip is its card")
+        let hole = (from: zoom.places.clear.cell, to: harness.root.convert(host.bounds, from: host))
         for part in [0, 0.5, 1] as [CGFloat] {
             let clear = Move(start: hole.from, end: hole.to).rect(at: part).insetBy(dx: 1, dy: 1)
             for piece in parts {
                 let cut = piece.rect(at: part).offsetBy(dx: dim.view.frame.minX, dy: dim.view.frame.minY).intersection(clear)
-                #expect(cut.isNull || cut.width < 0.5 || cut.height < 0.5, "at \(part) of the move the dim covers the pane that zooms: \(cut)")
+                #expect(cut.isNull || cut.width < 0.5 || cut.height < 0.5,
+                        "at \(part) of the move the dim is on the pane that zooms, or on the band of its padding: \(cut)")
             }
         }
         let starts = parts.map { $0.rect(at: 0).offsetBy(dx: dim.view.frame.minX, dy: dim.view.frame.minY) }
@@ -111,6 +123,36 @@ extension PaneCommitMotionTests {
                 "the zoom's motion ended \(Double(ticks) * Self.dt) s after the frame that began it; a zoom's time is \(Self.zoom.time) s")
         #expect(Self.restsZoomed(zoom), "after the motion's end the zoomed pane does not show alone with no dim: \(Commit.shown(screen).panes)")
         #expect(harness.provider.released.isEmpty, "the zoom released a pane: \(harness.provider.released)")
+    }
+
+    /// In a chrome style with a card for each pane, the gap round the card of the pane that zooms can show a pane that
+    /// the zoom covers. The dim's hole is the card there: at the start, the middle and the end of the move the dim's
+    /// parts leave the card clear, and the dim is on the gap between the card and the edge of its cell at each side.
+    @Test func inACardStyleTheDimsHoleIsTheCardOfThePaneThatZooms() throws {
+        let zoom = try Self.zooming(frames: 1, padding: 6, cards: true)
+        defer { zoom.harness.window.closeAfterTest() }
+        let harness = zoom.harness
+        let host = try #require(Self.hosts(of: zoom.screen)["p4"], "the pane that zooms does not show")
+        let dim = try #require(Dim.dim(harness), "the frame that begins the zoom's move shows no dim over the other panes")
+        let card = Move(start: zoom.places.clear.hole, end: harness.root.convert(host.contentRect, from: host))
+        let cell = Move(start: zoom.places.clear.cell, end: harness.root.convert(host.bounds, from: host))
+        try #require(host.wholeCard && !Commit.near(card.start, cell.start) && !Commit.near(card.end, cell.end),
+                     "SETUP: the clip of the pane that zooms is not its card, or the card has no gap round it")
+        let parts = (dim.layer.sublayers ?? []).map { Self.move(of: $0) }
+        try #require(parts.count == 4 && parts.contains(where: \.moves), "SETUP: the dim has not 4 parts, or no part moves with the pane that zooms")
+        for part in [0, 0.5, 1] as [CGFloat] {
+            let pieces = parts.map { $0.rect(at: part).offsetBy(dx: dim.view.frame.minX, dy: dim.view.frame.minY) }
+            let inner = card.rect(at: part), outer = cell.rect(at: part)
+            for piece in pieces {
+                let cut = piece.intersection(inner.insetBy(dx: 1, dy: 1))
+                #expect(cut.isNull || cut.width < 0.5 || cut.height < 0.5, "at \(part) of the move the dim covers the card of the pane that zooms: \(cut)")
+            }
+            let gaps = [CGPoint(x: inner.midX, y: (outer.minY + inner.minY) / 2), CGPoint(x: inner.midX, y: (outer.maxY + inner.maxY) / 2),
+                        CGPoint(x: (outer.minX + inner.minX) / 2, y: inner.midY), CGPoint(x: (outer.maxX + inner.maxX) / 2, y: inner.midY)]
+            for gap in gaps {
+                #expect(pieces.contains(where: { $0.contains(gap) }), "at \(part) of the move the dim is not on the gap round the card, at \(gap)")
+            }
+        }
     }
 
     /// A second Cmd-Shift-Enter in the zoom's motion: the next frame shows every pane at its place in the grid, and no

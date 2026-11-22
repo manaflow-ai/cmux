@@ -31,10 +31,11 @@ import Testing
         return (view, layer)
     }
 
-    /// Where the panes of one layout show, in the layout root's coordinates: the content rect of the pane that the dim
-    /// must leave clear, and the middle of each pane that it must cover.
+    /// Where the panes of one layout show, in the layout root's coordinates: the content rect (`hole`) and the whole
+    /// cell (`cell`) of the pane that the dim must leave clear, and the middle of each pane that it must cover. With a
+    /// padding round each pane's content the cell is larger than the content rect by the band of that padding.
     struct Places {
-        var clear: (pane: PaneID, hole: CGRect)
+        var clear: (pane: PaneID, hole: CGRect, cell: CGRect)
         var covered: [(pane: PaneID, middle: CGPoint)]
     }
 
@@ -49,7 +50,7 @@ import Testing
             let frame = root.convert(shown.bounds, from: shown)
             covered.append((other, CGPoint(x: frame.midX, y: frame.midY)))
         }
-        return Places(clear: (pane, root.convert(host.contentRect, from: host)), covered: covered)
+        return Places(clear: (pane, root.convert(host.contentRect, from: host), root.convert(host.bounds, from: host)), covered: covered)
     }
 
     /// What is wrong with where the dim is, against the places where the panes show: it must leave the one pane clear

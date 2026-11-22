@@ -148,9 +148,9 @@ final class PaneZoomDim {
         screen.context.requestFrames()
     }
 
-    /// The dim comes with the move of the pane that zooms: over `screen` less that pane's content rect, on the pane
-    /// veil's fade, from nothing or from the strength that a dim that was going shows. Its hole goes with the pane,
-    /// from the pane's content rect before the zoom, on the zoom's spring. The frame that ends the move takes the
+    /// The dim comes with the move of the pane that zooms: over `screen` less that pane's hole (``hole(of:on:)``), on
+    /// the pane veil's fade, from nothing or from the strength that a dim that was going shows. Its hole goes with the
+    /// pane, from the pane's hole before the zoom, on the zoom's spring. The frame that ends the move takes the
     /// dim away (``step(_:)``).
     private func come(with zoom: PaneCommitMotion.Change, on screen: ScreenContentView) {
         let continuing = self.view?.superview != nil
@@ -185,7 +185,7 @@ final class PaneZoomDim {
         marked = zoomed
     }
 
-    /// The dim's view over `screen` less `pane`'s content rect as the pane shows now, in the layout's overlay plane.
+    /// The dim's view over `screen` less `pane`'s hole as the pane shows now, in the layout's overlay plane.
     private func place(around pane: PaneID, on screen: ScreenContentView) -> PaneZoomDimView? {
         guard let root = screen.superview as? LayoutRootView, let hole = hole(of: pane, on: screen) else { return nil }
         let view = self.view ?? PaneZoomDimView()
@@ -194,10 +194,14 @@ final class PaneZoomDim {
         return view
     }
 
-    /// `pane`'s content rect as the pane shows on `screen` now, in the coordinates of the layout's overlay plane.
+    /// The dim's hole for `pane` as the pane shows on `screen` now, in the coordinates of the layout's overlay plane:
+    /// the hole is the growing pane's cell; in the card style it is its card. Under the band of padding round a
+    /// pane's content is the pane's own ground, or the window's backdrop, and nothing of another pane: the pane does
+    /// not dim there. In a chrome style with a card for each pane (`PaneHostView.wholeCard`) the gap round the card
+    /// can show a pane that the move keeps under: that pane dims there.
     private func hole(of pane: PaneID, on screen: ScreenContentView) -> CGRect? {
         guard let root = screen.superview as? LayoutRootView, let host = screen.context.hosts[pane], host.superview === screen else { return nil }
-        return root.convert(host.contentRect, from: host)
+        return root.convert(host.wholeCard ? host.contentRect : host.bounds, from: host)
     }
 
     /// Ends the dim and the panes' move now: the screen's size changed, the screen goes out of sight, or no motion

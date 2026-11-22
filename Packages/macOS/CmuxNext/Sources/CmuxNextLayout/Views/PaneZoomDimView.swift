@@ -4,7 +4,7 @@ import QuartzCore
 
 /// The dim over the other panes of a screen around a zoom (``PaneZoomDim``). One view in the overlay plane, above
 /// every pane's ring and above pages, below the drop highlight: one layer that carries the dim's opacity, with four
-/// plain layers in it around the content rect of the pane that zooms (above, below, left, right). It has no mask and
+/// plain layers in it around the hole of the pane that zooms, its cell (above, below, left, right). It has no mask and
 /// no blur. The four layers are square, so the small areas outside the pane's rounded corners stay undimmed.
 ///
 /// Its opacity changes while it shows, on the render server (`Motion.panes`, the pane veil's fade). At a zoom whose
