@@ -12,8 +12,19 @@ final class SubagentTranscriptEdgeUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// The app's main-thread stall stacks (MainStallWatchdog), one file per test on the host.
+    private let stallLog = "/tmp/cmux-stall-\(UUID().uuidString).txt"
+
     override func tearDown() {
         XCUIDevice.shared.orientation = .portrait
+        if let text = try? String(contentsOfFile: stallLog, encoding: .utf8) {
+            print(text.split(separator: "\n").prefix(80).map { "CMUX_MAIN_STALL| \($0)" }.joined(separator: "\n"))
+            let attachment = XCTAttachment(string: text)
+            attachment.name = "main-stall-stacks"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            try? FileManager.default.removeItem(atPath: stallLog)
+        }
     }
 
     @MainActor
@@ -31,8 +42,10 @@ final class SubagentTranscriptEdgeUITests: XCTestCase {
         }
         if stream { app.launchEnvironment["CMUX_MOBILE_LIST_STREAM"] = "1" }
         if giant { app.launchEnvironment["CMUX_MOBILE_LIST_GIANT"] = "1" }
-        // A main thread busy for 2 s logs its stack (CMUX_MAIN_STALL, the step's app-log.txt).
+        // A main thread busy for 2 s records its stack (CMUX_MAIN_STALL) in a host file this test
+        // attaches (`tearDown`).
         app.launchEnvironment["CMUX_MOBILE_STALL_WATCHDOG"] = "1"
+        app.launchEnvironment["CMUX_MOBILE_STALL_LOG"] = stallLog
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore"]
         app.launch()
         XCTAssertTrue(app.navigationBars["WireGuard dialer"].waitForExistence(timeout: 40), "the transcript opens\n\(app.debugDescription)")

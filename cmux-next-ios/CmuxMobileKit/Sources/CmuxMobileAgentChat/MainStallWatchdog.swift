@@ -4,7 +4,8 @@ import Darwin
 import Foundation
 import os
 
-/// Logs the main thread's stack (`CMUX_MAIN_STALL`, subsystem dev.cmux.mobile, category stall)
+/// Logs the main thread's stack (`CMUX_MAIN_STALL`, subsystem dev.cmux.mobile, category stall,
+/// and appended to `CMUX_MOBILE_STALL_LOG` when set: a host path a UI test reads and attaches)
 /// each time it has not run a turn for 2 s: the watchdog thread pings the main queue, and when
 /// the ping goes unanswered it signals the main thread, whose handler records its own stack.
 /// A diagnostic for the list rig (`CMUX_MOBILE_STALL_WATCHDOG=1`), never a product path.
@@ -16,6 +17,20 @@ enum MainStallWatchdog {
     nonisolated(unsafe) private static var captured: Int32 = 0
     nonisolated(unsafe) private static var started = false
     private static let answered = OSAllocatedUnfairLock(initialState: true)
+    private static let file = ProcessInfo.processInfo.environment["CMUX_MOBILE_STALL_LOG"]
+
+    private static func record(_ text: String) {
+        log.notice("\(text, privacy: .public)")
+        guard let file else { return }
+        let data = Data((text + "\n\n").utf8)
+        if let handle = FileHandle(forWritingAtPath: file) {
+            handle.seekToEndOfFile()
+            handle.write(data)
+            try? handle.close()
+        } else {
+            FileManager.default.createFile(atPath: file, contents: data)
+        }
+    }
 
     /// Starts once, from the main thread.
     @MainActor
@@ -34,7 +49,7 @@ enum MainStallWatchdog {
         let thread = Thread { watch() }
         thread.name = "cmux.stall-watchdog"
         thread.start()
-        log.notice("CMUX_MAIN_STALL watchdog started")
+        record("CMUX_MAIN_STALL watchdog started")
     }
 
     private static func watch() {
@@ -54,7 +69,7 @@ enum MainStallWatchdog {
             Thread.sleep(forTimeInterval: 0.05)
             let count = captured
             guard count > 0, let symbols = backtrace_symbols(frames, count) else {
-                log.notice("CMUX_MAIN_STALL main thread busy \(stalledFor, privacy: .public) s, no stack")
+                record("CMUX_MAIN_STALL main thread busy \(stalledFor) s, no stack")
                 continue
             }
             var lines: [String] = []
@@ -62,7 +77,7 @@ enum MainStallWatchdog {
                 if let symbol = symbols[index] { lines.append(String(cString: symbol)) }
             }
             free(symbols)
-            log.notice("CMUX_MAIN_STALL main thread busy \(stalledFor, privacy: .public) s:\n\(lines.joined(separator: "\n"), privacy: .public)")
+            record("CMUX_MAIN_STALL main thread busy \(stalledFor) s:\n" + lines.joined(separator: "\n"))
         }
     }
 }
