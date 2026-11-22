@@ -43,7 +43,7 @@ export function ClaimMark({ claim, children }: { claim: ClaimCheck; children: Re
   );
   if (!toolCallId || !showCall)
     return (
-      <span className={className} title={label} data-claim-verdict={claim.verdict}>
+      <span className={className} aria-description={label} data-claim-verdict={claim.verdict}>
         {body}
       </span>
     );
@@ -53,7 +53,6 @@ export function ClaimMark({ claim, children }: { claim: ClaimCheck; children: Re
     <a
       href={`#tool-${toolCallId}`}
       className={className}
-      title={label}
       aria-label={label}
       data-claim-verdict={claim.verdict}
       onClick={(event) => {
