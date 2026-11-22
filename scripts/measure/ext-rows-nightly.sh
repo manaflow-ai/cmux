@@ -4,7 +4,7 @@
 # id, data, daemon and customize folder; the Mac's own apps are untouched) and launched, then
 # scripts/measure/ext-rows-nightly.py runs one function per row through the copy's own CLI and daemon ops,
 # no clicks: web panes, background activation, link openers, the New Tab page, `ext new` for every kind,
-# composer slash commands and mentions, chat-widget routing.
+# composer slash commands and mentions, status items, background event workers, chat-widget routing.
 #   cmux-ci run --class exclusive --label measure --display \
 #     --script scripts/measure/ext-rows-nightly.sh --ref <sha> [--arg=dmg=URL] [--arg=rows=a,b] \
 #     --artifact .build/ext-rows-nightly/report.tgz --timeout 1200
