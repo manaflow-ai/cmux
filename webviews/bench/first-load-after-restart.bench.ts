@@ -1671,6 +1671,11 @@ try {
             ].join(" | "),
           );
         });
+        console.log(
+          `  final rows in view:\n    ${(worst.frames.at(-1)?.rows ?? [])
+            .map((row) => `${row.id}@${row.top.toFixed(0)} "${(row.text ?? "").trim().slice(0, 50)}"`)
+            .join("\n    ")}`,
+        );
       }
     }
     if (isReopen(mode)) {
