@@ -17,12 +17,15 @@ export default componentEntry<OnboardingGalleryProps>({
     "pages/onboarding/AgentToolsStep.tsx",
     "pages/onboarding/MakeItYoursStep.tsx",
     "pages/onboarding/galleryFixture.tsx",
+    "pages/onboarding/walkArms.tsx",
   ],
   load: async () => (await import("./galleryFixture")).OnboardingGallery,
   styles: async () => {
     await import("../../ui/ui.css");
     await import("../shared/pageBase.css");
     await import("./styles.css");
+    // The intro walk's arms only: the shipped page never loads this sheet.
+    await import("./walkArms.css");
   },
   variants: {
     // Make cmux Yours (cmux#48416), two looks (the variant switch): cards ships.
@@ -37,6 +40,76 @@ export default componentEntry<OnboardingGalleryProps>({
     "make-it-yours-picked": { props: { step: "makeItYours", makeItYours: "picked" } },
     "make-it-yours-terminal": { props: { step: "makeItYours", makeItYours: "terminal" } },
     "make-it-yours-loading": { props: { step: "makeItYours", makeItYours: "loading" } },
+    // The intro walk (Make cmux Yours, round 2): every contested screen as arms to pick between, all
+    // [taste]. Gallery only: the shipped first-run screen is `make-it-yours-cards` above, unchanged.
+    "walk-look-a-grid": {
+      note: "Pick a look, A: a 2x2-plus grid of large whole-app tiles, each with its light and dark face. House (today's look) is picked.",
+      props: { step: "makeItYours", walk: { screen: "look", layout: "grid" } },
+    },
+    "walk-look-b-hero": {
+      note: "Pick a look, B: the picked bundle as one tall hero over a strip of the five.",
+      props: { step: "makeItYours", walk: { screen: "look", layout: "hero", picked: "glasshouse" } },
+    },
+    "walk-look-c-list": {
+      note: "Pick a look, C: a compact list, a small preview and one line each.",
+      props: { step: "makeItYours", walk: { screen: "look", layout: "list" } },
+    },
+    "walk-trust-a-rows": {
+      note: "Trust and noise, A: two segmented rows (agents may: Ask / Standard / Full access; notifications: Quiet / Banners / Banners and sound), one example line under each pick. The shipped values are picked.",
+      props: { step: "makeItYours", walk: { screen: "trust", layout: "rows" } },
+    },
+    "walk-trust-b-cards": {
+      note: "Trust and noise, B: three whole cards for the permission, noise as a row under.",
+      props: { step: "makeItYours", walk: { screen: "trust", layout: "cards" } },
+    },
+    "walk-trust-c-more": {
+      note: "Trust and noise, C: folded into the look screen as a More disclosure (closed).",
+      props: { step: "makeItYours", walk: { screen: "look", layout: "list", more: true } },
+    },
+    "walk-trust-c-more-open": {
+      note: "Trust and noise, C, with More open: the look list then scrolls inside the window.",
+      props: { step: "makeItYours", walk: { screen: "look", layout: "list", more: true, open: true } },
+    },
+    "walk-tune-a-three": {
+      note: "Tune, A: density as three levels, More shows the outer two; then today's background, opacity and material rows.",
+      props: { step: "makeItYours", makeItYours: "picked", walk: { screen: "tune", layout: "three" } },
+    },
+    "walk-tune-a-three-more": {
+      note: "Tune, A, with More: all five levels in the same track.",
+      props: { step: "makeItYours", makeItYours: "picked", walk: { screen: "tune", layout: "three", more: true } },
+    },
+    "walk-tune-b-five": {
+      note: "Tune, B: all five density levels (today's shape, cmux#49701) and the same rows.",
+      props: { step: "makeItYours", makeItYours: "picked", walk: { screen: "tune", layout: "five" } },
+    },
+    "walk-tune-c-two-tone": {
+      note: "Tune, C: density as three plus a Two-tone switch row (off, as shipped).",
+      props: { step: "makeItYours", makeItYours: "picked", walk: { screen: "tune", layout: "twoTone" } },
+    },
+    "walk-exit-a-chat": {
+      note: "The exit, A: Continue lands in a new chat, composer focused, one suggested prompt (the destination as a still).",
+      props: { step: "makeItYours", walk: { screen: "exit", layout: "chat" } },
+    },
+    "walk-exit-b-summary": {
+      note: "The exit, B: what was picked, Undo All, and the replay line.",
+      props: {
+        step: "makeItYours",
+        makeItYours: "picked",
+        walk: { screen: "exit", layout: "summary", picked: "glasshouse" },
+      },
+    },
+    "walk-exit-c-try-it": {
+      note: "The exit, C: Try it: open the palette (done), start one agent.",
+      props: { step: "makeItYours", walk: { screen: "exit", layout: "tryIt" } },
+    },
+    "walk-footer-today": {
+      note: "Footer, today: Skip and Continue.",
+      props: { step: "makeItYours", walk: { screen: "look", layout: "grid", history: 2 } },
+    },
+    "walk-footer-undo-redo": {
+      note: "Footer, variant: a persistent Undo / Redo pair leading, Skip and Continue trailing. Two picks made, so Undo is live.",
+      props: { step: "makeItYours", walk: { screen: "look", layout: "grid", history: 2, footer: "undoRedo" } },
+    },
     // The agents list, three looks (the variant switch): list ships.
     "agents-list": {
       note: "Recommended (default): one card, a row per agent, hairlines between, as Settings' lists. Quiet, scales to many agents in the fixed window.",
