@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 660,
+  "count": 661,
   "sections": [
     {
       "id": "general",
@@ -147,6 +147,19 @@
           "kind": "toggle",
           "default": true,
           "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.sessionWorktrees",
+          "title": "Session Worktrees",
+          "help": "Choose where to keep worktrees for local chats and forks.",
+          "kind": "choice",
+          "default": "off",
+          "group": "Agent Chat",
+          "values": [
+            "off",
+            "shared",
+            "project"
+          ]
         },
         {
           "key": "agentPane.showContextUsage",

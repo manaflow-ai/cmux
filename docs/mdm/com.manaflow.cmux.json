@@ -428,6 +428,17 @@
       "title" : "Scroll to Bottom When I Send",
       "type" : "boolean"
     },
+    "agentPane.sessionWorktrees" : {
+      "default" : "off",
+      "description" : "Choose where to keep worktrees for local chats and forks.",
+      "enum" : [
+        "off",
+        "shared",
+        "project"
+      ],
+      "title" : "Session Worktrees",
+      "type" : "string"
+    },
     "agentPane.showContextUsage" : {
       "default" : true,
       "description" : "The ring beside the model that fills as the chat uses its context window.",

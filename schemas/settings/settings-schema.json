@@ -10,6 +10,16 @@
         ],
         "groups" : [
           {
+            "key" : "settings.group.language",
+            "rows" : [
+              "app.language"
+            ],
+            "title" : {
+              "key" : "settings.group.language",
+              "text" : "Language"
+            }
+          },
+          {
             "key" : "settings.group.window",
             "rows" : [
               "window.titlebar",
@@ -388,7 +398,6 @@
         ],
         "id" : "appearance",
         "lead" : [
-          "looksGallery",
           "themeStudio",
           "backdrops",
           "density"
@@ -1312,6 +1321,7 @@
             "key" : "settings.group.agentChat",
             "rows" : [
               "agentPane.newChatsIn",
+              "agentPane.sessionWorktrees",
               "agents.defaultPermissionMode",
               "agents.promptCache",
               "agents.modelRouter.model",
@@ -1598,6 +1608,18 @@
             "title" : {
               "key" : "settings.group.banners",
               "text" : "Banners and Sound"
+            }
+          },
+          {
+            "key" : "settings.group.notificationDelivery",
+            "rows" : [
+              "notifications.delivery.permissionRequest",
+              "notifications.delivery.question",
+              "notifications.delivery.taskComplete"
+            ],
+            "title" : {
+              "key" : "settings.group.notificationDelivery",
+              "text" : "Delivery by Event"
             }
           },
           {
@@ -110642,6 +110664,163 @@
       "title" : {
         "key" : "settings.agentPane.newChatsIn",
         "text" : "Start New Chats In"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "shared",
+        "project"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sessionWorktreesShared",
+            "text" : "Shared Worktree Folder"
+          },
+          "value" : "shared"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sessionWorktreesProject",
+            "text" : "Inside Project"
+          },
+          "value" : "project"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "off",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.sessionWorktrees.help",
+        "text" : "Choose where to keep worktrees for local chats and forks."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.sessionWorktrees",
+      "keywords" : [
+        "git",
+        "worktree",
+        "fork",
+        "folder"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "sessionWorktrees"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.sessionWorktrees"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.sessionWorktrees",
+        "text" : "Session Worktrees"
       },
       "validation" : "portable"
     },
