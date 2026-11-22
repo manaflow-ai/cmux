@@ -514,3 +514,20 @@ fn providers_read_the_schedule_opt_in() {
 }
 
 mod runner_tests;
+
+#[test]
+fn no_floor_by_default_every_idle_machine_pauses() {
+    // No minimum number of VMs (Leo: "you shouldnt need to set minimums in the first place"): a detector for a
+    // non-zero keep_idle default.
+    assert_eq!(Policy::default().keep_idle, 0);
+    let machines = vec![
+        machine(Provider::Freestyle, "fsp-a", Power::Running, 1),
+        machine(Provider::Freestyle, "fsp-b", Power::Running, 1),
+    ];
+    let roster = vec![runner("fsp-a", true, false), runner("fsp-b", true, false)];
+    let mut s = Scheduler::new(Policy { idle_ms: 1_000, ..Policy::default() });
+    assert!(s.tick(0, &machines, &roster, Demand::Jobs(0)).pause.is_empty());
+    let mut paused = s.tick(1_000, &machines, &roster, Demand::Jobs(0)).pause;
+    paused.sort();
+    assert_eq!(paused, vec!["id-fsp-a".to_owned(), "id-fsp-b".to_owned()]);
+}
