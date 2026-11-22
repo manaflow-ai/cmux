@@ -1,7 +1,8 @@
 # The customization demo, recorded
 
-Leo asked for one clip per look. Each clip below was recorded in the published cmux NEXT nightly
-(1.0.0-nightly.4500914846101, commit `8815f4c8e527`) on a fresh home on a fleet display worker, from the
+Leo asked for one clip per look. Each clip below was recorded in the latest published cmux NEXT nightly
+(its build is in the Fleet step column: 4500914846101 is commit `8815f4c8e527`, 4504311416601 is
+`87f3b1b28a84`) on a fresh home on a fleet display worker, from the
 profile files at `319385c65a2` (#50138: the demo, gallery, showcase, glass, widgets and last-demo looks).
 A clip is the window before the look, then three frames 4 s apart after `customize use` and a New Tab;
 the screenshot is its last frame. The window is the whole frame: the capture shoots only the cmux window.
@@ -13,13 +14,17 @@ A fresh home has no agent sessions, so a sidebar that lists sessions or threads 
 
 | Look | Clip | Screenshot | Reproduce on your Mac | Fleet step | What it shows |
 | --- | --- | --- | --- | --- | --- |
-| looks/codex.json | [clip](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/looks-codex-319385c.mp4) | ![looks-codex](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/looks-codex-319385c.png) | `examples/customize-demo/demo.sh --nightly --only looks/codex.json` | `b60ef3fe96af35b91e54d69b` (17/17 steps ok) | Applied: the dark default turns into the light Codex theme, with a Priority/Chief/Threads sidebar (empty Threads on a fresh home) and the Unii New Tab composer. |
-| looks/studio.json | [clip](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/looks-studio-319385c.mp4) | ![looks-studio](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/looks-studio-319385c.png) | `examples/customize-demo/demo.sh --nightly --only looks/studio.json` | `5a6df49cba6226fd80caf5e8` (17/17 steps ok) | Applied: the light default turns into the dark Studio theme with a plum accent, a Chief/Threads sidebar (empty Threads on a fresh home) and the New Tab composer. |
+| looks/codex.json | [clip](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/looks-codex-319385c.mp4) | ![looks-codex](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/looks-codex-319385c.png) | `examples/customize-demo/demo.sh --nightly --only looks/codex.json` | `b60ef3fe96af35b91e54d69b` (nightly 4500914846101, 17/17 steps ok) | Applied: the dark default turns into the light Codex theme, with a Priority/Chief/Threads sidebar (empty Threads on a fresh home) and the Unii New Tab composer. |
+| looks/studio.json | [clip](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/looks-studio-319385c.mp4) | ![looks-studio](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/looks-studio-319385c.png) | `examples/customize-demo/demo.sh --nightly --only looks/studio.json` | `5a6df49cba6226fd80caf5e8` (nightly 4500914846101, 17/17 steps ok) | Applied: the light default turns into the dark Studio theme with a plum accent, a Chief/Threads sidebar (empty Threads on a fresh home) and the New Tab composer. |
 
 ## Not recorded yet
 
-Generate the states, then run the row's command once and keep its receipt (`CMUX_AGENT_ID` names the
-lease owner):
+On 2026-11-22 these waited on the fleet's display workers: from 15:20Z each step queued behind 65 to 108
+older jobs asking for the same labels (`gui-session-v1`), with 10 workers busy, and no capture Mac was free
+for `--on fleet`. Earlier the controller refused every nightly capture (depot disk reserve, 10:15Z to
+14:19Z), and on a lane VM the brokered `git fetch` refused pr-capture's one-commit fetch (exit 69; fixed in
+the lane tooling). Generate the states, then run the row's command once and keep its receipt
+(`CMUX_AGENT_ID` names the lease owner):
 
 ```sh
 python3 examples/customize-demo/record-steps.py --ref 319385c65a2bc76306f283591d6b43355bb2edcf \
