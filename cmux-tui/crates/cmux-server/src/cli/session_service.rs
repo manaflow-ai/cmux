@@ -72,6 +72,8 @@ pub(super) fn install(
         announce,
         ..lifecycle::services(ctx, layout)?
     };
+    // One service command at a time, for the whole install (Services::lock).
+    let _service_lock = svc.lock()?;
     // Every refusal comes before the first change.
     svc.preflight()?;
     let binary_changed = place_binary(&source, &target, announce)?;
