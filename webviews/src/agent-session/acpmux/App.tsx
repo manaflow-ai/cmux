@@ -198,8 +198,8 @@ import {
   CloudTypingPrewarm,
   cloudIdentityKept,
   cloudTypingMachineID,
-  sameNewChat,
   type CloudIdentityView,
+  sameNewChat,
 } from "./cloudTypingPrewarm";
 import { CloudComposeReservation, reservedCloudCall } from "./cloudComposeReservation";
 import { harnessProfiles } from "./harnessProfiles";
@@ -215,6 +215,7 @@ import { type AutomationCompose, pageAction } from "./automation";
 import { acpWire } from "./wire";
 import { chatPerfCapture } from "./chatPerfCapture";
 import { acpmuxPerf } from "./perf";
+import { perfReporter, type PerfSend } from "./perfReporter";
 import { reconciledProject, startFromContext } from "./newtab/startHint";
 import { useSameValue } from "./session-info/sameValue";
 import { drawsAsIs, setStreamingRowBlocked, streamingRow, streamingRowBlocked, textOnlyRow } from "./streamingRow";
@@ -240,7 +241,7 @@ import { PICKER_LABELS } from "./composerPickerModel";
 import { openComposerControl } from "./composerControls";
 import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
 import { openPicker } from "./pickerOpeners";
-import { startRefusalRoute, SIGN_IN_REQUIRED } from "./startRefusal";
+import { SIGN_IN_REQUIRED, startRefusalRoute } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
 import { isNewChat, projectName } from "./emptyStateModel";
 import { TourStartContext } from "./repoTour/TourBlock";
@@ -286,12 +287,12 @@ import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import {
   cloudMachineAsleep,
+  currentCloudPlan,
+  readCloudPlanFresh,
   readUntilMoved,
   refreshCloudMachines,
   useCloudMachines,
   type CloudMachine,
-  currentCloudPlan,
-  readCloudPlanFresh,
 } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
@@ -311,7 +312,7 @@ import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
-import { type SummaryBackgroundTask, transcriptBackground } from "./summary/sessionSummary";
+import { transcriptBackground } from "./summary/sessionSummary";
 import { openSourceFile } from "./session-info/sourcesSectionModel";
 import { useSessionInfo } from "./session-info/useSessionInfo";
 import { setRemoteControl, toggleRemoteControl, useRemoteControl } from "./remoteControl";
@@ -319,8 +320,7 @@ import {
   type BackgroundCommand,
   backgroundCommands,
   backgroundSection,
-  type SessionInfoProcess,
-  sessionInfoLists,
+  backgroundRowCount,
   type ProcessSource,
   useProcessRegistry,
 } from "./session-info/processes";
@@ -334,6 +334,7 @@ import {
 import { chatProcessesHere, openCommand, opensProcessTerminal } from "./processTerminal";
 import {
   descendants,
+  callIds,
   subagentChangesFolder,
   subagentProcesses,
   subagentSummary,
@@ -365,7 +366,7 @@ import {
   withSubagentLines,
   endedInFailure,
 } from "./subagents/runningTray";
-import { lingeringTrayItems, trayItemEnd, useTrayLinger } from "./subagents/trayLinger";
+import { lingeringTrayItems, TRAY_LINGER_MS, trayItemEnd, useTrayLinger } from "./subagents/trayLinger";
 import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
 import { SelectionReplyChip } from "./conversation/SelectionReply";
 import { quoteInReply, setQuoteReplySink } from "./conversation/selectionReplyModel";
@@ -507,6 +508,10 @@ import {
   dismissedAsks,
   setAnswerState,
   shownAsks,
+  answeredAsks,
+  givenAnswer,
+  subscribeAnswers,
+  withAnswered,
 } from "./conversation/waitingAskStore";
 import { turnPreviewUrl, turnServedUrl } from "./conversation/previewUrl";
 import { projectInboxRows } from "./conversation/laneNoticeBatches";
@@ -589,7 +594,6 @@ import { HarnessStatusCard } from "./HarnessStatusCard";
 import type { LocalCommand } from "./localCommands";
 import {
   cloudPageRefusal,
-  pageOnOtherMachine,
   cloudRunsHere,
   composerAgentLocal,
   cloudFolderGrants,
@@ -602,16 +606,17 @@ import {
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   cloudSendAfterCheck,
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
+  pageOnOtherMachine,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
-import { defaultFolderFor, folderRunLocation, newChatRunLocation } from "./runLocationDefault";
+import { folderRunLocation, newChatRunLocation, defaultFolderFor } from "./runLocationDefault";
 import {
   lastNewChatPlace,
   pickedRunLocation,
@@ -623,12 +628,12 @@ import { harnessLabel } from "./subagents/agentRuns";
 import {
   cloudStartBegun,
   cloudStartEnded,
+  cloudStartPlanHeld,
   cloudStartPushed,
   cloudStartStalled,
   watchCloudStartStall,
   cloudStartSignedIn,
   type CloudStartProgress,
-  cloudStartPlanHeld,
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
@@ -828,6 +833,9 @@ import { readSteerLog, recordSteer, type SteerAct } from "./steerQueue/log";
 import { steerQueue } from "./steerQueue/model";
 import { SteerQueue, type SteerActions } from "./steerQueue/SteerQueue";
 import { steerQueueExperiment } from "./steerQueue/steerQueue.experiment";
+import { StatusIsland } from "./statusIsland/StatusIsland";
+import { statusIslandExperiment } from "./statusIsland/statusIsland.experiment";
+import { useStatusIsland } from "./statusIsland/useStatusIsland";
 import { BtwNotes } from "./aside/btwNotes";
 import { askBtwQuestion, supportsBtwGuest } from "./btwCapability";
 import { guestMention } from "./mentionItems";
@@ -1373,11 +1381,11 @@ function answerNextStep(question: HatQuestion, label: string, asker: string | un
   const key = question.answerKey;
   const text = answerPrompt(question.prompt, label, asker);
   if (!key) return answerThrough(callNative)(text);
-  if (answerState(key).sending !== undefined) return Promise.resolve();
+  if (givenAnswer(answerState(key)) !== undefined) return Promise.resolve();
   claimAnswer(key, label);
   setAnswerState(key, { sending: label });
   return answerThrough(callNative)(text).then(
-    () => setAnswerState(key, {}),
+    () => setAnswerState(key, { sent: label }),
     (error: unknown) => {
       setAnswerState(key, { failed: true });
       throw error;
@@ -1922,6 +1930,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const catalogClientId = useRef(0);
 
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
+  /// `_acpmux/perf` through the client connected now (the Inspector's Perf tab, perfReporter.ts).
+  const sendPerf = useCallback<PerfSend>(
+    (params) =>
+      directClient.current ? directClient.current.perf(params) : Promise.reject(new Error(translate("error.notOpen"))),
+    [],
+  );
   /// The pane's toasts (paneToasts.ts): feedback on a click goes there, never into the transcript.
   const [paneToasts] = useState(createPaneToasts);
   /// Where the toasts' top anchors are drawn (ToastLayer.tsx).
@@ -2825,7 +2839,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [],
   );
   // A chat on this Mac links a dropped or pasted folder, or a file no block takes, where it is.
-  const localPaths = useCallback((kind: DroppedKind, files: File[]) => droppedPaths(kind, files, callNative), []);
+  const localPaths = useCallback(
+    (kind: DroppedKind, files: File[], gestureAt?: number) => droppedPaths(kind, files, callNative, gestureAt),
+    [],
+  );
   const searchFiles = useCallback<FileSearchSource>(
     (query) =>
       callNative("file.search", {
@@ -3357,7 +3374,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }));
   if (askDismissals.sessionId !== shownSessionId)
     setAskDismissals({ sessionId: shownSessionId, keys: dismissedAsks(shownSessionId) });
-  const pinnedAsks = useMemo(() => shownAsks(waitingAskRows, askDismissals.keys), [waitingAskRows, askDismissals]);
+  // A card answered from this page leaves in the click's frame, before its prompt settles it
+  // (waitingAskStore.ts `givenAnswer`): its answer may wait in the queue behind a running turn.
+  const answered = useSyncExternalStore(subscribeAnswers, answeredAsks, answeredAsks);
+  const askedAway = useMemo(() => withAnswered(askDismissals.keys, answered), [askDismissals, answered]);
+  const pinnedAsks = useMemo(() => shownAsks(waitingAskRows, askedAway), [waitingAskRows, askedAway]);
   const dismissPinnedAsk = useCallback(
     (key: string) => setAskDismissals({ sessionId: shownSessionId, keys: dismissAsk(shownSessionId, key) }),
     [shownSessionId],
@@ -3854,8 +3875,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
 
   const processSource = useMemo<ProcessSource>(
     () => ({
-      listProcesses: (sessionId, recent) =>
-        directClient.current?.listProcesses(sessionId, recent) ?? Promise.reject(new Error()),
+      listProcesses: (sessionId, recent, endedWithin) =>
+        directClient.current?.listProcesses(sessionId, recent, endedWithin) ?? Promise.reject(new Error()),
+      listProcessCalls: (sessionId, calls) =>
+        directClient.current?.listProcessCalls(sessionId, calls) ?? Promise.reject(new Error()),
       watchProcesses: (listener) => directClient.current?.watchProcesses(listener) ?? (() => undefined),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new client is a new source
@@ -3930,6 +3953,32 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const shownEntry = shownSessionId ? findSession(snapshot.sessions ?? [], shownSessionId) : undefined;
   const sessionInfoSplit = ownSubagentPane || !!(shownEntry?.startedBy || shownEntry?.spawnedBy);
   const sessionInfoOpened = useSessionInfoOpen(sessionInfoPaneKey(shownSessionId, sessionInfoSplit));
+  // A subagent view's own records when the pane read them (`needsOwnLog`) and they hold more than
+  // the chat's page.
+  const scopedRows = useMemo(() => {
+    if (shownSubagent === undefined) return undefined;
+    const fromChat = snapshot.subagentViews?.[shownSubagent];
+    const fromOwn = shownSubagent === subagentView ? ownLogged?.views[shownSubagent] : undefined;
+    return (fromOwn?.length ?? 0) > (fromChat?.length ?? 0) ? fromOwn : fromChat;
+  }, [shownSubagent, snapshot.subagentViews, subagentView, ownLogged]);
+  // The whole history is read only while a list of it shows: Session Info, the Background tasks
+  // panel, or the summary card, which lists every task while Session Info is off (SummaryTasks.tsx).
+  const wholeProcessList =
+    (sessionInfoOn && sessionInfoOpened) || backgroundOpen || (!sessionInfoOn && summaryCard.shown);
+  // Otherwise the registry holds the running processes, the ones that ended last or within the
+  // tray's linger (with a minute for the clocks, subagents/trayLinger.ts), and those of every call
+  // the transcript's tasks and a subagent view's rows name, so the tray, the running line and the
+  // counts (`backgroundRows`, with `omitted`) are the whole history's (session-info/processes.ts
+  // `RegistryWindow`).
+  const registryCalls = useMemo(() => {
+    const calls = new Set(transcriptTasks.map((task) => task.id));
+    if (scopedRows) for (const call of callIds(scopedRows)) calls.add(call);
+    return [...calls];
+  }, [transcriptTasks, scopedRows]);
+  const registryWindow = useMemo(
+    () => (wholeProcessList ? undefined : { calls: registryCalls, endedWithin: TRAY_LINGER_MS + 60_000 }),
+    [wholeProcessList, registryCalls],
+  );
   const processRegistry = useProcessRegistry(
     processSource,
     shownSessionId,
@@ -3938,8 +3987,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       backgroundOpen ||
       snapshot.isWorking ||
       transcriptRunning.length > 0,
-    // The whole history only while a list of it shows; the tray and the card read the recent ones.
-    (sessionInfoOn && sessionInfoOpened) || backgroundOpen,
+    registryWindow,
   );
   const runningCommandList = useMemo(
     () =>
@@ -4162,8 +4210,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // sub-session's ask): one ask renders once (question/hatSeen.ts `hatQuestionsShown`).
   const onStackCards = useMemo(() => stackCardKeys(pinnedAsks, childAsk), [pinnedAsks, childAsk]);
   const hatQuestionsUnseen = useMemo(
-    () => hatQuestionsShown(hatQuestionsRead, askDismissals.keys, onStackCards),
-    [hatQuestionsRead, askDismissals, onStackCards],
+    () => hatQuestionsShown(hatQuestionsRead, askedAway, onStackCards),
+    [hatQuestionsRead, askedAway, onStackCards],
   );
   const hatQuestionList = sameHatQuestions(hatQuestionsKept.current, hatQuestionsUnseen)
     ? hatQuestionsKept.current
@@ -5975,13 +6023,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         scopedAgent.agents ? `${scopedAgent.agents.done}/${scopedAgent.agents.started}` : "",
       ].join("\u0000")
     : "";
-  // Its own records when the pane read them (`needsOwnLog`) and they hold more than the chat's page.
-  const scopedRows = useMemo(() => {
-    if (shownSubagent === undefined) return undefined;
-    const fromChat = snapshot.subagentViews?.[shownSubagent];
-    const fromOwn = shownSubagent === subagentView ? ownLogged?.views[shownSubagent] : undefined;
-    return (fromOwn?.length ?? 0) > (fromChat?.length ?? 0) ? fromOwn : fromChat;
-  }, [shownSubagent, snapshot.subagentViews, subagentView, ownLogged]);
   // Session Info lists the subagent's rows as they stood when the reader started scrolling, until
   // the scroll settles, as the chat's card does with `cardRows` (summary/heldWhileScrolling.ts,
   // cmux#29639). Another subagent, or another chat, takes its rows at once.
@@ -6002,9 +6043,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // How many rows Session Info's Background tasks lists for the view on screen, read as it reads
   // them (sessionInfoLists drops a transcript shell the registry no longer lists): a subagent's view
   // from its own rows (none yet: empty) and processes, with how its shells ended in the chat's rows
-  // (session-info/subagentScope.ts); the chat's view from its own, with its workflows.
+  // (session-info/subagentScope.ts); the chat's view from its own, with its workflows. The whole
+  // history's count while the registry holds only a window: the chat's adds what it left out
+  // (`omitted`: each ended, no transcript task's); a subagent view's calls are all read
+  // (`registryCalls`), so none of its processes is left out.
   const registryProcesses = processRegistry.processes;
   const registryListed = processRegistry.listed;
+  const registryOmitted = processRegistry.omitted ?? 0;
   const scopedOwn = useMemo(
     () => (scopedKey ? transcriptBackground(scopedRows ?? []) : undefined),
     [scopedKey, scopedRows],
@@ -6012,14 +6057,26 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const chatRows = snapshot.rows;
   const scopedTasks = useMemo(() => scopedOwn && withChatEnds(scopedOwn.tasks, chatRows), [scopedOwn, chatRows]);
   const backgroundRows = useMemo(() => {
-    const count = (processes: readonly SessionInfoProcess[], tasks: readonly SummaryBackgroundTask[]) => {
-      const { servers, tasks: commands } = sessionInfoLists(processes, tasks, registryListed);
-      return servers.length + commands.length;
-    };
     if (scopedOwn && scopedTasks)
-      return count(subagentProcesses(registryProcesses, scopedRows ?? []), scopedTasks) + scopedOwn.scheduled;
-    return count(registryProcesses, transcriptWork.tasks) + transcriptWork.scheduled + workflows.length;
-  }, [scopedOwn, scopedTasks, scopedRows, registryProcesses, registryListed, transcriptWork, workflows.length]);
+      return (
+        backgroundRowCount(subagentProcesses(registryProcesses, scopedRows ?? []), scopedTasks, registryListed) +
+        scopedOwn.scheduled
+      );
+    return (
+      backgroundRowCount(registryProcesses, transcriptWork.tasks, registryListed, registryOmitted) +
+      transcriptWork.scheduled +
+      workflows.length
+    );
+  }, [
+    scopedOwn,
+    scopedTasks,
+    scopedRows,
+    registryProcesses,
+    registryListed,
+    registryOmitted,
+    transcriptWork,
+    workflows.length,
+  ]);
   // The Inspector (Debug Settings `agent.sessionInfo`): its toggle the first of the header's
   // top-right icons, the panel beside or over the chat. On, it takes the summary card's place.
   const sessionInfoSummary = sessionInfoSnapshot.summary;
@@ -7616,6 +7673,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     requestAnimationFrame(() =>
       setTimeout(() => {
         if (settledNow) document.documentElement.dataset.acpmuxSettledDrawn = "true";
+        // The perf watch's page-load span ends here (perfReporter.ts): once per page.
+        if (first) acpmuxPerf.markLaunch("painted");
         void callNative("pane.painted", { drewKeptTail, ...(settledNow ? { settled: true } : {}) }).catch(
           () => undefined,
         );
@@ -8902,6 +8961,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         acpmuxPerf.markLaunch("connected");
         connectingClient = client;
         directClient.current = client;
+        // The perf watch (perfReporter.ts): one status read on the page's first connect; off, nothing runs.
+        perfReporter.attach((params) => client.perf(params));
         client.setFollowing(followingTranscript.current);
         client.toastSink = (text, kind) => (kind === "error" ? notices.failed(text) : notices.transient(text));
         connectedClients.connected(client);
@@ -11107,6 +11168,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Steer queue (steerQueue/): ⌘⇧J or the chat menu opens it over the chat. Each step opens the chat
   // it acts on first, so the step goes through the same send, Stop and fork the chat's own composer
   // and menu use, and the person sees it land in the chat under the queue.
+  // The agent status island (statusIsland/, experiment `agent-status-island`, off by default): a
+  // floating pill that morphs into the card of the agent that needs the person. Its answers go
+  // through Needs you's own actions; it replaces nothing.
+  const statusIsland = useStatusIsland(!quick && experimentArm(statusIslandExperiment) === "on", snapshot);
   const steerQueueOn = !quick && experimentArm(steerQueueExperiment) === "on";
   useEffect(() => {
     if (!steerQueueOn) return;
@@ -13960,6 +14025,30 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             }
           />
         ) : null}
+        {statusIsland ? (
+          <StatusIsland
+            state={statusIsland}
+            actions={{
+              answer: needsYou.actions.answer,
+              goTo: needsYou.actions.goTo,
+              // The chat on screen: its failure is right here, at the foot of the transcript. Another
+              // chat opens beside this one (`chat.asks.open`), which the host does only for a chat on
+              // this Mac's acpmux and never from New Tab: there the card offers no Open Chat.
+              openSession: (sessionId) => {
+                if (sessionId === snapshot.sessionId) {
+                  const failures = document.querySelectorAll(".cv-turn-error__cause");
+                  failures[failures.length - 1]?.scrollIntoView({ block: "nearest" });
+                  return;
+                }
+                void callNative("chat.asks.open", { sessionId }).catch(() => undefined);
+              },
+              canOpen: (sessionId) =>
+                !showNewTab &&
+                (sessionId === snapshot.sessionId ||
+                  !snapshot.sessions.some((session) => session.sessionId === sessionId && session.peer)),
+            }}
+          />
+        ) : null}
         <div
           className="acpmux-main"
           data-new-chat={freshView && !showNewTab ? "" : undefined}
@@ -14352,7 +14441,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             />
           ) : null}
           {(showsChatView || premountsChatView) && (
-            <Activity key={chatViewMount.current.key} mode={showsChatView || parkVisible ? "visible" : "hidden"}>
+            // Its own key space: the classic page beside it is keyed by `newTabGeneration` (0 and up),
+            // and a shared key let React lose the page's fiber and mount the page again beside it.
+            <Activity
+              key={`chat-view-${chatViewMount.current.key}`}
+              mode={showsChatView || parkVisible ? "visible" : "hidden"}
+            >
               <div
                 className={`acpmux-stage${inspectorOpen ? " acpmux-inspecting" : ""}`}
                 data-solo-tab={soloUnder ? "" : undefined}
@@ -14700,6 +14794,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     sessionEvents={() => directClient.current?.sessionEvents() ?? []}
                     onClose={closeInspector}
                     onExport={saveLogNatively}
+                    perf={sendPerf}
                   />
                 )}
               </div>
