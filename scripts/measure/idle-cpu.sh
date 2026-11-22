@@ -5,12 +5,12 @@
 #   cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 \
 #     --script scripts/measure/idle-cpu.sh --ref SHA --arg=artifact=sha256:HEX \
 #     [--arg=minutes=10] [--arg=window=60] [--arg=windows=3] [--arg=chats=0] [--arg=history=0] [--arg=prompt_kb=0] [--arg=writers=0] [--arg=sample=1|0|each] \
-#     [--arg=budget_cpu=1.0] [--arg=budget_wakeups=1.0] --artifact .build/idle-cpu/report.tgz --timeout 3600
+#     [--arg=budget_cpu=1.0] [--arg=budget_wakeups=1.0] [--arg=cef_switches=A:B] --artifact .build/idle-cpu/report.tgz --timeout 3600
 # On a fleet host, scripts/cmux-next/idle-cpu-run.py makes this step for a build job or tag through the
 # mini scheduler. Output: IDLE-CPU lines and IDLE-CPU-VERDICT. Exit 0 within budget, 1 over, 3 not run.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
-artifact="" history=0 prompt_kb=0 writers=0 minutes=10 window=60 windows=3 chats=0 sample=1 budget_cpu=1.0 budget_wakeups=1.0
+artifact="" history=0 prompt_kb=0 writers=0 minutes=10 window=60 windows=3 chats=0 sample=1 budget_cpu=1.0 budget_wakeups=1.0 cef_switches=""
 for arg in "$@"; do
   case "$arg" in
     artifact=*) artifact="${arg#artifact=}" ;;
@@ -24,6 +24,7 @@ for arg in "$@"; do
     sample=*) sample="${arg#sample=}" ;;
     budget_cpu=*) budget_cpu="${arg#budget_cpu=}" ;;
     budget_wakeups=*) budget_wakeups="${arg#budget_wakeups=}" ;;
+    cef_switches=*) cef_switches="${arg#cef_switches=}" ;;
     *) echo "idle-cpu.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -40,6 +41,7 @@ echo "IDLE-CPU-MACHINE host=$(hostname -s) macos=$(sw_vers -productVersion) sha=
 flags=()
 [[ "$sample" == 0 ]] && flags+=(--no-sample)
 [[ "$sample" == each ]] && flags+=(--sample-each-window)
+[[ -n "$cef_switches" ]] && flags+=(--cef-switches "$cef_switches")
 python3 -I scripts/cmux-next/idle_cpu.py --artifact "$artifact" --minutes "$minutes" --window "$window" \
   --windows "$windows" --chats "$chats" --history "$history" --history-prompt-kb "$prompt_kb" --writers "$writers" --budget-cpu "$budget_cpu" --budget-wakeups "$budget_wakeups" \
   ${flags[@]+"${flags[@]}"} --out "$out"

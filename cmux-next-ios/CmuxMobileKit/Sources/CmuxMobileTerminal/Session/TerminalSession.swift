@@ -98,6 +98,19 @@ public enum TerminalConnectionState: Sendable, Equatable {
         }
     }
 
+    /// The title pill's subtitle once an outage lasted
+    /// `QuietStatusGate.threshold` (nil: attached). A few words in place of
+    /// the working directory: the page itself gets no status row.
+    public var pillSubtitle: String? {
+        switch self {
+        case .connecting: return "Connecting…"
+        case .reattaching: return "Reattaching…"
+        case .offline: return "Mac offline"
+        case .failed: return "Can't connect"
+        case .attached: return nil
+        }
+    }
+
     /// A dropped tab (reattaching, or its Mac offline): a warm surface keeps
     /// its last frame live and readable under no overlay; the title pill says
     /// what is going on.
@@ -216,6 +229,20 @@ public protocol TerminalSession: AnyObject {
     /// it asked (a mirror reset and a longer replay follow).
     @discardableResult
     func loadOlderHistory() -> Bool
+    /// The mirror holds a window far above the Mac's screen (a reader went up
+    /// a long history, `attach-replay-history-window-v1`): its history rows,
+    /// then the Mac's screen, without the rows between. Nil: the mirror's rows
+    /// reach the screen. The screen asks for newer rows (``loadNewerHistory(toTheScreen:)``)
+    /// when its reader comes down to the window's last row.
+    var historyWindowRows: Int? { get }
+    /// The reader came down to the last row of the window the mirror holds
+    /// (``historyWindowRows``): the window moves down toward the screen; or,
+    /// `toTheScreen`, the reader came up from the screen to the window: the
+    /// mirror holds the newest rows again.
+    /// Called as often as the page scrolls there; the session decides.
+    /// Returns whether it asked (a mirror reset and a replay follow).
+    @discardableResult
+    func loadNewerHistory(toTheScreen: Bool) -> Bool
     /// Before the first attach: the screen will put a reader back on a row
     /// `rows` rows above the end (a tab back from the warm set,
     /// ``TerminalScrollPlace``), so a session that attaches with the latest
@@ -252,6 +279,11 @@ extension TerminalSession {
 
     @discardableResult
     public func loadOlderHistory() -> Bool { false }
+
+    public var historyWindowRows: Int? { nil }
+
+    @discardableResult
+    public func loadNewerHistory(toTheScreen: Bool) -> Bool { false }
 
     public func requestHistoryRows(_ rows: Int) {}
 
