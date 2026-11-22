@@ -21,6 +21,7 @@ extension SettingsPageLayout {
     private static let generalCategory = CategorySpec(
         id: "general", title: section(.general), symbol: "gearshape",
         groups: [
+            GroupSpec(group: "settings.group.language"),
             GroupSpec(group: "settings.group.window"),
             GroupSpec(group: "settings.group.quit"),
             GroupSpec(group: "settings.group.history"),
@@ -217,6 +218,7 @@ extension SettingsPageLayout {
         id: "notifications", title: section(.notifications), symbol: "bell",
         groups: [
             GroupSpec(group: "settings.group.banners"),
+            GroupSpec(group: "settings.group.notificationDelivery"),
             // Per-event sounds, volume, timing and the burst cooldown (notifications.json's sounds list); its per-level maps stay off the page.
             GroupSpec(group: "settings.group.sounds"),
             GroupSpec(group: "settings.group.dismissal"),

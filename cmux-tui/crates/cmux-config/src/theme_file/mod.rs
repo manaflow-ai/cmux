@@ -19,6 +19,7 @@
 
 mod colors;
 pub mod render;
+pub mod two_tone;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -181,12 +182,13 @@ pub fn readable_path(config_dir: &Path, name: &str, bundled: Option<&Path>) -> O
 /// The theme files cmux ships (`Resources/theme-files`, the app's
 /// `Contents/Resources/theme-files`), so the daemon and the CLI read them
 /// with no app bundle. A user's file of the same name wins.
-const SHIPPED: [(&str, &str); 5] = [
+const SHIPPED: [(&str, &str); 6] = [
     ("charcoal", include_str!("../../../../../Resources/theme-files/charcoal.json")),
     ("classic-desktop", include_str!("../../../../../Resources/theme-files/classic-desktop.json")),
     ("claude-desktop", include_str!("../../../../../Resources/theme-files/claude-desktop.json")),
     ("harbor", include_str!("../../../../../Resources/theme-files/harbor.json")),
     ("phosphor", include_str!("../../../../../Resources/theme-files/phosphor.json")),
+    ("teal", include_str!("../../../../../Resources/theme-files/teal.json")),
 ];
 
 /// The text of the shipped theme file `name`.
