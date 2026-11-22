@@ -85,7 +85,7 @@ export function McpConnectCard({ flow, style = "factsTable", strings, actions }:
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Return and Escape answer the card from any of its controls, as the Swift card's default and cancel keys do.
     <section
-      className="hm-mcp"
+      className="hm-mcp ui-glass ui-glass-content"
       data-style={style}
       data-risky={risky ? "" : undefined}
       data-phase={flow.phase.kind}
