@@ -158,6 +158,7 @@ pub mod local_stream;
 pub mod log_keep;
 pub mod log_sink;
 pub mod login_env;
+pub mod login_flow;
 pub mod lossy_lines;
 #[cfg(test)]
 mod lost_home_race_tests;

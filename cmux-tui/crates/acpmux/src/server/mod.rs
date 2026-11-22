@@ -2536,6 +2536,7 @@ mod ephemeral;
 mod fanout;
 mod fix_from_link;
 mod forum;
+mod login_flow;
 mod media_forward;
 mod mesh_control_send;
 pub mod mesh_relay;

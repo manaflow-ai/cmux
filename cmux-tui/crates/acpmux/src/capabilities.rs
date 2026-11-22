@@ -332,6 +332,7 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
+    Capability { id: "login-flow-v1", wire: &[method::MUX_LOGIN_FLOW] },
     // Owner-captured Cloud turns: prepare reserves a stable id before the native bridge mints
     // its one-use execution capability. The app exposes the rewind action only for configured
     // new Cloud workspace sessions; local and legacy sessions never send this envelope.
