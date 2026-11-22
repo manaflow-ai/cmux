@@ -372,7 +372,7 @@ class TickWiringTests(unittest.TestCase):
         self.assertTrue(mint["continue-on-error"])
         install = names.index("Send this job's gh calls as the cmux-bot App, github.token as the fallback")
         self.assertEqual(steps[install]["run"].strip(), "bash .tick-tooling/scripts/ci/gh_app_token.sh --install")
-        self.assertEqual(steps[install]["env"], {"GH_APP_TOKEN": "${{ steps.app-token.outputs.token }}",
+        self.assertEqual(steps[install]["env"], {"GH_APP_TOKEN": "${{ steps.cmux-bot-token.outputs.token }}",
                                                  "GH_FALLBACK_TOKEN": "${{ github.token }}"})
         budget = names.index("Wait through GitHub API rate limits in this job's gh calls")
         self.assertLess(names.index(mint["name"]), install)

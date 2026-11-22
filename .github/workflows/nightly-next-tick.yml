@@ -126,6 +126,7 @@ jobs:
             scripts/ci/simple_pool_picker.py
             scripts/ci/ui_tests_dispatch.py
             scripts/ci/gh_app_token.sh
+            scripts/ci/app_spend_mark.py
           sparse-checkout-cone-mode: false
 
       # This job's gh calls, the promotion dispatch included, go out as the cmux-bot App, with
@@ -137,7 +138,7 @@ jobs:
       # request from any actor (promote-nightly-next.mjs onCadence). A refused App call goes out
       # again as github.token (scripts/ci/gh_app_token.sh), so a failed mint changes nothing.
       - name: Mint the cmux-bot token for this job's gh calls
-        id: app-token
+        id: cmux-bot-token
         if: vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
@@ -148,11 +149,23 @@ jobs:
           permission-actions: write
           permission-contents: read
 
+      # The cmux-bot pool's reading before the tick, as the unstick job takes it: below the floor
+      # (the calls kept for next-autoland and NOW), this job sends nothing as the App and its gh
+      # calls stay github.token's, as before 2026-11-22 (scripts/ci/app_spend_mark.py).
+      - name: Read the cmux-bot budget before the tick
+        id: app-spend
+        if: steps.cmux-bot-token.outputs.token != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 .tick-tooling/scripts/ci/app_spend_mark.py start nightly-next-tick/request --floor pass
+
       # Before the rate-limit wait below, which then wraps it (its waits count once per job).
       - name: Send this job's gh calls as the cmux-bot App, github.token as the fallback
-        if: steps.app-token.outputs.token != ''
+        if: steps.cmux-bot-token.outputs.token != '' && steps.app-spend.outputs.low != 'true'
         env:
-          GH_APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_APP_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
           GH_FALLBACK_TOKEN: ${{ github.token }}
         run: bash .tick-tooling/scripts/ci/gh_app_token.sh --install
 
@@ -318,6 +331,14 @@ jobs:
               | awk '{n=$1; $1=""; printf "%s%dx%s", (NR>1 ? "; " : ""), n, $0}')"
             echo "::warning title=nightly-next tick::no newer feat-cmux-next commit is promotable ($(wc -l < "$refusals" | tr -d ' ') refused): $tally"
           fi
+
+      - name: Read the cmux-bot budget after the tick
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 .tick-tooling/scripts/ci/app_spend_mark.py end nightly-next-tick/request
 
   # The stuck-run rescue and the cancelled-tip re-run, in their own job so their 3-minute
   # failover fires about 3 minutes after a nightly job stalls. In the request job they ran only
