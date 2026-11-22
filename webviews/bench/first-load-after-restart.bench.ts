@@ -234,12 +234,41 @@ const REPORTED = {
     },
   ],
 };
-const { events, session } = papercutEvents({
+const { events, session: listedBase } = papercutEvents({
   turns: TURNS,
   running: RUNNING,
   session: REPORTED,
   ...(CONTENT === "rich" ? { answer: richAnswer } : {}),
 });
+/// The chat is a Claude Code chat in Bypass permissions, as Leo's was ("the bypass permissions appears then
+/// disappears after it loaded in", 2026-11-22): its listed row (`_acpmux/watch`, `session_changed`) names only
+/// `currentModeId`, as acpmux's list rows do; the attach's detail carries the harness's `modes` (Claude Code's
+/// menu, harnessModes.ts), and the kept tail the summary the page held (direct.ts `currentTail`), modes
+/// included. NO_MODES=1 serves the summary with no mode at all, as this bench did before.
+const NO_MODES = process.env.NO_MODES === "1";
+const CLAUDE_MODES = {
+  availableModes: [
+    { id: "auto", name: "Auto", description: "Claude handles permission decisions" },
+    { id: "default", name: "Manual", description: "Always ask before making changes" },
+    { id: "acceptEdits", name: "Accept edits", description: "Automatically accept all file edits" },
+    { id: "plan", name: "Plan", description: "Create a plan before making changes" },
+    { id: "bypassPermissions", name: "Bypass permissions", description: "Accepts all permissions" },
+  ],
+  currentModeId: "bypassPermissions",
+};
+const listedRow: Record<string, unknown> = NO_MODES ? listedBase : { ...listedBase, currentModeId: "bypassPermissions" };
+const session: Record<string, unknown> = NO_MODES ? listedBase : { ...listedRow, modes: CLAUDE_MODES };
+/// EARLY_CHANGE=1: on a relaunch, acpmux sends a `_acpmux/session_changed` for the shown chat (its whole listed
+/// row, no `modes`) right after the list (`_acpmux/watch`) answers, and holds the attach's answer until it has.
+const EARLY_CHANGE = process.env.EARLY_CHANGE === "1";
+/// ATTACH_DELAY_MS=N: on a relaunch, the attach answers N ms after it was asked (a slow daemon).
+const ATTACH_DELAY_MS = Number(process.env.ATTACH_DELAY_MS ?? 0);
+if (!Number.isFinite(ATTACH_DELAY_MS) || ATTACH_DELAY_MS < 0) throw new Error("ATTACH_DELAY_MS must be >= 0");
+/// PRESS=key|click|wheel: on a relaunch, one input 100 ms after first content while the copy shows (Shift, a
+/// click in the transcript, a wheel up there): a press ends the copy (chatSnapshot/live.ts `reportChatSnapshot`).
+const PRESS = process.env.PRESS ?? "";
+if (PRESS && !["key", "click", "wheel"].includes(PRESS)) throw new Error("PRESS must be key, click or wheel");
+const PRESS_AFTER_MS = 100;
 /// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
 /// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
 const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown) =>
@@ -266,7 +295,7 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
         _meta: { acpmux: { origin: "local", extensions: [], operations: [] } },
       };
     case "_acpmux/watch":
-      return { sessions: [session] };
+      return { sessions: [listedRow] };
     case "_acpmux/attach": {
       // As the daemon does: the newest `limit` events within `maxBytes`, and hasMore while older ones remain.
       const { page, hasMore } = newest(Number(params.limit ?? 400), Infinity, params.maxBytes);
@@ -298,7 +327,11 @@ type Painted = FrameRecord & {
   bottomText: string;
   /// The live root was held clear (opacity 0) with no copy over it: nothing of the chat showed.
   rootHidden: boolean;
+  /// The composer's chips the layer on top drew (`readChips` in recordFrames).
+  chips: Chip[];
 };
+/// One composer chip as painted: its slot (access, model, effort, harness, location:KIND) and its visible words.
+type Chip = { slot: string; label: string };
 type LayoutShiftSeen = { at: number; value: number; moved: { node: string; from: number[]; to: number[] }[] };
 type Recording = {
   frames: Painted[];
@@ -454,8 +487,57 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
     scrollTop: number | null;
     bottomText: string;
     rootHidden: boolean;
+    chips: Chip[];
   };
   let stopped = false;
+  /// Painted: a box, and no ancestor up to the layer's root hidden or clear.
+  const painted = (element: Element): boolean => {
+    const box = element.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) return false;
+    for (let at: Element | null = element; at; at = at.parentElement) {
+      const style = getComputedStyle(at);
+      if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return false;
+    }
+    return true;
+  };
+  const words = (element: Element) =>
+    (element.getAttribute("data-label") ?? element.textContent ?? "").trim().replace(/\s+/g, " ");
+  /// The composer's chips as this layer draws them (ComposerPickers.tsx, ModelPicker.tsx, ComposerContext.tsx):
+  /// the access chip (`.acpmux-mode`: AccessMenu or the inert PendingMode), the model and effort forms the row's
+  /// fit shows (`data-fit-part`, a short form drawn from its `data-label`), the harness's mark, the location chips.
+  const readChips = (scope: ParentNode): Chip[] => {
+    const chips: Chip[] = [];
+    const row = Array.from(scope.querySelectorAll(".acpmux-chips")).find(painted);
+    if (row) {
+      for (const mode of Array.from(row.querySelectorAll(".acpmux-mode")).filter(painted)) {
+        const text = Array.from(mode.querySelectorAll(".acpmux-mode-text")).filter(painted).map(words).join(" ");
+        if (text) chips.push({ slot: "access", label: text });
+      }
+      for (const part of ["model", "effort"]) {
+        const text = Array.from(row.querySelectorAll(`[data-fit-part="${part}"]`))
+          .filter(painted)
+          .map(words)
+          .filter(Boolean)
+          .join(" ");
+        if (text) chips.push({ slot: part, label: text });
+      }
+      const mark = Array.from(row.querySelectorAll(".agent-mark")).find(painted);
+      if (mark)
+        chips.push({
+          slot: "harness",
+          label:
+            mark.getAttribute("data-symbol") ??
+            mark.getAttribute("aria-label") ??
+            (mark.getAttribute("src") ?? "").split("/").pop()?.slice(0, 40) ??
+            "mark",
+        });
+    }
+    for (const picker of Array.from(scope.querySelectorAll(".acpmux-location-picker")).filter(painted)) {
+      const text = words(picker);
+      if (text) chips.push({ slot: `location:${picker.getAttribute("data-kind") ?? ""}`, label: text.slice(0, 60) });
+    }
+    return chips;
+  };
   const recording = {
     frames: [] as Frame[],
     layoutShift: 0,
@@ -535,6 +617,7 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
       scrollTop: scroller && !rootHidden ? scroller.scrollTop : null,
       bottomText: (rows.at(-1)?.text ?? "").trim().replace(/\s+/g, " ").slice(0, 48),
       rootHidden,
+      chips: rootHidden ? [] : readChips(scope),
     };
   };
   window.cmuxAfterPaint(() => {
@@ -677,7 +760,23 @@ try {
   let downUntil = 0;
   let wireT0 = 0;
   /// This relaunch's socket timeline (epoch ms).
-  let load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0 };
+  let load = {
+    refused: 0,
+    socketOpenedAt: 0,
+    initializeAnsweredAt: 0,
+    attachAnsweredAt: 0,
+    bytesDown: 0,
+    earlyChangeAt: 0,
+  };
+  /// A relaunch (or reopen) round is loading: EARLY_CHANGE and ATTACH_DELAY_MS apply, not to the warm load.
+  let relaunching = false;
+  /// Per daemon socket: whether its EARLY_CHANGE went out, and the attach answers held until it has.
+  const sockets = new WeakMap<object, { changeSent: boolean; held: (() => void)[] }>();
+  const socketState = (ws: object) => {
+    let state = sockets.get(ws);
+    if (!state) sockets.set(ws, (state = { changeSent: false, held: [] }));
+    return state;
+  };
   /// TRACE: the daemon calls a spare page made before its adopt event.
   const spareCalls: string[] = [];
   let servingSpare = false;
@@ -719,6 +818,54 @@ try {
             // Closed: the page asks again on its next socket.
           }
         };
+        const socket = socketState(ws);
+        if (relaunching && message.method === "_acpmux/attach" && (EARLY_CHANGE || ATTACH_DELAY_MS > 0)) {
+          // EARLY_CHANGE: the attach answers only after the list answered and its change went out;
+          // ATTACH_DELAY_MS: and that long after it was asked.
+          const askedAt = Date.now();
+          const send = () => {
+            const wait = ATTACH_DELAY_MS - (Date.now() - askedAt);
+            if (wait <= 0) return reply();
+            // fixed-wait: the slow attach is the condition ATTACH_DELAY_MS measures; stops with the run.
+            const timer = setTimeout(() => {
+              delayedReplies.delete(timer);
+              reply();
+            }, wait);
+            delayedReplies.add(timer);
+          };
+          if (EARLY_CHANGE && !socket.changeSent) {
+            socket.held.push(send);
+            // A page that never lists on this socket still gets its attach (noted: no early change went out).
+            const timer = setTimeout(() => {
+              delayedReplies.delete(timer);
+              if (!socket.held.includes(send)) return;
+              socket.held.splice(socket.held.indexOf(send), 1);
+              load.earlyChangeMissed += 1;
+              send();
+            }, 5000);
+            delayedReplies.add(timer);
+          } else send();
+          return;
+        }
+        if (relaunching && EARLY_CHANGE && message.method === "_acpmux/watch") {
+          reply();
+          // The shown chat's change, its whole listed row (no `modes`), as acpmux sends one: before the attach.
+          load.earlyChangeAt ||= Date.now();
+          try {
+            ws.send(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                method: "_acpmux/session_changed",
+                params: { kind: "session_info", session: listedRow },
+              }),
+            );
+          } catch {
+            // Closed: the next socket's list sends it again.
+          }
+          socket.changeSent = true;
+          for (const held of socket.held.splice(0)) held();
+          return;
+        }
         // A slow daemon: the socket is up but its handshake answers only once acpmux is ready.
         const delay = message.method === "initialize" && downMode === "slow-init" ? downUntil - Date.now() : 0;
         // fixed-wait: the slow daemon's answer time is the condition this mode measures; stops with the run.
@@ -1201,7 +1348,15 @@ try {
           isRefused(mode) ? DOWN_MS : 0,
         );
       }
-      load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0 };
+      load = {
+        refused: 0,
+        socketOpenedAt: 0,
+        initializeAnsweredAt: 0,
+        attachAnsweredAt: 0,
+        bytesDown: 0,
+        earlyChangeAt: 0,
+      };
+      relaunching = true;
       // acpmux is up for a reopen: only the page is new; a refusal comes from the host, the daemon is up.
       downMode = isReopen(mode) || isRefused(mode) ? undefined : mode;
       downUntil = isReopen(mode) ? 0 : Date.now() + DOWN_MS;
