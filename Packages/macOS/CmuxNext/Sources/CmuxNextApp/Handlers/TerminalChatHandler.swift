@@ -183,7 +183,7 @@ enum TerminalChatHandler {
     }
 
     private static func placing(chat: String?, terminal: String?, _ services: AppServices) -> TerminalChatPlacing {
-        TerminalChatPlacing(chat: chat.flatMap { services.agentTabs.existingView($0) },
+        TerminalChatPlacing(chat: chat.flatMap { services.agentTabs.existingView($0) }.map(AgentPaneTogglePlace.init),
                             terminal: terminal.flatMap { services.cache.existingTerminal($0)?.session })
     }
 
@@ -234,4 +234,4 @@ enum TerminalChatHandler {
 
 /// The two faces of a pair, as a swap reads and moves them (``TerminalChatPlacing``).
 extension TerminalSession: TogglePlaceTerminal {}
-extension AgentPaneView: TogglePlaceChat {}
+extension AgentPaneTogglePlace: TogglePlaceChat {}

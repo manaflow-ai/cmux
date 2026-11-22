@@ -6,7 +6,17 @@ import Foundation
 /// (`conversation/togglePlace.ts`, VirtualTranscript `placeNow`); the match against the terminal is
 /// Rust's (cmux-window-rules `tabs::place`, `TerminalChatPlacing`). Each call takes the swap's one
 /// deadline: past it the swap shows the chat where it is.
-extension AgentPaneView {
+///
+/// An adapter, not an ``AgentPaneView`` extension: that type is over its size budget
+/// (scripts/cmux-next/check-no-godfiles.sh counts a type's extensions in its module).
+@MainActor
+public final class AgentPaneTogglePlace {
+    public let pane: AgentPaneView
+
+    public init(_ pane: AgentPaneView) {
+        self.pane = pane
+    }
+
     /// What the page's placement leaves for its answer to arrive before the swap's deadline: a
     /// placement after the chat shows would be a jump, so the page skips one that late.
     static let togglePlaceReplyMargin: Duration = .milliseconds(10)
@@ -15,16 +25,16 @@ extension AgentPaneView {
     /// (``AgentPaneScrollAnchors``; the page reports a change of following at once). One lookup,
     /// no page call: a swap at the latest message waits on nothing.
     public var togglePlaceAtLatest: Bool {
-        guard let session = model.sessionId, let anchors = AgentPaneScrollAnchors.shared else { return true }
-        return anchors.anchor(for: session, tab: model.tabKey()) == nil
+        guard let session = pane.model.sessionId, let anchors = AgentPaneScrollAnchors.shared else { return true }
+        return anchors.anchor(for: session, tab: pane.model.tabKey()) == nil
     }
 
     /// The chat's prompts, oldest first, and the one whose turn is in view (nil at the latest
     /// message); nil when the page does not answer by `deadline`.
     public func togglePlacePrompts(by deadline: ContinuousClock.Instant) async -> (prompts: [String], at: Int?)? {
-        let read: TogglePlaceRead? = await Self.answer(by: deadline) { [weak self] in
+        let read: TogglePlaceRead? = await Self.answer(by: deadline) { [weak pane = self.pane] in
             let body = "return window.cmuxAcpmuxBridge?.togglePlace?.() ?? null;"
-            guard let reply = try? await self?.callPageScript(body) as? [String: Any],
+            guard let reply = try? await pane?.callPageScript(body) as? [String: Any],
                   let prompts = reply["prompts"] as? [String] else { return nil }
             return TogglePlaceRead(prompts: prompts, at: (reply["at"] as? NSNumber)?.intValue)
         }
@@ -39,10 +49,10 @@ extension AgentPaneView {
         let left = ContinuousClock.now.duration(to: deadline) - Self.togglePlaceReplyMargin
         guard left > .zero else { return false }
         let until = (Date().timeIntervalSince1970 + Self.seconds(left)) * 1000
-        return await Self.answer(by: deadline) { [weak self] in
+        return await Self.answer(by: deadline) { [weak pane = self.pane] in
             let body = "return window.cmuxAcpmuxBridge?.placeToggle?.(at, until) ?? false;"
             let at: Any = index.map { NSNumber(value: $0) } ?? NSNull()
-            return (try? await self?.callPageScript(body, arguments: ["at": at, "until": until])) as? Bool
+            return (try? await pane?.callPageScript(body, arguments: ["at": at, "until": until])) as? Bool
         } ?? false
     }
 
@@ -75,7 +85,7 @@ extension AgentPaneView {
     }
 }
 
-/// The first of a page's answer and its deadline (``AgentPaneView/answer(by:_:)``).
+/// The first of a page's answer and its deadline (``AgentPaneTogglePlace/answer(by:_:)``).
 @MainActor
 private final class TogglePlaceAnswer<T: Sendable> {
     var continuation: CheckedContinuation<T?, Never>?
