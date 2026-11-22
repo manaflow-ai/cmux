@@ -150,11 +150,9 @@ export function captureTurnEnd(
 ): TurnEndCapture | undefined {
   if (!thread || !scroller || foldMs(thread) <= 0) return undefined;
   const nodes = [...mounted(thread)];
-  if (
-    !held &&
-    !nodes.some((node) => node.dataset.rowId === LIVE_LINE || node.classList.contains(`acpmux-${ACTIVITY_LINE}`))
-  )
-    return undefined;
+  const liveLine = (node: HTMLElement) =>
+    node.dataset.rowId === LIVE_LINE || node.classList.contains(`acpmux-${ACTIVITY_LINE}`);
+  if (!held && !nodes.some(liveLine)) return undefined;
   // The ids the swap keeps, from the first mounted row on: rows before the window never matter.
   const first = Math.max(
     0,
@@ -165,6 +163,25 @@ export function captureTurnEnd(
   // under the answer, not that run moved: the run goes and the card comes in.
   for (let index = Math.min(first, after.length); index < after.length; index += 1)
     if (!after[index]!.merged) kept.add(after[index]!.id);
+  // The fold plays only where the reader can see it (cmuxterm-hq docs/design/transcript-animation-rules.md,
+  // rules 1 and 6): the running line, or a row the swap takes away, in the view. Mounted is not seen: the
+  // overscan holds viewports of rows above and below it. Out of sight, the swap draws at once and the
+  // anchor keeps the view (Leo, 2026-11-22: "i scroll down, some bullshit ABOVE folds...? and plays an
+  // animation!?"). A held Worked for (`held`) has no running line: its work in view is what folds.
+  const view = scroller.getBoundingClientRect();
+  // Edges count: an empty slot (a turn of words alone keeps its running line's row at no height) at
+  // the view's bottom edge is where the reader is looking.
+  const seen = (node: HTMLElement) => {
+    const box = node.getBoundingClientRect();
+    return box.bottom >= view.top && box.top <= view.bottom;
+  };
+  const goes = (node: HTMLElement) => {
+    const id = node.dataset.rowId!;
+    if (kept.has(id)) return false;
+    // The live header stays as the ended one in its slot (below): it does not go.
+    return !(node.classList.contains(`acpmux-${WORKING}`) && kept.has(`${WORKED}-${id.slice(WORKING.length + 1)}`));
+  };
+  if (!nodes.some((node) => seen(node) && ((!held && liveLine(node)) || goes(node)))) return undefined;
   const rows = nodes.map((node) => {
     const box = node.getBoundingClientRect();
     const priorId = node.dataset.rowId!;
@@ -339,6 +356,31 @@ export function settleTurnEnd(thread: HTMLElement | null, fold: TurnEndFold | un
   for (const copy of fold.copies) copy.remove();
   fold.copies.clear();
   thread?.removeAttribute(TURN_END_ATTR);
+}
+
+/// The reader's own scroll ends a fold in flight at once (cmuxterm-hq
+/// docs/design/transcript-animation-rules.md, rule 4): its rows drawn where they land, its copies gone.
+/// Played on, every pass would turn the scroll into motion (a row the scroll mounts faded in, the
+/// scroll's own distance read as a row's move). The fold's `scroll` listener stays for the view's own
+/// scrolls (the bottom kept pinned).
+const READER_SCROLLS = ["wheel", "touchmove"] as const;
+function endOnReaderScroll(
+  thread: HTMLElement,
+  scroller: HTMLElement | null | undefined,
+  fold: TurnEndFold,
+): () => void {
+  if (!scroller) return () => {};
+  const end = () => settleTurnEnd(thread, fold);
+  // A press on the scroller itself is its scrollbar (rows and their parts are its children).
+  const press = (event: Event) => {
+    if (event.target === scroller) end();
+  };
+  for (const name of READER_SCROLLS) scroller.addEventListener(name, end, { passive: true });
+  scroller.addEventListener("pointerdown", press, { passive: true });
+  return () => {
+    for (const name of READER_SCROLLS) scroller.removeEventListener(name, end);
+    scroller.removeEventListener("pointerdown", press);
+  };
 }
 
 /// Where `nodes` are laid out in the view, without any translate a fold plays on them: their offset
@@ -861,10 +903,12 @@ export function playTurnEnd(
     passAgain();
   };
   scroller?.addEventListener("scroll", onScroll, { passive: true });
+  const unscroll = endOnReaderScroll(thread, scroller, fold);
   fold.stop = () => {
     if (firstFrame !== undefined) View?.cancelAnimationFrame(firstFrame);
     observer?.disconnect();
     scroller?.removeEventListener("scroll", onScroll);
+    unscroll();
   };
   // A hidden page suspends its animations: nothing of the fold outlasts its length.
   arm(lead);
