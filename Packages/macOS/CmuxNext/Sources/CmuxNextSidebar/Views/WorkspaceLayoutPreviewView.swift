@@ -1,5 +1,7 @@
 import AppKit
+import CmuxAgentBrands
 import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextResources
 
 /// The workspace hover card's shaped preview: the shown screen's split layout drawn to scale, each pane a tile listing
