@@ -6,6 +6,41 @@ fn peer() -> std::sync::Arc<Peer> {
     Peer::new("huge-blue", "ws://127.0.0.1:9", None, None, tx)
 }
 
+/// cosmic-gray, 2026-11-21: reads that kept asking about swarm VMs long gone re-dialed each
+/// one's ssh about once a second. Past `WANTED_OUTAGE_FOR` an ask no longer cuts the wait;
+/// a message still does.
+#[tokio::test(start_paused = true)]
+async fn an_ask_about_a_peer_down_for_minutes_waits_its_backoff_but_a_message_cuts_it() {
+    let peer = peer();
+    let long_ago = crate::store::now_ms() - 2 * WANTED_OUTAGE_FOR.as_millis() as u64;
+    peer.with_link(|l| {
+        l.down(long_ago, Duration::from_secs(60));
+    });
+    assert!(!peer.asks_shorten(crate::store::now_ms()));
+    let delay = Duration::from_secs(20);
+    let waiting = peer.clone();
+    let started = Instant::now();
+    let wait = tokio::spawn(async move { waiting.wait_backoff(delay).await });
+    for _ in 0..30 {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        peer.want();
+    }
+    assert!(!wait.is_finished(), "asks every half second for 15 s cut nothing");
+    assert!(started.elapsed() < delay);
+    peer.wake();
+    assert_eq!(wait.await.unwrap(), BackoffWait::Done);
+    assert!(started.elapsed() < delay, "a message cuts it: {:?}", started.elapsed());
+
+    let young = self::peer();
+    young.with_link(|l| {
+        l.down(crate::store::now_ms(), Duration::from_secs(60));
+    });
+    assert!(
+        young.asks_shorten(crate::store::now_ms()),
+        "an outage just begun still heeds asks"
+    );
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_refusal_cuts_a_long_backoff_wait_to_the_wanted_bound() {
     let peer = peer();
@@ -71,7 +106,8 @@ async fn an_unwanted_peer_waits_its_whole_delay_and_a_stop_ends_any_wait() {
     assert!(!peer.is_wanted(), "an ask lapses by itself");
 
     let waiting = peer.clone();
-    let wait = tokio::spawn(async move { waiting.wait_backoff(Duration::from_secs(3_600)).await });
+    let wait =
+        tokio::spawn(async move { waiting.wait_backoff(Duration::from_secs(3_600)).await });
     tokio::time::sleep(Duration::from_millis(100)).await;
     peer.stop();
     assert_eq!(wait.await.unwrap(), BackoffWait::Stopped);

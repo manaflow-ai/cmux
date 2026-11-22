@@ -37,7 +37,7 @@ const NOTICE_TAIL: u64 = 4 << 10;
 /// The notice's sender.
 const SENDER: &str = "acpmux";
 /// A notice's prompt id starts with this, then the task's id.
-const PROMPT_PREFIX: &str = "bg-done-";
+pub(super) const PROMPT_PREFIX: &str = "bg-done-";
 
 impl Hub {
     /// Watches task `record` of folder `dir` and sends its end to its chat ([`Hub::bg_notify`])

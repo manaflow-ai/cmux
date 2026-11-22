@@ -42,6 +42,7 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_CONNECTIONS_CHATGPT_WAIT,
     method::MUX_CONNECTIONS_CHATGPT_CANCEL,
     method::MUX_CONNECTIONS_CHATGPT_TOKEN,
+    method::MUX_CONNECTIONS_CHATGPT_IMPORT,
     method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD,
     method::MUX_CONNECTIONS_CREDENTIAL,
 ];
@@ -568,6 +569,43 @@ fn announce_scope() -> &'static cmux_scope::Scope {
     SCOPE.get_or_init(|| cmux_scope::Scope::new("connections announce"))
 }
 
+/// `_acpmux/connections/chatgpt.import`: refused on any connection but the local socket (the
+/// remote relay and the web listener never reach a login file here) and unless the daemon's
+/// environment turned it on (`enabled`, [`chatgpt::CI_IMPORT_ENV`]); the connection's id.
+fn import_chatgpt(
+    origin: Origin,
+    enabled: bool,
+    dir: Option<PathBuf>,
+    home: PathBuf,
+    secret_file: &str,
+) -> Result<String, RpcError> {
+    if origin != Origin::Local {
+        return Err(RpcError::invalid_params(
+            "chatgpt.import is read from the local unix socket only, never a remote",
+        )
+        .with_data(json!({"reason": "chatgpt.import_local_only"})));
+    }
+    if !enabled {
+        return Err(RpcError::invalid_params(format!(
+            "chatgpt.import is a CI-only method: set {} in the daemon's environment",
+            chatgpt::CI_IMPORT_ENV
+        ))
+        .with_data(json!({"reason": "chatgpt.import_disabled"})));
+    }
+    chatgpt::import_codex_auth(
+        &chatgpt::Places { routes: dir, home },
+        std::path::Path::new(secret_file),
+    )
+    .map_err(failure)
+}
+
+/// The listed connection `id`, as `chatgpt.wait` answers a finished sign-in.
+fn connection_state(dir: Option<&Path>, home: &Path, id: &str) -> Result<Value, RpcError> {
+    let b = routes::bindings(home);
+    let found = list(dir, home, &b).into_iter().find(|c| c.id == id);
+    Ok(json!({"connection": found}))
+}
+
 pub(super) async fn handle(
     hub: &Arc<Hub>,
     origin: Origin,
@@ -732,6 +770,15 @@ pub(super) async fn handle(
             Ok(
                 json!({"family": family, "kind": kind, "env": {var: value}, "expires_at": expires_at}),
             )
+        }
+        method::MUX_CONNECTIONS_CHATGPT_IMPORT => {
+            let secret_file = need("secret_file")?;
+            let enabled = chatgpt::ci_import_enabled();
+            let (d, h) = (dir.clone(), home.clone());
+            let id =
+                blocking(move || import_chatgpt(origin, enabled, d, h, &secret_file)).await??;
+            announce_later(hub);
+            blocking(move || connection_state(dir.as_deref(), &home, &id)).await?
         }
         method::MUX_CONNECTIONS_CHATGPT_TOKEN => {
             let id = need("id")?;

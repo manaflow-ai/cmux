@@ -26,6 +26,11 @@ pub(super) const WANTED_FOR: Duration = Duration::from_secs(60);
 /// more to listen again (huge-blue's updates, 2026-10-30).
 pub(super) const RESTART_WANTED_FOR: Duration = Duration::from_secs(180);
 
+/// How long into an outage a client's ask still shortens the reconnect wait
+/// (`Peer::asks_shorten`): a restart's window, so a daemon that takes minutes to listen again
+/// is still re-dialed within a second while chats wait on it.
+pub(super) const WANTED_OUTAGE_FOR: Duration = RESTART_WANTED_FOR;
+
 /// How long one message keeps the peer marked to wake: a paused VM resumes and its daemon
 /// answers within this on the routes that wake one (about a minute, machines/lane-vms.md).
 pub(super) const WAKE_FOR: Duration = Duration::from_secs(180);
@@ -205,6 +210,18 @@ impl Peer {
             .is_some_and(|until| until > Instant::now())
     }
 
+    /// Whether a client's ask still shortens the wait between attempts at `now` (ms): for the
+    /// first [`WANTED_OUTAGE_FOR`] of an outage, and whenever a message wakes the peer. Past
+    /// that, a peer whose link is still down is a machine that is gone or off, and reads that keep
+    /// asking about it (a list, a history refresh) would otherwise re-dial ssh about once a
+    /// second for as long as they last: each one a login, its key exchange and the user and
+    /// service lookups behind it. The plain backoff (up to `Backoff::CAP`) still runs, and a
+    /// network change still tries at once.
+    pub(super) fn asks_shorten(&self, now: u64) -> bool {
+        let young = |at: u64| now.saturating_sub(at) < WANTED_OUTAGE_FOR.as_millis() as u64;
+        self.waking() || self.link().down_since.is_none_or(young)
+    }
+
     /// Waits out one backoff delay, or its `Backoff::wanted` bound while the peer is wanted
     /// (read again at each ask and each clock check, so an ask mid-wait cuts it). A wait that
     /// this computer slept through ends at the wake, with the backoff started over: the delay
@@ -222,7 +239,9 @@ impl Peer {
             let asked = self.wanted.asked.notified();
             tokio::pin!(asked);
             asked.as_mut().enable();
-            let deadline = started + if heed_asks && self.is_wanted() { wanted } else { delay };
+            // Read each turn: a message mid-wait (`Peer::wake`) makes asks count again.
+            let heed = heed_asks && self.asks_shorten(crate::store::now_ms());
+            let deadline = started + if heed && self.is_wanted() { wanted } else { delay };
             if Instant::now() >= deadline {
                 return BackoffWait::Done;
             }
@@ -235,6 +254,9 @@ impl Peer {
                     }
                 }
                 () = &mut asked, if heed_asks => {
+                    if !self.asks_shorten(crate::store::now_ms()) {
+                        continue;
+                    }
                     // A client asks now: the next attempt goes at once, at most once per
                     // `WANTED_CAP`, so asks that keep coming (a person typing) get one attempt
                     // per cap, not one per ask.
