@@ -358,7 +358,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// row's top and the next row's top in the window, the offset, and what the scroll and the
     /// list's own moves (the spring's slide) explained. A steady slide moves both rows by what it
     /// explains; a jump moves them by more, for a frame.
-    private var commitTrail: [String] = []
+    private var commitTrail: [PagedListTrailNote] = []
     private struct DrawnFrame {
         var number: Int
         var read: CGFloat
@@ -366,7 +366,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         var offset: CGFloat
         var explained: CGFloat
         var spring: Bool
-        var trail: [String]
+        var trail: [PagedListTrailNote]
     }
     /// Kept as numbers; formatted only when a shift is reported (each frame's string cost a busy
     /// main thread its frames: up-fast-busy, steps 6d8bcee4 and f902d4d6).
@@ -382,10 +382,10 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     private var ownMoves = 0
     private var corrections = 0
     /// The offset moves since the last sample and how the measure read each (the probe's detail).
-    private var trail: [String] = []
+    private var trail: [PagedListTrailNote] = []
     /// The previous sample's interval as the detail shows it (its source, trail and the correction
     /// UIKit still owed when it was taken): a shift can start in one interval and land in the next.
-    private var previousInterval = ""
+    private var previousInterval = PagedListPreviousInterval()
     /// Depth of the controller's own reads of the layout outside a pass (an anchor, the measure):
     /// UIKit may apply layout work it deferred inside one.
     private var querying = 0
@@ -982,7 +982,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             passFrame = frame
             shiftSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, bottom: $0.bottom, windowY: $0.windowY, width: width, offsetY: offsetY) }
             if probe.shiftDetail != nil {
-                previousInterval = "\(source):\(trail.joined(separator: ","))/pending=\(ledger.pending)"
+                previousInterval = PagedListPreviousInterval(source: source, trail: trail, pending: ledger.pending)
             }
             ledger.reset()
             trail.removeAll(keepingCapacity: true)
@@ -1052,7 +1052,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
                                       offset: offsetY - last.offsetY, frame: frame)
                 + " frames=" + drawnFrames.map { f in
                     String(format: "#%d[read=%.1f next=%.1f off=%.1f expl=%+.1f spring=%d ", f.number, f.read, f.next,
-                           f.offset, f.explained, f.spring ? 1 : 0) + f.trail.joined(separator: ",") + "]"
+                           f.offset, f.explained, f.spring ? 1 : 0) + f.trail.map(\.text).joined(separator: ",") + "]"
                 }.joined(separator: " "))
         }
     }
@@ -1089,15 +1089,18 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             + "decelerating=\(collectionView.isDecelerating) spring=\(spring.isRunning) arriving=\(arriving) "
             + "insetTop=\(insets.top) insetBottom=\(insets.bottom) gap=\(bottomGap) rows=\(order.count) "
             + String(format: "list=%.0f,%.0f ", frame.minX, frame.minY)
-            + "trail=\(trail.joined(separator: ",")) prev=\(previousInterval)"
+            + "trail=\(trail.map(\.text).joined(separator: ",")) prev=\(previousInterval.text)"
     }
 
     /// One offset move or layout correction for the probe's detail: its kind, the move, and `^` when
     /// it came inside another scroll callback.
+    /// Kept as numbers, formatted only when a shift's detail is written (each offset move formatted
+    /// a string on a busy main thread: up-fast-busy 5.3 to 66.7 ms/s of hitches, clean reps
+    /// 4c5f3bf8..4487071f).
     private func note(_ kind: String, _ delta: CGFloat) {
         guard probe?.shiftDetail != nil else { return }
         let nested = kind.hasPrefix("A") ? scrollDepth > 0 : scrollDepth > 1
-        let entry = "\(kind)\(nested ? "^" : "")\(String(format: "%+.1f", delta))"
+        let entry = PagedListTrailNote(kind: kind, delta: delta, nested: nested)
         if commitTrail.count < 32 { commitTrail.append(entry) }
         guard trail.count < 24 else { return }
         trail.append(entry)
@@ -1374,10 +1377,10 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
 /// ms/s when it sampled every turn, steps 87db292d and 57fdbd67).
 @MainActor
 final class PagedListCommitWatch {
-    // Invalidating a run loop observer or a display link is safe from any thread.
+    // Invalidating a run loop observer is safe from any thread.
     nonisolated(unsafe) private let observer: CFRunLoopObserver
-    nonisolated(unsafe) private let link: CADisplayLink
     private let tick = PagedListCommitTick()
+    nonisolated(unsafe) private var token: FrameClock.Token?
 
     init(_ sample: @escaping @MainActor () -> Void) {
         let tick = tick
@@ -1390,22 +1393,34 @@ final class PagedListCommitWatch {
             }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
-        link = CADisplayLink(target: tick, selector: #selector(PagedListCommitTick.frame(_:)))
-        link.add(to: .main, forMode: .common)
+        // The app's one display link (``FrameClock``), not a second one of its own.
+        token = FrameClock.shared.subscribe { _ in tick.due = true }
     }
 
     deinit {
-        link.invalidate()
         CFRunLoopObserverInvalidate(observer)
+        if let token { Task { @MainActor in FrameClock.shared.unsubscribe(token) } }
     }
 }
 
-/// The display link's target: marks a frame due (a separate object, so the link does not retain the watch).
+/// Marks a frame due (the clock's tick), read by the run loop observer after the commit.
 @MainActor
-private final class PagedListCommitTick: NSObject {
+private final class PagedListCommitTick {
     var due = false
+}
 
-    @objc func frame(_ link: CADisplayLink) {
-        due = true
-    }
+/// One offset move or correction for the probe's detail, kept as numbers (formatted only for a detail).
+struct PagedListTrailNote {
+    let kind: String
+    let delta: CGFloat
+    let nested: Bool
+    var text: String { "\(kind)\(nested ? "^" : "")\(String(format: "%+.1f", delta))" }
+}
+
+/// The previous layout-pass interval for the probe's detail, kept as numbers.
+struct PagedListPreviousInterval {
+    var source = ""
+    var trail: [PagedListTrailNote] = []
+    var pending: CGFloat = 0
+    var text: String { source.isEmpty ? "" : "\(source):\(trail.map(\.text).joined(separator: ","))/pending=\(pending)" }
 }
