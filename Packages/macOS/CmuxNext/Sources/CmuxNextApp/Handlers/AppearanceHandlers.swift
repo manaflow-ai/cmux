@@ -69,8 +69,6 @@ enum AppearanceHandlers {
         })
     }
 
-    private static let uiScalePath = UIScaleSetting.configPath
-
     /// `window.titlebar`: applied at once, then written to cmux.json.
     private static func setTitlebar(_ style: TitlebarStyle, _ context: AppActionContext) throws {
         try requireUnmanaged(WindowTitlebarSetting.configPath, context)
@@ -88,17 +86,17 @@ enum AppearanceHandlers {
     }
 
     private static func stepUIScale(by delta: Double, _ context: AppActionContext) throws {
-        try requireUnmanaged(uiScalePath, context)
+        try requireUnmanaged(UIScaleSetting.configPath, context)
         let design = context.design
         let next = DesignSettings.clampedUIScale(design.uiScale + CGFloat(delta))
         design.uiScale = next
-        context.writeSetting("set interface scale", uiScalePath, .number(Double(next)), reloadOnFailure: true)
+        context.writeSetting("set interface scale", UIScaleSetting.configPath, .number(Double(next)), reloadOnFailure: true)
     }
 
     private static func resetUIScale(_ context: AppActionContext) throws {
-        try requireUnmanaged(uiScalePath, context)
+        try requireUnmanaged(UIScaleSetting.configPath, context)
         context.design.uiScale = CGFloat(UIScaleSetting.fallback)
-        context.writeSetting("reset interface scale", uiScalePath, nil, reloadOnFailure: true)
+        context.writeSetting("reset interface scale", UIScaleSetting.configPath, nil, reloadOnFailure: true)
     }
 
     /// Refuses before anything is applied when an MDM profile or the team
