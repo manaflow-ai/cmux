@@ -46,7 +46,7 @@ enum ThemePhone {
     }
 
     /// What this Mac shows behind its windows' content, for the phone (ask-87d30da8e5).
-    /// Mac's background image and transparency exactly as his Mac does"). The first that holds:
+    /// The first that holds:
     /// 1. A background chosen in cmux (`selected`): its picture (`selectedPicture`; one without a
     ///    still, as a living shader, sends none) at the tint the windows lay over it (`selectedTint`).
     /// 2. The Ghostty config's `background-image` (`terminalImage`): that picture. Ghostty draws an
