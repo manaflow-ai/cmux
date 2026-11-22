@@ -15,6 +15,9 @@ public struct BrowserPageService: Sendable {
     /// Lists a tab in a second pane (`browser.page.mirror`, and the Home mirror of a tab an
     /// agent starts driving); nil (tests, hosts without strips) mirrors nothing.
     let mirrors: (any BrowserTabMirrorHost)?
+    /// Opens an agent's tab in the agents' own workspace when Home has no column right of the chat
+    /// (``BrowserAgentWorkspaceHost``); nil (tests, hosts without workspaces) answers `not_found` there.
+    let agentWorkspaces: (any BrowserAgentWorkspaceHost)?
     /// `browser.agentMouse.*` as it is now, read per click.
     let agentMouse: @Sendable () async -> AgentMouseSetting.Value
     /// Test-only seam for the direct pixel-capture contract. Production leaves this false because
@@ -29,20 +32,23 @@ public struct BrowserPageService: Sendable {
     ///     (hosts without settings) uses the defaults, human motion with a 350 ms cap.
     ///   - mirrors: lists a tab in a second pane (``BrowserTabMirrorHost``); nil serves
     ///     `browser.page.mirror` as unavailable and mirrors no agent tab into Home.
+    ///   - agentWorkspaces: opens an agent's tab in the agents' own workspace when Home has no
+    ///     column right of the chat (``BrowserAgentWorkspaceHost``); nil answers `not_found` there.
     public init(engine: any BrowserPageEngine, passkeys: BrowserPasskeyRequests? = nil,
                 agentMouse: (@Sendable () async -> AgentMouseSetting.Value)? = nil,
-                mirrors: (any BrowserTabMirrorHost)? = nil) {
+                mirrors: (any BrowserTabMirrorHost)? = nil, agentWorkspaces: (any BrowserAgentWorkspaceHost)? = nil) {
         self.init(engine: engine, leases: BrowserTabLeases(), passkeys: passkeys, agentMouse: agentMouse,
-                  allowsUnsafeCapture: false, mirrors: mirrors)
+                  allowsUnsafeCapture: false, mirrors: mirrors, agentWorkspaces: agentWorkspaces)
     }
 
     init(engine: any BrowserPageEngine, leases: BrowserTabLeases, passkeys: BrowserPasskeyRequests? = nil,
          agentMouse: (@Sendable () async -> AgentMouseSetting.Value)? = nil, allowsUnsafeCapture: Bool = false,
-         mirrors: (any BrowserTabMirrorHost)? = nil) {
+         mirrors: (any BrowserTabMirrorHost)? = nil, agentWorkspaces: (any BrowserAgentWorkspaceHost)? = nil) {
         self.engine = engine
         self.leases = leases
         self.passkeys = passkeys
         self.mirrors = mirrors
+        self.agentWorkspaces = agentWorkspaces
         self.agentMouse = agentMouse ?? { AgentMouseSetting.fallback }
         self.allowsUnsafeCapture = allowsUnsafeCapture
     }

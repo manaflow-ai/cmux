@@ -228,7 +228,7 @@ enum TabLifecycle {
         }
         let url = plan.url
         let rawProfile = invocation["profile"]?.stringValue
-        guard let profileRequest = AgentBrowserProfile.request(rawProfile) else {
+        guard let profileRequest = AgentBrowserProfileRequest(raw: rawProfile) else {
             return ctx.refuse(MiscHandlerStrings.unknownBrowserProfile(rawProfile ?? ""))
         }
         if case .explicit(let id) = profileRequest, !ctx.services.browserProfiles.isKnown(id) {
@@ -333,7 +333,7 @@ enum TabLifecycle {
     /// The browser tab a lone agent chat leaves in its pane when it docks: a
     /// frontend tab on the resolved engine, else nil (the chat stays).
     private static func chatRespawn(_ ctx: AppActionContext, url: URL?, engine: String?,
-                                    profile: AgentBrowserProfile.Request) -> SplitRespawn? {
+                                    profile: AgentBrowserProfileRequest) -> SplitRespawn? {
         guard case let browserTabs = ctx.services.cache.browserTabs, browserTabs.isAvailable(on: ctx.services.daemon),
               browserTabs.refusal(for: url) == nil,
               case .open(let choice) = browserTabs.resolve(requested: engine, url: url) else { return nil }
@@ -488,7 +488,7 @@ extension TabLifecycle {
     /// profile; while a split is being made, its upper pane keeps
     /// showing its existing tab and the browser appears only after its move below lands.
     static func openBrowserFromDock(_ ctx: AppActionContext, _ invocation: ActionInvocation, pane: PaneModel,
-                                    url: URL?, engine: String?, profile: AgentBrowserProfile.Request) -> Bool {
+                                    url: URL?, engine: String?, profile: AgentBrowserProfileRequest) -> Bool {
         guard invocation.origin == .user, !invocation.besideCaller,
               let chat = ctx.services.paneController(for: pane) else { return false }
         return ChatColumnPlacement.openTool(from: chat, services: ctx.services, background: invocation.opensInBackground, kind: .browser) { target, placed in

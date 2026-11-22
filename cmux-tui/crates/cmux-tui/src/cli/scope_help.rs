@@ -24,7 +24,8 @@ USAGE
     (`cmux browser page --help`)
   cmux browser right <verb> [ARGS] [--agent NAME]   The same verbs on the
     browser right of the Home chat (an agent's own tab there, opened when
-    needed; `cmux browser right release` gives it back)
+    needed; with no column there, in the agents' own workspace, never shown
+    or focused; `cmux browser right release` gives it back)
 
 browser open adds a browser tab, like
 `cmux tab create browser --url <url> [--workspace <selector>]`: in the named

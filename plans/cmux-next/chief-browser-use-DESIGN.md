@@ -54,8 +54,15 @@ asks the app `browser.page.right {agent, url?}` for the tab, then runs the verb 
 
 1. The column: the Home workspace (`kind: home`), the pane holding the chat (`home-dock` page),
    and the first scrolling column right of it (`ControlCallerLocation.besidePane`, the same rule
-   `beside_caller` uses). Never the dock. No such column: `not_found` with `dock_pane`, so the
-   caller makes it once (`cmux pane <dock_pane> split --right --fit`).
+   `beside_caller` uses). Never the dock. No such column (since 2026-11-22): the agent's tab
+   opens in the agents' own workspace instead ("Agent browser", fixed key
+   `a9e70000-0000-4000-8000-00000000b0a5`, one sidebar row made by a daemon create without
+   focus, so no window switches to it and Home's layout never changes); the answer says
+   `surface: "agent_workspace"`. A hidden Chromium tab still navigates, reads, clicks and takes
+   screenshots (the page's browser starts in the background, `AppBrowserPage.ensureBrowser`).
+   Agents never split Home to make a column (Leo, 2026-11-22: "product bug/gap, again", after
+   `not_found` stopped a GitHub App create). Only a host without that workspace answers
+   `not_found` with `dock_pane`.
 2. The tab, in order: the agent's own tab in that column (one it opened there); else, for a verb
    that does not navigate, a tab there it already drives (live lease), then the browser tab the column shows (else its last browser tab); else a
    new tab opened in that column through the `openBrowser` action with `focus: false`.
@@ -131,7 +138,10 @@ the MCP and the CLI harness) and, shortened, in every subagent's instructions.
 
 - `BrowserPageRightTests` (CmuxNextControlTests): the shown tab is the target; another agent gets
   `lease_held`; a navigation by another agent opens its own tab in the right column with
-  `focus: false`, never in the dock; with no right column nothing opens; `release` frees the tab.
+  `focus: false`, never in the dock; with no right column nothing opens in Home; `release` frees the tab.
+- `BrowserPageRightAgentWorkspaceTests`: with no right column the tab opens in the agents' own
+  workspace (no action, no split, focus kept), the agent's next calls reuse it, another agent gets
+  its own tab there, a renamed workspace is found by its key.
 - `cli/app/right_tests.rs` (cmux-tui): the CLI resolves then runs the verb on that tab; a new
   tab that already loads the URL is not loaded twice; `lease_held` runs no verb; `release`.
 - `optchat-chief/tests/right_column_prompt.rs`: every Chief prompt names `cmux browser right`,

@@ -3,7 +3,8 @@
 //! drives pages in (plans/cmux-next/chief-browser-use-DESIGN.md). The app
 //! picks the tab (`browser.page.right`: the agent's own tab there, else the
 //! shown browser tab, else a new one there, never in the dock or with focus,
-//! and never a tab another agent holds); the verb then runs on that tab like
+//! and never a tab another agent holds; with no column there, the agent's tab
+//! in the agents' own workspace, which no window shows); the verb then runs on that tab like
 //! `cmux browser <tab_…> <verb>`. The CLI names the verb, because only reads
 //! may run on the person's shown tab; `--take` (only when the person handed
 //! that tab over) lets a write run there too

@@ -22,8 +22,13 @@ import Foundation
 /// chat's dock, never with focus, and unselected while the person's focus is
 /// in that pane (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.1). A tab
 /// another agent holds answers `lease_held` naming the holder. With no
-/// column right of the chat it answers `not_found` with `dock_pane`, so the
-/// caller makes the column (`cmux pane <dock_pane> split --right`).
+/// column right of the chat the agent's tab is in the agents' own workspace
+/// (``BrowserAgentWorkspace``, made once without focus): its own tab there,
+/// else a tab there it already drives, else a new one, so the person's Home
+/// layout, workspace and focus never change (Leo, 2026-11-22: "product
+/// bug/gap, again"); the answer says `surface: "agent_workspace"`. Only a host
+/// without that workspace (``BrowserAgentWorkspaceHost``) still answers
+/// `not_found` with `dock_pane`.
 extension BrowserPageService {
     /// `openBrowser`'s profile value for the clean agent profile: no extensions, no cookies shared
     /// with the person's profiles (plans/cmux-next/passwords.md, section 3.4).
@@ -31,6 +36,9 @@ extension BrowserPageService {
 
     /// The agent profile's fixed id, which `openBrowser` creates on first use.
     public static let agentBrowserProfileID = "a9e70000-0000-4000-8000-00000000c0de"
+
+    /// The fixed key of the agents' own browser workspace (``BrowserAgentWorkspace``).
+    public static let agentWorkspaceKey = "a9e70000-0000-4000-8000-00000000b0a5"
 
     /// True for a tab of the agent profile, or a tab whose profile the topology does not report.
     static func isAgentProfile(_ id: String?) -> Bool {
@@ -51,6 +59,7 @@ extension BrowserPageService {
 
     func rightMethod(router: ControlRouter) -> ControlMethod {
         let leases = leases
+        let agentWorkspaces = agentWorkspaces
         return .async("browser.page.right") { [weak router] call in
             guard let router else { throw ControlRouter.stopped }
             let agent = Self.optionalString(call, "agent") ?? "agent"
@@ -65,6 +74,10 @@ extension BrowserPageService {
                 throw ControlError(code: "not_found", message: ControlStrings.text("control.error.rightNoHome", "No Home workspace"))
             }
             guard let pane = column.pane else {
+                if let agentWorkspaces {
+                    return try await Self.agentWorkspaceTab(for: agent, url: url, home: column.workspace, call: call, router: router,
+                                                            leases: leases, host: agentWorkspaces)
+                }
                 throw ControlError(code: "not_found",
                                    message: ControlStrings.text("control.error.rightNoColumn",
                                                                 "No column right of the Home chat; make one with `cmux pane <dock_pane> split --right`"),
@@ -103,6 +116,53 @@ extension BrowserPageService {
             if let holder = await leases.acquire(opened, for: agent, opened: true) { throw held(holder, opened) }
             return answer(opened, created: true, navigated: url != nil)
         }.claimingProgress().withLimit { _, _ in Self.rightOpenLimit }
+    }
+
+    /// How long a tab the agents' workspace host made may take to reach the topology.
+    static let agentWorkspaceListLimit: Duration = .seconds(5)
+
+    /// The agent's tab in the agents' own workspace (Home has no column right of the chat): its
+    /// own tab there, else (no URL) a tab there it already drives, else a new one the host opens,
+    /// never shown or focused. A new tab is the agent's own (`opened`), so its next call finds it.
+    static func agentWorkspaceTab(for agent: String, url: String?, home: ControlWorkspaceInfo, call: ControlCall,
+                                  router: ControlRouter, leases: BrowserTabLeases,
+                                  host: any BrowserAgentWorkspaceHost) async throws -> JSONValue {
+        func answer(_ tab: String, workspace: ControlWorkspaceInfo?, workspaceKey: String, created: Bool, navigated: Bool) -> JSONValue {
+            let pane = workspace.flatMap { BrowserAgentWorkspace(workspace: $0).pane(of: tab) }
+            return ["tab": .string(tab), "pane": pane.map { .string($0.id) } ?? .null,
+                    "workspace": .string(workspace?.publicID ?? workspaceKey), "agent": .string(agent),
+                    "created": .bool(created), "navigated": .bool(navigated), "shared": false,
+                    "surface": "agent_workspace"]
+        }
+        let found = BrowserAgentWorkspace.resolve(in: call.snapshot.topology, session: home.sessionID)
+        if let found {
+            let usable = found.agentTabs.map(\.id)
+            if let own = await leases.openedTab(of: agent, among: Set(usable)) {
+                if let holder = await leases.acquire(own, for: agent) { throw leaseHeld(holder: holder, tab: own) }
+                return answer(own, workspace: found.workspace, workspaceKey: found.workspace.id, created: false, navigated: false)
+            }
+            if url == nil, let kept = await leases.heldTab(of: agent, among: usable) {
+                _ = await leases.acquire(kept, for: agent)
+                return answer(kept, workspace: found.workspace, workspaceKey: found.workspace.id, created: false, navigated: false)
+            }
+        }
+        let opened = try await host.openAgentTab(url: url, inWorkspace: found?.workspace.id, named: BrowserAgentWorkspace.name)
+        if let holder = await leases.acquire(opened.tab, for: agent, opened: true) { throw leaseHeld(holder: holder, tab: opened.tab) }
+        // The page verb the CLI runs next names this tab: wait until the topology lists it.
+        let listed = await Self.awaitListed(opened.tab, router: router, within: agentWorkspaceListLimit)
+        return answer(opened.tab, workspace: listed, workspaceKey: opened.workspace, created: true, navigated: url != nil)
+    }
+
+    /// The workspace listing `tab` once the published topology shows it, nil after `limit`.
+    static func awaitListed(_ tab: String, router: ControlRouter, within limit: Duration) async -> ControlWorkspaceInfo? {
+        let snapshot = await router.snapshots.snapshot(where: { listing(tab, in: $0.topology) != nil },
+                                                       deadline: ContinuousClock.now.advanced(by: limit))
+        return snapshot.flatMap { listing(tab, in: $0.topology) }
+    }
+
+    /// The workspace whose panes hold `tab`.
+    static func listing(_ tab: String, in topology: ControlTopology) -> ControlWorkspaceInfo? {
+        topology.workspaces.first { $0.panes.contains { $0.tabs.contains { $0.id == tab } } }
     }
 
     /// Opens a browser tab in `pane` through `openBrowser` (aimed at a tab of

@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextWakeups
+import CmuxNextWorkspaceRepair
 import Foundation
 import CmuxNextCompat
 
@@ -13,24 +14,10 @@ import CmuxNextCompat
 /// sheet. Any other value must name an existing profile; an unknown one is
 /// refused rather than falling back to the workspace's profile.
 enum AgentBrowserProfile {
-    enum Request: Equatable {
-        /// No argument: the workspace's, the space's, or `default`.
-        case cascade
-        case explicit(String)
-        case agent
-    }
-
     static let id = BrowserPageService.agentBrowserProfileID
 
     static var name: String {
         String(localized: "handlers.misc.agentBrowserProfile.name", defaultValue: "Agents", table: "MiscHandlers", bundle: .module.inAppLanguage)
-    }
-
-    /// nil: not "agent" and not a profile id.
-    static func request(_ raw: String?) -> Request? {
-        guard let raw, !raw.isEmpty else { return .cascade }
-        if raw.lowercased() == "agent" { return .agent }
-        return BrowserProfileRecord.isValidID(raw) ? .explicit(raw) : nil
     }
 
     /// The agent profile's id, created when missing (an existing record is
@@ -45,7 +32,15 @@ enum AgentBrowserProfile {
         return id
     }
 
-    nonisolated struct NotReported: Error, CustomStringConvertible {
-        var description: String { "the browser profile was created but not reported back by the home daemon" }
+    /// An agent's tab in the agents' own workspace on the home daemon, never shown or focused
+    /// (``EmptyWorkspaceRepair/openAgentBrowserTab``): the agent profile's, marked agent-driven.
+    @MainActor static func openTab(url: String?, inWorkspace workspace: String?, named name: String, services: AppServices) async throws -> (tab: String, workspace: String) {
+        guard case .open(let choice) = services.cache.browserTabs.resolve(requested: nil) else { throw ControlError(code: "unavailable", message: "No browser engine can open the agent's tab") }
+        let opened = try await services.machines.emptyWorkspaceRepair(services.daemon.machineID, local: services.emptyWorkspaces).openAgentBrowserTab(
+            url: url, engine: choice.engine, profileID: try await ensure(services.browserProfiles), inWorkspace: workspace.flatMap { services.workspace(id: $0) },
+            key: BrowserPageService.agentWorkspaceKey, name: name, on: services.daemon.connection)
+        services.cache.browserTabs.opened(choice, opened.surface, on: services.daemon)
+        services.cache.markAgentDriven(surface: opened.surface)
+        return (opened.tab, opened.workspace)
     }
 }

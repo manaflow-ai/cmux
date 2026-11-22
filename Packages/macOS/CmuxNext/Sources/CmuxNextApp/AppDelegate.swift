@@ -468,7 +468,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     BrowserPageService(engine: AppBrowserPageEngine(services: services), passkeys: passkeys,
                                        agentMouse: { [weak settings] in
                                            await MainActor.run { settings?.snapshot.browserAgentMouse } ?? AgentMouseSetting.fallback
-                                       }, mirrors: services).install(on: router)
+                                       }, mirrors: services, agentWorkspaces: services).install(on: router)
                     services.apps.attach(router: router)
                 }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")

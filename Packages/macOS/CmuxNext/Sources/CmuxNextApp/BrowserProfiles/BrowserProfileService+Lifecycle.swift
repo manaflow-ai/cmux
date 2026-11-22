@@ -146,6 +146,6 @@ extension BrowserProfileService {
     /// then falls back to the workspace's profile (the cascade takes only known ids).
     func awaitReported(_ id: String, deadline: Duration) async throws {
         await ObservationDeadline(owner: "BrowserProfileService.awaitReported").until({ [weak self] in self?.isKnown(id) ?? true }, limit: deadline)
-        guard isKnown(id) else { throw AgentBrowserProfile.NotReported() }
+        guard isKnown(id) else { throw AgentBrowserProfileRequest.NotReported() }
     }
 }
