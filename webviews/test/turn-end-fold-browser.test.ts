@@ -222,6 +222,7 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
     family: string,
     openGroup: boolean,
     reducedMotion: "reduce" | "no-preference" = "no-preference",
+    look?: string,
   ) {
     summary.harness = family;
     summary.family = family;
@@ -235,6 +236,8 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
     await page.getByText("random jitter (part 6)").waitFor();
+    // A look set over the pane (turnEndFold.ts `turnEndLook` reads the nearest `data-turn-end-fold`).
+    if (look) await page.evaluate((set) => document.documentElement.setAttribute("data-turn-end-fold", set), look);
 
     // Every painted frame of the running turn: the rows and calls drawn, and any the view showed
     // that left it (a row the virtualizer drops out of view, history above, is not one).
@@ -363,8 +366,9 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       await page.close();
     });
 
+    // The slide (the `fade` look's mechanics; the shipped `wipe` slides nothing and has its own test below).
     test(`${family}: at its end the work folds in one motion, the bottom pinned`, async () => {
-      const { page, samples } = await playTurn(family, false);
+      const { page, samples } = await playTurn(family, false, "no-preference", "fade");
       const from = samples.findIndex((sample) => sample.worked);
       expect(from).toBeGreaterThan(0);
       const before = samples[from - 1]!;
@@ -410,6 +414,26 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       const grows = blocks.slice(1).map((block, index) => block - Math.min(...blocks.slice(0, index + 1)));
       expect(Math.max(0, ...grows)).toBeLessThanOrEqual(1);
       // Closed: the folded turn's line.
+      expect(await page.locator("button.cv-worked").first().getAttribute("aria-expanded")).toBe("false");
+      await page.close();
+    });
+
+    test(`${family}: at its end the wipe swaps the work in place, the bottom pinned, nothing growing`, async () => {
+      const { page, samples } = await playTurn(family, false, "no-preference", "wipe");
+      const from = samples.findIndex((sample) => sample.worked);
+      expect(from).toBeGreaterThan(0);
+      const before = samples[from - 1]!;
+      const after = samples.at(-1)!;
+      expect(samples.some((sample) => sample.folding)).toBe(true);
+      // Folded: the prompt comes down to the folded line, and the work's rows are gone at the end.
+      expect(after.prompt - before.prompt).toBeGreaterThan(8);
+      expect(after.work).toBe(0);
+      // The bottom stays pinned on every frame.
+      for (const sample of samples.slice(from - 1)) expect(sample.gap).toBeLessThanOrEqual(2);
+      // No false grow: from the turn's end on, the work between the prompt and the answer never gets taller.
+      const blocks = samples.map((sample) => sample.block).filter((block) => Number.isFinite(block));
+      const grows = blocks.slice(1).map((block, index) => block - Math.min(...blocks.slice(0, index + 1)));
+      expect(Math.max(0, ...grows)).toBeLessThanOrEqual(1);
       expect(await page.locator("button.cv-worked").first().getAttribute("aria-expanded")).toBe("false");
       await page.close();
     });
