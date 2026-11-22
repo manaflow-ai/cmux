@@ -33,6 +33,10 @@ const fades = (keyframes: Keyframe[]) => keyframes.at(-1)?.opacity === 0 && Numb
 function page() {
   const dom = new JSDOM("<!doctype html><main></main>", { pretendToBeVisual: true });
   const thread = dom.window.document.querySelector<HTMLElement>("main")!;
+  // The thread stands in for the scroller here, so it needs a view of its own: `captureTurnEnd`
+  // plays nothing whose rows all sit outside the scroller's box, and jsdom gives every box its
+  // inline `top`/`height`, which a bare <main> leaves at zero (a view of no height sees nothing).
+  thread.style.height = "600px";
   const proto = dom.window.HTMLElement.prototype;
   Object.defineProperty(proto, "offsetTop", {
     get() {
