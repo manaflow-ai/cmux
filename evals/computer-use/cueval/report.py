@@ -215,6 +215,28 @@ def text_summary(out_dir: str, run_ids: list[str] | None = None) -> str:
                    f"{sum(i.get('est_tokens') or 0 for i in imgs):>8} {sum(1 for c in cs if c.get('no_effect')):>6} "
                    f"{sum(1 for c in cs if c.get('is_error')):>4} {sum(1 for c in cs if c.get('repeat')):>4} "
                    f"{_f(_q([c.get('think_s') for c in cs], .5), '{:.1f}'):>9}")
+    acting = {"click", "type_text", "press_key", "scroll", "drag", "set_value", "perform_action", "batch", "wait"}
+    hdr = (f"{'tool (settle)':16} {'n':>4} {'w/ wait':>7} {'p50 wait ms':>11} {'p90 wait ms':>11} {'>=950ms':>7} "
+           f"{'p50 lat-wait s':>14} {'p90 lat-wait s':>14} {'img att.':>8} {'p50 outline B':>13} {'outcomes':<40}")
+    out += ["", hdr, "-" * len(hdr)]
+    for tool, cs in sorted(by.items()):
+        waits = [c.get("waited_ms") for c in cs if isinstance(c.get("waited_ms"), (int, float))]
+        over = [c.get("latency_s") - c["waited_ms"] / 1000 for c in cs
+                if isinstance(c.get("waited_ms"), (int, float)) and c.get("latency_s") is not None]
+        outs = defaultdict(int)
+        for c in cs:
+            outs[str(c.get("outcome"))] += 1
+        ceil = sum(1 for w in waits if w >= 950)
+        out.append(f"{tool:16} {len(cs):>4} {len(waits):>7} {_f(_q(waits, .5)):>11} {_f(_q(waits, .9)):>11} "
+                   f"{(f'{100 * ceil / len(waits):.0f}%' if waits else '-'):>7} {_f(_q(over, .5), '{:.2f}'):>14} "
+                   f"{_f(_q(over, .9), '{:.2f}'):>14} {sum(1 for c in cs if c.get('images')):>8} "
+                   f"{_f(_q([c.get('outline_bytes') for c in cs], .5)):>13} "
+                   f"{', '.join(f'{k}:{v}' for k, v in sorted(outs.items(), key=lambda kv: -kv[1]))[:60]:<40}")
+    act = [c for c in calls if c["tool"] in acting and isinstance(c.get("waited_ms"), (int, float))]
+    if act:
+        out.append(f"acting calls with a settle wait: {len(act)}; at the 1 s ceiling (>=950 ms): "
+                   f"{sum(1 for c in act if c['waited_ms'] >= 950)} ({100 * sum(1 for c in act if c['waited_ms'] >= 950) / len(act):.0f}%); "
+                   f"total waited {sum(c['waited_ms'] for c in act) / 1000:.0f}s of {sum(c.get('latency_s') or 0 for c in act):.0f}s latency")
     fresh = sum(r.get("fresh_input_tokens") or 0 for r in rows)
     cache = sum(r.get("cache_read_tokens") or 0 for r in rows)
     outp = sum(r.get("output_tokens") or 0 for r in rows)

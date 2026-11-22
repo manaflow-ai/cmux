@@ -138,3 +138,34 @@ def trial_summary(calls: list[dict], turn_usage: list[dict]) -> dict:
         "cache_read_tokens": sum(u.get("cache_read_input_tokens") or 0 for u in turn_usage),
         "tools": dict(sorted({n: names.count(n) for n in set(names)}.items())),
     }
+
+
+def result_fields(body: str) -> dict:
+    """What a cmux CU result reports about itself: outcome, the settle wait (state.waited_ms,
+    state.settle, state.unchanged), and the bytes of text after the JSON head (the outline)."""
+    out: dict = {}
+    text = (body or "").lstrip()
+    if not text.startswith("{"):
+        return out
+    try:
+        head, end = json.JSONDecoder().raw_decode(text)
+    except ValueError:
+        return out
+    if not isinstance(head, dict):
+        return out
+    st = head.get("state") if isinstance(head.get("state"), dict) else {}
+    out["outcome"] = head.get("outcome")
+    out["waited_ms"] = st.get("waited_ms")
+    out["settle"] = st.get("settle")
+    out["unchanged"] = st.get("unchanged", head.get("unchanged"))
+    if isinstance(head.get("results"), list):  # batch: the steps' own waits
+        waits = [r.get("waited_ms") or (r.get("state") or {}).get("waited_ms") for r in head["results"]
+                 if isinstance(r, dict)]
+        waits = [w for w in waits if isinstance(w, (int, float))]
+        if waits and out["waited_ms"] is None:
+            out["waited_ms"] = sum(waits)
+        out["outcome"] = out["outcome"] or ",".join(sorted({str(r.get("outcome")) for r in head["results"]
+                                                              if isinstance(r, dict) and r.get("outcome")}))
+    out["head_bytes"] = len(text[:end].encode())
+    out["outline_bytes"] = len(text[end:].encode())
+    return out

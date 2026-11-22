@@ -97,6 +97,7 @@ def parse_claude_stream(lines: list[str], times: list[float] | None = None) -> T
                     call["images"] = images
                     call["is_error"] = bool(block.get("is_error"))
                     call["no_effect"] = bool(metrics.NO_EFFECT_RE.search(body))
+                    call.update(metrics.result_fields(body))
                     if t is not None and call.get("t_use") is not None:
                         call["latency_s"] = round(t - call["t_use"], 3)
                     if t is not None:
@@ -250,6 +251,60 @@ def fake_desktop(task: dict, env: TaskEnv) -> dict:
     return {"windows": wins}
 
 
+def call_row(run_id: str, arm_id: str, task_id: str, trial: int, i: int, c: dict) -> dict:
+    return {
+        "run_id": run_id, "arm": arm_id, "task": task_id, "trial": trial, "i": i,
+        "tool": metrics.base_name(c.get("name", "")), "args": c.get("args"),
+        "args_bytes": c.get("args_bytes"), "think_s": c.get("think_s"), "latency_s": c.get("latency_s"),
+        "result_bytes": c.get("result_bytes"), "images": c.get("images", []),
+        "is_error": c.get("is_error"), "no_effect": c.get("no_effect"), "repeat": c.get("repeat"),
+        "outcome": c.get("outcome"), "waited_ms": c.get("waited_ms"), "settle": c.get("settle"),
+        "unchanged": c.get("unchanged"), "outline_bytes": c.get("outline_bytes"), "head_bytes": c.get("head_bytes"),
+        "result_head": (c.get("result_text") or "")[:300],
+    }
+
+
+def reparse(out_dir: str) -> str:
+    """Rebuild calls.jsonl from the stored stream logs (and their .times), so new per-call
+    fields reach old runs without running them again. Image counts and sizes come from the
+    logs' '<N base64 bytes>' placeholders; pixel sizes stay as first recorded."""
+    import glob
+    import re
+    old = {}
+    path = os.path.join(out_dir, "calls.jsonl")
+    if os.path.exists(path):
+        with open(path) as f:
+            for line in f:
+                c = json.loads(line)
+                old[(c["run_id"], c["task"], c["trial"], c["i"])] = c
+    rows = []
+    for log in sorted(glob.glob(os.path.join(out_dir, "logs", "*", "*.jsonl"))):
+        run_id = os.path.basename(os.path.dirname(log))
+        m = re.match(r"(.+)-(cmux-cu|cua-driver-[\d.]+|fake)-t(\d+)\.jsonl$", os.path.basename(log))
+        if not m:
+            continue
+        task_id, arm_id, trial = m.group(1), m.group(2), int(m.group(3))
+        with open(log) as f:
+            lines = [ln.rstrip("\n") for ln in f]
+        times = None
+        if os.path.exists(log + ".times"):
+            with open(log + ".times") as f:
+                times = json.load(f)
+        tr = parse_claude_stream(lines, times)
+        metrics.annotate_repeats(tr.tool_calls)
+        for i, c in enumerate(tr.tool_calls):
+            row = call_row(run_id, arm_id, task_id, trial, i, c)
+            prev = old.get((run_id, task_id, trial, i))
+            if prev and prev.get("images"):
+                row["images"] = prev["images"]
+            rows.append(row)
+    with open(path + ".tmp", "w") as f:
+        for r in rows:
+            f.write(json.dumps(r) + "\n")
+    os.replace(path + ".tmp", path)
+    return path
+
+
 def _tool_schema_bytes(arm: dict) -> int | None:
     """Bytes of the server's tools/list (names, descriptions, schemas): sent with every model turn."""
     try:
@@ -338,14 +393,7 @@ def run(arm_ids: list[str], agent: str, model: str, trials: int, out_dir: str, t
             f.write(json.dumps(row) + "\n")
         with open(os.path.join(out_dir, "calls.jsonl"), "a") as f:
             for i, c in enumerate(tr.tool_calls):
-                f.write(json.dumps({
-                    "run_id": run_id, "arm": arm_id, "task": task["id"], "trial": trial, "i": i,
-                    "tool": metrics.base_name(c.get("name", "")), "args": c.get("args"),
-                    "args_bytes": c.get("args_bytes"), "think_s": c.get("think_s"), "latency_s": c.get("latency_s"),
-                    "result_bytes": c.get("result_bytes"), "images": c.get("images", []),
-                    "is_error": c.get("is_error"), "no_effect": c.get("no_effect"), "repeat": c.get("repeat"),
-                    "result_head": (c.get("result_text") or "")[:300],
-                }) + "\n")
+                f.write(json.dumps(call_row(run_id, arm_id, task["id"], trial, i, c)) + "\n")
         mark = "PASS" if row["success"] else "FAIL"
         print(f"{mark} {arm_id:20} {task['id']:28} t{trial} steps={row['steps']} {row['wall_s']}s", flush=True)
     return results
