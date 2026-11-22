@@ -30,6 +30,7 @@ export interface AcpmuxRequests {
   "_acpmux/tailnet/state": { params: unknown; result: unknown };
   "_acpmux/status": { params: StatusParams; result: unknown };
   "_acpmux/perf": { params: unknown; result: unknown };
+  "_acpmux/callers": { params: unknown; result: unknown };
   "_acpmux/context": { params: unknown; result: unknown };
   "_acpmux/context_override": { params: unknown; result: unknown };
   "agent-session-turn-prepare": { params: unknown; result: unknown };
@@ -432,6 +433,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/tailnet/state", kind: "request", acp: false, typed: false },
   { name: "_acpmux/status", kind: "request", acp: false, typed: true },
   { name: "_acpmux/perf", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/callers", kind: "request", acp: false, typed: false },
   { name: "_acpmux/context", kind: "request", acp: false, typed: false },
   { name: "_acpmux/context_override", kind: "request", acp: false, typed: false },
   { name: "agent-session-turn-prepare", kind: "request", acp: false, typed: false },
