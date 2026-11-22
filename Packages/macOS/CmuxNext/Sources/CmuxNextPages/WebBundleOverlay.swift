@@ -266,6 +266,9 @@ public final class WebBundleServedViews {
     private var pins = WebBundlePins()
     /// Views that keep the update they loaded with until they close (``keepLoadedTree(_:)``).
     private let keepsLoaded = NSHashTable<WKWebView>.weakObjects()
+    /// Views under a picture of themselves now, between their snapshot and their reload
+    /// (``reloadCovered(_:to:)``): another covered reload of one waits for that one.
+    private var covering: Set<ObjectIdentifier> = []
 
     /// `webView` keeps the update it loaded with until it closes: a newer update never reloads it in
     /// place (``behind(_:)`` skips it), and its tree stays on disk while it is open (``pinnedTrees``).
@@ -366,6 +369,48 @@ public final class WebBundleServedViews {
             webView.reload()
         }
         return views.count
+    }
+
+    /// Reloads `views` under `serving`, but a view that shows reloads under a still picture of itself
+    /// that stays until its new document has painted and settled, then fades
+    /// (``WebBundleGracefulReload/Cover``, the cover a web layer change uses). A web update then
+    /// reaches the page in sight too, with no blank frame: until 2026-11-22 a page in sight never took
+    /// one (a plain reload drew it blank, so the safe point waited for it to leave sight), and the
+    /// pane Leo was reading kept the old web until he looked away or the next app build relaunched it
+    /// (Leo, 2026-11-22: "this should've been fast, AND shouldn't have needed me to listen to the
+    /// nightly feed for a full build for it to update me"). A view out of sight reloads at once. Each
+    /// view is pinned to `serving` right as it reloads, so its old document never reads the new
+    /// folder. Returns how many it reloaded or covered.
+    @discardableResult
+    public func reloadCovered(_ views: [WKWebView], to serving: WebBundleOverlay.Serving) -> Int {
+        var count = 0
+        for view in views {
+            let id = ObjectIdentifier(view)
+            // Its cover is being made: that reload runs in a moment.
+            guard !covering.contains(id) else { continue }
+            count += 1
+            guard WebBundleGracefulReload.Cover.shows(view) else {
+                reload([view], to: serving)
+                continue
+            }
+            covering.insert(id)
+            // task-owner: one cover's life: its picture, the reload under it, and its fade once the page settled
+            Task { [weak self] in
+                let cover = await WebBundleGracefulReload.Cover.make(over: view)
+                if cover != nil {
+                    // The old document carries a mark in the app's script world; the new one starts without it.
+                    await WebBundleGracefulReload.run("window.cmuxSwapOld = true;", in: view,
+                                                      within: WebBundleGracefulReload.answerWithin)
+                }
+                guard let self else { return }
+                self.covering.remove(id)
+                self.reload([view], to: serving)
+                guard let cover else { return }
+                await WebBundleGracefulReload.settled(view)
+                cover.fadeOut()
+            }
+        }
+        return count
     }
 
     /// Reloads every served view that shows a document from the folder now active. Returns how

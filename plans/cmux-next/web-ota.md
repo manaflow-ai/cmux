@@ -105,7 +105,7 @@ one busy page never holds the others; a tree stays on disk while any page reads 
   that does not answer is busy. A page's own answer is never overridden: no cap reloads a page
   that says a reload would lose something.
 
-Each page that may reload reloads; any other waits and looks again in 15 seconds (one DemandTimer,
+Each page that may reload reloads; a page in sight reloads under a still picture of itself that stays until its new document has painted and settled, then fades (`WebBundleServedViews.reloadCovered`, the cover a web layer change uses), so the pane being read takes the update with no blank frame instead of waiting to leave sight. Any other waits and looks again in 15 seconds (one DemandTimer,
 `web-updates.safe-point`, which stops once every open page reads the pending tree); `updates.web.status` `waiting_for` names the last reason. A reload keeps a
 composer draft (the composer writes every change to the pane origin's `localStorage` at once and to
 acpmux, `composerDraft.ts`), its chips (the host's `chat.draftAttachments`, `keptAttachments.ts`)

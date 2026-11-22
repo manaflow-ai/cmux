@@ -36,11 +36,9 @@ extension WebUpdates {
         let focused = Self.focusedWebView()
         var candidates: [WKWebView] = []
         var next: (after: Duration, reason: String)?
+        // A page in sight takes the update too, under a picture of itself until its new document
+        // settled (``WebBundleServedViews/reloadCovered(_:to:)``): no blank frame.
         for view in behind {
-            if case .later(let after, let reason) = WebSwapGate.sight(inSight: Self.inSight(view)) {
-                next = Self.sooner(next, (after, reason))
-                continue
-            }
             switch WebSwapGate.input(focused: view === focused, active: NSApp.isActive, idle: Self.idleSeconds(), waited: waited) {
             case .later(let after, let reason): next = Self.sooner(next, (after, reason))
             case .askPages: candidates.append(view)
@@ -60,8 +58,6 @@ extension WebUpdates {
         // answered still holds it.
         if case .later(let after, let reason) = appDecision() { return book(after, reason) }
         ready = ready.filter { view in
-            // A page brought into sight while the pages answered is not reloaded under the eye.
-            if case .later = WebSwapGate.sight(inSight: Self.inSight(view)) { return false }
             if case .later = WebSwapGate.input(focused: view === Self.focusedWebView(), active: NSApp.isActive,
                                                idle: Self.idleSeconds(), waited: waited) { return false }
             return true
@@ -69,7 +65,7 @@ extension WebUpdates {
         guard pending != nil else { return }
         // Another update was handed over while the pages answered: look again for that one.
         guard generation == pendingGeneration else { return book(.zero, "update.new") }
-        WebBundleServedViews.shared.reload(ready, to: target)
+        WebBundleServedViews.shared.reloadCovered(ready, to: target)
         guard !WebBundleServedViews.shared.behind(target).isEmpty else { return finishPending() }
         if let held { next = Self.sooner(next, (WebSwapGate.retry, held)) }
         let wait = next ?? (.seconds(1), "page.changed")
@@ -108,16 +104,6 @@ extension WebUpdates {
             view = current.superview
         }
         return nil
-    }
-
-    /// Whether `view` shows on screen now: in a window that is visible and not fully covered
-    /// (`occlusionState`, which also reads a minimized window, another Space and a hidden app as out
-    /// of sight), with no hidden view above it and some of it inside its window.
-    static func inSight(_ view: NSView) -> Bool {
-        guard let window = view.window, window.isVisible, window.occlusionState.contains(.visible),
-              !view.isHiddenOrHasHiddenAncestor else { return false }
-        let shown = view.convert(view.bounds, to: nil).intersection(window.contentView?.frame ?? .zero)
-        return !shown.isNull && shown.width > 1 && shown.height > 1
     }
 
     /// What modal the app has open: a modal window, a sheet, a menu or drag being tracked.

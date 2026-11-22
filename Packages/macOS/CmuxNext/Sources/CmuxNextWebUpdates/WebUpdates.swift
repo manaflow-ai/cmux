@@ -221,7 +221,7 @@ public final class WebUpdates {
         finishPending()
         // A swap shows nothing (Leo, 2026-10-30: "i dont think i need to see this"); Settings'
         // Web UI card shows the served version.
-        return WebBundleServedViews.shared.reload(behind, to: target)
+        return WebBundleServedViews.shared.reloadCovered(behind, to: target)
     }
 
     /// Every open page reads the pending update: nothing is pending any more, and the trees no

@@ -6,21 +6,21 @@ import Testing
 /// update reloads each open page on its own, with nothing modal open, once that page answers that a
 /// reload keeps what it holds and, for the page being typed into, once input went quiet.
 struct WebSwapGateTests {
-    /// A page on screen never reloads for a swap (a reload draws it blank until it boots), whatever
-    /// else allows it; out of sight it takes the update (Leo, 2026-11-22: "the agent pane just
-    /// blanked out entirely yet again").
-    @Test func aPageInSightIsNeverReloadedBySwap() {
-        #expect(WebSwapGate.sight(inSight: true) == .later(after: WebSwapGate.retry, reason: "page.in-sight"))
-        #expect(WebSwapGate.sight(inSight: false) == .askPages)
-    }
-
-    /// The safe point asks the sight half before every reload, at the first look and again right
-    /// before it reloads (a page brought into sight while the pages answered).
-    @Test func theSafePointAsksSightBeforeEachReload() throws {
-        let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appending(path: "Sources/CmuxNextWebUpdates/WebUpdates+SafePoint.swift")
-        let source = try String(contentsOf: file, encoding: .utf8)
-        #expect(source.components(separatedBy: "WebSwapGate.sight(inSight: Self.inSight(view))").count - 1 >= 2)
+    /// A page in sight takes a web update too, under a picture of itself (no blank frame), at the
+    /// first look and from `updates.web.apply`; no sight check holds it (Leo, 2026-11-22: "this
+    /// should've been fast, AND shouldn't have needed me to listen to the nightly feed for a full build
+    /// for it to update me").
+    @Test func theSafePointReloadsPagesInSightUnderAPicture() throws {
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appending(path: "Sources/CmuxNextWebUpdates")
+        let safePoint = try String(contentsOf: sources.appending(path: "WebUpdates+SafePoint.swift"), encoding: .utf8)
+        let updates = try String(contentsOf: sources.appending(path: "WebUpdates.swift"), encoding: .utf8)
+        #expect(safePoint.contains("WebBundleServedViews.shared.reloadCovered(ready, to: target)"))
+        #expect(updates.contains("WebBundleServedViews.shared.reloadCovered(behind, to: target)"))
+        for source in [safePoint, updates] {
+            #expect(!source.contains("WebBundleServedViews.shared.reload("))
+            #expect(!source.contains("inSight"))
+        }
     }
 
     @Test func recentInputHoldsOnlyThePageBeingTypedInto() {
