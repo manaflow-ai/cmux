@@ -15,6 +15,8 @@ use crate::link::{Link, LinkConfig, Role};
 use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, SignalingEvent};
 
 pub(crate) mod turn;
+/// Measurement support (cmux-mobile-path-probe).
+pub use turn::{TimedAllocation, TurnTransport, timed_allocation};
 pub mod webrtc;
 pub mod wireguard;
 
@@ -73,6 +75,28 @@ pub enum LinkPath {
     /// authenticated yet, or every route was refused). There is no backend
     /// relay to fall back to any more.
     NoPath,
+}
+
+impl LinkPath {
+    /// The path's wire name (`link_stat`, the debug probes): `direct`, `turn`, `turn-tls`, `none`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::Turn => "turn",
+            Self::TurnTls => "turn-tls",
+            Self::NoPath => "none",
+        }
+    }
+}
+
+impl TransportKind {
+    /// The transport's wire name (`link_stat`): `webrtc` or `wireguard`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::WebRtc => "webrtc",
+            Self::WireGuard => "wireguard",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
