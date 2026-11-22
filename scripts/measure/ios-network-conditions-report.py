@@ -28,7 +28,10 @@ METRIC_ORDER = [
     "bytes_up",
     "round_trips",
 ]
-PHASE_ORDER = ["cold", "warm", "reconnect"]
+PHASE_ORDER = ["cold", "warm", "reconnect", "fixture", "home", "reattach"]
+# mode=duress: the idle fixture and the loaded daemon (mobile_link_conditions.rs open_path_under_duress).
+DURESS_SCALES = {"idle": 0, "duress": 1}
+DURESS_METRICS = ["round_trips", "bytes_down", "first_content_ms", "interactive_ms", "workspaces_shown"]
 
 
 def percentile(values: list[float], q: float) -> float:
@@ -52,7 +55,7 @@ def fmt(summary: dict | None, metric: str) -> str:
         return "-"
     if "p50" not in summary:
         return f"miss {summary['miss']}/{summary['miss']}"
-    unit = "" if metric in ("round_trips",) else (" B" if metric.startswith("bytes") else " ms")
+    unit = "" if metric in ("round_trips", "workspaces_shown") else (" B" if metric.startswith("bytes") else " ms")
     p50, p95 = summary["p50"], summary["p95"]
     num = lambda v: f"{v:,.0f}" if abs(v) >= 10 else f"{v:g}"
     text = f"{num(p50)}{unit}" if p50 == p95 else f"{num(p50)} / {num(p95)}{unit}"
@@ -65,6 +68,55 @@ def change(before: dict | None, after: dict | None) -> str:
     if not before or not after or "p50" not in before or "p50" not in after or before["p50"] == 0:
         return ""
     return f"{(after['p50'] - before['p50']) / before['p50'] * 100:+.0f}%"
+
+
+def duress_table(rows: list[dict], before: str | None) -> list[str]:
+    """mode=duress: phase x metric, a column per link (the idle fixture first), before -> after
+    p50, and FLAG where a duress after-p50 is more than 2x the idle fixture's after-p50."""
+    duress = [row for row in rows if row["scale"] in DURESS_SCALES and row["phase"] in ("home", "reattach")]
+    if not duress:
+        return []
+    by_key = {(row["phase"], row["metric"], row["profile"], row["scale"]): row for row in duress}
+    links = sorted({row["profile"] for row in duress if row["scale"] == "duress"}, key=lambda p: (p != "none", p))
+    columns = []
+    for link in links:
+        name = "no shaper" if link == "none" else link
+        columns += [(link, "idle", f"{name}, idle fixture"), (link, "duress", f"{name} + duress")]
+    fixture = {row["scale"]: row for row in rows if row["phase"] == "fixture" and row["metric"] == "stream_bytes_per_s"}
+
+    def p50(summary: dict | None):
+        return summary.get("p50") if summary else None
+
+    def cell(row: dict | None, idle: dict | None) -> str:
+        if not row:
+            return "-"
+        after = row["after"]
+        text = fmt(after, row["metric"])
+        if before:
+            text = f"{fmt(row['before'], row['metric'])} -> {text}"
+        value, idle_after = p50(after), p50(idle["after"]) if idle else None
+        if row["scale"] == "duress" and row["metric"] != "workspaces_shown" and value is not None and idle_after:
+            if value > 2 * idle_after:
+                text += f" **FLAG {value / idle_after:.1f}x idle**"
+        return text
+
+    out = ["### duress: p50 (/ p95)" + (" before -> after" if before else "") + "; FLAG: a duress after > 2x the idle fixture's after on the same link", ""]
+    stream = fixture.get("duress")
+    if stream and stream.get("after"):
+        out.append(f"duress stream rate at the daemon: {fmt(stream['after'], 'bytes_down')}/s")
+        out.append("")
+    out.append("| phase | metric | " + " | ".join(label for _, _, label in columns) + " |")
+    out.append("|---|---|" + "---|" * len(columns))
+    for phase in ("home", "reattach"):
+        for metric in DURESS_METRICS:
+            cells = [by_key.get((phase, metric, link, scale)) for link, scale, _ in columns]
+            if not any(cells):
+                continue
+            idle = {link: by_key.get((phase, metric, link, "idle")) for link in links}
+            out.append(f"| {phase} | {metric} | " + " | ".join(
+                cell(row, idle[link]) for row, (link, _, _) in zip(cells, columns)) + " |")
+    out.append("")
+    return out
 
 
 def main() -> int:
@@ -96,7 +148,7 @@ def main() -> int:
             surface,
             profile,
             PHASE_ORDER.index(phase) if phase in PHASE_ORDER else 9,
-            int(scale.rstrip("x") or 0),
+            int(scale.rstrip("x")) if scale.rstrip("x").isdigit() else DURESS_SCALES.get(scale, 99),
             METRIC_ORDER.index(metric) if metric in METRIC_ORDER else 99,
         )
 
@@ -138,6 +190,7 @@ def main() -> int:
                 cells += [fmt(row["after"], row["metric"])]
             out.append("| " + " | ".join(cells) + " |")
         out.append("")
+    out += duress_table(rows, args.before)
     with open(args.markdown, "w") as handle:
         handle.write("\n".join(out))
     return 0

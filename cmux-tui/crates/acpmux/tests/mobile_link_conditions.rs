@@ -23,8 +23,16 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// This process runs stand-in agents (the fake agents under tests/). The bench's own knobs pass
+// through the hermetic re-start: without them every run took the defaults (every profile, 1x-100x,
+// n=5) whatever ios-network-conditions.sh asked for.
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+    "NETCOND_PROFILES",
+    "NETCOND_PROFILES_FILE",
+    "NETCOND_SCALES",
+    "NETCOND_RUNS",
+    "NETCOND_SEED_BASE",
+]);
 
 #[path = "support/app_ws.rs"]
 mod app_ws;
@@ -376,7 +384,11 @@ impl Control {
     /// Turns of ~1 KB answers (the fake agent echoes the prompt) until the chat holds `turns`.
     async fn seed(&mut self, session: &str, from: u64, turns: u64) {
         let pad = "lorem ipsum dolor sit amet ".repeat(37);
+        let started = Instant::now();
         for n in from..turns {
+            if n > from && n % 500 == 0 {
+                eprintln!("netcond: seeding turn {n}/{turns}, {:?} so far", started.elapsed());
+            }
             let id = self.prompt(session, &format!("turn {n}: {pad}")).await;
             let v = self.answer(id, BOUND).await.unwrap_or_else(|| panic!("seed turn {n} hung"));
             assert!(v.get("error").is_none(), "seed turn {n}: {v}");
