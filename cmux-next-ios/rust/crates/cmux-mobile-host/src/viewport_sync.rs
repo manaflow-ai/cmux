@@ -42,10 +42,9 @@ use cmux_wg::{Priority, WgDatagramSocket, WgNet};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
-/// The opt-in switch: `1` (or `true`) turns the datagram path on; anything else, or unset, is off.
-pub const ENV: &str = "CMUX_MOBILE_VIEWPORT_SYNC";
-/// The overlay UDP port (7420 link TCP, 7421 roam, 7422 media, 7423 failover relay).
-pub const PORT: u16 = 7424;
+/// The opt-in switch ([`enabled`]) and the overlay UDP port (7420 link TCP, 7421 roam, 7422
+/// media, 7423 failover relay, 7424 this): one definition, the link crate's, for both sides.
+pub use cmux_mobile_link::viewport::{ENV, PORT};
 
 /// Whether the datagram path is on in this process.
 pub fn enabled() -> bool {
@@ -229,6 +228,14 @@ impl Default for SelectorConfig {
             hold: Duration::from_secs(5),
             probe: Duration::from_millis(100),
         }
+    }
+}
+
+impl SelectorConfig {
+    /// The datagram path from the first poll on, and never back (tests, and measuring the
+    /// datagram path alone): a switch needs zero losses, the way back a hold that never ends.
+    pub fn datagram_first() -> Self {
+        Self { losses: 0, hold: Duration::MAX, ..Self::default() }
     }
 }
 
@@ -446,6 +453,22 @@ impl ViewportSync {
             copies_sent: 0,
             copy_bytes: 0,
         }
+    }
+
+    /// The same host model (screen, scrollback, parser state) under a new epoch: a fresh
+    /// sender, pacer and round-trip state, no selector, the screen dirty. A phone that dropped
+    /// the old epoch's state takes the new one's first diff as a keyframe.
+    pub fn renewed(self, max_datagram: usize, now: Instant) -> ViewportSync {
+        let mut next = ViewportSync::new(1, 1, max_datagram, self.config, now);
+        next.term = self.term;
+        next.history = self.history;
+        next.batches = self.batches;
+        next
+    }
+
+    /// The epoch every datagram of this driver carries (the phone's acks echo it).
+    pub fn epoch(&self) -> u32 {
+        self.sender.epoch()
     }
 
     /// Choose the path per link ([`PathSelector`]): the stream until the link's round trip or
@@ -976,6 +999,9 @@ pub enum StreamOut {
     History(Vec<u8>),
     /// The path changed; the batches after this go the new way.
     Switched(Path),
+    /// Right after a switch to the stream: the host's screen now, for the phone to repaint in
+    /// full before the stream's batches resume (the datagrams may have left it behind).
+    Repaint(ScreenState),
 }
 
 enum Sink {
@@ -1035,6 +1061,10 @@ async fn drive<I: DatagramIo>(
         }
         if let (Some(path), Sink::Selected(stream)) = (sync.take_switch(), &sink) {
             let _ = stream.send(StreamOut::Switched(path)).await;
+            if path == Path::Stream {
+                // Before any batch the stream path forwards: those follow this screen.
+                let _ = stream.send(StreamOut::Repaint(sync.capture())).await;
+            }
         }
         let done = sync.settled() || matches!(sink, Sink::Selected(_)) && sync.path() == Path::Stream;
         if let Some(closed) = closed_at

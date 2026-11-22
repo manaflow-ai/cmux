@@ -2082,6 +2082,7 @@ impl Dialer for WireGuardDialer {
             } else {
                 None
             };
+            let overlay = super::Overlay { net: Arc::clone(&net), peer_ip: IpAddr::V4(peer_ip) };
             let link_addr = SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT);
             let stream = net.connect(link_addr).await.map_err(transport_error)?;
             // The input lane: a second TCP stream to the same port, opened
@@ -2111,6 +2112,7 @@ impl Dialer for WireGuardDialer {
                 lane,
                 media,
                 webrtc_media,
+                overlay: Some(overlay),
             })
         })
     }
@@ -2220,6 +2222,7 @@ impl Dialer for WireGuardDialer {
             } else {
                 None
             };
+            let overlay = super::Overlay { net: Arc::clone(&net), peer_ip: IpAddr::V4(peer_ip) };
             drop(net);
             signaling
                 .send_signal(
@@ -2258,6 +2261,7 @@ impl Dialer for WireGuardDialer {
                 guard: Box::new(guard),
                 lane,
                 webrtc_media,
+                overlay: Some(overlay),
                 media: media.map(|carrier| {
                     options.timeline.mark("video_lane");
                     super::PendingMedia::Send(carrier)

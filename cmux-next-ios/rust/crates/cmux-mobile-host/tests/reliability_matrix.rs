@@ -311,6 +311,7 @@ impl Rig {
             chief_socket: None,
             browser: cmux_mobile_host::browser::BrowserConfig::new(None, 1),
             surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
+            viewport_sync: None,
         });
         let (phone_stream, mac_stream, toxic) = toxic_pipe(toxics, 0x5eed);
         let phone = Link::new(phone_stream, Role::Phone, LinkConfig::default(), None);
@@ -327,6 +328,7 @@ impl Rig {
                         video: None,
                         session_exposure: None,
                         route: None,
+                        viewport: None,
                     },
                     Arc::new(LinkAuth::default()),
                     incoming,

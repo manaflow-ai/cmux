@@ -51,6 +51,7 @@ pub mod services;
 pub mod size_release;
 pub mod surface;
 pub mod traffic;
+pub mod viewport_link;
 pub mod viewport_sync;
 
 mod side_completion;

@@ -10,6 +10,7 @@
 //! - [`hybrid`]: the phone's WebRTC media session beside a WireGuard link.
 //! - [`keepalive`]: the phone's one keepalive clock (Align Keepalives).
 //! - [`link_stat`]: the phone's path report (`link_stat` on the signaling socket).
+//! - [`viewport`]: viewport state sync's VT rendering and the phone's datagram receiver.
 
 pub mod api;
 pub mod build_space;
@@ -26,9 +27,10 @@ pub mod signaling;
 #[cfg(feature = "testing")]
 pub mod testing;
 pub mod timing;
+pub mod viewport;
 
 pub use build_space::BuildSpace;
-pub use dial::{Connected, DialError, DialOptions, LinkPath, TransportKind, UltraSetting};
+pub use dial::{Connected, DialError, DialOptions, LinkPath, Overlay, TransportKind, UltraSetting};
 pub use link::{
     Channel, ChannelEvent, CloseInfo, IncomingChannel, Lane, LaneState, Link, LinkConfig, LinkError, Role,
 };

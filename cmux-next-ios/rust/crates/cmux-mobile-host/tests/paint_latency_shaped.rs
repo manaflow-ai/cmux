@@ -480,7 +480,8 @@ async fn run_selected(profile: &str, load: &Load, every: Duration) -> SelectedRo
                                 format!("{{\"data\":\"{data}\",\"event\":\"history\",\"surface\":1}}\n");
                             sender.send_marked(Bytes::from(line), None).await.unwrap();
                         }
-                        StreamOut::Switched(_) => {}
+                        // The measured runs' writer: switches and the repaint after one say nothing.
+                        StreamOut::Switched(_) | StreamOut::Repaint(_) => {}
                     }
                 }
                 sender

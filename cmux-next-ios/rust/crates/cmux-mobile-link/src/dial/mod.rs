@@ -320,6 +320,14 @@ pub fn is_cgnat(ip: std::net::IpAddr) -> bool {
 pub trait LinkStream: AsyncRead + AsyncWrite + Send + Unpin + 'static {}
 impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> LinkStream for T {}
 
+/// The WireGuard overlay a link rides, for its own datagram ports (viewport sync, 7424).
+#[derive(Clone)]
+pub struct Overlay {
+    pub net: std::sync::Arc<cmux_wg::WgNet>,
+    /// The other side's overlay address.
+    pub peer_ip: std::net::IpAddr,
+}
+
 /// A dialed or answered transport.
 pub struct Dialed {
     pub stream: Box<dyn LinkStream>,
@@ -334,6 +342,8 @@ pub struct Dialed {
     pub media: Option<PendingMedia>,
     /// Both sides listed [`WEBRTC_MEDIA_LANE`] (WireGuard).
     pub webrtc_media: bool,
+    /// The tunnel's overlay (WireGuard links only).
+    pub overlay: Option<Overlay>,
 }
 
 /// A negotiated media carrier; the link starts its core once it runs (the
@@ -506,6 +516,8 @@ pub struct Connected {
     /// Both sides agreed on a WebRTC media session beside this (WireGuard)
     /// link; the phone opens it on demand ([`crate::hybrid`]).
     pub webrtc_media: bool,
+    /// The WireGuard overlay this link rides (`None` on WebRTC).
+    pub overlay: Option<Overlay>,
 }
 
 /// Phone side: dial `mac` over `kind` and run a link on the result.
@@ -559,6 +571,7 @@ pub async fn connect(
         peer: dialed.peer,
         session_id,
         webrtc_media: dialed.webrtc_media,
+        overlay: dialed.overlay,
     })
 }
 
@@ -603,6 +616,7 @@ pub async fn answer(
         peer: dialed.peer,
         session_id,
         webrtc_media: dialed.webrtc_media,
+        overlay: dialed.overlay,
     })
 }
 

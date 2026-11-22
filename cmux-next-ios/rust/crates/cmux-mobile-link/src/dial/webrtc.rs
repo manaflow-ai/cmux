@@ -449,6 +449,7 @@ async fn finish(
         lane: lane.map(lane_stream),
         media,
         webrtc_media: false,
+        overlay: None,
     })
 }
 
