@@ -668,6 +668,19 @@
       "source": "https://files.cmux.com/cmux-tui/45ed727f30d1a623ba43d98d634b84b838a713db/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/44991824725; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
+      "name": "optchat-chief",
+      "version": "b45ce4c71f2096ca25f006da5488f2b7ad5e6534",
+      "url": "https://files.cmux.com/optchat-chief/b45ce4c71f2096ca25f006da5488f2b7ad5e6534/optchat-chief-x86_64-unknown-linux-musl",
+      "sha256": "fcdbc61e00f1e92064b4a23f447d350c486fcc11257913b2dd5883cf9f081e2b",
+      "size": 17984424,
+      "format": "raw",
+      "fileName": "optchat-chief",
+      "bin": { "optchat-chief": "optchat-chief" },
+      "versionArgs": ["--version"],
+      "expect": "b45ce4c71f2096ca25f006da5488f2b7ad5e6534",
+      "source": "https://files.cmux.com/optchat-chief/b45ce4c71f2096ca25f006da5488f2b7ad5e6534/manifest.json (the Cloud Chief host build, published by .github/workflows/cloud-chief-machine.yml)"
+    },
+    {
       "name": "coderouter",
       "version": "0.3.11",
       "url": "https://github.com/manaflow-ai/coderouter-releases/releases/download/v0.3.11/coderouter-linux-x64",
