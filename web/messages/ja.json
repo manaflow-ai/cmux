@@ -981,6 +981,7 @@
         "current": "現在のプラン",
         "perMonth": "/月",
         "names": {
+          "next_plus": "cmux NEXT Plus",
           "next_pro": "cmux NEXT Pro",
           "next_max": "cmux NEXT Max"
         },
@@ -2204,6 +2205,7 @@
     "typingProgrammability": "プログラマビリティ",
     "taglineStatic": "マルチタスク、整理、プログラマビリティのために作られたターミナル。",
     "subtitle": "無料・オープンソースのGhosttyベースのネイティブmacOSターミナル。縦タブ、エージェントが注意を必要とするときの通知リング、分割ペイン、プログラマビリティのための<cliLink>CLI</cliLink>を搭載。",
+    "nextCallout": "新登場: 次期cmuxのプレビュー版、<link>cmux NEXT</link>をお試しください。",
     "features": "機能",
     "faq": "FAQ",
     "communitySection": "コミュニティ",
