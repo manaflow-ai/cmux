@@ -21,7 +21,7 @@ export function ThreadTitle({ title, onRename, glass }: { title: string; onRenam
   const { workspace } = useHeaderState();
   if ((glass ?? glassSwitch) && workspace)
     return (
-      <span className="acpmux-thread-title acpmux-glass-title" title={title} onDoubleClick={onRename}>
+      <span className="acpmux-thread-title acpmux-glass-title" onDoubleClick={onRename}>
         <span className="acpmux-glass-title-name">{workspace.title}</span>
         <span className="acpmux-glass-title-detail">
           {t("header.glassChats", {
@@ -32,7 +32,7 @@ export function ThreadTitle({ title, onRename, glass }: { title: string; onRenam
       </span>
     );
   return (
-    <span className="acpmux-thread-title" title={title} onDoubleClick={onRename}>
+    <span className="acpmux-thread-title" onDoubleClick={onRename}>
       {title}
     </span>
   );
