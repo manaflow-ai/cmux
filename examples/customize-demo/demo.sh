@@ -127,7 +127,8 @@ for file in "${list[@]}"; do
   if [[ $n -gt 1 ]]; then "$cli" customize discard; fi
   printf '\n[%d/%d] %s  (%s)\n' "$n" "${#list[@]}" "$(title "$file")" "$file"
   "$cli" customize use "$here/$file"
-  # An already open page belongs to the previous profile. Show this one's page.
+  # An already open page belongs to the previous profile. Show this one's page: newTab.page, not
+  # newTab.default, which gives the CLI a tab of the selected tab's kind (a terminal here), never the page.
   "$cli" action run newTab.page --focus
   if [[ -n "$auto" ]]; then
     sleep "$auto"

@@ -33,6 +33,7 @@ use super::{Deadline, Outcome, Ran, Request, Runner, at, failed, run_once, step_
 pub(super) const START_BOUND: Duration = Duration::from_secs(90);
 
 /// How many fresh machines a run starts after the first one it gave up on.
+// short-gate: fresh machines started after one stuck past START_BOUND (a hang breaker), not retries of a slow start.
 pub(super) const FRESH_RETRIES: usize = 1;
 
 /// The code of a start whose new machine never came up ([`stuck`]); after the retries, the run's answer.

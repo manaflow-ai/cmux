@@ -73,30 +73,30 @@ final class ChromiumFallbackLog {
 /// Engine-choice strings (default engine actions, the fallback notice).
 enum BrowserEngineStrings {
     static var fallbackNotBundled: String {
-        String(localized: "browser.engine.fallback.notBundled", defaultValue: "Chromium isn’t in this build, so this tab uses WebKit.", bundle: .module)
+        String(localized: "browser.engine.fallback.notBundled", defaultValue: "Chromium isn’t in this build, so this tab uses WebKit.", bundle: .module.inAppLanguage)
     }
     static var fallbackDownloading: String {
         String(localized: "browser.engine.fallback.downloading",
-               defaultValue: "Chromium is downloading, so this tab uses WebKit. New tabs use Chromium when it’s ready.", bundle: .module)
+               defaultValue: "Chromium is downloading, so this tab uses WebKit. New tabs use Chromium when it’s ready.", bundle: .module.inAppLanguage)
     }
     static var fallbackDownloadFailed: String {
         String(localized: "browser.engine.fallback.downloadFailed",
-               defaultValue: "Chromium couldn’t download yet, so this tab uses WebKit. cmux will try again.", bundle: .module)
+               defaultValue: "Chromium couldn’t download yet, so this tab uses WebKit. cmux will try again.", bundle: .module.inAppLanguage)
     }
     /// The refusal while the download runs; `fraction` (0...1) shows as a percentage, 0 before bytes flow.
     static func downloading(_ fraction: Double?) -> String {
         let percent = (fraction ?? 0).formatted(.percent.precision(.fractionLength(0)))
-        return String(localized: "browser.engine.downloading", defaultValue: "Chromium is downloading (\(percent)). Try again when it’s ready.", bundle: .module)
+        return String(localized: "browser.engine.downloading", defaultValue: "Chromium is downloading (\(percent)). Try again when it’s ready.", bundle: .module.inAppLanguage)
     }
     static var downloadFailed: String {
-        String(localized: "browser.engine.downloadFailed", defaultValue: "Chromium couldn’t download yet. cmux will try again.", bundle: .module)
+        String(localized: "browser.engine.downloadFailed", defaultValue: "Chromium couldn’t download yet. cmux will try again.", bundle: .module.inAppLanguage)
     }
     static var fallbackStartFailed: String {
-        String(localized: "browser.engine.fallback.startFailed", defaultValue: "Chromium couldn’t start, so this tab uses WebKit.", bundle: .module)
+        String(localized: "browser.engine.fallback.startFailed", defaultValue: "Chromium couldn’t start, so this tab uses WebKit.", bundle: .module.inAppLanguage)
     }
     /// A restored Chromium tab whose Chromium failed to start (`CEFUnavailableReason.keepsChromiumTabsOutOfWebKit`).
     static var chromiumUnavailableRestoredTab: String {
         String(localized: "browser.engine.unavailable.restoredTab",
-               defaultValue: "Chromium unavailable: this tab isn’t loaded, because WebKit would open it signed out. Quit and reopen cmux to load it.", bundle: .module)
+               defaultValue: "Chromium unavailable: this tab isn’t loaded, because WebKit would open it signed out. Quit and reopen cmux to load it.", bundle: .module.inAppLanguage)
     }
 }

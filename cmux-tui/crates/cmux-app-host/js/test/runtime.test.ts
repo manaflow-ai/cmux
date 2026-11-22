@@ -76,6 +76,19 @@ describe("lists", () => {
     globalThis.setItems = setItems
     return { render: () => VStack([ForEach({ items, key: (x) => x.id }, (x) => Text(() => x().t))]) }`)
 
+  test("a movable list publishes stable row keys and receives the final index", () => {
+    const host = new FakeHost(app(`
+      return { render: () => Reorderable({ items: () => ["pin-a", "pin-b"], key: x => x,
+        onMove: (id, index) => globalThis.moved = [id, index] }, x => Text(x)) }`))
+    host.mount("pins", "render")
+    const nodes = host.lastBatch("pins").filter(op => op.op === "create")
+    expect(nodes.filter(node => node.type === "Text").map(node => node.props?.reorderKey)).toEqual(["pin-a", "pin-b"])
+    const list = nodes.find(node => node.type === "Reorderable")!
+    expect(list.props?.onMove).toBe(true)
+    host.dispatch("pins", list.id, "move", { id: "pin-b", index: 0 })
+    expect(host.eval("moved")).toEqual(["pin-b", 0])
+  })
+
   test("keyed reorder emits only a children op", async () => {
     const host = new FakeHost(listApp)
     host.mount("m1", "render")
