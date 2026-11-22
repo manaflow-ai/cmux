@@ -515,9 +515,9 @@ async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
     let id = str_param(params, "deliveryId")
         .ok_or_else(|| RpcError::invalid_params("deliveryId is required"))?;
     if id.starts_with(super::mesh_send::PREFIX)
-        && let Some(mesh) = hub.mesh.get()
+        && let Some(reply) = super::mesh_relay::read::mesh_status(hub, conn, id).await
     {
-        return super::mesh_send::status(hub, conn, &mesh, id).await;
+        return reply;
     }
     let status = outbox_status(hub, id, params).await?;
     match hub.outbox.get(id) {

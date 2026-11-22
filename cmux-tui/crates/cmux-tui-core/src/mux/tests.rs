@@ -40,6 +40,7 @@ mod column_update;
 mod create_commit_cost;
 mod create_entity_cost;
 mod creation_burst;
+mod deleted_bytes;
 mod diagnostics;
 mod disk_budget;
 mod disk_usage_read_cost;

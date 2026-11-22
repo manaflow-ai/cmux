@@ -70,6 +70,7 @@ mod codex_auth_file;
 mod codex_cloud_auth;
 pub mod codex_cmux_entry;
 pub mod codex_desktop;
+pub mod codex_repo_gate;
 pub mod complete;
 pub mod computer_use;
 pub mod config;
@@ -308,6 +309,7 @@ pub mod subsession_settings;
 pub mod subsession_worktree;
 pub mod suggestion_gate;
 pub(crate) mod supervise;
+pub mod surge_triage;
 pub mod tailnet;
 pub mod task_list;
 #[cfg(unix)]
