@@ -96,6 +96,7 @@ impl Hub {
                 disk_low_bytes,
                 agent_inbox,
                 person_hold,
+                page_rule,
                 hold_agent_starts_to_starter,
                 auto_resume_delays_ms,
                 login_env_allow,
@@ -183,6 +184,8 @@ impl Hub {
             current.agent_inbox = agent_inbox;
             // The next person's prompt to an idle chat reads it (`person_hold.rs`).
             current.person_hold = person_hold;
+            // The next message to a coordinator's inbox reads it (`inbox_page_rule.rs`).
+            current.page_rule = page_rule;
             current.mcp_store = mcp_store;
             current.hold_agent_starts_to_starter = hold_agent_starts_to_starter;
             current.auto_resume_delays_ms = auto_resume_delays_ms;
