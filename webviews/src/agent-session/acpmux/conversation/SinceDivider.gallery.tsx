@@ -82,12 +82,23 @@ type Props = {
   mode?: UnreadBannerMode;
   /// No line at all: the rows' places every look must keep.
   none?: boolean;
+  /// The next row is the running turn's "Working for" line (row kind `working`), not a finished one.
+  working?: boolean;
 };
 
 /// The gap between the seen turn and the next (the transcript's turn gap), which the line lies over.
 const TURN_GAP = 32;
 
-function UnreadLooks({ part, theme, look, read = false, recap = false, mode = "expanded", none = false }: Props) {
+function UnreadLooks({
+  part,
+  theme,
+  look,
+  read = false,
+  recap = false,
+  mode = "expanded",
+  none = false,
+  working = false,
+}: Props) {
   return (
     <div
       className="acpmux-shell"
@@ -130,7 +141,7 @@ function UnreadLooks({ part, theme, look, read = false, recap = false, mode = "e
         )}
       </div>
       <div
-        className="acpmux-row acpmux-worked"
+        className={`acpmux-row ${working ? "acpmux-working" : "acpmux-worked"}`}
         style={{ position: "relative", left: 0, right: 0, marginTop: TURN_GAP - 8 }}
       >
         <Worked />
@@ -167,6 +178,14 @@ export default componentEntry<Props>({
     "no-line": {
       note: "No line: every look keeps the rows exactly here (the line takes no height).",
       props: { part: "line", theme: "dark", none: true },
+    },
+    "line-working": {
+      note: "B over the running turn's Working for line: the same divider lit, New at its end.",
+      props: { part: "line", theme: "dark", look: "worked", working: true },
+    },
+    "no-line-working": {
+      note: "No line over the running turn's Working for line: where its divider sits.",
+      props: { part: "line", theme: "dark", none: true, working: true },
     },
     "line-read": {
       note: "Read (dissipated after a moment on screen at a focused pane, or Mark read): nothing drawn, and nothing moved.",

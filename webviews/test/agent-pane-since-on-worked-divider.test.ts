@@ -46,10 +46,10 @@ await requireBrowserLane("agent-pane-since-on-worked-divider.test.ts", async () 
 
   async function measure(page: Page, variant: string): Promise<Shot> {
     await page.goto(url(variant));
-    const worked = page.locator(".acpmux-worked .cv-worked");
+    const worked = page.locator(":is(.acpmux-worked, .acpmux-working) .cv-worked");
     await worked.waitFor();
     return await page.evaluate(() => {
-      const line = document.querySelector<HTMLElement>(".acpmux-worked .cv-worked")!;
+      const line = document.querySelector<HTMLElement>(":is(.acpmux-worked, .acpmux-working) .cv-worked")!;
       const box = line.getBoundingClientRect();
       const after = getComputedStyle(line, "::after");
       const height = parseFloat(after.height);
@@ -79,31 +79,35 @@ await requireBrowserLane("agent-pane-since-on-worked-divider.test.ts", async () 
     });
   }
 
-  test("New lights the Worked for divider in place and draws no second line", async () => {
-    const page = await browser.newPage({ viewport: { width: 640, height: 400 } });
-    try {
-      const plain = await measure(page, "no-line");
-      const lit = await measure(page, "line-worked");
-      // One line: the mark paints no rule of its own over a Worked for line.
-      expect(lit.rules).toEqual([]);
-      // That line is the divider, lit in the accent, where the divider is with no mark at all.
-      expect(lit.divider.color).toBe(lit.accent);
-      expect(plain.divider.color).not.toBe(plain.accent);
-      expect(lit.divider.top).toBe(plain.divider.top);
-      expect(lit.divider.height).toBe(plain.divider.height);
-      // No layout shift: the Worked for line keeps its place.
-      expect(lit.worked).toEqual(plain.worked);
-      // "New" sits on the line's words, above the divider, never under it.
-      expect(lit.tag).toBeDefined();
-      expect(lit.tag!.top).toBeGreaterThanOrEqual(lit.worked.top);
-      expect(lit.tag!.bottom).toBeLessThanOrEqual(lit.divider.top);
-    } finally {
-      await page.close();
-    }
-  });
+  for (const [name, bare, marked] of [
+    ["Worked for", "no-line", "line-worked"],
+    ["the running Working for", "no-line-working", "line-working"],
+  ] as const)
+    test(`New lights ${name} line's divider in place and draws no second line`, async () => {
+      const page = await browser.newPage({ viewport: { width: 640, height: 400 }, reducedMotion: "reduce" });
+      try {
+        const plain = await measure(page, bare);
+        const lit = await measure(page, marked);
+        // One line: the mark paints no rule of its own over a Worked for line.
+        expect(lit.rules).toEqual([]);
+        // That line is the divider, lit in the accent, where the divider is with no mark at all.
+        expect(lit.divider.color).toBe(lit.accent);
+        expect(plain.divider.color).not.toBe(plain.accent);
+        expect(lit.divider.top).toBe(plain.divider.top);
+        expect(lit.divider.height).toBe(plain.divider.height);
+        // No layout shift: the Worked for line keeps its place.
+        expect(lit.worked).toEqual(plain.worked);
+        // "New" sits on the line's words, above the divider, never under it.
+        expect(lit.tag).toBeDefined();
+        expect(lit.tag!.top).toBeGreaterThanOrEqual(lit.worked.top);
+        expect(lit.tag!.bottom).toBeLessThanOrEqual(lit.divider.top);
+      } finally {
+        await page.close();
+      }
+    });
 
   test("read, the divider is the plain rule again", async () => {
-    const page = await browser.newPage({ viewport: { width: 640, height: 400 } });
+    const page = await browser.newPage({ viewport: { width: 640, height: 400 }, reducedMotion: "reduce" });
     try {
       const plain = await measure(page, "no-line");
       const read = await measure(page, "line-read");
