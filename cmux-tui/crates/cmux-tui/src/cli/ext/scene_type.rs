@@ -93,15 +93,15 @@ mod tests {
         }
     }
 
-    /// The SDK's `TYPE_ROLES` (widget.ts) is a copy an extension bundles, so it cannot import the
+    /// The SDK's `TYPE_ROLES` (tokens.ts) is a copy an extension bundles, so it cannot import the
     /// table; it must say the same sizes and weights.
     #[test]
     fn the_sdk_type_roles_match_the_table() {
-        let widget = include_str!("../../../../cmux-extension-sdk/typescript/src/widget.ts");
+        let tokens = include_str!("../../../../cmux-extension-sdk/typescript/src/tokens.ts");
         for role in roles() {
             let row =
                 format!("{}: {{ size: {}, weight: \"{}\" }}", role.name, role.size, role.weight);
-            assert!(widget.contains(&row), "widget.ts TYPE_ROLES has `{row}`");
+            assert!(tokens.contains(&row), "tokens.ts TYPE_ROLES has `{row}`");
         }
     }
 }
