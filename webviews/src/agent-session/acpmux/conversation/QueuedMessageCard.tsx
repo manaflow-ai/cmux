@@ -23,7 +23,7 @@ import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { ChevronRight } from "./icons";
 import { IncomingMessageLine } from "./IncomingMessageCard";
 
-import { messageOpened, setMessageOpened } from "./incomingOpened";
+import { useDisclosure } from "./useDisclosure";
 import { messagePreview, type IncomingMessage } from "./incomingMessage";
 import { MessageFooterRow } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
@@ -287,12 +287,8 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
 function DeclinedLine({ row, person }: { row: AcpmuxRow; person?: Participant }) {
   const t = useT();
   const session = useContext(PromptMarksSession);
-  const [open, setOpen] = useState(() => messageOpened(session, row.id));
+  const { open, toggle } = useDisclosure({ message: row.id, sessionId: session });
   const text = row.text ?? "";
-  const toggle = () => {
-    setMessageOpened(session, row.id, !open);
-    setOpen(!open);
-  };
   return (
     <div className="cv-incoming cv-declined" data-declined-message={row.queuedMessage?.promptId}>
       <button type="button" className="cv-declined__line" aria-expanded={open} onClick={toggle}>

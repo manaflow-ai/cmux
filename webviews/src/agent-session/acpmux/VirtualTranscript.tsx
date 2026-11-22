@@ -101,7 +101,8 @@ import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
 import { layoutWatchWanted, startLayoutWatch } from "./conversation/layoutWatch";
-import { transition, type MotionList } from "./conversation/motionOwner";
+import { registerListScroll, runningTransition, transition, type MotionList } from "./conversation/motionOwner";
+import { DisclosureMotion, DisclosureRow, type RunDisclosure } from "./conversation/transcriptDisclosureModel";
 import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRow } from "./streamingRow";
 import { rowsWithLiveOutput, useLiveToolRow } from "./liveToolOutput";
@@ -609,7 +610,12 @@ const RowFrame = React.memo(function RowFrame({
   // repositories (sameRowFrame compares it so): a new object would redraw its content's chips.
   const [scope, setScope] = useState(referenceScope);
   if (scope !== referenceScope && !sameReferenceScope(scope, referenceScope)) setScope(referenceScope);
-  const content = <ReferenceScopeContext.Provider value={scope ?? null}>{children}</ReferenceScopeContext.Provider>;
+  // The row a disclosure inside it is drawn in: its toggle's transition anchors on it (useDisclosure.ts).
+  const content = (
+    <DisclosureRow.Provider value={row.id}>
+      <ReferenceScopeContext.Provider value={scope ?? null}>{children}</ReferenceScopeContext.Provider>
+    </DisclosureRow.Provider>
+  );
   useLayoutEffect(() => {
     if (acpmuxPerf.enabled) acpmuxPerf.render(`frame:${row.id}`);
   });
@@ -775,6 +781,8 @@ const RowFrame = React.memo(function RowFrame({
 /// row other than a reply and the live line changed (a call finished, a thought grew, a steer
 /// landed). O(1): the last ARRIVAL_TAIL rows, by id and version.
 const ARRIVAL_TAIL = 6;
+/// How long after a click's capture declared a fold's transition the change it sets still plays in it.
+const DECLARED_FOLD_MS = 50;
 /// Sent thinking markers live only for the recent sends that can still be in their landing window.
 /// This keeps the identity side table constant-size even when a long transcript is retained.
 const SENT_PROMPT_ID_LIMIT = 32;
@@ -2228,6 +2236,32 @@ function TranscriptView({
   followRef.current = follow;
   // The layout watcher's streaming read (conversation/layoutWatch.ts): a growing last row is no move.
   const workingRef = useRef(working);
+  // The list the motion owner drives (set by the scroller's effect below), and the fold the click's
+  // capture already declared a transition for (`declareFold`).
+  const motionListRef = useRef<MotionList | undefined>(undefined);
+  const declaredFold = useRef<{ rowId: string; at: number } | undefined>(undefined);
+  // A disclosure's change (useDisclosure.ts, transcriptDisclosureModel.ts) as one transition of the
+  // motion owner, anchored on the row it is drawn in. A click on a fold toggle already declared its
+  // transition in the capture phase: the change it sets plays inside that one, never a second.
+  const runDisclosure = useCallback<RunDisclosure>((anchorRow, apply) => {
+    const list = motionListRef.current;
+    if (!list) return apply();
+    const declared = declaredFold.current;
+    const playing = runningTransition(list);
+    if (
+      declared?.rowId === anchorRow &&
+      performance.now() - declared.at < DECLARED_FOLD_MS &&
+      playing &&
+      !playing.ended
+    )
+      return apply();
+    transition(list, {
+      cause: "disclosure",
+      anchorRow,
+      ms: FOLD_HOLD_MIN_MS + FOLD_SETTLE_MS,
+      apply,
+    });
+  }, []);
   workingRef.current = working;
   const transcriptMounted = useRef(true);
   const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
@@ -6898,10 +6932,21 @@ function TranscriptView({
       },
       settle: () => {},
     };
+    motionListRef.current = motionList;
+    // The fold writers' scroll writes (ToolGroupRow.tsx, useAnchoredCollapse.ts, KeepOpenedLine.tsx,
+    // foldAnchor.ts) go through the owner, which writes this list's scroller.
+    const unregisterListScroll = registerListScroll(node, (top) => {
+      node.scrollTop = top;
+    });
     const declareFold = (line: Element | null | undefined) => {
       const rowId = line?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
-      if (rowId)
-        transition(motionList, { cause: "disclosure", anchorRow: rowId, ms: FOLD_HOLD_MIN_MS + FOLD_SETTLE_MS });
+      if (!rowId) return;
+      transition(motionList, {
+        cause: "disclosure",
+        anchorRow: rowId,
+        ms: FOLD_HOLD_MIN_MS + FOLD_SETTLE_MS,
+      });
+      declaredFold.current = { rowId, at: performance.now() };
     };
     // First on the window, so a fling's momentum held after a jump reaches no other listener.
     const removeMomentumHold = installMomentumHold(node, scrollRunning);
@@ -7378,6 +7423,8 @@ function TranscriptView({
       gutterRelease.current = undefined;
       gutter?.remove();
       stopLayoutWatch?.();
+      unregisterListScroll();
+      if (motionListRef.current === motionList) motionListRef.current = undefined;
     };
   }, [dropFoldRoom, landForReader, startBottomStack, stopBottomStackFold, slimFollow, stopFollowMotion, stopJump]);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
@@ -7727,180 +7774,184 @@ function TranscriptView({
     <ReadOnlyBoundary readOnly={readOnly}>
       <RetryTargetContext.Provider value={retryTarget}>
         <LiveLinePulseContext.Provider value={livePulse}>
-          <div
-            ref={ref}
-            className="acpmux-scroll"
-            role="feed"
-            // The slim arm's send: the bubble only fades in where it lands, on a send step of at most
-            // 120 ms (conversation.css SEND-SLIM), never opening from the right on a clip the main thread
-            // paints (Leo, 2026-11-09: "the scroll up is extremely sluggish ... if I send in a prompt like
-            // this and it just lags, it's not a good look").
-            data-send-entrance={slimFollow ? "fade" : undefined}
-            // A read-only transcript's right-clicks are reported to no host (conversation/messageMenu.ts).
-            data-read-only-transcript={readOnly ? "" : undefined}
-            // Its place comes back after a web update's reload (reportAnchor, pages/shared/webSwap.ts).
-            {...(onAnchor ? { [WEB_SWAP_KEPT_SCROLL]: "kept" } : {})}
-            aria-label={t("transcript.label")}
-            onScroll={onScroll}
-            onWheel={onWheel}
-            // Its thin scrollbar stays shown while the chat overflows, as in every agent app, and never
-            // flashes as rows arrive or the view follows them (scrollers.ts, Leo 2026-10-21).
-            {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "" }}
-            // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
-            // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
-            // The bottom one takes follow's deadband: a reader resting at the end saw the band above the
-            // composer flicker on and off as a row's measure or the stack moved the end by a pixel (Leo,
-            // 2026-10-23: "that little bit above composer can flicker").
-            data-fade-top={renderScroll.top - origin > 0.5 || undefined}
-            data-fade-bottom={fadesBelow(renderFollowing, below) || undefined}
-            // Jump to latest stands in that band: the fade reaches past it, so rows (a date line) pass
-            // out of sight behind it instead of reading through its glass.
-            data-jump-shown={(jumpButton && behind) || undefined}
-            // Under the bottom stack: rows there stay out of sight (conversation.css), and focus or Find
-            // scroll a row into view above it.
-            data-docked={dockSpace > 0 || undefined}
-            // A subagent's view keeps its "Subagent of" pill pinned over the top (pinnedPill below): rows
-            // pass out of sight under it.
-            data-pinned-top={pinnedPill ? "" : undefined}
-            // How deep each soft edge draws (threadMinimap/model.ts transcriptFadeReach): none at that end
-            // of the chat, deeper the farther the view is from it. Non-inherited (conversation.css), so a
-            // scroll restyles the scroller alone.
-            style={
-              {
-                "--acpmux-fade-top-reach": transcriptFadeReach(renderScroll.top - origin),
-                "--acpmux-fade-bottom-reach": renderFollowing
-                  ? 0
-                  : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX),
-                ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
-                ...(dockHoles ? { "--acpmux-dock-holes": dockHoles } : {}),
-                ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
-                // The live line's box and the gap over it in a run, from their one source (transcriptGrid.ts).
-                ...LIVE_STEP_VARS,
-              } as React.CSSProperties
-            }
-          >
-            {showMinimap && (
-              // Its own MinimapSource takes these values each render; the rail draws only when what it
-              // draws changes (ThreadMinimapRail).
-              <ThreadMinimap
+          <DisclosureMotion.Provider value={runDisclosure}>
+            <div
+              ref={ref}
+              className="acpmux-scroll"
+              role="feed"
+              // The slim arm's send: the bubble only fades in where it lands, on a send step of at most
+              // 120 ms (conversation.css SEND-SLIM), never opening from the right on a clip the main thread
+              // paints (Leo, 2026-11-09: "the scroll up is extremely sluggish ... if I send in a prompt like
+              // this and it just lags, it's not a good look").
+              data-send-entrance={slimFollow ? "fade" : undefined}
+              // A read-only transcript's right-clicks are reported to no host (conversation/messageMenu.ts).
+              data-read-only-transcript={readOnly ? "" : undefined}
+              // Its place comes back after a web update's reload (reportAnchor, pages/shared/webSwap.ts).
+              {...(onAnchor ? { [WEB_SWAP_KEPT_SCROLL]: "kept" } : {})}
+              aria-label={t("transcript.label")}
+              onScroll={onScroll}
+              onWheel={onWheel}
+              // Its thin scrollbar stays shown while the chat overflows, as in every agent app, and never
+              // flashes as rows arrive or the view follows them (scrollers.ts, Leo 2026-10-21).
+              {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "" }}
+              // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
+              // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
+              // The bottom one takes follow's deadband: a reader resting at the end saw the band above the
+              // composer flicker on and off as a row's measure or the stack moved the end by a pixel (Leo,
+              // 2026-10-23: "that little bit above composer can flicker").
+              data-fade-top={renderScroll.top - origin > 0.5 || undefined}
+              data-fade-bottom={fadesBelow(renderFollowing, below) || undefined}
+              // Jump to latest stands in that band: the fade reaches past it, so rows (a date line) pass
+              // out of sight behind it instead of reading through its glass.
+              data-jump-shown={(jumpButton && behind) || undefined}
+              // Under the bottom stack: rows there stay out of sight (conversation.css), and focus or Find
+              // scroll a row into view above it.
+              data-docked={dockSpace > 0 || undefined}
+              // A subagent's view keeps its "Subagent of" pill pinned over the top (pinnedPill below): rows
+              // pass out of sight under it.
+              data-pinned-top={pinnedPill ? "" : undefined}
+              // How deep each soft edge draws (threadMinimap/model.ts transcriptFadeReach): none at that end
+              // of the chat, deeper the farther the view is from it. Non-inherited (conversation.css), so a
+              // scroll restyles the scroller alone.
+              style={
+                {
+                  "--acpmux-fade-top-reach": transcriptFadeReach(renderScroll.top - origin),
+                  "--acpmux-fade-bottom-reach": renderFollowing
+                    ? 0
+                    : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX),
+                  ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
+                  ...(dockHoles ? { "--acpmux-dock-holes": dockHoles } : {}),
+                  ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
+                  // The live line's box and the gap over it in a run, from their one source (transcriptGrid.ts).
+                  ...LIVE_STEP_VARS,
+                } as React.CSSProperties
+              }
+            >
+              {showMinimap && (
+                // Its own MinimapSource takes these values each render; the rail draws only when what it
+                // draws changes (ThreadMinimapRail).
+                <ThreadMinimap
+                  rows={rows}
+                  layout={layout}
+                  scrollTop={renderScroll.top - origin}
+                  scrolls={layout.totalHeight - height > 0.5}
+                  change={rowsChange.current}
+                  earlier={earlier}
+                  promptCount={promptCount}
+                  loadThrough={loadThrough}
+                  loadPromptIndex={loadPromptIndex}
+                  sessionId={sessionId}
+                  scroller={ref}
+                  // Above the room under the last row, so a composer that grows while the reader is scrolled
+                  // up leaves the map as it was, as it does the scrollbar.
+                  viewportHeight={height - room}
+                  // Where the transcript's mask ends the view (conversation.css --acpmux-view-foot): the
+                  // rail's rows stay above its bottom band.
+                  foot={height - dockSpace}
+                  railBox={railBox}
+                  width={paneWidth}
+                  columnWidth={width}
+                  placed={minimapPlaced}
+                  topInset={topInset}
+                />
+              )}
+              {/* The VS Code-style minimap at the right edge (Settings > Agent Chat > VS Code Minimap, off by default). */}
+              <ChatMinimapMemo
+                // Another chat is another minimap: no canvas, placeholder or scale carried over.
+                key={sessionId}
                 rows={rows}
                 layout={layout}
-                scrollTop={renderScroll.top - origin}
+                scroller={ref}
+                viewportHeight={height - room}
+                foot={height - dockSpace}
+                width={width}
+                endReserve={endReserve}
                 scrolls={layout.totalHeight - height > 0.5}
                 change={rowsChange.current}
-                earlier={earlier}
-                promptCount={promptCount}
-                loadThrough={loadThrough}
-                loadPromptIndex={loadPromptIndex}
-                sessionId={sessionId}
-                scroller={ref}
-                // Above the room under the last row, so a composer that grows while the reader is scrolled
-                // up leaves the map as it was, as it does the scrollbar.
-                viewportHeight={height - room}
-                // Where the transcript's mask ends the view (conversation.css --acpmux-view-foot): the
-                // rail's rows stay above its bottom band.
-                foot={height - dockSpace}
-                railBox={railBox}
-                width={paneWidth}
-                columnWidth={width}
-                placed={minimapPlaced}
-                topInset={topInset}
               />
-            )}
-            {/* The VS Code-style minimap at the right edge (Settings > Agent Chat > VS Code Minimap, off by default). */}
-            <ChatMinimapMemo
-              // Another chat is another minimap: no canvas, placeholder or scale carried over.
-              key={sessionId}
-              rows={rows}
-              layout={layout}
-              scroller={ref}
-              viewportHeight={height - room}
-              foot={height - dockSpace}
-              width={width}
-              endReserve={endReserve}
-              scrolls={layout.totalHeight - height > 0.5}
-              change={rowsChange.current}
-            />
-            {find?.open && <ChatFindBar find={find} />}
-            <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
+              {find?.open && <ChatFindBar find={find} />}
+              <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
+                <div
+                  className="acpmux-spacer"
+                  // The room held above the loaded rows for older history (conversation/olderReserve.ts).
+                  data-older-room={layout.origin || undefined}
+                  // Older history is left to load. The room is not the sign of it: it goes once the reader
+                  // nears the loaded top with no page there yet (`giveRoomNearTop`), while pages still come.
+                  data-loads-older={canLoadOlder || undefined}
+                  style={{
+                    height: layout.totalHeight,
+                    width: lane > 0 ? `calc(100% + ${lane}px)` : undefined,
+                  }}
+                >
+                  {/* Under the rows, at the thread's place: one empty element per stand-in. */}
+                  <div className="acpmux-stand-ins" aria-hidden style={{ top: lift + topInset }}>
+                    {standInElements(rows, standIns, layout.geometry, frameKey)}
+                  </div>
+                  <div
+                    ref={thread}
+                    className="acpmux-thread"
+                    style={{ top: lift + topInset }}
+                    onPointerOver={(event) => pointAt(event.target)}
+                    onPointerLeave={() => pointAt(null)}
+                  >
+                    {rowFrames}
+                  </div>
+                </div>
+              </TranscriptContext>
+            </div>
+            {afterLatest && (
               <div
-                className="acpmux-spacer"
-                // The room held above the loaded rows for older history (conversation/olderReserve.ts).
-                data-older-room={layout.origin || undefined}
-                // Older history is left to load. The room is not the sign of it: it goes once the reader
-                // nears the loaded top with no page there yet (`giveRoomNearTop`), while pages still come.
-                data-loads-older={canLoadOlder || undefined}
+                className="acpmux-transcript-after-latest"
+                // The dock is absolute over the stage. Keep an after-latest tray in flow above its
+                // measured room so the composer never covers the expansion or its live tail.
+                style={dockHeight > 0 ? { marginBottom: dockHeight } : undefined}
+              >
+                {afterLatest}
+              </div>
+            )}
+            {pinnedPill && (
+              // Lucas, 2026-11-06: "the "subagent of ..." text on the subagent page is sticky and always at the
+              // top". Outside the scroller, so its soft edge never fades the pill; the row's own slot stays.
+              <div className="acpmux-pinned-top" style={{ top: pinAt.top + topInset }}>
+                <SubagentOfRow row={pinnedPill} />
+              </div>
+            )}
+            {sinceKey !== undefined && onJumpToSince && sinceRow?.since && (
+              // The top-start zone (overlayLayout.ts): what is new arrives where the eye settles, under
+              // the clear line and under a pinned "Subagent of" pill.
+              <div
+                className="acpmux-over-top"
+                data-zone="top-start"
                 style={{
-                  height: layout.totalHeight,
-                  width: lane > 0 ? `calc(100% + ${lane}px)` : undefined,
+                  top: topZoneOffset({
+                    clearTop,
+                    pinnedBottom: pinnedPill
+                      ? Math.max(pinAt.top + topInset, clearTop) + SUBAGENT_OF_HEIGHT
+                      : undefined,
+                  }),
                 }}
               >
-                {/* Under the rows, at the thread's place: one empty element per stand-in. */}
-                <div className="acpmux-stand-ins" aria-hidden style={{ top: lift + topInset }}>
-                  {standInElements(rows, standIns, layout.geometry, frameKey)}
-                </div>
-                <div
-                  ref={thread}
-                  className="acpmux-thread"
-                  style={{ top: lift + topInset }}
-                  onPointerOver={(event) => pointAt(event.target)}
-                  onPointerLeave={() => pointAt(null)}
-                >
-                  {rowFrames}
-                </div>
+                <UnreadBanner
+                  mark={sinceKey}
+                  turns={sinceRow.since.turns}
+                  // A row's `at` is ms since 1970; a fixture's small `at` is no time to show.
+                  firstNewAt={(rows[sinceIndex + 1]?.at ?? 0) > 1e12 ? rows[sinceIndex + 1]!.at : undefined}
+                  onJump={onJumpToSince}
+                />
               </div>
-            </TranscriptContext>
-          </div>
-          {afterLatest && (
-            <div
-              className="acpmux-transcript-after-latest"
-              // The dock is absolute over the stage. Keep an after-latest tray in flow above its
-              // measured room so the composer never covers the expansion or its live tail.
-              style={dockHeight > 0 ? { marginBottom: dockHeight } : undefined}
-            >
-              {afterLatest}
-            </div>
-          )}
-          {pinnedPill && (
-            // Lucas, 2026-11-06: "the "subagent of ..." text on the subagent page is sticky and always at the
-            // top". Outside the scroller, so its soft edge never fades the pill; the row's own slot stays.
-            <div className="acpmux-pinned-top" style={{ top: pinAt.top + topInset }}>
-              <SubagentOfRow row={pinnedPill} />
-            </div>
-          )}
-          {sinceKey !== undefined && onJumpToSince && sinceRow?.since && (
-            // The top-start zone (overlayLayout.ts): what is new arrives where the eye settles, under
-            // the clear line and under a pinned "Subagent of" pill.
-            <div
-              className="acpmux-over-top"
-              data-zone="top-start"
-              style={{
-                top: topZoneOffset({
-                  clearTop,
-                  pinnedBottom: pinnedPill ? Math.max(pinAt.top + topInset, clearTop) + SUBAGENT_OF_HEIGHT : undefined,
-                }),
-              }}
-            >
-              <UnreadBanner
-                mark={sinceKey}
-                turns={sinceRow.since.turns}
-                // A row's `at` is ms since 1970; a fixture's small `at` is no time to show.
-                firstNewAt={(rows[sinceIndex + 1]?.at ?? 0) > 1e12 ? rows[sinceIndex + 1]!.at : undefined}
-                onJump={onJumpToSince}
+            )}
+            {jumpUp && <JumpUp shown={upShown} back={jumpBackHeld} onJump={() => pressUp()} lift={dockSpace} />}
+            {jumpButton && (
+              <JumpToLatestMemo
+                // The pill also shows at the latest message while the chats this chat started wait: it cycles to them.
+                shown={behind || (needsYou?.elsewhere ?? 0) > 0}
+                working={working}
+                onJump={onJumpLatest}
+                lift={dockSpace}
+                needsYou={needsYou}
               />
-            </div>
-          )}
-          {jumpUp && <JumpUp shown={upShown} back={jumpBackHeld} onJump={() => pressUp()} lift={dockSpace} />}
-          {jumpButton && (
-            <JumpToLatestMemo
-              // The pill also shows at the latest message while the chats this chat started wait: it cycles to them.
-              shown={behind || (needsYou?.elsewhere ?? 0) > 0}
-              working={working}
-              onJump={onJumpLatest}
-              lift={dockSpace}
-              needsYou={needsYou}
-            />
-          )}
+            )}
+          </DisclosureMotion.Provider>
         </LiveLinePulseContext.Provider>
       </RetryTargetContext.Provider>
     </ReadOnlyBoundary>
