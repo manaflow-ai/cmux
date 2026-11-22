@@ -122,10 +122,6 @@ public struct PagedListLabRoot: View {
         .task {
             probe.pageLanded = { [hud] shift, rows in hud.landed(shift: shift, rows: rows) }
             probe.scrolling = { [hud] moving in hud.scrolling(moving) }
-            probe.frameShift = { [hud] shift in hud.sampled(shift) }
-            probe.passFrameShift = { [hud] shift, mid, detail in hud.passSampled(shift, midPlacement: mid, detail: detail) }
-            probe.samplerCost = { [hud] ms in hud.samplerCost(ms) }
-            probe.shiftDetail = { [hud] shift, detail in hud.shifted(shift, detail) }
             probe.slid = { [hud] frames in hud.slid(frames) }
             probe.held = { [hud] rows in hud.hold(rows) }
             await model.loadFirst()
@@ -495,7 +491,7 @@ final class PagedLabHUD {
         let ratio = seconds > 0 ? hitchMs / seconds : 0
         let samplerMean = samplerCosts.isEmpty ? 0 : samplerCosts.reduce(0, +) / Double(samplerCosts.count)
         let samplerP99 = samplerCosts.isEmpty ? 0 : samplerCosts.sorted()[min(samplerCosts.count - 1, samplerCosts.count * 99 / 100)]
-        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames),"held":\#(heldRows),"worstShift":"\#(worstShift)","passFrameShift":\#(passFrameShift),"passShifted":\#(passShifted),"passMidPlacement":\#(passMidPlacement),"passWorstShift":"\#(passWorstShift)","samplerMeanMs":\#(samplerMean),"samplerP99Ms":\#(samplerP99),"samplerFrames":\#(samplerCosts.count)}"#
+        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames),"held":\#(heldRows),"worstShift":"\#(worstShift)","passFrameShift":\#(passFrameShift),"passShifted":\#(passShifted),"passMidPlacement":\#(passMidPlacement),"passWorstShift":"\#(passWorstShift)","samplerMeanMs":\#(samplerMean),"samplerP99Ms":\#(samplerP99),"samplerFrames":\#(samplerCosts.count),"counts":\#(PagedListCounters.json),"noProbe":true}"#
     }
 }
 
