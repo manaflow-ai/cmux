@@ -175,3 +175,49 @@ fn paging_is_advertised() {
     }
     mux.shutdown();
 }
+
+/// The phone's first window costs the same at 10, 100 and 1,000 workspaces (the bench's rows:
+/// one `/bin/cat` terminal per workspace), while the whole tree grows with them. Prints the
+/// bytes and daemon time of each reply for the PR's before/after table.
+#[test]
+fn the_first_window_costs_the_same_at_every_scale() {
+    let mux = Mux::new_for_test("first-window-scale", SurfaceOptions::default());
+    let mut have = 0;
+    let mut window_bytes = Vec::new();
+    let mut whole_bytes = Vec::new();
+    for scale in [10, 100, 1_000] {
+        for index in have..scale {
+            run(
+                &mux,
+                json!({"cmd": "run", "argv": ["/bin/cat"], "name": format!("open-path-{index}"),
+                       "new_workspace": true}),
+            );
+        }
+        have = scale;
+        let timed = |request: Value| {
+            let mut best = (usize::MAX, f64::MAX);
+            for _ in 0..5 {
+                let started = Instant::now();
+                let reply = run(&mux, request.clone());
+                let ms = started.elapsed().as_secs_f64() * 1000.0;
+                best = (reply.to_string().len(), best.1.min(ms));
+            }
+            best
+        };
+        let (whole, whole_ms) = timed(json!({"cmd": "list-workspaces"}));
+        let (window, window_ms) = timed(json!({"cmd": "list-workspaces", "limit": 40}));
+        println!(
+            "FIRST-WINDOW scale={scale} whole_bytes={whole} whole_ms={whole_ms:.2} \
+             window_bytes={window} window_ms={window_ms:.2}"
+        );
+        whole_bytes.push(whole);
+        window_bytes.push(window);
+    }
+    assert!(whole_bytes[2] > whole_bytes[1] * 5, "whole tree: {whole_bytes:?}");
+    // Past the window only `total`'s digits (and a few longer ids) may grow it.
+    assert!(
+        window_bytes[2] <= window_bytes[1] + window_bytes[1] / 50,
+        "first window: {window_bytes:?}"
+    );
+    mux.shutdown();
+}
