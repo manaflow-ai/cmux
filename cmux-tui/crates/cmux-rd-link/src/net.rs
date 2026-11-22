@@ -179,6 +179,7 @@ enum Command {
     Control(Vec<u8>),
     Datagram(Vec<u8>),
     NetworkChange,
+    PeerLost(Option<u64>),
     Close,
 }
 
@@ -525,6 +526,14 @@ impl Net {
     /// The machine's network changed (interface, address, wake from sleep).
     pub fn network_changed(&self) {
         self.command(Command::NetworkChange);
+    }
+
+    /// Fails the link ([`NetEvent::Failed`]) once the established peer sent
+    /// nothing for `after` ([`crate::PEER_LOST_US`] for a viewer): a host that
+    /// died without a close. `None` (the default) waits forever.
+    pub fn set_peer_lost(&self, after: Option<std::time::Duration>) {
+        let us = after.map(|d| u64::try_from(d.as_micros()).unwrap_or(u64::MAX));
+        self.command(Command::PeerLost(us));
     }
 }
 
@@ -939,6 +948,7 @@ impl Driver {
                         self.endpoint.set_local_networks(cmux_transport::local_networks());
                         self.endpoint.on_network_change();
                     }
+                    Command::PeerLost(us) => self.endpoint.set_peer_lost(us),
                     Command::Close => {
                         if self.endpoint.link().is_established() {
                             for t in self.endpoint.close()? {

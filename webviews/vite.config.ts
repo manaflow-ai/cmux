@@ -27,6 +27,7 @@ export default defineConfig({
   ...cmuxCheckConfig({
     effectCleanupPlugin: fileURLToPath(new URL("./scripts/lint/effect-cleanup.mjs", import.meta.url)),
     perfPlugin: fileURLToPath(new URL("./scripts/lint/perf-footguns.mjs", import.meta.url)),
+    a11yPlugin: fileURLToPath(new URL("./scripts/lint/aria-props.mjs", import.meta.url)),
     fmtIgnorePatterns: [
       "src/diff/generated/**",
       // A markdown test document: its exact syntax (*** rules, odd spacing) is what it tests.
