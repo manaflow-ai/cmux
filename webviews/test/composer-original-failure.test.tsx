@@ -247,11 +247,11 @@ function Harness({ options, handle }: { options: AttachmentIntakeOptions; handle
   );
 }
 
-/// Resolves once `check` holds after a render (each state change re-renders the harness), giving up
-/// after `within` ms: the asks again back off from 0.5-1 s, then 1-2 s (autoRetry.ts).
+/// Resolves once `check` holds, looked at again after each turn of the event loop (each state change
+/// re-renders the harness), giving up after `within` ms: the asks again back off from 0.5-1 s, then 1-2 s (autoRetry.ts).
 async function until(check: () => boolean, within = 4_000) {
   const end = Date.now() + within;
-  while (!check() && Date.now() < end) await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+  while (!check() && Date.now() < end) await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(check()).toBe(true);
 }
 

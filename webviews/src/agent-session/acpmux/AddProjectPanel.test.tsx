@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { AddProjectPanel } from "./AddProjectPanel";
 import { settleReact } from "../../../test/support/domTeardown";
+import { actTurn, until } from "../../../test/support/until";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -160,7 +161,7 @@ test("reads a folder list that failed again on its own, with no Retry button", a
   expect(container.textContent).not.toContain("The folder could not be read.");
   expect(container.querySelector('.acpmux-add-project-status[role="alert"]')).toBeNull();
   // The first ask comes within 1 s (autoRetry.ts AUTO_RETRY_FIRST_MS, jittered down).
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 1_100)));
+  await until(() => lists === 2, actTurn);
   await act(async () => Promise.resolve());
   expect(lists).toBe(2);
   expect(container.textContent).toContain("~-ok");

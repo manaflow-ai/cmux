@@ -8,6 +8,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { pageError, type PageClient } from "../src/pages/shared/pageClient";
 import { teardownDom } from "./support/domTeardown";
+import { actTurn, until } from "./support/until";
 
 const scope = globalThis as Record<string, unknown>;
 // The page's file tree (@pierre/trees) defines a custom element when it loads.
@@ -89,7 +90,7 @@ test("another failure offers no button, and the page reads the tree again on its
   expect(host.textContent).toBe("");
   const reads = fake.calls.filter((call) => call.op === "cmux.artifacts.tree").length;
   // The first ask comes within the jittered first step (at most 1 s).
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 1_100)));
+  await until(() => fake.calls.filter((call) => call.op === "cmux.artifacts.tree").length > reads, actTurn);
   expect(fake.calls.filter((call) => call.op === "cmux.artifacts.tree").length).toBeGreaterThan(reads);
   expect(host.querySelector("button")).toBeNull();
 });

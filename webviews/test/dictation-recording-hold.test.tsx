@@ -14,6 +14,7 @@ import type { Root } from "react-dom/client";
 import { type ComposerAttachment, remoteRecordingAttachment } from "../src/agent-session/acpmux/attachments";
 import { useAttachmentIntake, useSendWhenAttached } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 import { teardownDom } from "./support/domTeardown";
+import { actTurn, until } from "./support/until";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node"] as const;
@@ -161,8 +162,7 @@ test("a failed upload keeps the waiting send blocked with the chip loading; the 
   expect(sent).toEqual([]);
   // The host is asked again on its own after the first backoff (0.5-1 s, autoRetry.ts); its answer
   // becomes the chip, and the waiting send goes with it, once.
-  for (let at = 0; at < 300 && host.asked.length < 2; at++)
-    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+  await until(() => host.asked.length >= 2, actTurn);
   expect(host.asked).toHaveLength(2);
   expect(intake.pending[0]?.failed).toBeUndefined();
   expect(sent).toEqual([]);

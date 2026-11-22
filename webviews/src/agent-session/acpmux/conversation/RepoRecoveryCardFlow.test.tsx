@@ -81,13 +81,13 @@ async function click(container: HTMLElement, label: string) {
   });
 }
 
-/** Lets real time pass (the card's first ask again comes within a second) until `done` holds. */
+/** Polls, one event-loop turn at a time, until `done` holds (the card's first ask again comes within a second). */
 async function until(done: () => boolean, ms = 4_000) {
   const end = Date.now() + ms;
   while (!done()) {
     if (Date.now() > end) throw new Error("timed out waiting");
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
   }
 }

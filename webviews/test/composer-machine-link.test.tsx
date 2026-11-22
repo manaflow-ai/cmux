@@ -20,6 +20,7 @@ import { chat, summary, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { PeerLink } from "../src/agent-session/acpmux/peerLink";
 import { LINK_DOWN_SAID_MS, setLinkDownSaidMs } from "../src/agent-session/acpmux/afterDelay";
+import { AUTO_RETRY_FIRST_MS, AUTO_RETRY_MAX_MS } from "../src/agent-session/acpmux/autoRetry";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -166,6 +167,7 @@ test("a peer chat's row says each link state in the sidebar's words, in one elem
 
 test("an offline peer is asked for again on its own, with no Reconnect button", async () => {
   // Leo, 2026-11-22: "vacuous decisions like that should be just done".
+  jest.useFakeTimers();
   const asked: PeerLink[] = [];
   let answer!: () => void;
   await render(started("walk-remote", "offline"), (pressed) => {
@@ -174,10 +176,11 @@ test("an offline peer is asked for again on its own, with no Reconnect button", 
   });
   expect(reconnect()).toBeNull();
   expect(link()?.querySelector("button")).toBeNull();
-  // The first ask comes within 1 s; while it is in flight no second one is sent.
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 1_100)));
+  // The first ask comes within 1 s (autoRetry.ts AUTO_RETRY_FIRST_MS, jittered down); while it is in
+  // flight no second one is sent, however long it takes.
+  await act(async () => void jest.advanceTimersByTime(AUTO_RETRY_FIRST_MS));
   expect(asked).toEqual([{ machine: "walk-remote", link: "offline" }]);
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 1_100)));
+  await act(async () => void jest.advanceTimersByTime(AUTO_RETRY_MAX_MS * 2));
   expect(asked).toHaveLength(1);
   await act(async () => answer());
   expect(link()?.querySelector("button")).toBeNull();

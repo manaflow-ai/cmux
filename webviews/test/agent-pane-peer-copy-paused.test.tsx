@@ -17,6 +17,7 @@ import type { Root } from "react-dom/client";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
 import type { CloudMachine } from "../src/agent-session/acpmux/cloudMachines";
 import { teardownDom } from "./support/domTeardown";
+import { actTurn, until } from "./support/until";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -250,7 +251,7 @@ test("an offline peer is redialed on its own, with no Reconnect button and no fa
     throw new Error("peer_unreachable: refused by doctor");
   });
   expect(host.querySelectorAll("button").length).toBe(0);
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 1_100)));
+  await until(() => calls.length >= 1, actTurn);
   expect(calls).toEqual([PEER]);
   expect(host.querySelector('[role="alert"]')).toBeNull();
   expect(host.textContent).not.toContain("peer_unreachable");

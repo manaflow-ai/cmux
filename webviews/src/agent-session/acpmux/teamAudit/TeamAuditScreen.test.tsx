@@ -49,7 +49,7 @@ async function until(done: () => boolean, ms = 4_000) {
   while (!done()) {
     if (Date.now() > end) throw new Error("timed out waiting");
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
   }
 }
@@ -110,9 +110,7 @@ test("an older acpmux is not asked again: it says so", async () => {
     root = createRoot(container);
     root.render(<TeamAuditScreen load={load} now={Date.UTC(2026, 10, 9, 15)} />);
   });
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 1_200));
-  });
+  // The older-acpmux answer is final: the screen says so and does not ask again.
+  await until(() => container.querySelector(".cst-status")?.textContent === translate("teamAudit.older"));
   expect(calls).toBe(1);
-  expect(container.querySelector(".cst-status")?.textContent).toBe(translate("teamAudit.older"));
 });

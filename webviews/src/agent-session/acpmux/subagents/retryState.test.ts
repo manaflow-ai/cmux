@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture subagent names and tasks, not shipped UI.
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import { translate } from "../i18n";
 import { sessionEntry } from "../sessionList";
 import { SubagentFold } from "./subagentFold";
@@ -353,15 +353,32 @@ describe("a Retry acpmux refuses as busy is asked again on its own", () => {
   });
 
   test("stop ends the wait: nothing more is asked", async () => {
-    let asked = 0;
-    const { stop } = untilNotBusy(async () => {
-      asked++;
-      return "retry.busy";
-    }, fast);
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    stop();
-    const seen = asked;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(asked).toBe(seen);
+    // The backoff spacing is the behavior: fake timers step it instead of the wall clock.
+    jest.useFakeTimers();
+    try {
+      let asked = 0;
+      const { stop } = untilNotBusy(async () => {
+        asked++;
+        return "retry.busy";
+      }, fast);
+      const settle = async () => {
+        for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+      };
+      for (let step = 0; step < 5; step++) {
+        await settle();
+        jest.advanceTimersByTime(fast.maxMs);
+      }
+      await settle();
+      expect(asked).toBeGreaterThan(1);
+      stop();
+      const seen = asked;
+      for (let step = 0; step < 10; step++) {
+        jest.advanceTimersByTime(fast.maxMs * 10);
+        await settle();
+      }
+      expect(asked).toBe(seen);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

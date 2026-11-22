@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { PaneBoundary } from "./PaneBoundary";
 import { settleReact } from "../../../test/support/domTeardown";
+import { actTurn, until } from "../../../test/support/until";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -63,10 +64,7 @@ test("a render failure reloads on its own after the backoff, with no button and 
     );
     expect(host.querySelector("button")).toBeNull();
     expect(host.querySelector("[data-pane-failed]")?.textContent).toBe("");
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 60));
-    });
-    expect(retries).toBeGreaterThan(0);
+    await until(() => retries > 0, actTurn);
     // The stretch is kept across the reloads, so a pane failing on every load backs off.
     const kept = JSON.parse(window.sessionStorage.getItem("acpmux.paneReloads") ?? "null") as { count: number } | null;
     expect(kept?.count).toBeGreaterThan(0);

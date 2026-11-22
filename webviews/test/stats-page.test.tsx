@@ -19,6 +19,7 @@ import { pageError, type PageClient } from "../src/pages/shared/pageClient";
 import { mockSummary } from "../src/pages/stats/mockProvider";
 import type { StatsSummary } from "../src/pages/stats/types";
 import { teardownDom } from "./support/domTeardown";
+import { actTurn, until } from "./support/until";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -271,7 +272,7 @@ test("a failed read is read again on its own; past the deadline one quiet line i
     expect(host.querySelector(".stats-message")?.closest("button")).toBeNull();
     // The page asks again by itself within the first jittered step (at most 1 s).
     const before = calls;
-    await act(async () => await new Promise((resolve) => setTimeout(resolve, 1_100)));
+    await until(() => calls > before, actTurn);
     expect(calls).toBeGreaterThan(before);
   } finally {
     setLastingGrace(LASTING_MS);

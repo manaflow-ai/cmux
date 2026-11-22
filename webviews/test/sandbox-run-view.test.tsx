@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
 import { runSandbox } from "../src/agent-session/acpmux/sandboxRun";
 import { SandboxRunView } from "../src/agent-session/acpmux/SandboxRunView";
+import { actTurn, until } from "./support/until";
 
 let dom: JSDOM;
 beforeAll(() => {
@@ -69,7 +70,7 @@ test("a running card whose newest read failed reads again on its own, with no Ch
     const shown = window.document.body.textContent ?? "";
     expect(shown).toContain(t("sandbox.stillChecking"));
     expect(window.document.querySelector("button")).toBeNull();
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 1_100)));
+    await until(() => reads >= 1, actTurn);
     expect(reads).toBeGreaterThanOrEqual(1);
   } finally {
     await act(async () => root.unmount());

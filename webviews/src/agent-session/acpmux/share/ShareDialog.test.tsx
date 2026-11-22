@@ -11,6 +11,7 @@ import { ShareDialogBody } from "./ShareDialog";
 import { translate } from "../i18n";
 import type { ShareView } from "./shareState";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { actTurn, until } from "../../../../test/support/until";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -174,7 +175,7 @@ test("a failed read of the chat's shares is read again on its own, with no Try a
   await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
   expect(reads).toBe(1);
   expect(document.body.textContent).not.toContain(translate("share.error.generic"));
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 1_100)));
+  await until(() => reads >= 2, actTurn);
   expect(reads).toBe(2);
   expect(document.body.textContent).not.toContain(translate("share.error.generic"));
   expect(document.body.textContent).not.toContain(translate("share.stillReading"));

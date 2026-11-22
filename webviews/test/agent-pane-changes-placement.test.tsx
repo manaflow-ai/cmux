@@ -10,6 +10,7 @@ import { useGitWrite, type GitWrite } from "../src/agent-session/acpmux/changes/
 import type { ChangesSource } from "../src/agent-session/acpmux/changes/model";
 import { NativeError } from "../src/agent-session/acpmux/nativeError";
 import { settleReact } from "./support/domTeardown";
+import { actTurn, until } from "./support/until";
 
 const notARepository = () =>
   new NativeError({
@@ -103,7 +104,7 @@ test("a status read that failed is read again on its own, with no Refresh click"
   expect(git.statusFailed).toBe(true);
   expect(git.statusStillTrying).toBe(false);
   // The first ask comes within 1 s (autoRetry.ts AUTO_RETRY_FIRST_MS, jittered down).
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 1_100)));
+  await until(() => reads >= 2, actTurn);
   await act(async () => await Promise.resolve());
   expect(reads).toBe(2);
 });

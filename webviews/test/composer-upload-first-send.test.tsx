@@ -4,7 +4,7 @@
 // A send made while a file uploads waits for it and goes with it (composer/attachmentIntake.tsx),
 // and a failed upload is asked again on its own, with no Retry and no key or click (Leo, 2026-11-22:
 // "vacuous decisions like that should be just done"; composer/uploadRetry.ts).
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useImperativeHandle, type Ref } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -40,6 +40,7 @@ beforeAll(() => {
 });
 
 afterEach(() => {
+  jest.useRealTimers();
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
@@ -269,9 +270,11 @@ test("a file the composer refused never holds a send and is never asked again: i
 function retries(ask: (id: string) => boolean) {
   return new ChipRetries(ask, { firstMs: 20, maxMs: 40, random: () => 1, visible: () => true });
 }
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/// Moves the fake clock on: the backoff is the behavior under test, so the steps are timed exactly.
+const wait = (ms: number) => void jest.advanceTimersByTime(ms);
 
-test("ChipRetries asks a failed chip again after its backoff, never beside an attempt still running", async () => {
+test("ChipRetries asks a failed chip again after its backoff, never beside an attempt still running", () => {
+  jest.useFakeTimers();
   const asked: string[] = [];
   const loop = retries((id) => {
     asked.push(id);
@@ -280,27 +283,28 @@ test("ChipRetries asks a failed chip again after its backoff, never beside an at
   loop.failed("a");
   expect(loop.has("a")).toBe(true);
   expect(asked).toEqual([]);
-  // fixed-wait: past the first 20 ms step.
-  await wait(35);
+  // Past the first 20 ms step.
+  wait(35);
   expect(asked).toEqual(["a"]);
   // Its attempt still runs: a wake (the pane shown again) starts no second one.
   loop.wake();
-  await wait(60);
+  wait(60);
   expect(asked).toEqual(["a"]);
   // It failed again: the next ask comes after the grown step.
   loop.failed("a");
-  await wait(60);
+  wait(60);
   expect(asked).toEqual(["a", "a"]);
   // Made (or gone): no more asks.
   loop.end("a");
   expect(loop.has("a")).toBe(false);
   loop.failed("b");
   loop.dispose();
-  await wait(60);
+  wait(60);
   expect(asked).toEqual(["a", "a"]);
 });
 
-test("ChipRetries keeps asking a chip that cannot be asked now, and a wake asks it at once", async () => {
+test("ChipRetries keeps asking a chip that cannot be asked now, and a wake asks it at once", () => {
+  jest.useFakeTimers();
   let now = false;
   const asked: string[] = [];
   const loop = retries((id) => {
@@ -309,8 +313,8 @@ test("ChipRetries keeps asking a chip that cannot be asked now, and a wake asks 
     return true;
   });
   loop.failed("a");
-  // fixed-wait: two steps pass with its chat not shown: nothing asked, still armed.
-  await wait(80);
+  // Two steps pass with its chat not shown: nothing asked, still armed.
+  wait(80);
   expect(asked).toEqual([]);
   now = true;
   loop.wake();

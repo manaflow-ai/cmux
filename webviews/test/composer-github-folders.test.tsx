@@ -4,6 +4,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
+import { actTurn, until } from "./support/until";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -606,9 +607,10 @@ test("another repos.list failure is read again on its own with the menu open, wi
     const lists = gh.calls.filter(([method]) => method === "github.repos.list").length;
     gh.answers["github.repos.list"] = { repos: REPOS, truncated: false };
     // The first ask comes within 1 s (autoRetry.ts AUTO_RETRY_FIRST_MS, jittered down).
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 1_100)));
+    const listed = () => gh.calls.filter(([method]) => method === "github.repos.list").length;
+    await until(() => listed() > lists, actTurn);
     await settle();
-    expect(gh.calls.filter(([method]) => method === "github.repos.list").length).toBe(lists + 1);
+    expect(listed()).toBe(lists + 1);
     expect(gh.calls.at(-1)).toEqual(["github.repos.list", { query: null }]);
     expect(picked).toEqual([]);
     // Still open: the repositories listed, the GitHub row Choose more repositories….
