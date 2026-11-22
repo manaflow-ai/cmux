@@ -113,7 +113,6 @@ public final class DaemonConnectingView: NSView {
             detailLabel.isHidden = true
             copyDetailsButton.isHidden = true
             recoveryControls?.isOffered = false
-            staggerIfConnecting()
         case .unavailable(let error):
             titleLabel.isHidden = false
             if !mark.isRevealed { mark.reveal() }
