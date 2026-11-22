@@ -91,7 +91,7 @@ fn a_skipped_slide_is_marked_and_keeps_its_notes() {
     let html = md_deck::compile("# Talk\n\n---\n\n<!-- skip -->\n<!-- _class: center -->\n## Backup\n\n<!-- say it only if asked -->\n", "t.md");
     assert!(html.contains("<section class=\"center\" data-skip>\n<h2>Backup</h2>"), "{html}");
     assert!(html.contains("<aside class=\"notes\">say it only if asked</aside>"), "{html}");
-    assert_eq!(html.matches("data-skip").count(), 1, "only the marked slide (the runtime names it too)");
+    assert_eq!(html.matches(" data-skip>").count(), 1, "only the marked slide");
 }
 
 #[test]
