@@ -644,6 +644,28 @@ function addRelaunchProfile(
     }
     return keys;
   };
+  // What ran when, by stretch: the outermost two bundle functions on the stack and the innermost component (a
+  // capitalized function) under them, a stretch per run of samples with the same label.
+  const labelOf = (id: number) => {
+    const keys: string[] = [];
+    let component: string | undefined;
+    for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) {
+      const up = byId.get(at);
+      if (!up || up.callFrame.functionName === "(root)") break;
+      if (!up.callFrame.url) continue;
+      keys.push(up.callFrame.functionName || "(anonymous)");
+      if (component === undefined && /^[A-Z]/.test(up.callFrame.functionName)) component = up.callFrame.functionName;
+    }
+    const outer = keys.slice(-2).reverse().join(" > ") || byId.get(id)!.callFrame.functionName;
+    return component ? `${outer} … ${component}` : outer;
+  };
+  let stretch: { from: number; to: number; label: string } | undefined;
+  const stretches: string[] = [];
+  const endStretch = () => {
+    if (stretch && stretch.to - stretch.from >= 3)
+      stretches.push(`    ${stretch.from.toFixed(0)}-${stretch.to.toFixed(0)} ${stretch.label}`);
+    stretch = undefined;
+  };
   let t = profile.startTime;
   let task: { from: number; to: number; by: Map<string, number> } | undefined;
   const close = () => {
@@ -657,6 +679,9 @@ function addRelaunchProfile(
         `  round ${round} task ${task.from.toFixed(0)}-${task.to.toFixed(0)} ms (${(task.to - task.from).toFixed(0)} ms): ${top}`,
       );
     }
+    endStretch();
+    if (task && task.to - task.from >= 20) relaunchTasks.push(...stretches);
+    stretches.length = 0;
     task = undefined;
   };
   profile.samples.forEach((id, index) => {
@@ -672,6 +697,11 @@ function addRelaunchProfile(
     } else {
       if (!task) task = { from: at, to: at, by: new Map() };
       task.to = at;
+      const label = labelOf(id);
+      if (stretch?.label !== label) {
+        endStretch();
+        stretch = { from: at, to: at, label };
+      } else stretch.to = at;
       // Inclusive per bundle function, each once per sample.
       for (const key of new Set(stackOf(id))) bump(task.by, key, ms);
       if (!node.callFrame.url) bump(task.by, `${node.callFrame.functionName} (built-in)`, ms);
