@@ -50,6 +50,8 @@ pub(crate) struct Shared {
     devices: Mutex<HashMap<String, String>>,
     /// The hub's other devices as screens, from the last `GET /v1/devices`; None before a read.
     screens: Mutex<Option<Vec<HubScreen>>>,
+    /// The share approval nonces this daemon took (`approval.rs`): each tap admits once.
+    seen_approvals: Mutex<HashSet<String>>,
 }
 
 /// One of the device hub's records other than this device's: a machine's screen host.
@@ -68,8 +70,6 @@ struct HubScreen {
 /// the kernel host name).
 fn host_key(name: &str) -> String {
     name.trim().split('.').next().unwrap_or_default().to_ascii_lowercase()
-    /// The share approval nonces this daemon took (`approval.rs`): each tap admits once.
-    seen_approvals: Mutex<HashSet<String>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
