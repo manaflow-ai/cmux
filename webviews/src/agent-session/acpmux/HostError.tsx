@@ -141,11 +141,8 @@ function LinkDiagnosisDetail({ id, diagnosis }: { id: string; diagnosis: LinkDia
     <div id={id} className="acpmux-host-line-detail acpmux-host-diagnosis" data-failed-step={diagnosis.failedStep}>
       <ol className="acpmux-host-diagnosis-steps">
         {diagnosis.steps.map(({ step, status }) => (
-          <li key={step} data-status={status}>
-            <span aria-label={t(`host.step.${status}`)} role="img">
-              {mark[status]}
-            </span>{" "}
-            {t(`host.step.${step}`)}
+          <li key={step} data-status={status} aria-label={`${t(`host.step.${step}`)}: ${t(`host.step.${status}`)}`}>
+            <span aria-hidden="true">{mark[status]}</span> {t(`host.step.${step}`)}
           </li>
         ))}
       </ol>
