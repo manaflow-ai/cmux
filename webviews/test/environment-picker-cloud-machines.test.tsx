@@ -200,9 +200,11 @@ test("signed out, the Cloud row is Sign in for Cloud: one row, never Cloud and s
   expect(CONNECT_ACTIONS.cloudSignIn).toBe("palette.auth.signIn");
 });
 
-// Signed in, a chat not on Cloud and with no new chat to point there (no `runMode`) has no Cloud row:
-// picking Cloud made nothing (cmux#47677, #47734), so the sign-in row leaves and nothing replaces it.
-test("a sign-in answer that lands while the menu is open takes the sign-in row out, and nothing else moves", async () => {
+// A sign-in answer that lands while the menu is open moves none of its rows (Leo, 2026-11-07: "The
+// thing becomes just one state instead of rapidly switching to another"). Signed in, a chat not on
+// Cloud and with no new chat to point there (no `runMode`) has no Cloud row (cmux#47677, #47734), so
+// the next menu has neither row (the account-state tests below).
+test("a sign-in answer that lands while the menu is open moves none of its rows", async () => {
   const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
   setCloudMachinesForTestAccount(false);
   await mount(true, { cloudMachines: [], onConnect: () => undefined });
@@ -214,10 +216,7 @@ test("a sign-in answer that lands while the menu is open takes the sign-in row o
   const before = rows();
   expect(before.map(label)).toContain("Sign in for Cloud");
   await act(async () => setCloudMachinesForTestAccount(true));
-  const after = rows();
-  // The same rows less the sign-in row, in the same order; no Cloud row takes its place.
-  expect(after.map(label)).toEqual(before.map(label).filter((name) => name !== "Sign in for Cloud"));
-  expect(after.map(label)).not.toContain(t("composer.cloud"));
+  expect(rows().map(label)).toEqual(before.map(label));
 });
 
 test("with the account state kept from an earlier page, the menu's first rows are its settled rows", async () => {

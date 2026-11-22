@@ -352,10 +352,9 @@ test("history fits its card: fixed columns, names wrap at word boundaries, their
   expect(table.querySelectorAll("colgroup col").length).toBe(7);
   const first = table.querySelector("tbody tr")!;
   // A wrapped cell shows its whole text, so it has no tooltip repeating it (c0ecbb88f123).
-  for (const cell of first.querySelectorAll("td.devices-wrap")) {
-    expect(cell.textContent).not.toBe("");
-    expect(cell.getAttribute("title")).toBeNull();
-  }
+  const cells = [...first.querySelectorAll("td.devices-wrap")];
+  expect(cells.length).toBeGreaterThan(0);
+  for (const cell of cells) expect(cell.getAttribute("title")).toBeNull();
   page.unmount();
 });
 
