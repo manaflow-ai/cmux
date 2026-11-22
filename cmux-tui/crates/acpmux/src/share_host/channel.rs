@@ -130,7 +130,7 @@ async fn serve_at(shared: Arc<Shared>, path: &std::path::Path) -> anyhow::Result
 /// One app connection: answers its requests in order and, once subscribed, sends it pushes.
 async fn connection(shared: Arc<Shared>, stream: tokio::net::UnixStream) {
     let mut framed = Framed::new(stream, LinesCodec::new_with_max_length(MAX_LINE));
-    let (sender, mut pushes) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let (sender, mut pushes) = super::state::subscriber();
     let mut sender = Some(sender);
     loop {
         tokio::select! {
@@ -146,7 +146,10 @@ async fn connection(shared: Arc<Shared>, stream: tokio::net::UnixStream) {
                     shared.subscribe(sender);
                 }
             }
-            Some(push) = pushes.recv() => {
+            // None: the host dropped this channel (closed, or too far behind): close the
+            // connection so the app reconnects and subscribes again.
+            push = pushes.recv() => {
+                let Some(push) = push else { return };
                 if framed.send(push).await.is_err() {
                     return;
                 }
