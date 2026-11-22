@@ -104,8 +104,9 @@ pub(super) fn builtin_first_word(word: &str) -> bool {
         .get_or_init(|| {
             let doc: Value =
                 serde_json::from_str(&ACTION_SURFACES.inflate()).unwrap_or(Value::Null);
-            let mut words: std::collections::HashSet<String> = doc["actions"]
-                .as_array()
+            let mut words: std::collections::HashSet<String> = doc
+                .get("actions")
+                .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
                 .filter_map(|action| action["cli_name"].as_str()?.split(' ').next())
