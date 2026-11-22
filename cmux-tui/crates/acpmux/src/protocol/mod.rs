@@ -307,6 +307,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_COLD_ARCHIVE, Request),
         untyped(method::MUX_PROCESS_UPDATE, Notification),
         keyed::<params::KillParams>(method::MUX_KILL, Request),
+        untyped(method::MUX_PAUSE, Request),
+        untyped(method::MUX_WAKE, Request),
         untyped(method::MUX_KEEP, Request),
         keyed::<params::WatchTakeOverParams>(method::MUX_WATCH_TAKE_OVER, Request),
         keyed::<params::ReleaseToWatchParams>(method::MUX_RELEASE_TO_WATCH, Request),
