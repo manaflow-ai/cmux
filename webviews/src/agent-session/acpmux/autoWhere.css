@@ -33,7 +33,6 @@
   inset-inline: 8px;
   bottom: 1px;
   height: 1px;
-  border-radius: 1px;
   background: linear-gradient(90deg, var(--agent-ansi-6, #3cc), var(--agent-ansi-4, #36f), var(--agent-ansi-5, #a3f));
   background-size: 220% 100%;
   opacity: 0.7;

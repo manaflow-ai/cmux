@@ -882,6 +882,7 @@ import {
   sandboxAgent,
   sandboxPageRefusal,
   sandboxRetryable,
+  type AutoRow,
   type RunMode,
   newTabRunModeRows,
 } from "./sandboxRun";
