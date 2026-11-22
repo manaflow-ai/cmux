@@ -20,6 +20,7 @@ use serde_json::{Value, json};
 use super::store::text;
 use super::supervisor::{Inner, Supervisor};
 
+const TOOLBAR: &str = "cmux.composer.toolbar/1";
 pub(super) const COMMAND: &str = "cmux.composer.command/1";
 pub(super) const MENTION: &str = "cmux.composer.mention/1";
 
@@ -153,7 +154,19 @@ impl Supervisor {
                 })
             })
             .collect();
-        let mut result = json!({ "commands": commands, "mentions": mentions });
+        let mut toolbar_buttons = Vec::new();
+        let mut seen_actions = HashSet::new();
+        for (_, _, options) in places(&inner, TOOLBAR) {
+            for button in options["buttons"].as_array().into_iter().flatten() {
+                if let Some(action) = button["action"].as_str()
+                    && seen_actions.insert(action)
+                {
+                    toolbar_buttons.push(button);
+                }
+            }
+        }
+        let mut result =
+            json!({ "commands": commands, "mentions": mentions, "toolbarButtons": toolbar_buttons });
         if let Some((_, _, options)) =
             places(&inner, "cmux.composer.model.picker/1").into_iter().next()
         {
