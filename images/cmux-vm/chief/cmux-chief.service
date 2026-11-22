@@ -1,0 +1,39 @@
+# The Cloud Chief's brain host on a cmux Cloud machine: `optchat-chief host --conversation-source cloud`.
+# Installed disabled. It starts once the machine is paired (the install file exists) and someone runs
+# `sudo systemctl enable --now cmux-chief.service`.
+#
+# Restart=always: the updater asks the host to stop between turns (SIGUSR1, exit 0); systemd then starts
+# the new binary /var/lib/cmux-chief/current points at. Exit 2 is a configuration error (no daemon socket,
+# no install file), so it does not spin.
+[Unit]
+Description=cmux Cloud Chief host (optchat-chief host --conversation-source cloud)
+After=network-online.target cmux-host.service
+Wants=network-online.target cmux-chief-update.timer
+ConditionPathExists=/home/cmux/.cmux/chief/cloud/install.json
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=cmux
+Group=cmux
+Environment=HOME=/home/cmux
+Environment=OPTCHAT_CLOUD_INSTALL=/home/cmux/.cmux/chief/cloud/install.json
+# The acpmux the host trusts as its socket peer (acpmux_peer.rs): the image's, the cmux-tui multicall binary.
+Environment=ACPMUX_BIN=/opt/cmux/current/bin/acpmux
+# Its own acpmux home: the host starts that daemon as its child. The machine's ~/.acpmux daemon makes
+# itself not dumpable, so its /proc/PID/exe is hidden and acpmux_peer.rs admits only a daemon this host started.
+Environment=ACPMUX_HOME=/home/cmux/.cmux/chief/acpmux
+EnvironmentFile=-/etc/cmux/chief.env
+# First start on a machine whose image carries no build yet: fetch the newest one (root, the `+`).
+ExecStartPre=+/usr/local/sbin/cmux-chief-update --if-missing
+ExecStart=/usr/local/lib/cmux-chief/cmux-chief-host
+Restart=always
+RestartSec=5
+RestartSteps=5
+RestartMaxDelaySec=60
+RestartPreventExitStatus=2
+KillSignal=SIGTERM
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
