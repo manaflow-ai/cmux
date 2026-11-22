@@ -18,6 +18,7 @@ import {
   MARK_STEP,
   MARK_OPENS_TURN,
   MARK_HEADS_TURN,
+  MARK_TOPS_TURN,
   MARK_WORKED,
   rowMark,
   gridScale,
@@ -1752,7 +1753,22 @@ export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
 export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
   (wokenUnderFooter(row, prev) && wokenGapLook() === "tail" ? MARK_STATUS : rowGridMark(row, prev)) |
   (opensBackgroundTurn(row, prev) ? MARK_OPENS_TURN : 0) |
-  (headsIncomingTurn(row, prev) ? MARK_HEADS_TURN : 0);
+  (headsIncomingTurn(row, prev) ? MARK_HEADS_TURN : 0) |
+  (topsIncomingTurn(row, prev) ? MARK_TOPS_TURN : 0);
+/// Whether `row` is the top of a turn another agent's line opened, right under the turn before's last
+/// reply (transcriptGrid.ts MARK_TOPS_TURN): that notice or message (not a steer into the running turn,
+/// which is that turn's own), or the turn's "Working for" / "Worked for" line drawn over it. A person's
+/// prompt opens its turn under its own mark, so "Working for" is under a reply only when another
+/// agent's line opened the turn. O(1).
+const topsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
+  prev !== undefined &&
+  prev.kind === "assistant" &&
+  (prev.text?.length ?? 0) > 0 &&
+  (isWorkedLine(row) ||
+    (row.kind === "user" &&
+      (row.incoming !== undefined || row.received !== undefined) &&
+      row.incoming?.kind !== "hidden" &&
+      row.steer === undefined));
 /// Whether `row` heads a turn another agent's line opened (transcriptGrid.ts MARK_HEADS_TURN): the
 /// running turn's live line right under that notice or message, or the notice or message itself right
 /// under the "Worked for" line of a turn that ended on work (its footer draws nothing), where it stood
