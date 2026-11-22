@@ -326,7 +326,7 @@ fn batches_split_at_the_byte_limit() {
     assert_eq!(total, 407);
     assert!(batches > 1);
     // The real limit: a full 5000-record batch of turn records is under 1 MiB.
-    assert!(upload::MAX_BODY_BYTES >= 1024 * 1024);
+    const { assert!(upload::MAX_BODY_BYTES >= 1024 * 1024) };
 }
 
 struct Stub {
@@ -342,7 +342,7 @@ impl Stub {
 }
 
 impl Sender for Stub {
-    fn send(&self, body: Vec<u8>) -> impl std::future::Future<Output = Sent> + Send {
+    fn send(&self, body: Vec<u8>) -> impl Future<Output = Sent> + Send {
         self.bodies.lock().unwrap().push(body);
         let answer = self
             .answers
