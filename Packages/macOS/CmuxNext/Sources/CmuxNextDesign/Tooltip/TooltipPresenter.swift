@@ -5,8 +5,8 @@ public import CmuxNextDesignTokens
 /// The app's one tooltip (Leo, 2026-10-12: no stock macOS bubble). A view sets `themedToolTip`
 /// (`.themedHelp` in SwiftUI); hovering it shows this tooltip below the view, kept on screen, with
 /// AppKit's hover intent (Leo, 2026-10-14; `HoverIntent`): the first waits `tooltipDelay`, a
-/// neighbor's then shows at once while the group is warm, and a control whose own label already
-/// names it shows none. Each shows and goes in one frame, as the pages' do. It draws in the view's
+/// neighbor's then shows at once while the group is warm, and a control that shows its own text
+/// (a titled button, a label) shows none. Each shows and goes in one frame, as the pages' do. It draws in the view's
 /// theme scope on the shared overlay glass (`Glass.makeOverlayPanel`, the hover cards' too; a small
 /// tight shadow) under the legibility tint (`TooltipSurface.tint`): the text, then the shortcut's
 /// keycap (``TooltipContentView``, ``TooltipMetrics``). Pages draw the same tooltip
@@ -232,12 +232,12 @@ public final class TooltipPresenter {
         return under.isEmpty ? trackers : under
     }
 
-    /// The deepest tooltip under the pointer whose view draws; nil when its control's label already names it. A clear
+    /// The deepest tooltip under the pointer whose view draws; nil when its control shows its own text. A clear
     /// view's area takes no part (`isClear`): a hover control cleared by paint over a row must not hide the row's own
     /// tooltip under it, as a hidden one did not.
     static func pick(_ trackers: [TooltipTracker]) -> TooltipTracker? {
         let drawn = trackers.filter { $0.view.map { !isClear($0) } ?? false }
-        return underPointer(drawn).max { $0.depth < $1.depth }.flatMap { $0.repeatsVisibleLabel ? nil : $0 }
+        return underPointer(drawn).max { $0.depth < $1.depth }.flatMap { $0.showsOwnText ? nil : $0 }
     }
 
     /// The view or an ancestor draws nothing (opacity 0): a hover control cleared by paint (the sidebar row's x and ⋮,
