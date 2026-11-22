@@ -60,6 +60,11 @@ pub(super) struct LivePayload {
     /// Commits whose app content outside the replaced companions is unchanged.
     #[serde(default)]
     pub native_from: Vec<String>,
+    /// Commits whose daemon ABI (the FFI pin and the Rust the Swift build reads) can run this build's bin
+    /// files beside their own app, newest first: `live_from` and on past its whole-app floor. Only the
+    /// nightly-live channel reads it; older files have none and fall back to `live_from`.
+    #[serde(default)]
+    pub daemon_from: Vec<String>,
     pub targets: BTreeMap<String, BTreeMap<String, Binary>>,
 }
 
@@ -78,6 +83,8 @@ pub(super) struct ChannelPayload {
     pub expires_at: u64,
     #[serde(default)]
     pub live_from: Vec<String>,
+    #[serde(default)]
+    pub daemon_from: Vec<String>,
 }
 
 /// The payload of `body` when a `keys` signature covers it, it is a Mac live
@@ -133,6 +140,11 @@ pub(super) fn verify_channel(
     if payload.live_from.first().map(String::as_str) != Some(payload.commit.as_str()) {
         return Err("the channel's live_from does not start at its commit".to_owned());
     }
+    if !payload.daemon_from.is_empty()
+        && payload.daemon_from.first().map(String::as_str) != Some(payload.commit.as_str())
+    {
+        return Err("the channel's daemon_from does not start at its commit".to_owned());
+    }
     Ok(payload)
 }
 
@@ -149,6 +161,14 @@ pub(super) fn takes(live_from: &[String], app_commit: &str) -> bool {
         return false;
     }
     live_from.iter().filter(|entry| entry.starts_with(app_commit)).count() == 1
+}
+
+/// The app commits the nightly-live channel takes: `daemon_from` when the
+/// signed file has it, else `live_from` (a file from before daemon_from).
+/// A channel apply swaps only the daemon's bin files and never claims the app
+/// is at the target, so the daemon ABI is all it needs to match.
+pub(super) fn daemon_list<'a>(daemon_from: &'a [String], live_from: &'a [String]) -> &'a [String] {
+    if daemon_from.is_empty() { live_from } else { daemon_from }
 }
 
 /// Native equality must cover the same full commit as daemon compatibility.

@@ -242,6 +242,7 @@ fn choose(
     live: &Live,
     builds: Option<Result<&Value, &str>>,
     base: &str,
+    daemon_only: bool,
 ) -> Plan {
     let messages = messages();
     let mut why = Vec::new();
@@ -250,9 +251,15 @@ fn choose(
         (Live::Refused(error), _) => why.push(messages.why_live_refused.replace("{error}", error)),
         (Live::Found(_), None) => why.push(messages.why_no_app_commit.to_owned()),
         (Live::Found(payload), Some(app_commit)) => {
-            if !live::takes(&payload.live_from, app_commit) {
+            // The nightly-live channel (daemon_only) swaps the daemon alone: daemon_from, no native check.
+            let from = if daemon_only {
+                live::daemon_list(&payload.daemon_from, &payload.live_from)
+            } else {
+                &payload.live_from
+            };
+            if !live::takes(from, app_commit) {
                 why.push(messages.why_not_live_from.replace("{app_commit}", app_commit));
-            } else if !live::native_matches(payload, app_commit) {
+            } else if !daemon_only && !live::native_matches(payload, app_commit) {
                 why.push(messages.why_native_unproven.to_owned());
             } else {
                 match live::wanted(payload, base) {
@@ -508,8 +515,8 @@ where
     let app_commit = app_commit(app).ok_or(
         "this app has no CMUXCommit; the nightly-live channel requires a stamped compatible app",
     )?;
-    if !live::takes(&payload.live_from, &app_commit) {
-        return Err("this app's commit is not in the nightly-live pointer's live_from".to_owned());
+    if !live::takes(live::daemon_list(&payload.daemon_from, &payload.live_from), &app_commit) {
+        return Err("this app's commit is not in the nightly-live pointer's daemon_from".to_owned());
     }
     let _lock = store.lock()?;
     if !live::channel_is_newer(store.channel_last()?, payload.committed_at) {
@@ -574,7 +581,7 @@ fn run_try(
     let t = Instant::now();
     let live = read_live(&commit, &base);
     phases.add("plan", t);
-    let mut plan = choose(&commit, app_commit.as_deref(), &live, None, &base);
+    let mut plan = choose(&commit, app_commit.as_deref(), &live, None, &base, live_only);
     if live_only && !matches!(plan, Plan::Live { .. }) {
         return failure(
             "try.channel_incompatible",
@@ -591,6 +598,7 @@ fn run_try(
             &live,
             Some(builds.as_ref().map_err(String::as_str)),
             &base,
+            false,
         );
         phases.add("plan", t);
     }
