@@ -347,7 +347,7 @@ export function draftDiff(expected: string, actual: string): { dropped: number; 
   const a = expected;
   const b = actual;
   if (a === b) return { dropped: 0, reordered: false };
-  const row = new Array<number>(b.length + 1).fill(0);
+  const row = Array.from({ length: b.length + 1 }, () => 0);
   for (let i = 1; i <= a.length; i += 1) {
     let previous = 0;
     for (let j = 1; j <= b.length; j += 1) {
