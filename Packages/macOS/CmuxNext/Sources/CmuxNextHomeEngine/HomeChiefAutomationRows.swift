@@ -35,6 +35,7 @@ final class HomeChiefAutomationRows: NSStackView {
     func show(_ automations: [ChiefAutomation]) {
         shown = automations
         actions = [:]
+        // visible-only: the list holds at most AUTOMATIONS_MAX (20) automations, so teardown touches a handful of rows.
         for view in arrangedSubviews {
             removeArrangedSubview(view)
             view.removeFromSuperview()
