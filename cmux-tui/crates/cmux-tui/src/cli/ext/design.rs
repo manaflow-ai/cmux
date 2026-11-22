@@ -308,12 +308,13 @@ pub(super) fn scenes_in(file: &str, value: &Value) -> Vec<(String, Value)> {
     }
 }
 
-/// `ext design FILE... [--widget] [--json]`: each recorded scene's findings. Exit 0 when none
-/// warns, 1 when one does, 4 when a file does not read as scenes.
+/// `ext design FILE... [--widget] [--size NAME] [--json]`: each recorded scene's findings. Exit 0
+/// when none warns, 1 when one does, 4 when a file does not read as scenes.
 pub(super) fn run(
     files: &[std::path::PathBuf],
     surface: Surface,
     system: &System,
+    tile: Option<&Tile>,
     json_out: bool,
 ) -> i32 {
     let mut reports = Vec::new();
@@ -338,7 +339,7 @@ pub(super) fn run(
                 eprintln!("cmux: {scene}: the ops name no root, so there is no scene to check");
                 return super::exit::MANIFEST_INVALID;
             }
-            reports.push((scene, check_in(&[&ops], surface, system)));
+            reports.push((scene, check_tile(&[&ops], surface, system, tile)));
         }
     }
     let warned = reports.iter().filter(|(_, findings)| !findings.is_empty()).count();
