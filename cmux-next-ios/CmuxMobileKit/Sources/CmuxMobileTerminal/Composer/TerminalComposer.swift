@@ -175,7 +175,13 @@ struct TerminalComposer: View {
         // rounded shape clips the cut lines at the corners too.
         .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
         .clipShape(.rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
-        .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+        // Clear glass, not regular: regular glass changes its material with
+        // the shape's size, so the field turned a lighter gray once a draft
+        // passed three lines (Leo, 2026-11-21: "the composer brightening up
+        // when you have >3 lines"). Clear glass looks the same at every
+        // height, the look a one-line draft always had
+        // (TerminalComposerLookUITests: 1, 3, 4 and 8 lines).
+        .glassEffect(.clear.interactive(), in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
     }
 
     private var sendButton: some View {
