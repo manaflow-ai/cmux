@@ -1,19 +1,34 @@
-import AppKit
-import CmuxNextAgentPane
+public import AppKit
+public import CmuxNextActions
 import CmuxNextDesign
-import CmuxNextLayout
 import CmuxNextSettings
-import ImageIO
-import UniformTypeIdentifiers
 
-/// Inspect Element for cmux NEXT's own web content: the HTML/React pages the
-/// app hosts (an agent chat, `AgentPaneView`). Native AppKit/SwiftUI views are
-/// never inspectable and pay nothing: no monitor runs until the picker starts,
-/// and while it runs an event over a native view goes on untouched (no
-/// hit-test, no highlight, no swallowed click).
+/// Point at Element (Inspect Element) for cmux NEXT's own UI: the HTML/React pages the app hosts (an agent chat,
+/// `AgentPaneView`) and its native tabs, panes and sidebar rows (ask-5077a4ec48: "point to the actual ui sorta like
+/// devtools/react devtools and right click elements to copy and show them to the agent").
+///
+/// It costs nothing until a pick starts (shadow-leo's rule for bringing native UI back): no monitor, observer,
+/// overlay or hit-test tree exists outside `start()`...`stop()`. While picking, a move over native UI hit-tests the
+/// window once and outlines the element it names (one overlay, moved, not remade); a click sends it to the chat, a
+/// right-click copies it, Up and Down walk out to its container and back, Return picks, Esc ends. `stop()` drops all
+/// of it again.
 @MainActor
-final class UIInspectorController {
-    private weak var services: AppServices?
+public final class UIInspectorController {
+    /// What the picker needs from the app: its agent chat pages, the active shell window, and a window capture.
+    public struct Host {
+        public var pages: @MainActor () -> [AgentPaneView]
+        public var activeWindow: @MainActor () -> NSWindow?
+        public var capture: @MainActor (NSWindow) async -> CGImage?
+
+        public init(pages: @escaping @MainActor () -> [AgentPaneView], activeWindow: @escaping @MainActor () -> NSWindow?,
+                    capture: @escaping @MainActor (NSWindow) async -> CGImage?) {
+            self.pages = pages
+            self.activeWindow = activeWindow
+            self.capture = capture
+        }
+    }
+
+    private let host: Host
     /// The picker's monitor, installed only between `start()` and `stop()`.
     private var monitor: Any?
     private var inspectNotification: NSObjectProtocol?
@@ -21,11 +36,15 @@ final class UIInspectorController {
     private weak var activePage: AgentPaneView?
     private var selectionGeneration = 0
     private var pendingAction: SelectionAction = .send
+    private var nativeSelecting = false // a native pick is capturing: events are held until it lands
+    private var swallowsRelease = false // the picker took the press, so the release is its too
+    /// The native pick: empty until a pick's first move over native UI, cleared by `stop()`.
+    public let native = UIPointerNativePicker()
 
     private enum SelectionAction { case send, copy }
 
-    init(services: AppServices) {
-        self.services = services
+    public init(host: Host) {
+        self.host = host
         inspectNotification = NotificationCenter.default.addObserver(
             forName: .cmuxNextInspectUIElement, object: nil, queue: .main
         ) { [weak self] _ in
@@ -44,9 +63,9 @@ final class UIInspectorController {
         }
     }
 
-    var isPicking: Bool { monitor != nil }
+    public var isPicking: Bool { monitor != nil }
 
-    func toggle() {
+    public func toggle() {
         guard AgentPaneTunables.pointerInspector.value else { return }
         if isPicking { stop(); return }
         start()
@@ -56,10 +75,25 @@ final class UIInspectorController {
     /// page (the page whose menu opened last), never the one under the chosen menu row:
     /// the page records it on `contextmenu` and holds it through a short grace (picker.ts).
     /// No app-wide right-click monitor runs. The web equivalent of DevTools' Inspect Element.
-    func inspectFromContextMenu() {
+    public func inspectFromContextMenu() {
         guard AgentPaneTunables.pointerInspector.value else { return }
         start()
-        let candidates = services.map { Array($0.agentTabs.views.values) } ?? []
+        inspectWebMenuTarget()
+    }
+
+    /// The right-click menu's Point at Element: `menu` names which menu it was picked from. The chat page's (or an
+    /// unnamed one) starts on the page's right-clicked element; a native tab's, pane's, workspace row's or sidebar
+    /// item's starts on that object, found by its identifier in the key window (one walk of its views, at the pick).
+    public func inspectFromContextMenu(menu: ActionMenuContext?, target: ActionTargetRef?) {
+        guard let menu, menu != .agentChat, let target else { inspectFromContextMenu(); return }
+        guard AgentPaneTunables.pointerInspector.value else { return }
+        start()
+        guard let window = host.activeWindow() ?? NSApp.keyWindow else { return }
+        native.start(on: target, in: window)
+    }
+
+    private func inspectWebMenuTarget() {
+        let candidates = host.pages()
         let menus = candidates.compactMap { page in page.lastContextMenu.map { (page: page, menu: $0) } }
         guard let latest = menus.max(by: { $0.menu.uptime < $1.menu.uptime }),
               latest.page.window?.isVisible == true else { return }
@@ -74,7 +108,7 @@ final class UIInspectorController {
             watchesToggle = true
             AgentPaneTunables.whenPointerInspectorTurnsOff { [weak self] in self?.stop() }
         }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .leftMouseUp, .rightMouseUp, .keyDown]) { [weak self] event in
             guard let self else { return event }
             guard Thread.isMainThread else { return event } // main-proof: AppKit local monitors are delivered on the main thread
             return self.handle(event, window: self.shellWindow(for: event.window), point: self.screenPoint(of: event))
@@ -85,21 +119,35 @@ final class UIInspectorController {
         selectionGeneration &+= 1
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+        nativeSelecting = false
+        swallowsRelease = false
         deactivatePage()
+        native.clear()
     }
 
     /// One picker event in `window` at `point` (screen points; the monitor passes the event's
     /// own): over an app-owned web page it drives the page's own picker; anywhere else (native
     /// UI) it returns `event` untouched.
-    func handle(_ event: NSEvent, window: NSWindow?, point: NSPoint?) -> NSEvent? {
+    public func handle(_ event: NSEvent, window: NSWindow?, point: NSPoint?) -> NSEvent? {
         if event.type == .keyDown, event.keyCode == 53 { stop(); return nil }
-        guard services != nil, let window, let point, let page = page(at: point, in: window) else {
-            deactivatePage()
-            return event
+        // A native pick is being captured: nothing reaches the views and nothing outlines until it lands.
+        if nativeSelecting { return event.type == .mouseMoved ? event : nil }
+        if event.type == .leftMouseUp || event.type == .rightMouseUp {
+            // The release of a press the picker took is the picker's too.
+            defer { swallowsRelease = false }
+            return swallowsRelease ? nil : event
         }
+        if event.type == .keyDown { return nativeKey(event) }
+        guard let window, let point else { deactivatePage(); return event }
+        guard let page = page(at: point, in: window) else {
+            deactivatePage()
+            return handleNative(event, window: window, point: point)
+        }
+        native.clear()
         activate(page)
         if event.type == .leftMouseDown || event.type == .rightMouseDown {
             pendingAction = event.type == .rightMouseDown ? .copy : .send
+            swallowsRelease = true
             page.evaluateUiPointer(pointerScript("pick", point: point, page: page))
             return nil
         }
@@ -124,7 +172,7 @@ final class UIInspectorController {
 
     private func shellWindow(for eventWindow: NSWindow?) -> NSWindow? {
         if let eventWindow, let parent = eventWindow.parent { return parent }
-        return eventWindow ?? services?.windows.active?.window
+        return eventWindow ?? host.activeWindow()
     }
 
     private func deactivatePage() {
@@ -139,10 +187,64 @@ final class UIInspectorController {
     }
 
     private func page(at point: NSPoint, in window: NSWindow) -> AgentPaneView? {
-        services?.agentTabs.views.values.first { view in
+        host.pages().first { view in
             guard view.window === window, !view.isHiddenOrHasHiddenAncestor else { return false }
             let rect = view.convert(view.bounds, to: nil)
             return rect.contains(window.convertPoint(fromScreen: point))
+        }
+    }
+
+    // MARK: Native UI
+
+    /// A move outlines the element under `point` (screen); a press picks it (left: to the chat, right: copied) and
+    /// is the picker's, not the view's. Anything else goes on.
+    private func handleNative(_ event: NSEvent, window: NSWindow, point: NSPoint) -> NSEvent? {
+        switch event.type {
+        case .mouseMoved:
+            native.hover(at: point, in: window)
+            return event
+        case .leftMouseDown, .rightMouseDown:
+            // While picking a press is the picker's, even over nothing it names.
+            native.hover(at: point, in: window, releasingHold: true)
+            swallowsRelease = true
+            if let element = native.current {
+                selectNative(element, in: window, action: event.type == .rightMouseDown ? .copy : .send)
+            }
+            return nil
+        default:
+            return event
+        }
+    }
+
+    /// Up and Down walk the outline out and in, Return picks it; other keys (and any with a modifier) go on.
+    private func nativeKey(_ event: NSEvent) -> NSEvent? {
+        guard event.modifierFlags.intersection([.command, .shift, .option, .control]).isEmpty else { return event }
+        switch native.key(event.keyCode) {
+        case .pass: return event
+        case .handled: return nil
+        case .pick(let element):
+            if let window = native.window { selectNative(element, in: window, action: .send) }
+            return nil
+        }
+    }
+
+    private func selectNative(_ element: UIPointerNativeElement, in window: NSWindow, action: SelectionAction) {
+        let text = element.report(path: native.path)
+        selectionGeneration &+= 1
+        let generation = selectionGeneration
+        native.clear() // the capture must not show the outline
+        nativeSelecting = true
+        Task { [weak self, weak window] in
+            guard let self, self.selectionGeneration == generation else { return }
+            // A window gone mid-capture ends the pick; otherwise the capture would hold every event until Esc.
+            guard let window else { self.stop(); return }
+            let image = await self.host.capture(window)
+            guard self.selectionGeneration == generation else { return }
+            let png = image.flatMap { UIPointerNativePicker.crop($0, rect: element.frame, window: window) }
+            // The pick goes to a chat in the window it was made in, not the first chat of any window.
+            let page = self.host.pages().first { $0.window === window && !$0.isHiddenOrHasHiddenAncestor }
+            self.finish(action: action, name: "UI: \(element.title)", text: text, png: png, preferred: page)
+            self.stop()
         }
     }
 
@@ -188,8 +290,7 @@ final class UIInspectorController {
     }
 
     private func deliver(name: String, text: String, png: Data?, preferred: AgentPaneView?) {
-        guard let services else { return }
-        let target = preferred ?? services.agentTabs.views.values.first { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor }
+        let target = preferred ?? host.pages().first { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor }
         guard let target else { return }
         AgentPaneDesignSelection(id: "ui-pointer-" + UUID().uuidString, name: name, text: text, png: png).push(to: target)
     }
@@ -207,9 +308,6 @@ final class UIInspectorController {
                           width: width.doubleValue * scaleX, height: height.doubleValue * scaleY).integral
             .intersection(CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
         guard let cut = cg.cropping(to: rect), !rect.isEmpty else { return nil }
-        let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { return nil }
-        CGImageDestinationAddImage(destination, cut, nil)
-        return CGImageDestinationFinalize(destination) ? data as Data : nil
+        return UIPointerNativePicker.png(cut)
     }
 }
