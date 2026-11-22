@@ -822,6 +822,9 @@ impl Store for JournalStore {
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
         self.inner.fenced(|| Store::tail_after(&self.inner.local, id, after))
     }
+    fn newest_window(&self, id: &str, before: u64, n: u64) -> Result<NewestWindow> {
+        self.inner.fenced(|| Store::newest_window(&self.inner.local, id, before, n))
+    }
     fn restore_point(&self, id: &str) -> Option<Vec<u8>> {
         Store::restore_point(&self.inner.local, id)
     }
@@ -846,6 +849,10 @@ impl Store for JournalStore {
     }
     // The local store reads these from its kind and text copies; the trait's defaults would
     // scan the log (`journal_store_forwards_every_local_store_override`).
+    fn search_records(&self, id: &str, visit: &mut dyn FnMut(EventRecord)) -> Result<()> {
+        self.inner.fenced(|| self.inner.local.search_records(id, visit))
+    }
+
     fn text_entries(
         &self,
         id: &str,

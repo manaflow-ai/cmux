@@ -1,0 +1,14 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/claude-code-project-picker",
+  "name": "Claude Code project picker",
+  "description": "Choose the working folder from the focused chat and expose the workspace menu beside the sidebar’s plus button.",
+  "version": "1.0.0",
+  "screenshots": [
+    "screenshots/source.png"
+  ],
+  "cmuxProfile": 1,
+  "settings": {
+    "sidebar.showNewWorkspaceChooser": true
+  }
+}
