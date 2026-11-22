@@ -2,7 +2,7 @@
 // footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
 import { FindReveal, isRevealRow } from "./chatFind";
-import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AcpmuxRow } from "../model";
 import { RETRY_HOLD_MS, useAnswerHold } from "../answerHold";
 import { ErrorDetails } from "./ErrorDetails";
@@ -50,14 +50,7 @@ import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import { offersGateway, type CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
 import { useT } from "../i18n";
-import {
-  failureCopy,
-  failureKind,
-  failureRecovery,
-  isCloudRejectedCredential,
-  isTeamMachineSignIn,
-  type FailureRoute,
-} from "../failureCopy";
+import { failureCopy, failureKind, failureRecovery, isTeamMachineSignIn, type FailureRoute } from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
@@ -328,7 +321,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     canSendPromptAgain,
     retryWith,
     reauthenticate,
-    transferCloudCredentials,
     cloudSignIn,
     apiKeySignIn,
     resume,
@@ -346,12 +338,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const prompt = row.prompt;
   const seq = row.seq;
   const failed = row.status === "failed" || row.status === "error";
-  const kind = failed ? failureKind(row.error, route, row.errorCode) : undefined;
-  // Only the CLI's own login (or an unexplained 401 on a direct route) asks to sign in (cx-w10a);
-  // its Sign in again is on the card (TurnFailure), and a Cloud chat's credential transfer stays here.
-  // A team Cloud machine refuses a personal login transfer: no Set up credentials, and no automatic one.
-  const teamMachine = route?.hostKind === "cloud" && route.teamMachine === true;
-  const authenticationFailed = (kind === "subscription-login" || kind === "auth") && !teamMachine;
   // The turn's time and tokens, for the time's tooltip: "Worked for 13s", then one token count per
   // row (turnTokensModel.ts `replyTimeDetail`). A Stop acpmux had to force (the agent never answered it)
   // says so here only, never in the transcript's text (Leo, 2026-11-03: "idk if it should be showing
@@ -362,7 +348,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // A stopped turn says so in one muted word, whoever ended it (stoppedTurn.experiment.ts).
   const stoppedLook = isStopped(row) ? experimentArm(stoppedTurnLook) : "none";
   const stoppedWord = stoppedLook !== "none" && (
-    <span className="cv-turn-stopped" title={forced ?? workedLabel(t, row)}>
+    <span className="cv-turn-stopped" aria-description={forced ?? workedLabel(t, row)}>
       {t("turn.stoppedMark")}
     </span>
   );
@@ -401,28 +387,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       )
       .finally(() => setRetrying(false));
   };
-  const automaticRecoveryAttempted = useRef<string | undefined>(undefined);
-  const automaticRecoveryRow =
-    failed &&
-    !row.recovered &&
-    !teamMachine &&
-    row.retryable === true &&
-    row.retryRowId &&
-    prompt &&
-    isCloudRejectedCredential(row.error, route)
-      ? row.retryRowId
-      : undefined;
-  useEffect(() => {
-    if (
-      !automaticRecoveryRow ||
-      !transferCloudCredentials ||
-      !prompt ||
-      automaticRecoveryAttempted.current === automaticRecoveryRow
-    )
-      return;
-    automaticRecoveryAttempted.current = automaticRecoveryRow;
-    void transferCloudCredentials(automaticRecoveryRow, prompt, true).catch(() => undefined);
-  }, [automaticRecoveryRow, prompt, transferCloudCredentials]);
   // acpmux's retry needs no prompt: an attempt it sent (a hidden prompt row) that failed again
   // still offers Retry. Without it, Retry sends the turn's prompt again, so it needs one.
   const failedRetry = !failed
@@ -544,19 +508,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             {!messages && text && <ReadAloudButton id={row.id} text={text} />}
             {!messages && text && <RowReplyButton text={text} />}
             {!messages && ((text && row.answerId) || menuRetry) && <MessageMore rowId={row.answerId ?? row.id} />}
-            {authenticationFailed && transferCloudCredentials && row.retryRowId && prompt && (
-              <button
-                type="button"
-                className="cv-turn-auth-action"
-                onClick={() => {
-                  void transferCloudCredentials(row.retryRowId!, prompt).catch(() => undefined);
-                }}
-              >
-                {t("turn.transferCredentials", {
-                  harness: route?.name || route?.harness || t("turn.failure.theAgent"),
-                })}
-              </button>
-            )}
           </span>
           {stoppedLook === "word" && stoppedWord}
           {stoppedLook === "trailing" && stoppedWord}
@@ -865,7 +816,6 @@ function TryAnotherApproachButton({ onTry }: { onTry(): Promise<unknown> }) {
       type="button"
       className="cv-iconbtn cv-iconbtn--compact cv-turn-try-another"
       aria-label={label}
-      title={label}
       aria-busy={state === "pending"}
       data-try-state={state}
       disabled={state === "pending"}
