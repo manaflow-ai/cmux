@@ -35,10 +35,7 @@ async fn an_ask_about_a_peer_down_for_minutes_waits_its_backoff_but_a_message_cu
     young.with_link(|l| {
         l.down(crate::store::now_ms(), Duration::from_secs(60));
     });
-    assert!(
-        young.asks_shorten(crate::store::now_ms()),
-        "an outage just begun still heeds asks"
-    );
+    assert!(young.asks_shorten(crate::store::now_ms()), "an outage just begun still heeds asks");
 }
 
 #[tokio::test(start_paused = true)]
@@ -106,8 +103,7 @@ async fn an_unwanted_peer_waits_its_whole_delay_and_a_stop_ends_any_wait() {
     assert!(!peer.is_wanted(), "an ask lapses by itself");
 
     let waiting = peer.clone();
-    let wait =
-        tokio::spawn(async move { waiting.wait_backoff(Duration::from_secs(3_600)).await });
+    let wait = tokio::spawn(async move { waiting.wait_backoff(Duration::from_secs(3_600)).await });
     tokio::time::sleep(Duration::from_millis(100)).await;
     peer.stop();
     assert_eq!(wait.await.unwrap(), BackoffWait::Stopped);
