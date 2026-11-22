@@ -1,9 +1,11 @@
 // cmux-web-test-timeout: 600
 // The rail rendered in tiny panes (see thread-minimap-room.test.ts for the whole sweep): pane heights
 // from the transcript's 96 px minimum, prompt counts from the rail's 4 up to 70, and offsets down the
-// whole chat. Every lit tick draws whole inside the rail's list and clear of the list's own edge fades
-// (they give way to the band in a short rail), and, where the pane has room, clear of the transcript's
-// faded edges.
+// whole chat. Every lit tick draws whole inside the rail's list; clear of the list's own edge fades
+// wherever the list can still scroll past that edge and has room for the band between them (at the
+// list's end, or in a rail too short for both, an end fades while the chat has more past it, Leo
+// 2026-11-22, model.ts railEdgeFades); and, where the pane has room, clear of the transcript's faded
+// edges.
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -158,8 +160,13 @@ for (let height = 96; height <= 336; height += 16)
           );
           // Prompts whose rows could not all be on screen together are not a band the rail can owe.
           if (lit.length * railPitch() > viewport) continue;
-          const from = list.hasAttribute("data-fade-top") ? fade : 0;
-          const to = railHeight - (list.hasAttribute("data-fade-bottom") ? fade : 0);
+          // A fade the list can scroll the band clear of: rows past that edge, and room for the band
+          // between the two fades.
+          const clears = lit.length * railPitch() + 2 * fade <= railHeight;
+          const room = listRoom(list);
+          const from = clears && list.hasAttribute("data-fade-top") && list.scrollTop > 0.5 ? fade : 0;
+          const to =
+            railHeight - (clears && list.hasAttribute("data-fade-bottom") && list.scrollTop < room - 0.5 ? fade : 0);
           // The transcript's faded edges, where the pane has room for the rail clear of them.
           const roomy = railHeight <= viewport - 18 - 18 - 8;
           const maskFrom = scroller.hasAttribute("data-fade-top") ? 18 : 0;

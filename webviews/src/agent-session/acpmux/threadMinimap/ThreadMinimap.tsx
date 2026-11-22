@@ -59,8 +59,7 @@ import {
   sameEntries,
   railShowsOffered,
   railFade,
-  railFadeReach,
-  railFades,
+  railEdgeFades,
   railClearHeight,
   railHeight,
   ROW_WIDTH,
@@ -332,6 +331,8 @@ function ThreadMinimapView({
   columnWidth = width,
   placed,
   topInset = 0,
+  chatFadeTop = 0,
+  chatFadeBottom = 0,
 }: {
   /// The transcript's rows, layout and offset (MinimapSource): read when the rail draws.
   source: MinimapSource;
@@ -372,6 +373,13 @@ function ThreadMinimapView({
   /// CSS pixels of the scroller's top a floating tab row covers (VirtualTranscript `topInset`): a jump lands
   /// its prompt LANDING_OFFSET below the row, not under it.
   topInset?: number;
+  /// How far the chat's view is from its top and its bottom, 0 to 1 (VirtualTranscript passes the
+  /// reaches its own soft edges draw, model.ts transcriptFadeReach): the list's end fades while the
+  /// chat has more past it there and is hard once the chat is at that end (model.ts railEdgeFades).
+  /// Two numbers, not an object, so the rail's props still compare by value: in the middle of a long
+  /// chat both stay 1 and a scroll renders no rail for them.
+  chatFadeTop?: number;
+  chatFadeBottom?: number;
 }) {
   const t = useT();
   const topInsetNow = useRef(topInset);
@@ -1588,8 +1596,7 @@ function ThreadMinimapView({
     if (event.currentTarget.hasPointerCapture?.(state.pointer))
       event.currentTarget.releasePointerCapture(state.pointer);
   };
-  const fades = railFades(onScreen, turns.length, height, listTop, rowPitch);
-  const fadeReach = railFadeReach(turns.length, height, listTop, rowPitch);
+  const fades = railEdgeFades(turns.length, height, listTop, { top: chatFadeTop, bottom: chatFadeBottom }, rowPitch);
   const inTickContent = (event: React.PointerEvent<HTMLElement>, node: HTMLElement) => {
     const y = event.clientY - node.getBoundingClientRect().top + node.scrollTop;
     return y >= 0 && y < turns.length * rowPitch;
@@ -1711,17 +1718,19 @@ function ThreadMinimapView({
             ref={list}
             className="acpmux-minimap__list"
             {...{ [HIDDEN_SCROLLER_ATTRIBUTE]: "" }}
-            // The edge fades: 2.5rem, a quarter of a short rail, and never over the band (railFades).
-            data-fade-top={fades.top || undefined}
+            // The edge fades: 2.5rem, a quarter of a short rail, at each end with more past it, rows or
+            // chat, and a hard edge at an end the chat and the list are both at (railEdgeFades). A list
+            // that fits draws every prompt, so it has nothing past either end and no fades.
+            data-fade-top={(overflow && fades.top) || undefined}
             data-fade-bottom={(overflow && fades.bottom) || undefined}
             // A list longer than its room scrolls itself, and the wheel over it is the rail's (railWheel.ts).
             {...(overflow ? { [RAIL_SCROLLS_ATTRIBUTE]: "" } : {})}
             style={
               {
                 "--acpmux-minimap-fade": `${railFade(height)}px`,
-                // Each edge's depth as the list leaves that end (model.ts railFadeReach); not inherited.
-                "--acpmux-minimap-fade-top-reach": fadeReach.top,
-                "--acpmux-minimap-fade-bottom-reach": fadeReach.bottom,
+                // Each edge's depth as the list or the chat leaves that end (railEdgeFades); not inherited.
+                "--acpmux-minimap-fade-top-reach": fades.reach.top,
+                "--acpmux-minimap-fade-bottom-reach": fades.reach.bottom,
                 "--acpmux-minimap-pitch": `${rowPitch}px`,
                 // The ticks' entrance staggers down the rows in the rail's room (threadMinimap.css). Each
                 // tick keeps its own place from its mount (Tick), so a scroll changes nothing the list's

@@ -251,6 +251,28 @@ test("each rail edge fades from nothing at its end to full a few rows on, like a
   for (let at = 1; at < steps.length; at += 1) expect(steps[at]! - steps[at - 1]!).toBeLessThanOrEqual(0.5);
 });
 
+// Leo, 2026-11-22: "if i scroll up in the scroll rail, the lower end should reflect that i'm not at the
+// very bottom, and therefore have the same fade effect as the top does. likewise, when im at the top, it
+// should def have the hard edge like when im at the bottom."
+test("each rail end fades while the list or the chat has more past it, hard once both are at that end", async () => {
+  const { railEdgeFades, ROW_PITCH } = await import("../src/agent-session/acpmux/threadMinimap/model");
+  const height = 240;
+  const count = 100;
+  const end = count * ROW_PITCH - height;
+  const at = (top: number, chatTop: number, chatBottom: number) =>
+    railEdgeFades(count, height, top, { top: chatTop, bottom: chatBottom });
+  // The chat at its top, the list at its top: a hard head, the foot full.
+  expect(at(0, 0, 1)).toEqual({ top: false, bottom: true, reach: { top: 0, bottom: 1 } });
+  // The chat at its bottom, the list at its end: a hard foot.
+  expect(at(end, 1, 0)).toEqual({ top: true, bottom: false, reach: { top: 1, bottom: 0 } });
+  // Scrolled up from the bottom with the list still at its end: the foot fades by the chat's reach.
+  expect(at(end, 1, 0.4)).toEqual({ top: true, bottom: true, reach: { top: 1, bottom: 0.4 } });
+  // Scrolled down from the top with the list still at its top: the head fades by the chat's reach.
+  expect(at(0, 0.25, 1)).toEqual({ top: true, bottom: true, reach: { top: 0.25, bottom: 1 } });
+  // The list wheeled off its end while the chat stays at the bottom: the foot fades for the rows below.
+  expect(at(end - 400, 1, 0).bottom).toBe(true);
+});
+
 test("the transcript's edges deepen as the view leaves each end", async () => {
   const { transcriptFadeReach, TRANSCRIPT_FADE_RAMP } = await import("../src/agent-session/acpmux/threadMinimap/model");
   expect(transcriptFadeReach(0)).toBe(0);
