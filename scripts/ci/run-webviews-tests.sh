@@ -451,9 +451,44 @@ warm_transforms() {
     tail -n 20 "$results/warm-transforms.log" || true
   fi
 }
+# gallery_stages: once per run, when a selected file scans the gallery's stages (accent-glass-invariants,
+# control-contrast, gallery-control-surfaces), build the gallery (`bun run gallery:build`, about 60 s on
+# 16 cores) and name the folder in CMUX_GALLERY_STAGE_BUILD, which test/support/galleryStageServer.ts
+# serves in place of a Vite dev server. Each dev server stage loaded about 650 unbundled modules from
+# one Vite thread: 80 stages took 29.3 s pinned to 4 cores and 59.8 s pinned to 2, against 15.4 s from
+# the build. CMUX_GALLERY_STAGE_CSS=dev keeps the CSS as the dev server serves it (no Tailwind optimize,
+# no CSS minify): the shipped CSS lowers light-dark() and reorders rules, and the scans' baselines were
+# read from the dev server's. A build that fails or runs out of time leaves the dev servers, as before.
+# A later call (the serial phase, the retries) reuses the folder.
+gallery_stage_files='accentGlassInvariants|controlContrast|galleryControlSurfaces'
+gallery_stages() {
+  local build="$results/gallery-build"
+  if [ ! -e "$results/gallery-tried" ]; then
+    : > "$results/gallery-tried"
+    if grep -q '"gallery:build"' package.json 2> /dev/null && [ -f test/support/galleryStageServer.ts ] &&
+      xargs -0 grep -lE -- "$gallery_stage_files" < "$results/files" > /dev/null 2>&1; then
+      local limit=600
+      if [[ "${CMUX_WEB_TEST_STOP_AT:-}" =~ ^[1-9][0-9]*$ ]]; then
+        limit=$((CMUX_WEB_TEST_STOP_AT - $(date +%s)))
+        if [ "$limit" -gt 600 ]; then limit=600; fi
+      fi
+      local started=$SECONDS
+      if [ "$limit" -ge 1 ] && CMUX_GALLERY_STAGE_CSS=dev CMUX_GALLERY_OUT_DIR="$build" run_with_timeout "$limit" bun run gallery:build > "$results/gallery-build.log" 2>&1 < /dev/null &&
+        [ -f "$build/frame.html" ]; then
+        echo "gallery-build: built the gallery stages in $((SECONDS - started))s"
+      else
+        echo "::warning::gallery-build failed or timed out after $((SECONDS - started))s; the gallery scans use Vite dev servers"
+        tail -n 20 "$results/gallery-build.log" 2> /dev/null || true
+        rm -rf "$build"
+      fi
+    fi
+  fi
+  if [ -f "$build/frame.html" ]; then export CMUX_GALLERY_STAGE_BUILD="$build"; fi
+  return 0
+}
 if [ "$plain_jobs" -ge 1 ] && [ -s "$results/browser" ] && [ -s "$results/plain" ]; then
   # The plain jsdom files start at once; the browser files wait for the warm, beside them.
-  { warm_transforms; xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"; } &
+  { warm_transforms; gallery_stages; xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"; } &
   browser_pool=$!
   # A failed plain pool still waits for the browser pool, so no worker outlives the results directory.
   plain_status=0
@@ -466,10 +501,13 @@ else
   fi
   if [ -s "$results/browser" ]; then
     warm_transforms
+    gallery_stages
     xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"
   fi
 fi
 [ ! -s "$results/serial" ] || warm_transforms
+# Builds for the serial files, or picks up the browser pool's build for them and the retries.
+gallery_stages
 
 # vite_config FILE: the Vite config whose dependency cache FILE's dev server fills.
 vite_config() {
