@@ -2666,12 +2666,14 @@ button.cv-subagent > :last-child {
 .acpmux-hat-face svg {
   display: block;
 }
-/* What ended reads quieter than what runs; the tooltip says which state. */
+/* What ended reads quieter than what runs; the tooltip says which state. 80% keeps an icon's 3:1: a tone
+   or muted ink fit at 4.5:1 reads 3.1-3.3:1 at 80%, and read 2.2-2.7:1 at 55% (control-contrast-2: Light's
+   cyan tone 2.16:1, Dark's purple 2.73:1, Rose Pine Dawn's muted ink 2.31:1). */
 .acpmux-hat-face:is([data-state="done"], [data-state="stopped"]) {
-  opacity: 0.55;
+  opacity: 0.8;
 }
 .acpmux-hat-face[data-state="failed"] {
-  opacity: 0.7;
+  opacity: 0.8;
   color: var(--agent-status-failure);
 }
 /* The icon under the pointer lifts a little, so the eye follows the name the tooltip shows. */
