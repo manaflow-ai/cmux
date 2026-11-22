@@ -246,7 +246,6 @@ final class PagedListCollectionView: UICollectionView {
     override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
         if direction == .up, accessibilityRefresh?() == true { return true }
         let scrolled = super.accessibilityScroll(direction)
-        if scrolled { accessibilityScrolled?() }
         return scrolled
     }
 
@@ -1436,9 +1435,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-        let toTop = scrollingToTop
         scrollingToTop = false
-        if toTop { takePlace() } else { scrollEndedByCode() }
+        takePlace()
     }
 
     // MARK: Swipe actions
