@@ -807,6 +807,7 @@ export const SubagentTray = memo(function SubagentTray({
           title={t("tray.tuck")}
           onClick={onTuck}
         >
+          {/* icon-scale-allow: the eye-slash rides inside the 10 px bar */}
           <Icon name="action.hide" size={10} />
         </button>
       )}

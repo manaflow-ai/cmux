@@ -93,6 +93,7 @@ export function HatHeadDeck({
           <span
             key={key}
             className="acpmux-hat-deck__mark"
+            aria-hidden="true"
             data-deck-key={key}
             data-peeked={peeked === key || undefined}
             // The deck's order: the first card on top, each later one tucked under it.

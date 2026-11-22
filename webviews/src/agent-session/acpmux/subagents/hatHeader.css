@@ -13,7 +13,7 @@
   align-items: center;
   align-self: stretch;
   /* The first mark sits in the lines' icon column, its hit box reaching into the inset. */
-  margin-inline-start: -2px;
+  margin-inline-start: calc(-1 * var(--grid-half-step));
 }
 /* Each mark's hit box is the bar's full height and touches the next, so the pointer running along the
    strip goes from one mark to the next and never falls back to the summary between them. */
@@ -23,7 +23,7 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  padding-inline: 2px;
+  padding-inline: var(--grid-half-step);
   cursor: default;
 }
 .acpmux-hat-deck__face {
@@ -62,20 +62,18 @@
 }
 /* Each card tucks under the one before it: the deck is a stack, not a row. */
 .acpmux-hat-deck[data-look="cards"] > .acpmux-hat-deck__mark + .acpmux-hat-deck__mark {
-  margin-inline-start: -9px;
+  margin-inline-start: calc(-2 * var(--ds-space-1));
 }
 .acpmux-hat-deck[data-look="cards"] .acpmux-hat-deck__face {
-  padding: 2px;
+  padding: var(--grid-half-step);
   border-radius: var(--ds-radius-control, 6px);
   background: color-mix(in srgb, var(--agent-page-bg, Canvas) 86%, var(--agent-text));
-  box-shadow:
-    inset 0 0 0 var(--cmux-hairline, 1px) color-mix(in srgb, var(--agent-text) 14%, transparent),
-    0 1px 2px color-mix(in srgb, #000 18%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 1px) color-mix(in srgb, var(--agent-text) 14%, transparent);
   transform-origin: 50% 100%;
 }
 /* The front card: on top of the deck, lifted, flipped up from its bottom edge as a Rolodex card turns. */
 .acpmux-hat-deck[data-look="cards"] > .acpmux-hat-deck__mark[data-peeked] {
-  z-index: 40 !important;
+  z-index: var(--layer-sticky) !important;
 }
 .acpmux-hat-deck[data-look="cards"] > .acpmux-hat-deck__mark[data-peeked] > .acpmux-hat-deck__face {
   transform: translateY(-2px) scale(1.08);
@@ -214,7 +212,7 @@
   align-items: center;
   justify-content: center;
   width: 100%;
-  height: 10px;
+  height: calc(2.5 * var(--ds-space-1));
   margin: 0;
   padding: 0;
   border: 0;
@@ -229,10 +227,12 @@
   transition: opacity var(--cv-actions-out, 120ms) var(--cv-actions-out-ease, ease-out);
 }
 .acpmux-running-tray:hover > .acpmux-hat-hide-bar,
+.acpmux-running-tray:has([data-popup-open]) > .acpmux-hat-hide-bar,
 .acpmux-hat-hide-bar:focus-visible {
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
 }
 .acpmux-running-tray:hover > .acpmux-hat-hide-bar > svg,
+.acpmux-running-tray:has([data-popup-open]) > .acpmux-hat-hide-bar > svg,
 .acpmux-hat-hide-bar:focus-visible > svg {
   opacity: 1;
   transition: opacity var(--cv-actions-in, 80ms) var(--cv-actions-in-ease, ease-out);
