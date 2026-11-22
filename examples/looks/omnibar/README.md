@@ -1,5 +1,9 @@
 # Omnibar
 
+![The Omnibar look in Light: one chrome colour, a neutral highlight on the selected tab and row](screenshots/omnibar-light.png)
+
+![The Omnibar look in Dark](screenshots/omnibar-dark.png)
+
 Browser chrome for agents and terminals: one band, one colour, one root corner. Omnibar v0.1 is
 the look that goes with the design proposal of the same name (RFD 0033). It changes no default.
 
@@ -19,19 +23,22 @@ It is built only from public surfaces, so you can copy any part of it:
 | `agent-pane/theme.css` | A prompt bubble with 14 px corners (the text at 6%), cards at 4% with a 10% hairline, secondary text at 76% and 70%, links in the accent a step toward the text, and menus as the address field's popup (pending, below): `cmux.agentPane.style/1` tokens only, every colour mixed from the theme's own |
 | `markdown/theme.css` | Semibold headings with no rule, code on a 4% fill with 8 px corners, quotes on a hairline. Only `--cmux-md-*` properties on `:root` |
 
-## The numbers and where they come from
+## The numbers
 
-| Value | Omnibar | Source |
+Measured from the source of the two open-source browsers this look comes after; the proposal
+(RFD 0033) cites each one.
+
+| Value | Omnibar | Rule |
 | --- | --- | --- |
-| Control height (toolbar button, address field, sidebar row) | 28 pt | Helium's default density: `kToolbarButtonHeight` and `kLocationBarHeight` 28 ([layout-constants.patch](https://github.com/imputnet/helium/blob/main/patches/helium/ui/layout-constants.patch)); cmux's row today |
-| Band height (tab strip, toolbar) | 36 pt = 28 + 4 + 4 | Helium's strip is 34 (28 + 3 + 3) on a 3 pt unit; cmux's unit is 4 |
-| Root corner (address field, button, row) | 8 pt | Helium: field and toolbar button radius 8 ([location-bar.patch](https://github.com/imputnet/helium/blob/main/patches/helium/ui/location-bar.patch), [toolbar.patch](https://github.com/imputnet/helium/blob/main/patches/helium/ui/toolbar.patch)) |
-| Chip inside the field | 6 pt = 8 - 2 | Helium: "location bar rounding is 8px and padding is 2px, so inner rounding is 6px" |
-| Pane, menu and popup corner | 12 pt = 8 + 4 | Helium's popup radius 12 ([omnibox.patch](https://github.com/imputnet/helium/blob/main/patches/helium/ui/omnibox.patch)); Chromium's menu radius 12 ([layout_provider.cc](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/ui/views/layout/layout_provider.cc)) |
-| Tab width | 192 at most, 96 selected at least, 56 otherwise | Helium's 190; Chromium's close button stays on the selected tab and hides under 68 ([tab.h](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/chrome/browser/ui/views/tabs/tab.h)) |
-| Selected tab | the one second tone | Chromium: the selected tab is the toolbar's colour ([tab_strip_color_mixer.cc](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/chrome/browser/ui/color/tab_strip_color_mixer.cc)) |
-| Hover fill | the text at 6% (Light), 10% (Dark) | Chromium's toolbar hover: `0x0F` and `0x1A` alpha ([sys_color_mixer.cc](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/ui/color/sys_color_mixer.cc)) |
-| Colour change | 200 ms, ease out | Chromium's tab layout and address field hover, 200 ms ([tab_container.cc](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/chrome/browser/ui/views/tabs/tab_container.cc)) |
+| Control height (toolbar button, address field, sidebar row) | 28 pt | one height for everything you click in the chrome |
+| Band height (tab strip, toolbar) | 36 pt | the control plus 4 above and 4 below |
+| Root corner (address field, button, row) | 8 pt | the address field's |
+| Chip inside the field | 6 pt | 8 less the 2 pt between them |
+| Pane, menu and popup corner | 12 pt | 8 plus the 4 pt between them |
+| Tab width | 192 at most, 96 selected at least, 56 otherwise | the selected tab always keeps its title and close button |
+| Selected tab and row | the one second tone | a neutral highlight, never the accent |
+| Hover fill | the text at 6% (Light), 10% (Dark) | still, weak, never coloured |
+| Colour change | 200 ms, ease out | nothing springs |
 
 ```sh
 cmux setup install ./examples/looks/omnibar

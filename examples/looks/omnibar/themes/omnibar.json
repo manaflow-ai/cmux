@@ -48,7 +48,7 @@
   "appearance.wallpaperTint": false,
   "appearance.fontSmoothing": "antialiased",
 
-  // One colour (Lawrence: "SINGLE COLOUR (WITH HIGHLIGHT FOR SELECTED TAB) AS DEFAULT"): flat
+  // One colour, with a highlight for the selected tab: flat
   // chrome, the title area in the same tone, two-tone off, the sidebar on the same surface.
   // Regions separate by a 1 pt hairline, never by a shade.
   "appearance.chromeStyle": "flat",
@@ -56,7 +56,7 @@
   "appearance.twoTone": "off",
   "appearance.sidebarSurface": "same",
   "appearance.borders": "default",
-  // The selected tab meets its pane flush, with no goo (Lawrence: "no goo by default").
+  // The selected tab meets its pane flush, with no goo.
   "appearance.cornerFlush": "flush",
   // The selected tab and row are a neutral highlight, whatever the accent.
   "appearance.selection": "neutral",
@@ -65,11 +65,11 @@
   "focusRing.style": "ring",
   "appearance.density": "cozy",
 
-  // The band. One control height, 28 pt (Helium's toolbar button and address field; cmux's row),
+  // The band. One control height, 28 pt (the toolbar button, the address field and the row),
   // and one band height, 36 pt = 28 + 4 above + 4 below, for the tab strip and the toolbar alike.
   // Sidebar rows are the same 28 pt, so a session is the same size as a tab. Tabs: 192 pt at
-  // most (Helium's 190 on the 4 pt grid), 96 pt at least when selected (title and close button
-  // stay), 56 pt otherwise (Chromium's minimum for the selected tab: icon plus close).
+  // most (on the 4 pt grid), 96 pt at least when selected (title and close button
+  // stay), 56 pt otherwise (an icon plus a close button).
   "appearance.metrics.titlebarHeight": 36,
   "appearance.metrics.tabStripHeight": 36,
   "appearance.metrics.sidebarRowHeight": 28,
@@ -82,8 +82,7 @@
   "appearance.metrics.columnGap": 0,
   "appearance.metrics.dividerThickness": 1,
 
-  // Corners. The root is the address field's 8 pt (Lawrence: "default roundness should be omnibar
-  // roundness"). A container's corner is its child's corner plus the padding between them: a chip
+  // Corners. The root is the address field's 8 pt (the default roundness is the address field's). A container's corner is its child's corner plus the padding between them: a chip
   // in the field is 6 (8 - 2), a pane holding 8 pt controls 4 pt from its edge is 12 (8 + 4).
   "layout.paneCornerRadius": 12,
   "layout.cornerPadding": 4,
@@ -129,7 +128,7 @@
   // The address field: the root shape. 28 pt tall, 8 pt corners, 14 pt text, opaque, no shadow.
   "browser.omnibar.glass": "off",
 
-  // Motion: short and flat. Colour changes ease out over 200 ms (Chromium's tab and address
+  // Motion: short and flat. Colour changes ease out over 200 ms (a browser's tab and address
   // field timing); nothing springs.
   "ui.animationSpeed": "fast",
   "appearance.colorTransition.enabled": true,
@@ -140,7 +139,7 @@
 
   // Pending cmux#46861 / cmux#47048 (layout and proportions). Uncomment once your build has them.
   // Rows inset 4 pt with 8 pt corners; 28 pt square toolbar buttons, 8 pt corners, 4 pt apart, the
-  // hover fill the ink at 6% (10% in Dark), Chromium's toolbar hover.
+  // hover fill the ink at 6% (10% in Dark).
   // "appearance.metrics.sidebarRowInset": 4,
   // "appearance.metrics.sidebarRowPadding": 8,
   // "appearance.metrics.sidebarRowGap": 0,
