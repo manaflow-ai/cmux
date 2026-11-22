@@ -914,6 +914,10 @@ final class ComposeView: UIView {
             emptyLinesMemo = (w, n)
             return n
         }
+        // cmux: the field's own lines when it shows this draft at this width: TextKit 1 laid them
+        // out for the key already (with the field's kern, which the plain measure leaves out), so a
+        // key typesets nothing again here (cmux21 `sample`, 3,000 characters: 0.13 ms a key).
+        if let n = textView.view.textKit1LineCount(showing: text, width: w) { return n }
         // cmux: typing at the end of the draft (each key's case) lays out only from the start of the
         // memo's second-to-last line: a greedy break before it cannot move when text is appended. The
         // cost follows the change, not the draft (perf-lead.md issue 5, typing-frame-bench.py).
@@ -924,6 +928,7 @@ final class ComposeView: UIView {
             keep = m.starts.count - 2
             from = second
         }
+        heightTypesets += 1  // cmux: tests (a key in a field that shows the draft typesets none of it again)
         let tail = TextLayout.make(u.substring(from: from), runs: [], maxWidth: w, font: ComposeView.font).lines
         let starts = Array((linesMemo?.starts ?? []).prefix(keep)) + tail.map { $0.range.location + from }
         linesMemo = (text, w, starts.count, starts)
@@ -947,12 +952,24 @@ final class ComposeView: UIView {
     /// cmux: the last draft's line count and where each of its lines starts (UTF-16), for the
     /// incremental layout of the next key.
     private var linesMemo: (text: String, width: CGFloat, count: Int, starts: [Int])?
+    /// cmux: how often the height typeset the draft's text (read by tests).
+    private(set) var heightTypesets = 0
     /// The empty draft's one line at any text width from this (a space is about 4 pt wide).
     static let emptyLineMinWidth: CGFloat = 20
     private var emptyLinesMemo: (CGFloat, Int)?
-    /// The placeholders, localized once (each `Strings` read is a bundle table lookup; every
-    /// commit asked for one).
-    private static let placeholders = (field: Strings.placeholder, reply: Strings.replyPlaceholder)
+    /// The placeholders, localized once per strings bundle (each `Strings` read is a bundle table lookup;
+    /// every commit asked for one). cmux: per bundle, not once: the host switches
+    /// `MessagesLabLocalization.bundle` with the app's language (MessagesLabHomeView.useStrings).
+    private var placeholdersMemo: (strings: ObjectIdentifier, field: String, reply: String)?
+    private var placeholders: (field: String, reply: String) {
+        let strings = ObjectIdentifier(MessagesLabLocalization.bundle)
+        if let m = placeholdersMemo, m.strings == strings { return (m.field, m.reply) }
+        let made = (field: Strings.placeholder, reply: Strings.replyPlaceholder)
+        placeholdersMemo = (strings, made.field, made.reply)
+        return made
+    }
+    /// cmux: the placeholder shown is the reply one (a thread is open).
+    private var placeholderIsReply = false
     private var dx: CGFloat { bounds.width - Fixture.windowWidth }
     private var dy: CGFloat { bounds.height - Fixture.windowSize.height }
     var anchorBase: CGFloat { ComposeMetrics.anchorBase + dy }
@@ -1207,6 +1224,15 @@ final class ComposeView: UIView {
     /// The light or dark appearance changed (WindowView.setLightAppearance): the placeholder and the waveform
     /// are drawn again in its ink.
     func appearanceChanged() { renderPlaceholder() }
+    /// cmux: the strings bundle changed (MessagesLabHomeView.useStrings, the app's language): the placeholder
+    /// and the field's label in the new language.
+    func stringsChanged() {
+        let p = placeholderIsReply ? placeholders.reply : placeholders.field
+        guard p != placeholder else { return }
+        placeholder = p
+        renderPlaceholder()
+        textView.view.setAccessibilityLabel(p)
+    }
 
     private func renderPlaceholder() {
         placeholderScale = renderScale
@@ -1243,6 +1269,9 @@ final class ComposeView: UIView {
     private(set) var inlineAttachments: [ID: ComposeInlineAttachment] = [:]
     /// cmux: the remove button over the inline attachment under the pointer.
     let inlineHover = ComposeInlineRemoveHover()
+    /// cmux: true while the draft takes an edit the field made (an undo that put a picture back):
+    /// `update` leaves the field's text alone then, the field already shows it.
+    var draftFollowsField = false
 
     /// The remove button of an inline attachment: its mark leaves the text as an edit, so the
     /// draft follows through the text view's own change path (`textDidChange`).
@@ -1313,10 +1342,14 @@ final class ComposeView: UIView {
         if (!(tv.string as NSString).isEqual(to: d.text) && tv.string != d.text) || d.attachments != chips {
             // Never replace text that holds marked (IME) text: the input
             // method owns it until it commits.
-            if !tv.hasMarkedText() {
+            // cmux: nor while the draft follows an edit the field made (`draftFollowsField`).
+            if !tv.hasMarkedText(), !draftFollowsField {
                 let old = tv.string as NSString, sel = tv.selectedRange()
-                tv.textStorage?.setAttributedString(ComposeInlineText.build(d.text, attachments: d.attachments, cache: &inlineAttachments,
-                                                                            scale: renderScale, onRemove: { [weak self] in self?.removeInline($0) }))
+                // cmux: a picture that came in is an undo step; any other change of the text takes the
+                // field's entries off the undo stack (ComposeFieldUndo.swift, the Cmd+Z crash).
+                tv.takeDraftText(ComposeInlineText.build(d.text, attachments: d.attachments, cache: &inlineAttachments,
+                                                         scale: renderScale, onRemove: { [weak self] in self?.removeInline($0) }),
+                                 undoable: ComposeView.onlyArrived(d.attachments, over: chips))
                 tv.typingAttributes = ComposeInlineText.attributes(inline: !d.attachments.isEmpty)
                 inlineHover.hide()  // cmux: the attachments moved; the pointer shows the button again
                 tv.setSelectedRange(ComposeView.caretAfterRebuild(old: old, new: tv.string as NSString, selection: sel,
@@ -1324,7 +1357,8 @@ final class ComposeView: UIView {
                 if !DeferredSpellChecker.useAppKit { tv.spell.textDidChange() }
             }
         }
-        let newPlaceholder = state.ui.openThread != nil ? ComposeView.placeholders.reply : ComposeView.placeholders.field
+        placeholderIsReply = state.ui.openThread != nil
+        let newPlaceholder = placeholderIsReply ? placeholders.reply : placeholders.field
         if newPlaceholder != placeholder { placeholder = newPlaceholder; renderPlaceholder(); tv.setAccessibilityLabel(placeholder) }
         // Messages changes the field's height at once for an attachment (no in-between frame at
         // 120 Hz, compose-attach-image paste take) and while typing (field-focus-type-take1 and

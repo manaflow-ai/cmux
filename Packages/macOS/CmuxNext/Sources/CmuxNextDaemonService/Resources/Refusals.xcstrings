@@ -8,127 +8,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No pane is focused."
+            "value": "Click a tab first, then try again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يوجد جزء مركّز عليه."
+            "value": "انقر على علامة تبويب أولًا، ثم حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nijedan panel nije fokusiran."
+            "value": "Prvo kliknite karticu, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen rude har fokus."
+            "value": "Klik først på en fane, og prøv så igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kein Teilfenster ist fokussiert."
+            "value": "Klicke zuerst auf einen Tab und versuche es dann erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hay ningún panel enfocado."
+            "value": "Haz clic primero en una pestaña y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucun volet n’est actif."
+            "value": "Cliquez d’abord sur un onglet, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nessun pannello attivo."
+            "value": "Fai prima clic su una scheda, poi riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォーカスされたペインがありません。"
+            "value": "先にタブをクリックしてから、もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "គ្មានផ្ទាំងកំពុងផ្ដោតទេ។"
+            "value": "ចុចផ្ទាំងមួយជាមុនសិន រួចសាកល្បងម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "포커스된 분할 창이 없습니다."
+            "value": "먼저 탭을 클릭한 다음 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen rute er fokusert."
+            "value": "Klikk på en fane først, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Żaden panel nie jest aktywny."
+            "value": "Najpierw kliknij kartę, a potem spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nenhum painel está focado."
+            "value": "Clique em uma aba primeiro e tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нет активной панели."
+            "value": "Сначала щёлкните вкладку, затем повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่มีบานหน้าต่างที่โฟกัสอยู่"
+            "value": "คลิกแท็บก่อน แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Odakta bölme yok."
+            "value": "Önce bir sekmeye tıklayın, sonra yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Немає активної панелі."
+            "value": "Спершу клацніть вкладку, потім спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không có khung nào đang được tập trung."
+            "value": "Hãy bấm vào một thẻ trước, rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "没有聚焦的窗格。"
+            "value": "请先点按一个标签页，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "沒有聚焦的窗格。"
+            "value": "請先點按一個分頁，然後再試一次。"
           }
         }
       }

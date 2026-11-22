@@ -23,6 +23,11 @@ public struct HomeArchivedChiefs {
         }
     }
 
+    /// How many Chief conversations of `rows` other than `id` the list shows (none: `id` is the person's only Chief).
+    public func otherChiefs(than id: ConversationID, in rows: [InboxRow]) -> Int {
+        visible(rows).filter { $0.kind == .chief && $0.id != id }.count
+    }
+
     /// The conversations of `rows` the list hides for an archived Chief (the Messages page's list
     /// filters them, as the native list did).
     public func hiddenConversations(_ rows: [InboxRow]) -> [ConversationID] {

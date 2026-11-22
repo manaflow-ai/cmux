@@ -108,6 +108,9 @@ pub(crate) fn from_settings(root: &Value, base: PolicyConfig) -> PolicyConfig {
     if let Some(value) = flag("showCursor") {
         config.show_cursor = value;
     }
+    if let Some(value) = flag("whileLocked") {
+        config.while_locked = value;
+    }
     config
 }
 

@@ -301,7 +301,8 @@ cmd_place() {
   local replaced=() added=() item name
   # Globs in byte order, the same on every host: a UTF-8 locale (a Mac shell) folds case, so
   # CmuxNext_CmuxNextApp.bundle and cmux-symbols.bin swapped places in SB-PLACE (test_swap_binary).
-  local LC_COLLATE=C
+  # LC_ALL, not LC_COLLATE: a caller's LC_ALL overrides a function's LC_COLLATE, which then did nothing.
+  local LC_ALL=C
   # A file replaced, never rewritten in place: the copy is a clone whose blocks the original shares.
   rm -f "$app/Contents/MacOS/$exe"; cp "$build/app/Contents/MacOS/cmux" "$app/Contents/MacOS/$exe"
   replaced+=("MacOS/$exe")

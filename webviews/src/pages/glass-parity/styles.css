@@ -40,6 +40,12 @@ body {
 .glass-parity-surface.ui-tooltip {
   --parity-border: var(--tooltip-rim-width, 0px);
 }
+/* A hover card's border stays 1px at any scale (desktop.css .ui-card), where the tooltip's rim is a hairline
+   (0.5px at 2x): set back by the rim, the card's text sat half a point low at 2x (matrix run 12: WebKit card
+   text mean 2.9, every other surface exact). */
+.glass-parity-surface.ui-tooltip.ui-card {
+  --parity-border: 1px;
+}
 .glass-parity-title,
 .glass-parity-detail {
   position: absolute;

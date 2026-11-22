@@ -344,7 +344,7 @@ try:
                         # sides), which run c2c44e1f measured exact (mean 0.005, p99 0). Chromium shapes with
                         # HarfBuzz and rasterizes with Skia (other subpixel glyph positions, about 16% less ink),
                         # so its text stays reported, not gated.
-                        if gated and engine == "webkit" and scenario.get("text") in ("standard", "flat", "smooth") \
+                        if gated and engine == "webkit" and scenario.get("text", "standard") in ("standard", "flat", "smooth") \
                                 and not passes(full, TEXT_TOLERANCE):
                             failures.append(f"{reply['stem']} {kind} {engine}: text mean {full.get('mean')} "
                                             f"p99 {full.get('p99')} (same smoothing on both sides)")

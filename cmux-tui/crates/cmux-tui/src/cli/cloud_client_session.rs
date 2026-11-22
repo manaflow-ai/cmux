@@ -405,14 +405,30 @@ async fn exec(
         session.api_base_url.trim_end_matches('/'),
         session.vm_id
     );
+    let budget = Duration::from_millis(timeout_ms).saturating_add(Duration::from_secs(15));
+    let deadline = tokio::time::Instant::now() + budget;
     let response = client
         .post(url)
         .header(IDENTITY_HEADER, &session.token)
-        .timeout(Duration::from_millis(timeout_ms).saturating_add(Duration::from_secs(15)))
+        // Held open past about 120 s, the provider's edge cuts the call while the command runs on.
+        .header(cmux_cloud_api::background::AFTER_HEADER, cmux_cloud_api::background::AFTER_SECS)
+        .timeout(budget)
         .json(&json!({ "command": command, "linuxUser": session.linux_user, "timeoutMs": timeout_ms }))
         .send()
         .await
         .map_err(|e| format!("the machine did not answer: {}", e.without_url()))?;
+    let identity = (IDENTITY_HEADER, session.token.as_str());
+    let response = cmux_cloud_api::background::settle(
+        client,
+        &session.api_base_url,
+        identity,
+        response,
+        deadline,
+    )
+    .await
+    .map_err(|cmux_cloud_api::background::Lost| {
+        "the machine did not answer in time; the command may have run".to_owned()
+    })?;
     let status = response.status();
     let body: Option<Value> = response.json().await.ok();
     if !status.is_success() {

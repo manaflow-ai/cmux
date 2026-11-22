@@ -27,7 +27,8 @@
 // chat_open.calibration_ms (chat_open.god.calibration_ms when FIXTURE=god), and each chat's
 // chat_open.<rail>.attach_to_latest_per_calibration is the median of each round's attach_to_latest over that round's
 // calibration, unit x: the page's own work in units of the runner's speed, which holds where the raw ms tracks the
-// runner. The raw ms rows stay as they were.
+// runner. The raw ms rows stay as they were. With PAIRED=1 each chat also has chat_open_paired[.god].<rail>.*: the
+// same rounds' attach_to_latest (ms) and its median over each load's own DOMContentLoaded (attach_per_dcl, unit x).
 // PROFILE=1 adds a CPU profile of one load and prints the functions with the most self time between
 // navigation and the newest message plus 500 ms. The build is then unminified (so functions keep their
 // names) and every timed round runs on it, so the stage times are not the production build's.
@@ -964,6 +965,28 @@ try {
           unit: "x",
           version: CALIBRATION_VERSION,
         });
+      // PAIRED=1: the rows NOW's chat_attach_p95_ms reads (cmuxterm-hq goal chat-attach-p95, re-plan 2026-11-17).
+      // chat_open_paired[.god].<rail>.attach_per_dcl is the median of each round's attach_to_latest over that same
+      // load's own DOMContentLoaded, unit x: the same code read 100 to 185 ms across runners while this ratio held at
+      // 6.2 to 6.35. attach_to_latest beside it is the same rounds' median ms, the value shown against the ms target.
+      // Their own prefix keeps the small chat's paired rows apart from the web-ui part's unpaired chat_open.compact.*.
+      if (PAIRED) {
+        const perDcl = perCalibration(
+          rounds.map((r) => r.latest - r.attach),
+          rounds.map((r) => r.dcl),
+        );
+        console.log(
+          `paired ${chat.scale}: attach_to_latest / DOMContentLoaded per round ${rounds.map((r) => ((r.latest - r.attach) / r.dcl).toFixed(2)).join(" ")}; median ${perDcl}`,
+        );
+        perfRow({
+          name: `chat_open_paired.${arm}.attach_to_latest`,
+          p50: median((r) => r.latest - r.attach),
+          p95: median((r) => r.latest - r.attach),
+          version: 3,
+        });
+        if (Number.isFinite(perDcl))
+          perfRow({ name: `chat_open_paired.${arm}.attach_per_dcl`, p50: perDcl, p95: perDcl, unit: "x", version: 1 });
+      }
       // The script the page downloaded and parsed by the time the chat settled (decoded KiB): the open's
       // cost that grows with every eager import, so the perf cron names the week it grows (it grew 29%,
       // 8302 to 10722 KiB, from 2026-11-02 to 11-09 with no row to say so).

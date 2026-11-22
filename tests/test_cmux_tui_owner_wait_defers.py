@@ -233,7 +233,31 @@ def check_lease():
            f"a feat-cmux-next owner inside its lease still holds the key ({out.strip()!r})")
     result, out, log = run_wait("4", FAKE_OWNER_MINUTES="40", REF="refs/heads/op-next-other")
     _check(result.returncode == 0 and "takeover=false" in out,
-           f"only a feat-cmux-next push takes a stuck owner's key over ({out.strip()!r})")
+           f"only a feat-cmux-next or nightly-next push takes a stuck owner's key over ({out.strip()!r})")
+    # 2026-11-20: nightly 44818589315 failed behind a feat-cmux-next owner queued 140 min on the lane label.
+    for status in ("in_progress", "queued"):
+        result, out, log = run_wait("4", FAKE_OWNER_STATUS=status, FAKE_OWNER_MINUTES="40",
+                                    REF="refs/heads/nightly-next")
+        _check(result.returncode == 0 and "takeover=true" in out and "deferred=false" in out,
+               f"a nightly-next push takes over a key whose {status} owner is past its lease ({out.strip()!r})")
+    # 2026-11-21: nightly 44834489124 failed behind lane-branch owner 44833374379, queued and 9 minutes old.
+    for event in ("push", "workflow_dispatch"):
+        for branch in ("lane/ci-linux-pickers-rest-v2", "feat-cmux-next"):
+            result, out, log = run_wait("4", FAKE_OWNER_STATUS="queued", FAKE_OWNER_MINUTES="9", FAKE_OWNER_BRANCH=branch,
+                                        REF="refs/heads/nightly-next", EVENT_NAME=event)
+            _check(result.returncode == 0 and "takeover=true" in out and "deferred=false" in out,
+                   f"a nightly-next {event} takes over a key a live {branch} run owns, inside its lease ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="10", FAKE_OWNER_BRANCH="nightly-next", REF="refs/heads/nightly-next")
+    _check(result.returncode == 0 and "takeover=false" in out and "deferred=true" in out,
+           f"a nightly-next run still defers to a nightly-next owner inside its lease ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="9", FAKE_OWNER_BRANCH="lane/x", FAKE_BUILDERS="9",
+                                FAKE_BUILDER_MINUTES="5", FAKE_BUILDER_BRANCH="feat-cmux-next", REF="refs/heads/nightly-next")
+    _check(result.returncode == 0 and "takeover=true" in out,
+           f"a nightly-next run does not defer to a feat-cmux-next builder ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="9", FAKE_OWNER_BRANCH="lane/x", FAKE_BUILDERS="9",
+                                FAKE_BUILDER_MINUTES="5", FAKE_BUILDER_BRANCH="nightly-next", REF="refs/heads/nightly-next")
+    _check(result.returncode == 0 and "takeover=false" in out and "owner=9" in out,
+           f"a nightly-next run defers to a live nightly-next builder ({out.strip()!r})")
     result, out, log = run_wait("4", FAKE_OWNER_MINUTES="40", FAKE_TREE_PUBLISHED="1")
     _check(result.returncode == 0 and "takeover=false" in out,
            f"a stuck owner that published anyway: no build ({out.strip()!r})")

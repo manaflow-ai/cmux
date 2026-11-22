@@ -96,6 +96,9 @@ pub enum AfterTeams {
 /// The context of one team-list read (Swift `refreshTeams(generation:)`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TeamRefreshTicket {
+    /// Which read this is: each read is answered once, and a repeated or
+    /// unknown answer is dropped.
+    pub id: u64,
     pub generation: u64,
     pub mutation_generation: u64,
     pub list_generation: u64,
@@ -236,8 +239,11 @@ pub enum Event {
     /// A `42` sign-in remembered its DEBUG credentials.
     DebugCredentialsRemembered,
     SignOutRequested,
-    /// Sign-out captured its teardown credentials and cleared the local token store.
-    SignOutLocalCleared,
+    /// Sign-out captured its teardown credentials and cleared the local token
+    /// store. `sign_out_epoch` is the one its capture effect carried.
+    SignOutLocalCleared {
+        sign_out_epoch: u64,
+    },
     /// A token read found the session definitively gone.
     TokenReadUnauthorized(TokenReadKind),
     DevAuthAccessTokenFinished {
@@ -256,6 +262,17 @@ impl Event {
             | Self::SurvivingRefreshTokenRead { ticket, .. }
             | Self::StaleSessionCleared { ticket, .. }
             | Self::AutoLoginFinished { ticket, .. } => Some(ticket),
+            _ => None,
+        }
+    }
+
+    /// The sign-in flow this event answers, if it answers a sign-in effect.
+    pub fn sign_in_flow(&self) -> Option<SignInFlow> {
+        match self {
+            Self::TokenWorkQuiesced { flow, .. }
+            | Self::OnlineChecked { flow, .. }
+            | Self::ExchangeFinished { flow, .. }
+            | Self::SignInUserFetched { flow, .. } => Some(*flow),
             _ => None,
         }
     }
@@ -359,8 +376,10 @@ pub enum Effect {
     ClearPhaseDampers(&'static [AuthPhase]),
     /// Read the stored access and refresh tokens with no network, forget the
     /// latest sign-in refresh token, clear the local token store, then send
-    /// [`Event::SignOutLocalCleared`].
-    CaptureTeardownCredentialsAndClearLocalSession,
+    /// [`Event::SignOutLocalCleared`] with the same epoch.
+    CaptureTeardownCredentialsAndClearLocalSession {
+        sign_out_epoch: u64,
+    },
     EndSignOutCredentialCapture,
     WaitForPostSignInHooks,
     /// The bounded best-effort hook and session revocation with the captured tokens.
