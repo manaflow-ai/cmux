@@ -109,13 +109,16 @@ static TEST_SUMMARIZERS: std::sync::LazyLock<StdMutex<HashMap<String, Summarizer
 /// Gives chat `session_id` a reader that `summarizer` answers (tests).
 #[cfg(test)]
 pub(in crate::hub) fn set_test_summarizer(session_id: &str, summarizer: Summarizer) {
-    TEST_SUMMARIZERS.lock().unwrap().insert(session_id.to_owned(), summarizer);
+    TEST_SUMMARIZERS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(session_id.to_owned(), summarizer);
 }
 
 fn test_summarizer(session_id: &str) -> Option<Summarizer> {
     #[cfg(test)]
     {
-        TEST_SUMMARIZERS.lock().unwrap().get(session_id).cloned()
+        TEST_SUMMARIZERS.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned()
     }
     #[cfg(not(test))]
     {
@@ -148,8 +151,10 @@ pub(in crate::hub) fn wanted(class: PromptClass, fire: bool, text: &str) -> bool
 pub(in crate::hub) fn read_prompt(goal: Option<&str>, from: &str, text: &str) -> String {
     let text = crate::complete::cut(relay_body(text).trim(), TEXT_BYTES);
     let goal = goal.map(str::trim).filter(|g| !g.is_empty());
-    let goal =
-        goal.map_or_else(|| "(none set)".to_owned(), |g| crate::complete::cut(g, GOAL_BYTES));
+    let goal = goal.map_or_else(
+        || "(none set)".to_owned(),
+        |g| crate::complete::cut(g, GOAL_BYTES).to_owned(),
+    );
     format!(
         "You read messages that other agents send to a coding agent, so it can see at a glance \
          what each one says. Its goal: {goal}\n\nWrite ONE line of at most 25 words that says \
