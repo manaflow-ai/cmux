@@ -24,8 +24,9 @@ script writes the copies the app's Swift modules compile in. Sources so far:
 - schemas/settings/source/agent-policy.json: which keys an agent may change, and why not
   (Swift: SettingsSchema+AgentPolicy.generated.swift). Every row of a section source needs a group.
 - schemas/settings/source/row-facts.json: the keys Reset All keeps and cmux-browser shares, and each
-  row's validation domain (Swift: SettingsSchema+RowFacts.generated.swift), with the app id
-  pattern of the app manifest schema (cmux-app.schema.json `properties.id.pattern`) for domain:app_id.
+  row's validation domain (Swift: SettingsSchema+RowFacts.generated.swift), with its copy of the app id
+  pattern of the app manifest schema (cmux-app.schema.json `properties.id.pattern`) for domain:app_id;
+  --check compares the copy with that schema when the checkout has it.
 - schemas/settings/source/samples.json: the values per row kind and validation domain a validator
   must accept and refuse (Swift: SettingsSchema+Samples.generated.swift; the export's accepts/refuses).
 
@@ -1257,8 +1258,10 @@ extension SettingsSchema {{
 def load_row_facts():
     src = FACTS_SOURCE
     data = load_json(src)
-    if set(data) != {"$comment", "kept_on_reset_all", "shared_with_browser", "validation", "former_defaults"}:
-        fail(src, "fields are $comment, kept_on_reset_all, shared_with_browser, validation, former_defaults")
+    if set(data) != {"$comment", "kept_on_reset_all", "shared_with_browser", "validation", "app_id_pattern", "former_defaults"}:
+        fail(src, "fields are $comment, kept_on_reset_all, shared_with_browser, validation, app_id_pattern, former_defaults")
+    if not isinstance(data["app_id_pattern"], str) or not data["app_id_pattern"]:
+        fail(src, "app_id_pattern is the app manifest schema's properties.id.pattern")
     for field in ("kept_on_reset_all", "shared_with_browser"):
         if len(set(data[field])) != len(data[field]):
             fail(src, "%s lists a key twice" % field)
@@ -1284,11 +1287,18 @@ def load_row_facts():
     return data
 
 
-def app_id_pattern():
+def app_id_pattern_drift():
+    """The app id pattern row-facts.json copies, when it is not the app manifest schema's: the
+    generator reads only schemas/settings and scripts (a SwiftPM build has no cmux-tui), so --check
+    keeps the copy equal to the schema in a checkout that has it."""
+    if not os.path.exists(os.path.join(ROOT, APP_MANIFEST_SCHEMA)):
+        return []
     pattern = load_json(APP_MANIFEST_SCHEMA).get("properties", {}).get("id", {}).get("pattern")
     if not isinstance(pattern, str) or not pattern:
         fail(APP_MANIFEST_SCHEMA, "properties.id.pattern is the app id pattern")
-    return pattern
+    copy = load_json(FACTS_SOURCE)["app_id_pattern"]
+    return [] if copy == pattern else ["%s app_id_pattern %r is not %s properties.id.pattern %r"
+                                       % (FACTS_SOURCE, copy, APP_MANIFEST_SCHEMA, pattern)]
 
 
 def row_facts_swift(data):
@@ -1335,7 +1345,7 @@ extension SettingsSchema {{
            shared="\n".join(wrap([swift_string(k) for k in data["shared_with_browser"]], "        ")),
            kept="\n".join(wrap(kept, "        ")), by_key=table(data["validation"]["keys"]),
            by_kind=table(data["validation"]["kinds"]), default=swift_string(data["validation"]["default"]),
-           app_schema=APP_MANIFEST_SCHEMA, app_id_pattern=swift_string(app_id_pattern()),
+           app_schema=APP_MANIFEST_SCHEMA, app_id_pattern=swift_string(data["app_id_pattern"]),
            former="\n".join(wrap(["%s: [%s]" % (swift_string(k), ", ".join(json_value_swift(v) for v in values))
                                   for k, values in data["former_defaults"].items()], "        ")))
 
@@ -1526,6 +1536,10 @@ def main(argv=None):
             print("removed " + (path if swift_out is None else os.path.join(out_dir, name)))
     # A build step that writes the Swift elsewhere generates; it does not lint the committed export.
     stale_export = export_key_drift(loaded) if swift_out is None or check else []
+    stale_pattern = app_id_pattern_drift() if swift_out is None or check else []
+    if stale_pattern:
+        print("\n".join(stale_pattern) + "\ncopy the schema's pattern into app_id_pattern", file=sys.stderr)
+        return 1
     if stale_export:
         print("%s is not the sources' export (an export from another base?):\n  %s\nregenerate it: "
               "scripts/cmux-next/regenerate-settings-exports.sh (a Mac or the PR's cmux-next-generated-patch artifact)"
