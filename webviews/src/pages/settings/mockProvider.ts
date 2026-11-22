@@ -621,7 +621,8 @@ export class MockSettingsProvider {
       "cmux.settings.keys.revoke": (params) => this.revokeKey(String((params as { id?: unknown }).id ?? "")),
       "cmux.settings.shares.revoke": (params) =>
         this.revokeShare(String((params as { share_id?: unknown }).share_id ?? "")),
-      "cmux.settings.cloud_environment": (params) => this.cloudEnvironments.run(params as unknown as CloudEnvironmentCall),
+      "cmux.settings.cloud_environment": (params) =>
+        this.cloudEnvironments.run(params as unknown as CloudEnvironmentCall),
       // Settings > Agents > Worktree Setup: the session host's ops through the page relay.
       "cmux.settings.worktree.list": () => ({
         projects: this.worktreeProjects.map((project) => ({

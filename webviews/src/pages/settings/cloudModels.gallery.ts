@@ -40,7 +40,10 @@ export default settingsPageEntry({
     ]),
     // #47676: Cloud Environments lists the account's Default first; Edit opens the composer's editor on it.
     "environment-default": variant(mockModels.macOnly, "Cloud Environments: Edit on the Default opens its editor.", [
-      { selector: '[data-card="cloudEnvironments"] [data-environment-default] [data-environment-action="edit"]', action: "click" },
+      {
+        selector: '[data-card="cloudEnvironments"] [data-environment-default] [data-environment-action="edit"]',
+        action: "click",
+      },
       { selector: ".cloud-environment-sheet .env-drill", action: "wait" },
     ]),
   },

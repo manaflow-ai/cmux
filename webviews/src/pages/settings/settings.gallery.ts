@@ -1,14 +1,7 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { mockAgentKeys } from "./mockAgentKeys";
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
-import type {
-  AccountsCmux,
-  AccountsRow,
-  AccountsState,
-  HarnessesState,
-  HostLists,
-  ProviderAccount,
-} from "./ops";
+import type { AccountsCmux, AccountsRow, AccountsState, HarnessesState, HostLists, ProviderAccount } from "./ops";
 import { pageDensities, pageDensityPlay } from "../../gallery/pageDensityFixtures";
 import { minutesAgo } from "../../gallery/clock";
 import { categories, categoryOf, defaultCategory, isCategory } from "./categories";
@@ -200,7 +193,11 @@ const rowShapeMachines: HostLists["machines"] = [
 ];
 const rowShapeEnvironments: CloudEnvironment[] = [
   mockDefaultEnvironment,
-  { ...mockTeamEnvironment, id: "env_0000000000000000000000f3", name: "Research environment for the long-running eval jobs" },
+  {
+    ...mockTeamEnvironment,
+    id: "env_0000000000000000000000f3",
+    name: "Research environment for the long-running eval jobs",
+  },
 ];
 const click = (selector: string): PageFixtureStep => ({ selector, action: "click" });
 const input = (selector: string, value: string): PageFixtureStep => ({ selector, action: "input", value });

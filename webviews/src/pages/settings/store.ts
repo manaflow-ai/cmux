@@ -922,7 +922,6 @@ export class SettingsStore {
     return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
-
   /** The customization being tried on, after running `verb` (Keep, Revert Now); null when none is,
    * or the host has no CLI. A status read is also the look that reverts a try-on whose time is up. */
   async customize(verb: "status" | "keep" | "revert"): Promise<CustomizeTryOn | null> {

@@ -119,10 +119,7 @@ export function CloudEnvironmentsCard() {
               {t("settingsPage.cloudEnvironments.loadFailed")}
             </div>
           )}
-          <AddEnvironment
-            busy={busy}
-            onCreate={(name) => run(() => editor.open({ create: { name } }))}
-          />
+          <AddEnvironment busy={busy} onCreate={(name) => run(() => editor.open({ create: { name } }))} />
         </>
       )}
       <div className="host-footer">
@@ -143,7 +140,11 @@ export function CloudEnvironmentsCard() {
 
 function EnvironmentRow({ row, busy, onEdit }: { row: CloudEnvironment; busy: boolean; onEdit: () => void }) {
   const details = [
-    t(row.scope === "team" ? "settingsPage.cloudEnvironments.scopeTeam" : "settingsPage.cloudEnvironments.scopePersonal"),
+    t(
+      row.scope === "team"
+        ? "settingsPage.cloudEnvironments.scopeTeam"
+        : "settingsPage.cloudEnvironments.scopePersonal",
+    ),
     t(
       row.setup_script === null
         ? "settingsPage.cloudEnvironments.setupDerived"
