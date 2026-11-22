@@ -33,6 +33,18 @@ extension MacScreenQualityReadout {
         return String(format: "%.0f kbps", kbps)
     }
 
+    /// The word for the profile the host measured: `Ultra` for an ultra session, nil otherwise. Standard is the
+    /// ordinary case and a host too old to say gets no word, so the rate stands alone.
+    static func profileWord(_ profile: String?) -> String? {
+        profile == "ultra" ? L.t("macScreen.readout.ultra", "Ultra") : nil
+    }
+
+    /// The rate with the profile word when the host named one: `Ultra · 148 Mbps`, else `148 Mbps`.
+    static func rateText(kbps: Double, profile: String?) -> String {
+        let rate = rateText(kbps: kbps)
+        return profileWord(profile).map { "\($0) · \(rate)" } ?? rate
+    }
+
     /// The stream is straining: the host loses more than 5% or the picture runs under half its rate.
     static func isStrained(_ stats: MacScreenSession.LiveStats) -> Bool {
         if let loss = stats.lossPercent, loss > 5 { return true }
@@ -44,6 +56,10 @@ extension MacScreenQualityReadout {
     static func rows(_ stats: MacScreenSession.LiveStats, frameSize: CGSize, path: String) -> [(label: String, value: String)] {
         var rows: [(String, String)] = []
         if path != "-" { rows.append((L.t("macScreen.readout.path", "Route"), path)) }
+        if let profile = stats.encodeProfile {
+            let word = profileWord(profile) ?? L.t("macScreen.readout.standard", "Standard")
+            rows.append((L.t("macScreen.readout.mode", "Mode"), word))
+        }
         if let kbps = stats.hostKbps { rows.append((L.t("macScreen.readout.rate", "Rate"), rateText(kbps: kbps))) }
         let measured = stats.fps.isFinite ? Int(stats.fps.rounded()) : 0
         rows.append((L.t("macScreen.readout.fps", "Frames"),

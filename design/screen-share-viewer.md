@@ -45,12 +45,33 @@ Every variant shows the same numbers from one model (`MacScreenSession.LiveStats
 encode time added). They differ only in where the numbers go.
 
 - **R1, inline.** The toolbar's stats line leads with the rate: `Direct · 148 Mbps · 120/120 fps · 3 ms`. Codec and
-  size go to the tooltip. Ultra adds an `Ultra` tag before the rate.
-- **R2, quality chip.** The toolbar shows one chip: `Ultra · 148 Mbps`, or `Balanced · 12 Mbps`. Its menu (the current
+  size go to the tooltip. An ultra session adds `Ultra` before the rate.
+- **R2, quality chip.** The toolbar shows one chip: `Ultra · 148 Mbps`, or `12 Mbps`. Its menu (the current
   Quality menu) starts with a readout section: rate, fps of target, round trip, loss, encode p50, codec, size. The
   chip's tint goes from neutral to attention when loss passes 5% or fps falls under half its target.
 - **R3, stats HUD.** A glass panel in the picture's bottom-left corner, with one number per line. You
   turn it on from the Quality menu or with ⌥⌘I, and it stays on per device. The toolbar keeps today's short line.
+
+### Where each number comes from
+
+The readout shows what was measured, never the setting (the architect's decision). The host's numbers come from the
+same cmux.rd/1 `stats` line the bottleneck table reads (`Control::Stats`, sent once a second from
+`cmux-rd-host/src/stream.rs`), so the view and the table never disagree.
+
+| Readout | Source | Measured by |
+|---|---|---|
+| Route (`Direct`, `Relay`) | `MacScreenSession.streamPath` | the viewer's transport |
+| `Ultra` | `stats.encode_profile` | the host's encoder (the profile it runs now) |
+| Rate (`148 Mbps`) | `stats.kbps` | the host |
+| Loss | `stats.loss_pct` | the host |
+| Encode | `stats.encode_ms_p50` | the host |
+| Frames (`118/120 fps`) | frames the viewer decoded per second, over the target the session asked for | the viewer |
+| Round trip | ping round trip on the session | the viewer |
+| Codec, size | the decoder's format | the viewer |
+
+`Ultra` shows only when the host sends `encode_profile: "ultra"`. A standard session shows the rate alone, and a host too
+old to send the field shows the rate with no profile word; the gallery's `bar-row-oldhost` image is that case. The
+quality the viewer asked for never names the stream.
 
 The pick is made from the gallery images and written here with its reason. The other two stay as choices of the
 setting until Leo decides.

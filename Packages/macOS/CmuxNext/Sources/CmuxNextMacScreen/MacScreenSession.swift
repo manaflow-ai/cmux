@@ -39,6 +39,9 @@ public final class MacScreenSession {
         public var hostKbps: Double?
         public var lossPercent: Double?
         public var encodeMsP50: Double?
+        /// The profile the host says it encodes with (`standard`, `ultra`); nil from a host too old to say. The view
+        /// labels Ultra only from this, never from the quality it asked for.
+        public var encodeProfile: String?
     }
 
     /// Why the last session failed, in the words of the side that knew. The failed card says
@@ -396,6 +399,7 @@ public final class MacScreenSession {
                 stats.kilobytesPerSecond = Double(report.kbps) / 8
                 stats.lossPercent = report.lossPercent
                 stats.encodeMsP50 = report.encodeMsP50
+                stats.encodeProfile = report.encodeProfile
             }
         })
         transport.connect()

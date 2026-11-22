@@ -247,7 +247,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
             let rated = bar == .row || bar == .controls || model.qualityReadout == .chip
             let chip = rated && bar != .icons && live ? session.stats.hostKbps : nil
             let idle = bar.oneRow ? "" : Self.qualityTitle(session.preferences.quality)
-            quality.retitle(chip.map { MacScreenQualityReadout.rateText(kbps: $0) } ?? idle)
+            quality.retitle(chip.map { MacScreenQualityReadout.rateText(kbps: $0, profile: session.stats.encodeProfile) } ?? idle)
             let ink: KeyPath<MacScreenColors, NSColor> = chip != nil && MacScreenQualityReadout.isStrained(session.stats) ? \.attention : \.secondary
             if quality.ink != ink { quality.ink = ink }
         }
@@ -317,8 +317,9 @@ final class MacScreenToolbarView: MacScreenThemedView {
 
     static func statsLine(_ session: MacScreenSession) -> String {
         let stats = session.stats
-        return statsLine(path: session.streamPath, kbps: stats.hostKbps, fps: stats.fps, targetFps: stats.targetFps,
-                         latencyMs: stats.latencyMs, encoding: stats.encoding, frameSize: session.frameSize)
+        return statsLine(path: session.streamPath, kbps: stats.hostKbps, profile: stats.encodeProfile, fps: stats.fps,
+                         targetFps: stats.targetFps, latencyMs: stats.latencyMs, encoding: stats.encoding,
+                         frameSize: session.frameSize)
     }
 
     /// The pill's inline readout: the host's rate and the round trip (`148 Mbps · 3 ms`); the round trip alone until the
@@ -326,7 +327,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
     static func pillLine(_ stats: MacScreenSession.LiveStats) -> String {
         let latency = stats.latencyMs.map { String(format: "%.0f ms", $0) } ?? "— ms"
         guard let kbps = stats.hostKbps else { return latency }
-        return "\(MacScreenQualityReadout.rateText(kbps: kbps)) · \(latency)"
+        return "\(MacScreenQualityReadout.rateText(kbps: kbps, profile: stats.encodeProfile)) · \(latency)"
     }
 
     /// The stats line in full and short (no codec, no size), and the room the full one takes with every number at three
@@ -335,11 +336,13 @@ final class MacScreenToolbarView: MacScreenThemedView {
     static func statsLines(_ session: MacScreenSession, rate: Bool = false) -> (full: String, short: String, room: CGFloat) {
         let stats = session.stats
         let kbps = rate ? stats.hostKbps : nil
-        let full = statsLine(path: session.streamPath, kbps: kbps, fps: stats.fps, targetFps: stats.targetFps,
-                             latencyMs: stats.latencyMs, encoding: stats.encoding, frameSize: session.frameSize)
-        let short = statsLine(path: session.streamPath, kbps: kbps, fps: stats.fps, targetFps: stats.targetFps,
-                              latencyMs: stats.latencyMs, encoding: "-", frameSize: .zero)
-        let widest = statsLine(path: session.streamPath, kbps: kbps.map { _ in 888_000 }, fps: 888,
+        let profile = stats.encodeProfile
+        let full = statsLine(path: session.streamPath, kbps: kbps, profile: profile, fps: stats.fps,
+                             targetFps: stats.targetFps, latencyMs: stats.latencyMs, encoding: stats.encoding,
+                             frameSize: session.frameSize)
+        let short = statsLine(path: session.streamPath, kbps: kbps, profile: profile, fps: stats.fps,
+                              targetFps: stats.targetFps, latencyMs: stats.latencyMs, encoding: "-", frameSize: .zero)
+        let widest = statsLine(path: session.streamPath, kbps: kbps.map { _ in 888_000 }, profile: profile, fps: 888,
                                targetFps: stats.targetFps.map { _ in 888 }, latencyMs: 888, encoding: stats.encoding,
                                frameSize: session.frameSize)
         return (full, short, max(textWidth(full, font: MacScreenType.stats), textWidth(widest, font: MacScreenType.stats)))
@@ -347,14 +350,14 @@ final class MacScreenToolbarView: MacScreenThemedView {
 
     /// The stats line: path, the host's rate when given ("148 Mbps"), frame rate (measured, then the rate the Mac
     /// streams at when it says: "118/120 fps"), round trip, codec, size.
-    static func statsLine(path: String, kbps: Double? = nil, fps: Double, targetFps: Int?, latencyMs: Double?, encoding: String,
+    static func statsLine(path: String, kbps: Double? = nil, profile: String? = nil, fps: Double, targetFps: Int?, latencyMs: Double?, encoding: String,
                           frameSize: CGSize) -> String {
         let measured = fps.isFinite ? Int(fps.rounded()) : 0
         let rate = targetFps.map { target in
             L.t("macScreen.stats.fpsOfTarget", "\(measured)/\(target) fps")
         } ?? String(format: "%.0f fps", fps)
         var parts = [path]
-        if let kbps { parts.append(MacScreenQualityReadout.rateText(kbps: kbps)) }
+        if let kbps { parts.append(MacScreenQualityReadout.rateText(kbps: kbps, profile: profile)) }
         parts.append(rate)
         if let rtt = latencyMs { parts.append(String(format: "%.0f ms", rtt)) }
         if encoding != "-" { parts.append(encoding) }
@@ -508,7 +511,8 @@ final class MacScreenToolbarView: MacScreenThemedView {
         } else if control === quality, bar.oneRow {
             // A one-row bar's Quality is its glyph, or the rate in room for three digits so the bar never moves.
             guard quality.hasTitle else { return ceil(quality.fittingSize.width) }
-            titles = ["000 Mbps"]
+            let profile = model.session?.stats.encodeProfile
+            titles = [MacScreenQualityReadout.rateText(kbps: 888_000, profile: profile)]
         } else if control === quality {
             titles = ScreenQuality.allCases.map(Self.qualityTitle)
         } else {
@@ -524,7 +528,11 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private var pillWidth: CGFloat {
         let gap = Metrics.space2
         let nameRoom = min(Self.textWidth(name), ceil(MacScreenType.body.pointSize * 16))
-        let roomText = model.qualityReadout == .inline && model.session?.stats.hostKbps != nil ? "000 Mbps · 000 ms" : "000 ms"
+        var room = model.session?.stats ?? MacScreenSession.LiveStats()
+        let rated = model.qualityReadout == .inline && room.hostKbps != nil
+        room.hostKbps = rated ? 888_000 : nil
+        room.latencyMs = 888
+        let roomText = Self.pillLine(room)
         let latencyRoom = statsSlot ? max(Self.textWidth(stats), ceil(NSAttributedString(string: roomText, attributes: [.font: MacScreenType.stats]).size().width) + 4) + gap : 0
         let hintRoom = hintSlot ? hint.fittingSize.width + gap : 0
         let controls = pillControls

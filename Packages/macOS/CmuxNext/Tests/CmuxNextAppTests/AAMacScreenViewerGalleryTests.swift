@@ -31,6 +31,8 @@ struct AAMacScreenViewerGalleryTests {
         var readout: MacScreenQualityReadout?
         /// A bar state: the floating bar's arrangement, live in control over an ultra session.
         var bar: MacScreenToolbarBar?
+        /// A host too old to name its profile (no `encode_profile`): the rate shows with no profile word.
+        var oldHost = false
     }
 
     /// An ultra session (D10): the host streams at 148 Mbps, 120 of 120 fps, direct, 3 ms.
@@ -43,6 +45,13 @@ struct AAMacScreenViewerGalleryTests {
         stats.hostKbps = 148_000
         stats.lossPercent = 0.1
         stats.encodeMsP50 = 2.4
+        stats.encodeProfile = "ultra"
+        return stats
+    }
+
+    static func stats(for state: State) -> MacScreenSession.LiveStats {
+        var stats = ultraStats
+        if state.oldHost { stats.encodeProfile = nil }
         return stats
     }
 
@@ -55,7 +64,8 @@ struct AAMacScreenViewerGalleryTests {
     /// in control with the ultra numbers; `stacked` is the bar he saw.
     static let barStates: [State] = MacScreenToolbarBar.allCases.map {
         State(name: "bar-\($0.rawValue)", scope: .full, phase: .connected, hasFrame: true, readout: .inline, bar: $0)
-    }
+    } + [State(name: "bar-row-oldhost", scope: .full, phase: .connected, hasFrame: true, readout: .inline, bar: .row,
+               oldHost: true)]
 
     /// Leo's pane (the bar he saw stacked) and a narrow one.
     static let barWidths: [CGSize] = [CGSize(width: 720, height: 450), CGSize(width: 480, height: 450)]
@@ -134,7 +144,7 @@ struct AAMacScreenViewerGalleryTests {
         if state.readout == .hud { pane.session?.preferences.showStats = true }
         pane.session?.showPreviewState(phase: state.phase, failureCause: state.cause, linkConnected: state.linkConnected,
                                        frameSize: state.hasFrame ? remotePixels : .zero,
-                                       stats: state.readout == nil ? nil : ultraStats, path: state.readout == nil ? nil : "Direct")
+                                       stats: state.readout == nil ? nil : stats(for: state), path: state.readout == nil ? nil : "Direct")
         pane.view.frame = root.bounds
         pane.view.autoresizingMask = [.width, .height]
         root.addSubview(pane.view)
