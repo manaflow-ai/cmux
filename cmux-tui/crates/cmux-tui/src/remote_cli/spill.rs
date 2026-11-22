@@ -143,8 +143,10 @@ fn place_name(connect: &[String]) -> String {
     }
     connect
         .windows(2)
-        .find(|pair| pair[0] == "--via-machine")
-        .map(|pair| pair[1].clone())
+        .find_map(|pair| match pair {
+            [flag, name] if flag == "--via-machine" => Some(name.clone()),
+            _ => None,
+        })
         .unwrap_or_else(|| "the paired machine".into())
 }
 
