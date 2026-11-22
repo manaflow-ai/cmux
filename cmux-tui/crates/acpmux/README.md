@@ -1609,8 +1609,8 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
   `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), `deny-all`, and `review`
   (a reviewer's read-only shell: reads, searches and read-only shell commands such as `git log/diff/show`, `grep`,
   `rg`, `ls`, `cat`, `sed -n` run unasked; every write or other command is denied at once) answer locally. Per-session override with
-  `acpmux set NAME policy=...`. A chat an agent starts from inside its own session (`cmux agent new|run`,
-  `cmux agents chat new`, a local `dispatch`) with no policy or mode of its own starts at the person's configured default
+  `acpmux set NAME policy=...`. A chat an agent starts from inside its own session (`cmux agent new`, its alias
+  `cmux agent run`, `cmux agents chat new`, a local `dispatch`) with no policy or mode of its own starts at the person's configured default
   (`defaultPermissionMode`, the daemon policy), as a start with no proven session does; a starter in full access passes
   its full access on. Set `holdAgentStartsToStarter: true` to give such a chat its starter's policy and mode instead,
   never wider. A sub-session (`--parent`, the `start_session` tool) always inherits its parent's policy (or a narrower
@@ -1651,6 +1651,11 @@ ACP agent: `initialize`, `session/new`, `session/load`, `session/list`, `session
 `session/cancel`, `session/fork`, `session/set_mode`, `session/set_model`,
 `session/set_config_option`, `session/close`, `session/delete`. Session ids are acpmux ids;
 a name works anywhere a `sessionId` is expected.
+
+`session/load` replays at most the chat's newest 100,000 records. When it leaves older ones out,
+its answer says so in `_meta.acpmux.replayTruncated: {skipped, total, limit}` (records are numbered
+from 1, so `skipped` older of `total`), and the daemon logs it; page further back with
+`_acpmux/events`.
 
 `session/new` accepts `_meta.acpmux: {agent, name, policy}`. `session/prompt` accepts
 `_meta.acpmux: {steer: true, promptId}`. Its response still comes at the end of the turn and adds

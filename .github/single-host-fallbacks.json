@@ -74,6 +74,10 @@
     "glaeda-trusted-next-nightly"
   ],
   "variables": {
+    "CI_OVERFLOW_LINUX": {
+      "fallback": "unset by default, so pr-pipeline.yml's linux job runs on the cmux-linux persistent pool (many hosts, not one); an operator sets it only to another Linux pool label and deletes it to put the job back",
+      "after_minutes": 5
+    },
     "CI_RELEASE_PIN_SLOT": {
       "fallback": "an off switch, not a host: unset sends app-ffi-release's build to glaeda-nightly-std-xcode-26.6, one nightly slot runner on every owned std mini (not one host); `off` restores the promote pool, vars.CI_SIDE_LANE_RUNNER and Blacksmith routes after it",
       "after_minutes": 5
@@ -190,6 +194,10 @@
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
     },
+    "CI_OVERFLOW_LINUX": {
+      "fallback": "cmux-linux, the owned Linux pool label the runs-on expression falls back to when the variable is unset",
+      "after_minutes": 5
+    },
     "LINUX_POOL_OVERFLOW_RUNNER": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
@@ -198,6 +206,7 @@
       "fallback": "the next member of the pool in .github/runners.json (its reconciler moves the pool when the current member starts nothing); with the variable unset, the selector's default, the pool's first member (tools/fleet-reconcilers/test_runner_pools.py)",
       "after_minutes": 5
     },
+    "CI_OVERFLOW_LINUX": {"fallback": "an override, not a host: unset sends pr-pipeline's linux job to the cmux-linux label every owned Linux pool host carries (#49280); set, the runner it names", "after_minutes": 5},
     "LINUX_RUNNER": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
@@ -305,6 +314,14 @@
     },
     "CI_DEPLOY_SKIP_FLEET": {
       "fallback": "an off switch, not a host: unset sends every Cloud VM image roll job to cmux-gcp-deploy-jit-x64, one-job JIT VMs gha-runners makes on demand (cap 4, one kept warm; never one host); `1` restores the roll's earlier labels (cmux-gcp-lane-build-x64 on plan attempt 1, RUNNER_POOLS linux_4 or linux_8, vars.LINUX_RUNNER for the bake)",
+      "after_minutes": 10
+    },
+    "CI_PR_CONTROL_SKIP_FLEET": {
+      "fallback": "an off switch, not a host: unset (or anything but `1`) sends feat-cmux-next's and main's PR and issue bot jobs (risk evidence, merge freeze, labels, triage, PR status...) to cmux-gcp-pr-control-jit-x64, one-job JIT VMs the cmuxterm-hq runner_pool reconciler makes on demand under a warm floor (never one host); `1` restores the CI_TRUSTED_RUNNER selector after it in the same runs-on, Blacksmith 4 vCPU by default. That is the Blacksmith overflow (Leo, 2026-11-19: \"stop ... relying on it\")",
+      "after_minutes": 10
+    },
+    "CI_REPAIR_SKIP_FLEET": {
+      "fallback": "an off switch, not a host: unset (or anything but `1`) sends the repair workflows (compile attribution, owned-pool rescue, stale-run janitor) to cmux-gcp-repair-jit-x64, one-job JIT VMs made on demand (never one host); `1` restores the CI_TRUSTED_RUNNER selector after it in the same runs-on, Blacksmith 4 vCPU by default",
       "after_minutes": 10
     }
   },
