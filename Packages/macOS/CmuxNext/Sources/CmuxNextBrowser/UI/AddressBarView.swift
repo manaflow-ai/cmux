@@ -636,6 +636,18 @@ public final class AddressBarView: NSView {
         if newWindow == nil { panel.dismiss() }
     }
 
+    /// The bar was sized before it had a window, at the main screen's scale: its height snaps to this window's pixels.
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { density.reapply() }
+    }
+
+    /// A move to a screen with another scale snaps the bar's height again (Spacious's 37.5 pt: 38 at 1x, 37.5 at 2x).
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        density.reapply()
+    }
+
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         if !field.isFieldEditorActive {
