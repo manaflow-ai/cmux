@@ -69,10 +69,10 @@ final class OnboardingService {
     private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
                                                               openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false })
     private(set) lazy var agentTools = AgentToolsStepModel.cliSource(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settings: { [weak services] in services?.settings })
-    /// Make cmux Yours' choices over the settings owner; density goes through its action, which also applies the tokens.
+    /// Make cmux Yours' choices over the settings owner; density goes through its action (it applies the tokens); unset Opacity reads the window's.
     private(set) lazy var firstRunChoices = FirstRunChoicesSettingsSource(settings: { [weak services] in services?.settings }, setDensity: { [weak services] preset in
         _ = services?.registry.perform("appearance.density.set", invocation: ActionInvocation(arguments: ["density": .string(preset)], origin: .user))
-    })
+    }, windowOpacity: { [weak services] in (services?.windows.active?.themeScope ?? ThemeScope.app).shownWindowOpacity })
     /// The top page a Sign In left; it shows again once the tool window closes.
     private var pageLeftForSignIn: TopPageRoute?
 

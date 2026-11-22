@@ -3,7 +3,7 @@
 // click through each step in a plain browser.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { agentToolsState, agentsState, computerUseState, importState, makeItYoursState } from "./fixtures";
-import { OPS, type DensityChoice, type ImportDataKind, type OnboardingState, type WorkStyle } from "./ops";
+import { OPS, type ImportDataKind, type MakeItYoursMaterial, type OnboardingState, type WorkStyle } from "./ops";
 
 export class MockOnboardingProvider implements PageClient {
   private state: OnboardingState;
@@ -107,15 +107,21 @@ export class MockOnboardingProvider implements PageClient {
         return {} as R;
       case OPS.workStyle:
       case OPS.density:
-      case OPS.background: {
+      case OPS.background:
+      case OPS.opacity:
+      case OPS.material: {
         const choices = state.makeItYours;
         if (!choices) return {} as R;
         const next =
           op === OPS.workStyle
             ? { ...choices, workStyle: input.value as WorkStyle }
             : op === OPS.density
-              ? { ...choices, density: input.value as DensityChoice }
-              : { ...choices, background: input.id ?? null };
+              ? { ...choices, density: input.value as string }
+              : op === OPS.opacity
+                ? { ...choices, opacity: input.value as number, opacitySet: true }
+                : op === OPS.material
+                  ? { ...choices, material: input.value as MakeItYoursMaterial }
+                  : { ...choices, background: input.id ?? null };
         this.change({ ...state, makeItYours: next });
         return {} as R;
       }
