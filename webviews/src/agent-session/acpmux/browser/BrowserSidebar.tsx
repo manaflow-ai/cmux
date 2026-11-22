@@ -1,5 +1,6 @@
 import { memo, useMemo, useState } from "react";
 import { AgentMark } from "../../shared/AgentMark";
+import { WithFacts } from "../chips/FactsHoverCard";
 import { useT } from "../i18n";
 import { activityTime, listed, sessionTitle, type AcpmuxSessionEntry } from "../sessionList";
 import { linkedSessions, matchingWorkspaces, type BrowserWorkspaceChat, type BrowserWorkspaces } from "./workspaces";
@@ -66,28 +67,42 @@ export const BrowserSidebar = memo(function BrowserSidebar({
       {workspaces && !workspaces.available && <output>{t("picker.unavailable")}</output>}
       {visibleWorkspaces.map((workspace) => (
         <details key={`${workspaces?.registryId}:${workspace.id}`} data-workspace={workspace.id} open>
-          <summary title={workspace.title || workspace.name}>{workspace.title || workspace.name}</summary>
+          {/* Its text is cut with an ellipsis: the whole title, and the name when it differs, show on the
+              hover card (a tooltip names only a control that shows no text). */}
+          <WithFacts
+            facts={[
+              { value: workspace.title || workspace.name },
+              !!workspace.title && workspace.title !== workspace.name && { value: workspace.name },
+            ]}
+          >
+            {(facts) => <summary {...facts}>{workspace.title || workspace.name}</summary>}
+          </WithFacts>
           <div className="acpmux-browser-workspace-chats">
             {!workspace.chats.length && <p>{t("sidebar.noSessions")}</p>}
             {workspace.chats.map((chat) => {
               const session = chatSession(chat);
               const title = chatTitle(chat) || t("sidebar.newChat");
+              // Another machine's chat cannot open here, but it stays hoverable and focusable for its
+              // card (aria-disabled, not disabled, which takes neither); the click does nothing.
               return (
-                <button
-                  key={chat.tabId}
-                  type="button"
-                  data-chat={chat.sessionId}
-                  data-tab={chat.tabId}
-                  disabled={!chat.local || !chat.sessionId}
-                  aria-current={chat.local && chat.sessionId === selected ? "page" : undefined}
-                  title={chat.local ? title : `${title} · ${chat.host}`}
-                  onClick={() => {
-                    if (chat.local && chat.sessionId) onSelect(chat.sessionId);
-                  }}
-                >
-                  <AgentMark agent={session?.harness ?? chat.harness} size={16} tint />
-                  <span>{title}</span>
-                </button>
+                <WithFacts key={chat.tabId} facts={[{ value: title }, !chat.local && { value: chat.host }]}>
+                  {(facts) => (
+                    <button
+                      {...facts}
+                      type="button"
+                      data-chat={chat.sessionId}
+                      data-tab={chat.tabId}
+                      aria-disabled={!chat.local || !chat.sessionId || undefined}
+                      aria-current={chat.local && chat.sessionId === selected ? "page" : undefined}
+                      onClick={() => {
+                        if (chat.local && chat.sessionId) onSelect(chat.sessionId);
+                      }}
+                    >
+                      <AgentMark agent={session?.harness ?? chat.harness} size={16} tint />
+                      <span>{title}</span>
+                    </button>
+                  )}
+                </WithFacts>
               );
             })}
           </div>
@@ -96,17 +111,23 @@ export const BrowserSidebar = memo(function BrowserSidebar({
       <h2>{t("sidebar.sessions")}</h2>
       {!matches.length && !visibleWorkspaces.length && <p>{t(query ? "sidebar.noMatches" : "sidebar.noSessions")}</p>}
       {matches.slice(0, limit).map((row) => (
-        <button
+        <WithFacts
           key={row.sessionId}
-          type="button"
-          data-chat={row.sessionId}
-          aria-current={row.sessionId === selected ? "page" : undefined}
-          title={[sessionTitle(row, t), row.peer, row.cwd].filter(Boolean).join(" · ")}
-          onClick={() => onSelect(row.sessionId)}
+          facts={[{ value: sessionTitle(row, t) }, { value: row.peer ?? "" }, { value: row.cwd ?? "", code: true }]}
         >
-          <AgentMark agent={row.harness} size={16} tint />
-          <span>{sessionTitle(row, t)}</span>
-        </button>
+          {(facts) => (
+            <button
+              {...facts}
+              type="button"
+              data-chat={row.sessionId}
+              aria-current={row.sessionId === selected ? "page" : undefined}
+              onClick={() => onSelect(row.sessionId)}
+            >
+              <AgentMark agent={row.harness} size={16} tint />
+              <span>{sessionTitle(row, t)}</span>
+            </button>
+          )}
+        </WithFacts>
       ))}
       {matches.length > limit && (
         <button type="button" onClick={() => setLimit(limit + 60)}>

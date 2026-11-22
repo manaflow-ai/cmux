@@ -129,6 +129,16 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd", "recents", "recent", "chatgpt", "history"]
             ),
             SettingDescriptor(
+                SidebarSectionsSetting.navPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.nav", "Sidebar Nav Rows"),
+                help: SettingsText.keyed("settings.sidebar.nav.help", "Rows at the top of the sidebar that run cmux actions, by action id, optionally \"id | Title | symbol\". Empty shows none."),
+                kind: .stringList,
+                default: .array(SidebarSectionsSetting.navDefault.map { .string($0) }),
+                keywords: ["sidebar", "nav", "navigation", "actions", "new chat", "search", "pull requests", "look"]
+            ).hiddenFromSettingsPage("action ids; cmux.json, setups and theme files only"),
+            SettingDescriptor(
                 SidebarSectionsSetting.showSpacesPath,
                 section: .appearance,
                 group: group,
@@ -366,16 +376,6 @@ extension SidebarSettingsSchema {
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.showLocalMachineDefault),
                 keywords: ["sidebar", "machine", "computer", "this mac", "local", "icon", "color", "remote", "identity"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupHeaderMemberCountPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupHeader.memberCount", "Show Group Member Count"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.memberCount.help", "A collapsed group shows how many workspaces it holds."),
-                kind: .toggle,
-                default: .bool(SidebarSectionsSetting.groupHeaderMemberCountDefault),
-                keywords: ["sidebar", "group", "groups", "count", "members", "workspaces", "number", "header"]
             ),
         ]
     }
