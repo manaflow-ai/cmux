@@ -331,15 +331,41 @@ fn compare_cursor_look(mac: &Snapshot, phone: &Snapshot) -> Score {
     score
 }
 
+/// Horizontal rules compact mode shrinks as padding (`is_rule` in
+/// `src/project.rs`): `─` in `╭────╮`.
+fn is_rule(text: &str) -> bool {
+    matches!(text, "─" | "━" | "═" | "┄" | "┅" | "┈" | "┉" | "╌" | "╍")
+}
+
 /// Glyphs in order with their styles, blanks and line structure aside.
+///
+/// A run of one rule glyph (the same text and style in cells side by side,
+/// or across a soft wrap) counts once. Compact mode lays a right-anchored
+/// row out at the phone's width by shrinking its padding, and a frame's
+/// padding is such a run (`╭────╮` becomes `╭─╮`); it keeps at least one
+/// cell of every run, so the phone still shows every glyph of the row, in
+/// order, with its style. A run that is gone, or a rule glyph that is not
+/// in a run, still counts.
 fn glyphs(snap: &Snapshot) -> Vec<Key> {
-    snap.rows
-        .iter()
-        .flat_map(|(cells, _)| cells.iter())
-        .filter(|c| !matches!(c.0.width, CellWidth::SpacerTail | CellWidth::SpacerHead))
-        .map(Key::of)
-        .filter(|k| k.text != " ")
-        .collect()
+    let mut out = Vec::new();
+    let mut previous: Option<Key> = None;
+    for (cells, wraps) in &snap.rows {
+        for cell in cells {
+            if matches!(cell.0.width, CellWidth::SpacerTail | CellWidth::SpacerHead) {
+                continue;
+            }
+            let key = Key::of(cell);
+            let repeat = is_rule(&key.text) && previous.as_ref() == Some(&key);
+            if key.text != " " && !repeat {
+                out.push(key.clone());
+            }
+            previous = Some(key);
+        }
+        if !*wraps {
+            previous = None;
+        }
+    }
+    out
 }
 
 fn compare_glyphs(mac: &Snapshot, phone: &Snapshot, partial_top: bool) -> Score {
@@ -808,6 +834,89 @@ fn run_corpus(corpus: &Corpus) -> Row {
         }
     }
     row
+}
+
+fn snapshot_of(cols: usize, rows: usize, bytes: &[u8]) -> Snapshot {
+    let mut term = vt(cols, rows);
+    term.vt_write(bytes);
+    snapshot(&term)
+}
+
+/// Compact mode's glyph comparison: a rule run counts once, so a frame laid
+/// out at the phone's width matches, and a lost run, a lost glyph or a
+/// rule in another style still does not.
+#[test]
+fn the_glyph_comparison_counts_a_rule_run_once_and_still_sees_a_lost_one() {
+    let mac = snapshot_of(20, 3, "╭──────╮ x\r\n═ ═".as_bytes());
+    for (phone, matches) in [
+        ("╭─╮ x\r\n═ ═", true),
+        ("╭───╮ x\r\n═ ═", true),
+        ("╭╮ x\r\n═ ═", false),
+        ("╭\x1b[31m─\x1b[0m╮ x\r\n═ ═", false),
+        ("╭─╮\r\n═ ═", false),
+        ("╭─╮ x\r\n═", false),
+    ] {
+        let score = compare_glyphs(&mac, &snapshot_of(10, 3, phone.as_bytes()), false);
+        assert_eq!(score.mismatched == 0, matches, "phone {phone:?}: {:?}", score.first);
+    }
+}
+
+/// Claude Code's frame at the Mac's width, on a phone narrower than it, in
+/// compact mode: the rules and the padding shrink, every glyph is there.
+#[test]
+fn a_frame_wider_than_the_phone_keeps_every_glyph_in_compact_mode() {
+    let edge = |s: &str| format!("\x1b[38;5;174m{s}\x1b[0m");
+    let frame = format!(
+        "{}\r\n{} > hi{}{}\r\n{}\r\n$ ",
+        edge(&format!("╭{}╮", "─".repeat(118))),
+        edge("│"),
+        " ".repeat(113),
+        edge("│"),
+        edge(&format!("╰{}╯", "─".repeat(118))),
+    );
+    for grid in PHONE_GRIDS {
+        let mut run = Run::new((120, 40), grid, true);
+        run.feed(frame.as_bytes());
+        let score = run.compare();
+        assert_eq!(score.mismatched, 0, "phone {grid:?}: {:?}", score.first);
+    }
+}
+
+/// A space typed after a link closes (`link end`) is not in the link: the
+/// phone's echo of it must not carry the link the phone's style still has.
+#[test]
+fn a_space_after_a_link_is_not_linked_on_the_phone() {
+    let bytes = b"see \x1b]8;;https://example.com\x1b\\\x1b[34mlink\x1b[0m\x1b]8;;\x1b\\ end\r\n$ ";
+    for chunk in [1, 2, 61] {
+        let mut run = Run::new((120, 40), (33, 30), false);
+        for part in bytes.chunks(chunk) {
+            run.feed(part);
+        }
+        let score = run.compare();
+        assert_eq!(score.mismatched, 0, "chunk {chunk}: {:?}", score.first);
+    }
+}
+
+/// A row erased in a background, then written over in the default style,
+/// wraps on the phone: the phone's autowrap and line feeds scroll new rows
+/// in, which take the current background (BCE). Past the line's end the
+/// phone has no background, as the Mac has none.
+#[test]
+fn a_background_never_spills_past_a_lines_end_on_the_phone() {
+    let bytes = b"\x1b[41m\x1b[2K\x1b[0mred whole row erased, text after reset\r\n\x1b[7m inverse blank tail       \x1b[0m\r\n$ ";
+    for chunk in [usize::MAX, 61, 1] {
+        let mut run = Run::new((120, 40), (33, 3), false);
+        // Rows the phone has scrolled past, so its writes scroll.
+        run.feed(b"1\r\n2\r\n3\r\n4\r\n");
+        for part in bytes.chunks(chunk.min(bytes.len())) {
+            run.feed(part);
+        }
+        let score = run.compare();
+        assert_eq!(score.mismatched, 0, "chunk {chunk}: {:?}", score.first);
+        run.set_viewport(33, 30);
+        let score = run.compare();
+        assert_eq!(score.mismatched, 0, "chunk {chunk}, after a reset: {:?}", score.first);
+    }
 }
 
 #[test]

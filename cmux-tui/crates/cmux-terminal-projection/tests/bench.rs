@@ -178,11 +178,30 @@ fn layout_change_before_and_after() {
     let changes: [(&str, (usize, usize), (usize, usize)); 2] =
         [("keyboard toggle", (52, 38), (52, 20)), ("rotation", (52, 38), (112, 17))];
     let mut table = String::from(
-        "| change | history rows | before: CPU per change | before: bytes sent | after: CPU per change | after: bytes sent |\n|---|---:|---:|---:|---:|---:|\n",
+        "| change | load | history rows | before: CPU per change | before: bytes sent | after: CPU per change | after: bytes sent |\n|---|---|---:|---:|---:|---:|---:|\n",
     );
+    // Duress: a burst of Claude Code like output (colors, wide chars, a
+    // spinner rewrite, ~16 KB) lands between every layout change, so the
+    // change is measured on a terminal that is streaming and growing.
+    let burst = {
+        let mut b = Vec::new();
+        for i in 0..160 {
+            b.extend_from_slice(format!("\x1b[38;5;174m⏺\x1b[0m Update(src/lib.rs) 中文 ✅ \x1b[2mline {i} of a long tool result that wraps on the phone\x1b[0m\r\n").as_bytes());
+            b.extend_from_slice(
+                "\r\x1b[K\x1b[38;5;174m✻\x1b[0m Thinking… (esc to interrupt)".as_bytes(),
+            );
+        }
+        b.extend_from_slice(b"\r\x1b[K$ ");
+        b
+    };
     let mut worst_after: f64 = 0.0;
     for (label, a, b) in changes {
-        for history in [0usize, 2_000, 10_000] {
+        for (load, history, streaming) in [
+            ("idle fixture", 0usize, false),
+            ("idle fixture", 2_000, false),
+            ("long session", 10_000, false),
+            ("long session + streaming", 10_000, true),
+        ] {
             let bytes = history_bytes(history);
             // Before: the Mac's terminal at the phone's size, the phone's
             // mirror beside it.
@@ -190,9 +209,13 @@ fn layout_change_before_and_after() {
             mac.vt_write(&bytes);
             let mut sent = 0usize;
             let n = 20;
-            let start = Instant::now();
+            let mut before_d = std::time::Duration::ZERO;
             for i in 0..n {
                 let (c, r) = if i % 2 == 0 { b } else { a };
+                if streaming {
+                    mac.vt_write(&burst);
+                }
+                let start = Instant::now();
                 let _ = mac.resize(c as u16, r as u16, 0, 0);
                 mac.vt_write(b"\r\x1b[J$ ");
                 let replay = mac.vt_replay_bytes().unwrap();
@@ -200,8 +223,9 @@ fn layout_change_before_and_after() {
                 let mut mirror = vt(c, r);
                 mirror.vt_write(b"\x1bc");
                 mirror.vt_write(&replay);
+                before_d += start.elapsed();
             }
-            let before_us = start.elapsed().as_secs_f64() * 1e6 / n as f64;
+            let before_us = before_d.as_secs_f64() * 1e6 / n as f64;
             let before_bytes = sent / n;
             // After: the projection and the phone's terminal.
             let mut projection = Projection::new(120, 40, history + 100);
@@ -213,9 +237,24 @@ fn layout_change_before_and_after() {
                     phone.vt_write(&x);
                 }
             }
-            let start = Instant::now();
+            let mut after_d = std::time::Duration::ZERO;
+            let mut cur = a;
             for i in 0..n {
                 let (c, r) = if i % 2 == 0 { b } else { a };
+                if streaming {
+                    for seg in projection.feed(&burst, true) {
+                        match seg {
+                            Segment::Reset(x) => {
+                                phone = vt(cur.0, cur.1);
+                                phone.vt_write(&x);
+                            }
+                            Segment::Paint(x) | Segment::Raw(x) => phone.vt_write(&x),
+                            Segment::Alternate(_) => {}
+                        }
+                    }
+                }
+                let start = Instant::now();
+                cur = (c, r);
                 let _ = phone.resize(c as u16, r as u16, 0, 0);
                 for seg in projection.set_viewport(c, r) {
                     match seg {
@@ -227,13 +266,14 @@ fn layout_change_before_and_after() {
                         Segment::Alternate(_) => {}
                     }
                 }
+                after_d += start.elapsed();
             }
-            let after_us = start.elapsed().as_secs_f64() * 1e6 / n as f64;
+            let after_us = after_d.as_secs_f64() * 1e6 / n as f64;
             worst_after = worst_after.max(after_us);
             let _ = std::fmt::Write::write_fmt(
                 &mut table,
                 format_args!(
-                    "| {label} | {history} | {:.2} ms + 2 round trips | {before_bytes} | {:.2} ms | 0 |\n",
+                    "| {label} | {load} | {history} | {:.2} ms + 2 round trips | {before_bytes} | {:.2} ms | 0 |\n",
                     before_us / 1000.0,
                     after_us / 1000.0
                 ),

@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use crate::style::Style;
+use crate::style::{Color, Style};
 use crate::terminal::{Cell, Row, SPACER_HEAD, Terminal, WIDE, WIDE_TAIL};
 
 /// One row of the phone's view.
@@ -110,11 +110,25 @@ pub fn wrap_line(
         end_offset = offset + width;
     }
     if let (Some(target), None) = (cursor_offset, cursor_at) {
-        // Past the line's end: the blank cells up to the cursor count, on
-        // the line's last row. Past the phone's edge it waits on the last
-        // cell, as a terminal's cursor does before it wraps.
+        // Past the line's end: the blank cells up to the cursor count.
         let blanks = target.saturating_sub(end_offset);
-        cursor_at = Some((out.len() - 1, (col + blanks).min(cols - 1)));
+        if col + blanks < cols {
+            // On the line's last row.
+            cursor_at = Some((out.len() - 1, col + blanks));
+        } else {
+            // Past the phone's edge (a prompt's cursor far right on the
+            // host, or right after a line that fills the phone's row): the
+            // line goes on in blank cells through the cursor's own, so its
+            // rows wrap by the phone's autowrap and the cursor sits at the
+            // host's column of the logical line, not clamped to the edge.
+            for _ in 0..=blanks {
+                cursor_at = Some(place(&mut out, &mut col, 1));
+                if let Some(row) = out.last_mut() {
+                    row.cells.push(Cell::blank(0));
+                }
+                col += 1;
+            }
+        }
     }
     let empty = units.is_empty() && cursor_at.is_none();
     Wrapped { rows: out, cursor: cursor_at, empty }
@@ -691,6 +705,12 @@ impl View {
                     // A soft wrap is the phone's own autowrap (a wrapped row
                     // is full, or one short of a wide glyph that follows).
                     if !tail.get(i + k - 1).is_some_and(|r| r.wrapped) {
+                        // A line feed that scrolls fills the new row with the
+                        // current background (BCE): the default one, as the
+                        // host's own empty rows have.
+                        if let Some(style) = self.phone_style.filter(|s| s.bg != Color::Default) {
+                            self.phone_style = Some(plain_keeping_link(&mut out, style));
+                        }
                         out.extend_from_slice(b"\r\n");
                     }
                     abs += 1;
@@ -708,6 +728,15 @@ impl View {
                         term.write_cell(*cell, &mut out);
                     }
                     col += cell.width();
+                }
+                if k > 0 && tail.get(i + k - 1).is_some_and(|r| r.wrapped) {
+                    let entered = projected.cells.first().map(|c| term.styles.get(c.style));
+                    if let Some(style) = self.phone_style
+                        && end_after_autowrap(projected, entered, self.cols)
+                    {
+                        self.phone_style = Some(plain_keeping_link(&mut out, style));
+                        out.extend_from_slice(b"\x1b[K");
+                    }
                 }
             }
             // A soft wrap left pending lands on the next row when written.
@@ -733,10 +762,19 @@ impl View {
                 && col > at_col
                 && at_col >= row_width
                 && col - at_col <= 8
-                && self.phone_style.is_some_and(Style::is_invisible_when_blank)
+                && self
+                    .phone_style
+                    .is_some_and(|style| style.is_invisible_when_blank() && style.link == 0)
             {
                 // Past the row's end, as the host's own echo of a space does.
+                // (Not in a link: a space written in one is a linked cell,
+                // and the host's blanks there are not.)
                 out.extend(std::iter::repeat_n(b' ', col - at_col));
+                self.phone_cursor = (row, col);
+            } else if at_row == row && at_col == col + 1 && at_col < self.cols {
+                // One cell back (onto a blank just written past the line's
+                // end, the cursor's own): a backspace, not a CUP.
+                out.push(0x08);
                 self.phone_cursor = (row, col);
             } else if self.phone_cursor != (row, col) {
                 self.move_to(&mut out, row, col, shown_end);
@@ -776,6 +814,10 @@ impl View {
             let from = if end == 0 { 0 } else { last };
             let screen_row = from - top;
             out.extend_from_slice(format!("\x1b[{};1H", screen_row + 1).as_bytes());
+            if let Some(style) = self.phone_style.filter(|s| s.bg != Color::Default) {
+                // Rows a line feed scrolls in take the current background.
+                self.phone_style = Some(plain_keeping_link(out, style));
+            }
             for _ in from..row {
                 out.extend_from_slice(b"\n");
             }
@@ -795,8 +837,10 @@ fn encode_line(term: &Terminal, rows: &[&Row], cols: usize, compact: bool) -> (V
     let wrapped = wrap_line(term, rows, term.cols, cols, None, compact);
     let mut out = Vec::new();
     let mut style = Style::default();
+    let mut previous_wrapped = false;
     for row in &wrapped.rows {
         // A line's rows follow by the phone's own autowrap.
+        let entered = row.cells.first().map(|c| term.styles.get(c.style));
         for cell in &row.cells {
             let next = term.styles.get(cell.style);
             if next != style {
@@ -809,12 +853,34 @@ fn encode_line(term: &Terminal, rows: &[&Row], cols: usize, compact: bool) -> (V
                 term.write_cell(*cell, &mut out);
             }
         }
+        if previous_wrapped && end_after_autowrap(row, entered, cols) {
+            style = plain_keeping_link(&mut out, style);
+            out.extend_from_slice(b"\x1b[K");
+        }
+        previous_wrapped = row.wrapped;
     }
     if style != Style::default() {
         write_style(term, &mut out, Some(style), Style::default());
     }
     out.extend_from_slice(b"\r\n");
     (out, wrapped.rows.len() as u64)
+}
+
+/// Whether the rest of `row` must be erased in the default style once its
+/// cells are written: the last row of a line, not full, entered by the
+/// phone's autowrap in `entered` (its first glyph's style) with a
+/// background. An autowrap that scrolls fills the new row with that
+/// background (BCE), where the host has none past the line's end.
+fn end_after_autowrap(row: &ProjectedRow, entered: Option<Style>, cols: usize) -> bool {
+    !row.wrapped && row.width() < cols && entered.is_some_and(|s| s.bg != Color::Default)
+}
+
+/// Writes the default SGR, keeping the open link (an SGR reset does not
+/// close one); the style the phone's terminal then has.
+fn plain_keeping_link(out: &mut Vec<u8>, style: Style) -> Style {
+    let plain = Style { link: style.link, ..Style::default() };
+    plain.write_sgr(out);
+    plain
 }
 
 fn write_style(term: &Terminal, out: &mut Vec<u8>, previous: Option<Style>, style: Style) {
@@ -853,6 +919,42 @@ mod tests {
         assert_eq!(text, ["abcd", "efgh", "ijkl", "mno"]);
         assert_eq!(wrapped.cursor, Some((3, 3)));
         assert!(wrapped.rows[..3].iter().all(|r| r.wrapped));
+    }
+
+    #[test]
+    fn a_cursor_past_the_line_and_the_phone_edge_extends_the_line() {
+        // A prompt "$ " with the host's cursor at column 90 (a right-side
+        // input, a cursor moved right): on a 33-column phone the cursor is
+        // on the line's third row, column 24, not clamped to column 32.
+        let mut term = Terminal::new(120, 3, 100);
+        for &b in b"$ \x1b[91G" {
+            term.advance(b);
+        }
+        let rows: Vec<&Row> = term.primary_rows()[..1].iter().collect();
+        let wrapped = wrap_line(&term, &rows, 120, 33, Some((0, 90)), false);
+        assert_eq!(wrapped.cursor, Some((2, 24)));
+        assert_eq!(wrapped.rows.len(), 3);
+        assert!(wrapped.rows[0].wrapped && wrapped.rows[1].wrapped && !wrapped.rows[2].wrapped);
+        assert_eq!(wrapped.rows[2].width(), 25, "blanks through the cursor's cell");
+        // Within the row: the cursor waits past the content, nothing added.
+        let wrapped = wrap_line(&term, &rows, 120, 33, Some((0, 10)), false);
+        assert_eq!(wrapped.cursor, Some((0, 10)));
+        assert_eq!(wrapped.rows.len(), 1);
+        assert_eq!(wrapped.rows[0].width(), 1, "the prompt's trailing space is not drawn");
+    }
+
+    #[test]
+    fn a_cursor_after_a_line_that_fills_the_phone_row_is_on_the_next_row() {
+        // 54 glyphs on a 54-column phone, the host's cursor right after
+        // them: the logical column is 54, the next row's first cell.
+        let mut term = Terminal::new(120, 3, 100);
+        for _ in 0..54 {
+            term.advance(b'x');
+        }
+        let rows: Vec<&Row> = term.primary_rows()[..1].iter().collect();
+        let wrapped = wrap_line(&term, &rows, 120, 54, Some((0, 54)), false);
+        assert_eq!(wrapped.cursor, Some((1, 0)));
+        assert!(wrapped.rows[0].wrapped);
     }
 
     #[test]
