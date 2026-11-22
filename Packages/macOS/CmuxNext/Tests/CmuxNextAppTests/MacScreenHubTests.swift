@@ -271,7 +271,7 @@ struct MacScreenHubCardTests {
     /// A device tab shows the stream's controls only while a session streams.
     @Test func deviceTabsShowStreamControlsOnlyWhileStreaming() {
         let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
-        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences(), viewerLook: .current)
         #expect(pane.model.card == .hubConnect)
         #expect(!pane.model.showsStreamControls)
         viewer.phase = .streaming(sessionID: "s1", scope: .full)
@@ -291,7 +291,7 @@ struct MacScreenViewOnlyTests {
 
     @Test func theSessionsScopeDecidesViewOnly() {
         let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
-        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences(), viewerLook: .current)
         #expect(!pane.model.viewOnly)
         viewer.phase = .streaming(sessionID: "s1", scope: .view)
         #expect(pane.model.viewOnly)

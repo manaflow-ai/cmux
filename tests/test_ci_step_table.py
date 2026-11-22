@@ -576,18 +576,16 @@ class EnsureBun(unittest.TestCase):
         return subprocess.run(["bash", str(BUN_SCRIPT), BUN_VERSION, str(self.bin)], env=env, text=True,
                               capture_output=True, timeout=60)
 
-    def test_bun_of_the_major_on_path_is_linked_and_nothing_is_downloaded(self) -> None:
-        for have in ("1.4.4", "1.4.5", "1.10.0"):
-            with self.subTest(have=have):
-                fake_bun(self.path_bin / "bun", have)
-                done = self.run_script()  # no dist published: a download would fail
-                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-                self.assertEqual(subprocess.run([self.bin / "bun", "--version"], text=True,
-                                                capture_output=True).stdout.strip(), have)
+    def test_the_pinned_bun_on_path_is_linked_and_nothing_is_downloaded(self) -> None:
+        fake_bun(self.path_bin / "bun", BUN_VERSION)
+        done = self.run_script()  # no dist published: a download would fail
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(Path(self.bin / "bun").resolve(), (self.path_bin / "bun").resolve())
 
-    def test_an_older_or_other_bun_is_not_taken(self) -> None:
+    def test_any_other_bun_on_path_is_not_taken(self) -> None:
+        # The workflows pinned 1.4.4 exactly: a newer bun a shared host has must not decide frozen installs.
         self.publish()
-        for have in ("1.4.3", "1.3.14", "2.0.0", "1.4.4-rc.1", "garbage"):
+        for have in ("1.4.5", "1.10.0", "1.4.3", "1.3.14", "2.0.0", "1.4.4-rc.1", "garbage"):
             with self.subTest(have=have):
                 fake_bun(self.path_bin / "bun", have)
                 done = self.run_script()

@@ -6,6 +6,7 @@
 pub(crate) mod capture;
 #[cfg(feature = "bench")]
 pub(crate) mod cpu;
+#[cfg(feature = "computer-use")]
 pub(crate) mod cu_host;
 pub(crate) mod cursor;
 mod input;

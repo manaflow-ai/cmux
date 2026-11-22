@@ -43,7 +43,7 @@ python3 -m venv --system-site-packages "$CI_TOOLS"
 # puts its binaries in "$CI_TOOLS/bin". No root, no apt: a download into $CI_TOOLS (or the runner's tool
 # cache, which a persistent runner keeps, so its next job downloads nothing).
 [tools]
-# The version every workflow that moved here pinned for oven-sh/setup-bun; a newer release of its major passes.
+# The version every workflow that moved here pinned for oven-sh/setup-bun; only that exact version passes.
 bun = 'scripts/ci/ensure-bun.sh 1.4.4 "$CI_TOOLS/bin"'
 # The `24.22.1` the repository's other workflows pin for setup-node (the moved one asked for `24`).
 node = '''
