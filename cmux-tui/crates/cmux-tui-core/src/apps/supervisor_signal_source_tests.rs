@@ -28,8 +28,12 @@ fn sources_fixture(floor: u64) -> Fixture {
     } } } });
     std::fs::write(&path, manifest.to_string()).unwrap();
     let f = fixture_with(&[], Duration::from_secs(60), root);
+    // Every install first: an install can regrant (and restart) a running host, which drops
+    // its subscriptions until it mounts again.
     for app in [SOURCE, "cmux/reader", "cmux/nosy"] {
         f.install(app);
+    }
+    for app in [SOURCE, "cmux/reader", "cmux/nosy"] {
         f.supervisor.logs(CLIENT, app, true);
         let view = app.replace('/', "-");
         f.mount(&view, app, "cmux.palette.scope/1", json!({ "stream": STREAM }));
@@ -94,6 +98,9 @@ fn a_published_value_reaches_only_readers_holding_the_sources_scope() {
 #[test]
 fn publishes_inside_the_floor_reach_readers_once_with_the_newest_value() {
     let f = sources_fixture(1);
+    // A round trip through the reader's host: its subscription is in before the first publish.
+    let listed = f.call("cmux-reader", "signal.sources.list", json!({}), false);
+    assert_eq!(listed["body"]["sources"][0]["readable"], true, "{listed}");
     assert_eq!(publish(&f, json!(1))["body"]["told"], true);
     f.wait("the first change", |e| e["app"] == "cmux/reader" && e["message"] == "event 1");
     for n in 2..=20 {
