@@ -709,6 +709,15 @@ try {
       };
     };
     const mapper = sourceMapper(out);
+    // PROFILE_OUT=file writes the profile with each frame's source position (`where`), for an offline split.
+    if (process.env.PROFILE_OUT) {
+      const where = (frame: (typeof profile.nodes)[number]["callFrame"]) => {
+        const file = frame.url.split("/").slice(-1)[0] ?? "";
+        return file ? mapper(file, frame.lineNumber, frame.columnNumber) : "";
+      };
+      const nodes = profile.nodes.map((node) => ({ ...node, where: where(node.callFrame) }));
+      fs.writeFileSync(process.env.PROFILE_OUT, JSON.stringify({ ...profile, nodes }));
+    }
     const byId = new Map(profile.nodes.map((node) => [node.id, node]));
     const self = new Map<string, number>();
     profile.samples.forEach((id, index) => {
