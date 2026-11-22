@@ -321,15 +321,15 @@ fn nightly_live_channel_takes_daemon_from_past_the_whole_app_floor() {
     daemon_only.as_object_mut().unwrap().remove("native_from");
     daemon_only["daemon_from"] = json!([COMMIT, APP_FULL_COMMIT]);
     let live = Live::Found(live::verify(&envelope(&daemon_only), &keys(), COMMIT).unwrap());
-    let fixture = fixture();
+    let first = fixture();
     assert!(matches!(
-        choose(COMMIT, Some(APP_COMMIT), &live, None, &fixture.base, false),
+        choose(COMMIT, Some(APP_COMMIT), &live, None, &first.base, false),
         Plan::None { .. }
     ));
-    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let daemon = FakeDaemon::new(first.app.join(live::BIN).join("cmux"), true);
     let body = envelope(&daemon_only);
-    assert!(fixture.run_channel_once(&body, &body, &keys(), &daemon, 1_200).unwrap());
-    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(NEW_CMUX));
+    assert!(first.run_channel_once(&body, &body, &keys(), &daemon, 1_200).unwrap());
+    assert_eq!(read(&first.app, "cmux").as_deref(), Some(NEW_CMUX));
     assert_eq!(daemon.terminated.get(), 1);
 
     // An app below the daemon floor is refused before anything is locked or fetched.
