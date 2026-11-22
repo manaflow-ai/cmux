@@ -47,6 +47,190 @@ fn err_json(out: Result<Value, CloudError>) -> Value {
 }
 
 #[test]
+fn pause_all_snapshots_every_page_and_preserves_partial_results() {
+    let mut s = listed();
+    let first = record(&s, &vm(1));
+    let mut second = record(&s, &vm(2));
+    second["status"] = json!("paused");
+    let third = record(&s, &vm(3));
+    s.control_plane_mut().calls.clear();
+    s.control_plane_mut().answer(
+        "cloud.machine.list",
+        json!({"limit": 100}),
+        None,
+        json!({"machines": [first.clone()], "next_cursor": "next"}),
+    );
+    s.control_plane_mut().answer(
+        "cloud.machine.list",
+        json!({"limit": 100, "cursor": "next"}),
+        None,
+        json!({"machines": [second.clone(), third], "next_cursor": null}),
+    );
+    for (id, mut machine) in [(vm(1), first), (vm(2), second)] {
+        let params = json!({"machine": id});
+        let key =
+            cmux_cloud::api::upstream_key("cloud.machine.pause_all", &params, "pause-all-key");
+        machine["status"] = json!("paused");
+        machine["revision"] = json!("20");
+        s.control_plane_mut().answer(
+            "cloud.machine.pause",
+            params,
+            Some(&key),
+            json!({"machine": machine}),
+        );
+    }
+    let params = json!({"machine": vm(3)});
+    let key = cmux_cloud::api::upstream_key("cloud.machine.pause_all", &params, "pause-all-key");
+    s.control_plane_mut().answer("cloud.machine.pause", params, Some(&key), json!({"error": {
+        "code": "cloud.machine.not_running", "message": "The machine is starting", "retryable": false
+    }}));
+    let request =
+        Request::new("cloud.machine.pause_all", json!({})).key("pause-all-key").origin(Origin::Cli);
+    let answer = s.handle(&request).unwrap();
+    assert_eq!(answer["machines"].as_array().unwrap().len(), 3);
+    assert_eq!(answer["machines"][0]["status"], "paused");
+    assert_eq!(
+        answer["machines"][1]["status"], "paused",
+        "already paused machines still get a person hold"
+    );
+    assert_eq!(answer["machines"][2]["status"], "failed");
+    assert_eq!(answer["machines"][2]["error"]["code"], "cloud.machine.not_running");
+    assert_eq!(s.handle(&request).unwrap(), answer);
+    assert_eq!(
+        s.control_plane().calls.len(),
+        5,
+        "same-key retry replays the completed bulk operation"
+    );
+    assert!(s.control_plane().calls[..2].iter().all(|call| call.idempotency_key.is_none()));
+}
+
+#[test]
+fn pause_all_stops_on_temporary_failures_and_retries_only_unfinished_targets() {
+    for code in ["mutation.indeterminate", "cloud.rate_limited", "unexpected.upstream_code"] {
+        let mut s = listed();
+        let mut first = record(&s, &vm(1));
+        let mut second = record(&s, &vm(2));
+        let mut third = record(&s, &vm(3));
+        s.control_plane_mut().calls.clear();
+        s.control_plane_mut().answer(
+            "cloud.machine.list",
+            json!({"limit":100}),
+            None,
+            json!({"machines":[first.clone(), second.clone(), third.clone()], "next_cursor":null}),
+        );
+        first["status"] = json!("paused");
+        let first_params = json!({"machine":vm(1)});
+        let first_key =
+            cmux_cloud::api::upstream_key("cloud.machine.pause_all", &first_params, "partial-key");
+        s.control_plane_mut().answer(
+            "cloud.machine.pause",
+            first_params,
+            Some(&first_key),
+            json!({"machine":first}),
+        );
+        let second_params = json!({"machine":vm(2)});
+        let second_key =
+            cmux_cloud::api::upstream_key("cloud.machine.pause_all", &second_params, "partial-key");
+        s.control_plane_mut().answer(
+            "cloud.machine.pause",
+            second_params.clone(),
+            Some(&second_key),
+            json!({"error":{"code":code, "message":"answer lost", "retryable":true}}),
+        );
+        third["status"] = json!("paused");
+        let third_params = json!({"machine":vm(3)});
+        let third_key =
+            cmux_cloud::api::upstream_key("cloud.machine.pause_all", &third_params, "partial-key");
+        s.control_plane_mut().answer(
+            "cloud.machine.pause",
+            third_params,
+            Some(&third_key),
+            json!({"machine":third}),
+        );
+        let request = mutation("cloud.machine.pause_all", json!({}), "partial-key");
+        let partial = s.handle(&request).unwrap();
+        assert_eq!(partial["idempotency_key"], "partial-key");
+        assert_eq!(partial["machines"][1]["error"]["retryable"], true);
+        assert_eq!(partial["machines"][2]["error"]["code"], "cmux.cloud.batch_deferred");
+        assert_eq!(s.control_plane().calls.len(), 3, "stop after the first batch-wide failure");
+        second["status"] = json!("paused");
+        s.control_plane_mut().answer(
+            "cloud.machine.pause",
+            second_params,
+            Some(&second_key),
+            json!({"machine":second}),
+        );
+        let completed = s.handle(&request).unwrap();
+        assert_eq!(completed["machines"][1]["status"], "paused");
+        assert_eq!(s.control_plane().calls.len(), 5, "no new list or repeated successful pause");
+        assert_eq!(
+            s.control_plane().calls[3].idempotency_key.as_deref(),
+            Some(second_key.as_str())
+        );
+        assert_eq!(s.handle(&request).unwrap(), completed);
+        assert_eq!(s.control_plane().calls.len(), 5);
+    }
+}
+
+#[test]
+fn pause_all_propagates_sign_out_and_stops_before_the_next_machine() {
+    let mut s = listed();
+    let machines = [record(&s, &vm(1)), record(&s, &vm(2))];
+    s.control_plane_mut().calls.clear();
+    s.control_plane_mut().answer(
+        "cloud.machine.list",
+        json!({"limit":100}),
+        None,
+        json!({"machines":machines, "next_cursor":null}),
+    );
+    let params = json!({"machine":vm(1)});
+    let key = cmux_cloud::api::upstream_key("cloud.machine.pause_all", &params, "signout-key");
+    s.control_plane_mut().answer(
+        "cloud.machine.pause",
+        params,
+        Some(&key),
+        json!({"error":{"code":"auth.unauthenticated", "message":"signed out", "retryable":false}}),
+    );
+    let error =
+        s.handle(&mutation("cloud.machine.pause_all", json!({}), "signout-key")).unwrap_err();
+    assert_eq!(error.code, "cmux.cloud.auth_required");
+    assert!(s.projection().is_empty());
+    assert_eq!(s.control_plane().calls.len(), 2);
+}
+
+#[test]
+fn pause_all_refuses_agent_origin_before_listing_or_pausing() {
+    let mut s = server();
+    let error = s
+        .handle(
+            &Request::new("cloud.machine.pause_all", json!({}))
+                .key("agent-key")
+                .origin(Origin::Agent),
+        )
+        .unwrap_err();
+    assert_eq!(error.code, "cmux.cloud.origin_refused");
+    assert!(s.control_plane().calls.is_empty());
+}
+
+#[test]
+fn pause_all_refuses_a_repeated_page_before_pausing_any_machine() {
+    let mut s = listed();
+    let machine = record(&s, &vm(1));
+    s.control_plane_mut().calls.clear();
+    for params in [json!({"limit": 100}), json!({"limit": 100, "cursor": "loop"})] {
+        s.control_plane_mut().answer(
+            "cloud.machine.list",
+            params,
+            None,
+            json!({"machines": [machine.clone()], "next_cursor": "loop"}),
+        );
+    }
+    let answer = s.handle(&mutation("cloud.machine.pause_all", json!({}), "loop-key")).unwrap_err();
+    assert_eq!(answer.code, "cmux.cloud.bad_response");
+    assert!(s.control_plane().calls.iter().all(|call| call.op == "cloud.machine.list"));
+}
+
+#[test]
 fn create_options_reach_backend_and_preserve_its_capability_refusal() {
     let mut s = server();
     let args = json!({"name":"custom", "size":{"cpu":2,"memory_mb":4096,"disk_mb":16384},
@@ -97,6 +281,7 @@ fn list_pages_follow_the_cursor() {
 fn machine_list_relays_disk_health_to_the_app() {
     let mut s = server();
     let disk_health = json!({
+        "state": "healthy",
         "free_mb": 4096,
         "used_mb": 12288,
         "total_mb": 16384,
