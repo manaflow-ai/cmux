@@ -22,21 +22,31 @@
 //!   Neither includes drawing, which both modes do;
 //! - the attach's first message (`vt-state` or `render-state`) in KB.
 //!
+//! - per message: messages per second and the p50 and p95 line size in bytes.
+//!
 //! A third connection attaches in bytes mode after declaring
 //! `attach-output-coalesce-v1` (mode `bytes-coalesced`): `output` at most
-//! once per 60 Hz frame, the first bytes after idle at once. The
+//! once per 60 Hz frame, the first bytes after idle at once. Two more attach
+//! as a snapshot viewer (`snapshot:"ghostsnp"`, the Mac app's attach): mode
+//! `snapshot` stays shown, mode `snapshot-hidden` sends
+//! `set-attach-visibility {visible:false}` right after it attaches, the only
+//! visibility the protocol has (bytes and render attaches have none). The
 //! `keypress-echo` workload also reports key-to-echo latency for both bytes
 //! attaches.
 //!
 //! Workloads (`CMUX_ATTACH_BENCH_WORKLOADS=a,b` picks some): an idle shell
-//! for 60 s, `yes`, a build log at 200 lines a second, a full-screen TUI that
-//! repaints every row 30 times a second, the same TUI drawing only its changed
-//! rows, and a line every 2 s. `CMUX_ATTACH_BENCH_SECONDS` sets the length of
-//! every workload but the idle one (default 20).
+//! for 60 s, `yes`, `yes | head -c 5000000` started once the attaches are up,
+//! a build log at 200 lines a second, a full-screen TUI that repaints every
+//! row 30 times a second (at 200 x 50 and at 80 x 24), the same TUI drawing
+//! only its changed rows, a line every 2 s, and a shell prompt with one key a
+//! second. `CMUX_ATTACH_BENCH_SECONDS` sets the length of every workload
+//! without its own (default 20).
 //!
 //! Run on the fleet (ignored in the normal test run):
 //! `cargo test -p cmux-tui-core --test attach_mode_bench -- --ignored --nocapture`.
-//! With `FAST_CHECKS_OUT` set it also writes `attach-mode-bench.json` there.
+//! It writes `attach-mode-bench.json` and `.md` to `CMUX_ATTACH_BENCH_OUT`,
+//! else `FAST_CHECKS_OUT`, else the test target's temp dir, and prints the
+//! JSON as one `attach-mode-bench-json:` line after the tables.
 
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -56,6 +66,8 @@ use support::{DaemonMuxOps, wait_for};
 
 const COLS: u16 = 200;
 const ROWS: u16 = 50;
+/// A phone-sized terminal.
+const SMALL: (u16, u16) = (80, 24);
 /// Lines kept per mode for the apply and deflate measurements; the rest of a
 /// flood is only counted, and its cost scaled from the kept part.
 const SAMPLE_CAP: usize = 64 << 20;
@@ -80,26 +92,67 @@ struct Received {
     sample: Vec<(Instant, String)>,
     sample_bytes: usize,
     attached: bool,
+    /// A hidden snapshot viewer's `set-attach-visibility` was accepted.
+    hidden: bool,
 }
 
 struct Reader {
     received: Arc<Mutex<Received>>,
     stop: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
-    _writer: Box<dyn transport::Stream>,
+    writer: Box<dyn transport::Stream>,
+    surface: u64,
+}
+
+/// How one bench connection attaches.
+#[derive(Clone, Copy, PartialEq)]
+enum Attach {
+    Bytes,
+    BytesCoalesced,
+    Render,
+    Snapshot,
+    SnapshotHidden,
+}
+
+impl Attach {
+    const ALL: [Attach; 5] =
+        [Self::Bytes, Self::BytesCoalesced, Self::Render, Self::Snapshot, Self::SnapshotHidden];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Bytes => "bytes",
+            Self::BytesCoalesced => "bytes-coalesced",
+            Self::Render => "render",
+            Self::Snapshot => "snapshot",
+            Self::SnapshotHidden => "snapshot-hidden",
+        }
+    }
 }
 
 impl Reader {
-    /// Connect to the daemon and attach `surface` in `mode`; a thread reads
-    /// every line from then on. `coalesce` declares
+    /// Connect to the daemon and attach `surface` as `kind`; a thread reads
+    /// every line from then on. `BytesCoalesced` declares
     /// `attach-output-coalesce-v1` first (the phone's opt-in).
-    fn attach(sock: &std::path::Path, surface: u64, mode: &str, coalesce: bool) -> Self {
-        let capabilities: &[&str] = if coalesce { &["attach-output-coalesce-v1"] } else { &[] };
-        Self::attach_with(sock, surface, mode, capabilities, json!({}))
+    fn attach(sock: &std::path::Path, surface: u64, kind: Attach) -> Self {
+        let capabilities: &[&str] =
+            if kind == Attach::BytesCoalesced { &["attach-output-coalesce-v1"] } else { &[] };
+        match kind {
+            Attach::Render => Self::attach_with(sock, surface, "render", capabilities, json!({})),
+            Attach::Snapshot | Attach::SnapshotHidden => Self::attach_with(
+                sock,
+                surface,
+                "bytes",
+                capabilities,
+                json!({"snapshot": "ghostsnp", "snapshot_version": ghostty_vt::snapshot_version()}),
+            ),
+            Attach::Bytes | Attach::BytesCoalesced => {
+                Self::attach_with(sock, surface, "bytes", capabilities, json!({}))
+            }
+        }
     }
 
-    /// `attach`, declaring `capabilities` first (when any) and adding the
-    /// `extra` fields to `attach-surface`.
+    /// Connect, declare `capabilities` first (when any) and attach `surface`
+    /// in `mode`, adding the `extra` fields to `attach-surface`.
     fn attach_with(
         sock: &std::path::Path,
         surface: u64,
@@ -163,12 +216,24 @@ impl Reader {
                 }
             })
         };
-        Self { received, stop, handle: Some(handle), _writer: writer }
+        Self { received, stop, handle: Some(handle), writer, surface }
     }
 
     fn attached(&self) -> bool {
         let got = self.received.lock().unwrap();
         got.attached && got.initial.is_some()
+    }
+
+    /// Hide this snapshot viewer (`set-attach-visibility`, after it attached).
+    fn hide(&mut self) {
+        let request = json!({
+            "id": 2, "cmd": "set-attach-visibility", "surface": self.surface, "visible": false,
+        });
+        writeln!(self.writer, "{request}").unwrap();
+    }
+
+    fn hidden(&self) -> bool {
+        self.received.lock().unwrap().hidden
     }
 
     fn finish(mut self) -> Received {
@@ -196,7 +261,9 @@ fn event_name(line: &str) -> &str {
 
 fn record(got: &mut Received, now: Instant, line: String) {
     let event = event_name(&line).to_string();
-    if got.initial.is_none() && (event == "vt-state" || event == "render-state") {
+    if got.initial.is_none()
+        && (event == "vt-state" || event == "render-state" || event == "snapshot")
+    {
         got.initial = Some(line);
         return;
     }
@@ -212,7 +279,7 @@ fn record(got: &mut Received, now: Instant, line: String) {
                 );
                 return;
             }
-            Some(_) => {
+            Some(1) => {
                 assert_eq!(
                     value.get("ok"),
                     Some(&Value::Bool(true)),
@@ -221,7 +288,21 @@ fn record(got: &mut Received, now: Instant, line: String) {
                 got.attached = true;
                 return;
             }
-            None => {}
+            _ => {}
+        }
+    }
+    // The `set-attach-visibility` reply of a hidden snapshot viewer.
+    if event.is_empty() && line.starts_with('{') {
+        let value: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
+        if value.get("id").and_then(Value::as_u64) == Some(2) {
+            assert_eq!(
+                value.get("ok"),
+                Some(&Value::Bool(true)),
+                "set-attach-visibility failed: {line}"
+            );
+            assert_eq!(value["data"]["viewers"], json!(1), "set-attach-visibility: {line}");
+            got.hidden = true;
+            return;
         }
     }
     got.lines.push((now, line.len() + 1));
@@ -238,7 +319,7 @@ enum Drive {
     Program,
     /// The surface runs `cat` in raw mode; the bench writes the output into
     /// it on a clock.
-    Writer(fn(&Surface, Instant, Duration)),
+    Writer(fn(&Surface, Instant, Duration, (u16, u16))),
 }
 
 struct Workload {
@@ -247,6 +328,8 @@ struct Workload {
     script: &'static str,
     ready: Option<&'static str>,
     seconds: Option<u64>,
+    /// Columns and rows of the surface.
+    size: (u16, u16),
     drive: Drive,
 }
 
@@ -260,6 +343,7 @@ fn workloads() -> Vec<Workload> {
             script: "PS1='$ '; export PS1; exec /bin/sh -i",
             ready: Some("$"),
             seconds: Some(60),
+            size: (COLS, ROWS),
             drive: Drive::Program,
         },
         Workload {
@@ -268,6 +352,7 @@ fn workloads() -> Vec<Workload> {
             script: "exec yes 'y: the quick brown fox jumps over the lazy dog 0123456789'",
             ready: None,
             seconds: None,
+            size: (COLS, ROWS),
             drive: Drive::Program,
         },
         Workload {
@@ -276,6 +361,7 @@ fn workloads() -> Vec<Workload> {
             script: RAW_CAT,
             ready: Some("ready"),
             seconds: None,
+            size: (COLS, ROWS),
             drive: Drive::Writer(drive_build_log),
         },
         Workload {
@@ -284,6 +370,7 @@ fn workloads() -> Vec<Workload> {
             script: RAW_CAT,
             ready: Some("ready"),
             seconds: None,
+            size: (COLS, ROWS),
             drive: Drive::Writer(drive_tui_repaint),
         },
         Workload {
@@ -292,6 +379,7 @@ fn workloads() -> Vec<Workload> {
             script: RAW_CAT,
             ready: Some("ready"),
             seconds: None,
+            size: (COLS, ROWS),
             drive: Drive::Writer(drive_tui_diff),
         },
         Workload {
@@ -300,6 +388,7 @@ fn workloads() -> Vec<Workload> {
             script: RAW_CAT,
             ready: Some("ready"),
             seconds: None,
+            size: (COLS, ROWS),
             drive: Drive::Writer(drive_slow_shell),
         },
         Workload {
@@ -308,15 +397,58 @@ fn workloads() -> Vec<Workload> {
             script: "PS1='$ '; export PS1; exec /bin/sh -i",
             ready: Some("$"),
             seconds: None,
+            size: (COLS, ROWS),
             drive: Drive::Writer(drive_keypresses),
         },
+        Workload {
+            name: "yes-head-5m",
+            what: "`yes | head -c 5000000` once, then quiet (10 s window: the bytes that show 5 MB of output)",
+            script: "printf ready; read go; yes | head -c 5000000; exec sleep 3600",
+            ready: Some("ready"),
+            seconds: Some(10),
+            size: (COLS, ROWS),
+            drive: Drive::Writer(drive_go),
+        },
+        Workload {
+            name: "tui-repaint-80x24",
+            what: "an 80 x 24 TUI writing every row 30 times a second, 3 rows changing",
+            script: RAW_CAT,
+            ready: Some("ready"),
+            seconds: None,
+            size: SMALL,
+            drive: Drive::Writer(drive_tui_repaint),
+        },
+        Workload {
+            name: "keypress-1hz",
+            what: "an interactive sh at its prompt, one key typed a second",
+            script: "PS1='$ '; export PS1; exec /bin/sh -i",
+            ready: Some("$"),
+            seconds: None,
+            size: (COLS, ROWS),
+            drive: Drive::Writer(drive_keypress_1hz),
+        },
     ]
+}
+
+/// Start `yes-head-5m`'s flood: the line its `read` waits for.
+fn drive_go(surface: &Surface, _start: Instant, _length: Duration, _size: (u16, u16)) {
+    surface.write_bytes(b"\n").unwrap();
+}
+
+fn drive_keypress_1hz(surface: &Surface, start: Instant, length: Duration, _size: (u16, u16)) {
+    let period = Duration::from_secs(1);
+    let mut n: u64 = 0;
+    while start.elapsed() < length {
+        surface.write_bytes(b"x").unwrap();
+        n += 1;
+        tick(start, n, period);
+    }
 }
 
 /// When each key of `keypress-echo` was written.
 static KEYPRESSES: Mutex<Vec<Instant>> = Mutex::new(Vec::new());
 
-fn drive_keypresses(surface: &Surface, start: Instant, length: Duration) {
+fn drive_keypresses(surface: &Surface, start: Instant, length: Duration, _size: (u16, u16)) {
     let period = Duration::from_millis(250);
     let mut n: u64 = 0;
     KEYPRESSES.lock().unwrap().clear();
@@ -367,7 +499,7 @@ fn tick(start: Instant, n: u64, period: Duration) {
     }
 }
 
-fn drive_build_log(surface: &Surface, start: Instant, length: Duration) {
+fn drive_build_log(surface: &Surface, start: Instant, length: Duration, _size: (u16, u16)) {
     let period = Duration::from_millis(10);
     let mut n: u64 = 0;
     while start.elapsed() < length {
@@ -397,20 +529,30 @@ fn drive_build_log(surface: &Surface, start: Instant, length: Duration) {
     }
 }
 
-/// Row `r` of the TUI's frame `frame`: a fixed body, with a counter on row 0,
-/// a spinner on row 25 and a progress bar on row 49.
-fn tui_row(r: u16, frame: u64) -> String {
-    let width = usize::from(COLS);
+/// The TUI's changing rows on a `rows`-row screen: a counter on the first,
+/// a spinner in the middle and a progress bar on the last.
+fn tui_changing(rows: u16) -> [u16; 3] {
+    [0, rows / 2, rows - 1]
+}
+
+/// Row `r` of the TUI's frame `frame` on a `(cols, rows)` screen: a fixed
+/// body and the changing rows of `tui_changing`.
+fn tui_row(r: u16, frame: u64, (cols, rows): (u16, u16)) -> String {
+    let width = usize::from(cols);
+    let [first, middle, last] = tui_changing(rows);
+    let bar = width.saturating_sub(10);
     let text = match r {
-        0 => format!(" cmux bench  frame {frame:>8}  {:>6.2}s", frame as f64 / 30.0),
-        25 => format!(
+        _ if r == first => {
+            format!(" cmux bench  frame {frame:>8}  {:>6.2}s", frame as f64 / 30.0)
+        }
+        _ if r == middle => format!(
             " {} working on task {}",
             ['|', '/', '-', '\\'][(frame % 4) as usize],
             frame / 30
         ),
-        49 => {
-            let done = (frame % 190) as usize;
-            format!(" [{}{}]", "#".repeat(done), ".".repeat(190 - done))
+        _ if r == last => {
+            let done = (frame % bar as u64) as usize;
+            format!(" [{}{}]", "#".repeat(done), ".".repeat(bar - done))
         }
         _ => format!(
             " {r:>2} | src/module_{r}.rs  fn handler_{r}(request: &Request) -> Response {{ ... }}  // body line"
@@ -423,15 +565,22 @@ fn tui_row(r: u16, frame: u64) -> String {
     format!("\x1b[{};1H\x1b[{colour}m{}\x1b[0m{}", r + 1, &text[..4], &text[4..])
 }
 
-fn drive_tui(surface: &Surface, start: Instant, length: Duration, every_row: bool) {
+fn drive_tui(
+    surface: &Surface,
+    start: Instant,
+    length: Duration,
+    size: (u16, u16),
+    every_row: bool,
+) {
     let period = Duration::from_micros(33_333);
     let mut frame: u64 = 0;
     surface.write_bytes(b"\x1b[?1049h\x1b[?25l\x1b[2J").unwrap();
     while start.elapsed() < length {
         let mut out = String::from("\x1b[?2026h");
-        for r in 0..ROWS {
-            if every_row || frame == 0 || matches!(r, 0 | 25 | 49) {
-                out.push_str(&tui_row(r, frame));
+        let changing = tui_changing(size.1);
+        for r in 0..size.1 {
+            if every_row || frame == 0 || changing.contains(&r) {
+                out.push_str(&tui_row(r, frame, size));
             }
         }
         out.push_str("\x1b[?2026l");
@@ -441,15 +590,15 @@ fn drive_tui(surface: &Surface, start: Instant, length: Duration, every_row: boo
     }
 }
 
-fn drive_tui_repaint(surface: &Surface, start: Instant, length: Duration) {
-    drive_tui(surface, start, length, true);
+fn drive_tui_repaint(surface: &Surface, start: Instant, length: Duration, size: (u16, u16)) {
+    drive_tui(surface, start, length, size, true);
 }
 
-fn drive_tui_diff(surface: &Surface, start: Instant, length: Duration) {
-    drive_tui(surface, start, length, false);
+fn drive_tui_diff(surface: &Surface, start: Instant, length: Duration, size: (u16, u16)) {
+    drive_tui(surface, start, length, size, false);
 }
 
-fn drive_slow_shell(surface: &Surface, start: Instant, length: Duration) {
+fn drive_slow_shell(surface: &Surface, start: Instant, length: Duration, _size: (u16, u16)) {
     let period = Duration::from_secs(2);
     let mut n: u64 = 0;
     while start.elapsed() < length {
@@ -473,6 +622,9 @@ struct Row {
     apply_ms: f64,
     initial_bytes: usize,
     payload_bytes: usize,
+    /// p50 and p95 line size in the window, newline included.
+    msg_p50: usize,
+    msg_p95: usize,
 }
 
 impl Row {
@@ -493,8 +645,23 @@ impl Row {
             "apply_ms_per_s": self.per_s(self.apply_ms),
             "initial_kb": self.initial_bytes as f64 / 1000.0,
             "terminal_payload_kb_per_s": self.per_s(self.payload_bytes as f64) / 1000.0,
+            "messages_per_s": self.per_s(self.events as f64),
+            "message_bytes_p50": self.msg_p50,
+            "message_bytes_p95": self.msg_p95,
         })
     }
+}
+
+/// The p50 and p95 line sizes of `got` inside `[from, to)`.
+fn size_quantiles(got: &Received, from: Instant, to: Instant) -> (usize, usize) {
+    let mut sizes: Vec<usize> =
+        got.lines.iter().filter(|(at, _)| *at >= from && *at < to).map(|(_, len)| *len).collect();
+    if sizes.is_empty() {
+        return (0, 0);
+    }
+    sizes.sort_unstable();
+    let at = |q: f64| sizes[(((sizes.len() - 1) as f64) * q).round() as usize];
+    (at(0.5), at(0.95))
 }
 
 /// The lines of `got` inside `[from, to)`: their wire bytes, events by name.
@@ -552,12 +719,21 @@ fn decode(value: &Value) -> Vec<u8> {
 /// Bytes mode on the phone: the replay, then every `output` parsed, decoded
 /// and fed to Ghostty, the render state read at most once a display frame.
 /// Returns the CPU ms of the window's lines and the PTY bytes they carried.
-fn apply_bytes(got: &Received, from: Instant, to: Instant) -> (f64, usize) {
-    let mut term = Terminal::new(COLS, ROWS, 10_000, Callbacks::default()).unwrap();
+/// A snapshot viewer starts from a blank terminal here, not a restored READY:
+/// the window's cost is its `output`, the same parse as bytes mode.
+fn apply_bytes(
+    got: &Received,
+    from: Instant,
+    to: Instant,
+    (cols, rows): (u16, u16),
+) -> (f64, usize) {
+    let mut term = Terminal::new(cols, rows, 10_000, Callbacks::default()).unwrap();
     let mut state = RenderState::new().unwrap();
     if let Some(initial) = &got.initial {
         let value: Value = serde_json::from_str(initial).unwrap();
-        term.vt_write(&decode(&value));
+        if value.get("event").and_then(Value::as_str) == Some("vt-state") {
+            term.vt_write(&decode(&value));
+        }
         state.update(&mut term).unwrap();
     }
     let mut payload = 0usize;
@@ -617,9 +793,9 @@ fn apply_rows(grid: &mut Vec<Vec<Run>>, value: &Value) -> usize {
 }
 
 /// Render mode on a phone: every line parsed, its rows put into the row array.
-fn apply_render(got: &Received, from: Instant, to: Instant) -> (f64, usize) {
+fn apply_render(got: &Received, from: Instant, to: Instant, rows: u16) -> (f64, usize) {
     let mut grid: Vec<Vec<Run>> = Vec::new();
-    grid.resize_with(usize::from(ROWS), Vec::new);
+    grid.resize_with(usize::from(rows), Vec::new);
     if let Some(initial) = &got.initial {
         apply_rows(&mut grid, &serde_json::from_str(initial).unwrap());
     }
@@ -640,12 +816,14 @@ fn measure(
     got: &Received,
     from: Instant,
     to: Instant,
+    size: (u16, u16),
 ) -> Row {
     let (wire_bytes, events, by_event) = window(got, from, to);
-    let (sample_ms, sample_payload) = if mode.starts_with("bytes") {
-        apply_bytes(got, from, to)
+    let (msg_p50, msg_p95) = size_quantiles(got, from, to);
+    let (sample_ms, sample_payload) = if mode == "render" {
+        apply_render(got, from, to, size.1)
     } else {
-        apply_render(got, from, to)
+        apply_bytes(got, from, to, size)
     };
     let sampled: usize = in_window(got, from, to).map(|(_, line)| line.len() + 1).sum();
     // A flood past SAMPLE_CAP: scale the kept part's cost to every line.
@@ -661,6 +839,8 @@ fn measure(
         apply_ms: sample_ms * scale,
         initial_bytes: got.initial.as_ref().map_or(0, String::len),
         payload_bytes: (sample_payload as f64 * scale) as usize,
+        msg_p50,
+        msg_p95,
     }
 }
 
@@ -681,7 +861,7 @@ fn run_workload(workload: &Workload, default_seconds: u64) -> (Vec<Row>, Vec<Ech
         ..Default::default()
     };
     let mux = Mux::new(unique_session("attach-bench"), opts);
-    let surface = mux.new_workspace(None, Some((COLS, ROWS))).unwrap();
+    let surface = mux.new_workspace(None, Some(workload.size)).unwrap();
     if let Some(ready) = workload.ready {
         wait_for(
             || {
@@ -696,46 +876,59 @@ fn run_workload(workload: &Workload, default_seconds: u64) -> (Vec<Row>, Vec<Ech
         .unwrap_or_else(|| panic!("{}: no {ready:?} on the screen", workload.name));
     }
     let sock = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
-    let bytes = Reader::attach(&sock, surface.id, "bytes", false);
-    // The same bytes attach with `attach-output-coalesce-v1` (default interval).
-    let coalesced = Reader::attach(&sock, surface.id, "bytes", true);
-    let render = Reader::attach(&sock, surface.id, "render", false);
+    let mut readers: Vec<(Attach, Reader)> =
+        Attach::ALL.iter().map(|kind| (*kind, Reader::attach(&sock, surface.id, *kind))).collect();
     wait_for(
-        || (bytes.attached() && coalesced.attached() && render.attached()).then_some(()),
+        || readers.iter().all(|(_, reader)| reader.attached()).then_some(()),
         Duration::from_secs(10),
     )
     .unwrap_or_else(|| panic!("{}: an attach got no state and response", workload.name));
+    for (kind, reader) in &mut readers {
+        if *kind == Attach::SnapshotHidden {
+            reader.hide();
+        }
+    }
+    wait_for(
+        || {
+            readers
+                .iter()
+                .all(|(kind, reader)| *kind != Attach::SnapshotHidden || reader.hidden())
+                .then_some(())
+        },
+        Duration::from_secs(10),
+    )
+    .unwrap_or_else(|| panic!("{}: set-attach-visibility got no reply", workload.name));
     // Let the attach settle, then measure exactly `seconds`.
     std::thread::sleep(Duration::from_millis(500));
     let from = Instant::now();
     let length = Duration::from_secs(seconds);
     match workload.drive {
         Drive::Program => std::thread::sleep(length),
-        Drive::Writer(drive) => drive(&surface, from, length),
+        Drive::Writer(drive) => drive(&surface, from, length, workload.size),
     }
     let left = length.saturating_sub(from.elapsed());
     std::thread::sleep(left);
     let to = Instant::now();
     // Lines of the window still in flight.
     std::thread::sleep(Duration::from_millis(300));
-    let bytes = bytes.finish();
-    let coalesced = coalesced.finish();
-    let render = render.finish();
+    let received: Vec<(Attach, Received)> =
+        readers.into_iter().map(|(kind, reader)| (kind, reader.finish())).collect();
+    let got = |want: Attach| &received.iter().find(|(kind, _)| *kind == want).unwrap().1;
     let _ = mux.close_surface(surface.id);
     cmux_tui_core::server::cleanup(&sock);
     let mut echoes = Vec::new();
     if workload.name == "keypress-echo" {
         let keys = KEYPRESSES.lock().unwrap().clone();
-        for (mode, got) in [("bytes", &bytes), ("bytes-coalesced", &coalesced)] {
-            let (p50_ms, p95_ms, max_ms, missed) = echo_latency(got, &keys);
+        for kind in [Attach::Bytes, Attach::BytesCoalesced] {
+            let mode = kind.name();
+            let (p50_ms, p95_ms, max_ms, missed) = echo_latency(got(kind), &keys);
             echoes.push(Echo { mode, keys: keys.len(), p50_ms, p95_ms, max_ms, missed });
         }
     }
-    let rows = vec![
-        measure(workload.name, "bytes", &bytes, from, to),
-        measure(workload.name, "bytes-coalesced", &coalesced, from, to),
-        measure(workload.name, "render", &render, from, to),
-    ];
+    let rows = received
+        .iter()
+        .map(|(kind, got)| measure(workload.name, kind.name(), got, from, to, workload.size))
+        .collect();
     (rows, echoes)
 }
 
@@ -757,10 +950,10 @@ fn echo_table(echoes: &[Echo]) -> String {
 fn table(rows: &[Row], workloads: &[Workload]) -> String {
     let mut out = String::new();
     out.push_str(&format!(
-        "Attach modes on one {COLS} x {ROWS} PTY surface of a real daemon (cmux-tui-core tests/attach_mode_bench.rs)\n\n"
+        "Attach modes on one PTY surface of a real daemon, {COLS} x {ROWS} unless named (cmux-tui-core tests/attach_mode_bench.rs)\n\n"
     ));
-    out.push_str("| Workload | Mode | s | Wire KB/s | Deflate KB/s | Events/s | Apply CPU ms/s | Attach KB | Events |\n");
-    out.push_str("| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
+    out.push_str("| Workload | Mode | s | Wire KB/s | Deflate KB/s | Msgs/s | Msg p50 B | Msg p95 B | Apply CPU ms/s | Attach KB | Events |\n");
+    out.push_str("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
     for row in rows {
         let events: Vec<String> = row
             .by_event
@@ -768,13 +961,15 @@ fn table(rows: &[Row], workloads: &[Workload]) -> String {
             .map(|(name, n)| format!("{} {n}", if name.is_empty() { "?" } else { name }))
             .collect();
         out.push_str(&format!(
-            "| {} | {} | {:.0} | {:.1} | {:.1} | {:.1} | {:.2} | {:.1} | {} |\n",
+            "| {} | {} | {:.0} | {:.1} | {:.1} | {:.1} | {} | {} | {:.2} | {:.1} | {} |\n",
             row.workload,
             row.mode,
             row.seconds,
             row.per_s(row.wire_bytes as f64) / 1000.0,
             row.per_s(row.wire_bytes as f64 * row.deflate_ratio) / 1000.0,
             row.per_s(row.events as f64),
+            row.msg_p50,
+            row.msg_p95,
             row.per_s(row.apply_ms),
             row.initial_bytes as f64 / 1000.0,
             events.join(", "),
@@ -818,12 +1013,23 @@ fn attach_modes_bytes_against_render() {
         text.push_str(&echo_table(&echoes));
     }
     println!("{text}");
-    if let Some(dir) = std::env::var_os("FAST_CHECKS_OUT") {
-        let path = std::path::Path::new(&dir).join("attach-mode-bench.json");
-        let doc = json!({"cols": COLS, "rows": ROWS, "runs": rows.iter().map(Row::json).collect::<Vec<_>>()});
-        std::fs::write(&path, serde_json::to_vec_pretty(&doc).unwrap()).unwrap();
-        std::fs::write(path.with_extension("md"), &text).unwrap();
-    }
+    let sizes: Vec<Value> = chosen
+        .iter()
+        .map(|workload| {
+            json!({"workload": workload.name, "cols": workload.size.0, "rows": workload.size.1})
+        })
+        .collect();
+    let doc = json!({"sizes": sizes, "runs": rows.iter().map(Row::json).collect::<Vec<_>>()});
+    println!("attach-mode-bench-json: {doc}");
+    let dir = std::env::var_os("CMUX_ATTACH_BENCH_OUT")
+        .or_else(|| std::env::var_os("FAST_CHECKS_OUT"))
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("attach-mode-bench.json");
+    std::fs::write(&path, serde_json::to_vec_pretty(&doc).unwrap()).unwrap();
+    std::fs::write(path.with_extension("md"), &text).unwrap();
+    eprintln!("attach-mode-bench: wrote {}", path.display());
     for row in &rows {
         assert!(
             row.events > 0 || row.workload == "idle-shell",
