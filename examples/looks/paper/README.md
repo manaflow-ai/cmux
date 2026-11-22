@@ -61,7 +61,7 @@ and text over the page at least 14:1 in every file.
 | Part | Why |
 | --- | --- |
 | A 28 pt card or sheet corner on the content card | `layout.paneCornerRadius` stops at 20 |
-| The toast's shape and fill | No theme key reaches the toast |
+| The toast's shape and fill (`notifications.toast.style: "flat"`) | Pending cmux#49661 |
 | The sidebar row's corner radius and inset, a full-width pill on the selected row | No public key (pending cmux#46861) |
 | A neutral, tonal selected row instead of the accent fill | Pending cmux#46516 |
 | Pill-shaped tabs throughout | Pending cmux#46780 |
