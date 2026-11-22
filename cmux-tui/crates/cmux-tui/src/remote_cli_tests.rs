@@ -1093,6 +1093,22 @@ fn relay_credentials_support_exact_route_scoped_forms() {
 }
 
 #[test]
+fn relay_credentials_take_more_routes_than_the_old_cap() {
+    // A client once refused more than 4 relay credential routes.
+    let count = 6;
+    let routes = client_relay_options(
+        None,
+        (0..count).map(|index| format!("relay+wss://relay-{index}.example")).collect(),
+        (0..count).map(|index| format!("slot-{index}")).collect(),
+        (0..count)
+            .map(|index| ClientRelayCredentialArg::File(format!("ticket-{index}").into()))
+            .collect(),
+    )
+    .unwrap();
+    assert_eq!(routes.len(), count);
+}
+
+#[test]
 fn connect_rejects_inline_invitation_and_ticket_arguments() {
     let marker = "inline-secret-marker";
     for args in [

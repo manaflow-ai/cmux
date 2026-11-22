@@ -8166,8 +8166,8 @@ are at most 32 KiB each, `tool.input` at most 16 KiB as JSON; a link is http,
 https or a cmux scheme (at most 2048 bytes); an attachment is an `attachment`
 part's fields without `type`, checked like a message part's
 (`conversation_rejected` `unknown_attachment`, `attachment_mismatch`) and
-kept usable while the step names it. A run keeps at most 2000 steps
-(`run_full`), and a conversation its newest 200 runs: a new run drops the
+kept usable while the step names it. A run keeps every step (no count
+cap; each is one row, paged by `rev`), and a conversation its newest 200 runs: a new run drops the
 oldest finished ones with their steps and attachment references. Any other bad field is `run_rejected` `invalid_run` or a bad
 request. Values are absolute, so a retried append writes the same rows.
 

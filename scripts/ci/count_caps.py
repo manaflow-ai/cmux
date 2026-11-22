@@ -33,9 +33,29 @@ CONST = re.compile(
     r"^\s*(?:pub(?:\([^)]*\))?\s+)?const\s+([A-Z0-9_]+)\s*:\s*(?:usize|u8|u16|u32|u64|i32|i64)\s*=\s*([0-9_]+|[0-9_]+\s*<<\s*[0-9]+)\s*;"
 )
 LIMIT_NAME = re.compile(r"(^MAX_|_MAX$|_MAX_|LIMIT|_CAP$|^CAP_|CAPACITY|SLOTS)")
-# Byte, time and length bounds are not count caps.
-NOT_COUNT = re.compile(r"(BYTES|_LEN|LENGTH|_SIZE|_MS$|_SECS|TIMEOUT|_WAIT$|_TAIL|_BUF|BUFFER|_CHARS|_KIB|_MIB|DEPTH_BYTES)")
+# Names that are not count caps, by class (the 2026-11-22 sweep decided each by hand first):
+NOT_COUNT = re.compile(
+    "|".join(
+        (
+            # byte, size and length bounds
+            r"BYTES|_LEN|LENGTH|_SIZE|_BUF|BUFFER|_CHARS|_KIB|_MIB|_TAIL|_DATA$|_OUTPUT|OUTPUT_LIMIT|_INPUT$|_FILE$",
+            r"MAX_(LINE|FRAME|STREAM_FRAME|PAYLOAD|MESSAGE|REPLY|HEADER|TEXT|TITLE|QUERY|TOKEN|PATCH|CLAIM|PROLOGUE|COMPONENT|NAME|ENTRY|TICKET|SIDE)$",
+            r"NAME_MAX|_MESSAGE$|DIMENSION|CURSOR|CLIPBOARD_TEXT|TEXT_UNITS",
+            # time and unit constants
+            r"_MS$|_SECS|_SECONDS|_NS$|KBPS|TIMEOUT|_WAIT$|MAX_SAFE_INTEGER",
+            # retry, loop and depth bounds
+            r"DEPTH|RETRY|RETRIES|ATTEMPTS|RESTARTS|REPEATS|CONTINUATIONS|HOPS|SYMLINK|EXPANSIONS",
+            # page and window limits: the most one read returns, or a clamp on a requested limit
+            r"DEFAULT_LIMIT|READ_LIMIT|PAGE_MAX|_ROWS$|^MAX_(\w+_)?LIMIT$",
+            # per-request argument validation
+            r"ARGS$|ARGUMENTS|ENVIRONMENT|_ENV$|SEGMENTS",
+        )
+    )
+)
 REFUSAL = re.compile(r"(Err\(|bail!|too many|refus|limit|already|at most|stop one)", re.IGNORECASE)
+# A compare that makes room (drops the oldest) and returns no error is an eviction ring, not a refusal.
+EVICTS = re.compile(r"(pop_front|pop_back|remove\(0\)|\.drain\(|\.clear\(\)|truncate\(|evict|forget|make_room)")
+HARD_REFUSAL = re.compile(r"(Err\(|bail!|refus)")
 WINDOW = 8
 
 
@@ -69,7 +89,7 @@ def caps_in(path: Path, text: str) -> list[dict]:
             if at == index or not compare.search(other):
                 continue
             near = "\n".join(lines[max(0, at - 2) : at + WINDOW])
-            if REFUSAL.search(near):
+            if REFUSAL.search(near) and (HARD_REFUSAL.search(near) or not EVICTS.search(near)):
                 refuses = True
                 break
         if not refuses:
@@ -143,6 +163,46 @@ fn shown() { let n = items.len().min(MAX_ITEMS); if n == MAX_ITEMS { log::info!(
 const OUTPUT_MAX_BYTES: usize = 1 << 20;
 fn read() { if n > OUTPUT_MAX_BYTES { return Err(E::new("too large")); } }
 """
+    # One sample per excluded class: each is a bound that refuses, but not a count of held work.
+    not_counts = {
+        "a line bound": "const MAX_LINE: usize = 65536;",
+        "a frame bound": "const MAX_FRAME: usize = 1 << 24;",
+        "a payload bound": "const MAX_PAYLOAD: usize = 4096;",
+        "a title bound": "const MAX_TITLE: usize = 200;",
+        "a pg identifier": "const APP_ID_NAME_MAX: usize = 63;",
+        "a time bound": "const MAX_DEBOUNCE_SECONDS: u64 = 60;",
+        "a nanosecond sample": "const KEY_SAMPLE_LIMIT_NS: u64 = 5_000;",
+        "a depth bound": "const MAX_DEPTH: usize = 16;",
+        "a retry bound": "const INTERFACE_RETRY_LIMIT: u32 = 64;",
+        "a restart bound": "const MAX_RESTARTS: u32 = 5;",
+        "a continuation bound": "const MAX_CONTINUATIONS: u64 = 50;",
+        "a hop bound": "const MAX_PEER_HOPS: usize = 4;",
+        "a symlink bound": "const MAX_SYMLINK_EXPANSIONS: usize = 40;",
+        "a page default": "const DEFAULT_LIMIT: usize = 50;",
+        "a clamp on a requested limit": "const MAX_DIRECTORY_LIMIT: u32 = 4096;",
+        "a page of rows": "const MAX_WINDOW_ROWS: usize = 500;",
+        "an argv bound": "const MAX_ARGS: usize = 256;",
+        "an environment bound": "const MAX_PROCESS_ENVIRONMENT: usize = 512;",
+    }
+    for why, const in not_counts.items():
+        name = const.split()[1].rstrip(":")
+        sample = f"{const}\nfn f() {{ if n > {name} {{ return Err(E::new(\"too many\")); }} }}\n"
+        assert caps_in(Path("e.rs"), sample) == [], f"{why} is no count cap"
+    ring = """
+const TOLD_LIMIT: usize = 256;
+fn tell() { if told.len() >= TOLD_LIMIT { told.pop_front(); } told.push_back(id); }
+"""
+    assert caps_in(Path("f.rs"), ring) == [], "an eviction ring that never refuses is no cap"
+    held = """
+const MAX_PENDING: usize = 8;
+fn hold() { if pending.len() >= MAX_PENDING { pending.pop_front(); return Err(E::new("refused")); } }
+"""
+    assert [c["name"] for c in caps_in(Path("g.rs"), held)] == ["MAX_PENDING"], "a ring that also refuses is a cap"
+    in_flight = """
+const MAX_PAGE_INFLIGHT: usize = 64;
+fn call() { if slot.inflight >= MAX_PAGE_INFLIGHT { return refused("too many calls in flight"); } }
+"""
+    assert [c["name"] for c in caps_in(Path("h.rs"), in_flight)] == ["MAX_PAGE_INFLIGHT"], "calls in flight are a count"
     one = caps_in(Path("a.rs"), unmeasured)
     assert [(c["name"], c["value"], c["measured"]) for c in one] == [("MAX_RUNNING", "32", False)], one
     two = caps_in(Path("b.rs"), measured)
