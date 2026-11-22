@@ -92,9 +92,9 @@ test("the sheet lists the / list's commands, then skills, then keys, without /he
     "/release",
   ]);
   expect(rows.map((row) => row.section)).toEqual(
-    [...rows.map((row) => row.section)].sort(
-      (a, b) => ["commands", "skills", "keys"].indexOf(a) - ["commands", "skills", "keys"].indexOf(b),
-    ),
+    rows
+      .map((row) => row.section)
+      .sort((a, b) => ["commands", "skills", "keys"].indexOf(a) - ["commands", "skills", "keys"].indexOf(b)),
   );
   expect(rows.some((row) => row.kind === "key" && row.keys === "⌘↩")).toBe(true);
 });

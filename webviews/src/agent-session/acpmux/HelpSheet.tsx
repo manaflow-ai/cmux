@@ -3,6 +3,7 @@ import { HELP_SECTIONS, helpRows, searchHelp, type HelpRow } from "./composerHel
 import { focusRoute } from "../../ui/focusRoute";
 import { useT } from "./i18n";
 import { ShortcutsContext } from "./shortcuts";
+import { Listbox } from "../../ui/Listbox";
 import type { SlashCommand } from "./slashCommands";
 
 /**
@@ -31,9 +32,6 @@ export function HelpSheet({
   const rows = useMemo(() => searchHelp(all, query), [all, query]);
   const at = Math.min(active, Math.max(0, rows.length - 1));
   useLayoutEffect(() => void focusRoute(search.current, "person", "/help opened: its search"), []);
-  useLayoutEffect(() => {
-    list.current?.querySelector<HTMLElement>(`[data-help-index="${at}"]`)?.scrollIntoView?.({ block: "nearest" });
-  }, [at]);
 
   const pick = (row: HelpRow | undefined) => {
     if (row?.kind === "command") onInsert(row.command);
@@ -55,7 +53,10 @@ export function HelpSheet({
     }
   };
 
-  let index = -1;
+  // Each group's label sits, unread, at the top of its first row: the list is the shared Listbox
+  // (one row type, its keyboard and active-descendant contract), and the label is decoration.
+  const firstOf = new Set(HELP_SECTIONS.map((section) => rows.find((row) => row.section === section.id)?.id));
+  const labelOf = (row: HelpRow) => HELP_SECTIONS.find((section) => section.id === row.section)?.label;
   return (
     <div
       className="ui-popup ui-glass acpmux-slash-menu acpmux-help-sheet"
@@ -66,7 +67,6 @@ export function HelpSheet({
         ref={search}
         className="acpmux-help-search"
         type="search"
-        role="combobox"
         aria-expanded="true"
         aria-controls="acpmux-help-list"
         aria-activedescendant={rows.length ? `acpmux-help-${at}` : undefined}
@@ -84,57 +84,49 @@ export function HelpSheet({
           if (!next || !event.currentTarget.parentElement?.contains(next)) onClose();
         }}
       />
-      <div ref={list} id="acpmux-help-list" role="listbox" aria-label={t("help.title")} className="acpmux-help-list">
-        {!rows.length && <div className="acpmux-slash-empty">{t("help.none")}</div>}
-        {HELP_SECTIONS.map((section) => {
-          const inSection = rows.filter((row) => row.section === section.id);
-          if (!inSection.length) return null;
+      <Listbox
+        listRef={list}
+        items={rows}
+        getKey={(row) => row.id}
+        textValue={(row) => row.title}
+        label={t("help.title")}
+        autoFocus={false}
+        activeIndex={at}
+        onActiveIndexChange={setActive}
+        onOpen={pick}
+        getItemId={(_, index) => `acpmux-help-${index}`}
+        id="acpmux-help-list"
+        className="acpmux-help-list"
+        rowClassName="acpmux-slash-row acpmux-help-row"
+        itemAttributes={(row) => ({ "data-help-kind": row.kind })}
+        empty={<div className="acpmux-slash-empty">{t("help.none")}</div>}
+        renderItem={(row) => {
+          const label = firstOf.has(row.id) ? labelOf(row) : undefined;
           return (
-            <div key={section.id} role="group" aria-label={t(section.label)}>
-              <div className="acpmux-help-label" aria-hidden>
-                {t(section.label)}
-              </div>
-              {inSection.map((row) => {
-                index += 1;
-                const mine = index;
-                return (
-                  <div
-                    key={row.id}
-                    id={`acpmux-help-${mine}`}
-                    data-help-index={mine}
-                    role="option"
-                    aria-selected={mine === at}
-                    tabIndex={-1}
-                    className="ui-listbox-row acpmux-slash-row acpmux-help-row"
-                    data-help-kind={row.kind}
-                    onPointerMove={() => mine !== at && setActive(mine)}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => pick(row)}
-                  >
-                    {row.kind === "command" ? (
-                      <>
-                        <span className="acpmux-slash-name">{row.title}</span>
-                        {row.hint && <span className="acpmux-slash-hint">{row.hint}</span>}
-                        {row.detail && <span className="acpmux-slash-description">{row.detail}</span>}
-                        {row.tag && <span className="acpmux-slash-source">{row.tag}</span>}
-                      </>
-                    ) : (
-                      <>
-                        <span className="acpmux-slash-name">{row.title}</span>
-                        <span className="acpmux-help-keys">
-                          {row.keys.split(" ").map((key, n) => (
-                            <kbd key={n}>{key}</kbd>
-                          ))}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+            <>
+              {label && (
+                <span className="acpmux-help-label" aria-hidden>
+                  {t(label)}
+                </span>
+              )}
+              <span className="acpmux-slash-name">{row.title}</span>
+              {row.kind === "command" ? (
+                <>
+                  {row.hint && <span className="acpmux-slash-hint">{row.hint}</span>}
+                  {row.detail && <span className="acpmux-slash-description">{row.detail}</span>}
+                  {row.tag && <span className="acpmux-slash-source">{row.tag}</span>}
+                </>
+              ) : (
+                <span className="acpmux-help-keys">
+                  {row.keys.split(" ").map((key, n) => (
+                    <kbd key={`${n}:${key}`}>{key}</kbd>
+                  ))}
+                </span>
+              )}
+            </>
           );
-        })}
-      </div>
+        }}
+      />
     </div>
   );
 }
