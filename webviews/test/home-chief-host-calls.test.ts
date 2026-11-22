@@ -154,6 +154,16 @@ test("Settings' Chief editor removes an unsaved brought backend through Settings
   expect("removeBackend" in sheets.chiefEditor()).toBe(false);
 });
 
+test("the Chief editor checks a brain for the Chief it edits, so the host runs it from that Chief's brain home", async () => {
+  const { client: host, sent } = client({ "cmux.chief.backend.doctor": { ok: true, steps: [] } });
+  const calls = new ChiefHost(host);
+  await calls.checkBackend("hermes", "01HCHIEFA1B2C3D4");
+  expect(sent[0]).toEqual({
+    op: "cmux.chief.backend.doctor",
+    params: { id: "hermes", prompt: true, chief: "01HCHIEFA1B2C3D4" },
+  });
+});
+
 test("a brought backend is added through the host and checked with a real hello turn", async () => {
   const { client: host, sent } = client({
     "cmux.chief.backend.add": { id: "acme" },

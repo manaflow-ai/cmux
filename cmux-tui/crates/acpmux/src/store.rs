@@ -19,13 +19,14 @@ use std::sync::Mutex;
 mod compact;
 pub use compact::{CompactMode, Compaction, Staged};
 mod deferred;
-pub use deferred::{Deferral, Keep};
+pub use deferred::{Deferral, HeldBack, Keep, held_file};
 mod cold;
 pub use cold::{COLD_FILE, ColdStats, RehydrateHook, StagedCold};
 mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_heads;
 mod kind_index;
+mod segment_starts;
 pub use kind_heads::KindHead;
 pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS};
 mod fork_view;
@@ -39,9 +40,30 @@ pub use log_bytes::{
 };
 mod meta_parts;
 pub use meta_parts::PARTS_FILE;
+pub(crate) use meta_parts::to_writer_without_parts;
 mod shared_value;
 mod text_index;
-pub use shared_value::{SharedRows, SharedValue};
+pub use shared_value::{SharedRows, SharedText, SharedValue};
+
+/// A chat's rolling summary (`hub/rolling_summary.rs`): one short line on where it stands and
+/// the next action, kept current after each turn a person started (or one that ended on a
+/// `wrap_up`). The sidebar and the chat header draw it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RollingSummary {
+    /// Where the chat stands, one or two short sentences.
+    pub text: String,
+    /// The next action, for the person or the agent; absent when there is none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub next: Option<String>,
+    /// Who wrote it: `wrap_up` (the agent's own recap and ask, no model call) or `model`.
+    pub source: String,
+    /// The chat's turn count it covers.
+    pub turn: u64,
+    /// When it was written, Unix ms.
+    pub at: u64,
+}
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -182,10 +204,18 @@ pub struct SessionMeta {
     pub schema: String,
     pub id: String,
     pub name: String,
+    /// Explicit spoken handle. Older and unnamed sessions derive one from the same stable id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
     /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
     /// default (`hub/new_request.rs` `unique_name_among`). False in a log from before it was kept.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub name_given: bool,
+    /// The names it had before its renames, oldest first (`hub/former_names.rs`): each still
+    /// names it wherever no session has it as its current name, so a message sent to an old
+    /// name still arrives. At most `former_names::KEPT`; no other session keeps the same one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub former_names: Vec<String>,
     /// `agent` in a chat stored before the agent-to-harness rename (e857185a58).
     #[serde(alias = "agent")]
     pub harness: String,
@@ -387,6 +417,10 @@ pub struct SessionMeta {
         skip_serializing_if = "Option::is_none"
     )]
     pub goal: Option<GoalState>,
+    /// What is done and next across the chat's turns (`task_list.rs`): its harness's latest plan,
+    /// or the list its agent or Chief keeps. None until one is written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_list: Option<crate::task_list::TaskList>,
     /// Per-session permission rules layered above the policy (see hub/rules.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_rules: Option<Value>,
@@ -414,6 +448,10 @@ pub struct SessionMeta {
     /// None until the first recap.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub away_recap: Option<AwayRecap>,
+    /// The chat's rolling summary and next action (`hub/rolling_summary.rs`); None until the
+    /// first turn that makes one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rolling_summary: Option<RollingSummary>,
     /// Each person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they had on
     /// screen while they attended the chat, keyed by person id (`_meta.acpmux.author` id,
     /// [`crate::hub::seen::OWNER_READER`] for the owner). Only `_acpmux/seen` moves it forward; a
@@ -450,6 +488,12 @@ pub struct SessionMeta {
     /// adopts that host (`hub/idle_census.rs`, `StoredLaunch`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idle_launch: Option<crate::sidecar_census::StoredLaunch>,
+    /// The level (`agent_host::HOST_LEVEL`) at which this daemon's build started the chat's live
+    /// host, by that host's incarnation (`hub/host_level.rs` `note_start_level`): what the start
+    /// asked of the agent (whether it suggests next prompts) is decided there, by the daemon, not
+    /// by the host's binary. None: an older daemon started it, or none yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_level: Option<StartLevel>,
     /// Where the chat went when it moved to another daemon (`hub/transfer_out.rs` commit:
     /// `{host?, sessionId, cwd?, branch?, commit?, socket?}`). Set once, never cleared here: a
     /// moved chat takes no prompt and never starts its agent on this daemon again (one writer),
@@ -678,6 +722,13 @@ pub struct Lineage {
     pub tool_call_id: Option<String>,
 }
 
+/// `SessionMeta::start_level`: the level a daemon started host `incarnation` at.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StartLevel {
+    pub incarnation: String,
+    pub level: u32,
+}
+
 /// Who created a session (`hub/created_by.rs`), the shape cmux-tui's
 /// `workspace.create {created_by}` takes.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
@@ -839,6 +890,10 @@ pub struct ToolRow {
 pub const RETIRED_AGENT_SESSION_IDS: usize = 32;
 
 impl SessionMeta {
+    pub(crate) fn spoken_handle(&self) -> std::borrow::Cow<'_, str> {
+        crate::session_handle::display(self.handle.as_deref(), &self.id)
+    }
+
     /// Whether its harness counts a turn's input apart from the prompt cache, as Anthropic's
     /// usage does, told from what this record knows of how the chat ran (a daemon that has its
     /// config asks the profile's kind first, `Hub::input_excludes_cache`):
@@ -1371,6 +1426,27 @@ pub trait Store: Send + Sync {
     fn save_restore_point(&self, _id: &str, _bytes: &[u8]) -> Result<()> {
         Ok(())
     }
+    /// Records used by the whole-store search, including an archive without thawing it.
+    fn search_records(&self, id: &str, visit: &mut dyn FnMut(EventRecord)) -> Result<()> {
+        self.scan_kinds(id, crate::session_search::KINDS, &mut |rec| {
+            visit(rec);
+            true
+        })
+    }
+
+    /// Use the warm text index, or stream the messages out of an archived log.
+    fn conversation_entries(
+        &self,
+        id: &str,
+        visit: &mut dyn FnMut(crate::session_search::Entry),
+    ) -> Result<()> {
+        if self.is_cold(id) {
+            crate::session_search::project_records(|feed| self.search_records(id, feed), visit)
+        } else {
+            self.text_entries(id, visit)
+        }
+    }
+
     /// `scan` from the start, passing each record's head ([`RecordHead`]) until `visit` returns
     /// false; the reader parses only the records it needs (`RecordHead::record`). A file store
     /// reads a head without parsing its line: adopting a host after a restart reads its whole
@@ -1462,6 +1538,19 @@ pub trait Store: Send + Sync {
     /// What [`Store::keep_parked`] last kept for chat `id`.
     fn kept_parked(&self, _id: &str) -> Result<Option<Vec<u8>>> {
         Ok(None)
+    }
+    /// Keeps `held`, the body of a tool output snapshot or turn diff chat `id` holds back from
+    /// its log (`store/deferred.rs`), as slot `slot` (lowercase hex, `Deferral::slot`) beside the
+    /// log, in place of what the slot kept; None removes it, and a slot with nothing is Ok. The
+    /// body is kept before its stub is logged, so the next start stores what a killed daemon held
+    /// (`Hub::take_back_held`). Not synced: a kill keeps it, a power cut may not. Never makes a
+    /// chat's folder that is gone. A store that keeps nothing across a restart keeps nothing here.
+    fn keep_held(&self, _id: &str, _slot: &str, _held: Option<&[u8]>) -> Result<()> {
+        Ok(())
+    }
+    /// What [`Store::keep_held`] keeps for chat `id`: each slot and its bytes, in no order.
+    fn kept_held(&self, _id: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        Ok(Vec::new())
     }
     /// Writes a cold archive of `id`'s log beside it and checks it (`store/cold.rs`); None
     /// without a log to archive, or for a store that keeps none.
@@ -1627,6 +1716,8 @@ pub struct LocalStore {
     parts: meta_parts::PartsMemo,
     /// The segments' record heads a keyed scan read (`store/kind_heads.rs`).
     kind_heads: kind_heads::KindHeads,
+    /// Each segment's first seq, once read (`store/segment_starts.rs`).
+    pub(crate) segment_starts: segment_starts::SegmentStarts,
     #[cfg(test)]
     pub(crate) meta_saves: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
@@ -1645,6 +1736,8 @@ struct Writers {
 
 /// What a chat keeps while a journal restore holds it (`Store::keep_parked`), beside its log.
 const PARKED: &str = "parked.json";
+/// The folder of a chat's held tool output bodies (`Store::keep_held`), beside its log.
+const HELD: &str = "held";
 
 struct SegmentWriter {
     index: u32,
@@ -1685,6 +1778,7 @@ impl LocalStore {
             rehydrate_hook: Default::default(),
             parts: Default::default(),
             kind_heads: Default::default(),
+            segment_starts: Default::default(),
             #[cfg(test)]
             meta_saves: Default::default(),
         })
@@ -1963,6 +2057,8 @@ impl LocalStore {
             anyhow::bail!("no segment writer for session {id}");
         };
         w.used = clock;
+        #[cfg(debug_assertions)]
+        disk_fault::write()?;
         #[cfg(test)]
         let wrote = match test_write_fault::take() {
             Some(kept) => w.file.write_all(&line[..kept.min(line.len())]).and(Err(
@@ -2047,33 +2143,10 @@ fn cut_torn_tail(file: &File, path: &Path) -> Result<u64> {
     Ok(end)
 }
 
-/// The next log append on this thread writes only its first `kept` bytes and then fails as a
-/// full disk does (`ENOSPC`), the partial write a full disk or a killed process leaves.
+#[cfg(debug_assertions)]
+pub(crate) mod disk_fault;
 #[cfg(test)]
-pub(crate) mod test_write_fault {
-    use std::cell::Cell;
-
-    thread_local!(static NEXT: Cell<Option<usize>> = const { Cell::new(None) });
-    thread_local!(static FAIL_CUT: Cell<bool> = const { Cell::new(false) });
-
-    pub(crate) fn partial(kept: usize) {
-        NEXT.with(|n| n.set(Some(kept)));
-    }
-
-    /// `partial`, and the cut back after it fails too (the disk refuses the truncate).
-    pub(crate) fn partial_and_failed_cut(kept: usize) {
-        partial(kept);
-        FAIL_CUT.with(|f| f.set(true));
-    }
-
-    pub(super) fn take() -> Option<usize> {
-        NEXT.with(Cell::take)
-    }
-
-    pub(super) fn take_cut_failure() -> bool {
-        FAIL_CUT.with(|f| f.replace(false))
-    }
-}
+pub(crate) mod test_write_fault;
 
 /// [`LocalStore::history_writer`]'s segment `000000`.
 struct SegmentZero {
@@ -2395,6 +2468,7 @@ impl Store for LocalStore {
     /// Through the copies of the kinds (`store/kind_index.rs`), past `after`: a scan of the log
     /// from the segment that holds `after + 1` parses that whole segment, for each fold of a
     /// load, and read more than the copies do (`a_restored_chats_log_load_reads_the_copies_not_its_log`).
+    /// Only the copies from the segment that holds `after + 1` on (`scan_kinds_past`).
     fn scan_kinds_after(
         &self,
         id: &str,
@@ -2402,7 +2476,7 @@ impl Store for LocalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_kinds_in(id, kinds, false, &mut |rec| rec.seq <= after || visit(rec))
+        self.scan_kinds_past(id, after, kinds, false, visit)
     }
 
     fn scan_kinds_after_strict(
@@ -2412,7 +2486,7 @@ impl Store for LocalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_kinds_in(id, kinds, true, &mut |rec| rec.seq <= after || visit(rec))
+        self.scan_kinds_past(id, after, kinds, true, visit)
     }
 
     fn scan_kinds_keyed(
@@ -2445,6 +2519,17 @@ impl Store for LocalStore {
         visit: &mut dyn FnMut(crate::session_search::Entry),
     ) -> Result<()> {
         self.text_entries_in(id, visit)
+    }
+
+    fn search_records(&self, id: &str, visit: &mut dyn FnMut(EventRecord)) -> Result<()> {
+        if self.is_cold(id) {
+            self.cold_search_records(id, visit)
+        } else {
+            self.scan_kinds(id, crate::session_search::KINDS, &mut |rec| {
+                visit(rec);
+                true
+            })
+        }
     }
 
     /// Segments newest first, so a page from the end reads only the segments it
@@ -2579,10 +2664,64 @@ impl Store for LocalStore {
         }
     }
 
+    /// `<id>/held/<slot>.json`, beside the chat's `events/`: written whole by a rename, not
+    /// synced (a kill keeps what the kernel was given). Never makes the chat's folder: a deleted
+    /// chat gets no file of its own again.
+    fn keep_held(&self, id: &str, slot: &str, held: Option<&[u8]>) -> Result<()> {
+        anyhow::ensure!(deferred::is_slot(slot), "{slot:?} names no held slot");
+        let _open = self.writable()?;
+        let dir = self.dir(id).join(HELD);
+        let path = dir.join(format!("{slot}.json"));
+        match held {
+            Some(bytes) => {
+                // `held/` alone, never its parent: whenever a delete removed the chat's folder,
+                // this fails. Read in the held home, never by path (#41721 review F1).
+                if crate::home_fs::symlink_metadata(&dir).is_err() {
+                    match crate::home_fs::create_dir(&dir, 0o700) {
+                        Ok(()) => {}
+                        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                        Err(e) => {
+                            return Err(e).with_context(|| format!("create {}", dir.display()));
+                        }
+                    }
+                }
+                crate::config::write_atomic_unsynced(&path, bytes)
+            }
+            None => match crate::home_fs::remove_file(&path) {
+                Ok(()) => Ok(()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(e) => Err(e).with_context(|| format!("remove {}", path.display())),
+            },
+        }
+    }
+
+    /// Every `<slot>.json` in `<id>/held/`; none without the folder. A copy a write left (named
+    /// `<slot>.tmp-<pid>`) is no slot's.
+    fn kept_held(&self, id: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        let dir = self.dir(id).join(HELD);
+        let entries = match crate::home_fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e).with_context(|| format!("list {}", dir.display())),
+        };
+        let mut out = Vec::new();
+        for entry in entries {
+            let name = entry.name.to_str().and_then(|n| n.strip_suffix(".json"));
+            let Some(slot) = name.filter(|s| entry.is_file && deferred::is_slot(s)) else {
+                continue;
+            };
+            let mut bytes = Vec::new();
+            crate::home_fs::private_state_file(dir.join(&entry.name))?.read_to_end(&mut bytes)?;
+            out.push((slot.to_owned(), bytes));
+        }
+        Ok(out)
+    }
+
     fn delete(&self, id: &str) -> Result<()> {
         let _open = self.writable()?;
         self.writers.lock_or_recover().open.remove(id);
         self.kind_heads.forget(id);
+        self.segment_starts.forget(id);
         let dir = self.dir(id);
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
         let mut last = None;
@@ -2732,13 +2871,10 @@ impl LocalStore {
         }
         let segments = self.segments(id)?;
         let mut line = Vec::new();
-        for (index, (_, path)) in segments.iter().enumerate() {
-            if after > 0
-                && let Some((_, next)) = segments.get(index + 1)
-                && first_seq(next)?.is_some_and(|first| first <= after.saturating_add(1))
-            {
-                continue;
-            }
+        // The segment that holds `after + 1`, found from the segments' kept first seqs: the read
+        // opens only the segments it reads (`store/segment_starts.rs`).
+        let start = self.segment_starts.start(id, &segments, after)?;
+        for (_, path) in &segments[start..] {
             let mut reader =
                 BufReader::with_capacity(256 * 1024, crate::config::private_state_file(path)?);
             loop {
