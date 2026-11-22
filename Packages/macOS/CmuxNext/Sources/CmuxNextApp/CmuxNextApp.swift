@@ -20,7 +20,7 @@ public struct CmuxNextApp {
         if StagedUpdatePrewarm.isPrewarm(CommandLine.arguments) { _exit(0) }; DebugTimings.markLaunch("main_start") // a pre-warm needs only exec and dyld; `_exit` skips atexit handlers and static destructors
         if StagedUpdatePrewarm.isChromiumPrewarm(CommandLine.arguments) { _ = cmux_early_malloc_zone_registration(); _exit(CEFStagedPrewarm().run(application: CmuxApplication.shared).rawValue) } // _exit: no static destructors under Chromium's threads
         announceBenchHooksBuild()
-        ScrollerStylePin().apply(to: .standard); FontSmoothingSetting.applyBeforeLaunch() // defaults AppKit reads once as it starts: overlay scrollers, any mouse or setting; appearance.fontSmoothing
+        ScrollerStylePin().apply(to: .standard); FontSmoothingSetting.applyBeforeLaunch(); DebugTimings.markLaunch("main.defaults_pinned") // defaults AppKit reads once as it starts: overlay scrollers, any mouse or setting; appearance.fontSmoothing
         // First, while the process has one thread: install the delegating
         // default malloc zone Chromium expects (Chromium's
         // EarlyMallocZoneRegistration). The Chromium framework is mapped
@@ -28,10 +28,10 @@ public struct CmuxNextApp {
         // swaps zones without a moment where no zone owns system memory.
         // Without this, a free() on another thread in that moment crashed
         // with "No zone found" (browser-isolation.md, allocator zone race).
-        _ = cmux_early_malloc_zone_registration()
+        _ = cmux_early_malloc_zone_registration(); DebugTimings.markLaunch("main.malloc_zone")
         // Before any socket or pipe exists (ChildSignalDefaults); the open-file limit before CefInitialize
         // (OpenFileLimit: launchd's 256 stopped the app at 80-100 Chromium tabs).
-        ChildSignalDefaults.installAppSignalPolicy(); let openFiles = OpenFileLimit().raise()
+        ChildSignalDefaults.installAppSignalPolicy(); let openFiles = OpenFileLimit().raise(); DebugTimings.markLaunch("main.process_limits")
         // Before any thread starts or anything reads the environment: drop
         // cmux variables inherited from a shell inside another cmux, so they
         // cannot pick this app's socket, tag, or daemon session.
@@ -39,12 +39,12 @@ public struct CmuxNextApp {
         CloudAuth.captureLaunchEnvironment()
         // This process's only environment writes, then the freeze: a write
         // after it stops a debug build (ProcessEnvironmentGuard).
-        Self.prepareLaunchEnvironment()
+        Self.prepareLaunchEnvironment(); DebugTimings.markLaunch("main.environment_frozen")
         // A second copy of this bundle for this user hands off to the running one and exits, before it
         // reads the relaunch-focus record or a session and before CEF (SingleInstanceGuard).
         if case .handOff(let activates) = SingleInstanceGuard.current.resolve() {
             SingleInstanceGuard.handOff(activates: activates)
-        }
+        }; DebugTimings.markLaunch("main.single_instance")
         // Pure launch work (action catalog, string tables) overlaps AppKit's start.
         LaunchWarmup.start(); AcpmuxEnvironment.startBuildHomeAdoption() // the old homes' adoption, before anything awaits it
         DebugTimings.markLaunch("main.warmup_started")
@@ -55,9 +55,9 @@ public struct CmuxNextApp {
             environment.relaunchBehind = UpdateRelaunchFocus.consume(
                 build: UpdateBuildIdentity.main().build,
                 reopenedBehind: ProcessInfo.processInfo.arguments.contains(UpdateRelaunchFocus.reopenArgument))
-        }
+        }; DebugTimings.markLaunch("main.environment")
         // concurrency-allow: one lstat, and once one rename of the folder older builds kept in classic's cmux, before anything reads it
-        StateFolderMove().run(build: environment.launch.build)
+        StateFolderMove().run(build: environment.launch.build); DebugTimings.markLaunch("main.state_folder")
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
         // `~/Library/Caches`, a DEV build's own caches folder (BuildStatePaths): Home's blob cache is not keyed by owner.
@@ -73,15 +73,15 @@ public struct CmuxNextApp {
         TerminalLaunchFrames.beside(state).prefetch(on: work, mark: { DebugTimings.markLaunch($0) }, markAt: { DebugTimings.markLaunch($0, at: $1) })
         relaunchWake.begin(on: work)
         // The bundled CLI's Cloud environment read, off the main thread while AppKit starts; the daemon starts after it.
-        let cloudEnvironment = CloudEnvironmentBootstrap.startAtLaunch(work: work)
+        let cloudEnvironment = CloudEnvironmentBootstrap.startAtLaunch(work: work); DebugTimings.markLaunch("main.reads_started")
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
-        CrashOnExceptions.register()
+        CrashOnExceptions.register(); DebugTimings.markLaunch("main.crash_handlers")
         // Instantiate the CEF-ready subclass before anything touches NSApp.
-        let app = CmuxApplication.shared
+        let app = CmuxApplication.shared; DebugTimings.markLaunch("main.nsapp_made")
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
             || environment.relaunchBehind != nil
         let delegate = AppDelegate(environment: environment,
-                                   launchReads: (work, launchImages, relaunchWake, chromium), cloudEnvironment: cloudEnvironment, launchSnapshot: launchSnapshot)
+                                   launchReads: (work, launchImages, relaunchWake, chromium), cloudEnvironment: cloudEnvironment, launchSnapshot: launchSnapshot); DebugTimings.markLaunch("main.delegate_made")
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp"); DebugTimings.markLaunch("main.run")
