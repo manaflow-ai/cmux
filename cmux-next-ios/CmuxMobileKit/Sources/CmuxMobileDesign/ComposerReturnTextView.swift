@@ -197,18 +197,19 @@ open class ComposerReturnTextView: UITextView {
     private let swipeCollapse = UIPanGestureRecognizer()
     private let swipeCollapseDelegate = SwipeCollapseDelegate()
     private let swipeCollapseRule = ComposerSwipeCollapse()
-    /// When the finger came down, and whether the text was at its top when the drag began.
+    /// When the finger came down, and whether the text was at its top then
+    /// (read at touch-down: by the pan's `.began` the text's own scroll may
+    /// already have moved).
     fileprivate var touchDownTime: TimeInterval = 0
-    private var swipeBeganAtTop = false
+    fileprivate var swipeBeganAtTop = false
     private var swipeHeldFor: TimeInterval = 0
 
     /// Whether the text shows its first line (a fitting draft always does).
-    private var atTop: Bool { contentOffset.y <= -adjustedContentInset.top + 0.5 }
+    fileprivate var atTop: Bool { contentOffset.y <= -adjustedContentInset.top + 0.5 }
 
     @objc private func swipeCollapseChanged(_ pan: UIPanGestureRecognizer) {
         switch pan.state {
         case .began:
-            swipeBeganAtTop = atTop
             swipeHeldFor = touchDownTime > 0 ? max(0, CACurrentMediaTime() - touchDownTime) : 0
         case .changed, .ended:
             guard collapsesOnSwipeDown, isFirstResponder,
@@ -233,7 +234,10 @@ open class ComposerReturnTextView: UITextView {
 
         /// The finger came down (touch timestamps share `CACurrentMediaTime`'s clock).
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            (gestureRecognizer.view as? ComposerReturnTextView)?.touchDownTime = touch.timestamp
+            if let view = gestureRecognizer.view as? ComposerReturnTextView {
+                view.touchDownTime = touch.timestamp
+                view.swipeBeganAtTop = view.atTop
+            }
             return true
         }
 
