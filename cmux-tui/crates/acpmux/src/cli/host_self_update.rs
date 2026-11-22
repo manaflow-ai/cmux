@@ -187,10 +187,10 @@ impl Paths {
         Ok(Paths {
             installed: user.join(".local/bin/acpmux"),
             off: home.join(NO_AUTO_UPDATE),
+            rd: RdPaths::here(&user, &home, target, now),
             home,
             cloud_vm: PathBuf::from(CLOUD_VM_MARK),
             unit: user.join(OWN_UNIT),
-            rd: RdPaths::here(&user, &home, target, now),
             target,
         })
     }
