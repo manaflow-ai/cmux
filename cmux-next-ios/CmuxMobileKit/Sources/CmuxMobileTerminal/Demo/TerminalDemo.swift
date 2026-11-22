@@ -156,6 +156,7 @@ final class TerminalDemoDriver {
         if selected.contains("historyfling") { await historyFling() }
         for variant in ["primary", "mouse", "keys", "primary-load", "mouse-load", "keys-load"]
         where selected.contains("tuipan-\(variant)") { await tuiPan(variant) }
+        if selected.contains("tuipan-paged") { await tuiPanPaged() }
         mark("end")
         if let log = model.controller?.presentLog, !log.isEmpty,
            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -292,6 +293,63 @@ final class TerminalDemoDriver {
             + " appScrolls=\(session.appScrolls - scrolls) fetches=\(session.historyFetches - fetches) touches=\(meter.touches) isTUI=\(model.isTUI)"
         model.demoNote = "tuipan-\(variant) done " + result
         mark(model.demoNote)
+    }
+
+    /// Leo, 2026-11-22: "just off some basic scroll throughs of the tui on
+    /// my phone, the thing still lags." His load, not a fixture: Claude Code
+    /// on the primary screen of a Mac terminal (`claudepaged`): 12,000 styled
+    /// transcript rows on the Mac, the screen alone on the phone at first,
+    /// older rows paged in 2,000 at a time (a reset and a replay of every row
+    /// held, a 60 ms round trip later, as `DaemonTerminalSession` does), the
+    /// live region still redrawn every 80 ms. The UI test flings up through
+    /// the history and back for 10 s; every display frame from its first
+    /// touch to 4 s after its last is measured:
+    /// `tuipan-paged done frames=N p50=MS p95=MS max=MS hitches=N stalls=N
+    /// ... fetches=N replays=N replayKB=N topMs=MS worst=MS@+MS,...` (`topMs`:
+    /// time the page sat on the oldest row held while the Mac had older
+    /// ones; `worst`: the longest frames and how long after the latest
+    /// replay was written each one ended).
+    private func tuiPanPaged() async {
+        let spec = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoPaged") ?? "12000 2000 60 80"
+        model.composerText = "claudepaged " + spec
+        model.send()
+        await wait(3)
+        guard let controller = model.controller, let window = controller.view.window,
+              let session = model.session as? MockTerminalSession else {
+            model.demoNote = "tuipan-paged done error=nocontroller"
+            return
+        }
+        let meter = TerminalPanMeter(window: window, continuous: true)
+        meter.scrollSample = { [weak controller] in controller?.debugScrollSample }
+        let stoppedByReset = controller.flingsStoppedByReset
+        let asks = session.fetchAsks.count, replaysDone = controller.debugReplaysDone.count
+        meter.replays = { session.replays.map(\.at) }
+        meter.waitingAtTop = { [weak controller] in
+            (controller?.debugAtOldestRowHeld ?? false) && (session.historyFetchPending || session.olderRowsHeldBack)
+        }
+        let bytes = session.bytesFromPhone, fetches = session.historyFetches, replays = session.replays.count
+        mark("tuipan-paged ready isTUI=\(model.isTUI) state=\(controller.debugState)")
+        model.demoNote = "tuipan-paged ready isTUI=\(model.isTUI)"
+        let deadline = Date().addingTimeInterval(60)
+        while Date() < deadline {
+            await wait(0.25)
+            if let lastUp = meter.lastTouchUp, meter.touchesDown == 0, CACurrentMediaTime() - lastUp > 4 { break }
+        }
+        meter.stop()
+        let taken = session.replays.dropFirst(replays)
+        var result = meter.summary + " bytes=\(session.bytesFromPhone - bytes) fetches=\(session.historyFetches - fetches)"
+            + " replays=\(taken.count) replayKB=\(taken.map(\.bytes).reduce(0, +) / 1024)"
+            + " largestReplayKB=\((taken.map(\.bytes).max() ?? 0) / 1024) flingsStoppedByReset=\(controller.flingsStoppedByReset - stoppedByReset) touches=\(meter.touches) isTUI=\(model.isTUI)"
+        // Each fetch: ask to its replay's last byte parsed, and the parse alone.
+        let done = controller.debugReplaysDone.dropFirst(replaysDone)
+        let fetchMs = session.fetchAsks.dropFirst(asks).map { ask in
+            guard let replay = done.first(where: { $0.reset >= ask }) else { return "lost" }
+            return "\(Int((replay.parsed - ask) * 1000))/\(Int((replay.parsed - replay.reset) * 1000))"
+        }.joined(separator: ",")
+        result += " fetchMs(askToParsed/parse)=\(fetchMs.isEmpty ? "-" : fetchMs)"
+        model.demoNote = "tuipan-paged done " + result
+        mark(model.demoNote)
+        mark("state " + controller.debugState)
     }
 
     private func keyboard() async {
@@ -608,6 +666,40 @@ final class TerminalDemoDriver {
         await wait(1)
     }
 }
+/// DEBUG bench (`tuipan-paged`): one display frame's scroll position.
+struct TerminalScrollSample {
+    var fromEnd: CGFloat
+    var offsetY: CGFloat
+    var fingerVelocity: CGFloat
+    var tracking: Bool
+    var rowHeight: CGFloat
+}
+
+/// DEBUG bench (`tuipan-paged`): single-frame position changes the finger
+/// does not explain. A frame's expected move is the finger's velocity times
+/// the frame while it drags, else the last frame's move (a fling slows
+/// smoothly); what goes past that by more than two rows (a streamed row is
+/// one) is a jump.
+struct TerminalJumpCount {
+    private var last: CGFloat?
+    private var lastMove: CGFloat = 0
+    private(set) var jumps = 0
+    private(set) var largest: CGFloat = 0
+
+    mutating func take(_ value: CGFloat, sample: TerminalScrollSample, seconds: Double) {
+        defer { last = value }
+        guard let last else { return }
+        let move = value - last
+        defer { lastMove = move }
+        let expected = sample.tracking ? abs(sample.fingerVelocity) * CGFloat(seconds) : abs(lastMove)
+        let unexplained = abs(move) - expected
+        largest = max(largest, unexplained)
+        if unexplained > 2 * sample.rowHeight { jumps += 1 }
+    }
+
+    mutating func gap() { last = nil; lastMove = 0 }
+}
+
 /// DEBUG bench (`tuipan`): display frames while a finger is on the screen
 /// (and 0.6 s after it lifts, for the fling). A frame interval over 1.5
 /// display periods is a hitch, over 50 ms a main-thread stall. Touches are
@@ -647,6 +739,18 @@ final class TerminalPanMeter: NSObject {
                                shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
     }
 
+    /// DEBUG bench hooks (`tuipan-paged`): when each replay was written
+    /// (`ProcessInfo.systemUptime`), and whether the reader is waiting at
+    /// the oldest row held for older ones.
+    var replays: () -> [TimeInterval] = { [] }
+    var waitingAtTop: () -> Bool = { false }
+    var scrollSample: () -> TerminalScrollSample? = { nil }
+    private var offsetJumps = TerminalJumpCount()
+    private var readerJumps = TerminalJumpCount()
+    /// Every frame from the first touch on, not only while a finger is down.
+    private let continuous: Bool
+    private var frameEnds: [CFTimeInterval] = []
+    private var topSeconds: Double = 0
     private(set) var touchesDown = 0
     /// Fingers that landed while measuring.
     private(set) var touches = 0
@@ -664,8 +768,9 @@ final class TerminalPanMeter: NSObject {
     private var sendFrames = 0
     private var maxSendsPerFrame = 0
 
-    init(window: UIWindow, sends: @escaping () -> Int = { 0 }) {
+    init(window: UIWindow, continuous: Bool = false, sends: @escaping () -> Int = { 0 }) {
         self.window = window
+        self.continuous = continuous
         self.sends = sends
         lastSends = sends()
         super.init()
@@ -683,7 +788,8 @@ final class TerminalPanMeter: NSObject {
     }
 
     private var active: Bool {
-        touchesDown > 0 || lastTouchUp.map { CACurrentMediaTime() - $0 < 0.6 } ?? false
+        if continuous { return touches > 0 }
+        return touchesDown > 0 || lastTouchUp.map { CACurrentMediaTime() - $0 < 0.6 } ?? false
     }
 
     @objc private func frame(_ link: CADisplayLink) {
@@ -695,6 +801,15 @@ final class TerminalPanMeter: NSObject {
         intervals.append(link.timestamp - lastFrame)
         if sent > lastSends { sendFrames += 1 }
         maxSendsPerFrame = max(maxSendsPerFrame, sent - lastSends)
+        frameEnds.append(link.timestamp)
+        if waitingAtTop() { topSeconds += link.timestamp - lastFrame }
+        if let sample = scrollSample() {
+            offsetJumps.take(sample.offsetY, sample: sample, seconds: link.timestamp - lastFrame)
+            readerJumps.take(sample.fromEnd, sample: sample, seconds: link.timestamp - lastFrame)
+        } else {
+            offsetJumps.gap()
+            readerJumps.gap()
+        }
     }
 
     func stop() {
@@ -711,8 +826,25 @@ final class TerminalPanMeter: NSObject {
         }
         let hitches = intervals.filter { $0 > period * 1.5 }.count
         let stalls = intervals.filter { $0 > 0.05 }.count
-        return "frames=\(intervals.count) p50=\(ms(0.5)) p95=\(ms(0.95)) max=\(ms(1)) hitches=\(hitches) stalls=\(stalls)"
-            + " sendFrames=\(sendFrames) maxSendsPerFrame=\(maxSendsPerFrame) periodMs=\(String(format: "%.1f", period * 1000))"
+        let worstMs = (sorted.last ?? 0) * 1000
+        let over33 = intervals.filter { $0 > 0.0335 }.count
+        // The five longest frames, each with how long after the latest
+        // replay written before its end it ended (`-`: none before it).
+        let written = replays()
+        let worst = intervals.indices.sorted { intervals[$0] > intervals[$1] }.prefix(5).map { index in
+            let end = frameEnds[index]
+            let since = written.last { $0 <= end }.map { String(format: "+%.0f", (end - $0) * 1000) } ?? "-"
+            return String(format: "%.1f@", intervals[index] * 1000) + since
+        }.joined(separator: ",")
+        // Frames over 33 ms that ended within 250 ms of a replay.
+        let nearReplay = intervals.indices.filter { index in
+            intervals[index] > 0.0335 && written.contains { $0 <= frameEnds[index] && frameEnds[index] - $0 < 0.25 }
+        }.count
+        return "frames=\(intervals.count) p50=\(ms(0.5)) p95=\(ms(0.95)) max=\(String(format: "%.1f", worstMs)) hitches=\(hitches) over33=\(over33) stalls=\(stalls)"
+            + " sendFrames=\(sendFrames) maxSendsPerFrame=\(maxSendsPerFrame)"
+            + " periodMs=\(String(format: "%.1f", period * 1000)) over33NearReplay=\(nearReplay) topMs=\(Int(topSeconds * 1000)) worst=\(worst.isEmpty ? "-" : worst)"
+            + String(format: " offsetJumps=%d maxOffsetJumpPt=%.0f readerJumps=%d maxReaderJumpPt=%.0f",
+                     offsetJumps.jumps, offsetJumps.largest, readerJumps.jumps, readerJumps.largest)
     }
 }
 #endif

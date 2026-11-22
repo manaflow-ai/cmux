@@ -1420,6 +1420,30 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         return parts.joined(separator: " | ")
     }
 
+    /// DEBUG bench (`tuipan-paged`): the page is at the oldest row held
+    /// (its top, or the rubber band past it): a reader here waits for older rows.
+    var debugAtOldestRowHeld: Bool {
+        !model.isTUI && scrollView.contentOffset.y <= -scrollView.contentInset.top + 1
+    }
+
+    /// DEBUG bench (`tuipan-paged`): each reset's replay, from the reset to
+    /// its last byte parsed (`CACurrentMediaTime`).
+    private(set) var debugReplaysDone: [(reset: CFTimeInterval, parsed: CFTimeInterval)] = []
+
+    /// DEBUG bench (`tuipan-paged`): where the page is, for the meter's jump
+    /// count. `fromEnd`: the reader's top in points above the newest row
+    /// (still while older rows are prepended or the mirror is reset and
+    /// replayed under a reader who did not move); `offsetY`: the raw content
+    /// offset; `fingerVelocity`: the drag's, in points a second.
+    var debugScrollSample: TerminalScrollSample? {
+        guard !model.isTUI, cell.height > 0 else { return nil }
+        let y = scrollView.contentOffset.y + scrollView.contentInset.top
+        let rowsFromEnd = CGFloat(scrollbar.total) - (CGFloat(originRow) + y / cell.height)
+        return TerminalScrollSample(fromEnd: rowsFromEnd * cell.height, offsetY: scrollView.contentOffset.y,
+                                    fingerVelocity: scrollView.panGestureRecognizer.velocity(in: scrollView).y,
+                                    tracking: scrollView.isTracking, rowHeight: cell.height)
+    }
+
     /// DEBUG diagnostics for the demo timeline.
     var debugState: String {
         let grid = surface.grid
@@ -2034,6 +2058,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             model.mirrorPlaced()
             if let started = replayStartedAt {
                 sizingLog.notice("replay done bytes=\(self.replayBytes, privacy: .public) ms=\(Int((CACurrentMediaTime() - started) * 1000), privacy: .public)")
+                #if DEBUG
+                debugReplaysDone.append((started, CACurrentMediaTime()))
+                #endif
                 replayStartedAt = nil
             }
             outputSinceProbe = true

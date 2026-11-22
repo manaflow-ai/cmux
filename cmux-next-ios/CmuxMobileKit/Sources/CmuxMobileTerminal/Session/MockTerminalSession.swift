@@ -61,6 +61,21 @@ public final class MockTerminalSession: TerminalSession {
     /// DEBUG bench: the sends to the "Mac" (with `batchesInputPerTurn`, one per turn).
     public private(set) var sends = 0
     private var turnInput: Data?
+    /// `claudepaged`: Claude Code on the primary screen behind a Mac that
+    /// attached latest screen first (`DaemonTerminalSession`): `next` is the
+    /// transcript's next row, `allowance` the history rows above the screen
+    /// the mirror holds, each older-row fetch adds `chunk` and comes back
+    /// `delay` ms later as a reset and one replay of everything held.
+    private var paged: MockPagedHistory?
+    /// DEBUG bench: each `claudepaged` replay, when it was written
+    /// (`ProcessInfo.systemUptime`, the display link's clock) and its bytes.
+    public private(set) var replays: [(at: TimeInterval, bytes: Int)] = []
+    /// DEBUG bench: when each `claudepaged` older-row fetch was asked for.
+    public private(set) var fetchAsks: [TimeInterval] = []
+    /// DEBUG bench: an older-row fetch is on its way (`claudepaged`).
+    public var historyFetchPending: Bool { paged?.fetching ?? false }
+    /// DEBUG bench: the "Mac" still holds rows older than the phone's (`claudepaged`).
+    public var olderRowsHeldBack: Bool { paged.map { $0.allowance < $0.next - 1 - rows } ?? false }
 
     private enum Program {
         case shell
@@ -231,6 +246,7 @@ public final class MockTerminalSession: TerminalSession {
     /// after the ask, like `DaemonTerminalSession.loadOlderHistory()`.
     @discardableResult
     public func loadOlderHistory() -> Bool {
+        if paged != nil { return loadOlderPaged() }
         guard let held = heldBack else { return false }
         heldBack = nil
         historyFetches += 1
@@ -240,6 +256,34 @@ public final class MockTerminalSession: TerminalSession {
             self.handler?(.output(TerminalReclaimHold.reset))
             self.handler?(.output(Data((held.older + held.shown).map { $0 + "\r\n" }.joined().utf8)))
             self.prompt()
+        }
+        tasks.append(task)
+        return true
+    }
+
+    /// `claudepaged`'s fetch: like `DaemonTerminalSession.loadOlderHistory()`,
+    /// one at a time, none once the mirror holds every row; `delay` ms later
+    /// a reset and one replay of all the rows now held (the older chunk, the
+    /// rows held before it, the screen and the live region).
+    private func loadOlderPaged() -> Bool {
+        guard var state = paged, !state.fetching, state.allowance < state.next - 1 - rows else { return false }
+        state.fetching = true
+        paged = state
+        historyFetches += 1
+        fetchAsks.append(ProcessInfo.processInfo.systemUptime)
+        let delay = state.delay
+        let task = Task { [weak self] in
+            try? await self?.pause(delay)
+            guard let self, !Task.isCancelled, var state = self.paged, case .agentCLI = self.program else { return }
+            state.allowance = min(state.allowance + state.chunk, state.next - 1)
+            state.fetching = false
+            self.paged = state
+            let first = max(1, state.next - state.allowance - self.rows)
+            let replay = (first..<state.next).map { MockPagedHistory.row($0) + "\r\n" }.joined()
+                + Self.claudeRegion(tick: state.tick, rule: state.rule)
+            self.replays.append((ProcessInfo.processInfo.systemUptime, replay.utf8.count))
+            self.handler?(.output(TerminalReclaimHold.reset))
+            self.write(replay)
         }
         tasks.append(task)
         return true
@@ -400,6 +444,7 @@ public final class MockTerminalSession: TerminalSession {
         for task in tasks { task.cancel() }
         tasks.removeAll()
         program = .shell
+        paged = nil
         setAlternate(false, program: "zsh")
         busy = false
         prompt()
@@ -494,6 +539,42 @@ public final class MockTerminalSession: TerminalSession {
                     }
                     self.write(out + Self.claudeRegion(tick: tick, rule: rule))
                     tick += 1
+                }
+            }
+            tasks.append(task)
+            return
+        case "claudepaged":
+            // claudepaged [ROWS=12000] [CHUNK=2000] [RTT=60] [MS=80]: Claude
+            // Code on the primary screen as a Mac terminal delivers it
+            // (DaemonTerminalSession): ROWS styled transcript rows (SGR
+            // colors, wide characters) on the Mac, the screen alone on the
+            // phone; each older-row fetch is a reset and a replay of CHUNK
+            // more rows than before, RTT ms after the ask. The live region is
+            // redrawn every MS ms with a new transcript row every 6th frame,
+            // throughout (fetches included).
+            func number(_ index: Int, _ fallback: Int) -> Int { parts.count > index ? Int(parts[index]) ?? fallback : fallback }
+            let count = max(1, number(1, 12_000)), chunk = max(1, number(2, 2_000))
+            let rtt = max(0, number(3, 60)), delay = max(10, number(4, 80))
+            busy = false
+            program = .agentCLI
+            programName = "claude"
+            handler?(.title("claude — cmux-next"))
+            let rule = String(repeating: "\u{2500}", count: max(10, min(60, columns - 2)))
+            paged = MockPagedHistory(next: count + 1, allowance: 0, chunk: chunk, delay: rtt, rule: rule)
+            write("\u{1B}[H\u{1B}[2J\u{1B}[3J" + (max(1, count + 1 - rows)...count).map { MockPagedHistory.row($0) + "\r\n" }.joined()
+                + Self.claudeRegion(tick: 0, rule: rule))
+            let task = Task { [weak self] in
+                while !Task.isCancelled {
+                    do { try await self?.pause(delay) } catch { return }
+                    guard let self, case .agentCLI = self.program, var state = self.paged else { return }
+                    state.tick += 1
+                    var out = "\r\u{1B}[3A\u{1B}[J"
+                    if state.tick % 6 == 0 {
+                        out += MockPagedHistory.row(state.next) + "\r\n"
+                        state.next += 1
+                    }
+                    self.paged = state
+                    self.write(out + Self.claudeRegion(tick: state.tick, rule: state.rule))
                 }
             }
             tasks.append(task)
@@ -667,6 +748,32 @@ struct MockClaudeFull: Equatable {
         out += statusRow(rows: screen)
         out += "\u{1B}[\(screen - 2);1H\u{256D}\(rule)\u{256E}\u{1B}[\(screen - 1);1H\u{2502} > \u{1B}[\(screen);1H\u{2570}\(rule)\u{256F}"
         return out + "\u{1B}[\(screen - 1);5H"
+    }
+}
+
+/// `claudepaged`'s state: the Mac's transcript and what the phone holds of it.
+struct MockPagedHistory {
+    var next: Int
+    var allowance: Int
+    let chunk: Int
+    let delay: Int
+    let rule: String
+    var tick = 0
+    var fetching = false
+
+    /// A Claude Code transcript row: tool calls, diffs on 256-color and
+    /// truecolor backgrounds, dim folds, CJK and emoji (wide cells).
+    static func row(_ index: Int) -> String {
+        switch index % 8 {
+        case 0: "\u{1B}[1;38;2;215;119;87m\u{23FA}\u{1B}[0m \u{1B}[1mUpdate\u{1B}[0m(cmux-next-ios/Sources/\u{6587}\u{4EF6}\(index).swift)"
+        case 1: "  \u{23BF}  Updated with \u{1B}[32m\(index % 9 + 1) additions\u{1B}[0m and \u{1B}[31m\(index % 4) removals\u{1B}[0m"
+        case 2: "\u{1B}[48;5;22m\u{1B}[38;5;255m \(index % 500) + let \u{6F22}\u{5B57} = \"\u{65E5}\u{672C}\u{8A9E}\u{1F680}\" \u{1B}[0m"
+        case 3: "\u{1B}[48;2;80;20;20m\u{1B}[38;5;255m \(index % 500) - let old = value // \u{65E7} \u{1F525}\u{1B}[0m"
+        case 4: "\u{1B}[2m  \u{2026} +\(index % 40) lines (ctrl+o to expand)\u{1B}[0m"
+        case 5: "\u{1B}[38;2;100;180;255m\u{23FA}\u{1B}[0m Bash(\u{1B}[33mcargo test\u{1B}[0m) \u{6D4B}\u{8BD5} \u{2705} \(index)"
+        case 6: "  " + String(repeating: "lorem ipsum ", count: 1 + index % 3) + "\u{4E2D}\u{6587} \(index)"
+        default: "\u{1B}[3;37mthinking\u{2026}\u{1B}[0m row \(index) \u{1F600}"
+        }
     }
 }
 
