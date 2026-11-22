@@ -26,7 +26,15 @@ import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
-import { firstProject, homePath, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
+import {
+  firstProject,
+  homePath,
+  isAgentHome,
+  isTemporaryFolder,
+  mostRecentProject,
+  projectLabel,
+  sessionMark,
+} from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
 import { NewProjectName, NewProjectFailure, NewProjectUnsupported } from "./NewProjectName";
@@ -53,7 +61,7 @@ import {
   withoutInlineTokens,
   type ComposerAttachment,
   type DroppedKind,
-  type LinkItem,
+  type KnownPaths,
 } from "../attachments";
 import { composerCommand } from "../cmuxCommands";
 import { shownResumeReference } from "../resumeCommand";
@@ -356,7 +364,7 @@ type Props = NewTabScreenActions & {
   dictation?: Dictation;
   /// On this Mac: where the files of the person's drop or paste are, so a folder or a file no prompt
   /// block takes goes with the first prompt as a link to it (the page has no upload to save one).
-  localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
+  localPaths?(kind: DroppedKind, files: File[], gestureAt?: number): Promise<KnownPaths | undefined>;
   /// Saves files chosen from the New Tab plus menu when the session has no chat upload yet.
   upload?(files: File[]): Promise<UploadResult>;
   /// A fix-from-link request failed while the New Tab remains mounted.
@@ -476,17 +484,21 @@ export function NewTabScreen(props: Props) {
     setMachine({ peer: props.startMachine });
   }, [props.startMachine]);
   const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
-  const startsRecent = !picked && folderless && !props.startCwd;
+  // A temporary folder (the tab beside a scratch chat or terminal in /tmp, which the app also proposes
+  // as the start folder) gives way to the folder used last, when one is known (cmux#49610). With
+  // none known it stays the page's folder, as before: a project can live under /tmp.
+  const temporary = !picked && (props.startCwd ? isTemporaryFolder(props.startCwd) : isTemporaryFolder(props.cwd));
+  const mayStartRecent = !picked && (folderless || temporary) && (!props.startCwd || temporary);
   const candidate = useMemo(
-    () => (startsRecent ? mostRecentProject(snapshot.sessions, home, props.knownProjects) : undefined),
-    [startsRecent, snapshot.sessions, home, props.knownProjects],
+    () => (mayStartRecent ? mostRecentProject(snapshot.sessions, home, props.knownProjects) : undefined),
+    [mayStartRecent, snapshot.sessions, home, props.knownProjects],
   );
   // Decided once, as the page mounts (Leo 2026-10-19: the first frame showed "Choose folder", then
   // flipped to the recent project): the newest in the chats the page already has, else the newest a
   // page of this run heard (newtab/recentProject.ts). A chat updating elsewhere must not move the
   // chip while the user types, so the first one found stays.
   const [latched, setLatched] = useState<string | undefined>(() =>
-    startsRecent ? initialRecentProject(snapshot.sessions, home, props.knownProjects) : undefined,
+    mayStartRecent ? initialRecentProject(snapshot.sessions, home, props.knownProjects) : undefined,
   );
   // Before the host's project list lands, a chat folder counts; once it lands, one it does not
   // list (removed, deleted) gives way to the newest it lists.
@@ -503,10 +515,12 @@ export function NewTabScreen(props: Props) {
   // and only a folder the host's project list still has. Read once, as the page mounts.
   const [startedProject] = useState(() => rememberedStartedProject() ?? props.startedProject);
   const started =
-    startsRecent && home && startedProject
+    mayStartRecent && home && startedProject
       ? firstProject([startedProject.replace(/(.)\/+$/, "$1")], home, props.knownProjects)
       : undefined;
-  const recent = startsRecent ? (started ?? latched ?? candidate) : undefined;
+  const found = mayStartRecent ? (started ?? latched ?? candidate) : undefined;
+  const startsRecent = mayStartRecent && (!temporary || found !== undefined);
+  const recent = startsRecent ? found : undefined;
   // Nothing knows the recent project yet (the run's first page, before its daemon lists the chats):
   // the folder chip keeps its place but names nothing, rather than "Choose folder" and then the
   // project. A daemon that has not answered in RESERVE_MS shows the chip as it is.
