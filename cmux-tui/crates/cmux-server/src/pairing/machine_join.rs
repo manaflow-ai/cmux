@@ -87,7 +87,7 @@ impl StderrFile {
         use std::io::Seek as _;
         let mut text = Vec::new();
         if self.file.rewind().is_ok() {
-            let _ = self.file.by_ref().take(STDERR_MAX).read_to_end(&mut text);
+            let _ = (&self.file).take(STDERR_MAX).read_to_end(&mut text);
         }
         String::from_utf8_lossy(&text).into_owned()
     }
