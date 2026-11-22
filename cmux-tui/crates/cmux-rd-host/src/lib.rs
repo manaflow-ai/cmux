@@ -131,6 +131,9 @@ mod vtdecode;
 mod windows;
 #[cfg(windows)]
 mod windows_host;
+// `cmux-screen-sharing __webrtc-host`: an iPhone (WebRTC) viewer's session under the helper's grants.
+#[cfg(target_os = "macos")]
+pub mod webrtc_host;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod wire;
 #[cfg(target_os = "linux")]
@@ -262,6 +265,11 @@ pub fn run_cli(args: &[String]) -> i32 {
     #[cfg(all(target_os = "macos", feature = "computer-use"))]
     if cmd == computer_use_worker::MODE {
         return computer_use_worker::run(&args[1..]);
+    }
+    // The Screen Sharing helper's WebRTC host (src/webrtc_host.rs): its child owns stdin and stdout.
+    #[cfg(target_os = "macos")]
+    if cmd == webrtc_host::MODE {
+        return webrtc_host::run(&args[1..]);
     }
     if matches!(cmd.as_str(), "-h" | "--help" | "help") {
         println!("{USAGE}");

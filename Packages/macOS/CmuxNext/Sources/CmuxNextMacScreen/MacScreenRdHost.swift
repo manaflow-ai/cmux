@@ -15,8 +15,10 @@ import os
 ///
 /// The viewer chooses the protocol with its offer. A viewer that offers WebRTC
 /// (the iPhone's Screen Sharing viewer, or a Mac from before cmux.rd/1) is served
-/// by `ScreenStreamHost` with that offer and every later signal, so this Mac
-/// stays viewable from every client the hub admits.
+/// with that offer and every later signal by the Screen Sharing helper too
+/// (``MacScreenWebRTCRelay``: its `__webrtc-host` runs the WebRTC host under the
+/// helper's grants), so this Mac stays viewable from every client the hub admits
+/// and this app never captures the screen or posts input itself.
 nonisolated final class MacScreenRdHost: Sendable {
     enum Event: Sendable, Equatable {
         /// The viewer's link is up: it sees (and, in a control session, controls) the screen.
@@ -38,8 +40,10 @@ nonisolated final class MacScreenRdHost: Sendable {
 
     private let session: Session
     private let process = MacScreenRdProcess()
-    /// The WebRTC host when the viewer offered WebRTC (nil until then, and for a cmux.rd/1 viewer).
-    private let webRTC = Mutex<ScreenStreamHost?>(nil)
+    /// The helper's WebRTC session when the viewer offered WebRTC (nil until then, and for a cmux.rd/1 viewer).
+    private let webRTC = Mutex<MacScreenWebRTCRelay?>(nil)
+    /// `disconnectViewer` ran: a WebRTC session that had not started yet never starts.
+    private let disconnected = Mutex(false)
     /// Reads the process's lines until it ends; outlives `serve` (a connected session outlives its
     /// signaling), cancelled by `disconnectViewer`.
     private let output = Mutex<Task<Void, Never>?>(nil)
@@ -47,15 +51,13 @@ nonisolated final class MacScreenRdHost: Sendable {
     /// SECURITY: keeps the rd process's capture leaving out the app's windows only the person at this
     /// Mac may see (`CaptureExcludedWindows`), from its start until the session ends.
     private let processExclusions = Mutex<Task<Void, Never>?>(nil)
-    /// The same for the WebRTC capture (`ScreenCaptureBackend.exclusionsChanged()`).
-    private let webRTCExclusions = Mutex<Task<Void, Never>?>(nil)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mac-screen-rd-host")
     /// How long the started host may take to answer (its key and candidates); tests shorten it.
     let answerTimeout: Duration
     /// The pending no-answer deadline, from the host's start to its answer.
     private let answerDeadline: DemandTimer
 
-    /// Serves a WebRTC viewer; nil is `ScreenStreamHost` (tests replace it: no WebRTC or capture there).
+    /// Serves a WebRTC viewer; nil is the Screen Sharing helper's (``MacScreenWebRTCRelay``; tests replace it).
     private let webRTCServer: (@Sendable (MacScreenForwardedSignaling) async throws -> Void)?
 
     init(session: Session, webRTCServer: (@Sendable (MacScreenForwardedSignaling) async throws -> Void)? = nil,
@@ -200,34 +202,19 @@ nonisolated final class MacScreenRdHost: Sendable {
         try await webRTCServe?.value
     }
 
-    /// Serves a WebRTC viewer with `ScreenStreamHost` over the forwarded signaling.
+    /// Serves a WebRTC viewer from the Screen Sharing helper over the forwarded signaling.
     private func serveWebRTC(_ signaling: MacScreenForwardedSignaling) async throws {
-        let logger = logger
-        let log: @Sendable (String) -> Void = { line in logger.info("\(line, privacy: .public)") }
-        // SECURITY: the capture leaves out the app's windows only the person at this Mac may see, and
-        // follows that list within `CaptureExcludedWindows.recheck` while this session lasts.
-        let host = ScreenStreamHost(name: session.name, viewOnly: session.viewOnly, backend: { [weak self] in
-            let backend = ScreenCaptureBackend(log: log)
-            backend.excludedWindowIDs = { CaptureExcludedWindows().windowIDs }
-            let watch = Self.watchExcludedWindows { [weak backend] _ in backend?.exclusionsChanged() }
-            self?.webRTCExclusions.withLock { previous in
-                previous?.cancel()
-                previous = watch
-            }
-            return backend
-        }, log: log)
-        host.onEvent = { [weak self] event in
-            switch event {
-            case .viewerConnected: self?.emit(.viewerConnected)
-            case .viewerEnded: self?.emit(.viewerEnded("the WebRTC viewer left"))
-            case let .sourceFailed(message): self?.emit(.sourceFailed(message))
-            case .waiting, .roomLost: break
-            }
+        let relay = MacScreenWebRTCRelay(name: session.name, viewOnly: session.viewOnly)
+        relay.onEvent = { [weak self] event in self?.emit(event) }
+        // Stored under the same lock `disconnectViewer` sets: a Stop before this never starts the helper.
+        let start = disconnected.withLock { stopped -> Bool in
+            guard !stopped else { return false }
+            webRTC.withLock { $0 = relay }
+            return true
         }
-        webRTC.withLock { $0 = host }
-        logger.info("serving a WebRTC viewer")
-        defer { webRTCExclusions.withLock { $0 }?.cancel() }
-        try await host.serve(signaling)
+        guard start else { return }
+        logger.info("serving a WebRTC viewer from the Screen Sharing helper")
+        try await relay.serve(signaling)
     }
 
     /// Sends the rd process the windows its capture leaves out now (it applies the list to the running
@@ -241,9 +228,11 @@ nonisolated final class MacScreenRdHost: Sendable {
         }
     }
 
-    /// Reads the app's windows that ask not to be shared every `CaptureExcludedWindows.recheck` until
-    /// cancelled, and calls `changed` with the list at once and on every change, in order.
-    private static func watchExcludedWindows(_ changed: @escaping @Sendable (Set<CGWindowID>) -> Void) -> Task<Void, Never> {
+    /// Reads the app's windows that ask not to be shared (`read`) every `every` until cancelled, and
+    /// calls `changed` with the list at once and on every change, in order.
+    static func watchExcludedWindows(read: @escaping @Sendable () -> Set<CGWindowID> = { CaptureExcludedWindows().windowIDs },
+                                     every: Duration = CaptureExcludedWindows.recheck,
+                                     _ changed: @escaping @Sendable (Set<CGWindowID>) -> Void) -> Task<Void, Never> {
         // task-owner: a capture's exclusion watch; cancelled when its session's capture ends
         Task {
             var last: Set<CGWindowID>?
@@ -251,14 +240,14 @@ nonisolated final class MacScreenRdHost: Sendable {
             // never idle; cancelled when the session's capture ends. No event says a window's sharing changed.
             // concurrency-allow: an unstructured task off the main actor; each pass is one window-list read.
             while !Task.isCancelled {
-                let ids = CaptureExcludedWindows().windowIDs
+                let ids = read()
                 if ids != last {
                     changed(ids)
                     last = ids
                 }
                 // wakeup-allow: the recheck period of the live capture's exclusion watch above (4 a second).
                 // concurrency-allow: off the main actor; bounded by the cancel at the session's end.
-                try? await Task.sleep(for: CaptureExcludedWindows.recheck)
+                try? await Task.sleep(for: every)
             }
         }
     }
@@ -276,11 +265,13 @@ nonisolated final class MacScreenRdHost: Sendable {
     func disconnectViewer() {
         answerDeadline.cancel()
         processExclusions.withLock { $0 }?.cancel()
-        webRTCExclusions.withLock { $0 }?.cancel()
         process.stop()
         output.withLock { $0 }?.cancel()
-        // Closing the peer connection waits on WebRTC's threads: never on the caller's (the main actor).
-        if let host = webRTC.withLock({ $0 }) { Task.detached(priority: WorkPriority.userVisible.taskPriority) { host.disconnectViewer() } }
+        // The helper's WebRTC session: a `stop` line and `bye`, written off the caller's thread.
+        disconnected.withLock { stopped in
+            stopped = true
+            return webRTC.withLock { $0 }
+        }?.disconnectViewer()
     }
 
     private struct Setup: Encodable {

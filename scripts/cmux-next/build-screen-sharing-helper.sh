@@ -9,6 +9,10 @@
 # developer Mac only reuses the cache and never runs Cargo. The cache is keyed by the source of
 # cmux-rd-host's path-dependency crates and cmux-tui/vendor, so an
 # app-only commit reuses the last build.
+#
+# A build (not --cached-only) also builds the helper's WebRTC host (build-screen-sharing-webrtc.sh,
+# its own cache), and --output PATH copies it beside PATH, where bundle-screen-sharing-helper.sh
+# looks first.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -107,7 +111,20 @@ copy_output() {
   chmod 755 "$output"
 }
 
+# The helper's WebRTC host (an iPhone viewer's session), built or reused with the same archs, and
+# copied beside --output.
+webrtc() {
+  local args=()
+  [[ -z "$output" ]] || args=(--output "$(dirname "$output")")
+  build_allowed || args+=(--cached-only)
+  if ! "$repo_root/scripts/cmux-next/build-screen-sharing-webrtc.sh" ${args[@]+"${args[@]}"} >&2; then
+    if build_allowed; then echo "error: the Screen Sharing WebRTC host did not build" >&2; exit 1; fi
+    echo "warning: no cached Screen Sharing WebRTC host; an iPhone viewer cannot watch this build" >&2
+  fi
+}
+
 if [[ -x "$cache_bin" ]]; then
+  [[ "$cached_only" -eq 1 ]] || webrtc
   if [[ "$print_path" -eq 1 ]]; then printf '%s\n' "$cache_bin"; else echo "Screen Sharing helper $source_key $arch_key already cached at $cache_bin"; fi
   copy_output
   exit 0
@@ -151,4 +168,5 @@ mv -f "$staged" "$cache_bin"
 printf '%s\n' "key=$source_key" "commit=$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)" "archs=$archs" \
   "sha256=$(shasum -a 256 "$cache_bin" | awk '{print $1}')" > "$cache_bin.ref"
 copy_output
+webrtc
 if [[ "$print_path" -eq 1 ]]; then printf '%s\n' "$cache_bin"; else echo "Screen Sharing helper built at $cache_bin"; fi

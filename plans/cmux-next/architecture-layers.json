@@ -162,6 +162,7 @@
     "CmuxVNCDemoServer": {"layer": "service", "package": "Packages/Shared/CmuxVNC", "note": "demo RFB server"},
     "CmuxVNCWebRTC": {"layer": "service", "package": "Packages/Shared/CmuxVNCWebRTC", "note": "VNC over WebRTC stream transport"},
     "cmux-vnc-host": {"layer": "service", "package": "Packages/Shared/CmuxVNCWebRTC", "note": "headless VNC over WebRTC host program"},
+    "cmux-screen-sharing-webrtc": {"layer": "service", "package": "Packages/Shared/CmuxVNCWebRTC", "note": "the Screen Sharing helper's WebRTC host child (an iPhone viewer's session under the helper's grants)"},
     "CmuxMobileTunnel": {"layer": "service", "package": "Packages/iOS/CmuxMobileTunnel", "note": "NIO tunnel"},
     "CmuxMobileSSH": {"layer": "service", "package": "Packages/iOS/CmuxMobileSSH", "note": "SSH client (test-only link)"},
     "CmuxUpdater": {"layer": "service", "package": "Packages/macOS/CmuxUpdater", "note": "Sparkle driver; imports AppKit for Sparkle's user driver, kept service so CmuxNextDaemonService gets no hard edge"},

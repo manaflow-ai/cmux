@@ -22,6 +22,10 @@ let package = Package(
         // Chief calls), so the app links one WebRTC.framework.
         .library(name: "WebRTC", targets: ["WebRTC"]),
         .executable(name: "cmux-vnc-host", targets: ["cmux-vnc-host"]),
+        // The Screen Sharing helper's WebRTC host (Sources/CmuxVNCWebRTC/ScreenHostRelay.swift):
+        // scripts/cmux-next/build-screen-sharing-webrtc.sh builds it into
+        // "<app> Screen Sharing.app/Contents/MacOS" beside the helper's executable.
+        .executable(name: "cmux-screen-sharing-webrtc", targets: ["cmux-screen-sharing-webrtc"]),
     ],
     dependencies: [
         .package(path: "../CmuxVNC"),
@@ -35,6 +39,8 @@ let package = Package(
         .target(name: "CmuxVNCWebRTC", dependencies: ["WebRTC", .product(name: "CmuxVNC", package: "CmuxVNC")],
                 swiftSettings: swiftSettings),
         .executableTarget(name: "cmux-vnc-host", dependencies: ["CmuxVNCWebRTC", .product(name: "CmuxVNC", package: "CmuxVNC")],
+                          swiftSettings: swiftSettings),
+        .executableTarget(name: "cmux-screen-sharing-webrtc", dependencies: ["CmuxVNCWebRTC"],
                           swiftSettings: swiftSettings),
         .testTarget(name: "CmuxVNCWebRTCTests",
                     dependencies: ["CmuxVNCWebRTC", "WebRTC", .product(name: "CmuxVNC", package: "CmuxVNC"),

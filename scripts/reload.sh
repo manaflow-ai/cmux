@@ -1572,6 +1572,13 @@ if [[ -z "${CMUX_NEXT_SCREEN_HELPER_BIN:-}" && -x "$PWD/scripts/cmux-next/build-
     export CMUX_NEXT_REQUIRE_SCREEN_HELPER=1
   fi
 fi
+# Its WebRTC host (an iPhone viewer's session, build-screen-sharing-webrtc.sh), the same way: a
+# cached helper with no cached WebRTC host gets one built where builds are allowed.
+if [[ -n "${CMUX_NEXT_SCREEN_HELPER_BIN:-}" && -x "$PWD/scripts/cmux-next/build-screen-sharing-webrtc.sh" ]] \
+  && ! "$PWD/scripts/cmux-next/build-screen-sharing-webrtc.sh" --cached-only --print-path >/dev/null 2>&1 \
+  && "$PWD/scripts/cmux-next/build-screen-sharing-helper.sh" --check-build-allowed; then
+  "$PWD/scripts/cmux-next/build-screen-sharing-webrtc.sh" || exit 1
+fi
 [[ -n "${CMUX_NEXT_SCREEN_HELPER_BIN:-}" ]] && echo "==> cmux-next: bundling the Screen Sharing helper from $CMUX_NEXT_SCREEN_HELPER_BIN"
 
 # The web bundles (agent pane, pages, Agent Activity, webviews

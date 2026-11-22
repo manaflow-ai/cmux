@@ -183,7 +183,10 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   reads them in order, a few MB/s of H.264 at most, and the session's end closes it; DaemonBridgeStream),
   `com.cmuxterm.mac-screen.rd-stdin` (one Mac Screen session's JSON lines into its bundled `cmux rd`
   process, user-initiated, serial: its pipe writes block only it; a few lines per session, candidates and
-  stop, so no back-pressure; MacScreenRdProcess), `com.cmuxterm.mac-screen.rd-socket` (the viewer's
+  stop, so no back-pressure; MacScreenRdProcess), `com.cmuxterm.mac-screen.webrtc-relay-stdin` (one iPhone
+  (WebRTC) viewer's session's JSON lines into the Screen Sharing helper's `__webrtc-host`, user-initiated,
+  serial: its pipe writes block only it; the setup, the viewer's signals, an exclusion list per change and
+  stop, so no back-pressure; MacScreenWebRTCRelay), `com.cmuxterm.mac-screen.rd-socket` (the viewer's
   Unix socket to `cmux rd connect`, user-initiated: Network delivers the stream's bytes here, it blocks on
   nothing, the decode pipeline reads them; MacScreenUnixStream),
   `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`, `com.cmuxterm.mobile.paired-devices` (the iPhone

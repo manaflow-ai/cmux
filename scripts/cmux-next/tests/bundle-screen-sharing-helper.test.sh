@@ -7,6 +7,8 @@
 # processed Info.plist yet, the same phase again over the bundled helper, a previous build's Info.plist
 # (another name and id) left in the app, --app with no Info.plist, and --stamp refusing a name that is
 # not one. Each run must leave exactly one helper, named from this build, and no staging directory.
+# Then the WebRTC host (an iPhone viewer's session): taken from beside the helper binary into
+# Contents/MacOS and Contents/Frameworks, and its absence an error only when required.
 # Runs on Linux and macOS (python3 and file(1)).
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -38,6 +40,9 @@ chmod 755 "$TMP/PlistBuddy" "$TMP/codesign"
 printf '\xcf\xfa\xed\xfe\x0c\x00\x00\x01\x00\x00\x00\x00\x02\x00\x00\x00' > "$TMP/cmux-screen-sharing"
 head -c 4080 /dev/zero >> "$TMP/cmux-screen-sharing"
 
+helper_bin="$TMP/cmux-screen-sharing"
+extra=()
+
 NAME="cmux NEXT DEV"
 ID=com.cmuxterm.app.next.dev
 build="$TMP/build"
@@ -58,7 +63,8 @@ run() { # [args...] -> out, rc; the Xcode phase's settings unless --app/--stamp
   set +e
   out=$(env -i PATH=/usr/bin:/bin HOME="$TMP" TMPDIR="$TMP" CONFIGURATION=Debug SRCROOT="$ROOT" \
     CMUX_PLISTBUDDY="$TMP/PlistBuddy" CMUX_CODESIGN_TOOL="$TMP/codesign" \
-    CMUX_NEXT_SCREEN_HELPER_BIN="$TMP/cmux-screen-sharing" ${settings[@]+"${settings[@]}"} \
+    CMUX_NEXT_SCREEN_WEBRTC_CACHE="$TMP/no-webrtc-cache" \
+    CMUX_NEXT_SCREEN_HELPER_BIN="$helper_bin" ${extra[@]+"${extra[@]}"} ${settings[@]+"${settings[@]}"} \
     /bin/bash "$SCRIPT" "$@" 2>&1)
   rc=$?
   set -e
@@ -97,5 +103,30 @@ write_info "cmux/NEXT" "$ID"
 run --stamp "$app"
 [[ $rc != 0 ]] || fail "--stamp took the name 'cmux/NEXT'" "$out"
 [[ "$(ls -A "$library")" == "$NAME Screen Sharing.app" ]] || fail "--stamp moved the helper on a refused name" "$out"
+
+# 6. A helper binary with the WebRTC host beside it (build-screen-sharing-helper.sh --output): both
+# parts land in the helper, the host in Contents/MacOS, libwebrtc in Contents/Frameworks.
+write_info "$NAME" "$ID"
+mkdir -p "$TMP/with-webrtc"
+helper_bin="$TMP/with-webrtc/cmux-screen-sharing"
+for part in cmux-screen-sharing cmux-screen-sharing-webrtc libWebRTC.dylib; do
+  cp "$TMP/cmux-screen-sharing" "$TMP/with-webrtc/$part"
+  chmod 755 "$TMP/with-webrtc/$part"
+done
+extra=(CMUX_NEXT_REQUIRE_SCREEN_WEBRTC=1)
+rm -f "$build/tmp/bundle-screen-sharing-helper.stamp"
+run
+expect_one_helper "with the WebRTC host" "$NAME" "$ID.screen-sharing"
+helper="$library/$NAME Screen Sharing.app"
+[[ -x "$helper/Contents/MacOS/cmux-screen-sharing-webrtc" ]] || fail "the WebRTC host is not in Contents/MacOS" "$out"
+[[ -f "$helper/Contents/Frameworks/libWebRTC.dylib" ]] || fail "libWebRTC.dylib is not in Contents/Frameworks" "$out"
+grep -q "libWebRTC.dylib: replacing existing signature" <<<"$out" || fail "libWebRTC.dylib was not signed before the helper" "$out"
+
+# 7. Required but missing (no host beside the binary, none cached): an error, not a helper without it.
+helper_bin="$TMP/cmux-screen-sharing"
+rm -f "$build/tmp/bundle-screen-sharing-helper.stamp"
+run
+[[ $rc != 0 ]] || fail "a required WebRTC host was missing and the phase passed" "$out"
+grep -q "no Screen Sharing WebRTC host" <<<"$out" || fail "the missing WebRTC host is not named" "$out"
 
 echo "PASS: bundle-screen-sharing-helper.sh reruns over the same app"

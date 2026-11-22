@@ -90,7 +90,9 @@ check_screen_share_helper() {
   local share share_copy
   for share in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
     [[ -d "$share" ]] || continue
-    /usr/bin/codesign --verify --strict --verbose=2 "$share"
+    # --deep: the helper's WebRTC host (Contents/MacOS/cmux-screen-sharing-webrtc and its
+    # Contents/Frameworks/libWebRTC.dylib) runs only when the helper's whole seal verifies.
+    /usr/bin/codesign --verify --strict --deep --verbose=2 "$share"
     if /usr/bin/codesign -d --entitlements :- "$share" 2>&1 | grep -q "application-identifier"; then
       echo "error: nested Screen Sharing helper unexpectedly carries application-identifier" >&2
       exit 1

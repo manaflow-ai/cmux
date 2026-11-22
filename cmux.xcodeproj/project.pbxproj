@@ -577,6 +577,9 @@
 			inputPaths = (
 				"$(SRCROOT)/scripts/cmux-next/bundle-screen-sharing-helper.sh",
 				"$(SRCROOT)/scripts/cmux-next/build-screen-sharing-helper.sh",
+				"$(SRCROOT)/scripts/cmux-next/build-screen-sharing-webrtc.sh",
+				"$(SRCROOT)/Packages/Shared/CmuxVNCWebRTC/Sources",
+				"$(SRCROOT)/Packages/Shared/CmuxVNC/Sources",
 				"$(SRCROOT)/cmux-tui/crates/cmux-rd-host",
 				"$(SRCROOT)/cmux-tui/crates/cmux-codecs",
 				"$(SRCROOT)/cmux-tui/crates/cmux-computer-use",
@@ -593,6 +596,7 @@
 				"$(SRCROOT)/cmux-tui/Cargo.toml",
 				"$(CMUX_NEXT_SCREEN_HELPER_BIN)",
 				"$(CMUX_NEXT_REQUIRE_SCREEN_HELPER)",
+				"$(CMUX_NEXT_REQUIRE_SCREEN_WEBRTC)",
 				"$(EXPANDED_CODE_SIGN_IDENTITY)",
 				"$(ARCHS)",
 				"$(CONFIGURATION)",
