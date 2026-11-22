@@ -3,7 +3,7 @@
 // permission card's allow and the grouped panel's allow answer only after the pointer, Return or the
 // answer's letter stays down for the hold time; a click or an early release answers nothing; deny never
 // holds. With it off (no `hold` prop, no experiment key) the card's click answers at once, as today.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxPermission } from "../src/agent-session/acpmux/model";
 import { settleReact } from "./support/domTeardown";
@@ -52,7 +52,6 @@ const doc = dom.window.document;
 const host = doc.getElementById("root")!;
 const editor = doc.getElementById("editor")!;
 const HOLD_MS = 60;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const options: AcpmuxPermission["options"] = [
   { id: "allow", name: "Allow", kind: "allow_once", allow: true },
@@ -87,7 +86,11 @@ const fire = (target: Element, type: string, init: Record<string, unknown> = {})
     const Event = type.startsWith("key") ? dom.window.KeyboardEvent : dom.window.MouseEvent;
     target.dispatchEvent(new Event(type, { bubbles: true, cancelable: true, button: 0, ...init }));
   });
-const wait = (ms: number) => act(async () => void (await sleep(ms)));
+// The hold's time is the behavior under test: a fake clock moves it (its timers, frames and
+// performance.now), so a loaded runner that wakes late cannot fill or miss a hold.
+beforeEach(() => void jest.useFakeTimers());
+afterEach(() => void jest.useRealTimers());
+const wait = (ms: number) => act(async () => void jest.advanceTimersByTime(ms));
 
 test("off: the allow is today's button, and a click answers at once", async () => {
   const card = await mountCard(ask("off", "rm -rf build"));

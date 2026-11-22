@@ -17,7 +17,8 @@ button[data-hold]::before {
   content: "";
   position: absolute;
   inset: 0;
-  z-index: -1;
+  /* Behind the label, over the button's fill: the button isolates its own stacking context. */
+  z-index: var(--layer-backdrop);
   background: color-mix(in srgb, currentColor 18%, transparent);
   transform: scaleX(var(--acpmux-hold-progress, 0));
   transform-origin: left center;

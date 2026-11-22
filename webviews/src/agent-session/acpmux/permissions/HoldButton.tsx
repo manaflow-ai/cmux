@@ -6,7 +6,7 @@
 // same ask's revision, the hold is cancelled, and a hold that fills checks the identity once more before
 // it answers, so a press on one ask can never approve the next. When the experiment is off the cards
 // call none of this and keep today's click.
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motionMode } from "../../../ui/motion/motionMode";
 import { holdProgress, REDUCED_STEPS } from "./holdToApprove";
 import "./holdButton.css";
@@ -73,10 +73,14 @@ export function useHoldToApprove({
   const [reduced, setReduced] = useState(false);
   const ref = useRef<HTMLButtonElement | null>(null);
   const complete = useRef(onComplete);
-  complete.current = onComplete;
   /// The identity shown now, read when a hold fills.
   const current = useRef(identity);
-  current.current = identity;
+  // Written after each commit, not during render (the React Compiler skips a hook that writes a ref
+  // while rendering); a hold's timer and handlers only read them after a commit.
+  useLayoutEffect(() => {
+    complete.current = onComplete;
+    current.current = identity;
+  });
   const run = useRef<{ phase: HoldPhase; stop: () => void; identity?: string; pointerId?: number }>({
     phase: "idle",
     stop: () => undefined,
