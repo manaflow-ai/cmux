@@ -85,6 +85,34 @@ import UIKit
         #expect(SubagentFooter(agent, offline: true).text == "Done", "a finished subagent's footer stays its state offline")
     }
 
+    /// Streamed text growing inside the subagent's answer reaches its row: the same row, its new
+    /// text, no other row made again.
+    @Test func streamedTextInsideAnAnswerReachesItsRow() async throws {
+        let store = Self.subagentStore(task: "t", state: .running)
+        let list = ChatTranscriptList(store: store, surface: AgentChatSurface(), source: .subagent("s", store: store))
+        let ids = Self.shown(list)
+        func answer() -> String {
+            list.layout.items.compactMap { list.row($0.id) }.compactMap { row -> String? in
+                guard case .block(let id, let block) = row.kind, id == "m1", case .paragraph(let text) = block.kind else { return nil }
+                return text
+            }.joined(separator: " ")
+        }
+        #expect(answer().hasPrefix("Answer"))
+        for n in 0..<40 {
+            store.apply(.subagentUpdate(subagentID: "s", .agentMessageChunk(text: " more\(n)", messageId: "m1")))
+            list.reload()
+        }
+        let text = list.context.messageText("m1")
+        #expect(text.hasSuffix("more39"), "the store's answer grew: \(text.suffix(40))")
+        let rows = list.layout.items.compactMap { list.row($0.id) }
+        let lastBlock = rows.compactMap { row -> String? in
+            if case .block(let id, let block) = row.kind, id == "m1" { return String(describing: block.kind) } else { return nil }
+        }.last ?? ""
+        #expect(lastBlock.contains("more39"), "the answer's row shows the streamed text: \(lastBlock.suffix(80))")
+        #expect(list.layout.items.map(\.id).filter { !$0.hasPrefix("m-m1#") } == ids.filter { !$0.hasPrefix("m-m1#") },
+                "the other rows stay")
+    }
+
     /// The subagent's records reach the list (it observes the subagent, not the chat's turns).
     @Test func aSubagentsRecordsReloadItsList() async {
         let store = Self.subagentStore(task: "t", state: .running)

@@ -66,10 +66,20 @@ final class SubagentTranscriptUITests: XCTestCase {
         let app = launch("subagent", count: 10, stream: true)
         defer { app.terminate() }
         XCTAssertTrue(app.navigationBars["WireGuard dialer"].waitForExistence(timeout: 40), "the transcript opens\n\(app.debugDescription)")
-        // Tokens stream into the running subagent's answer.
-        let token = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "token40 ")).firstMatch
-        for _ in 0..<12 where !token.exists { app.swipeUp() }
-        XCTAssertTrue(token.waitForExistence(timeout: 20), "streamed tokens show\n\(app.debugDescription)")
+        // Tokens stream into the running subagent's answer. A running transcript opens on its end
+        // (following it), so the newest tokens are on screen: the newest one shown keeps growing.
+        let tokens = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "token"))
+        XCTAssertTrue(tokens.firstMatch.waitForExistence(timeout: 20), "streamed tokens show\n\(app.debugDescription)")
+        func newest() -> Int {
+            tokens.allElementsBoundByIndex.compactMap { element in
+                element.label.split(separator: " ").compactMap { Int($0.dropFirst("token".count)) }.max()
+            }.max() ?? 0
+        }
+        let first = newest()
+        pass(3)
+        let later = newest()
+        print("CMUX_STREAM newest token \(first) then \(later) 3 s later")
+        XCTAssertGreaterThan(later, first + 50, "tokens keep arriving on screen (\(first) -> \(later), 50 a second)")
         attach(app, "running")
     }
 
@@ -180,12 +190,13 @@ final class SubagentTranscriptUITests: XCTestCase {
         let offline = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Mac offline"), object: footer)
         XCTAssertEqual(XCTWaiter().wait(for: [offline], timeout: 20), .completed, "the footer says the Mac is offline, has '\(footer.label)'")
         let tokens = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "token"))
-        func newest() -> String { tokens.allElementsBoundByIndex.last?.label ?? "" }
-        let text = newest()
+        func shown() -> [String] { tokens.allElementsBoundByIndex.map(\.label) }
+        let text = shown()
+        XCTAssertFalse(text.isEmpty, "the streamed rows show at the end\n\(app.debugDescription)")
         pass(3)
-        XCTAssertEqual(newest(), text, "nothing streams while offline")
+        XCTAssertEqual(shown(), text, "nothing streams while offline, and the rows shown stay")
         XCTAssertEqual(footer.label, "Mac offline", "the footer stays")
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Step ")).firstMatch.exists, "the rows stay")
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Ran swift build")).firstMatch.exists, "the rows stay")
         attach(app, "2-offline")
     }
 
