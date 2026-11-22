@@ -24,6 +24,17 @@ public final class UpdateIdleGate {
         self.newChatDrafts = newChatDrafts
     }
 
+    /// ``hold(idleMinutes:lastInput:declined:sinceDecline:)`` in the shape `UpdaterService.useIdleGate` takes.
+    public func answer(idleMinutes: Double, lastInput: Date?, declined: Int, sinceDecline: Double?) -> (hold: String?, away: String?) {
+        let answer = hold(idleMinutes: idleMinutes, lastInput: lastInput, declined: declined, sinceDecline: sinceDecline)
+        return (answer.hold?.rawValue, answer.away)
+    }
+
+    /// Settings > Updates' Next Check: seconds from now until the updater's next scheduled check (Rust's rule).
+    public func nextCheck(secondsSinceLastCheck: Double?, intervalSeconds: Double) -> Double? {
+        rules.updateNextCheck(secondsSinceLastCheck: secondsSinceLastCheck, intervalSeconds: intervalSeconds)
+    }
+
     /// Why the staged update waits now (nil when it installs) and the away reading an install acts on. Away is
     /// leo-workspace `tools/host_presence.py`'s: input idle past the idle time OR the screen locked (Leo,
     /// 2026-11-22: the Mac should update while he is away from the keyboard). `lastInput` stands in for the

@@ -2,10 +2,9 @@ import CmuxNextActions
 import CmuxNextUpdater
 import Foundation
 
-/// Update actions (menu, palette, shortcut, CLI `settings check-for-updates`
-/// etc.) over the one `UpdaterService`. Checks always run: release builds
-/// use Sparkle, DEV builds probe the feed read-only. Install and channel
-/// switch are disabled, with the reason, where they cannot run.
+/// Update actions (menu, palette, shortcut, CLI `settings check-for-updates`, `app relaunch` etc.) over the one
+/// `UpdaterService`. Checks always run: release builds use Sparkle, DEV builds probe the feed read-only. Install
+/// and channel switch are disabled, with the reason, where they cannot run.
 enum UpdateHandlers {
     static func bind(into registry: ActionRegistry, updater: UpdaterService, openWhatsNew: @escaping @MainActor () -> Bool = { false },
                      whatsNewUnavailable: @escaping @MainActor () -> String? = { nil },
@@ -36,6 +35,7 @@ enum UpdateHandlers {
                 registry.track(result: result(updater.installAnswer(after: baseline)))
             })
         }
+        registry.bind("relaunchKeepSessions", run: { [weak registry] in registry?.track(result: result(updater.relaunchAnswer(ifNewer: $0["ifNewer"]?.boolValue == true))) })
         // The ring return's rollback check reads the same stores as updates.rollback.
         updater.pulledWatch.stateDirectories = stateDirectories
         // Drop back (destructive: every entrypoint confirms; the CLI passes --confirm).

@@ -7,7 +7,6 @@ import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextUpdater
 import CmuxNextWebUpdates
-import CmuxNextWindowRules
 import Observation
 
 extension UpdaterService {
@@ -28,12 +27,7 @@ extension UpdaterService {
         relaunchBlockers = { [weak self, weak services, activity] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
         // Before the settings apply (`apply(_:)`): Update When Idle installs nothing without its gate (UpdateIdleGate).
         let idle = UpdateIdleGate(activity: activity, daemon: services.machines.local) { [weak services] in services?.agentTabs.unsentDrafts.count }
-        useIdleGate { minutes, lastInput, declined, sinceDecline in
-            let answer = idle.hold(idleMinutes: minutes, lastInput: lastInput, declined: declined, sinceDecline: sinceDecline)
-            return (answer.hold?.rawValue, answer.away)
-        }
-        let rules = WindowRules()
-        nextCheckRule = { rules.updateNextCheck(secondsSinceLastCheck: $0, intervalSeconds: $1) }
+        useIdleGate(idle.answer, nextCheck: idle.nextCheck)
         // The windows leave the screen when Sparkle commits to the relaunch,
         // not at the click (`UpdateWindowHandoff`); a failed install brings them back.
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)

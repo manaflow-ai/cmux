@@ -87,6 +87,8 @@ public final class UpdaterService {
     @ObservationIgnored var installGaveUp = false
     /// The installing card's one-second tick, only while an install runs.
     @ObservationIgnored let installTimer: DemandTimer
+    /// `cmux app relaunch`'s quit, a moment after its answer went out (``relaunchAnswer(ifNewer:)``).
+    @ObservationIgnored let relaunchTimer: DemandTimer
     @ObservationIgnored let stagedRefresh: StagedUpdateRefresh
     /// The tip app's 5-minute feed read while nothing waits (``TipUpdateCheck``).
     @ObservationIgnored let tipCheck: TipUpdateCheck
@@ -335,6 +337,7 @@ public final class UpdaterService {
         automaticUpdates = identity.track.downloadsAutomaticallyByDefault
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
+        relaunchTimer = DemandTimer(owner: "UpdaterService.relaunch", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
         prewarmWaitTimer = DemandTimer(owner: "UpdaterService.prewarmWait", clock: clock)
         stagedRefresh = StagedUpdateRefresh(clock: clock)
@@ -590,6 +593,8 @@ public final class UpdaterService {
     /// notice card; a found update downloads and waits as the staged update
     /// card (Restart to Update).
     public func installAvailableUpdate() throws {
+        // The bundle may have been replaced since the last read (an update cycle or activation).
+        checkInstalledBuild()
         if relaunchIntoInstalledBuild() { return }
         guard let controller, disabledReason == nil else { throw UpdaterUnavailable(reason: disabledReason) }
         #if DEBUG || CMUX_BENCH_HOOKS
