@@ -20,8 +20,9 @@ it from missing a test:
     name found in a non-code file (a fixture, a config) selects everything;
   - a test always runs when it, or any module it imports, does what no import graph follows:
     reads files (sync or async, a glob, Bun.file), imports a computed path or an alias, starts
-    Vite or a browser, or spawns a process. The content-pinned generated frame-table reader
-    is exempt only when all changed files are isolated tests that cannot feed its bundle;
+    Vite or a browser, or spawns a process. A content-pinned reviewed reader (PINNED_READERS)
+    is exempt: its dynamic load cannot read a file this diff changes, so it stays an ordinary
+    node of the import graph, and any edit to it restores the fallback;
   - a build or runner input (webviews/package.json, bun.lock, bunfig, tsconfig, vite configs,
     webviews/scripts/, the test support dir, the preload bunfig loads before every file and
     what it imports, the runner scripts, this file, ci-web.yml) selects everything, as does
@@ -75,13 +76,20 @@ TEMPLATE_IMPORT = re.compile(r"import\(\s*`(\.{1,2}/[^`$?]+)")
 QUERY_IMPORT = re.compile(r"""(?:from\s+|import\(\s*)["'](\.{1,2}/[^"'?]+)\?[\w&=-]+["']""")
 PRELOAD = WEB + "test/preload.ts"
 NAME_MIN = 10
-# This reader loads only the generated bundle's site table. A standalone test
-# file cannot change that table. Pin the reviewed reader: any edit restores the
-# unresolved fallback until its inputs have been reviewed again. Production
-# changes still select every consumer, as do tests imported by production code.
-GENERATED_READERS = {
+# Reviewed readers whose dynamic load no bun test can point at a file a diff changes. Each is pinned
+# by content: any edit makes it untracked again until it is reviewed and its digest updated here.
+#   frameOwners.ts imports chunks/frame-sites.js beside the built pane's document. Only a real pane
+#     build writes that file, and the one test that runs that build (agent-pane-frame-sites.test.ts)
+#     reads and spawns itself, so it is in the always set anyway. Until 2026-11-22 the reader was
+#     exempt only for test-only diffs, which put its 1,938 consumers (61% of all test files) in
+#     every other selection: an unrelated one-line change selected 2,720 of 3,157 files.
+#   domTeardown.ts require()s react-dom's own `scheduler` package. A package changes only with
+#     webviews/package.json or bun.lock, which select everything already.
+PINNED_READERS = {
     WEB + "src/agent-session/acpmux/frameOwners.ts":
         "99c31528e5b7e676cb9aee8e069cd77f8cee5feb8af52119801287a48cd6c37e",
+    WEB + "test/support/domTeardown.ts":
+        "bc39e128441ba75445140da45a75078d5f2659612ca1be66c36cb6730e9b1ec5",
 }
 
 
@@ -102,30 +110,10 @@ class Selector:
                 self.imports.setdefault(source, set()).add(target)
         untracked = {f for f, text in self.text.items() if UNTRACKED.search(text)
                      or (not f.startswith(WEB + "src/") or f in self.graph.tests) and UNTRACKED_OUTSIDE_SRC.search(text)}
-        generated = {f for f, digest in GENERATED_READERS.items() if f in self.text
-                     and hashlib.sha256((root / f).read_bytes()).hexdigest() == digest}
-        self.generated = set().union(*(self.reaching(f) for f in generated)) if generated else set()
-        self.always = {t for t in self.graph.tests if self.closure(t) & (untracked - generated)}
+        self.pinned = {f for f, digest in PINNED_READERS.items() if f in self.text
+                       and hashlib.sha256((root / f).read_bytes()).hexdigest() == digest}
+        self.always = {t for t in self.graph.tests if self.closure(t) & (untracked - self.pinned)}
         self.preload = self.closure(PRELOAD)
-
-    def isolated_test(self, path: str) -> bool:
-        """A test cannot feed a bundle if every reverse edge stays in test files.
-
-        Helpers, fixtures, deleted files and unresolved inputs are not exempt.
-        Follow all reverse edges, including test -> helper -> production.
-        """
-        if path not in self.graph.tests:
-            return False
-        seen, frontier = set(), [path]
-        while frontier:
-            source = frontier.pop()
-            if source in seen:
-                continue
-            seen.add(source)
-            if source not in self.graph.tests:
-                return False
-            frontier.extend(self.graph.importers.get(source, ()))
-        return True
 
     def closure(self, path: str) -> set[str]:
         """`path` and every module it imports, transitively."""
@@ -178,8 +166,7 @@ class Selector:
             if f.startswith(WEB) and not named and not f.endswith(ft.EXTENSIONS):
                 return None, f"no rule maps {f}"
             out |= named
-        generated = self.generated if any(not self.isolated_test(f) for f in files) else set()
-        return out | self.always | generated, ""
+        return out | self.always, ""
 
 
 def changed(root: Path, base: str, head: str) -> list[str]:
