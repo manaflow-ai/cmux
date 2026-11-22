@@ -41,6 +41,9 @@
 //! - `NETCOND_STREAM_KB` (default 0: off): while each path dials and echoes, a streaming session
 //!   on its own relayed link through the same radio pushes this many KiB every 10 ms and drains
 //!   the echo (a long live agent stream on the same Mac and Wi-Fi: the duress case).
+//! - `NETCOND_STREAM_RADIO` (`shared` default, or `own`): `own` gives the stream its own radio
+//!   (its own shaper and source address), as a second socket behind a real NAT gets its own
+//!   mapping; the shaper is one mapping per radio (it answers "whichever spoke last").
 
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -313,7 +316,17 @@ async fn cold(profile: &LinkProfile, path: &str, run: u64, seed: u64, echo_count
     let trace = Trace::new();
     let mac = Mac::start().await;
     let radio = Radio::start(&mac, profile, seed, &trace).await;
-    let load = if stream_kib > 0 { stream_load(&mac, &radio, stream_kib).await } else { None };
+    let own_radio = std::env::var("NETCOND_STREAM_RADIO").is_ok_and(|value| value == "own");
+    let stream_radio = if stream_kib > 0 && own_radio {
+        Some(Radio::start(&mac, profile, seed + 1_000, &trace).await)
+    } else {
+        None
+    };
+    let load = if stream_kib > 0 {
+        stream_load(&mac, stream_radio.as_ref().unwrap_or(&radio), stream_kib).await
+    } else {
+        None
+    };
     if stream_kib > 0 {
         emit(profile, path, "stream_up", Some(if load.is_some() { 1.0 } else { 0.0 }), run, seed);
     }
