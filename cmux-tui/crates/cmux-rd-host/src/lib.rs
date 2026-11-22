@@ -102,6 +102,8 @@ mod screen_host;
 mod selftest;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
 mod serve;
+#[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
+mod serve_wish;
 #[cfg(target_os = "linux")]
 mod shm;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -110,6 +112,8 @@ mod stream;
 mod synthetic;
 #[cfg(target_os = "linux")]
 mod systemd;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod test_loss;
 #[cfg(target_os = "linux")]
 mod testapp;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -131,6 +135,8 @@ mod wire;
 mod workload;
 #[cfg(target_os = "linux")]
 mod x11;
+#[cfg(target_os = "linux")]
+mod x11_view;
 #[cfg(feature = "x264")]
 mod x264;
 

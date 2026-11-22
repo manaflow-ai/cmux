@@ -5,7 +5,9 @@
 // page's <head> loads English plus the app's language synchronously, before the pane's module
 // runs, into `window.__cmuxPaneStrings`. Tests (test/preload.ts) and the dev server (dev.tsx)
 // install the whole table there. The language is the first of the app's languages
-// (`navigator.languages`, which follows the app's preferred localizations) that is loaded.
+// (`appLanguages()`: the Language setting's, else `navigator.languages`, which follows the app's
+// preferred localizations) that is loaded. A setting change loads its locale file and dispatches
+// `languagechange` (shared/appLanguage.ts).
 //
 // A page whose head scripts did not install English by the time this module runs (a locale file
 // that failed to load) re-requests the same files itself (`recoverStrings`) and re-renders every
@@ -17,7 +19,9 @@
 // would look constant to the compiler and keep memoized strings stale. `translate` is for
 // code outside render (event handlers, clients), where the current language is read once.
 import { useSyncExternalStore } from "react";
+import { appLanguages } from "../../pages/shared/appLanguage";
 import { resolveLanguage, setDocumentLanguage } from "../../pages/shared/i18n";
+import { englishScriptSources, LANGUAGE_CODE, loadScript, localeScriptSource } from "../../pages/shared/localeScripts";
 import { intl } from "../../ui/intl";
 
 type Catalog = typeof import("./generated/strings.json");
@@ -43,7 +47,7 @@ export type StringValues = Record<string, string | number>;
 export type Translate = (key: StringKey, values?: StringValues) => string;
 
 /** The pane's language: the first of the app's languages the pane has strings for. */
-export function paneLanguage(languages: readonly string[] = globalThis.navigator?.languages ?? []): PaneLanguage {
+export function paneLanguage(languages: readonly string[] = appLanguages()): PaneLanguage {
   return resolveLanguage(languages, Object.keys(tables()));
 }
 
@@ -102,49 +106,27 @@ function stringsArrived(): void {
   for (const listener of listeners) listener();
 }
 
-/** The `locales/<code>.js` script tags the head loads, as written there (`locales/en.js`, or a
- *  page's own prefix such as `/g/locales/en.js`). */
-const ENGLISH_SCRIPT = /(^|\/)locales\/en\.js(\?.*)?$/;
-const LANGUAGE_CODE = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
-/** Retry delays after a failed load; the third failure gives up (the page keeps raw keys). */
-const RETRY_MS = [250, 1000];
-
 /**
  * When the page module runs without the English table (the head's `locales/en.js` failed to load),
- * loads it again, plus the language the head's loader picked, by the same paths the head names.
+ * loads it again, plus the language the head's loader picked, by the same paths the head names
+ * (shared/localeScripts.ts, which retries a failed load twice; then the page keeps raw keys).
  * Each arrival re-renders every `useT()` caller (``stringsArrived``). `<html data-strings-recovery>`
  * records what happened (`loading`, `loaded`, `failed`) for a probe. Returns whether it started.
  */
 export function recoverStrings(doc: Document | undefined = globalThis.document, language = headLanguage): boolean {
   if (!doc?.head || tables().en) return false;
-  const english = Array.from(doc.querySelectorAll<HTMLScriptElement>("script[src]"))
-    .map((script) => script.getAttribute("src") ?? "")
-    .find((src) => ENGLISH_SCRIPT.test(src));
+  const english = englishScriptSources(doc)[0];
   if (!english) return false;
   const sources = [english];
   if (language && language !== "en" && LANGUAGE_CODE.test(language))
-    sources.push(english.replace(/en\.js(\?.*)?$/, `${language}.js$1`));
+    sources.push(localeScriptSource(english, language));
   const root = doc.documentElement;
   root.dataset.stringsRecovery = "loading";
-  const load = (src: string, attempt: number) => {
-    const script = doc.createElement("script");
-    script.src = src;
-    script.addEventListener("load", () => {
-      if (src === english) root.dataset.stringsRecovery = tables().en ? "loaded" : "failed";
-      stringsArrived();
+  for (const src of sources)
+    loadScript(doc, src, (ok) => {
+      if (src === english) root.dataset.stringsRecovery = ok && tables().en ? "loaded" : "failed";
+      if (ok) stringsArrived();
     });
-    script.addEventListener("error", () => {
-      script.remove();
-      const delay = RETRY_MS[attempt];
-      if (delay === undefined) {
-        if (src === english) root.dataset.stringsRecovery = "failed";
-        return;
-      }
-      (doc.defaultView ?? globalThis).setTimeout(() => load(src, attempt + 1), delay);
-    });
-    doc.head.appendChild(script);
-  };
-  for (const src of sources) load(src, 0);
   return true;
 }
 

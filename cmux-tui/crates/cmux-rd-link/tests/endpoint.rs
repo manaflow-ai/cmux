@@ -6,7 +6,7 @@
 
 use cmux_rd_link::{
     Endpoint, EndpointEvent, Event, HANDSHAKE_RETRY_US, HANDSHAKE_TIMEOUT_US, KeyPair, LinkError,
-    Role, Route,
+    Role, Route, SIGNALING_TIMEOUT_US,
 };
 use cmux_transport::PathKind;
 use std::net::SocketAddr;
@@ -178,16 +178,59 @@ fn an_initial_handshake_waits_for_a_candidate_instead_of_being_dropped() {
     }
 }
 
+/// Signaling can take longer than the handshake's own bound (the device hub under load; the
+/// pair bench's relayed lines took 6 to 23 s on 2026-11-20). The handshake's clock starts when
+/// the first route arrives, so a late route still connects.
 #[test]
-fn a_missing_candidate_still_reaches_the_handshake_timeout() {
+fn a_route_that_arrives_after_the_handshake_timeout_still_connects() {
+    let viewer_key = KeyPair::generate().unwrap();
+    let host_key = KeyPair::generate().unwrap();
+    let mut viewer =
+        Endpoint::new(Role::Initiator, b"late", &viewer_key, host_key.public, 0).unwrap();
+    let mut host =
+        Endpoint::new(Role::Responder, b"late", &host_key, viewer_key.public, 0).unwrap();
+
+    let late = HANDSHAKE_TIMEOUT_US + 2_000_000;
+    let mut now = 0;
+    while now < late {
+        now += HANDSHAKE_RETRY_US;
+        assert!(viewer.poll_transmit(now).expect("waiting for signaling fails nothing").is_empty());
+        assert!(host.poll_transmit(now).expect("waiting for the viewer fails nothing").is_empty());
+    }
+    viewer.add_path(Route::Udp(addr(HOST_LAN)), PathKind::DirectLan, now);
+    for _ in 0..4 {
+        for t in viewer.poll_transmit(now).unwrap() {
+            host.on_packet(Route::Udp(addr(VIEWER_WAN)), &t.packet, now).unwrap();
+        }
+        for t in host.poll_transmit(now).unwrap() {
+            viewer.on_packet(Route::Udp(addr(HOST_LAN)), &t.packet, now).unwrap();
+        }
+    }
+    assert!(viewer.link().is_established(), "the viewer connects on the late route");
+    assert!(host.link().is_established(), "the host connects on the late route");
+}
+
+/// A route that never arrives still ends the session, at the signaling bound, so a dead peer
+/// cannot hold the socket; once a route arrives, the handshake has its own bound from then.
+#[test]
+fn a_route_that_never_arrives_fails_at_its_bound() {
     let viewer_key = KeyPair::generate().unwrap();
     let host_key = KeyPair::generate().unwrap();
     let mut viewer =
         Endpoint::new(Role::Initiator, b"timeout", &viewer_key, host_key.public, 0).unwrap();
 
     assert!(viewer.poll_transmit(0).unwrap().is_empty());
+    assert!(viewer.poll_transmit(HANDSHAKE_TIMEOUT_US + 1).unwrap().is_empty(), "still waiting");
+    assert!(viewer.next_deadline_us().is_some_and(|at| at <= SIGNALING_TIMEOUT_US + 1));
+    assert!(matches!(viewer.poll_transmit(SIGNALING_TIMEOUT_US + 1), Err(LinkError::NoRoute)));
+
+    let mut viewer =
+        Endpoint::new(Role::Initiator, b"timeout", &viewer_key, host_key.public, 0).unwrap();
+    let routed = HANDSHAKE_TIMEOUT_US + 2_000_000;
+    viewer.add_path(Route::Udp(addr(HOST_LAN)), PathKind::DirectLan, routed);
+    assert!(viewer.poll_transmit(routed + HANDSHAKE_TIMEOUT_US).is_ok());
     assert!(matches!(
-        viewer.poll_transmit(HANDSHAKE_TIMEOUT_US + 1),
+        viewer.poll_transmit(routed + HANDSHAKE_TIMEOUT_US + 1),
         Err(LinkError::HandshakeTimeout)
     ));
 }
