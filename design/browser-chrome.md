@@ -190,7 +190,7 @@ not a banner).
   pane, or with longer labels, the group wraps under the line, still at the trailing edge.
 - **Answers.** These use the toast's grammar (toasts.css): clear text with the hover fill only
   under the pointer. Never for Chrome is in the secondary ink, Import… is bold in the ink, and
-  one Not now button dismisses it for a week. No key hints: the card never takes focus,
+  one Not now button dismisses it for 30 days. No key hints: the card never takes focus,
   so Return and Escape stay the page's.
 - **Copy.** The title is the only line: "Import sign-ins from Google Chrome" for Chrome. The detail ("Stay signed in to your sites. Nothing leaves
   this Mac.") and the Keep in sync checkbox are gone. Keep in sync is

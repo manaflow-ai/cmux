@@ -527,7 +527,7 @@
           }
         }
       },
-      "comment": "Browser-data import offer: dismisses the card for one week, including after relaunch."
+      "comment": "Browser-data import offer: dismisses the card for 30 days, including after relaunch."
     },
     "browserImportOffer.cookies.title": {
       "comment": "Cookie import banner in browser tabs: title. It brings the person's signed-in sessions (cookies) over, not passwords. %@ is the detected browser, for example Google Chrome.",

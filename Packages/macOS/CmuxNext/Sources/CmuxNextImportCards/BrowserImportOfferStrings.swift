@@ -27,7 +27,7 @@ public nonisolated struct BrowserImportOfferStrings {
     }
     /// `browser`: the name of the browser whose cookies could no longer be read.
     public static func syncStopped(_ browser: String) -> String { String(format: String(localized: "browserImportOffer.syncStopped", defaultValue: "Stopped keeping cookies in sync with %@: cmux could not read them. Import again to turn it back on.", table: "BrowserImportOffer", bundle: .module.inAppLanguage), browser) }
-    /// Defers the offer for one week.
+    /// Defers the offer for 30 days (``BrowserImportOfferState/notNowInterval``).
     public static var notNow: String {
         String(localized: "browserImportOffer.notNow", defaultValue: "Not now", table: "BrowserImportOffer", bundle: .module.inAppLanguage)
     }
