@@ -399,6 +399,30 @@ export type CloudSnapshot = {
   readonly revision: Revision
 }
 
+export type CloudSurgePreview = {
+  readonly count: number
+  readonly ttl_seconds: number
+  readonly provider: string | null
+  readonly available: boolean
+  readonly reason: string
+  readonly estimated_cost_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+}
+
+export type CloudSurgeReceipt = {
+  readonly count: number
+  readonly ttl_seconds: number
+  readonly slots: ReadonlyArray<CloudSurgeSlot>
+}
+
+export type CloudSurgeSlot = {
+  readonly index: number
+  readonly status: "created" | "queued" | "refused"
+  readonly machine_id: MachineId | null
+  readonly provider: string | null
+  readonly reason: string
+  readonly retryable: boolean
+}
+
 export type CloudVmNetwork = {
   readonly tenant: NativeTenantId
   readonly mesh: NativeMeshId
@@ -2290,6 +2314,22 @@ export interface CloudOps {
     readonly result: {
       readonly machine: CloudMachine
     }
+  }
+  /** Request an expiring burst through the team's Cloud provider. Each slot reports whether its create was accepted. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.surge.create": {
+    readonly params: {
+      readonly count: number
+      readonly ttl_seconds: number
+    }
+    readonly result: CloudSurgeReceipt
+  }
+  /** Estimate a bounded Cloud capacity burst at the current running list rate and report whether the team can request it. */
+  readonly "cloud.surge.preview": {
+    readonly params: {
+      readonly count: number
+      readonly ttl_seconds: number
+    }
+    readonly result: CloudSurgePreview
   }
   /** Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The HTTP request has no idempotency key; event_id is the stable replay key: a duplicate event_id and payload replays the original result, while reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine). */
   readonly "cloud.vm.attention.emit": {
@@ -4522,6 +4562,8 @@ export const cloudOpMeta = {
   "cloud.snapshot.delete": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "destructive" },
   "cloud.snapshot.list": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.snapshot.restore": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.surge.create": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.surge.preview": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.vm.attention.emit": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.event.emit": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.network_policy": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
