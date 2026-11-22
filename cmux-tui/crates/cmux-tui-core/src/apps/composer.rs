@@ -165,11 +165,13 @@ impl Supervisor {
                 }
             }
         }
+        let model_picker = places(&inner, "cmux.composer.model.picker/1")
+            .into_iter()
+            .next()
+            .map(|(_, _, options)| options.clone());
         let mut result = json!({ "commands": commands, "mentions": mentions, "toolbarButtons": toolbar_buttons });
-        if let Some((_, _, options)) =
-            places(&inner, "cmux.composer.model.picker/1").into_iter().next()
-        {
-            result["modelPicker"] = options.clone();
+        if let (Some(picker), Some(fields)) = (model_picker, result.as_object_mut()) {
+            fields.insert("modelPicker".to_owned(), picker);
         }
         result
     }

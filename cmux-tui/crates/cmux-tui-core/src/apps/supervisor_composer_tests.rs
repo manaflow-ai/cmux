@@ -28,12 +28,16 @@ fn model_picker_layout_follows_the_installed_visible_app() {
     let mut manifest: Value =
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     let options = json!({ "modelMenu": "search", "reasoningMenu": "column" });
-    manifest["implements"]["cmux.composer.model.picker/1"] = json!({ "options": options });
+    manifest
+        .get_mut("implements")
+        .and_then(Value::as_object_mut)
+        .expect("the spy manifest implements interfaces")
+        .insert("cmux.composer.model.picker/1".to_owned(), json!({ "options": options }));
     std::fs::write(path, manifest.to_string()).unwrap();
     f.supervisor.reload_local_apps(&Default::default());
     assert!(list(&f).get("modelPicker").is_none());
     f.install("local/spy");
-    assert_eq!(list(&f)["modelPicker"], options);
+    assert_eq!(list(&f).get("modelPicker"), Some(&options));
     f.set("hide", "local/spy", Origin::User, |o| o.hidden = Some(true)).unwrap();
     assert!(list(&f).get("modelPicker").is_none());
 }
