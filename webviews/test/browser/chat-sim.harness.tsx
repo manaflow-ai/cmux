@@ -207,6 +207,11 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  *  (the watch command's screenshot hook) when the page has one. */
 async function watch(options: WatchOptions): Promise<WatchResult> {
   const started = performance.now();
+  // The pane's words, as the app's page head loads them (the rule runs draw the keys, and keep doing so).
+  const strings = (await import("../../src/agent-session/acpmux/generated/strings.json")).default;
+  globalThis.__cmuxPaneStrings = { en: strings.en } as never;
+  const { setPaneLanguage } = await import("../../src/agent-session/acpmux/i18n");
+  setPaneLanguage("en");
   const scenario = options.records
     ? replayScenario(options.name ?? "records", options.records)
     : await scenarioNamed(options.name ?? "replay");
@@ -262,7 +267,8 @@ async function watch(options: WatchOptions): Promise<WatchResult> {
       // Let the turn's fold play out before the picture.
       await sleep(Math.min(1200, maxGap));
       await shoot({ ...shot, why: "turn-end" });
-    } else if (options.shotEvery && index % options.shotEvery === 0) await shoot({ ...shot, why: "every" });
+    } else if (options.shotEvery && index % options.shotEvery === 0 && index < scenario.steps.length - 1)
+      await shoot({ ...shot, why: "every" });
   }
   await sleep(Math.min(1200, maxGap));
   await shoot({ step: played - 1, label: "end", turn, why: "end" });
