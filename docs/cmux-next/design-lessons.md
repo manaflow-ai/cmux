@@ -62,6 +62,13 @@ one), [#10518](https://github.com/manaflow-ai/cmux/pull/10518) (keyboard pinning
 The right shape: [#36957](https://github.com/manaflow-ai/cmux/pull/36957), where the autofix now syncs the bundled
 copies itself.
 
+Transient previews and fallback menus are another instance: Settings > Menus used a private solid fill and
+literal corner radii while the actual popup used shared glass. Both the preview and the fallback picker now
+consume `.ui-popup.ui-menu.ui-glass` and the shared row tokens. The detector is
+`webviews/scripts/check-glass-never-opaque.ts` (`glass-never-opaque.test.ts`); remove an `OVERLAY_PENDING`
+entry when its surface migrates. The `pages.settings-menus` gallery keeps generated, customized and terminal
+previews plus three open Move to states, so an audit includes the fallback instead of only the native path.
+
 **Cost:** 72 generated-file fixes and 160 fixes where two copies drifted.
 
 ## 5. Cost stays constant as things grow
@@ -70,6 +77,11 @@ copies itself.
 
 **Rule:** every loop, timer and observer has a bound and a stop condition. Work scales with what's visible, not with
 the total.
+
+Scaling measurements count the final fixture, including objects created implicitly by windows or Home. A requested
+number of additions is not a total. The launch seed's explicit total mode reads the topology before filling and
+after showing Home, preserves existing workspaces, and refuses a mismatched total. Its detector is
+`scripts/measure/tests/launch-ready-seed.test.py`; compare 5 and 120 with the same window count and launch case.
 
 **Examples:** [#7182](https://github.com/manaflow-ai/cmux/pull/7182) (O(hosted panes) work on every run-loop tick froze
 the main thread), `9660608040d5` (`NSOpenPanel()` built on the main thread blocked it for 40 s when its service didn't

@@ -1,10 +1,12 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemonService
 import CmuxNextDiff
 import CmuxNextPalette
 import typealias CmuxNextDaemon.SurfaceID
+import class CmuxNextDaemon.PaneModel
 
 /// The viewers' shared parts (R89): the recents store, the cmux picker,
 /// and the seams to the diff host and the code editor.
@@ -49,6 +51,17 @@ final class ViewerService {
     func openFile(_ file: URL, in pane: PaneController?, userChose: Bool, asText: Bool = false) -> String? {
         if let opener = fileOpener as? FilePageOpener { return opener.open(file, in: pane, userChose: userChose, asText: asText) }
         return fileOpener.open(file, in: pane)
+    }
+
+    /// `file` as a tab of `model`, a pane no window shows (``FilePageService/open(_:parkedIn:of:window:userChose:)``):
+    /// Markdown in its page, any other text in the code editor. Returns why it did not open.
+    func openFile(_ file: URL, parkedIn model: PaneModel, userChose: Bool, asText: Bool) -> String? {
+        guard let url = AgentPaneFileOpen.resolve(file.path) else { return FilePageStrings.notAFile }
+        let route = FilePageOpener.route(for: url, userChose: userChose, asText: asText)
+        guard route != .preview, let window = owner.windows.active ?? owner.windows.controllersActingFirst.first,
+              (route == .markdown ? markdownPages : editorPages).open(url, parkedIn: model, of: owner.daemon(for: model), window: window, userChose: userChose)
+        else { return FilePageStrings.noPane }
+        return nil
     }
 
     /// An explicit file action in a machine's pane. Returns its refusal to the action caller;

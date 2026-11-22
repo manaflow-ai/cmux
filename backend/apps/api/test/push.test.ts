@@ -34,6 +34,15 @@ describe("push targets (UserDO)", () => {
     expect(reg(seed(), phone, tok("c"), "com.example.other")).toMatchObject({ ok: false, code: "validation.invalid" })
   })
 
+  it("accepts the App Store app's topic com.cmux.app and refuses look-alikes of the cmux prefixes", () => {
+    for (const topic of ["com.cmux.app", "dev.cmux.app.internal", "com.cmuxterm.app"]) {
+      expect(reg(seed(), phone, tok("e"), topic), topic).toMatchObject({ ok: true, value: { topic } })
+    }
+    for (const topic of ["com.cmuxapp.evil", "com.cmux", "com.example.com.cmux.app", "dev.cmuxx.app"]) {
+      expect(reg(seed(), phone, tok("e"), topic), topic).toMatchObject({ ok: false, code: "validation.invalid" })
+    }
+  })
+
   it("hands a token to a new install on the same phone once the old install is revoked, and revoke drops its targets", () => {
     let s = seed()
     const r1 = reg(s, phone, tok("d"))

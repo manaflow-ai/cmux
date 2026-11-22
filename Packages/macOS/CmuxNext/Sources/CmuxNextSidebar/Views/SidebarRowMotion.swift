@@ -89,9 +89,12 @@ struct RowMotion {
             list.pruneOffscreen()
         }
         let folds = Set(folding.map(ObjectIdentifier.init))
+        // The lines fade with their rows, through the rows' own fade (`fade`): one transaction, one begin time, one
+        // spring, so a group's header and its rail are at one opacity in every frame.
         Self.animate(frames: targets + appearing + leaving, companions: lines.springs + companions,
-                     fades: Self.fades(targets: targets, appearing: appearing, leaving: leaving.filter { !folds.contains(ObjectIdentifier($0.0)) }),
-                     lines: lines.changes, in: list, ended: ended,
+                     fades: Self.fades(targets: targets, appearing: appearing, leaving: leaving.filter { !folds.contains(ObjectIdentifier($0.0)) })
+                         + lines.fades,
+                     in: list, ended: ended,
                      insert: insert, travel: travel)
         Self.fadeOut(folding)
     }
@@ -134,15 +137,16 @@ struct RowMotion {
     /// One move of the rows (perf step 4, Leo 2026-10-21: "adding a workspace at the top ... it pushes all the stuff
     /// down"): every frame goes on the render server's `.move` spring from one begin time (`SidebarDragSpring`), so
     /// the rows below an insert move as one with the row opening above them, and no row's frame is written on the
-    /// main thread per display frame (AppKit's SwiftUI spring wrote each moving row's frame every frame). Only the
-    /// opacity of the few rows that open, close or still fade runs on AppKit's `.move` spring, with the group lines'
-    /// fades (`lines`). `ended` runs once both have ended, or at once when the display sleeps (`settleAtSleep`).
+    /// main thread per display frame (AppKit's SwiftUI spring wrote each moving row's frame every frame). The
+    /// opacity of the few rows and group lines that open, close or still fade (`fades`) springs on the render server
+    /// in the same transaction; AppKit's `.move` group is left as the second leg. `ended` runs once both have ended,
+    /// or at once when the display sleeps (`settleAtSleep`).
     /// `companions`: the group lines and chat history blocks, on the same springs in the same transaction, so the
     /// springs' leg (and the display's sleep) waits for them too, even when no row moves (a line growing offscreen).
     /// `insert`: a new workspace row's motion (`SidebarInsertMotion`): its spring for the frames and the fades, and how far
     /// the rows travel (`travel`). Snap first takes off the springs an earlier move left, so nothing slides at all.
     private static func animate(frames: [(SidebarRowView, NSRect)], companions: [(NSView, NSRect)], fades: [(NSView, CGFloat)],
-                                lines: () -> Void, in list: SidebarListView, ended: RowMotionEnd, insert: SidebarInsertMotion? = nil,
+                                in list: SidebarListView, ended: RowMotionEnd, insert: SidebarInsertMotion? = nil,
                                 travel: CGFloat? = nil) {
         let token = insert?.token ?? .move
         if travel == 0 { SidebarDragSpring.stop(frames.map { $0.0 as NSView } + companions.map(\.0)) }
@@ -166,12 +170,12 @@ struct RowMotion {
         // Runs once every spring added in this transaction has ended or was removed (a reused view, a snap).
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { springsEnded() } } // main-proof: CATransaction.h: the completion block is called on the main thread
         SidebarDragSpring.move(frames.map { ($0.0 as NSView, $0.1) } + companions, in: list, token, travel: travel)
-        // The opening, closing and still-fading rows' opacity springs on the render server too, in this transaction, so
+        // The opening, closing and still-fading rows' (and lines') opacity springs on the render server too, in this transaction, so
         // it starts on the frame the slot changes and no main-thread frame drives it (m23 F4: through AppKit's animator
         // the fade began on the next display-link tick, NSAnimationManager writing it per frame, so a new row stayed
         // transparent one refresh after its slot opened and each fade step waited for the main thread).
         for (view, alpha) in fades { Self.fade(view, to: alpha, token) }
-        Motion.sidebar.animate(token, in: list, lines, settleAtSleep: settleAtSleep, completion: { ended.arrive() })
+        Motion.sidebar.animate(token, in: list, {}, settleAtSleep: settleAtSleep, completion: { ended.arrive() })
         CATransaction.commit()
     }
 
@@ -250,7 +254,7 @@ struct RowMotion {
             if view.opens == open { view.clipsToBounds = false }
             if let list, list.rowMoves == move { Self.land(list) }
         }
-        animate(frames: [(view, target)], companions: [], fades: [(view, 1)], lines: {}, in: list, ended: ended,
+        animate(frames: [(view, target)], companions: [], fades: [(view, 1)], in: list, ended: ended,
                 insert: opening.motion, travel: opening.travel)
     }
 
@@ -265,12 +269,17 @@ struct RowMotion {
         }
     }
 
-    /// A moved selected row passes over the
-    /// rows it trades places with: it draws above them, and each row it
-    /// crosses hides at once and fades back in once the move has nearly
-    /// settled, so a translucent selection fill never shows a title through
-    /// it (cx-bqm6, cx-ai79).
+    /// A moved selected row passes over the rows it trades places with: it draws above them, and it covers them
+    /// itself: its background shows its fill over the sidebar's opaque ground until the move has nearly settled, then
+    /// fades to its own fill (`passOverCover`, on the render server, gone once it ends), so a translucent selection
+    /// fill never shows a title through it while every crossed row stays drawn at full opacity (cx-bqm6, cx-ai79;
+    /// Leo 2026-11-08: "there's like still a bit of a flicker on that, like individual top group"). In a see-through
+    /// window no opaque color matches what is behind the rows, so there each crossed row still hides at once and
+    /// fades back in once the move has nearly settled.
     private func passOver(in list: SidebarListView, from old: SidebarLayout, to layout: SidebarLayout) {
+        // A cover belongs to one move: a later update (the row moved again, stayed put or lost the selection) takes
+        // it off every row first, and only a row that passes over others in this move gets one again.
+        for view in list.rowViews.values { view.layer?.removeAnimation(forKey: Self.coverKey) }
         // A dragged row is hidden under its lifted card, which already draws
         // above the list: no row passes under it, so none hides (cx-ikxz).
         // A row still opening (listed, then placed: New Workspace in New Group) draws nothing yet
@@ -284,13 +293,59 @@ struct RowMotion {
         // Only a row that crosses rows is raised: re-adding a view delays its
         // first frames, so a row an insert pushes down would lag the new row
         // opening above it (cx-ai79).
-        guard !passed.isEmpty else { return }
-        if let top = list.subviews.last(where: { $0 is SidebarRowView }), let view = list.rowViews[key], view !== top {
+        guard !passed.isEmpty, let view = list.rowViews[key], let layer = view.layer else { return }
+        if let top = list.subviews.last(where: { $0 is SidebarRowView }), view !== top {
             list.addSubview(view, positioned: .above, relativeTo: top)
+        }
+        if let ground = Self.rowGround(of: list) {
+            // The fill the row shows once it lands (a selection this change made paints now), under the cover.
+            view.displayIfNeeded()
+            let fill = layer.backgroundColor
+            let cover = fill.flatMap(Self.rgb).map { $0.composited(over: ground) } ?? ground
+            if let hold = Motion.sidebar.passOverCover(.move, cover: cover.cgColor, fill: fill, in: list.window) {
+                layer.add(hold, forKey: Self.coverKey)
+            }
+            return
         }
         for view in passed {
             guard let hide = Motion.sidebar.passOverAnimation(.move, in: list.window) else { return }
             view.layer?.add(hide, forKey: "cmux.passOver")
+        }
+    }
+
+    private static let coverKey = "cmux.passOverCover"
+
+    private static func rgb(_ color: CGColor) -> ThemeRGB? {
+        guard let rgb = NSColor(cgColor: color)?.usingColorSpace(.sRGB) else { return nil }
+        return ThemeRGB(red: rgb.redComponent, green: rgb.greenComponent, blue: rgb.blueComponent, alpha: rgb.alphaComponent)
+    }
+
+    /// The opaque color the sidebar shows behind its rows: the theme's sidebar background under what the sidebar's
+    /// own views paint over it (`appearance.surfaces.sidebar`, the rail's overlay). Nil in a see-through window
+    /// (translucent, frosted, glass, a picture), where the desktop or the picture shows through and no opaque color
+    /// matches it, and in a floating sidebar, whose card is overlay glass.
+    private static func rowGround(of list: SidebarListView) -> ThemeRGB? {
+        list.performWithTheme {
+            let scope = list.themeScope, tokens = scope.tokens
+            let backdrop = WindowBackdrop(tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
+                                          selection: scope.backdropSelection, tintOpacity: scope.backdropTintOpacity)
+            guard backdrop.isOpaque else { return nil }
+            var fills: [CGColor] = []
+            var ancestor = list.superview
+            while let view = ancestor {
+                if let fill = view.layer?.backgroundColor, fill.alpha > 0 { fills.append(fill) }
+                // A floating card sits on overlay glass (`floatGlass`, a sibling, not an ancestor): its color is not
+                // one this walk reads, so the crossed rows hide instead, as in a see-through window.
+                if let container = view as? SidebarContainerView {
+                    if !container.floatGlass.isHidden { return nil }
+                    break
+                }
+                if view === list.window?.contentView { break }
+                ancestor = view.superview
+            }
+            return fills.reversed().reduce(tokens.sidebarBackground.withAlpha(1)) { ground, fill in
+                rgb(fill).map { $0.composited(over: ground) } ?? ground
+            }
         }
     }
 }

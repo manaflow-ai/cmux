@@ -214,7 +214,7 @@ extension NativePopupContent {
 
 /// One column: a vertical scroll view with a flipped document that holds its rows.
 @MainActor
-final class NativePopupColumnView: NSScrollView {
+final class NativePopupColumnView: OverlayScrollView {
     let column: NativePopupColumn
     let document = NativePopupRailStripDocument()
 

@@ -2,8 +2,8 @@
 // bottom right of the content while Appearance shows, so a whole look is one click and a wrong pick
 // is always one click from undone. Presets set the window's Opacity and Material and every surface's
 // opacity at once (appearancePresets.ts), as one undoable step. Reset is a
-// menu: Restore How It Was (when Appearance first showed in this visit) or Reset to Defaults, each
-// confirmed inline and itself undoable.
+// menu: Restore How It Was (when Appearance first showed in this visit) or Reset to Defaults; each
+// runs on the pick and is itself one Undo step, so neither asks first.
 import { Button } from "../../../ui/Button";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
@@ -13,8 +13,6 @@ import { useSettingsState, useStore } from "../context";
 import { Icon } from "../icons";
 import { t } from "../strings";
 
-type Pending = "opened" | "defaults";
-
 export function AppearanceBar() {
   const store = useStore();
   const state = useSettingsState();
@@ -23,7 +21,6 @@ export function AppearanceBar() {
     (listener) => history.subscribe(listener),
     () => history.version,
   );
-  const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(false);
   // The opened-with snapshot: the first time Appearance shows with the owner's values.
   useEffect(() => {
@@ -53,110 +50,80 @@ export function AppearanceBar() {
       aria-label={t("settingsPage.history.toolbar")}
       data-appearance-bar=""
     >
-      {pending ? (
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an inline confirm in the bar's row; a fieldset would bring its own box
-        <span className="appearance-bar-confirm" role="group">
-          <span className="appearance-bar-question">
-            {pending === "opened"
-              ? t("settingsPage.history.confirmRestore")
-              : t("settingsPage.history.confirmDefaults")}
-          </span>
-          <Button
-            type="button"
-            className="button"
-            data-confirm=""
-            disabled={!live}
-            onClick={() =>
-              void run(async () => {
-                setPending(null);
-                await (pending === "opened" ? store.restoreAppearanceOpened() : store.resetAppearanceToDefaults());
-              })
-            }
+      <Menu>
+        <MenuButton
+          className="button"
+          label={t("settingsPage.presets.menu")}
+          data-menu="appearance-presets"
+          disabled={!live}
+          aria-haspopup="menu"
+        >
+          <span>{t("settingsPage.presets.title")}</span>
+        </MenuButton>
+        <MenuPopup side="top" align="end">
+          <MenuRadioGroup
+            value={preset ?? ""}
+            onValueChange={(id) => {
+              const picked = APPEARANCE_PRESETS.find((item) => item.id === id);
+              if (picked) void run(() => store.applyAppearancePreset(picked));
+            }}
           >
-            {pending === "opened" ? t("settingsPage.history.restore") : t("settingsPage.history.reset")}
-          </Button>
-          <Button type="button" className="button" data-cancel="" onClick={() => setPending(null)}>
-            {t("settingsPage.history.cancel")}
-          </Button>
-        </span>
-      ) : (
-        <>
-          <Menu>
-            <MenuButton
-              className="button"
-              label={t("settingsPage.presets.menu")}
-              data-menu="appearance-presets"
-              disabled={!live}
-              aria-haspopup="menu"
-            >
-              <span>{t("settingsPage.presets.title")}</span>
-            </MenuButton>
-            <MenuPopup side="top" align="end">
-              <MenuRadioGroup
-                value={preset ?? ""}
-                onValueChange={(id) => {
-                  const picked = APPEARANCE_PRESETS.find((item) => item.id === id);
-                  if (picked) void run(() => store.applyAppearancePreset(picked));
-                }}
-              >
-                {APPEARANCE_PRESETS.map((item) => (
-                  <MenuRadioItem key={item.id} value={item.id} closeOnClick>
-                    {t(item.nameKey)}
-                  </MenuRadioItem>
-                ))}
-              </MenuRadioGroup>
-            </MenuPopup>
-          </Menu>
-          <Tooltip /* tooltip-allow: names the step Undo takes back */ label={undoLabel} side="top">
-            <Button
-              type="button"
-              variant="ghost"
-              icon
-              className="icon-button appearance-bar-button"
-              data-undo=""
-              aria-label={undoLabel}
-              disabled={!live || !undo}
-              onClick={() => void run(() => store.undoAppearance())}
-            >
-              <Icon name="undo" />
-            </Button>
-          </Tooltip>
-          <Tooltip /* tooltip-allow: names the step Redo puts back */ label={redoLabel} side="top">
-            <Button
-              type="button"
-              variant="ghost"
-              icon
-              className="icon-button appearance-bar-button"
-              data-redo=""
-              aria-label={redoLabel}
-              disabled={!live || !redo}
-              onClick={() => void run(() => store.redoAppearance())}
-            >
-              <Icon name="redo" />
-            </Button>
-          </Tooltip>
-          <Menu>
-            <MenuButton
-              className="button appearance-bar-reset"
-              label={t("settingsPage.history.resetMenu")}
-              data-menu="appearance-reset"
-              disabled={!live || (!canRestore && !canReset)}
-              aria-haspopup="menu"
-            >
-              <Icon name="reset" />
-              <span>{t("settingsPage.history.reset")}</span>
-            </MenuButton>
-            <MenuPopup side="top" align="end">
-              <MenuItem disabled={!canRestore} onSelect={() => setPending("opened")}>
-                {t("settingsPage.history.restoreOpenedItem")}
-              </MenuItem>
-              <MenuItem disabled={!canReset} onSelect={() => setPending("defaults")}>
-                {t("settingsPage.history.resetDefaultsItem")}
-              </MenuItem>
-            </MenuPopup>
-          </Menu>
-        </>
-      )}
+            {APPEARANCE_PRESETS.map((item) => (
+              <MenuRadioItem key={item.id} value={item.id} closeOnClick>
+                {t(item.nameKey)}
+              </MenuRadioItem>
+            ))}
+          </MenuRadioGroup>
+        </MenuPopup>
+      </Menu>
+      <Tooltip /* tooltip-allow: names the step Undo takes back */ label={undoLabel} side="top">
+        <Button
+          type="button"
+          variant="ghost"
+          icon
+          className="icon-button appearance-bar-button"
+          data-undo=""
+          aria-label={undoLabel}
+          disabled={!live || !undo}
+          onClick={() => void run(() => store.undoAppearance())}
+        >
+          <Icon name="undo" />
+        </Button>
+      </Tooltip>
+      <Tooltip /* tooltip-allow: names the step Redo puts back */ label={redoLabel} side="top">
+        <Button
+          type="button"
+          variant="ghost"
+          icon
+          className="icon-button appearance-bar-button"
+          data-redo=""
+          aria-label={redoLabel}
+          disabled={!live || !redo}
+          onClick={() => void run(() => store.redoAppearance())}
+        >
+          <Icon name="redo" />
+        </Button>
+      </Tooltip>
+      <Menu>
+        <MenuButton
+          className="button appearance-bar-reset"
+          label={t("settingsPage.history.resetMenu")}
+          data-menu="appearance-reset"
+          disabled={!live || (!canRestore && !canReset)}
+          aria-haspopup="menu"
+        >
+          <Icon name="reset" />
+          <span>{t("settingsPage.history.reset")}</span>
+        </MenuButton>
+        <MenuPopup side="top" align="end">
+          <MenuItem disabled={!canRestore} onSelect={() => void run(() => store.restoreAppearanceOpened())}>
+            {t("settingsPage.history.restoreOpenedItem")}
+          </MenuItem>
+          <MenuItem disabled={!canReset} onSelect={() => void run(() => store.resetAppearanceToDefaults())}>
+            {t("settingsPage.history.resetDefaultsItem")}
+          </MenuItem>
+        </MenuPopup>
+      </Menu>
     </div>
   );
 }

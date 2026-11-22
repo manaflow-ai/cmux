@@ -13,7 +13,7 @@ import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
 import { useRowMark } from "../threadMinimap/promptMarks";
 import { AlertCircle, Check, DoubleCheck, Pin, Speaker, Spinner, StopReading, TurnFork, Undo } from "./icons";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
-import { exactTime, messageAge, nextMessageAge } from "./relativeTime";
+import { exactTime, messageAge, messageAgeWidest, nextMessageAge } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
 import { copyMarkdownResult } from "../richClipboard";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
@@ -21,6 +21,7 @@ import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { useTranscriptReadOnly } from "./readOnly";
 import { ROW_ICON } from "./messageActionsModel";
+import { intl } from "../../../ui/intl";
 /// The message's age, relative and live ("just now", "8 minutes ago", "yesterday", "Oct 18" past a
 /// week: messageAge), the exact date and time above it on hover, as Claude's. A prompt's, another
 /// agent's and a reply's rows all draw this one label (Leo, 2026-11-08: "the timestamps for the agent
@@ -39,9 +40,10 @@ export function MessageTime({ at, className, detail }: { at: number; className: 
       /* tooltip-allow: the row shows the age; the tooltip gives the exact date and time, as Claude's */ title={exact}
       data-tooltip-side="top"
       data-tooltip-detail={detail}
-      /* The widest age of its first hour, in this language: the prompt row reserves its width in
-         the real font (conversation.css .cv-user__time::before), so the minute's words change in place. */
-      data-age-widest={messageAge(at, at + 59 * 60_000, language)}
+      /* Every age of its first hour, in this language, one per line: the prompt row reserves the
+         widest in the real font (conversation.css .cv-user__time::before), so the minute's words
+         change in place. */
+      data-age-widest={messageAgeWidest(language)}
     >
       {messageAge(at, now, language)}
     </time>
@@ -239,7 +241,7 @@ export function RewindButton({ rowId }: { rowId: string }) {
 
 /// A rewind's time in seconds with one decimal, in the pane's language ("9.4", "9,4").
 export function rewindSeconds(seconds: number, language: string): string {
-  return new Intl.NumberFormat(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(seconds);
+  return intl.NumberFormat(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(seconds);
 }
 
 /// Pins the message (row `rowId`): kept with the chat by acpmux; a pinned prompt also shows in the

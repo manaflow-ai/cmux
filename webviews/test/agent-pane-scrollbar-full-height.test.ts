@@ -24,6 +24,7 @@ import { installPaintedFrames } from "./support/paintedFrames";
 import { papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { JUMP_LATEST, JUMP_LATEST_SHOWN } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () => {
   /// Pins the composer dock to its push arm (composer/dockMotion.experiment.ts): these cases measure the
@@ -621,9 +622,9 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     const before = await measure(page);
     await growWhileScrolledUp(page);
     const start = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
-    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").waitFor();
+    await page.locator(JUMP_LATEST_SHOWN).waitFor();
     await startFrames(page);
-    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)").click();
+    await page.locator(JUMP_LATEST).click();
     await page.waitForFunction(() => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 1;

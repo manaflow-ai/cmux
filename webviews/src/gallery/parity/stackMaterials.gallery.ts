@@ -4,6 +4,7 @@ import { GALLERY_NOW, minutesAgo } from "../clock";
 import { activity, assistant, chat, row, session, SESSION_ID, summary, tool, user } from "../fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../../agent-session/acpmux/model";
 import { SUBAGENTS, type Subagent } from "../../agent-session/acpmux/subagents/subagentFold";
+import { RUNNING_TRAY_LINE } from "../../agent-session/acpmux/subagents/subagentSelectors";
 
 export const STACK_QUESTION =
   'Your "Yes": reply `I restarted it` or `I did not restart it` if my reading (you restarted the laptop) is wrong.';
@@ -94,7 +95,7 @@ export default agentPaneEntry({
           await waitFor(() => document.querySelector(selector));
         const head = document.querySelector(".acpmux-running-tray__head")!;
         if (head.getAttribute("aria-expanded") !== "true") await click({ selector: ".acpmux-running-tray__head" });
-        await waitFor(() => document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === 5);
+        await waitFor(() => document.querySelectorAll(RUNNING_TRAY_LINE).length === 5);
       },
     },
   },
