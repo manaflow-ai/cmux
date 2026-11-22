@@ -419,7 +419,9 @@ export class HarnessSwitch {
     const leftMode =
       previous?.config.mode ?? (shownSession?.harness === leftHarness ? shownSession?.modeId : undefined);
     if (leftHarness && leftMode) this.modes.set(leftHarness, leftMode);
-    const back = previous?.harness === harness ? undefined : this.modes.get(harness);
+    // Only a switch back from another harness brings a mode back: a new chat on the harness the pane
+    // shows starts on acpmux's start mode, never the shown chat's (agent-pane-start-mode-chip).
+    const back = leftHarness === harness ? undefined : this.modes.get(harness);
     const intent: Intent = {
       id: ++this.generation,
       harness,
