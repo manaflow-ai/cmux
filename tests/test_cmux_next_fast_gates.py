@@ -1572,6 +1572,38 @@ class WebviewsChecksGate(unittest.TestCase):
         return subprocess.run([sys.executable, str(WEBVIEWS_CHECKS), "--base", base, "--repo", str(self.repo)],
                               capture_output=True, text=True, env=env)
 
+    def tokens_script(self, kinds: str) -> dict[str, str]:
+        return {"webviews/scripts/check-design-tokens.ts": f'kind: {kinds};\n'}
+
+    def test_rows_of_a_design_token_kind_the_base_does_not_know_are_not_charged(self):
+        # #49916 taught check-design-tokens.ts the `shadow` kind with its first baseline rows; a base commit since
+        # moved a literal shadow, and the merge's rows read as the pull request's own finding (2026-11-22).
+        old = self.tokens_script('"radius" | "color"')
+        base_red = "baseline can shrink (1 < 2); run --update-baseline: a.css\tradius\tborder-radius\t7px\n"
+        commit(self.repo, old, "base script")
+        base = self.findings({"check:design-tokens": base_red}, "base")
+        commit(self.repo, self.tokens_script('"radius" | "color" | "shadow"'), "the pull request's script")
+        self.findings({"check:design-tokens": base_red
+                       + "new design token violation (2 > 1): b.css\tshadow\tbox-shadow\t0 1px 2px #000\n"
+                       + "baseline can shrink (0 < 1); run --update-baseline: c.css\tshadow\tbox-shadow\t0 0 1px #000\n"},
+                      "the merge")
+        result = self.gate(base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("a kind the base", result.stdout)
+
+    def test_a_known_kind_beside_a_new_one_is_still_charged(self):
+        commit(self.repo, self.tokens_script('"radius" | "shadow"'), "base script")
+        base = self.findings({}, "base, green")
+        self.findings({"check:design-tokens":
+                       "new design token violation (2 > 1): a.css\tradius\tborder-radius\t7px\n"
+                       "new design token violation (1 > 0): t.tsx\ttailwind-arbitrary\tradius\trounded-[6px]\n"},
+                      "the merge")
+        result = self.gate(base)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        added = result.stdout.split("adds, over the base", 1)[1]
+        self.assertIn("a.css\tradius", added)
+        self.assertNotIn("tailwind-arbitrary", added)
+
     def test_a_check_the_pull_request_breaks_fails(self):
         base = self.findings({}, "base, green")
         self.findings({"check:fixed-waits": "  test/agent-pane-queued-images.test.ts: 2 fixed waits, baseline 0\n"},

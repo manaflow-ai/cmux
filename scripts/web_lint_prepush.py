@@ -1893,13 +1893,21 @@ def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list
             if whole:
                 compare.generate_strings(base_tree / result.label)
             again = run(result.label, result.command, base_tree / result.label, package_env(base_tree, result.label))
-            if again.returncode == 0:
-                continue
-            new, old = compare.compare(result.output, again.output, str(tree), str(base_tree))
+            if again.returncode == 0:  # a green base: every finding is the change's, but for a kind it cannot judge
+                new, old = [shown for _, shown in compare.findings(result.output, str(tree))], []
+            else:
+                new, old = compare.compare(result.output, again.output, str(tree), str(base_tree))
+            new, unknown = compare.split_unknown_kinds(result.command.removeprefix("bun run ").strip(), new,
+                                                       base_tree / result.label)
+            if again.returncode == 0 and not unknown:
+                continue  # the red stays this change's, its output whole
+            if unknown:
+                print(f"::warning title=web lint (new kind)::{result.label}: {result.command}: {len(unknown)} row(s) "
+                      f"of a kind the base {base[:12]} does not know yet; not charged", file=sys.stderr)
             if old:
                 print(f"::warning title=web lint (base)::{result.label}: {result.command}: {len(old)} finding(s) "
                       f"the base {base[:12]} has too", file=sys.stderr)
-            if not new and not old:  # both red with no finding to compare: unexplained, so the change's
+            if not new and not old and not unknown:  # both red with no finding to compare: unexplained, so the change's
                 new = [f"{result.command} failed (exit {result.returncode}) and printed no finding to compare "
                        "with the base"]
             if not new:

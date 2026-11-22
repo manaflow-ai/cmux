@@ -233,6 +233,30 @@ def findings(output: str, root: str = "") -> list[tuple[str, str]]:
     return out
 
 
+# check:design-tokens' ratchet rows name their kind (`FILE\tKIND\tPROPERTY\tVALUE`). A pull request that teaches the
+# script a kind (shadow and tailwind-arbitrary, #49916) records that kind's first baseline rows at its own merge; the
+# base's script never reports the kind, so every base commit since that adds or removes one of its literals left a
+# row the merge reads as this change's finding (#49916's fast gates went red twice that way, 2026-11-22). Like a
+# check the base has no command for (below), a kind the base's script does not know is not charged here; once the
+# pull request lands, the base reports it and findings compare per row as usual.
+RATCHET_ROW = re.compile(r"(?:new design token violation \(\d+ > \d+\)|baseline can shrink \(\d+ < \d+\)[^:]*): "
+                         r"[^\t]+\t(?P<kind>[\w-]+)\t")
+
+
+def split_unknown_kinds(check: str, new: list[str], base_webviews: Path) -> tuple[list[str], list[str]]:
+    """(charged, not charged): NEW without the check:design-tokens rows of a kind the base's script never names."""
+    script = base_webviews / "scripts/check-design-tokens.ts"
+    if check != "check:design-tokens" or not script.is_file():
+        return new, []
+    source = script.read_text(encoding="utf-8", errors="replace")
+    charged, skipped = [], []
+    for line in new:
+        row = RATCHET_ROW.search(line)
+        kind = row.group("kind") if row else ""
+        (skipped if kind and f'"{kind}"' not in source else charged).append(line)
+    return charged, skipped
+
+
 def compare(merge_output: str, base_output: str, merge_root: str = "", base_root: str = "") -> tuple[list, list]:
     """(new, old): the merge's findings beyond the base's, and those the base has too, in the merge's order.
     Counted, not a set: a second finding that reads like one the base already has is still new."""
@@ -345,7 +369,13 @@ def main(argv: list[str] | None = None) -> int:
             base_code, base_output = run_check(base_webviews, check)
             new, old = (compare(output, base_output, str(repo), str(base_webviews.parent)) if base_code != 0
                         else ([shown for _, shown in findings(output, str(repo))], []))
-            if not new and not old:
+            new, unknown = split_unknown_kinds(check, new, base_webviews)
+            if unknown:
+                print(f"webviews checks: {check}: {len(unknown)} row(s) of a kind the base {args.base[:12]} does not "
+                      "know yet; not charged (split_unknown_kinds):", flush=True)
+                for line in unknown:
+                    print(f"  new kind: {line}", flush=True)
+            if not new and not old and not unknown:
                 new = [f"{check} failed (exit {code}) and printed no finding to compare with the base"]
             if old:
                 print(f"::warning title=webviews {check} (base)::{len(old)} error(s) the base {args.base[:12]} "
