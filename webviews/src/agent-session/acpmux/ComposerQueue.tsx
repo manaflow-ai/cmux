@@ -59,6 +59,7 @@ import { AuthorChip } from "./multiplayer/Faces";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SlashCommand } from "./slashCommands";
 import { useSkillWords } from "./conversation/skillWords";
 import { withSkillWords } from "./conversation/withSkillWords";
+import { claimedReply } from "./conversation/waitingAskStore";
 import { type QueuedEntry, shownText } from "./composerQueueModel";
 import { acpmuxPerf } from "./perf";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
@@ -1052,7 +1053,13 @@ export const ComposerQueue = React.memo(function ComposerQueue({
               </>
             ) : (
               // A skill's `/name`, and the command it starts with, draw as in the prompt's bubble (SkillWord.tsx).
-              withSkillWords(withoutSkillDollars(entry.prompt, skills), skills.words, undefined, skills.leading)
+              // An answer a card sent reads as the answer, not its quote of the ask (`claimedReply`).
+              withSkillWords(
+                withoutSkillDollars(claimedReply(entry.prompt) ?? entry.prompt, skills),
+                skills.words,
+                undefined,
+                skills.leading,
+              )
             )}
           </span>
         </button>
