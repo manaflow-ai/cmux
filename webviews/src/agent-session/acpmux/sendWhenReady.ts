@@ -1,9 +1,11 @@
 // A send made while acpmux starts, restarts or reconnects is held and sent once it answers, never
 // failed at once (Leo, 2026-11-06: "your sends are getting busted intermittently as things load").
-// The prompt stays in the composer, which says "Sending when ready", and its row (if it has one)
-// keeps its clock. It waits as long as acpmux is away (a restart, its machine rebooting), with no
+// The prompt stays where it was sent (its row, or the composer of a chat not started yet), and
+// nothing says it waits until it has waited past SEND_LATE_MS. It waits as long as acpmux is away (a restart, its machine rebooting), with no
 // deadline that turns it into "Not sent" and Retry (Leo, 2026-11-12: "try what? no, it should just
 // automatically do stuff"); it stops only when the send is no longer wanted (`stop`).
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { PEER_LINK_DEADLINE_MS } from "./hostLine";
 import { hostIsReconnecting, hostRefusedTooLarge, nextRetryDelay } from "./hostRetry";
 
 /// The first wait before a held send asks again; each next wait doubles up to 2 s (`nextRetryDelay`).
@@ -74,9 +76,22 @@ export function heldStartStop(client: {
   return () => client.isClosed || client.trustGeneration !== generation || client.selectedSession !== sessionId;
 }
 
-/// How many of this page's sends are held for the host now: the composer says "Sending when ready"
-/// while any is (Composer.tsx). A page draws one chat's composer, so one count serves it.
+/// How long a send may wait for its agent's machine (or this Mac's acpmux) before anything says so.
+/// Until then nothing at all is drawn for the wait, however the link is doing: no spinner, no
+/// "Sending when ready", no "Reconnecting…" (Leo, 2026-11-22: "i dont wanna see connecting to
+/// cosmic-gray... with the spinner, i want it to just work ... if we're slow, STOP FUCKING SHOWING
+/// ME SO MUCH FUCKING BULLSHIT"). Past it the send says once, quietly, on its own message (or under
+/// the prompt of a chat not started yet) that it has not gone yet and goes when the machine is back:
+/// conversation/PromptDelivery.tsx `pendingLabel`. Two minutes is the pane's bound for a machine that
+/// is really gone, not slow (hostLine.ts `PEER_LINK_DEADLINE_MS`); acpmux's own redial heals a drop
+/// in under 3 s (afterDelay.ts `LINK_DOWN_SAID_MS`).
+export const SEND_LATE_MS = PEER_LINK_DEADLINE_MS;
+
+/// How many of this page's sends are held for the host now, and since when: the composer says the
+/// prompt has not gone yet once one has waited past SEND_LATE_MS (Composer.tsx `useHeldForHostLate`).
+/// A page draws one chat's composer, so one count serves it.
 let held = 0;
+let heldSince: number | undefined;
 const listeners = new Set<() => void>();
 const changed = () => listeners.forEach((listener) => listener());
 
@@ -88,16 +103,53 @@ export const sendsHeldForHost = {
   get(): boolean {
     return held > 0;
   },
+  /// When the first send still held began waiting (`Date.now()` time), or undefined when none waits.
+  since(): number | undefined {
+    return heldSince;
+  },
   /// Counts one held send; the returned release (idempotent) ends it.
   hold(): () => void {
     held += 1;
-    if (held === 1) changed();
+    if (held === 1) {
+      heldSince = Date.now();
+      changed();
+    }
     let released = false;
     return () => {
       if (released) return;
       released = true;
       held -= 1;
-      if (held === 0) changed();
+      if (held === 0) {
+        heldSince = undefined;
+        changed();
+      }
     };
   },
 };
+
+/// True once a send of this page has waited for the host past SEND_LATE_MS; false at once when none
+/// waits. One timer per wait; nothing runs while no send waits.
+export function useHeldForHostLate(ms: number = SEND_LATE_MS): boolean {
+  const waiting = useSyncExternalStore(sendsHeldForHost.subscribe, sendsHeldForHost.get);
+  const since = waiting ? sendsHeldForHost.since() : undefined;
+  return usePastSince(since, ms);
+}
+
+/// True once `ms` has passed since `since` (`Date.now()` time); false while `since` is undefined.
+export function usePastSince(since: number | undefined, ms: number): boolean {
+  // The `since` the flag was set for: a new wait never reads the last one's answer.
+  const [pastFor, setPastFor] = useState<number | undefined>(() =>
+    since !== undefined && Date.now() - since >= ms ? since : undefined,
+  );
+  useEffect(() => {
+    if (since === undefined) return;
+    const left = ms - (Date.now() - since);
+    if (left <= 0) {
+      setPastFor(since);
+      return;
+    }
+    const timer = setTimeout(() => setPastFor(since), left);
+    return () => clearTimeout(timer);
+  }, [since, ms]);
+  return since !== undefined && pastFor === since;
+}

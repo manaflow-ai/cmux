@@ -1,8 +1,8 @@
 // l10n-allow-file: gallery design fixtures for where a slow Cloud resume says so, not shipped UI.
 // Three places for the one note a slow resume gets (afterDelay.ts: only past RESUME_NOTE_DELAY_MS),
-// side by side in the gallery around a chat whose prompt was just sent to a paused machine. Only
-// `queue` ships (ComposerQueue's held-for-wake line); `footer` and `transcript` exist here alone, so
-// the choice is made on what each looks like.
+// side by side in the gallery around a chat whose prompt was just sent to a paused machine. `queue`
+// ships, now with no note at all: the held prompt waits as any queued prompt does (Leo, 2026-11-22:
+// "i want it to just work"); `footer` and `transcript` exist here alone, as the rejected looks.
 import { ComposerQueue } from "./ComposerQueue";
 import { Spinner } from "./conversation/icons";
 import { translate as t } from "./i18n";
@@ -37,11 +37,7 @@ export function CloudResumeDesigns({ design, slow }: CloudResumeDesignsProps) {
         {design === "transcript" && <div className="acpmux-resume-design-slot">{slow && note}</div>}
       </div>
       {design === "queue" ? (
-        <ComposerQueue
-          queue={[{ id: "held-1", prompt: PROMPT, held: true, waking: true }]}
-          t={t}
-          wakeNoteDelayMs={slow ? 0 : 3_600_000}
-        />
+        <ComposerQueue queue={[{ id: "held-1", prompt: PROMPT, held: true, waking: true }]} t={t} />
       ) : null}
       <div className="acpmux-resume-design-composer">
         <span className="acpmux-resume-design-placeholder">

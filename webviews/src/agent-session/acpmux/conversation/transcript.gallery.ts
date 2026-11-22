@@ -3303,6 +3303,7 @@ export default agentPaneEntry({
       ]),
     },
     ...promptPendingLooks(),
+    ...lateSendLooks(),
     "failed-sends-grouped": {
       note: "Three prompts acpmux held behind the folder's trust question (Leo 2026-10-21): one card under the last of them, one plain sentence with Trust folder, and Retry, Edit, Remove and Details once for the three; the raw code only under Details.",
       snapshot: chat([
@@ -4067,6 +4068,53 @@ function forkTurns(family: string | undefined, title = "Add retries to the fetch
     ...snapshot,
     summary: snapshot.summary && { ...snapshot.summary, family, title },
     sessions: snapshot.sessions.map((entry) => ({ ...entry, displayTitle: title })),
+  };
+}
+
+/// A prompt sent while the chat's machine was away, still waiting past SEND_LATE_MS (two minutes):
+/// the one state a transient link ever draws (Leo, 2026-11-22: "i dont wanna see connecting to
+/// <machine>... with the spinner, i want it to just work ... if we're slow, STOP FUCKING SHOWING ME
+/// SO MUCH FUCKING BULLSHIT"). Before it, nothing at all: no "Connecting to {machine}…", no
+/// "Reconnecting…" line, no spinner by the composer, no "Sending when ready". It sits on that message
+/// only, in the footer's time slot the age takes once it goes, so the row never moves.
+function lateSendLooks() {
+  const rows = (connection?: string) =>
+    chat([
+      user("Add retries to the client", 9, {
+        delivery: { state: "read", promptId: "p1", sessionId: "s", sentAt: 0, acceptedAt: 40, readAt: 90 },
+      }),
+      assistant("Added retries with backoff.", 8.5),
+      user("Now run the upload test 200 times", 3, {
+        pending: true,
+        delivery: {
+          state: "sending",
+          promptId: "p2",
+          sessionId: "s",
+          sentAt: 0,
+          waitingForHost: true,
+          ...(connection ? { connection } : {}),
+        },
+      }),
+    ]);
+  return {
+    "late-send": {
+      note: "Chosen (A): past two minutes the waiting prompt's footer says, once and quietly, Not sent yet, sends when walk-remote is back, with the clock, in the theme's muted ink. Nothing else in the pane says the link is down, and the prompt goes by itself when the machine answers.",
+      snapshot: rows("walk-remote"),
+    },
+    "late-send-clock": {
+      note: "Variant B, not shipped: the clock alone in the time slot, the words for VoiceOver only. Quietest, but a prompt that has waited two minutes reads the same as one sent a second ago.",
+      snapshot: rows("walk-remote"),
+      documentAttributes: { "prompt-pending-look": "clock" },
+    },
+    "late-send-dim": {
+      note: "Variant C, not shipped: A's words, and the bubble's text muted until it goes. Clearest, but the bubble changing tone when it goes reads as a second event.",
+      snapshot: rows("walk-remote"),
+      documentAttributes: { "prompt-pending-look": "dim" },
+    },
+    "late-send-here": {
+      note: "A, for a chat on this Mac whose agent service is away past two minutes: Not sent yet, sends when cmux is back.",
+      snapshot: rows(),
+    },
   };
 }
 
