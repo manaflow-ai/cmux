@@ -41,6 +41,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Chats(..)
             | Command::Board
             | Command::Process(..)
+            | Command::Gc { .. }
             | Command::Worktree(..)
             | Command::Group(..)
             | Command::ShareHost(..)
@@ -258,11 +259,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             Ok(())
         }
         Command::Ls(args) => super::ls::run(args, json_out).await,
-        Command::New(args) if args.parent.is_some() => {
-            super::parent::run(*args, json_out, deadline).await
-        }
         Command::New(args) => {
-            let args = *args;
+            let mut args = *args;
+            for notice in args.apply_compat() {
+                eprintln!("{notice}");
+            }
+            if args.parent.is_some() {
+                return super::parent::run(args, json_out, deadline).await;
+            }
             // Checked before connecting, so the error needs no daemon. Preparing first preserves
             // launch-file semantics and rejects whitespace-only prompt words like `new "  "`.
             let launch = launch::Launch::prepare(&args)?;
@@ -1164,7 +1168,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Chats(cmd) => crate::cli::chats::run(cmd, json_out).await,
         Command::Board => super::board::run(json_out).await,
-        Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
+        Command::Process(args) => crate::cli::process::run_args(args, json_out).await,
+        #[cfg(unix)]
+        Command::Gc { apply } => crate::cli::process_census::gc(apply, json_out).await,
+        #[cfg(not(unix))]
+        Command::Gc { .. } => Err(anyhow::anyhow!("acpmux gc: not supported on this platform")),
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
         Command::ShareHost(cmd) => crate::share_host::cli::run(cmd, json_out).await,

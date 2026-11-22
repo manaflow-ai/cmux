@@ -65,6 +65,7 @@ dependencies = [
  "cmux-supervise-core",
  "cmux-tailnet",
  "cmux-transport",
+ "cmux-tui-hooks",
  "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-usage-patterns",
@@ -1816,6 +1817,8 @@ version = "0.1.0"
 dependencies = [
  "cmux-scope",
  "libc",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
@@ -2628,6 +2631,7 @@ dependencies = [
  "cmux-customize",
  "cmux-customize-recipes",
  "cmux-device-kind",
+ "cmux-fault",
  "cmux-file-lock",
  "cmux-focus-core",
  "cmux-git",
@@ -2823,6 +2827,7 @@ dependencies = [
  "sha2 0.10.9",
  "socket2",
  "subsecond",
+ "tar",
  "tokio",
  "tokio-tungstenite",
  "toml",

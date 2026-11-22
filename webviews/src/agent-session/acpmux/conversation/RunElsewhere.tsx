@@ -135,7 +135,7 @@ export function RunElsewhereChip({
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a <button> may not sit in the row's <button>
       role="button"
       tabIndex={0}
-      title={t("runElsewhere.chipHint")}
+      aria-description={t("runElsewhere.chipHint")}
       data-find-skip
       onClick={open}
       onKeyDown={(event) => {
@@ -167,7 +167,7 @@ export function RunElsewhereBelow({ toolCallId, command }: { toolCallId: string;
  * no control: the line is the answer, and the row goes on as it was. */
 function RunElsewhereLine({ text, busy }: { text: string; busy?: boolean }) {
   return (
-    <output className="cv-run-elsewhere-line" aria-busy={busy || undefined} title={text} data-find-skip>
+    <output className="cv-run-elsewhere-line" aria-busy={busy || undefined} data-find-skip>
       {text}
     </output>
   );
@@ -231,7 +231,7 @@ function RunElsewherePanel({
       <div className="cv-run-elsewhere__head">
         <span className="cv-run-elsewhere__title">{t("runElsewhere.title")}</span>
         {tree && (
-          <span className="cv-run-elsewhere__base" title={tree.origin}>
+          <span className="cv-run-elsewhere__base" aria-description={tree.origin}>
             {t("runElsewhere.base", { commit: tree.base.slice(0, 9) })}
           </span>
         )}
@@ -243,7 +243,7 @@ function RunElsewherePanel({
               key={m.name}
               className="cv-run-elsewhere__machine"
               data-checked={m.name === machine || undefined}
-              title={m.ok ? undefined : m.why}
+              aria-description={m.ok ? undefined : m.why}
             >
               <input
                 type="radio"
