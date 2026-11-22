@@ -20,6 +20,7 @@ import { createSimulation, runSimulationAsync, type SimResult } from "../../src/
 import { parseRecords } from "../../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, type SimScenario } from "../../src/agent-session/acpmux/sim/script";
 import { SCENARIOS, longRun } from "../../src/agent-session/acpmux/sim/scenarios";
+import { seekPlan, type SeekOptions } from "../../src/agent-session/acpmux/sim/seek";
 import { TRANSCRIPT_ROW } from "../../src/agent-session/acpmux/transcriptSelectors";
 import "../../src/pages/shared/desktop.css";
 import "../../src/ui/popupSurface.css";
@@ -290,4 +291,24 @@ async function watch(options: WatchOptions): Promise<WatchResult> {
   };
 }
 
-Object.assign(window, { __chatSim: { run, at, dump, watch } });
+/** Applies the steps before the seek (sim/seek.ts) at once, draws the chat there in one frame, and returns
+ *  where playback goes on: a recorder starts its clip at the interesting state instead of a minute in. */
+async function seek(name: string, options: SeekOptions) {
+  const scenario = await scenarioNamed(name);
+  const plan = seekPlan(scenario.steps, options);
+  const sim = createSimulation(scenario, { rowsInTraceUpTo: 0 });
+  let rows: readonly AcpmuxRow[] | undefined;
+  let sends = 0;
+  let turn = 0;
+  for (let index = 0; index < plan.start; index += 1) {
+    rows = sim.advance(index) ?? rows;
+    if (sim.state().turn !== turn) {
+      turn = sim.state().turn;
+      sends += 1;
+    }
+  }
+  if (rows) await measure(rows, sim.state().working, sends);
+  return { start: plan.start, startAt: plan.startAt, steps: scenario.steps.length, rows: dump() };
+}
+
+Object.assign(window, { __chatSim: { run, at, dump, watch, seek } });
