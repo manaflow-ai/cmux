@@ -483,6 +483,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // A card shown before its tab was prepared (or after its slot was
         // cooled): its host and slot are made now, once.
         let host = host(for: tab, in: workspace)
+        primeScreenText(for: tab, in: workspace, model: host.model)
         let slot = slot(for: tab.id, host: host)
         // A new host (first card, or after a cool or a Mac swap) asks for the
         // Mac's screen after this update, as `prepareCard` does.
@@ -493,8 +494,19 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         return cardView(tab.id, slot: slot)
     }
 
+    /// The screen the Mac pushed of a tab not opened in this launch (its `tabs` service, kept
+    /// on disk across launches): the card draws it at once, with no round trip. The read below
+    /// replaces it with the Mac's screen now.
+    private func primeScreenText(for tab: WorkspaceTab, in workspace: Workspace, model: TerminalModel) {
+        guard model.cardScreenText == nil, !model.pageStarted,
+              let key = TabCardSnapshots.shared.key(macID: workspace.macID, tabID: tab.id),
+              let screen = MacTabCards.shared.entry(key).screen, !screen.isEmpty else { return }
+        model.cardScreenText = screen
+    }
+
     func prepareCard(for tab: WorkspaceTab, in workspace: Workspace) {
         let host = host(for: tab, in: workspace)
+        primeScreenText(for: tab, in: workspace, model: host.model)
         _ = cardView(tab.id, slot: slot(for: tab.id, host: host))
         refreshScreenText(for: tab, model: host.model)
     }

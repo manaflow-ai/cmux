@@ -145,6 +145,9 @@ public final class MacTabCards {
     private var warmed: Set<String> = []
     /// Bytes just received, until their file is written.
     private var arriving: [String: Data] = [:]
+    /// The cards nearest the open tab of a Mac, nearest first: the shell hands them to the
+    /// feed, which asks for their blobs before the rest.
+    public var near: ((_ tabIDs: [String], _ macID: String) -> Void)?
     /// Disk reads finished (tests).
     public private(set) var loads = 0
 
