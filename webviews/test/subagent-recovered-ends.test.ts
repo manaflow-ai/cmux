@@ -26,10 +26,15 @@ function chat(end: Record<string, unknown>, others: Record<string, unknown>[] = 
   const feed = (at: number, sessionUpdate: string, subagents: Record<string, unknown>[]) => {
     seq += 1;
     const update = { sessionUpdate };
-    fold.reduce({ seq, at, msg: { method: "session/update", params: { update, _meta: { acpmux: { subagents } } } } }, update);
+    fold.reduce(
+      { seq, at, msg: { method: "session/update", params: { update, _meta: { acpmux: { subagents } } } } },
+      update,
+    );
     for (const group of fold.takeRows()) groups.set(group.id, group);
   };
-  feed(1_000, "subagent_spawned", [{ id: "old", parent: null, name: "Explore", task: "Explore the daemon", state: "running" }]);
+  feed(1_000, "subagent_spawned", [
+    { id: "old", parent: null, name: "Explore", task: "Explore the daemon", state: "running" },
+  ]);
   feed(3_000, "subagent_progress", [{ id: "old", tokens: 120, toolUses: 3 }]);
   const restart = 3_600_000;
   feed(restart + 1_000, "subagent_state_update", [{ id: "old", ...end }, ...others]);
@@ -59,7 +64,13 @@ test("an end an older acpmux recovered (no time on it) ends the run where it was
 });
 
 test("a recovered end with acpmux's times and true state reads them", () => {
-  const { fold, rows } = chat({ state: "completed", reason: "harness_exit", recovered: true, endedAt: 4_000, startedAt: 900 });
+  const { fold, rows } = chat({
+    state: "completed",
+    reason: "harness_exit",
+    recovered: true,
+    endedAt: 4_000,
+    startedAt: 900,
+  });
   const agent = fold.all().find((entry) => entry.id === "old")!;
   expect(agent).toMatchObject({ state: "completed", startedAt: 900, endedAt: 4_000 });
   const drawn = withSubagentLines(rows, new Map() as DoneLineCache);
@@ -73,7 +84,10 @@ test("a recovered disconnected end of a run whose result the chat had is a finis
   const feed = (at: number, sessionUpdate: string, subagents: Record<string, unknown>[]) => {
     seq += 1;
     const update = { sessionUpdate };
-    fold.reduce({ seq, at, msg: { method: "session/update", params: { update, _meta: { acpmux: { subagents } } } } }, update);
+    fold.reduce(
+      { seq, at, msg: { method: "session/update", params: { update, _meta: { acpmux: { subagents } } } } },
+      update,
+    );
   };
   feed(1_000, "subagent_spawned", [{ id: "a", parent: null, name: "A", state: "running", toolCallId: "call-a" }]);
   feed(1_000, "subagent_spawned", [{ id: "b", parent: null, name: "B", state: "running", toolCallId: "call-b" }]);
@@ -96,7 +110,10 @@ test("a recovered end never overrides an end the harness gave live", () => {
   const feed = (at: number, sessionUpdate: string, subagents: Record<string, unknown>[]) => {
     seq += 1;
     const update = { sessionUpdate };
-    fold.reduce({ seq, at, msg: { method: "session/update", params: { update, _meta: { acpmux: { subagents } } } } }, update);
+    fold.reduce(
+      { seq, at, msg: { method: "session/update", params: { update, _meta: { acpmux: { subagents } } } } },
+      update,
+    );
   };
   feed(1_000, "subagent_spawned", [{ id: "a", parent: null, name: "A", state: "running" }]);
   feed(5_000, "subagent_state_update", [{ id: "a", state: "completed" }]);
@@ -117,5 +134,7 @@ test("recovered ends of runs older than the loaded window draw nothing: no group
   expect(drawn.filter((entry) => entry.kind === SUBAGENT_STARTED)).toHaveLength(1);
   expect(doneLines(drawn)).toHaveLength(1);
   const live = indexOf(drawn, "prompt-2");
-  expect(drawn.slice(live).some((entry) => entry.kind === SUBAGENT_DONE || entry.kind === SUBAGENT_STARTED)).toBe(false);
+  expect(drawn.slice(live).some((entry) => entry.kind === SUBAGENT_DONE || entry.kind === SUBAGENT_STARTED)).toBe(
+    false,
+  );
 });
