@@ -78,9 +78,10 @@ impl Request {
             Request::Call { tool, args, machine } => {
                 Request::Call { tool, args, machine: pick(machine) }
             }
-            Request::Screenshot { out, window, machine } => {
-                Request::Screenshot { out, window, machine: pick(machine) }
+            Request::Screenshot { out, window, display, machine } => {
+                Request::Screenshot { out, window, display, machine: pick(machine) }
             }
+            Request::Doctor { machine, json } => Request::Doctor { machine: pick(machine), json },
             other => other,
         }
     }

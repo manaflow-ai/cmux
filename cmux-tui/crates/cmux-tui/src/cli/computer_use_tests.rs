@@ -274,6 +274,7 @@ fn machine_after_the_command_reaches_the_command() {
         Request::Screenshot {
             out: "/tmp/a.png".into(),
             window: None,
+            display: None,
             machine: Some("studio".into())
         }
     );
