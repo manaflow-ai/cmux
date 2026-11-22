@@ -8,7 +8,7 @@ A clip is the window before the look, then three frames 4 s apart after `customi
 the screenshot is its last frame. The window is the whole frame: the capture shoots only the cmux window.
 A fresh home has no agent sessions, so a sidebar that lists sessions or threads shows its empty state.
 
-2 of 75 looks are recorded.
+7 of 75 looks are recorded.
 
 ## Recorded
 
@@ -16,6 +16,11 @@ A fresh home has no agent sessions, so a sidebar that lists sessions or threads 
 | --- | --- | --- | --- | --- | --- |
 | looks/codex.json | [clip](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/looks-codex-319385c.mp4) | ![looks-codex](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/looks-codex-319385c.png) | `examples/customize-demo/demo.sh --nightly --only looks/codex.json` | `b60ef3fe96af35b91e54d69b` (nightly 4500914846101, 17/17 steps ok) | Applied: the dark default turns into the light Codex theme, with a Priority/Chief/Threads sidebar (empty Threads on a fresh home) and the Unii New Tab composer. |
 | looks/studio.json | [clip](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/looks-studio-319385c.mp4) | ![looks-studio](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/looks-studio-319385c.png) | `examples/customize-demo/demo.sh --nightly --only looks/studio.json` | `5a6df49cba6226fd80caf5e8` (nightly 4500914846101, 17/17 steps ok) | Applied: the light default turns into the dark Studio theme with a plum accent, a Chief/Threads sidebar (empty Threads on a fresh home) and the New Tab composer. |
+| looks/hosts.json | [clip](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/looks-hosts-319385c.mp4) | ![looks-hosts](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/looks-hosts-319385c.png) | `examples/customize-demo/demo.sh --nightly --only looks/hosts.json` | `4f197fc644865697be5b863b` (nightly 4500914846101, 17/17 steps ok) | Theme applied: the light default turns near-black with a mint-tinted New Tab. **Sidebar not shown:** the hosts-list sidebar the look describes is absent from all three frames. |
+| gallery/material.json | [clip](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/gallery-material-319385c.mp4) | ![gallery-material](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/gallery-material-319385c.png) | `examples/customize-demo/demo.sh --nightly --only gallery/material.json` | `0e603f131e687be2da700b24` (nightly 4500914846101, 17/17 steps ok) | Applied (the earlier recording at 6f41f2bd26e did not show it): a lavender Material 3 window with a tonal sidebar, a pill-shaped selected row and a rounded New Tab surface. |
+| gallery/codex-sidebar.json | [clip](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/gallery-codex-sidebar-319385c.mp4) | ![gallery-codex-sidebar](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/gallery-codex-sidebar-319385c.png) | `examples/customize-demo/demo.sh --nightly --only gallery/codex-sidebar.json` | `853c8a990745d8fe6a7fcfbe` (nightly 4500914846101, 17/17 steps ok) | Applied (the maxRows fix at this head; it was refused at 6f41f2bd26e): a dark window with a Chats sidebar (New chat, Organize, Projects) and the agent composer on the New Tab. **Error shown:** the Projects section reads "request contains unknown parameters". |
+| gallery/shadcn.json | [clip](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/gallery-shadcn-319385c.mp4) | ![gallery-shadcn](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/gallery-shadcn-319385c.png) | `examples/customize-demo/demo.sh --nightly --only gallery/shadcn.json` | `b3291a9f95c6bc8076bc7ee6` (nightly 4500914846101, 17/17 steps ok) | Applied: the shadcn/ui neutral look: a flat gray sidebar with a gray selected row, a white New Tab with a hairline-bordered composer. |
+| gallery/apple.json | [clip](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/gallery-apple-319385c.mp4) | ![gallery-apple](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/gallery-apple-319385c.png) | `examples/customize-demo/demo.sh --nightly --only gallery/apple.json` | `bcf03d3b58c8e1abf5faf3a6` (nightly 4500914846101, 17/17 steps ok) | Applied: a macOS-style window: a translucent source-list sidebar with a blue selected row, an inset content card and a light New Tab composer. |
 
 ## Not recorded yet
 
@@ -34,7 +39,6 @@ python3 examples/customize-demo/record-steps.py --ref 319385c65a2bc76306f283591d
 | Look | Capture command |
 | --- | --- |
 | looks/claude.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/looks-claude.json` |
-| looks/hosts.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/looks-hosts.json` |
 | last-demo/cockpit.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/last-demo-cockpit.json` |
 | last-demo/collection.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/last-demo-collection.json` |
 | last-demo/focus.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/last-demo-focus.json` |
@@ -44,12 +48,8 @@ python3 examples/customize-demo/record-steps.py --ref 319385c65a2bc76306f283591d
 | glass/mica.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/glass-mica.json` |
 | glass/tinted.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/glass-tinted.json` |
 | widgets/widgets.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/widgets-widgets.json` |
-| gallery/material.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-material.json` |
-| gallery/codex-sidebar.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-codex-sidebar.json` |
 | gallery/claude-code-session-recents.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-claude-code-session-recents.json` |
 | gallery/rex-whole.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-rex-whole.json` |
-| gallery/shadcn.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-shadcn.json` |
-| gallery/apple.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-apple.json` |
 | gallery/hairline.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-hairline.json` |
 | gallery/codex-threads.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-codex-threads.json` |
 | gallery/claude-code-sidebar.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-claude-code-sidebar.json` |
