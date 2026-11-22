@@ -117,8 +117,8 @@ pub struct PeerNotices {
     busy_us: AtomicU64,
     max_us: AtomicU64,
     peak_queued: AtomicU64,
-    /// Notices by `PeerNotice::label`, at most `KINDS_KEPT` labels.
-    kinds: Mutex<std::collections::BTreeMap<String, u64>>,
+    /// Notices by `PeerNotice::label`, at most `KINDS_KEPT` labels: how many, and the µs they took.
+    kinds: Mutex<std::collections::BTreeMap<String, (u64, u64)>>,
     /// Peer snapshot copies read back from disk (`peer_snapshot::Store::read_in`).
     pub snapshot_reads: AtomicU64,
     /// Loaded copies unloaded to keep the store's memory bound (`Store::trim_memory`).
@@ -132,13 +132,13 @@ impl PeerNotices {
     pub fn applied(&self, label: String, us: u64, queued: u64) {
         let mut kinds = self.kinds.lock().unwrap_or_else(PoisonError::into_inner);
         let full = kinds.len() >= KINDS_KEPT;
-        match kinds.get_mut(&label) {
-            Some(n) => *n += 1,
-            None if !full => {
-                kinds.insert(label, 1);
-            }
-            None => *kinds.entry("other".into()).or_default() += 1,
-        }
+        let kind = if kinds.contains_key(&label) || !full {
+            kinds.entry(label).or_default()
+        } else {
+            kinds.entry("other".into()).or_default()
+        };
+        kind.0 += 1;
+        kind.1 += us;
         drop(kinds);
         self.applied.fetch_add(1, Ordering::Relaxed);
         self.busy_us.fetch_add(us, Ordering::Relaxed);
@@ -147,12 +147,14 @@ impl PeerNotices {
     }
 
     fn status(&self) -> Value {
+        let kinds = self.kinds.lock().unwrap_or_else(PoisonError::into_inner).clone();
         json!({
             "applied": self.applied.load(Ordering::Relaxed),
             "busyMs": self.busy_us.load(Ordering::Relaxed) / 1000,
             "maxUs": self.max_us.load(Ordering::Relaxed),
             "peakQueued": self.peak_queued.load(Ordering::Relaxed),
-            "kinds": self.kinds.lock().unwrap_or_else(PoisonError::into_inner).clone(),
+            "kinds": kinds.iter().map(|(k, (n, _))| (k.clone(), *n)).collect::<std::collections::BTreeMap<_, _>>(),
+            "kindsMs": kinds.iter().map(|(k, (_, us))| (k.clone(), us / 1000)).collect::<std::collections::BTreeMap<_, _>>(),
             "snapshotReads": self.snapshot_reads.load(Ordering::Relaxed),
             "snapshotUnloads": self.snapshot_unloads.load(Ordering::Relaxed),
         })
