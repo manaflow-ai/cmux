@@ -239,3 +239,75 @@ fn a_notice_turn_without_the_goal_still_reports() {
         "the notice turn's result reaches the Chief: {got:?}"
     );
 }
+
+/// Live on build 108 of 5c8273a (cmux-lawrence-2, 2026-11-18): `cmux chief shutdown` mid-turn
+/// closed subagent a1's session with no turn end. At the restart the host reported "(stopped
+/// without a report: its session is Closed)", the Chief started a second subagent for the same
+/// task, and when its tell reopened a1 the stale close was reported once more. The host resumes
+/// the run itself, once, and a close with a newer prompt queued behind it is not an end.
+#[test]
+fn a_session_closed_mid_run_is_resumed_once_and_reports_once() {
+    let mut h = Harness::new(Box::new(|turn, blocks| {
+        let text: String = blocks.iter().filter_map(|b| b["text"].as_str()).collect();
+        if text.contains(TASK) && !text.contains("[a1]") {
+            // Its harness ends with the Chief's daemon: no turn end.
+            vec![
+                json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                said("Started the long command."),
+                json!({"dir": "mux", "kind": "exited", "at": 1, "msg": {"code": null}}),
+                json!({"dir": "mux", "kind": "status", "at": 1, "msg": {"status": "closed"}}),
+            ]
+        } else if text.contains("session closed") {
+            vec![
+                json!({"dir": "mux", "kind": "user_message", "msg": {"promptId": "optchat-tell:a1:9"}}),
+                json!({"dir": "mux", "kind": "status", "msg": {"status": "idle"}}),
+                json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                said("The command printed slept."),
+                json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
+            ]
+        } else {
+            default_script()(turn, blocks)
+        }
+    }));
+    h.connect();
+    let sid = spawn(&mut h, true);
+    // Its harness ended with the last host (the close is stamped before this host started).
+    let sub_prompts = |h: &Harness| {
+        let inner = h.agents.inner.lock().unwrap();
+        inner
+            .prompts
+            .iter()
+            .zip(&inner.prompt_sessions)
+            .filter(|(_, s)| **s == sid)
+            .map(|(b, _)| serde_json::to_string(b).unwrap())
+            .collect::<Vec<_>>()
+    };
+    changed(&mut h, &sid, "closed");
+    assert!(
+        reports(&h).is_empty(),
+        "no report for the close: {:?}",
+        reports(&h)
+    );
+    let prompts = sub_prompts(&h);
+    assert_eq!(prompts.len(), 2, "the host resumed it: {prompts:?}");
+    assert!(prompts[1].contains("session closed"), "{prompts:?}");
+
+    // The stale close reaches the host after the resume prompt.
+    changed(&mut h, &sid, "closed");
+    assert!(
+        reports(&h).is_empty(),
+        "the stale close is no end: {:?}",
+        reports(&h)
+    );
+    assert_eq!(
+        sub_prompts(&h).len(),
+        2,
+        "resumed once: {:?}",
+        sub_prompts(&h)
+    );
+
+    changed(&mut h, &sid, "idle");
+    let got = reports(&h);
+    assert_eq!(got.len(), 1, "one report: {got:?}");
+    assert!(got[0].contains("printed slept"), "{got:?}");
+}

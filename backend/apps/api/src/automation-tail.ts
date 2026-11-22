@@ -1,7 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers"
 import type { UsageRecord } from "@cmux/protocol"
 import { RUN_MARKER } from "./code-run.ts"
-import type { Env } from "./env.ts"
+import type { RawEnv } from "./env.ts"
 
 /** What the loader attaches to each tenant Dynamic Worker's tail (code-run.ts). One warm worker serves many runs. */
 export interface AutomationTailProps {
@@ -59,7 +59,7 @@ const text = (message: unknown): string =>
  * are written; logs and exceptions become JSON lines in Workers Logs (slice 6 adds the
  * telemetry store).
  */
-export class AutomationTail extends WorkerEntrypoint<Env, AutomationTailProps> {
+export class AutomationTail extends WorkerEntrypoint<RawEnv, AutomationTailProps> {
   override async tail(events: TraceItem[]): Promise<void> {
     const p = this.ctx.props
     const records: Array<UsageRecord> = []

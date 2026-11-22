@@ -43,6 +43,24 @@ import Testing
         #expect(json["phone_device_ids"] as? [String] == ["link-1", "presence-1"])
     }
 
+    /// The receipt names the build space the app's requests carry, signed in or out, so the hand-off can
+    /// require its tagged Mac's (`handoff_receipt.py --build-space`). A Demo hand-off build without
+    /// `CMUX_MOBILE_DEV_TAG` sat in the default space while its Mac was in `dev:<tag>`.
+    @Test func receiptNamesTheBuildSpace() throws {
+        let tagged = DogfoodReadiness(environment: [:], bundleID: "dev.cmux.mobile.t", info: [:], buildSpace: "dev:t")
+        let signedIn = tagged.body(nonce: "n", apiBase: base, email: "a@b.c", userID: "u", macs: macs, focus: nil,
+                                   now: Date(timeIntervalSince1970: 0))
+        let signedOut = tagged.signedOutBody(nonce: "n", apiBase: nil, now: Date(timeIntervalSince1970: 0))
+        for body in [signedIn, signedOut] {
+            let json = try #require(try JSONSerialization.jsonObject(with: DogfoodReadiness.encode(body)) as? [String: Any])
+            #expect(json["build_space"] as? String == "dev:t")
+        }
+        let nightly = DogfoodReadiness(environment: [:], bundleID: "b", info: [:])
+        let json = try #require(try JSONSerialization.jsonObject(
+            with: DogfoodReadiness.encode(nightly.signedOutBody(nonce: "n", apiBase: nil, now: Date(timeIntervalSince1970: 0)))) as? [String: Any])
+        #expect(json["build_space"] as? String == "")
+    }
+
     @Test func signedOutReceiptNamesNoAccount() throws {
         let r = DogfoodReadiness(environment: ["CMUX_DOGFOOD_CLIENT_ID": "client"], bundleID: "dev.cmux.mobile.t",
                                  info: ["CmuxMobileTag": ".t", "CmuxMobileSourceCommit": "abc"])
@@ -54,6 +72,21 @@ import Testing
         #expect(json["dev_tag"] as? String == "t")
         #expect(json["git_sha"] as? String == "abc")
         #expect(json["client_id"] as? String == "client")
+    }
+
+    /// The receipt names the Cloud backend the hand-off chose (`review.sh --backend`), signed in or out,
+    /// and the build's own when the launch named none.
+    @Test func receiptNamesTheCloudBackend() throws {
+        let defaults = try #require(UserDefaults(suiteName: "DogfoodReadinessTests.\(UUID().uuidString)"))
+        let stack = "https://cmux-dev-backend-1.tail137216.ts.net:3850"
+        let r = DogfoodReadiness(environment: ["CMUX_NEXT_CLOUD_BACKEND": stack], bundleID: "b",
+                                 info: ["CmuxMobileCloudAPIBase": "https://cloud-api-staging.cmux.dev"], defaults: defaults)
+        #expect(r.body(nonce: "n", apiBase: base, email: "a@b.c", userID: "u", macs: macs, focus: nil,
+                       now: Date(timeIntervalSince1970: 0)).cloud_backend == stack)
+        #expect(r.signedOutBody(nonce: "n", apiBase: nil, now: Date(timeIntervalSince1970: 0)).cloud_backend == stack)
+        let plain = DogfoodReadiness(environment: ["CMUX_NEXT_CLOUD_BACKEND": ""], bundleID: "b",
+                                     info: ["CmuxMobileCloudAPIBase": "https://cloud-api-staging.cmux.dev"], defaults: defaults)
+        #expect(plain.cloudBackend == "https://cloud-api-staging.cmux.dev")
     }
 
     @Test func signedInReceiptSaysSignedIn() throws {
