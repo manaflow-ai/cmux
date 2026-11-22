@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use cmux_encode::openh264::{OpenH264, OpenH264Api};
-use cmux_encode::{EncCfg, H264Encoder, I420, bgrx_rect_to_i420, convert_threads};
+use cmux_encode::{EncCfg, H264Encoder, I420};
 use cmux_rd_core::flow::Rect;
 use cmux_rd_engine::EngineConfig;
 use cmux_rd_proto::control::Control as RdControl;
@@ -193,35 +193,81 @@ pub fn pixel_size(screen: ScreenSize) -> (u32, u32) {
 /// Decodes a JPEG into an I420 picture of `width` x `height` (even): the
 /// image at the top left, cropped or padded black where its size differs
 /// (a frame from before a resize).
+///
+/// No RGB in between: Chromium's screencast JPEG is JFIF YCbCr (BT.601, full
+/// range), so its planes are mapped to the encoder's BT.601 video range with
+/// two tables and the chroma averaged 2x2. That skips the YCbCr -> RGB of the
+/// decoder and the RGB -> YCbCr of the encoder side, the two full-picture
+/// passes the frame paid twice.
 pub fn jpeg_to_i420(jpeg: &[u8], width: u32, height: u32) -> Result<I420, String> {
     jpeg_to_i420_timed(jpeg, width, height).map(|(picture, _)| picture)
+}
+
+/// Full range (0..=255) to video range: luma 16..=235, chroma 16..=240.
+struct RangeTables {
+    luma: [u8; 256],
+    chroma: [u8; 256],
+}
+
+fn range_tables() -> &'static RangeTables {
+    static TABLES: std::sync::OnceLock<RangeTables> = std::sync::OnceLock::new();
+    TABLES.get_or_init(|| {
+        let mut t = RangeTables { luma: [0; 256], chroma: [0; 256] };
+        for v in 0..256u32 {
+            t.luma[v as usize] = (16 + (v * 219 + 127) / 255) as u8;
+            let c = (i64::from(v) - 128) * 224;
+            let c = if c >= 0 { (c + 127) / 255 } else { (c - 127) / 255 };
+            t.chroma[v as usize] = (128 + c).clamp(16, 240) as u8;
+        }
+        t
+    })
 }
 
 /// [`jpeg_to_i420`], and when the JPEG decode ended.
 fn jpeg_to_i420_timed(jpeg: &[u8], width: u32, height: u32) -> Result<(I420, Instant), String> {
     let mut decoder = jpeg_decoder::Decoder::new(jpeg);
-    let pixels = decoder.decode().map_err(|e| format!("jpeg: {e}"))?;
-    let decoded = Instant::now();
+    decoder.read_info().map_err(|e| format!("jpeg: {e}"))?;
     let info = decoder.info().ok_or("jpeg: no header")?;
-    let (src_w, src_h) = (usize::from(info.width), usize::from(info.height));
     let channels = match info.pixel_format {
         jpeg_decoder::PixelFormat::RGB24 => 3,
         jpeg_decoder::PixelFormat::L8 => 1,
         other => return Err(format!("jpeg: pixel format {other:?}")),
     };
+    if channels == 3 {
+        // The samples as coded: Y, Cb, Cr (chroma upsampled to full size).
+        decoder.set_color_transform(jpeg_decoder::ColorTransform::None);
+    }
+    let pixels = decoder.decode().map_err(|e| format!("jpeg: {e}"))?;
+    let decoded = Instant::now();
+    let (src_w, src_h) = (usize::from(info.width), usize::from(info.height));
     let (w, h) = (width as usize, height as usize);
-    let mut bgrx = vec![0u8; w * h * 4];
-    for row in 0..h.min(src_h) {
-        let src = &pixels[row * src_w * channels..(row + 1) * src_w * channels];
-        let dst = &mut bgrx[row * w * 4..(row + 1) * w * 4];
-        for (px, out) in src.chunks_exact(channels).zip(dst.chunks_exact_mut(4)) {
-            let (r, g, b) =
-                if channels == 3 { (px[0], px[1], px[2]) } else { (px[0], px[0], px[0]) };
-            out.copy_from_slice(&[b, g, r, 255]);
+    let (cw, ch) = (w.min(src_w) & !1, h.min(src_h) & !1);
+    let t = range_tables();
+    let mut picture = I420::new(w, h);
+    let row = |r: usize| &pixels[r * src_w * channels..(r + 1) * src_w * channels];
+    for r in 0..h.min(src_h) {
+        let dst = &mut picture.y[r * w..r * w + w.min(src_w)];
+        for (out, px) in dst.iter_mut().zip(row(r).chunks_exact(channels)) {
+            *out = t.luma[usize::from(px[0])];
         }
     }
-    let mut picture = I420::new(w, h);
-    bgrx_rect_to_i420(&bgrx, &mut picture, 0, 0, w, h, convert_threads());
+    if channels == 3 {
+        let half = w / 2;
+        for r in (0..ch).step_by(2) {
+            let (a, b) = (row(r), row(r + 1));
+            let (u, v) = (&mut picture.u[r / 2 * half..], &mut picture.v[r / 2 * half..]);
+            for x in 0..cw / 2 {
+                let (i, j) = (2 * x * 3, 2 * x * 3 + 3);
+                let avg = |k: usize| {
+                    let sum = u32::from(a[i + k]) + u32::from(a[j + k]);
+                    let sum = sum + u32::from(b[i + k]) + u32::from(b[j + k]);
+                    usize::try_from((sum + 2) >> 2).unwrap_or(128)
+                };
+                u[x] = t.chroma[avg(1)];
+                v[x] = t.chroma[avg(2)];
+            }
+        }
+    }
     Ok((picture, decoded))
 }
 
@@ -667,5 +713,58 @@ fn serve_loop(host: &mut Host, inbox: &Receiver<Event>) -> i32 {
             Err(RecvTimeoutError::Disconnected) => return 0,
         }
         host.tick();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 32x16, eight 8x8 blocks of solid colours (red, green, blue, white;
+    /// black, the test page's green, yellow, grey), quality 95, 4:2:0.
+    const BLOCKS: &[u8] = include_bytes!("../tests/data/blocks-32x16.jpg");
+
+    /// The old path: the decoder's RGB, then the encoder side's BGRX -> I420.
+    fn through_rgb(jpeg: &[u8]) -> I420 {
+        let mut decoder = jpeg_decoder::Decoder::new(jpeg);
+        let rgb = decoder.decode().expect("decode");
+        let bgrx: Vec<u8> = rgb.chunks_exact(3).flat_map(|p| [p[2], p[1], p[0], 255]).collect();
+        let mut picture = I420::new(32, 16);
+        cmux_encode::bgrx_rect_to_i420(&bgrx, &mut picture, 0, 0, 32, 16, 1);
+        picture
+    }
+
+    fn max_diff(a: &[u8], b: &[u8]) -> u8 {
+        a.iter().zip(b).map(|(x, y)| x.abs_diff(*y)).max().unwrap_or(0)
+    }
+
+    #[test]
+    fn ycbcr_planes_match_the_rgb_round_trip() {
+        let direct = jpeg_to_i420(BLOCKS, 32, 16).expect("direct");
+        let reference = through_rgb(BLOCKS);
+        // Rounding of the two colour conversions only (and the decoder's
+        // clamping of out-of-gamut samples on the RGB path).
+        assert!(max_diff(&direct.y, &reference.y) <= 3, "luma");
+        assert!(max_diff(&direct.u, &reference.u) <= 4, "cb");
+        assert!(max_diff(&direct.v, &reference.v) <= 4, "cr");
+    }
+
+    #[test]
+    fn video_range_tables_hit_the_ends() {
+        let t = range_tables();
+        assert_eq!((t.luma[0], t.luma[255]), (16, 235));
+        assert_eq!((t.chroma[0], t.chroma[128], t.chroma[255]), (16, 128, 240));
+    }
+
+    #[test]
+    fn a_smaller_jpeg_is_padded_black_and_a_larger_one_cropped() {
+        let padded = jpeg_to_i420(BLOCKS, 40, 20).expect("padded");
+        assert_eq!(padded.y.len(), 40 * 20);
+        assert_eq!(padded.y[39], 16, "right of the image is black");
+        assert_eq!(padded.y[18 * 40], 16, "below the image is black");
+        assert_eq!((padded.u[19], padded.v[19]), (128, 128));
+        let cropped = jpeg_to_i420(BLOCKS, 16, 8).expect("cropped");
+        let full = jpeg_to_i420(BLOCKS, 32, 16).expect("full");
+        assert_eq!(cropped.y[..16], full.y[..16]);
     }
 }
