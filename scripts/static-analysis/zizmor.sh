@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # zizmor: security audit of GitHub Actions workflows and composite actions.
-# Report-only. Exits 0 when zizmor ran (findings or not); nonzero only when it
+# Reports; ratchet.py judges the report for CI. Exits 0 when zizmor ran (findings or not); nonzero only when it
 # could not be installed or crashed.
 #
 # Env:
 #   SA_TOOLS_DIR      where pinned tool binaries live (default ~/.cache/static-analysis/bin)
 #   FAST_CHECKS_OUT   report directory (default ${TMPDIR:-/tmp}/static-analysis-out)
 #   ZIZMOR_PERSONA    regular (default) | pedantic | auditor
+#   ZIZMOR_TREE       audit the workflow and action files under this directory instead of
+#                     the checkout's tracked ones, each by its path there (ratchet.py's base
+#                     and head copies of the files a change touches)
 #   GH_TOKEN          if set, zizmor also runs its online audits (impostor commits,
 #                     known-vulnerable actions, ref confusion); otherwise offline only.
 set -uo pipefail
@@ -54,11 +57,17 @@ install_zizmor() {
 
 ZIZMOR="$(install_zizmor)" || { echo "zizmor.sh: install failed" >&2; exit 3; }
 
-# Inputs: every workflow dir and every composite action (action.yml) tracked in git.
+config="$ROOT/scripts/static-analysis/zizmor/zizmor.yml"
+# Inputs: every workflow dir and every composite action (action.yml) tracked in git, or under ZIZMOR_TREE.
 inputs=()
+if [ -n "${ZIZMOR_TREE:-}" ]; then
+  cd "$ZIZMOR_TREE" || exit 2
+  list_inputs() { find . -type f \( -name '*.yml' -o -name '*.yaml' \) | sed 's|^\./||'; }
+else
+  list_inputs() { git ls-files -- '.github/workflows/*.yml' '.github/workflows/*.yaml' '*action.yml' '*action.yaml'; }
+fi
 while IFS= read -r f; do inputs+=("$f"); done < <(
-  git ls-files -- '.github/workflows/*.yml' '.github/workflows/*.yaml' '*action.yml' '*action.yaml' \
-    | grep -E '(^\.github/workflows/[^/]+\.ya?ml$|(^|/)action\.ya?ml$)' | sort -u)
+  list_inputs | grep -E '(^\.github/workflows/[^/]+\.ya?ml$|(^|/)action\.ya?ml$)' | sort -u)
 
 json="$OUT_DIR/zizmor.json"
 txt="$OUT_DIR/zizmor.txt"
@@ -68,30 +77,49 @@ if [ "${#inputs[@]}" -eq 0 ]; then
 fi
 
 args=(--persona "${ZIZMOR_PERSONA:-regular}" --no-progress)
-[ -f scripts/static-analysis/zizmor/zizmor.yml ] && args+=(--config scripts/static-analysis/zizmor/zizmor.yml)
+[ -f "$config" ] && args+=(--config "$config")
 [ -n "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ] || args+=(--offline)
 
 # zizmor exit codes: 0 clean, 10-14 findings by max severity, anything else a
 # crash. One file whose audit crashes (zizmor aborts the whole run on it) must not
-# hide the rest, so files run one at a time; crashed files are listed, not fatal.
+# hide the rest, so each file is its own zizmor run; crashed files are listed, not
+# fatal. The runs go ZIZMOR_JOBS (default: every core) at a time and are joined in
+# file order: one at a time took 17 s for 279 files on 8 cores, and the CI guard
+# step (ratchet.py) runs this on every guard pass.
 tmp="$(mktemp -d)" || exit 2
 : >"$OUT_DIR/zizmor.stderr"
 : >"$txt"
-crashed=()
+audit_one() {
+  local i=$1 f=$2 rc
+  "$ZIZMOR" "${args[@]}" --format json "$f" >"$tmp/$i.json" 2>"$tmp/$i.err"
+  rc=$?
+  if [ "$rc" -ne 0 ] && { [ "$rc" -lt 10 ] || [ "$rc" -gt 14 ]; }; then
+    echo "$f (exit $rc)" >"$tmp/$i.crash"; rm -f "$tmp/$i.json"; return
+  fi
+  [ "$rc" -ne 0 ] && "$ZIZMOR" "${args[@]}" --format plain "$f" >"$tmp/$i.txt" 2>/dev/null
+  return 0
+}
+jobs_max="${ZIZMOR_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
 i=0
 for f in "${inputs[@]}"; do
   i=$((i + 1))
-  "$ZIZMOR" "${args[@]}" --format json "$f" >"$tmp/$i.json" 2>>"$OUT_DIR/zizmor.stderr"
-  rc=$?
-  if [ "$rc" -ne 0 ] && { [ "$rc" -lt 10 ] || [ "$rc" -gt 14 ]; }; then
-    crashed+=("$f (exit $rc)"); rm -f "$tmp/$i.json"; continue
-  fi
-  [ "$rc" -ne 0 ] && "$ZIZMOR" "${args[@]}" --format plain "$f" >>"$txt" 2>/dev/null
+  audit_one "$i" "$f" &
+  # Batches, not `wait -n`: macOS ships bash 3.2.
+  [ $((i % jobs_max)) -eq 0 ] && wait
+done
+wait
+crashed=()
+for i in $(seq 1 "${#inputs[@]}"); do
+  [ -f "$tmp/$i.err" ] && cat "$tmp/$i.err" >>"$OUT_DIR/zizmor.stderr"
+  [ -f "$tmp/$i.crash" ] && crashed+=("$(cat "$tmp/$i.crash")")
+  [ -f "$tmp/$i.txt" ] && cat "$tmp/$i.txt" >>"$txt"
 done
 if [ "${#crashed[@]}" -eq "${#inputs[@]}" ]; then
   echo "zizmor.sh: zizmor crashed on every file" >&2; tail -20 "$OUT_DIR/zizmor.stderr" >&2; rm -rf "$tmp"; exit 4
 fi
-jq -s 'add // []' "$tmp"/*.json >"$json"
+jsons=()
+for i in $(seq 1 "${#inputs[@]}"); do [ -f "$tmp/$i.json" ] && jsons+=("$tmp/$i.json"); done
+jq -s 'add // []' "${jsons[@]}" >"$json"
 rm -rf "$tmp"
 
 findings=$(jq 'length' "$json" 2>/dev/null || echo 0)

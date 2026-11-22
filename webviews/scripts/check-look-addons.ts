@@ -13,8 +13,7 @@
  *                 stylesheet can beat: it belongs to the theme file's colors, not this contract.
  * Every look add-on (examples/looks/looks.json, `addon`), its agent-pane/theme.css:
  *   selector      a rule on anything but `:root`: class names are not public, and renames break it.
- *   private-token a declaration of anything but a contract token (a property, or an internal variable). A
- *                 token in the contract's `pending` list (an open PR adds it) is accepted: inert until it lands.
+ *   private-token a declaration of anything but a contract token (a property, or an internal variable).
  *   remote        `@import` or `url(`: a look draws nothing from outside.
  *   literal-color a color token set to a literal color (`#hex`, `rgb()`, `oklch()`, a named color) instead
  *                 of one made from the theme's own (`var(--agent-text)`, `color-mix(in srgb, var(--agent-accent)
@@ -38,16 +37,7 @@ export const CONTRACT_PATH = path.join(repo, "schemas/agent-pane/style-tokens.js
 export const LOOKS_PATH = path.join(repo, "examples/looks/looks.json");
 
 export type Token = { name: string; kind: string; owner: string; alsoScopedIn?: string[]; about: string };
-/** A token an open PR adds: a look may set it ahead (inert until that PR lands). `--prefix-*` names a family. */
-export type PendingToken = { name: string; pr: string; about: string };
-export type Contract = { interface: string; selectors: string[]; tokens: Token[]; pending?: PendingToken[] };
-
-/** Whether `name` is a pending token of the contract (by exact name or `--prefix-*` family). */
-export function pendingToken(contract: Contract, name: string): boolean {
-  return (contract.pending ?? []).some((token) =>
-    token.name.endsWith("-*") ? name.startsWith(token.name.slice(0, -1)) : token.name === name,
-  );
-}
+export type Contract = { interface: string; selectors: string[]; tokens: Token[] };
 export type Look = { id: string; addon: string | null; builtIn: unknown; pending?: string };
 export type Problem = { kind: string; where: string; message: string };
 
@@ -209,7 +199,6 @@ export function checkAddonCss(file: string, css: string, contract: Contract): Pr
     buffer = "";
     if (!line) return;
     const name = /^([A-Za-z0-9_-]+)\s*:/.exec(line)?.[1];
-    if (name && !allowed.has(name) && pendingToken(contract, name)) return;
     if (!name || !allowed.has(name))
       problems.push({
         kind: "private-token",

@@ -41,13 +41,13 @@
       "name": "--cv-card-fill",
       "kind": "color",
       "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
-      "about": "The fill of every card in the transcript: opened tool output, code, edited files. Unset: each card keeps its own strength (the theme's text at 4%, code at 7.5%)."
+      "about": "The fill of the card level in the pane: tool output, edit, error and permission cards, plans, the subagent card (design/chat-surfaces.md). Code blocks keep --cv-codeblock-bg. Unset: the card level, the theme's text at 4%."
     },
     {
       "name": "--cv-card-ring",
       "kind": "color",
       "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
-      "about": "The hairline around those cards (none under appearance.borders: none). Unset: each card keeps its own."
+      "about": "The hairline around those cards (none under appearance.borders: none). Unset: the card level's line, the theme's text at 10%."
     },
     {
       "name": "--cv-user-bubble-tint",
@@ -66,18 +66,12 @@
       "kind": "length",
       "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
       "about": "The prompt bubble's corner radius. Unset: 12 px at the chat's text scale. A corner never changes the bubble's box."
-    }
-  ],
-  "pending": [
-    {
-      "name": "--menu-*",
-      "pr": "https://github.com/manaflow-ai/cmux/pull/46846",
-      "about": "Menus and pickers (radius, fill, edge, row height, hover, separators, labels). A look may set them ahead; nothing reads them until that PR lands, so they are inert. A token moves to `tokens` (and its checks) when it does."
     },
     {
-      "name": "--cv-user-bubble-text",
-      "pr": "https://github.com/manaflow-ai/cmux/pull/46490",
-      "about": "The prompt bubble's text color. Inert until that PR lands; it moves to `tokens` there."
+      "name": "--cv-code-edge-fade",
+      "kind": "length",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "How far a code block's long line fades at the card's right edge while more of it lies past. Unset: no fade, a hard edge. Paint only: the line's box does not change."
     }
   ]
 }

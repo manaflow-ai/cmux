@@ -17,7 +17,7 @@
 .cv-coach[data-look="compact"] {
   padding: var(--grid-cards-padding, 12px);
   border-radius: var(--grid-cards-radius, 12px);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--ds-surface-card-line));
+  box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
 }
 .cv-coach[data-look="rule"] {
   padding: 4px 0 4px 12px;

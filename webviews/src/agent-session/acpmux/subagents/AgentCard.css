@@ -103,7 +103,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: var(--cv-card-fill, var(--ds-surface-card));
+  background: var(--ds-surface-card);
   font-size: var(--text-detail);
   line-height: 1;
 }

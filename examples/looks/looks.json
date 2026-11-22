@@ -5,7 +5,7 @@
       "id": "studio",
       "addon": "studio",
       "builtIn": null,
-      "pending": "No built-in Studio preset is merged yet (agentPane.display.transcriptLook is in progress); the add-on is the reference it must match."
+      "pending": "The built-in Studio transcript preset (agentPane.display.transcriptLook studio) is in review in #46047 and #46258; once it lands this entry names it and its gallery variant. Until then the add-on is the reference it must match."
     },
     {
       "id": "paper",
@@ -32,83 +32,17 @@
       "pending": "An outside-only look on the flush corner with goo fillets: there is no built-in twin."
     },
     {
-      "id": "basalt",
-      "addon": "basalt",
-      "builtIn": null,
-      "pending": "An outside-only look drawn from a captured reference (#47012): there is no built-in twin."
-    },
-    {
-      "id": "docket",
-      "addon": "docket",
-      "builtIn": null,
-      "pending": "An outside-only look drawn from a captured reference (#47012): there is no built-in twin."
-    },
-    {
-      "id": "ember",
-      "addon": "ember",
-      "builtIn": null,
-      "pending": "An outside-only look drawn from a captured reference (#47012): there is no built-in twin."
-    },
-    {
-      "id": "folio",
-      "addon": "folio",
-      "builtIn": null,
-      "pending": "An outside-only look drawn from a captured reference (#47012): there is no built-in twin."
-    },
-    {
-      "id": "hush",
-      "addon": "hush",
-      "builtIn": null,
-      "pending": "An outside-only look drawn from a captured reference (#47012): there is no built-in twin."
-    },
-    {
-      "id": "kerf",
-      "addon": "kerf",
-      "builtIn": null,
-      "pending": "An outside-only look drawn from a captured reference (#47012): there is no built-in twin."
-    },
-    {
-      "id": "linen",
-      "addon": "linen",
-      "builtIn": null,
-      "pending": "An outside-only look drawn from a captured reference (#47012): there is no built-in twin."
-    },
-    {
-      "id": "prism",
-      "addon": "prism",
-      "builtIn": null,
-      "pending": "An outside-only look drawn from a captured reference (#47012): there is no built-in twin."
-    },
-    {
-      "id": "tachyon",
-      "addon": "tachyon",
-      "builtIn": null,
-      "pending": "An outside-only look drawn from a captured reference (#47012): there is no built-in twin."
-    },
-    {
-      "id": "tandem",
-      "addon": "tandem",
-      "builtIn": null,
-      "pending": "An outside-only look drawn from a captured reference (#47012): there is no built-in twin."
-    },
-    {
       "id": "claude",
       "surface": "composer",
       "addon": null,
-      "builtIn": {
-        "setting": "composerLook",
-        "value": "claude"
-      },
+      "builtIn": { "setting": "composerLook", "value": "claude" },
       "pending": "The composer look is page storage only (composerLook.ts); a setup cannot select it until a setting carries it (#43272, #45843), and the composer has no paint tokens yet."
     },
     {
       "id": "codex",
       "surface": "composer",
       "addon": null,
-      "builtIn": {
-        "setting": "composerLook",
-        "value": "codex"
-      },
+      "builtIn": { "setting": "composerLook", "value": "codex" },
       "pending": "As claude: the default composer look, page storage only until #43272 or #45843 lands."
     }
   ]

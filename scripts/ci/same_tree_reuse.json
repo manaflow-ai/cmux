@@ -180,9 +180,6 @@
    "react-doctor": "below break-even: 100 runs, 103 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves",
    "fast-check-route": "its outputs feed later jobs; a skipped run leaves them empty"
   },
-  "cmux-next-remote-daemon.yml": {
-   "release-packaging": "publish, release, deploy, live or cloud work (by its name)"
-  },
   "cmux-next-shell-integration.yml": {
    "shell-integration": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for",
    "zsh-head-watch": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"

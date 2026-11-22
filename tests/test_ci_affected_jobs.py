@@ -511,6 +511,32 @@ class PullRequestSkip(unittest.TestCase):
         self.assertIs(pr_test_lanes.evaluate(clause, pr_test_lanes.event_context("main")), True)
         self.assertIs(pr_test_lanes.evaluate(clause, context), False)
 
+    def follows(self, gate_line: str, followed: str = ".github/workflows/s.yml heavy") -> list[str]:
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".github/workflows").mkdir(parents=True)
+            (root / ".github/workflows/s.yml").write_text(SKIP_WORKFLOW)
+            (root / ".github/workflows/fix.yml").write_text(
+                "jobs:\n  repair:\n    steps:\n      - env:\n" + gate_line + "        run: true\n")
+            skip = {"workflows": {".github/workflows/s.yml": {"heavy": "x"}},
+                    "follows": {".github/workflows/fix.yml": {"GATE_HEAVY": followed}}}
+            return jobs.check_follows(root, json.dumps({"pull_request_skip": skip}))
+
+    def test_a_gate_set_to_the_skip_clause_passes(self):
+        self.assertEqual(self.follows(f"          GATE_HEAVY: ${{{{ {SKIP_IF} }}}}\n"), [])
+
+    def test_a_gate_that_drifted_from_the_skip_clause_is_named(self):
+        problems = self.follows(f"          GATE_HEAVY: ${{{{ {SKIP_IF.replace('full-ci', 'dev-build')} }}}}\n")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("different heads", problems[0])
+
+    def test_a_gate_never_set_or_following_an_unlisted_job_is_named(self):
+        self.assertIn("never sets", self.follows("")[0])
+        problems = self.follows(f"          GATE_HEAVY: ${{{{ {SKIP_IF} }}}}\n", ".github/workflows/s.yml after")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("does not list", problems[0])
+
     def test_every_listed_job_is_named_in_the_map_with_its_replay(self):
         data = json.loads((ROOT / jobs.MAP).read_text())
         for workflow, entry in data.get("pull_request_skip", {}).get("workflows", {}).items():

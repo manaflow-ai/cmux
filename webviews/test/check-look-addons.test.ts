@@ -36,11 +36,6 @@ test("a look sets contract tokens on :root, and nothing else", () => {
   expect(kinds('@import "x.css"; :root { --cv-link: var(--agent-accent); }')).toContain("remote");
 });
 
-test("a token an open PR adds (the contract's pending list) may be set ahead, and nothing near it", () => {
-  expect(kinds(":root { --menu-radius: 10px; --menu-row-height: 30px; }")).toEqual([]);
-  expect(kinds(":root { --menuish: 1px; }")).toEqual(["private-token"]);
-});
-
 test("a look's colors come from the theme's, so it reads in light and dark", () => {
   // Studio 1.0.0's bubble and Paper 1.0.0's bubble: right for one appearance only (cmux#46049).
   expect(kinds(":root { --cv-user-bubble-tint: rgb(39 39 42 / 0.72); }")).toEqual(["literal-color"]);

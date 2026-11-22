@@ -54,18 +54,17 @@ fn receipt(read: &setup::Setup, installed: &setup::Installed, name: &str) -> Rec
     }
 }
 
+/// looks.json lists the looks on public surfaces only; every whole look under examples/looks is
+/// indexed by examples/gallery/gallery.json (tests/gallery.rs), so a folder may be in that index
+/// and not this one.
 #[test]
-fn every_folder_is_listed_and_every_listed_addon_is_a_folder() {
-    let mut folders: Vec<String> = fs::read_dir(looks())
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        // A whole look holds its own cmux-setup.json; `looks/APP/` groups one app's feature
-        // looks (`looks/APP/FEATURE/`), which the gallery test covers.
-        .filter(|path| path.join(setup::SETUP_FILE).is_file())
-        .map(|path| path.file_name().unwrap().to_str().unwrap().to_owned())
-        .collect();
-    folders.sort();
-    assert_eq!(folders, addons(), "examples/looks/looks.json and the folders disagree");
+fn every_listed_addon_is_a_whole_look_folder() {
+    for name in addons() {
+        assert!(
+            looks().join(&name).join(setup::SETUP_FILE).is_file(),
+            "examples/looks/looks.json names {name}, which has no examples/looks/{name}/cmux-setup.json"
+        );
+    }
     assert!(
         addons().len() >= 2,
         "at least two looks: one recreating a built-in look, one outside-only"
