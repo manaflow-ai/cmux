@@ -18,12 +18,21 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        # GITHUB_PATH goes in front of everything, so writing ~/.cargo/bin there when PATH
+        # already has it moves it ahead of tools set up earlier in the job: cmux10s keeps a
+        # zig 0.16 in ~/.cargo/bin, which then hid setup-zig's 0.17 (run 44982697930).
+        case ":$PATH:" in
+          *":$HOME/.cargo/bin:"*) cargo_bin_on_path=true ;;
+          *) cargo_bin_on_path=false ;;
+        esac
         export PATH="$HOME/.cargo/bin:$PATH"
         if ! command -v rustup >/dev/null 2>&1; then
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
             | sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
         fi
-        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        if [[ "$cargo_bin_on_path" != true ]]; then
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        fi
         "$HOME/.cargo/bin/rustup" --version || rustup --version
     - name: Install pinned Rust toolchain
       shell: bash

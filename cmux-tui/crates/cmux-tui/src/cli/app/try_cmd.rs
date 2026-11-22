@@ -7,8 +7,9 @@
 //!
 //! The path is picked here, cheapest first:
 //! 1. **Live.** CI signs `cmux-tui/<sha>/mac-live.json` per merge: the
-//!    commit's Mac binaries and `live_from`, every app commit that can take
-//!    them without the app changing. When the app's CMUXCommit is listed, each
+//!    commit's Mac binaries, `live_from` for daemon compatibility and
+//!    `native_from` for unchanged app content outside those binaries. When both
+//!    cover the app's CMUXCommit (or it is already the target commit), each
 //!    binary is downloaded into the store and checked (size, sha256), the prior
 //!    files are kept by sha256, the new ones are renamed into
 //!    `Contents/Resources/bin`, and the app's daemon is handed over (SIGTERM to
@@ -21,6 +22,10 @@
 //!
 //! Every run writes a receipt (`last.json`, `history.jsonl`) with its phases
 //! and steps; `undo` puts back what the last try replaced, `status` prints it.
+//!
+//! `cmux app try .` (or `dir:PATH`) is the working-tree form (try_cmd/copy.rs): a fresh clone of the
+//! installed NIGHTLY (`--from APP`) beside the running app, the checkout swapped in; `--extract` keeps
+//! the code that went in, `--stop` deletes the clone. The running app is never changed.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -34,6 +39,7 @@ use super::nightly::{self, Switched, Target};
 use crate::localization::TryMessages;
 use live::{Change, Daemon, LivePayload, Phases, Store, Wanted};
 
+mod copy;
 mod live;
 mod resolve;
 
@@ -45,6 +51,7 @@ const LIST_TIMEOUT: Duration = Duration::from_secs(35);
 pub(crate) enum Command {
     Help,
     Try { target: String, dry_run: bool, app: Option<PathBuf> },
+    Copy { tree: PathBuf, from: Option<PathBuf>, action: copy::Action, dry_run: bool },
     Undo { dry_run: bool },
     Status,
 }
@@ -70,6 +77,8 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
     }
     let mut dry_run = false;
     let mut app = None;
+    let mut from = None;
+    let mut copy_flags: Vec<(&str, copy::Action)> = Vec::new();
     let mut words = Vec::new();
     let mut iter = rest.iter();
     while let Some(word) = iter.next() {
@@ -82,9 +91,43 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             other if other.starts_with("--app=") => {
                 app = other.strip_prefix("--app=").map(PathBuf::from);
             }
+            "--from" => {
+                let value = iter.next().ok_or_else(|| UsageError::new(messages().usage))?;
+                from = Some(PathBuf::from(value));
+            }
+            other if other.starts_with("--from=") => {
+                from = other.strip_prefix("--from=").map(PathBuf::from);
+            }
+            flag @ ("--stop" | "--delete") => copy_flags.push((flag, copy::Action::Stop)),
+            flag @ "--extract" => copy_flags.push((flag, copy::Action::Extract)),
             other if other.starts_with('-') => return Err(unexpected(other)),
             other => words.push(other.to_owned()),
         }
+    }
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    if let [word] = words.as_slice()
+        && let Some(tree) = copy::dir_target(word, home.as_deref())
+    {
+        let action = match copy_flags.as_slice() {
+            [] => copy::Action::Run,
+            [(_, action)] => *action,
+            [_, (extra, _), ..] => return Err(unexpected(extra)),
+        };
+        if from.is_some() && app.is_some() {
+            return Err(unexpected("--app"));
+        }
+        let from = from.or(app);
+        if action != copy::Action::Run && (dry_run || from.is_some()) {
+            return Err(UsageError::new(messages().usage));
+        }
+        return Ok(Command::Copy { tree, from, action, dry_run });
+    }
+    // --from, --extract and --stop belong to the working-tree form.
+    if from.is_some() {
+        return Err(unexpected("--from"));
+    }
+    if let Some(&(flag, _)) = copy_flags.first() {
+        return Err(unexpected(flag));
     }
     match words.as_slice() {
         [verb] if verb == "status" => {
@@ -120,6 +163,9 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     if let Command::Try { target, dry_run, app } = command {
         return run_try(global, target, *dry_run, app.as_deref());
     }
+    if let Command::Copy { tree, from, action, dry_run } = command {
+        return copy::run(global, tree, from.as_deref(), *action, *dry_run);
+    }
     // `status` and `undo` read the store of the app this CLI belongs to.
     let (app, _) = find_app(global, None);
     let Some(store) = store_for(app.as_deref()) else {
@@ -127,7 +173,9 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     };
     match command {
         Command::Undo { dry_run } => undo(global, &store, *dry_run),
-        Command::Help | Command::Try { .. } | Command::Status => status(global, &store),
+        Command::Help | Command::Try { .. } | Command::Copy { .. } | Command::Status => {
+            status(global, &store)
+        }
     }
 }
 
@@ -164,7 +212,7 @@ impl Plan {
 }
 
 /// The cheapest path to `commit` for an app at `app_commit`: live when the
-/// signed file lists the app; else a switchable build of the commit in the
+/// signed file proves daemon compatibility and native equality; else a build in the
 /// feed listing `builds`; else none, with every reason.
 fn choose(
     commit: &str,
@@ -180,15 +228,17 @@ fn choose(
         (Live::Refused(error), _) => why.push(messages.why_live_refused.replace("{error}", error)),
         (Live::Found(_), None) => why.push(messages.why_no_app_commit.to_owned()),
         (Live::Found(payload), Some(app_commit)) => {
-            if live::takes(&payload.live_from, app_commit) {
+            if !live::takes(&payload.live_from, app_commit) {
+                why.push(messages.why_not_live_from.replace("{app_commit}", app_commit));
+            } else if !live::native_matches(payload, app_commit) {
+                why.push(messages.why_native_unproven.to_owned());
+            } else {
                 match live::wanted(payload, base) {
                     Ok(files) => return Plan::Live { files },
                     Err(error) => {
                         why.push(messages.why_live_refused.replace("{error}", &error));
                     }
                 }
-            } else {
-                why.push(messages.why_not_live_from.replace("{app_commit}", app_commit));
             }
         }
     }

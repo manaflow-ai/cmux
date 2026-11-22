@@ -178,6 +178,7 @@ export function PaletteMenu({
         className="acpmux-picker-button"
         data-menu={label}
         aria-label={label}
+        // tooltip-allow: the trigger is the caller's glyph (the composer's +), with no words of its own.
         title={tooltip}
         onKeyDown={(event) => {
           if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {

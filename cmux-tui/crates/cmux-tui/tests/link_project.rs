@@ -24,7 +24,23 @@ use serde_json::{Value, json};
 
 /// The link's round trip: about Leo's to a Cloud machine.
 const RTT: Duration = Duration::from_millis(50);
-const KEY: &str = "0f0e0d0c-0b0a-4908-8706-050403020100";
+
+/// A start key of this run's own, one per start. The projection is named by it, and its process
+/// table and the edits it keeps in the user's state folder outlive a test: two tests (or two runs)
+/// with one key attached to each other's mount, and a later run read the last one's upper layer.
+fn new_key() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos() as u64);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    format!(
+        "{:08x}-0b0a-4908-8706-{:012x}",
+        std::process::id(),
+        (nanos ^ (n << 40)) & 0xffff_ffff_ffff
+    )
+}
 
 /// Copies `from` to `to`, each read arriving `RTT`/2 after it left.
 fn delayed(mut from: UnixStream, mut to: UnixStream) {
@@ -166,25 +182,54 @@ fn projects(at: &Path, files: usize) {
 }
 
 struct Start {
+    key: String,
     took: Duration,
     answer: Value,
     folder: PathBuf,
+    stderr: String,
 }
 
-/// `cmux link start-chat copy` of `local`, projection on or off.
-fn start_chat(state: &Path, socket: &Path, local: &Path, work: &Path, projected: bool) -> Start {
+impl Start {
+    /// FUSE is here but this host may not mount (a container without the right): the start
+    /// copied for that reason alone.
+    fn could_not_mount(&self) -> bool {
+        self.answer["mode"] != "projected" && self.stderr.contains("mount failed")
+    }
+}
+
+/// `cmux link start-chat copy` of `local`, projection on or off, with `extra` flags.
+fn start_chat(
+    state: &Path,
+    socket: &Path,
+    local: &Path,
+    work: &Path,
+    projected: bool,
+    extra: &[&str],
+) -> Start {
+    let key = new_key();
     let started = Instant::now();
     let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
         .env("CMUX_TUI_STATE_DIR", state)
         .env("CMUX_PROJECTED_FOLDERS", if projected { "1" } else { "0" })
         .env_remove("CMUX_SYNC_COPY_RATE")
-        .args(["link", "start-chat", "copy", "--key", KEY, "--account", "leo", "--machine", "vm-a"])
+        .args([
+            "link",
+            "start-chat",
+            "copy",
+            "--key",
+            &key,
+            "--account",
+            "leo",
+            "--machine",
+            "vm-a",
+        ])
         .arg("--socket")
         .arg(socket)
         .arg("--local")
         .arg(local)
         .arg("--work-root")
         .arg(work)
+        .args(extra)
         .output()
         .unwrap();
     let took = started.elapsed();
@@ -200,8 +245,9 @@ fn start_chat(state: &Path, socket: &Path, local: &Path, work: &Path, projected:
         "start-chat copy: {stdout}{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     let folder = PathBuf::from(answer["folder"].as_str().unwrap());
-    Start { took, answer, folder }
+    Start { key, took, answer, folder, stderr }
 }
 
 /// The scripted first turn (RFD 0007's bench): `ls` of the folder and a repository, `git status`
@@ -263,11 +309,20 @@ fn a_folder_past_the_limits_is_projected_whole_and_reads_come_from_the_mac() {
     }
     let w = world(500);
     let state = w.home.parent().unwrap().join("state");
-    let start = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true);
+    let start = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true, &[]);
     let folder = &start.folder;
+    if start.could_not_mount() {
+        eprintln!("skipping: this host may not mount FUSE: {}", start.stderr);
+        return;
+    }
     assert_eq!(start.answer["mode"], "projected", "{}", start.answer);
     // One projection per chat, named by its start key: Bring Back finds the chat's edits by it.
-    assert_eq!(start.answer["projected"]["name"], format!("chat-{KEY}"), "{}", start.answer);
+    assert_eq!(
+        start.answer["projected"]["name"],
+        format!("chat-{}", start.key),
+        "{}",
+        start.answer
+    );
 
     // The whole folder, at once: the 21 GiB image (by its size, no byte of it moved), every
     // repository with its history, every note.
@@ -293,6 +348,98 @@ fn a_folder_past_the_limits_is_projected_whole_and_reads_come_from_the_mac() {
     stop(&state, folder);
 }
 
+/// The App's first copy asks (`--on-seed-refusal ask`) and ends a start whose folder its
+/// machine's disk cannot hold, so that copy has to project too, before any seed or copy.
+#[test]
+fn the_apps_asking_copy_projects_too() {
+    if !fuse_here() {
+        eprintln!("skipping: no FUSE here");
+        return;
+    }
+    let w = world(50);
+    let state = w.home.parent().unwrap().join("state");
+    let work = w.home.join("work");
+    let start = start_chat(&state, &w.socket, &w.local, &work, true, &["--on-seed-refusal", "ask"]);
+    if start.could_not_mount() {
+        eprintln!("skipping: this host may not mount FUSE: {}", start.stderr);
+        return;
+    }
+    assert_eq!(start.answer["mode"], "projected", "{}", start.answer);
+    let image = std::fs::metadata(start.folder.join("Downloads/disk.img")).unwrap();
+    assert_eq!(image.len(), 21 * 1024 * 1024 * 1024);
+    stop(&state, &start.folder);
+}
+
+/// `cmux link seed push` (with `since_last`, `--since-last`) of `local` to `remote`: its answer
+/// line and its stderr.
+fn seed_push(
+    state: &Path,
+    socket: &Path,
+    local: &Path,
+    remote: &Path,
+    since_last: bool,
+) -> (Value, String) {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+    command
+        .env("CMUX_TUI_STATE_DIR", state)
+        .env("CMUX_PROJECTED_FOLDERS", "1")
+        .env("CMUX_PROJECTED_MOVES", "1")
+        .args(["link", "seed", "push", "--socket"])
+        .arg(socket)
+        .arg(local)
+        .arg(remote);
+    if since_last {
+        command.arg("--since-last");
+    }
+    let output = command.output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let answer = stdout
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str::<Value>(line).ok())
+        .unwrap_or(Value::Null);
+    (answer, String::from_utf8_lossy(&output.stderr).into_owned())
+}
+
+/// Move to Cloud (Leo, 2026-11-21: "improve the cmux moving/teleporting then. we have projection
+/// fs"): its push projects the chat's folder as a new Cloud chat's does, whole and at once, and
+/// the push once the chat is frozen (`--since-last`) projects it again, so what the chat changed
+/// here up to the freeze (an edit, a new file) is what the machine reads.
+#[test]
+fn a_moved_chats_folder_is_projected_and_projected_again_once_frozen() {
+    if !fuse_here() {
+        eprintln!("skipping: no FUSE here");
+        return;
+    }
+    let w = world(20);
+    let state = w.home.parent().unwrap().join("state");
+    let remote = w.home.join("work/Projects");
+    let (answer, stderr) = seed_push(&state, &w.socket, &w.local, &remote, false);
+    if answer["mode"] != "projected" && stderr.contains("mount failed") {
+        eprintln!("skipping: this host may not mount FUSE: {stderr}");
+        return;
+    }
+    assert_eq!(answer["ok"], true, "{answer} {stderr}");
+    assert_eq!(answer["mode"], "projected", "{answer} {stderr}");
+    let image = std::fs::metadata(remote.join("Downloads/disk.img")).unwrap();
+    assert_eq!(image.len(), 21 * 1024 * 1024 * 1024);
+    assert_eq!(std::fs::read_to_string(remote.join("cmux-matrix-word.txt")).unwrap(), "pelican\n");
+
+    // The chat goes on here until the move freezes it: it edits a file and makes one.
+    write(&w.local.join("cmux-matrix-word.txt"), "a great blue heron\n");
+    write(&w.local.join("cmux/src/new.rs"), "fn new() {}\n");
+    let (again, stderr) = seed_push(&state, &w.socket, &w.local, &remote, true);
+    assert_eq!(again["ok"], true, "{again} {stderr}");
+    assert_eq!(again["mode"], "projected", "{again} {stderr}");
+    assert_eq!(
+        std::fs::read_to_string(remote.join("cmux-matrix-word.txt")).unwrap(),
+        "a great blue heron\n"
+    );
+    assert_eq!(std::fs::read_to_string(remote.join("cmux/src/new.rs")).unwrap(), "fn new() {}\n");
+    assert_eq!(git(&remote.join("cmux"), &["log", "--oneline"]).lines().count(), 1);
+    stop(&state, &remote);
+}
+
 #[test]
 #[ignore = "a bench: CMUX_PROJECT_BENCH_FILES=200000 cargo test --test link_project -- --ignored --nocapture"]
 fn a_bench_of_the_first_turn() {
@@ -308,7 +455,7 @@ fn a_bench_of_the_first_turn() {
     let mut rows = Vec::new();
     for projected in [false, true] {
         let state = w.home.parent().unwrap().join(if projected { "state-p" } else { "state-c" });
-        let start = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), projected);
+        let start = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), projected, &[]);
         let (turn, read, status) = first_turn(&start.folder);
         let row = json!({
             "path": if projected { "projected" } else { "first pass (today)" },

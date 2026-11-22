@@ -121,6 +121,7 @@ final class FocusEffectApplier: FocusEffectApplying {
             guard let bar = entry.chrome?.addressBar else { return }
             if bar.window === window, !bar.isHiddenOrHasHiddenAncestor, !responder(of: window, isInside: bar) {
                 if controller.focus.isReturningToOmnibar { bar.restoreFocus() } else { bar.focus() }
+                if bar.editsAsFirstResponder { controller.services.keyRouter.creationInputCoordinator.focusDidSettle(in: window) } // keys held since the key (Cmd-Shift-L) go into it now
             }
         case .findBar(let pane, let tab):
             guard case .browser(let entry)? = presented(pane: pane, tab: tab) else { return }

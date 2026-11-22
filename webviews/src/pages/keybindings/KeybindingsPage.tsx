@@ -147,7 +147,11 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
             />
             {searchRecording && (
               // The mode, inside the field; how to leave it on hover.
-              <span className="keys-search-badge" title={t("keybindings.page.recordingExit")} aria-hidden="true">
+              <span
+                className="keys-search-badge"
+                aria-description={t("keybindings.page.recordingExit")}
+                aria-hidden="true"
+              >
                 {t("keybindings.page.recordingKeys")}
               </span>
             )}
@@ -483,9 +487,7 @@ function Recorder({
         </output>
       )}
       <div className="keys-recorder-actions">
-        <span className="keys-recorder-command" title={binding.title}>
-          {binding.title}
-        </span>
+        <span className="keys-recorder-command">{binding.title}</span>
         {prompt ? (
           // The app's recorder answers Escape (Close) and Return (Overwrite); a new shortcut
           // drops the question.
@@ -565,7 +567,6 @@ function BindingRow({ binding, strings, selected, editing, recording: rowRecordi
             aria-label={
               binding.display ? `${t("keybindings.page.change")}: ${binding.display}` : t("keybindings.page.change")
             }
-            title={t("keybindings.page.change")}
             aria-pressed={recording}
             onClick={(event) => {
               event.stopPropagation();

@@ -21,6 +21,7 @@ import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { useTranscriptReadOnly } from "./readOnly";
 import { ROW_ICON } from "./messageActionsModel";
+import { intl } from "../../../ui/intl";
 /// The message's age, relative and live ("just now", "8 minutes ago", "yesterday", "Oct 18" past a
 /// week: messageAge), the exact date and time above it on hover, as Claude's. A prompt's, another
 /// agent's and a reply's rows all draw this one label (Leo, 2026-11-08: "the timestamps for the agent
@@ -213,6 +214,7 @@ export function RewindButton({ rowId }: { rowId: string }) {
       type="button"
       className="cv-iconbtn cv-iconbtn--compact cv-turn-rewind"
       aria-label={label}
+      // tooltip-allow: an icon button.
       title={label}
       aria-busy={state.kind === "pending"}
       aria-disabled={state.kind === "done" || undefined}
@@ -240,7 +242,7 @@ export function RewindButton({ rowId }: { rowId: string }) {
 
 /// A rewind's time in seconds with one decimal, in the pane's language ("9.4", "9,4").
 export function rewindSeconds(seconds: number, language: string): string {
-  return new Intl.NumberFormat(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(seconds);
+  return intl.NumberFormat(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(seconds);
 }
 
 /// Pins the message (row `rowId`): kept with the chat by acpmux; a pinned prompt also shows in the

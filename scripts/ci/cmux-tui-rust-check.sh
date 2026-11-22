@@ -81,7 +81,7 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write [TEST_FILTER]" >&2; exit 2 ;; esac
+case "$mode" in fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|files-host|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|files-host|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write [TEST_FILTER]" >&2; exit 2 ;; esac
 if [[ ( "$mode" == api-compat* || "$mode" == panic || "$mode" == acpmux-hot ) && -n "$filter" ]]; then
   echo "error: $mode takes no TEST_FILTER" >&2
   exit 2
@@ -305,6 +305,50 @@ go_caches() {
   export GOPATH="$root/.build/go-path" GOMODCACHE="$root/.build/go-path/pkg/mod" GOCACHE="$root/.build/go-cache"
 }
 go_caches
+# Go for libtailscale (cmux-tui/crates/cmux-tailnet/build.rs), which every
+# whole-workspace build of cmux-tui (clippy, test, all, panic) and of
+# cmux-screen compiles: the host's go with GOTOOLCHAIN=auto (Go 1.21 or later)
+# when it has one, else the pinned release for this OS and arch
+# (cmux-tui/crates/cmux-tailnet/go-version, which cmux-tui.yml's macOS job
+# installs too; sums from https://go.dev/dl/?mode=json&include=all),
+# checksummed, in the step's own .build. Before it only screen mode fetched Go,
+# and only the darwin tarball, so Linux fleet clippy failed in cmux-tailnet's
+# build script ("`go` was not found", 2026-11-19). Go's caches stay in .build
+# (go_caches), and toolchain downloads go only through the default proxy with
+# the checksum database on: nothing is installed on the host.
+ensure_go() {
+  export GOTOOLCHAIN=auto GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org
+  go_caches
+  local version platform sum dir tmp have
+  version="$(tr -d '[:space:]' <"$root/cmux-tui/crates/cmux-tailnet/go-version")" || return 3
+  dir="$root/.build/go-$version"
+  if ! command -v go >/dev/null 2>&1; then
+    case "$version-$(uname -s)-$(uname -m)" in
+      1.27.1-Darwin-arm64) platform=darwin-arm64 sum=ee215d57e0ec269c60cc9ceca68e6bda321ba9ee5afe24f4b0988703c2d87d12 ;;
+      1.27.1-Darwin-x86_64) platform=darwin-amd64 sum=8f8f52c6649542cf027bbc9b9c68d1ec042f9f34808a40413f0b8b3f66f3caa4 ;;
+      1.27.1-Linux-x86_64) platform=linux-amd64 sum=63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445 ;;
+      1.27.1-Linux-aarch64) platform=linux-arm64 sum=3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec ;;
+      *) echo "error: no pinned sha256 for Go $version on $(uname -sm); add it here" >&2; return 3 ;;
+    esac
+    if [[ ! -x "$dir/go/bin/go" ]]; then
+      # Extract beside the target and rename, so a cut-off extract never looks complete.
+      tmp="$dir.partial"
+      rm -rf "$dir" "$tmp" && mkdir -p "$tmp" || return 3
+      curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 300 \
+        --output "$tmp/go.tgz" "https://go.dev/dl/go$version.$platform.tar.gz" || return 3
+      if command -v sha256sum >/dev/null; then have="$(sha256sum "$tmp/go.tgz")"; else have="$(shasum -a 256 "$tmp/go.tgz")"; fi
+      if [[ "${have%% *}" != "$sum" ]]; then
+        rm -rf "$tmp"
+        echo "error: go$version.$platform.tar.gz sha256 ${have%% *} is not the pinned $sum" >&2
+        return 3
+      fi
+      tar -xzf "$tmp/go.tgz" -C "$tmp" && rm -f "$tmp/go.tgz" && mv "$tmp" "$dir" || return 3
+    fi
+    export PATH="$dir/go/bin:$PATH"
+  fi
+  # libtailscale's go.mod selects the Go of go-version; GOTOOLCHAIN=auto switches to it inside that folder.
+  go version || return 3
+}
 # Every mode runs all of its steps, even after a red one (no fail-fast), and
 # prints a summary table at the end; the step exits with the first red step's
 # exit code. CMUX_RUST_CHECK_FAIL_FAST=1 restores stop-at-first-red (and cargo
@@ -413,6 +457,8 @@ ensure_nextest() {
     case "$(uname -s)-$(uname -m)" in
       Darwin-*) asset=universal-apple-darwin sha=6c23b7fb4ca82c571fc8dfedbab45bfa773d45918f933170c85d21cd7f4b852b ;;
       Linux-x86_64) asset=x86_64-unknown-linux-gnu sha=223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc ;;
+      # The arm64 Linux VMs on the fleet Macs (Lima, cmux-ci workers) take Linux steps too.
+      Linux-aarch64) asset=aarch64-unknown-linux-gnu sha=81469eb963ef883fd590e60189e77d6aba3d91b418591d3391f50fe3e9480d2b ;;
       *) echo "error: no pinned cargo-nextest for $(uname -sm)" >&2; return 3 ;;
     esac
     dir="$root/.build/tools/cargo-nextest-$nextest_version"
@@ -881,8 +927,12 @@ if [[ "$mode" == rd-host ]]; then
   cd "$root/cmux-tui/crates/cmux-rd-host"
   warm_target_guard
   step "rd-host fmt" cargo fmt --check
-  step "rd-host clippy" cargo clippy --locked --all-targets --no-default-features --features bench -- -D warnings
-  step "rd-host test" cargo test --locked ${no_fail_fast[@]+"${no_fail_fast[@]}"} --no-default-features --features bench ${filter:+"$filter"}
+  # Clippy as the Screen Sharing helper builds the crate (link, computer-use: `cmux rd serve` and
+  # the Computer Use worker) plus the bench client, then the library as cmux-tui links it for
+  # `cmux rd` (link only), so code that only one of them reaches is still compiled and linted.
+  step "rd-host clippy" cargo clippy --locked --all-targets --no-default-features --features bench,link,computer-use -- -D warnings
+  step "rd-host clippy (as cmux-tui links it)" cargo clippy --locked --lib --no-default-features --features link -- -D warnings
+  step "rd-host test" cargo test --locked ${no_fail_fast[@]+"${no_fail_fast[@]}"} --no-default-features --features bench,computer-use ${filter:+"$filter"}
   finish
 fi
 copy_rd_bench() {
@@ -904,37 +954,6 @@ if [[ "$mode" == acpmux-hot ]]; then
   step "acpmux-hot bench" bash "$root/cmux-tui/crates/acpmux-hot/bench.sh"
   finish
 fi
-# Go for libtailscale (cmux-screen/crates/cmux-tailnet/build.rs): the host's go
-# with GOTOOLCHAIN=auto (Go 1.21 or later) when it has one, else the pinned
-# release (cmux-tui/crates/cmux-tailnet/go-version, which cmux-tui.yml's macOS
-# job installs too), checksummed, in the step's own .build. Go's caches stay in
-# .build (go_caches), and toolchain downloads go only through the default
-# proxy with the checksum database on: nothing is installed on the host.
-ensure_screen_go() {
-  export GOTOOLCHAIN=auto GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org
-  go_caches
-  local version arch sum dir tmp
-  version="$(tr -d '[:space:]' <"$root/cmux-tui/crates/cmux-tailnet/go-version")" || return 3
-  dir="$root/.build/go-$version"
-  if ! command -v go >/dev/null 2>&1; then
-    case "$version-$(uname -m)" in
-      1.27.1-arm64) arch=arm64; sum=ee215d57e0ec269c60cc9ceca68e6bda321ba9ee5afe24f4b0988703c2d87d12 ;;
-      1.27.1-x86_64) arch=amd64; sum=8f8f52c6649542cf027bbc9b9c68d1ec042f9f34808a40413f0b8b3f66f3caa4 ;;
-      *) echo "error: no pinned sha256 for Go $version on $(uname -m); add it here" >&2; return 3 ;;
-    esac
-    if [[ ! -x "$dir/go/bin/go" ]]; then
-      # Extract beside the target and rename, so a cut-off extract never looks complete.
-      tmp="$dir.partial"
-      rm -rf "$dir" "$tmp" && mkdir -p "$tmp" || return 3
-      curl -fsSL -o "$tmp/go.tgz" "https://go.dev/dl/go$version.darwin-$arch.tar.gz" || return 3
-      echo "$sum  $tmp/go.tgz" | shasum -a 256 -c - || return 3
-      tar -xzf "$tmp/go.tgz" -C "$tmp" && rm -f "$tmp/go.tgz" && mv "$tmp" "$dir" || return 3
-    fi
-    export PATH="$dir/go/bin:$PATH"
-  fi
-  # libtailscale's go.mod selects the Go of go-version; GOTOOLCHAIN=auto switches to it inside that folder.
-  go version || return 3
-}
 if [[ "$mode" == screen ]]; then
   if [[ ! -f "$root/cmux-screen/Cargo.toml" ]]; then
     echo "error: screen mode: no cmux-screen workspace at this commit" >&2
@@ -944,7 +963,7 @@ if [[ "$mode" == screen ]]; then
   cd "$root/cmux-screen"
   use_pinned_toolchain
   warm_target_guard
-  step "screen go" ensure_screen_go
+  step "screen go" ensure_go
   step "screen clippy" cargo clippy --locked --workspace --all-targets -- -D warnings
   step "screen test" cargo test --locked --workspace ${no_fail_fast[@]+"${no_fail_fast[@]}"} ${filter:+"$filter"}
   step "screen release build" cargo build --locked --release -p cmux-screen-host
@@ -980,6 +999,24 @@ if [[ "$mode" == vm-cli ]]; then
   step "vm-cli test" cargo test --locked --workspace ${no_fail_fast[@]+"${no_fail_fast[@]}"} ${filter:+"$filter"}
   step "vm-cli release build" cargo build --locked --release -p cmux-vm
   step "vm-cli artifact" copy_vm_cli
+  finish
+fi
+# files-host: clippy and tests of cmux-tui/crates/cmux-files-host on macOS, then its release
+# binary wrapped as the unsigned "cmux Files (dev).app" at
+# .build/artifacts/cmux-files-host-dev-unsigned.zip (fetch it with --artifact) for
+# scripts/cmux-next/sign-files-host-dev.sh (docs/cmux-files-host.md).
+copy_files_host() {
+  bash "$root/scripts/cmux-next/build-files-host-dev.sh" "$CARGO_TARGET_DIR/release/cmux-files-host" \
+    "$root/.build/artifacts/cmux-files-host-dev-unsigned.zip"
+}
+if [[ "$mode" == files-host ]]; then
+  CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$root/cmux-tui/target}"
+  export CARGO_TARGET_DIR
+  warm_target_guard
+  step "files-host clippy" cargo clippy --locked -p cmux-files-host --all-targets -- -D warnings
+  step "files-host test" cargo test --locked -p cmux-files-host ${no_fail_fast[@]+"${no_fail_fast[@]}"}
+  step "files-host release build" cargo build --locked --release -p cmux-files-host
+  step "files-host artifact" copy_files_host
   finish
 fi
 # The files --write may write: the shape snapshot, and the wire ledger where the crate has one.
@@ -1034,8 +1071,14 @@ for line in open(sys.argv[1], errors="replace"):
   python3 ../scripts/cmux-next/rust_panic_ratchet.py --clippy-json "$json"
 }
 if [[ "$mode" == panic ]]; then
+  step go ensure_go
   step "panic ratchet" panic_ratchet
   finish
+fi
+# clippy, test and all build the whole cmux-tui workspace, cmux-tailnet with it (fmt only
+# formats; the terminal crates, api-compat and acpmux-hot do not depend on cmux-tailnet).
+if [[ "$mode" == clippy || "$mode" == test || "$mode" == all ]]; then
+  step go ensure_go
 fi
 if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   step fmt cargo fmt --all --check
