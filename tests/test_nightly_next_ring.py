@@ -430,8 +430,9 @@ class WorkflowTests(unittest.TestCase):
         text = nightly_text()
         ring_expr = "vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next'"
         tags = re.findall(r"^\s+SPARKLE_CHANNEL: (.*)$", text, re.MULTILINE)
-        # First publication, its deltas and a recovered build follow the switch.
-        self.assertEqual(sum(ring_expr in tag for tag in tags), 3, tags)
+        # First publication, its deltas, a recovered build and nightly-next-one's after-feed deltas (#49094)
+        # follow the switch.
+        self.assertEqual(sum(ring_expr in tag for tag in tags), 4, tags)
         self.assertEqual(tags.count("cmux-next"), 0, tags)
 
     def test_the_delta_feed_is_retagged_from_verdicts_before_it_is_published(self):
