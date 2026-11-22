@@ -70,6 +70,9 @@ public final class MacScreenSession {
     /// The pane's screen area in pixels, for Auto's stream width (read when a session offers).
     @ObservationIgnored public var paneWidthPixels: Int?
     @ObservationIgnored public var relayOnly = false
+    /// Settings > cmux Remote > Screen Sharing Profile (`remote.screenSharingProfile`): `ultra`
+    /// asks the host for its ultra encode profile in the next offer; nil (Balanced) asks for nothing.
+    @ObservationIgnored public var encodeProfile: String?
     @ObservationIgnored public var reconnectLimit = 0
     /// Relay errors for the failed card (relays are a link carrier, not reported apart).
     public var relayErrors: [ICECandidateError] { [] }
@@ -270,6 +273,8 @@ public final class MacScreenSession {
                 offer.maxWidth = wish.maxWidth
                 offer.maxFps = wish.maxFps
                 offer.display = wantedDisplay
+                offer.customize(preferences)
+                offer.encodeProfile = encodeProfile
                 offer.displayID = wantedDisplay == nil ? linkedDisplay : nil
                 stats.targetFps = wish.maxFps
                 pendingAnswer = { [weak self] answer in self?.sendAnswer(answer, sessionID: sessionID, servers: servers, to: process) }

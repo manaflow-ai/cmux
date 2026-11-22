@@ -45,9 +45,9 @@ extension AppControl {
         registerRunMethods(services); CaptureAuthControl().register(on: service?.router, remote: services.cmuxRemote.capture) { [weak services] in services?.cloud.auth }
         registerCloudEnvironmentMethods(services)
         registerVMAgentKeyMethods(services)
-        // `cmux auth token` (cmux-platform#111): the method lives in CmuxNextControl, the mint in CmuxNextCloud.
+        // `cmux auth token` (cmux-platform#111) and `cmux auth handoff`: methods in CmuxNextControl, Cloud calls in CmuxNextCloud and cmux-tui.
         let identity = services.cloud.installIdentity, origin = services.cloud.configuration.ownerAPIBaseURL(), auth = services.cloud.auth
-        service?.router.register([.authToken(
+        service?.router.register([ControlMethod.authToken(
             disabledFeatures: { services.registry.disabledFeatures }, isSignedIn: { services.cloud.isSignedIn },
             mint: { asked in
                 do {
@@ -55,7 +55,7 @@ extension AppControl {
                     return AuthTokenGrant(accessToken: token.accessToken, team: token.team, user: token.user, expiresAt: token.expiresAt, apiOrigin: origin)
                 } catch let refused as CloudAccessToken.Refusal { throw AuthTokenRefusal(code: refused.failure.code, detail: refused.failure.detail, team: refused.team) }
             }),
-        ])
+        ] + ControlMethod.authHandoff(disabledFeatures: { services.registry.disabledFeatures }, relay: CloudCLICall(cli: services.bundledCLI).authHandoffRelay(signedIn: auth)))
         // Tagged DEV builds only (debug.* methods; a release build registers
         // none, and ControlRouter drops them too).
         #if DEBUG || CMUX_BENCH_HOOKS

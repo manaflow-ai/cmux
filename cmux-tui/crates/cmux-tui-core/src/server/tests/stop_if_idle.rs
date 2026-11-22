@@ -257,3 +257,39 @@ fn the_fence_stays_while_its_own_reservation_is_held() {
     mux.new_workspace(None, None).unwrap();
     mux.shutdown();
 }
+
+/// Closing the last workspace leaves its terminal live for the reap grace
+/// (Reopen Closed attaches to it within that time), so the stop still
+/// refuses. With no workspace left, "1 live terminal" alone reads like a
+/// shell nobody can see: the refusal says these only wait out the grace,
+/// but only while a reaper runs to end them.
+#[test]
+fn stop_if_idle_names_the_terminals_of_closed_tabs() {
+    let mux = test_mux();
+    mux.mark_server_lifecycle_ready();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let workspace = mux.surface_workspace(surface.id).unwrap();
+    assert!(mux.close_workspace_at_revision(workspace, None).unwrap().is_some());
+    assert_eq!(live_terminals(&mux), 1, "the closed tab's terminal waits out the reap grace");
+    let (writer, outbound) = captured_writer();
+    let requester = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+    // No reaper: nothing ends it, so it is not said to end on its own.
+    stop_if_idle(&mux, requester, &writer, 8);
+    let response = pop_json(&outbound);
+    assert_eq!(response["error_code"], "daemon_busy", "{response}");
+    assert_eq!(response["error_details"]["closed_tabs"], 0, "{response}");
+    assert!(!response["error"].as_str().unwrap().contains("reap grace"), "{response}");
+
+    let reaper = crate::mux::start_terminal_reaper(&mux).unwrap();
+    stop_if_idle(&mux, requester, &writer, 9);
+    let response = pop_json(&outbound);
+    assert_eq!(response["error_code"], "daemon_busy", "{response}");
+    assert_eq!(response["error_details"]["terminals"], 1, "{response}");
+    assert_eq!(response["error_details"]["closed_tabs"], 1, "{response}");
+    let error = response["error"].as_str().unwrap();
+    assert!(error.contains("closed tab") && error.contains("reap grace"), "{error}");
+    assert!(!mux.daemon_shutdown_requested());
+    drop(reaper);
+    mux.shutdown();
+}

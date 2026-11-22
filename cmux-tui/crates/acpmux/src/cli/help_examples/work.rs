@@ -70,12 +70,23 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "process",
         &[
+            (
+                "Every process acpmux started here, who owns it now and whether it is in use",
+                "acpmux process",
+            ),
             ("List background processes agents started", "acpmux process list"),
             (
                 "Follow a Claude Code background process's output",
                 "acpmux process show coord/b7x2k1q -f",
             ),
             ("Stop a Claude Code or Codex background process", "acpmux process kill coord/b7x2k1q"),
+        ],
+    ),
+    (
+        "gc",
+        &[
+            ("What acpmux would end as orphaned, and what it refuses and why", "acpmux gc"),
+            ("End the proven orphans and log each with its reason", "acpmux gc --apply"),
         ],
     ),
     (
