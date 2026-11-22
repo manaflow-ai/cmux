@@ -714,12 +714,19 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
                 oldest = float(load.get("oldest_queued_minutes") or 0)
             except (TypeError, ValueError):
                 continue
-            if not simple_pool_picker.blacksmith_stalled(queued, oldest + age):
-                continue
             if owned_lead(label):
                 # Our own machines, not a cloud: a job that waited the cutoff there means every VM is taken, so the
                 # pool overflows to its Blacksmith members until the queue drains, even while the VMs start jobs.
-                full.add(label)
+                # The wait is the one the snapshot measured, never that plus the snapshot's age. Adding the age
+                # assumes nothing took the job since, which for our pool (hundreds of idle runners, a start in
+                # seconds) is a guess that sends every x64 pool to Blacksmith. 2026-11-22 09:37Z: the 09:02Z snapshot
+                # read cmux-fleet-linux-x64 1 queued, oldest 0 min, 884 running, a start at 09:03Z; at 35 min old,
+                # 0 + 35 crossed the cutoff, the label was marked full, and linux, linux_2, linux_8, linux_16 and
+                # linux_32 ran on Blacksmith until 10:25Z. Leo, 2026-11-19, on Blacksmith: "stop ... relying on it".
+                if simple_pool_picker.blacksmith_stalled(queued, oldest):
+                    full.add(label)
+                continue
+            if not simple_pool_picker.blacksmith_stalled(queued, oldest + age):
                 continue
             if started_nothing_while_queued(snapshot, label, load, oldest, generated):
                 dead.add(label)
