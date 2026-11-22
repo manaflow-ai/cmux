@@ -959,7 +959,7 @@ fn run_inner(args: &[String]) -> anyhow::Result<serde_json::Value> {
             .context("no state folder; pass --record DIR")?
             .join("agent-home"),
     };
-    if root && user.is_none() && flags.get("--user").is_none() && record == Path::new(ROOT_RECORD) {
+    if root && user.is_none() && !flags.contains_key("--user") && record == Path::new(ROOT_RECORD) {
         bail!("usage: as root, name the agent user with --user");
     }
     let head = DirHead { root: head_dir };
