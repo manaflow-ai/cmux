@@ -135,11 +135,11 @@ enum DebugAgentPaneClick {
     /// Moves the page's pointer to `x`,`y` in CSS pixels: pointer and mouse out of the element it
     /// leaves, over the one it enters, and a move, as the page sees a real pointer (untrusted).
     private static let hoverScript = """
-        const now = document.elementFromPoint(x, y);
+        const now = document.elementFromPoint(x, y), has = (...names) => names.some((name) => mods.includes(name));
         const was = window.__cmuxDebugHover ?? null;
         const fire = (target, type, related) => {
             if (!target) return;
-            const init = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, relatedTarget: related };
+            const init = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, relatedTarget: related, altKey: has('option', 'alt'), metaKey: has('command', 'cmd'), ctrlKey: has('control', 'ctrl'), shiftKey: has('shift') };
             target.dispatchEvent(type.startsWith('pointer') ? new PointerEvent(type, { ...init, pointerType: 'mouse', isPrimary: true }) : new MouseEvent(type, init));
         };
         if (was !== now) {
@@ -154,7 +154,7 @@ enum DebugAgentPaneClick {
     /// `debug.agent_pane {action: "hover", x, y}`: the page's pointer moves to window point `x`,`y`
     /// (top-left origin, as `debug.mouse`): the page gets the pointer events a real move there
     /// fires (untrusted, and no CSS `:hover`). WebKit takes no mouse moves in a window that is not
-    /// key, and a capture slot's never is: recordings of the page's tooltips and hints there.
+    /// key, and a capture slot's never is: recordings of the page's tooltips and hints there. `modifiers` (`option`, `command`, `control`, `shift`) ride on the events, so a capture can hold Option.
     static func hover(_ params: [String: JSONValue], pane: String, view: AgentPaneView) async -> JSONValue {
         guard let window = view.window, let x = params["x"]?.doubleValue, let y = params["y"]?.doubleValue else {
             return .object(["pane": .string(pane), "error": .string("pass x and y; the pane must be in a window")])
@@ -167,7 +167,7 @@ enum DebugAgentPaneClick {
         let cssX = local.x / scale
         let cssY = (shown.isFlipped ? local.y : shown.bounds.height - local.y) / scale
         do {
-            let hit = try await view.callPageScript(hoverScript, arguments: ["x": Double(cssX), "y": Double(cssY)]) as? String
+            let hit = try await view.callPageScript(hoverScript, arguments: ["x": Double(cssX), "y": Double(cssY), "mods": (params["modifiers"]?.arrayValue ?? []).compactMap { $0.stringValue?.lowercased() }]) as? String
             return .object(["pane": .string(pane), "x": .number(x), "y": .number(y), "element": .string(hit ?? "")])
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])

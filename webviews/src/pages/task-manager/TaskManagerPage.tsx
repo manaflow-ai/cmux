@@ -150,17 +150,13 @@ const Row = memo(function Row({
       data-refused={row.refusal === null ? undefined : ""}
       onMouseDown={() => store.select(row.id)}
     >
-      <td title={row.task}>{row.task}</td>
-      <td title={row.name}>{row.name}</td>
+      <td>{row.task}</td>
+      <td>{row.name}</td>
       <td className="tm-numeric" title={pidText(row)}>
         <PidCell row={row} />
       </td>
-      <td className="tm-numeric" title={row.cpuText}>
-        {row.cpuText}
-      </td>
-      <td className="tm-numeric" title={row.memoryText}>
-        {row.memoryText}
-      </td>
+      <td className="tm-numeric">{row.cpuText}</td>
+      <td className="tm-numeric">{row.memoryText}</td>
     </tr>
   );
 });

@@ -36,11 +36,15 @@ import Testing
             let chrome = chrome(in: window)
             let reload = chrome.reloadButton.convert(chrome.reloadButton.bounds, to: nil)
             let row: CGFloat = (28 / 0.9 * CGFloat(preset.omnibarScaleFactor) * 2).rounded() / 2
-            #expect(reload.width == row && reload.height == row, "the reload button is \(reload.size), the bar \(row)")
+            #expect(OmnibarStyle.buttonSize == row, "\(preset): the button token is \(OmnibarStyle.buttonSize), want \(row)")
+            // Drawn on the window's pixels: a 1x display draws whole points, and the button stays square
+            // (Spacious's 37.5 pt drew 38 x 37 there before the sizes snapped once, `OmnibarStyle.onPixels`).
+            let drawn = ((row) * window.backingScaleFactor).rounded() / window.backingScaleFactor
+            #expect(reload.width == drawn && reload.height == drawn, "\(preset): the reload button is \(reload.size), want \(drawn) (\(row) at \(window.backingScaleFactor)x)")
             // The hover corner is the buttons' one corner, a tab's (`Metrics.buttonCornerRadius`), and the glyph's ink a
             // point under the small icon (Helium's 13 pt at Default; Lucas 2026-11-13).
             // Lucas 2026-11-15: the tab's ratio on the button's own side, one shape at every density.
-            #expect(chrome.reloadButton.layer?.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: row),
+            #expect(chrome.reloadButton.layer?.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: drawn),
                     "hover corner \(String(describing: chrome.reloadButton.layer?.cornerRadius))")
             #expect(abs(OmnibarStyle.toolbarIconSize * DensityTokens.toolbarGlyphInkRatio
                 - Metrics.tokens.toolbarGlyphSize * DensityTokens.toolbarGlyphInkRatio) < 0.001)
@@ -60,8 +64,10 @@ import Testing
             #expect(!chrome.forwardButton.isHidden)
             let gap = (3 * CGFloat(preset.omnibarScaleFactor) * 2).rounded() / 2
             #expect(OmnibarStyle.buttonSpacing == gap)
-            #expect(abs(forward.minX - back.maxX - gap) <= 0.01, "back to forward \(forward.minX - back.maxX)")
-            #expect(abs(reload.minX - forward.maxX - gap) <= 0.01, "forward to reload \(reload.minX - forward.maxX)")
+            // One gap between each pair, on the window's pixels (a 1x display drew 2.5 as 2 and 3 pt before).
+            let drawn = ((gap) * window.backingScaleFactor).rounded() / window.backingScaleFactor
+            #expect(abs(forward.minX - back.maxX - drawn) <= 0.01, "\(preset): back to forward \(forward.minX - back.maxX), want \(drawn)")
+            #expect(abs(reload.minX - forward.maxX - drawn) <= 0.01, "\(preset): forward to reload \(reload.minX - forward.maxX), want \(drawn)")
         }
     }
 

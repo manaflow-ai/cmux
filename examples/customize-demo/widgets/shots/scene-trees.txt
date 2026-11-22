@@ -1,0 +1,200 @@
+==== s
+VStack
+  Panel: Today
+    HStack
+      Text: 04:12
+      Spacer
+      Group
+        HStack
+          Icon: cloud.sun.fill
+          Text: 14°
+    Text: Friday, Nov 20 · San Francisco, Partly cloudy, 9° to 17°
+    Group
+    Group
+  Panel: Agents
+    HStack
+      Icon: cat.fill
+      VStack
+        HStack
+          Text: Byte
+          Icon: notification
+        Text: Review usage card is waiting for you
+      Spacer
+    HStack
+      VStack
+        HStack
+          Icon: automation
+          Text: Working
+        Text: 1
+      VStack
+        HStack
+          Icon: notification
+          Text: Waiting
+        Text: 1
+      VStack
+        HStack
+          Icon: status.complete
+          Text: Done
+        Text: 1
+    ForEach
+      Row: Fix sidebar glass | Working · cmux · 2 min ago | automation
+      Row: Review usage card | Waiting for you · cmux · 10 min ago | status.needsinput
+    Group
+  Group
+    Panel: Usage
+      Group
+        VStack
+          ForEach
+            VStack
+              HStack
+                Text: Claude
+                Badge: 2/2
+                Spacer
+                Text: 65%
+              ProgressView: 0.65
+              Text: left this week · session 64% · under pace
+            VStack
+              HStack
+                Text: Codex
+                Badge: 1/1
+                Spacer
+                Text: 31%
+              ProgressView: 0.31
+              Text: left this week · session 22% · over pace · $4.50 extra
+  Panel: Pull requests
+    Group
+      Text: 1 pull request with failing checks
+    VStack
+      ForEach
+        Row: Widgets: clock, agents, usage and PR cards | cmux #46900 · +420 −12 · 17/20 checks | history | Review
+        Row: Glass sidebar cards | cmux #46880 · +88 −40 · 22/23 checks | xmark.circle.fill | Changes
+        Row: Studio theme pack | cmux #46861 · +210 −3 · 24/24 checks | checkmark.circle.fill | Approved
+      Group
+      Group
+      Group
+==== i
+VStack
+  Panel: Agent
+    HStack
+      Icon: automation
+      VStack
+        Text: Working
+        Text: claude · cmux · 2 min ago
+      Spacer
+  Group
+    Panel: Claude usage
+      Group
+        VStack
+          ForEach
+            VStack
+              HStack
+                Text: Claude
+                Badge: 2/2
+                Spacer
+                Text: 65%
+              ProgressView: 0.65
+              Text: left this week · session 64% · under pace
+  Panel: Branch
+    Row: lane/widgets | git.branch
+    Group
+      VStack
+        Row: Widgets: clock, agents, usage and PR cards | cmux #46900 · +420 −12 · 17/20 checks | history | Review
+        ProgressView: 0.85
+        Text: 17 passed · 3 running · 0 failed
+==== p
+VStack
+  HStack
+    Icon: view.grid
+    VStack
+      Text: Widgets
+      Text: Each card is one function in ~/.config/cmux/customize/main.js. Save it and this page draws it again.
+    Spacer
+  HStack
+    VStack
+      Panel: Today
+        HStack
+          Text: 04:12
+          Spacer
+          Group
+            HStack
+              Icon: cloud
+              Text: 14°
+        Text: Friday, Nov 20 · San Francisco, Partly cloudy, 9° to 17°
+        Group
+        Group
+      Panel: World clock
+        ForEach
+          Row: Los Angeles | −8 h · PST | state.idle | 20:12
+          Row: New York | −5 h · EST | state.idle | 23:12
+          Row: London | Same time as you | state.idle | 04:12
+          Row: Tokyo | +9 h · GMT+9 | appearance.light | 13:12
+    Panel: Agents
+      HStack
+        Icon: agent.bot
+        VStack
+          HStack
+            Text: Byte
+            Icon: notification
+          Text: Review usage card is waiting for you
+        Spacer
+      HStack
+        VStack
+          HStack
+            Icon: automation
+            Text: Working
+          Text: 1
+        VStack
+          HStack
+            Icon: notification
+            Text: Waiting
+          Text: 1
+        VStack
+          HStack
+            Icon: status.complete
+            Text: Done
+          Text: 1
+      ForEach
+        Row: Fix sidebar glass | Working · cmux · 2 min ago | automation
+        Row: Review usage card | Waiting for you · cmux · 10 min ago | status.needsinput
+        Row: Land widgets demo | Finished · hq · 1 h ago | status.complete
+      Group
+  Group
+    HStack
+      VStack
+        Group
+          Panel: Usage
+            Group
+              VStack
+                ForEach
+                  VStack
+                    HStack
+                      Text: Claude
+                      Badge: 2/2
+                      Spacer
+                      Text: 65%
+                    ProgressView: 0.65
+                    Text: left this week · session 64% · under pace
+                  VStack
+                    HStack
+                      Text: Codex
+                      Badge: 1/1
+                      Spacer
+                      Text: 31%
+                    ProgressView: 0.31
+                    Text: left this week · session 22% · over pace · $4.50 extra
+      Panel: Pull requests
+        Group
+          Text: 1 pull request with failing checks
+        VStack
+          ForEach
+            Row: Widgets: clock, agents, usage and PR cards | cmux #46900 · +420 −12 · 17/20 checks | history | Review
+            Row: Glass sidebar cards | cmux #46880 · +88 −40 · 22/23 checks | xmark.circle.fill | Changes
+            Row: Studio theme pack | cmux #46861 · +210 −3 · 24/24 checks | checkmark.circle.fill | Approved
+          Group
+          Group
+          Group
+  Spacer
+==== errors
+
+==== calls
+usage_app.status app.storage.get agent.list agent_chat.list integration.request net.fetch

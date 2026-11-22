@@ -31,6 +31,21 @@ the only way to build its principal; audit rows and `created_by` name it as
 secret that does not parse disables service keys only. A team member can label
 a VM `role=chief` to hand it to the service.
 
+A team key (`src/auth/team-keys.ts`) is a long-lived `cmuxvm_sk_` key a team's
+own agents use headless (a lane VM's `cmux vm new` with `CMUX_VM_API_KEY`, a
+demand scaler), with no person signed in and no confirm per call. Rows come from
+the plain var `CMUX_VM_TEAM_KEYS` (JSON array of `id` `tk-...`, `team`, one or
+two `sha256`, VM `scopes`, `labels`, `maxVms` up to 500, `maxUsdPerHour` up to
+500; hashes only). It authenticates as the service `tk-...` acting for its one
+team (`X-Cmux-Team-Id` optional, another team 403), reaches only VMs carrying its
+labels, gets those labels on every create, and every create is held to its
+caps: over `maxVms` live VMs, or over `maxUsdPerHour` estimated (the agent-key
+estimate, every live VM counted), is 429 naming the cap. It cannot resize, fork
+or mint keys. It never expires and nothing deletes its VMs; rotating keeps them
+(second hash, move holders, drop the first). Mint with `bun scripts/team-key.ts
+mint --out FILE ...` (the key only to FILE, the row to stdout); revoke by
+removing the row and deploying. An invalid var disables team keys only.
+
 VM and snapshot lists accept `createdBy=caller` to recover resources created
 by the authenticated caller, using the persisted creation actor rather than
 caller-supplied labels. The filter intersects tenant, live rows, service labels,

@@ -234,7 +234,7 @@ private struct CloudMachineChatsScreen: View {
                         ForEach(listed.rows, id: \.id) { chat in
                             Button { selectedSession = chat.id } label: {
                                 VStack(alignment: .leading) {
-                                    Text(chat.name.isEmpty ? chat.harness : chat.name)
+                                    Text(chat.displayName)
                                     if let prompt = chat.lastPrompt, !prompt.isEmpty {
                                         Text(prompt).lineLimit(2).foregroundStyle(.secondary)
                                     }

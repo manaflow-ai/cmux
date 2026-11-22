@@ -1,5 +1,6 @@
+import { envForObject } from "../build-space.ts"
 import { DurableObject } from "cloudflare:workers"
-import type { Env } from "../env.ts"
+import type { Env, RawEnv } from "../env.ts"
 import type { HandoffIndexEntry, HandoffState, HandoffStatus } from "./handoff-do.ts"
 
 export type HandoffListItem = { readonly id: string; readonly sessionId: string; readonly turn: number; readonly state: HandoffState; readonly status: HandoffStatus; readonly summary: string | null; readonly createdAt: string; readonly updatedAt: string }
@@ -13,7 +14,8 @@ type Row = { id: string; session_id: string; turn: number; state: string; status
  * changes nothing), and a lost write is retried by that HandoffDO's alarm.
  */
 export class HandoffIndexDO extends DurableObject<Env> {
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env)
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS handoffs (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, turn INTEGER NOT NULL DEFAULT 1, state TEXT NOT NULL DEFAULT 'open', status TEXT NOT NULL, summary TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, version INTEGER NOT NULL)`)
     ctx.storage.sql.exec(`CREATE INDEX IF NOT EXISTS handoffs_newest ON handoffs (created_at DESC, id DESC)`)

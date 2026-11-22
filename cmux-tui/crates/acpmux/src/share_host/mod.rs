@@ -64,20 +64,12 @@ pub(crate) fn dir(home: &Path) -> PathBuf {
 
 /// The device hub of the cmux-platform deployment a machine credential was joined at
 /// (`MachineCredential::hub_origin` is the platform's origin, not the device hub's): each
-/// deployment's own, from `cmux-cloud-environment`. None for an origin no deployment has.
+/// deployment's own, from the table cmux-rd reads too (`cmux_hub_host::deployment`), so the
+/// daemon and the host it sets up pick the same hub for a credential. None for an origin no
+/// deployment has.
 #[cfg(unix)]
 pub(crate) fn device_hub_origin(platform_origin: &str) -> Option<String> {
-    use cmux_cloud_environment as env;
-    let origin = platform_origin.trim().trim_end_matches('/');
-    [
-        env::PRODUCTION_DEPLOYMENT,
-        env::STAGING_DEPLOYMENT,
-        env::DEVELOPMENT_DEPLOYMENT,
-        env::LOCAL_DEPLOYMENT,
-    ]
-    .into_iter()
-    .find(|deployment| deployment.platform_origin == origin)
-    .map(|deployment| deployment.device_hub_origin.to_owned())
+    cmux_hub_host::deployment::device_hub_of(platform_origin).map(str::to_owned)
 }
 
 /// This machine's join as the share host reads it.

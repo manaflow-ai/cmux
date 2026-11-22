@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <rect width="128" height="128" rx="28" fill="#ffffff"/>
+  <rect x="0.5" y="0.5" width="127" height="127" rx="27.5" fill="none" stroke="#d1d1d6"/>
+  <text x="64" y="38" text-anchor="middle" font-family="-apple-system, Helvetica, Arial, sans-serif" font-size="20" font-weight="600" fill="#ff3b30">TUE</text>
+  <text x="64" y="98" text-anchor="middle" font-family="-apple-system, Helvetica, Arial, sans-serif" font-size="62" font-weight="300" fill="#1c1c1e">14</text>
+  <rect x="94" y="96" width="22" height="18" rx="4" fill="#cc73e1" fill-opacity="0.22"/>
+  <rect x="94" y="96" width="3" height="18" rx="1.5" fill="#cc73e1"/>
+</svg>

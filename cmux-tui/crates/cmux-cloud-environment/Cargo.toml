@@ -11,6 +11,7 @@ description = "Runtime NEXT Cloud backend allowlist, client-config cache and per
 workspace = true
 
 [dependencies]
+cmux-build-space.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true

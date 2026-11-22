@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextFeedClient
 
 /// The Feed page's native UI ops (plans/cmux-next/feed-page.md 2), run through
@@ -66,7 +67,7 @@ enum FeedGitHubActions {
         case "checkout":
             guard let number = detail.number, let branch = detail.branch, let repository = detail.repo else { return }
             guard let pane = services.windows.active?.focusedPane else { return }
-            let root = (NSHomeDirectory() as NSString).appendingPathComponent(".config/cmux/github-worktrees")
+            let root = BuildStatePaths.current.githubWorktrees.path
             let slug = "\(repository.replacingOccurrences(of: "/", with: "-"))-pr-\(number)"
             let path = "\(root)/\(slug)"
             let command = "mkdir -p \(quote(root)) && if [ ! -d \(quote(path)) ]; then gh repo clone \(quote(repository)) \(quote(path)); fi; git -C \(quote(path)) fetch origin pull/\(number)/head:\(quote(branch)); git -C \(quote(path)) checkout \(quote(branch))"

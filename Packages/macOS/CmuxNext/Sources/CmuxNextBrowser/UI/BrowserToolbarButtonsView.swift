@@ -70,11 +70,17 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// alone by default; making all nine was a fifth of Shift-Cmd-L's key turn, #32909).
     private var buttons: [BrowserToolbarButton: ChromeIconButton] = [:]
     private var states: [BrowserToolbarButton: BrowserToolbarButtonState] = [:]
-    private weak var tab: (any BrowserTab)?
+    private(set) weak var tab: (any BrowserTab)?
     private var observation: ObservationLoop?
     private var pageURL: URL?
     /// The last facts rendered: zoom and Downloads show only on some.
     private var facts = BrowserToolbarFacts(engine: .webkit, hostsDevTools: false)
+    /// The More menu while it is open on cmux's glass (``presentGlass(_:from:)``): its zoom row
+    /// reads the page's zoom again when the page reports a new one.
+    var openGlassMenu: GlassMenu?
+    /// Shows a glass menu under its anchor, trailing edges lined up; false when it cannot show.
+    /// Tests replace it: a real one needs a window on a screen.
+    var showGlassMenu: (GlassMenu, NSView) -> Bool = { menu, anchor in menu.show(from: anchor, trailing: true) }
 
     public init() {
         super.init(frame: .zero)
@@ -228,7 +234,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// Width of the buttons shown at collapse `level`.
     func width(collapse level: Int) -> CGFloat {
         let count = BrowserToolbarButton.allCases.filter { $0.isShown(at: level, facts, pinned: pinned) }.count
-        return CGFloat(count) * OmnibarStyle.buttonSize + CGFloat(max(0, count - 1)) * OmnibarStyle.buttonSpacing
+        let scale = OmnibarStyle.scale(of: self)
+        return CGFloat(count) * OmnibarStyle.buttonSize(scale: scale) + CGFloat(max(0, count - 1)) * OmnibarStyle.buttonSpacing(scale: scale)
     }
 
     @objc private func pressed(_ sender: NSButton) {
@@ -248,7 +255,9 @@ public final class BrowserToolbarButtonsView: NSStackView {
         // leaving 100 % at level 2 may let level 0 fit again.
         let shown = { [pinned] (facts: BrowserToolbarFacts) in BrowserToolbarButton.allCases.filter { $0.isShown(at: 0, facts, pinned: pinned) } }
         let relayout = shown(facts) != shown(self.facts)
+        let zoomed = facts.zoom != self.facts.zoom
         self.facts = facts
+        if zoomed { openGlassMenu?.refreshControls() }
         if relayout { relayoutChrome() }
         for button in BrowserToolbarButton.allCases {
             let state = BrowserToolbarPolicy.state(button, facts, shortcut: shortcutHint?(button))

@@ -205,8 +205,17 @@ def test_daemon_tests_never_take_a_mac() -> None:
             label = route(runs_on, context)
             where = (context["github.repository_owner"], context["github.event_name"],
                      context["github.ref"], context["github.run_attempt"], owned)
-            expected = LINUX_DAEMON_LABEL if context["github.repository_owner"] == "manaflow-ai" else "ubuntu-24.04"
-            assert label == expected, where
+            if context["github.repository_owner"] != "manaflow-ai":
+                assert label == "ubuntu-24.04", where
+            elif context["github.run_attempt"] == 1 and (
+                    context["github.event_name"] == "workflow_dispatch"
+                    or context["github.ref"] in ("refs/heads/feat-cmux-next", "refs/heads/nightly-next")):
+                # Attempt 1 of the nightly path queues on an owned GCP Linux label (#47811,
+                # tests/test_ci_owned_first_not_census_frozen.py): Linux, never a Mac.
+                assert label in ("cmux-gcp-lane-build-x64", "cmux-gcp-nightly-x64"), (where, label)
+            else:
+                # Its size's RUNNER_POOLS read (#47603), which may hold the fleet's one-job Linux label first.
+                assert label in (LINUX_DAEMON_LABEL, "cmux-fleet-linux-x64"), (where, label)
 
 
 def _pin_variable_combinations():
