@@ -54,7 +54,7 @@ cd "$source_dir"
 
 marker="$(mktemp "${TMPDIR:-/tmp}/zig-fetch-stopped.XXXXXX")"
 # The running attempt's process group and watchdog, stopped if this script is.
-fetch_pid="" watchdog_pid=""
+fetch_pid="" watchdog_pid="" seed_pid=""
 
 # Zig's global cache, where it keeps package archives (p/).
 cache="${ZIG_GLOBAL_CACHE_DIR:-}"
@@ -75,10 +75,12 @@ progress() {
 }
 
 # Whether an archive is whole. An unknown kind, or no tool to check it, counts
-# as whole: only an archive shown to be cut short is removed.
+# as whole: only an archive shown to be cut short or not a tar with entries is
+# removed (a gzipped error page passes gzip -t, GNU tar lists it as an empty
+# archive, and Zig fails on it every attempt).
 archive_ok() {
   case "$1" in
-    *.tar.gz|*.tgz) gzip -t "$1" 2>/dev/null ;;
+    *.tar.gz|*.tgz) local entries; entries="$(tar -tzf "$1" 2>/dev/null | wc -l)" && (( entries > 0 )) ;;
     *.tar.xz) ! command -v xz >/dev/null 2>&1 || xz -t "$1" 2>/dev/null ;;
     *.tar.zst) ! command -v zstd >/dev/null 2>&1 || zstd -tq "$1" 2>/dev/null ;;
     *.zip) ! command -v unzip >/dev/null 2>&1 || unzip -tqq "$1" >/dev/null 2>&1 ;;
@@ -119,6 +121,8 @@ stop_group() {
 # Cancelled (the job timed out or was cancelled): the fetch runs in a process
 # group of its own, which a signal to this script's group does not reach.
 on_exit() {
+  # The seed stops its own downloads on TERM (its EXIT trap signals their group).
+  if [[ -n "$seed_pid" ]]; then kill -TERM "$seed_pid" 2>/dev/null || true; wait "$seed_pid" 2>/dev/null || true; fi
   if [[ -n "$watchdog_pid" ]]; then kill "$watchdog_pid" 2>/dev/null || true; fi
   if [[ -n "$fetch_pid" ]]; then stop_group "$fetch_pid"; fi
   rm -f "$marker"
@@ -181,8 +185,13 @@ fetch_once() {
 
 # Download what curl can first, with retries and a speed floor that
 # Zig's own HTTP read lacks; Zig then unpacks those from the cache offline.
+# In the background with `wait`: Bash runs a trap only after a foreground command
+# ends, so a TERM to this script would otherwise wait for the seed's deadline.
 if [[ -n "$cache" && "${CMUX_ZIG_SEED:-1}" != 0 ]]; then
-  "$script_dir/seed-zig-package-archives.sh" "$cache" . || true
+  "$script_dir/seed-zig-package-archives.sh" "$cache" . &
+  seed_pid=$!
+  wait "$seed_pid" || true
+  seed_pid=""
 fi
 
 attempt=1

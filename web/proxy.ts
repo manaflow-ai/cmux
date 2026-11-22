@@ -397,6 +397,8 @@ function handleLegalAndDocsRoutes(
     "/company-information",
     "/terms-of-service",
     "/eula",
+    "/cmux-cloud/subprocessors",
+    "/cmux-cloud/dpa",
   ]);
   if (englishOnlyPages.has(pathname)) {
     const url = request.nextUrl.clone();

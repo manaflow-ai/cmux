@@ -26,6 +26,20 @@ pub(super) enum CommandPlan {
     Plugin(PluginPlan),
     ProviderAuthority(ProviderAuthorityPlan),
     RawCommand(super::raw::RawCommandPlan),
+    Attention(super::attention::AttentionPlan),
+    /// `cmux agent list`: `agent.list` with the shared status
+    /// (`cli/agent_list.rs`).
+    AgentList(Box<super::agent_list::AgentListPlan>),
+    /// `cmux pane <pane> move`: a composite of `tab.move` steps
+    /// (`cli/pane_move.rs`).
+    PaneMove(Box<super::pane_move::MoveRequest>),
+    /// `cmux identify`: where this process runs (`cli/pane_identify.rs`).
+    Identify,
+    /// `cmux skill show`: the agent guide (`cli/skill.rs`).
+    SkillShow,
+    /// `agent start|resume`, `terminal <t> resume` and `terminal <t> wait
+    /// --until ready` (`cli/agent_start.rs`).
+    Agent(Box<super::agent_start::Command>),
 }
 
 #[derive(Clone, Debug)]
@@ -34,6 +48,32 @@ pub(super) struct RequestPlan {
     pub params: Value,
     pub idempotency_key: Option<String>,
     pub stream: bool,
+    /// How a person sees the result (`--json` always prints the whole result).
+    pub view: ResponseView,
+}
+
+/// How human output shows a result.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum ResponseView {
+    /// Every field of the result.
+    #[default]
+    Full,
+    /// `terminal <t> screen read` without `--details`: the screen's `text`
+    /// alone, as it shows (W3-H).
+    ScreenText,
+}
+
+impl CommandPlan {
+    /// `terminal <t> screen read`: human output prints the screen text only.
+    fn screen_text(self) -> Self {
+        match self {
+            Self::Protocol(mut plan) => {
+                plan.view = ResponseView::ScreenText;
+                Self::Protocol(plan)
+            }
+            other => other,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -115,6 +155,9 @@ impl Selectors {
 #[derive(Default)]
 struct Flags {
     values: BTreeMap<String, Option<String>>,
+    /// The flag names in the order they were given, for flags where the
+    /// last one wins ([`Flags::last_given`]).
+    order: Vec<String>,
     /// The resolved action, so debug builds can prove its help lists every
     /// flag the parser reads.
     action: Option<&'static actions::ActionSpec>,
@@ -143,6 +186,12 @@ impl Flags {
     fn boolean(&mut self, name: &str) -> bool {
         self.assert_documented(name);
         self.values.remove(name).is_some()
+    }
+
+    /// Which of `names` was given last, if any (`--focus` and `--no-focus`:
+    /// the last one wins). Read it before taking those flags.
+    fn last_given(&self, names: &[&str]) -> Option<&str> {
+        self.order.iter().rev().map(String::as_str).find(|given| names.contains(given))
     }
 
     /// Take a flag by its dashed spelling, for compatibility flags whose bare
@@ -206,6 +255,7 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         "notification" => parse_notification(&tokens.words[1..], &mut tokens.flags)?,
         "notify" => parse_notify(&tokens.words[1..], &mut tokens.flags)?,
         "agent" => parse_agent(&tokens.words[1..], &mut tokens.flags)?,
+        "attention" => parse_attention(&tokens.words[1..], &mut tokens.flags)?,
         "sidebar" => parse_sidebar(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "pairing" => parse_pairing(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "projection" => parse_projection(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
@@ -380,6 +430,7 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
             if flags.values.insert(name.to_string(), flag_value).is_some() {
                 return Err(UsageError::new(format!("duplicate flag --{name}")));
             }
+            flags.order.push(name.to_string());
         } else if value.starts_with('-') {
             return Err(UsageError::new(format!("unknown short flag {value:?}")));
         } else {
@@ -396,6 +447,14 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
 /// swallowing the next argument.
 pub(super) fn flag_takes_value(name: &str) -> bool {
     actions::arity(name) == Some(actions::Arity::Value)
+}
+
+/// Whether `word` is a command word of some action path in the catalog
+/// (`write` in `terminal <selector> write`), not a placeholder.
+pub(super) fn is_action_word(word: &str) -> bool {
+    actions::ACTIONS.iter().any(|action| {
+        action.path.split_whitespace().any(|part| part == word && !part.starts_with('<'))
+    })
 }
 
 fn unknown_flag(name: &str) -> UsageError {
@@ -800,7 +859,14 @@ fn parse_screen_strings(
         ["list"] => request(ResourceOperation::ScreenList, selectors, flags, Map::new()),
         ["create"] => {
             let mut params = Map::new();
+            add_optional_parent_selectors(selectors, flags, &["workspace"])?;
             insert_optional_string(&mut params, flags, "name", "name");
+            // The new screen keeps the person's focus unless --focus
+            // (`screen.create.focus`, default false); --no-focus says so.
+            let _ = flags.boolean("no-focus");
+            if flags.boolean("focus") {
+                params.insert("focus".into(), Value::Bool(true));
+            }
             request(ResourceOperation::ScreenCreate, selectors, flags, params)
         }
         [selector, "show"] => {
@@ -970,6 +1036,34 @@ fn parse_pane_strings(
             let mut params = run_params(tail, argv, flags)?;
             add_size(&mut params, flags)?;
             request(ResourceOperation::PaneRun, selectors, flags, params)
+        }
+        [selector, "move"] => {
+            // The command resolves its own selectors from one snapshot
+            // (names, unique id prefixes, `focused`), so they stay raw here;
+            // a nested path would name parents it does not read.
+            if !selectors.values.is_empty() {
+                return Err(UsageError::new(
+                    "pane move takes the pane alone: cmux pane <pane> move ...",
+                ));
+            }
+            let new_screen = flags.boolean("new-screen");
+            let new_tab = flags.boolean("new-tab");
+            // `--focus` and `--no-focus`: the last one given wins.
+            let focus = flags.last_given(&["focus", "no-focus"]) == Some("focus");
+            let _ = flags.boolean("focus");
+            let _ = flags.boolean("no-focus");
+            let move_flags = super::pane_move::MoveFlags {
+                to_pane: flags.take("to-pane"),
+                to_tab: flags.take("to-tab"),
+                to_workspace: flags.take("to-workspace"),
+                split: flags.take("split"),
+                name: flags.take("name"),
+                new_screen: new_screen || new_tab,
+                focus,
+                idempotency_key: flags.take("idempotency-key"),
+            };
+            super::pane_move::request(selector, move_flags)
+                .map(|request| CommandPlan::PaneMove(Box::new(request)))
         }
         [selector, "tab", tail @ ..] => {
             selectors.insert("pane", "pane", selector)?;
@@ -1166,7 +1260,19 @@ fn parse_terminal(
         }
         [selector, "read"] | [selector, "screen", "read"] => {
             selectors.insert("terminal", "term", selector)?;
-            request(ResourceOperation::TerminalScreenRead, selectors, flags, Map::new())
+            let mut params = Map::new();
+            // `terminal-read-unwrap-v1`: soft wraps joined, and the last N
+            // lines of scrollback and screen.
+            if flags.boolean("unwrap") {
+                params.insert("unwrap".into(), Value::Bool(true));
+            }
+            if let Some(lines) = flags.take("lines") {
+                insert_bounded_u32(&mut params, "lines", "--lines", lines, 1, 10_000)?;
+            }
+            // Plain screen text unless --details asks for the record's fields (W3-H).
+            let details = flags.boolean("details");
+            request(ResourceOperation::TerminalScreenRead, selectors, flags, params)
+                .map(|plan| if details { plan } else { plan.screen_text() })
         }
         [selector, "state", "read"] => {
             selectors.insert("terminal", "term", selector)?;
@@ -1221,6 +1327,11 @@ fn parse_terminal(
             if let Some(timeout) = flags.take("timeout-ms") {
                 insert_decimal(&mut params, "timeout_ms", "--timeout-ms", timeout)?;
             }
+            // `terminal-wait-new-v1`: only output printed below the cursor's
+            // line from now on can match, never a typed command's echo.
+            if flags.boolean("new") {
+                params.insert("new".into(), Value::Bool(true));
+            }
             request(ResourceOperation::TerminalWait, selectors, flags, params)
         }
         [selector, "copy"] => {
@@ -1229,6 +1340,9 @@ fn parse_terminal(
             if let Some(mode) = flags.take("mode") {
                 validate_one_of("--mode", &mode, &["screen", "selection", "scrollback"])?;
                 params.insert("mode".into(), Value::String(mode));
+            }
+            if flags.boolean("unwrap") {
+                params.insert("unwrap".into(), Value::Bool(true));
             }
             request(ResourceOperation::TerminalCopy, selectors, flags, params)
         }
@@ -1617,15 +1731,30 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
                 validate_prefixed_id("terminal", "term", &terminal)?;
                 params.insert("terminal_id".into(), Value::String(terminal));
             }
-            if let Some(state) = flags.take("state") {
-                validate_one_of(
-                    "--state",
-                    &state,
-                    &["working", "blocked", "idle", "done", "unknown"],
-                )?;
-                params.insert("state".into(), Value::String(state));
+            // `--state` takes the shared status words (`done` is a finished
+            // turn nobody has viewed; `ended` a session that ended). The
+            // daemon filters by its own state, the CLI then by status
+            // (cli/agent_list.rs).
+            let status = match flags.take("state") {
+                Some(state) => {
+                    validate_one_of("--state", &state, &super::agent_list::STATUS_WORDS)?;
+                    super::agent_list::STATUS_WORDS.iter().copied().find(|word| *word == state)
+                }
+                None => None,
+            };
+            if let Some(status) = status {
+                let state = super::agent_list::daemon_state_for_status(status);
+                params.insert("state".into(), Value::String(state.to_owned()));
             }
-            request(ResourceOperation::AgentList, &selectors, flags, params)
+            let CommandPlan::Protocol(list) =
+                request(ResourceOperation::AgentList, &selectors, flags, params)?
+            else {
+                unreachable!("request() makes a protocol plan");
+            };
+            Ok(CommandPlan::AgentList(Box::new(super::agent_list::AgentListPlan {
+                request: list,
+                status,
+            })))
         }
         ["hook", "emit"] => {
             const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
@@ -2055,6 +2184,7 @@ fn finalize_request(
         operation,
         params,
         idempotency_key: explicit_key,
+        view: ResponseView::Full,
     }))
 }
 
@@ -2912,6 +3042,27 @@ fn strs(values: &[String]) -> Vec<&str> {
     values.iter().map(String::as_str).collect()
 }
 
+/// `attention next [--after <tab_…>] [--focus]` and `attention list`
+/// (`cli/attention.rs`): a client-side read of `session.snapshot`.
+fn parse_attention(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    use super::attention::AttentionPlan;
+    match strs(words).as_slice() {
+        ["next"] => {
+            let after = flags.take("after");
+            if after
+                .as_deref()
+                .is_some_and(|tab| tab.strip_prefix("tab_").is_none_or(str::is_empty))
+            {
+                return Err(UsageError::new("--after takes a tab id (tab_…)"));
+            }
+            let focus = flags.boolean("focus");
+            Ok(CommandPlan::Attention(AttentionPlan::Next { after, focus }))
+        }
+        ["list"] => Ok(CommandPlan::Attention(AttentionPlan::List)),
+        _ => usage("attention action"),
+    }
+}
+
 fn usage<T>(what: &str) -> Result<T, UsageError> {
     Err(UsageError::new(format!("unknown or incomplete {what}; use --help")))
 }
@@ -2926,6 +3077,15 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
         },
         plan.kind,
     ) {
+        Ok(result)
+            if global.output == super::OutputMode::Human
+                && plan.positionals.first().map(String::as_str) == Some("list")
+                && result == json!([]) =>
+        {
+            // An empty list printed nothing at all (bench round 3).
+            println!("{}", no_plugins_line(plan.kind, crate::localization::catalog()));
+            0
+        }
         Ok(result) => super::wire::print_local_success(&result, global.output),
         Err(error) => {
             let value = json!({
@@ -2944,7 +3104,7 @@ pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_instal
     if result.failed {
         let error = json!({
             "code": "local.agent_hooks",
-            "message": "one or more coding-agent hook operations failed",
+            "message": agent_hooks_failure_message(&result.value),
             "details": result.value,
             "retryable": false,
         });
@@ -2952,6 +3112,26 @@ pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_instal
     } else {
         super::wire::print_local_success(&result.value, global.output)
     }
+}
+
+/// What `cmux agent|sidebar plugin list` prints when no plugin is installed.
+fn no_plugins_line(
+    kind: crate::plugin_manager::PluginKind,
+    catalog: &crate::localization::Catalog,
+) -> String {
+    catalog.pane_cli.no_plugins_installed.replace("{command}", kind.command_prefix())
+}
+
+/// The message of a failed `agent hook install|uninstall|status`: the
+/// operations' own errors (`<provider>: <cause>`), which text output shows
+/// only in the message.
+fn agent_hooks_failure_message(value: &Value) -> String {
+    let errors: Vec<&str> =
+        value["errors"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    if errors.is_empty() {
+        return "one or more coding-agent hook operations failed".to_owned();
+    }
+    format!("coding-agent hook operations failed: {}", errors.join("; "))
 }
 
 pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthorityPlan) -> i32 {
@@ -3210,6 +3390,37 @@ fn reset_error_starts_with(error: &anyhow::Error, prefixes: &[&str]) -> bool {
 mod tests {
     use super::*;
 
+    /// `cmux agent hook status` text output said only "one or more
+    /// coding-agent hook operations failed" (bench round 3); the cause was
+    /// in `--json` alone.
+    #[test]
+    fn w4j_a_hook_failure_message_names_each_cause() {
+        let value = json!({"errors": ["copilot: ~/.copilot/config.json is not valid JSON"]});
+        assert_eq!(
+            agent_hooks_failure_message(&value),
+            "coding-agent hook operations failed: copilot: ~/.copilot/config.json is not valid JSON"
+        );
+        assert_eq!(
+            agent_hooks_failure_message(&json!({"errors": []})),
+            "one or more coding-agent hook operations failed"
+        );
+    }
+
+    /// An empty `plugin list` printed nothing at all (bench round 3).
+    #[test]
+    fn w4j_an_empty_plugin_list_says_how_to_install_one() {
+        use crate::plugin_manager::PluginKind;
+        let english = crate::localization::catalog_for_locale("en_US.UTF-8");
+        assert_eq!(
+            no_plugins_line(PluginKind::Agent, english),
+            "No plugins are installed. cmux agent plugin install <git-url> installs one."
+        );
+        let japanese = crate::localization::catalog_for_locale("ja_JP.UTF-8");
+        let line = no_plugins_line(PluginKind::Sidebar, japanese);
+        assert!(line.contains("cmux sidebar plugin install <git-url>"), "{line}");
+        assert_ne!(line, no_plugins_line(PluginKind::Sidebar, english));
+    }
+
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_string()).collect()
     }
@@ -3302,8 +3513,22 @@ mod tests {
     fn protocol(values: &[&str]) -> RequestPlan {
         match parse(&strings(values)).unwrap() {
             CommandPlan::Protocol(plan) => plan,
+            CommandPlan::AgentList(plan) => plan.request,
             _ => panic!("expected protocol plan"),
         }
+    }
+
+    /// W3-H: a person reads `screen read` as the screen's text; `--details`
+    /// keeps every field of the record. `--json` prints the record either way.
+    #[test]
+    fn w3h_screen_read_shows_text_unless_details_asks_for_the_record() {
+        let plain = protocol(&["terminal", "current", "screen", "read"]);
+        assert_eq!(plain.view, ResponseView::ScreenText);
+        let details = protocol(&["terminal", "current", "screen", "read", "--details"]);
+        assert_eq!(details.view, ResponseView::Full);
+        assert!(details.params.get("details").is_none(), "{:?}", details.params);
+        let show = protocol(&["terminal", "current", "show"]);
+        assert_eq!(show.view, ResponseView::Full);
     }
 
     #[test]
@@ -3980,6 +4205,37 @@ mod tests {
     }
 
     #[test]
+    fn read_run_terminal_reads_take_unwrap_lines_and_new() {
+        const TERMINAL: &str = "term_00000000000000000000000000000008";
+        let plain = protocol(&["terminal", TERMINAL, "screen", "read"]);
+        assert!(plain.params.get("unwrap").is_none());
+        assert!(plain.params.get("lines").is_none());
+
+        let read = protocol(&["terminal", TERMINAL, "read", "--unwrap", "--lines", "50"]);
+        assert_eq!(operation(&read), "terminal.screen.read");
+        assert_eq!(read.params["unwrap"], true);
+        assert_eq!(read.params["lines"], 50);
+        for invalid in ["0", "10001", "-1"] {
+            assert!(
+                parse(&strings(&["terminal", TERMINAL, "screen", "read", "--lines", invalid]))
+                    .is_err(),
+                "accepted --lines {invalid}"
+            );
+        }
+
+        let copy = protocol(&["terminal", TERMINAL, "copy", "--mode", "scrollback", "--unwrap"]);
+        assert_eq!(operation(&copy), "terminal.copy");
+        assert_eq!(copy.params["unwrap"], true);
+
+        let wait =
+            protocol(&["terminal", TERMINAL, "screen", "wait", "--pattern", "ready", "--new"]);
+        assert_eq!(operation(&wait), "terminal.wait");
+        assert_eq!(wait.params["new"], true);
+        let old = protocol(&["terminal", TERMINAL, "screen", "wait", "--pattern", "ready"]);
+        assert!(old.params.get("new").is_none());
+    }
+
+    #[test]
     fn terminal_output_read_parses_cursor_and_bounded_window() {
         const TERMINAL: &str = "term_00000000000000000000000000000008";
         let plain = protocol(&["terminal", TERMINAL, "output", "read"]);
@@ -4210,12 +4466,54 @@ mod tests {
         );
     }
 
+    /// `screen create` keeps the focus unless `--focus` (bench round 3,
+    /// T8); `--workspace` places the screen in another workspace.
+    #[test]
+    fn w4j_screen_create_sends_focus_only_when_asked_and_takes_a_workspace() {
+        let plain = protocol(&["screen", "create", "--name", "build"]).params;
+        assert!(plain.get("focus").is_none(), "{plain}");
+        let quiet = protocol(&["screen", "create", "--no-focus"]).params;
+        assert!(quiet.get("focus").is_none(), "{quiet}");
+        let focused = protocol(&["screen", "create", "--focus"]).params;
+        assert_eq!(focused["focus"], true);
+        let workspace = "ws_00000000000000000000000000000004";
+        let placed = protocol(&["screen", "create", "--workspace", workspace]).params;
+        assert_eq!(placed["workspace"], workspace);
+    }
+
+    /// `--state` takes the shared status words: `done` and `idle` both ask
+    /// the daemon for `idle` (the unread marker tells them apart), `ended`
+    /// asks for the daemon's `done` (a session that ended).
+    #[test]
+    fn w4j_agent_list_state_takes_the_shared_status_words() {
+        const TERMINAL: &str = "term_55555555555555555555555555555555";
+        for (status, daemon) in [
+            ("done", "idle"),
+            ("idle", "idle"),
+            ("ended", "done"),
+            ("working", "working"),
+            ("blocked", "blocked"),
+            ("unknown", "unknown"),
+        ] {
+            let CommandPlan::AgentList(list) =
+                parse(&strings(&["agent", "list", "--terminal", TERMINAL, "--state", status]))
+                    .unwrap()
+            else {
+                panic!("agent list is an agent list plan");
+            };
+            assert_eq!(list.request.params["state"], daemon, "--state {status}");
+            assert_eq!(list.status, Some(status));
+        }
+        assert!(parse(&strings(&["agent", "list", "--state", "busy"])).is_err());
+    }
+
     #[test]
     fn agent_commands_use_canonical_public_states() {
         const TERMINAL: &str = "term_55555555555555555555555555555555";
+        // agent list --state takes the shared status words and maps them
+        // (w4j_agent_list_state_takes_the_shared_status_words); agent report
+        // takes the daemon state.
         for state in ["working", "blocked", "idle", "done", "unknown"] {
-            let list = protocol(&["agent", "list", "--terminal", TERMINAL, "--state", state]);
-            assert_eq!(list.params["state"], state);
             let report = protocol(&[
                 "agent",
                 "report",
@@ -4587,7 +4885,15 @@ mod tests {
             (vec!["screen", "list"], "screen.list"),
             (vec!["screen", SCREEN, "show"], "screen.get"),
             (
-                vec!["screen", "create", "--name", "build", "--correlation-key", "create-42"],
+                vec![
+                    "screen",
+                    "create",
+                    "--name",
+                    "build",
+                    "--focus",
+                    "--correlation-key",
+                    "create-42",
+                ],
                 "screen.create",
             ),
             (vec!["screen", SCREEN, "rename", "--name", "tests"], "screen.rename"),
@@ -4799,7 +5105,10 @@ mod tests {
                 "terminal.input.mouse",
             ),
             (vec!["terminal", TERMINAL, "focus", "in"], "terminal.input.focus"),
-            (vec!["terminal", TERMINAL, "screen", "read"], "terminal.screen.read"),
+            (
+                vec!["terminal", TERMINAL, "screen", "read", "--unwrap", "--lines", "5"],
+                "terminal.screen.read",
+            ),
             (vec!["terminal", TERMINAL, "state", "read"], "terminal.state.read"),
             (
                 vec![
@@ -4832,10 +5141,11 @@ mod tests {
                     "ready",
                     "--timeout-ms",
                     "5000",
+                    "--new",
                 ],
                 "terminal.wait",
             ),
-            (vec!["terminal", TERMINAL, "copy", "--mode", "screen"], "terminal.copy"),
+            (vec!["terminal", TERMINAL, "copy", "--mode", "screen", "--unwrap"], "terminal.copy"),
             (vec!["terminal", TERMINAL, "process", "show"], "terminal.process.get"),
             (
                 vec!["terminal", TERMINAL, "process", "wait", "--timeout-ms", "5000"],

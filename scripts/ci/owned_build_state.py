@@ -78,7 +78,7 @@ CI_OWNED_PREFER_SEED is set and says whether the seed should replace the kept
 DerivedData. It digests the workspace once and counts the inputs each would
 rebuild: those whose content differs from the kept RECORD, and from the
 MANIFEST of every seed in this commit's history that this Mac keeps
-(seed_derived_data.py CMUX_SEED_LOCAL_CACHE, as many as the disk holds). All are a local
+(seed_derived_data.py CMUX_SEED_LOCAL_CACHE: its newest, and any a job used lately). All are a local
 clone, so the one with the fewest changed inputs wins, and the adopt that
 follows clones exactly that seed (CMUX_SEED_EXACT). A seed this Mac does not
 keep costs a download of about 250 s, worth about DOWNLOAD_INPUTS changed
@@ -1141,11 +1141,10 @@ def compare_estimate(files: list[str] | None, workspace: Path) -> int | None:
 
 
 def touch_kept_seed(key: str) -> None:
-    """Mark the chosen kept seed recent, so a concurrent prune spares it until adopt."""
+    """Mark the chosen kept seed used, so a concurrent prune spares it until adopt (seed.mark_used)."""
     path = seed.cached(key)
     if path is not None:
-        with contextlib.suppress(OSError):
-            os.utime(path)
+        seed.mark_used(path)
 
 
 def package_store(argv: list[str]) -> Path | None:

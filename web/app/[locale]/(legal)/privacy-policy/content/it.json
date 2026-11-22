@@ -2,13 +2,13 @@
   "metadataTitle": "Informativa sulla privacy — cmux",
   "metadataDescription": "Informativa sulla privacy per cmux",
   "title": "Informativa sulla privacy",
-  "lastUpdated": "Ultimo aggiornamento: 1 settembre 2026",
+  "lastUpdated": "Ultimo aggiornamento: 17 novembre 2026",
   "sections": [
     {
       "paragraphs": [
-        "Manaflow (la \"Società\") si impegna a mantenere una solida protezione della privacy per i propri utenti. La presente Informativa sulla privacy spiega come raccogliamo, utilizziamo e salvaguardamo le informazioni che ci fornisci.",
+        "Manaflow, Inc. (la \"Società\") si impegna a mantenere una solida protezione della privacy per i propri utenti. La presente Informativa sulla privacy spiega come raccogliamo, utilizziamo e salvaguardamo le informazioni che ci fornisci.",
         "Nella presente politica, per \"Sito\" si intende il sito Web della Società all'indirizzo [cmux.com](https://cmux.com). Per \"Applicazione\" si intende l'applicazione desktop cmux per macOS e l'applicazione mobile cmux per iPhone e iPad. \"Servizio\" indica congiuntamente il Sito e l'Applicazione. \"Noi\", \"ci\" e \"nostro\" indicano la Società. \"Tu\" indica un utente del nostro Servizio.",
-        "Utilizzando il nostro Servizio, accetti la presente Informativa sulla privacy e i nostri [Termini di servizio](https://cmux.com/terms-of-service) e acconsenti alla raccolta, archiviazione, utilizzo e divulgazione qui descritti."
+        "La presente Informativa sulla privacy ti spiega come raccogliamo, utilizziamo e divulghiamo le informazioni. È un'informativa: non chiede il tuo consenso, salvo quando lo dice espressamente. I nostri [Termini di servizio](https://cmux.com/terms-of-service) si applicano al tuo utilizzo del Servizio."
       ]
     },
     {
@@ -71,7 +71,7 @@
         "Slack: notifiche interne private. Se ti iscrivi a una lista d'attesa di una piattaforma, l'e-mail e le piattaforme che invii verranno inviate al nostro spazio di lavoro privato Slack."
       ],
       "afterBullets": [
-        "Ogni servizio ha la propria politica sulla privacy. Quando una terza parte elabora le informazioni personali per cmux, richiediamo misure di protezione almeno altrettanto protettive quanto questa politica e limitiamo l'uso alla fornitura di servizi a cmux."
+        "Ogni servizio ha la propria politica sulla privacy. Salvo quanto indicato nella sezione cmux Cloud, quando una terza parte elabora le informazioni personali per cmux, richiediamo misure di protezione almeno altrettanto protettive quanto questa politica e limitiamo l'uso alla fornitura di servizi a cmux."
       ]
     },
     {

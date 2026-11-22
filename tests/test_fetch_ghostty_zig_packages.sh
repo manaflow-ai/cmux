@@ -34,7 +34,7 @@ if [ "$count" -le "${FAKE_ZIG_HANGS:-0}" ]; then
   echo half > "zig-pkg/.tmp-$count/data"
   echo half > "$FAKE_CACHE/p/N-cut-$count.tar.gz"
   # Another job on the machine finishes a download meanwhile.
-  echo whole | gzip > "$FAKE_CACHE/p/N-other-$count.tar.gz"
+  d="$(mktemp -d)"; echo whole > "$d/f"; tar -czf "$FAKE_CACHE/p/N-other-$count.tar.gz" -C "$d" f; rm -rf "$d"
   sleep 600 &
   echo "$!" >> "${FAKE_ZIG_CHILDREN:?}"
   wait
@@ -62,11 +62,15 @@ run() { # <hangs> <failures> -> status in $status, seconds in $elapsed
   : > "$TMP/children"
   # Packages an earlier run finished, which a stopped attempt must not touch.
   mkdir -p "$TMP/src/zig-pkg/N-old"
-  echo whole | gzip > "$TMP/cache/p/N-old.tar.gz"
+  echo whole > "$TMP/f"; tar -czf "$TMP/cache/p/N-old.tar.gz" -C "$TMP" f
   # Another job's download in progress: the global tmp/ is shared on a reused machine.
   mkdir -p "$TMP/cache/tmp/other-job"
   if [ "${PRE_CUT:-0}" = 1 ]; then
     head -c 4096 /dev/urandom | gzip | head -c 100 > "$TMP/cache/p/N-bad.tar.gz"
+  fi
+  if [ "${PRE_PAGE:-0}" = 1 ]; then
+    # A whole gzip stream of an error page, over one 512-byte tar block: gzip -t passes it.
+    { echo '<html><body>502 Bad Gateway'; head -c 2048 /dev/zero | tr '\0' x; echo '</body></html>'; } | gzip > "$TMP/cache/p/N-bad.tar.gz"
   fi
   status=0
   local start=$SECONDS
@@ -102,6 +106,12 @@ PRE_CUT=1 run 0 0
 [ "$(cat "$TMP/count")" = 2 ] || fail "expected 2 attempts around a cut-short archive, got $(cat "$TMP/count")"
 [ ! -e "$TMP/cache/p/N-bad.tar.gz" ] || fail "the cut-short archive was left in the cache"
 [ -e "$TMP/cache/p/N-old.tar.gz" ] || fail "clearing a cut-short archive removed a whole one"
+
+# So does a cached gzipped error page (whole gzip, no tar).
+PRE_PAGE=1 run 0 0
+[ "$status" = 0 ] || fail "a cached gzipped page was not cleared for the retry"
+[ ! -e "$TMP/cache/p/N-bad.tar.gz" ] || fail "the cached gzipped page was left in the cache"
+[ -e "$TMP/cache/p/N-old.tar.gz" ] || fail "clearing a gzipped page removed a whole archive"
 
 # A hung first attempt is stopped once it makes no progress, with its child,
 # and the second attempt succeeds.

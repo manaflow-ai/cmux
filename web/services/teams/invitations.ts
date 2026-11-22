@@ -58,7 +58,13 @@ export async function listTeamInvitations(
  */
 export async function inviteTeamMembers(
   access: TeamAccess,
-  input: { readonly emails: readonly string[]; readonly role: TeamRole; readonly acceptUrl: InviteUrlBuilder },
+  input: {
+    readonly emails: readonly string[];
+    readonly role: TeamRole;
+    readonly acceptUrl: InviteUrlBuilder;
+    /** The email's sender line when the inviter is not a member (a cmux operator). */
+    readonly inviterName?: string | null;
+  },
   dependencies: InvitationDependencies = {},
 ): Promise<{ invitations: TeamInvitation[]; failed: { email: string; code: InviteFailureCode }[] }> {
   const store = dependencies.store ?? databaseTeamInviteStore;
@@ -81,7 +87,7 @@ export async function inviteTeamMembers(
       adding: newEmails.filter((email) => !pending.has(email)).length,
     });
   }
-  const inviterName = inviterDisplayName(access);
+  const inviterName = input.inviterName ?? inviterDisplayName(access);
   for (const email of emails) {
     if (memberEmails.has(email)) {
       failed.push({ email, code: "already_member" });

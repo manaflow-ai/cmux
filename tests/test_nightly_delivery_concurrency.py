@@ -69,8 +69,10 @@ NO_CONCURRENCY_GROUP: dict[str, tuple[str, ...]] = {
     # sign, runner, verify and the rcodesign signer build too (#26001 renamed it from rcodesign-dmg):
     # a pending handoff waiting for any of them would be evicted by a newer one (2026-10-26: nothing
     # published from 00:13Z for over six hours).
+    # supersede cancels older publish runs itself, keeping the oldest waiting one, so it must not take a
+    # group either: one would replace its own pending run and could cancel this run's.
     "cmux-next-dev-daily.yml": ("sign", "runner", "verify", "publish", "tip-dmg-build", "rcodesign",
-                                "tip-dmg", "tip", "tip-deltas"),
+                                "tip-dmg", "tip", "tip-deltas", "supersede"),
     # Classic main and rc push runs build in parallel (#25959), so their
     # continuations publish in any order. Sharing release-publish-<tag> let an
     # older run's delta job replace a newer publish that was still pending.
@@ -294,6 +296,9 @@ def test_the_tick_is_the_only_promoter_and_the_rolling_rule_gates_its_events() -
     assert "inputs.sha == ''" in rolling["if"], "a dispatch for one commit skips the rule"
     assert rolling.get("continue-on-error") is True, "a failed rule never holds the promotion"
     assert "nightly_next_rolling.py" in rolling["run"]
+    # One build per signer Mac (design manaflow-ai/cmuxterm-hq#17011): the cap is a variable, 1 when unset.
+    assert rolling["env"]["NIGHTLY_NEXT_SLOTS"] == "${{ vars.NIGHTLY_NEXT_SLOTS || '1' }}"
+    assert '--slots "$NIGHTLY_NEXT_SLOTS"' in rolling["run"]
     assert "steps.rolling.outputs.go != 'false'" in request["if"]
     assert request["env"]["NIGHTLY_NEXT_PROMOTE"] == "1", "request-nightly-next.sh promotes only when the tick asks"
     for name, step in by_name.items():

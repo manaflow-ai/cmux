@@ -39,7 +39,11 @@ if [[ "${1:-}" == --one ]]; then
     *.tar.zst) zstd -dcq "$part.raw" | gzip -n > "$part" ;;
     *) exit 1 ;;
   esac
-  gzip -t "$part" 2>/dev/null || { echo "seed: $url is not a whole archive" >&2; exit 1; }
+  # A whole tar with entries, not only whole gzip: a host can answer 200 with a
+  # gzipped error page (GNU tar lists a short non-tar as an empty archive, exit 0).
+  # Counted, not kept: a listing can be long. pipefail keeps tar's own status.
+  entries="$(tar -tzf "$part" 2>/dev/null | wc -l)" && (( entries > 0 )) \
+    || { echo "seed: $url is not a whole tar archive" >&2; exit 1; }
   mv -f "$part" "$final"
   exit 0
 fi
@@ -107,10 +111,27 @@ wanted="$(printf '%s' "$todo" | grep -c . || true)"
 pool="" watchdog="" list=""
 # Cancelled (the fetch, or the job, was stopped): stop the downloads too. They
 # run in a process group of their own that a signal to ours does not reach.
+# xargs can exit before a worker it was stopping has run its EXIT trap, and a
+# KILLed worker runs none: wait (bounded) for the group to go, then remove the
+# partial downloads of workers that are gone. A live writer's file stays (another
+# seed on a reused machine).
+drain_pool() {
+  local _ part pid
+  for _ in 1 2 3 4 5; do kill -0 -- "-$1" 2>/dev/null || break; sleep 1; done
+  kill -KILL -- "-$1" 2>/dev/null || true
+  # A KILLed worker can still show for a moment (not yet reaped): give it 2 s.
+  for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 -- "-$1" 2>/dev/null || break; sleep 0.2; done
+  for part in "$cache"/p/.seed-*; do
+    [[ -e "$part" ]] || continue
+    pid="${part%.raw}"; pid="${pid##*-}"
+    if [[ "$pid" =~ ^[0-9]+$ ]] && ! kill -0 "$pid" 2>/dev/null; then rm -f "$part"; fi
+  done
+}
 stop_seed() {
   if [[ -n "$watchdog" ]]; then kill "$watchdog" 2>/dev/null || true; fi
-  if [[ -n "$pool" ]] && kill -0 -- "-$pool" 2>/dev/null; then
-    kill -TERM -- "-$pool" 2>/dev/null || true; sleep 1; kill -KILL -- "-$pool" 2>/dev/null || true
+  if [[ -n "$pool" ]]; then
+    kill -TERM -- "-$pool" 2>/dev/null || true
+    drain_pool "$pool"
   fi
   if [[ -n "$list" ]]; then rm -f "$list"; fi
 }
@@ -138,7 +159,9 @@ if (( wanted > 0 )); then
   wait "$pool" 2>/dev/null || true
   kill "$watchdog" 2>/dev/null || true
   wait "$watchdog" 2>/dev/null || true
-  watchdog="" pool=""
+  watchdog=""
+  drain_pool "$pool"
+  pool=""
 fi
 seeded=0
 while read -r hash _url; do

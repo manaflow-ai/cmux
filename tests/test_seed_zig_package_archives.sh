@@ -17,6 +17,8 @@ mkdir -p "$TMP/tree/pkg-1.0" && echo hello > "$TMP/tree/pkg-1.0/file"
 tar -C "$TMP/tree" -czf "$TMP/www/one.tar.gz" pkg-1.0
 cp "$TMP/www/one.tar.gz" "$TMP/www/two.tgz"
 head -c 100 "$TMP/www/one.tar.gz" > "$TMP/www/cut.tar.gz"
+# A host that answers 200 with a gzipped error page: whole gzip, no tar.
+echo '<html>502 Bad Gateway</html>' | gzip > "$TMP/www/page.tar.gz"
 have_xz=false
 if command -v xz >/dev/null 2>&1; then
   have_xz=true
@@ -46,6 +48,10 @@ cat > "$TMP/src/build.zig.zon" <<EOF
         .cut = .{
             .url = "$base/cut.tar.gz",
             .hash = "N-cut",
+        },
+        .page = .{
+            .url = "$base/page.tar.gz",
+            .hash = "N-page",
         },
         .here = .{
             .url = "$base/never.tar.gz",
@@ -78,6 +84,7 @@ cmp -s "$TMP/cache/p/N-four.tar.gz" "$TMP/www/one.tar.gz" && cmp -s "$TMP/cache/
 [[ ! -e "$TMP/cache/p/N-never.tar.gz" ]] || fail "a commented-out dependency was seeded"
 [[ ! -e "$TMP/cache/p/N-gone.tar.gz" ]] || fail "a missing download left an archive"
 [[ ! -e "$TMP/cache/p/N-cut.tar.gz" ]] || fail "a cut-short download took the final name"
+[[ ! -e "$TMP/cache/p/N-page.tar.gz" ]] || fail "a gzipped page that is no tar took the final name"
 [[ ! -e "$TMP/cache/p/N-dep.tar.gz" ]] || fail "a package already in zig-pkg/ was downloaded again"
 [[ ! -e "$TMP/cache/p/N-git.tar.gz" ]] || fail "a git dependency was seeded"
 [[ ! -e "$TMP/cache/p/N-inner.tar.gz" ]] || fail "a dependency's own build.zig.zon was read"
@@ -85,9 +92,9 @@ cmp -s "$TMP/cache/p/N-four.tar.gz" "$TMP/www/one.tar.gz" && cmp -s "$TMP/cache/
 if [[ "$have_xz" == true ]]; then
   gzip -t "$TMP/cache/p/N-three.tar.gz" 2>/dev/null || fail "a .tar.xz package was not re-compressed to gzip"
   [[ "$(tar -xzOf "$TMP/cache/p/N-three.tar.gz" pkg-1.0/file)" == hello ]] || fail "the re-compressed archive lost its contents"
-  grep -q "Seeded 5 of 7 Zig package archives" "$TMP/out" || fail "the summary miscounts"
+  grep -q "Seeded 5 of 8 Zig package archives" "$TMP/out" || fail "the summary miscounts"
 else
-  grep -q "Seeded 4 of 6 Zig package archives" "$TMP/out" || fail "the summary miscounts"
+  grep -q "Seeded 4 of 7 Zig package archives" "$TMP/out" || fail "the summary miscounts"
 fi
 
 # A second run downloads nothing: everything seeded is already there.
@@ -104,12 +111,14 @@ class H(http.server.BaseHTTPRequestHandler):
         if "later" in self.path:
             self.send_response(503); self.send_header("Retry-After", "3600")
             self.send_header("Content-Length", "0"); self.end_headers(); return
+        # The test waits for this file: a download has started.
+        open(sys.argv[2], "a").close()
         time.sleep(600)
     def log_message(self, *a): pass
 http.server.ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
 PY
 slow_port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
-python3 "$TMP/slow.py" "$slow_port" >/dev/null 2>&1 &
+python3 "$TMP/slow.py" "$slow_port" "$TMP/started" >/dev/null 2>&1 &
 server_pid=$!
 for _ in $(seq 1 50); do curl -s -o /dev/null --max-time 1 "http://127.0.0.1:$slow_port/later.tar.gz" && break; sleep 0.1; done
 mkdir -p "$TMP/slow-src" "$TMP/slow-cache"
@@ -127,13 +136,16 @@ grep -q "stopped after 4s" "$TMP/out" || fail "the seed deadline was not reporte
 kill "$server_pid" 2>/dev/null; wait "$server_pid" 2>/dev/null || true; server_pid=""
 
 # Cancelling the seed (its fetch stopped) stops its downloads too.
-python3 "$TMP/slow.py" "$slow_port" >/dev/null 2>&1 &
+python3 "$TMP/slow.py" "$slow_port" "$TMP/started" >/dev/null 2>&1 &
 server_pid=$!
 for _ in $(seq 1 50); do curl -s -o /dev/null --max-time 1 "http://127.0.0.1:$slow_port/later.tar.gz" && break; sleep 0.1; done
 rm -rf "$TMP/slow-cache"; mkdir -p "$TMP/slow-cache"
+rm -f "$TMP/started"
 CMUX_ZIG_SEED_TIMEOUT=120 "$SEED" "$TMP/slow-cache" "$TMP/slow-src" > "$TMP/out" 2>&1 &
 seed_pid=$!
-sleep 2
+# Cancel only once a download runs, or the check below would pass with none started.
+for _ in $(seq 1 100); do [[ -e "$TMP/started" ]] && break; sleep 0.1; done
+[[ -e "$TMP/started" ]] || fail "no seed download reached the server"
 kill -TERM "$seed_pid"
 wait "$seed_pid" 2>/dev/null || true
 sleep 2
