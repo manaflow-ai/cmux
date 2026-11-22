@@ -534,12 +534,8 @@ mod tests;
 /// (`hub/key_route.rs`). A tag the lane-gh broker wrote in its word alphabet carries its spaces
 /// as `+` ("Logan+dot+chats-going-blank"); it reads with spaces again.
 pub(crate) fn alias(row: &Value) -> Option<String> {
-    let raw = row.get("tags")?.get("session.alias")?.as_str()?.trim();
-    let text = if raw.contains('+') && !raw.contains(char::is_whitespace) {
-        raw.replace('+', " ")
-    } else {
-        raw.to_owned()
-    };
+    let raw = row.get("tags")?.get("session.alias")?.as_str()?;
+    let text = crate::session_handle::spoken_alias(raw);
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     (!text.is_empty()).then_some(text)
 }
