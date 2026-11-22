@@ -147,6 +147,7 @@ public final class UIInspectorController {
         activate(page)
         if event.type == .leftMouseDown || event.type == .rightMouseDown {
             pendingAction = event.type == .rightMouseDown ? .copy : .send
+            swallowsRelease = true
             page.evaluateUiPointer(pointerScript("pick", point: point, page: page))
             return nil
         }
@@ -234,7 +235,9 @@ public final class UIInspectorController {
         native.clear() // the capture must not show the outline
         nativeSelecting = true
         Task { [weak self, weak window] in
-            guard let self, let window, self.selectionGeneration == generation else { return }
+            guard let self, self.selectionGeneration == generation else { return }
+            // A window gone mid-capture ends the pick; otherwise the capture would hold every event until Esc.
+            guard let window else { self.stop(); return }
             let image = await self.host.capture(window)
             guard self.selectionGeneration == generation else { return }
             let png = image.flatMap { UIPointerNativePicker.crop($0, rect: element.frame, window: window) }
