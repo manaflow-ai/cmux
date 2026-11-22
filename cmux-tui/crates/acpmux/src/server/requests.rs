@@ -240,6 +240,7 @@ pub(super) async fn handle_notification(
                     m,
                     &mut params,
                     false,
+                    false,
                 )
                 .await
             {
@@ -662,6 +663,7 @@ async fn dispatch_brief(
             method::SESSION_NEW,
             &mut new_params,
             false,
+            false,
         )
         .await?;
     }
@@ -1010,6 +1012,7 @@ pub(super) async fn handle_request(
             m,
             &mut params,
             policy_proved,
+            conn.presented_web_device(),
         )
         .await
         .map_err(|e| challenge(e, &params))?;
@@ -1496,6 +1499,8 @@ async fn dispatch_request_with_identity(
             }
             Ok(view)
         }
+        super::browser_workspaces::SET => hub.person.browser_workspaces.set(conn, &params),
+        super::browser_workspaces::READ => hub.person.browser_workspaces.read(conn).await,
         method::MUX_WORKSPACE_ROOTS_SET if conn.is_person() => {
             hub.person.set_workspace_roots(&params)
         }
@@ -3201,6 +3206,39 @@ async fn dispatch_request_with_identity(
                 json!({"abandoned": s.abandon_prepared(prompt_id, generation, attempt_id, &conn.id)}),
             )
         }
+        method::MUX_INBOX_SUBSCRIPTION_SET
+        | method::MUX_INBOX_SUBSCRIPTION_REMOVE
+        | method::MUX_INBOX_SUBSCRIPTIONS => {
+            let s = hub.resolve(session_key(&params)?)?;
+            // A binding belongs to the resolved recipient.  The person's connection may manage
+            // it, or the recipient's own agent may manage its own threads; no other session may
+            // claim an owner by putting a different id in the request.
+            let person = conn.is_person() || (conn.origin == Origin::Local && !conn.agent_side());
+            if !person && conn.caller() != Some(s.id.as_str()) {
+                let other = RpcError::invalid_params(
+                    "inbox_subscription.other_session: only the person or the chat's own agent manages its bindings",
+                )
+                .with_data(json!({"reason": "inbox_subscription.other_session"}));
+                return Err(conn.refusal("managing another chat's inbox subscription", other));
+            }
+            // Include records still held during a deferred append and journal records after a
+            // restart, using the same session-scoped load path as the inbox itself.
+            hub.session_log(&s).await;
+            let thread = || {
+                params
+                    .get("threadId")
+                    .and_then(Value::as_str)
+                    .filter(|v| !v.is_empty())
+                    .ok_or_else(|| RpcError::invalid_params("threadId is required"))
+            };
+            match m {
+                method::MUX_INBOX_SUBSCRIPTION_SET => hub.set_inbox_subscription(&s, thread()?),
+                method::MUX_INBOX_SUBSCRIPTION_REMOVE => {
+                    hub.remove_inbox_subscription(&s, thread()?)
+                }
+                _ => hub.inbox_subscriptions(&s),
+            }
+        }
         method::MUX_INBOX_THREADS | method::MUX_INBOX_THREAD | method::MUX_INBOX_REPLY => {
             let s = hub.resolve(session_key(&params)?)?;
             // The person's, or the chat's own agent's: no other session reads or answers for it.
@@ -3221,6 +3259,17 @@ async fn dispatch_request_with_identity(
                 text_of("threadId").ok_or_else(|| RpcError::invalid_params("threadId is required"))
             };
             match m {
+                method::MUX_INBOX_THREADS if params.get("search").is_some() => {
+                    let query = text_of("search")
+                        .ok_or_else(|| RpcError::invalid_params("search needs text"))?;
+                    let needle = crate::chats::search::Needle::parse(query)
+                        .map_err(RpcError::invalid_params)?;
+                    let before = params.get("before").and_then(Value::as_u64);
+                    let hub = Arc::clone(hub);
+                    tokio::task::spawn_blocking(move || hub.search_held_inbox(&s, &needle, before))
+                        .await
+                        .map_err(|e| RpcError::internal(format!("inbox search stopped: {e}")))?
+                }
                 method::MUX_INBOX_THREADS => Ok(hub.inbox_threads(&s)),
                 method::MUX_INBOX_THREAD => {
                     let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);

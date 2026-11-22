@@ -393,12 +393,8 @@ extension AgentTabStore {
         remoteCreations[scoped] = nil
         remoteStarts.removeValue(forKey: scoped)?.cancel()
         adoptions = adoptions.filter { $0.value != scoped.relaunchKeyCandidates[0] }
-        for entry in aliases.entries where (entry.key.machine == scoped.machine || entry.key.machine.isEmpty) && (entry.value == key || entry.key.key == key) {
-            aliases.removeValue(forKey: entry.key)
-        }
-        for entry in remoteAliases.entries where (entry.key.machine == scoped.machine || entry.key.machine.isEmpty) && (entry.value == key || entry.key.key == key) {
-            remoteAliases.removeValue(forKey: entry.key)
-        }
+        aliases.removeAliases(of: key, machine: scoped.machine)
+        remoteAliases.removeAliases(of: key, machine: scoped.machine)
         linkedSessions.remove(tabKey(key, machine: machine))
         pendingTurns[scoped] = nil
         wakeStates[scoped] = nil

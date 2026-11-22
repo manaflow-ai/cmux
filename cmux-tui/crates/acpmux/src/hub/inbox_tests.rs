@@ -26,6 +26,7 @@ fn item(
     text: &str,
 ) -> Item {
     Item {
+        surge_held: false,
         prompt_id: prompt_id.to_owned(),
         notice: None,
         answered: None,
@@ -508,6 +509,78 @@ fn hub_with_chat(id: &str) -> (Arc<Hub>, Arc<Session>) {
     hub.begin_startup(false);
     let session = hub.resolve(id).unwrap();
     (hub, session)
+}
+
+#[tokio::test]
+async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_text() {
+    let (hub, session) = hub_with_chat("busy-chat");
+    // The receiving chat took 30 seconds to reply before the burst.
+    for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+        let msg = json!({"turnSeq":1,"turnId":"finished","status":"completed"});
+        session.time_breakdown.lock().unwrap().record(&EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            msg,
+            host_seq: None,
+        });
+    }
+    let mut opts = PromptOptions {
+        provenance: Some(crate::prompt_provenance::notice(
+            &json!({"sender":"watcher","severity":"warn","title":"Runner warning"}),
+            "busy-chat",
+        )),
+        class: Some(PromptClass::Fyi),
+        ..Default::default()
+    };
+    let body = [json!({"type":"text","text":"Read the runner report for #418."})];
+    assert!(hub.hold_surge_message(&session, "first", "cli", &body, &opts).unwrap().is_none());
+    let receipt = hub.hold_surge_message(&session, "second", "cli", &body, &opts).unwrap().unwrap();
+    assert_eq!(receipt["surgeHeld"], true);
+    let thread = receipt["threadId"].as_str().unwrap();
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":0}));
+    hub.persist_surge_triage(&session, json!({"batchId":"batch-1"}), 1).unwrap();
+    *session.inbox() = Default::default();
+    hub.restore_inbox(&session);
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":1}));
+    let thread = hub.inbox_thread(&session, thread, false);
+    assert_eq!(thread["messages"][0]["text"], body[0]["text"]);
+    assert_eq!(thread["messages"][0]["surgeHeld"], true);
+    assert!(session.inbox().items.iter().all(|item| item.noticed));
+    let duplicate = hub.logged_inbox_answer(&session, "second").unwrap().unwrap();
+    assert_eq!(duplicate.pointer("/_meta/acpmux/surgeHeld").unwrap(), true);
+    let needle = crate::chats::search::Needle::parse("runner watcher 418").unwrap();
+    let search = hub.search_held_inbox(&session, &needle, None).unwrap();
+    assert_eq!(search["hits"].as_array().unwrap().len(), 1);
+    assert_eq!(search["hits"][0]["promptId"], "second");
+    opts.provenance = Some(crate::prompt_provenance::notice(
+        &json!({"sender":"watcher","severity":"fire","title":"Runner failure"}),
+        "busy-chat",
+    ));
+    assert!(hub.hold_surge_message(&session, "fire", "cli", &body, &opts).unwrap().is_none());
+    let mut urgent = item("fire", "runner", "watcher", PromptClass::Fyi, now_ms(), "fire");
+    urgent.tool_notice = tool_notice_of(opts.provenance.as_ref());
+    assert!(wakes(&session.meta(), &urgent));
+    assert!(!ordinary_fyi(&urgent));
+}
+
+#[test]
+fn surge_eviction_preserves_unanswered_questions_without_growing_the_removed_id_set() {
+    let mut inbox = Inbox::default();
+    inbox.items.push(item("question", "question", "owner", PromptClass::Question, 1, "Ready?"));
+    for seq in 0..(KEEP + 20) {
+        let mut held =
+            item(&seq.to_string(), "runner", "watcher", PromptClass::Fyi, seq as u64, "held");
+        held.surge_held = true;
+        held.noticed = true;
+        inbox.items.push(held);
+        trim(&mut inbox);
+    }
+    assert_eq!(inbox.items.len(), KEEP);
+    assert_eq!(inbox.items[0].prompt_id, "question");
+    assert_eq!(inbox.items.last().unwrap().prompt_id, (KEEP + 19).to_string());
+    assert!(inbox.trimmed.is_empty());
 }
 
 /// The chat runs another agent's turn (not the person's) that takes steers.
