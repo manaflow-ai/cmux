@@ -43,7 +43,7 @@ extension CEFPaneHost {
                 runtime.hosts[target] = self
             } else {
                 // The tab left a pane with other web tabs (dragged to a split): the new pane gets a host of its own.
-                move(tab, to: runtime.host(for: target, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus))
+                if !move(tab, to: runtime.host(for: target, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)) { leaveSharedHost(tab) }
             }
             return
         }
@@ -52,8 +52,9 @@ extension CEFPaneHost {
     }
 
     /// Moves `tab` from this host into `destination`: a tab with no browser only changes host; one with a browser
-    /// moves into `destination`'s live window, or waits in its opener's window for one `destination` makes
-    /// (`ensureOwnWindow`), as an agent's background tab does. False when it stays.
+    /// moves into `destination`'s live window, or waits in this host's window for one `destination` makes
+    /// (`ensureOwnWindow`), as an agent's background tab does. It waits only while this host keeps other tabs, so
+    /// this window is still live to take it back if the fork cannot move it (`returnFromRegroup`). False when it stays.
     @discardableResult
     func move(_ tab: CEFTab, to destination: CEFPaneHost) -> Bool {
         var waits = false
@@ -70,6 +71,8 @@ extension CEFPaneHost {
                 }
             } else if case .creating = destination.window {
                 return false
+            } else if !tabs.contains(where: { $0 !== tab && $0 !== placeholder && !$0.awaitsWindowMove }) {
+                return false
             } else {
                 waits = true
             }
@@ -83,9 +86,28 @@ extension CEFPaneHost {
         tab.regroupedFrom = waits ? self : nil
         destination.add(tab)
         if tab.browserID != nil, !waits {
+            // A spare window the pane took: its blank tab (and spare page) go, as when a tab joins it with `tab_add`.
+            destination.closeSparePlaceholder(joined: tab)
             destination.hostView.layerHosting.windowBrowsersChanged(destination.tabs.filter { !$0.awaitsWindowMove }.compactMap(\.browserID))
         }
         return true
+    }
+
+    /// The fork could not move `tab` into this host's window (`movePopupsIn`): it goes back to the host it left,
+    /// whose window still holds it, and shows from there when that host's view shows no other tab on screen.
+    func returnFromRegroup(_ tab: CEFTab, to from: CEFPaneHost) {
+        tab.regroupedFrom = nil
+        if hostView.superview === tab.container { hostView.removeFromSuperview() }
+        removed(tab)
+        tab.host = from
+        tab.awaitsWindowMove = false
+        from.add(tab)
+        guard tab.container.window != nil, !tab.container.isHiddenOrHasHiddenAncestor else { return }
+        if from.showsOnScreen(besides: tab) {
+            runtime.logger.error("CEF tab \(tab.browserID ?? 0) has no window of its own; it shows when its pane's view is free")
+            return
+        }
+        from.present(tab, in: tab.container)
     }
 
     /// `tab` could not join its pane's host: when this host's view shows another tab on screen, the tab goes to a

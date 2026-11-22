@@ -102,11 +102,7 @@ extension CEFPaneHost {
             } else if let from = tab.regroupedFrom {
                 // A tab joining its pane's window stays open in the window it had.
                 runtime.logger.error("CEF tab \(browser) could not move into its pane's window; it stays in its own")
-                tab.regroupedFrom = nil
-                removed(tab)
-                tab.host = from
-                tab.awaitsWindowMove = false
-                from.add(tab)
+                returnFromRegroup(tab, to: from)
             } else {
                 runtime.logger.error("CEF popup \(browser) could not move into its own window; closing it")
                 tab.close()
