@@ -1,0 +1,16 @@
+import path from "node:path";
+import { chromium } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "../test/support/galleryFrame";
+const webviews = path.resolve(import.meta.dir, "..");
+const [entry, variant, width] = [process.argv[2]!, process.argv[3]!, Number(process.argv[4] ?? 760)];
+const { createServer } = await import("vite");
+const vite = await createServer({ configFile: path.join(webviews, "vite.config.gallery-dev.ts"), server: { port: 0, host: "127.0.0.1" }, logLevel: "error" });
+await vite.listen();
+const browser = await chromium.launch({ headless: true });
+await warmGalleryFrame(vite, [entry], { browser });
+const page = await browser.newPage({ viewport: { width, height: 620 } });
+await page.goto(`http://127.0.0.1:${(vite.httpServer!.address() as any).port}${galleryFrame(entry, { variant, width })}`);
+await page.locator(".acpmux-composer-box").first().waitFor({ timeout: 90_000 });
+await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, { timeout: 60_000 }).catch(() => {});
+console.log(await page.evaluate(process.argv[5]!));
+await browser.close(); await vite.close(); process.exit(0);
