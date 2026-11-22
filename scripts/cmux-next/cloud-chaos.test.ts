@@ -722,7 +722,31 @@ describe("the felt time after a send", () => {
     // Two refusals, each followed by a 500 ms pause: the person waited through them.
     expect(felt.felt_ms).toBeGreaterThanOrEqual(950);
     expect(felt.ack_ms).toBeGreaterThanOrEqual(950);
+    // Both refusals, one run of the same text, so a slow take names where its time went.
+    expect(felt.trail).toMatch(/^\d+-\d+ ms: .+ \(2\)$/);
     chat.stop();
+  });
+
+  test("the refusal trail keeps each change of refusal in order, with its first and last time", () => {
+    expect(chaos.refusalTrail([
+      { at: 10, text: "connection refused" },
+      { at: 600, text: "connection refused" },
+      { at: 1200, text: "session not restored" },
+    ])).toBe("10-600 ms: connection refused (2); 1200 ms: session not restored (1)");
+  });
+
+  test("the restart timeline reads journal times from the kill, corrected for the machine's clock", () => {
+    // The machine's clock runs 2 s ahead: its @@now is 2 s past when the runner read the answer.
+    const stdout = [
+      "@@now 1000012000",
+      "1000002.500000 vm systemd[1]: acpmux.service: Main process exited, code=killed, status=9/KILL",
+      "1000005.600000 vm systemd[1]: Started acpmux.service.",
+      "1000007.000000 vm acpmux[42]: INFO ready",
+    ].join("\n");
+    expect(chaos.restartTimeline(stdout, 1000000000, 1000010000)).toBe(
+      "+500 ms systemd[1]: acpmux.service: Main process exited, code=killed, status=9/KILL | +3600 ms systemd[1]: Started acpmux.service. | +5000 ms acpmux[42]: INFO ready",
+    );
+    expect(chaos.restartTimelineCommand(1000000000)).toContain("--since @999999");
   });
 
   test("no reply within the deadline is null, with the last error", async () => {

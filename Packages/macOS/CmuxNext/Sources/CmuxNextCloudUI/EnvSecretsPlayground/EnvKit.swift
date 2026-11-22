@@ -143,6 +143,36 @@ func envScroll(_ content: NSView) -> NSScrollView {
     return scroll
 }
 
+/// A sideways scroll view over `content`: as tall as the content and at least as wide as itself; content
+/// wider than the scroll view scrolls sideways instead of wrapping or being cut off (a terminal's lines).
+func envHScroll(_ content: NSView) -> NSScrollView {
+    let scroll = NSScrollView()
+    scroll.drawsBackground = false
+    scroll.hasHorizontalScroller = true
+    scroll.hasVerticalScroller = false
+    scroll.autohidesScrollers = true
+    scroll.verticalScrollElasticity = .none
+    scroll.translatesAutoresizingMaskIntoConstraints = false
+    let document = EnvFlippedView()
+    document.translatesAutoresizingMaskIntoConstraints = false
+    content.translatesAutoresizingMaskIntoConstraints = false
+    document.addSubview(content)
+    scroll.documentView = document
+    // The document takes the scroll view's width unless the content needs more.
+    let fit = document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor)
+    fit.priority = .defaultLow
+    NSLayoutConstraint.activate([
+        content.topAnchor.constraint(equalTo: document.topAnchor), content.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+        content.trailingAnchor.constraint(lessThanOrEqualTo: document.trailingAnchor), content.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+        document.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+        document.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+        document.widthAnchor.constraint(greaterThanOrEqualTo: scroll.contentView.widthAnchor), fit,
+        document.widthAnchor.constraint(greaterThanOrEqualTo: content.widthAnchor),
+        scroll.heightAnchor.constraint(equalTo: document.heightAnchor),
+    ])
+    return scroll
+}
+
 /// A grid of rows (each row the same number of cells); `nil` cells are empty. Column 0 hugs its text.
 func envGrid(_ rows: [[NSView?]], columnSpacing: CGFloat = 14, rowSpacing: CGFloat = 7,
              rowAlign: NSGridRow.Alignment = .firstBaseline) -> NSGridView {

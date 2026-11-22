@@ -93,7 +93,9 @@ test("the run sheet labels its dollar figure as API prices and says what it is",
   const cost = [...container.querySelectorAll(".lg-sheet-meta span")].find((span) => span.textContent?.includes("$"));
   expect(cost?.textContent).toBe(strings.format("run.cost", "$0.04"));
   expect(cost?.textContent).not.toBe("$0.04");
-  expect(cost?.getAttribute("title")).toBe(strings.t("run.cost.hint"));
+  // The figure shows its words, so the hint is for screen readers, not a tooltip.
+  expect(cost?.getAttribute("title")).toBeNull();
+  expect(cost?.getAttribute("aria-description")).toBe(strings.t("run.cost.hint"));
 });
 
 // Messages remain reachable when the run is folded and after unrelated tool steps.
