@@ -2108,6 +2108,9 @@ function TranscriptView({
   const scrollRef = useRef({ top: 0, delta: 0 });
   /// Where the warm rows were built from (warmAnchor), held while a fast scroll outruns them (below).
   const heldWarmAt = useRef<string | undefined>(undefined);
+  /// The session whose first followed frame has painted, so its history above the view mounts in full
+  /// (`deferHistory` below).
+  const [historySession, setHistorySession] = useState<string | undefined>();
   const scrollLeadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /// The frame guard (conversation/frameGuard.ts, `armFrameGuard` below) and the offset it last read and
   /// the one it handled. Made in the first render (one guard for the transcript's life), before the rows'
@@ -4905,6 +4908,30 @@ function TranscriptView({
       ? heldWarmAt.current
       : warmAnchor(layout, rows, liveWarmAt, warmStep);
   heldWarmAt.current = sessionSwitched ? undefined : warmAt;
+  // A chat's first followed frame (a cold open, at its latest row) mounts only the rows it shows: the
+  // history above them (and the warm rows) are stand-ins at their estimated boxes until that frame has
+  // painted, then mount in full (the effect below). Built in the first commit they were about 3/4 of
+  // its render and of its page layouts, for rows no one sees in it. They are still there to scroll up
+  // into a frame later (Leo, 2026-11-12: "if you try to scroll up, you can't really scroll much of
+  // anything up at all"). A stand-in reports no drawn height, so the estimates above stay as they were.
+  const deferHistory = renderFollowing && historySession !== sessionKey && rows.length > 0 && height > 0;
+  useEffect(() => {
+    if (!deferHistory) return;
+    // Two frames, then a task: the frame that drew the view paints, the next one starts (where the
+    // chat-open bench marks it painted), and only then do the history rows build.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let second: number | undefined;
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => {
+        timer = setTimeout(() => setHistorySession(sessionKey), 0);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      if (second !== undefined) cancelAnimationFrame(second);
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [deferHistory, sessionKey]);
   const warmTop = warmAnchorTop(layout, rows, useDeferredValue(warmAt)) ?? liveWarmAt;
   // Above the view the warm rows reach HISTORY_VIEWPORTS: history to scroll up into, built between
   // frames as the rest of them are.
@@ -4918,11 +4945,12 @@ function TranscriptView({
   // its rows, nowhere near the view, so its first painted frame held only the rows in view and
   // nothing to scroll up into. A followed view is anchored at its end, so rows drawn above it at their
   // estimate and measured move the offset, never a visible row. Scrolled up, the warm rows hold it.
-  const history = renderFollowing
-    ? visibleLayoutRange(layout, shownTop - height * HISTORY_VIEWPORTS, height * HISTORY_VIEWPORTS, 0)
-    : undefined;
+  const history =
+    renderFollowing && !deferHistory
+      ? visibleLayoutRange(layout, shownTop - height * HISTORY_VIEWPORTS, height * HISTORY_VIEWPORTS, 0)
+      : undefined;
   const scrolledRanges = mergeRowRanges([
-    ...(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
+    ...(deferHistory || warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
     ...(history ? [history] : []),
   ]);
   // A held row (gutterSelect.ts) is at its index, or as far from the end as it was when older history
