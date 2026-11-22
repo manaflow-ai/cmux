@@ -38,12 +38,14 @@ public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
         return legacy
     }
 
+    // Every Keychain call here carries a no-prompt context: one that would ask throws
+    // errSecInteractionNotAllowed instead.
     private func read(service: String, account: String) throws -> Data? {
         var query: [String: Any] = baseQuery(service: service, account: account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = SecItemCopyMatching(KeychainNoPromptContext.applied(to: query) as CFDictionary, &result)
         if status == errSecItemNotFound {
             return nil
         }
@@ -61,7 +63,7 @@ public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
     private func writeStored(_ data: Data, account: String) throws {
         let query: [String: Any] = baseQuery(service: service, account: account)
         let updateStatus = SecItemUpdate(
-            query as CFDictionary,
+            KeychainNoPromptContext.applied(to: query) as CFDictionary,
             [kSecValueData as String: data] as CFDictionary
         )
         if updateStatus == errSecSuccess {
@@ -73,7 +75,7 @@ public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
         var insert: [String: Any] = query
         insert[kSecValueData as String] = data
         insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let addStatus = SecItemAdd(insert as CFDictionary, nil)
+        let addStatus = SecItemAdd(KeychainNoPromptContext.applied(to: insert) as CFDictionary, nil)
         guard addStatus == errSecSuccess else {
             throw CmxIrohKeychainIdentityStoreError(status: addStatus)
         }
@@ -129,7 +131,7 @@ public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
     }
 
     private func delete(query: [String: Any]) throws {
-        let status = SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(KeychainNoPromptContext.applied(to: query) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw CmxIrohKeychainIdentityStoreError(status: status)
         }

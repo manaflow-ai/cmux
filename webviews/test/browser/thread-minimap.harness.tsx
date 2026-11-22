@@ -4,6 +4,7 @@
 import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
+import { PromptHeads } from "../../src/agent-session/acpmux/promptHeads";
 import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
 import { TurnActionsContext } from "../../src/agent-session/acpmux/conversation/turnActions";
 import { setBookmarkTransport } from "../../src/agent-session/acpmux/threadMinimap/bookmarks";
@@ -57,6 +58,14 @@ let olderPage: (() => Promise<void>) | undefined;
 /// `promptCount`): a test hands them with the rows (`window.__showRows(rows, extra)`).
 type Extra = { earlier?: AcpmuxRow[]; promptCount?: number };
 let shownExtra: Extra = {};
+/// The pane's index of `earlier` (the snapshot holds it as columns, promptHeads.ts), one per list handed in.
+const headsOf = new WeakMap<AcpmuxRow[], PromptHeads>();
+const earlierOf = (rows: AcpmuxRow[] | undefined) => {
+  if (!rows) return undefined;
+  const heads = headsOf.get(rows) ?? PromptHeads.fromRows(rows);
+  headsOf.set(rows, heads);
+  return heads;
+};
 /// A rail click on a prompt not held calls this (`window.__setLoadThrough`), as the pane's client does.
 let loadThrough: ((seq: number) => Promise<boolean>) | undefined;
 /// A hover or click on a pending tick asks for the prompt index through this (`window.__setPromptIndex`).
@@ -76,7 +85,7 @@ const actions = {
         <VirtualTranscript
           rows={turnView(rows, new Set())}
           sessionId="minimap-session"
-          earlier={shownExtra.earlier}
+          earlier={earlierOf(shownExtra.earlier)}
           promptCount={shownExtra.promptCount}
           loadThrough={loadThrough}
           loadPromptIndex={loadPromptIndex}

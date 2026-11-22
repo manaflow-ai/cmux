@@ -2,7 +2,7 @@
 """guardrails.py's main-blocking, raw-blocking, thread-doc and main-hop rules (PL-blocking, plans/cmux-next/threading-model.md).
 
 Each test commits into a throwaway repository and runs `guardrails.check` on what the commit adds. Not on CI
-(Lawrence 2026-10-23: no new CI tests): run it yourself after a change to those rules:
+(Lawrence 2026-10-23: no new CI tests, lifted 2026-11-18): run it yourself after a change to those rules:
 python3 tests/test_cmux_next_guardrails_blocking.py
 """
 import collections

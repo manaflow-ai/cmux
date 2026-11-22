@@ -74,14 +74,15 @@ struct TabHoverCardFactsTests {
     }
 
     /// A terminal its daemon did not report has only the app-side Ghostty estimate: that is
-    /// not its memory, so no row.
+    /// not its memory, so its row keeps the dash (the row stays, so the card keeps its height:
+    /// TabHoverCardSweepTests).
     @Test func aTerminalWithNoMeasuredProcessShowsNoMemory() {
         var item = TabItem(id: TabID("term-unmeasured"), title: "zsh", subtitle: "~/Projects/site")
         item.hover = TabHoverFacts(kind: .terminal)
         var estimate = report(item.id.rawValue, kind: .terminal, megabytes: 30)
         estimate.tabs[0].processCount = 0
         let shown = lines(item, report: estimate)
-        #expect(!shown.contains { $0.hasPrefix("Memory") }, "the Ghostty estimate shown as the terminal's memory: \(shown)")
+        #expect(shown.filter { $0.hasPrefix("Memory") } == ["Memory –"], "the Ghostty estimate shown as the terminal's memory: \(shown)")
     }
 
     /// A running command is the tab's title already: its card says Running and for how long.

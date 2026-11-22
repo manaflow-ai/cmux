@@ -2,7 +2,7 @@ public import CmuxNextSettings
 public import Foundation
 import CmuxNextWakeups
 
-/// Settings > Personalization > Customization Library (webviews `CustomizeLibraryCard.tsx`):
+/// Settings > Appearance > Customization Library (webviews `CustomizeLibraryCard.tsx`):
 /// `cmux.settings.customize.library {verb, name?, position?}` runs `cmux --json customize library
 /// VERB …` through the bundled CLI and answers its JSON, or its error envelope on a refusal (a
 /// toggle while a preview is open). The library is the CLI's (cmux-customize `library.rs`): what

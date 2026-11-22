@@ -2,7 +2,7 @@
 // Command rows that say what the command did (Leo, 2026-11-07: "it's not just you ran a command.
 // It's that you ran a specific thing"; commandActions.ts). One working turn: Leo's two memory
 // searches as he saw them under "Ran 2 commands", a mixed run (git, rg, a read, gh, an unknown
-// make), a heredoc script only its description names, two reads, and two compound commands (Leo's ffmpeg pipeline, a `cd && H=$(…); gh pr merge`). Compare arms shows the
+// make), a heredoc script only its description names, two reads, two compound commands (Leo's ffmpeg pipeline, a `cd && H=$(…); gh pr merge`), and Leo's loop over four files with a `$f` (2026-11-21). Compare arms shows the
 // `command-label-look` experiment: the verb table first (default), the description first, the verb
 // with the dimmed command, the cleaned line, and the line as typed (the look before).
 import { agentPaneEntry } from "../../../gallery/format";
@@ -36,6 +36,11 @@ import sys
 data = sys.stdin.buffer.read()
 print(len(data) // (64 * 36))
 "`;
+/// Leo's loop (2026-11-21, "Read $f" before: "this is not a good enough tool call heading that we
+/// have derived"): it reads "Read 4 files (CLAIMED.md, …)", or its description when it has one.
+const LOOP = `H=$(ls -d ~/.wt/checkouts/cmuxterm-hq/* | head -1); cd "$H"; for f in docs/findings/CLAIMED.md docs/findings/2026-11-21-pool-right-size.md docs/findings/2026-11-21-ci-capacity-sizing.md docs/handbook/hand-set-concurrency-number.md; do echo "=== $f"; git show origin/main:$f | head -30 | cut -c1-240; done`;
+/// A variable nothing on the line sets: never "Read $OUT".
+const UNSET = `cat "$OUT" | head -20`;
 const MERGE = `cd ~/wt/x && H=$(git rev-parse HEAD); echo $H; gh pr merge 32695 --squash --match-head-commit $H 2>&1 | tail -5`;
 
 /// The turn, with Claude's descriptions on its calls or (Codex) none.
@@ -104,6 +109,19 @@ const turn = (harness: "claude" | "codex") => {
           shell(MERGE, undefined, "✓ Squashed and merged pull request #32695\n", 7.4),
         ],
         7.5,
+      ),
+      assistant("Merged. Reading the sizing notes on hq main.", 7.3),
+      activity(
+        [
+          shell(
+            LOOP,
+            said("Read the claims and sizing notes on hq main"),
+            "=== docs/findings/CLAIMED.md\n# Explorer claims\n",
+            7.2,
+          ),
+          shell(UNSET, undefined, "ok\n", 7.1),
+        ],
+        7.2,
       ),
     ],
     {

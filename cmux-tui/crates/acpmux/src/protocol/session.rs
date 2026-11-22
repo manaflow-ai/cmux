@@ -48,12 +48,21 @@ pub struct ForkParams {
 pub struct SessionSummary {
     pub session_id: String,
     pub name: String,
+    /// The session's spoken handle, independent of its task name and ids. Older peers omit it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
     /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
     /// default. Absent otherwise, from a session named before it was kept, and from a peer on an
     /// older acpmux.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    // Listed even when false, so every row lists the same keys (`hub/mesh_book.rs` `ROW_KEYS`).
+    #[serde(default)]
     #[schemars(default)]
     pub name_given: bool,
+    /// The names it had before its renames, oldest first: each still names it where no session
+    /// has it as its current name. Absent when it was never renamed, and from an older acpmux.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(default)]
+    pub former_names: Vec<String>,
     pub harness: String,
     pub family: Option<String>,
     /// Lossy when the path is not UTF-8.
@@ -114,6 +123,14 @@ pub struct SessionSummary {
     pub parent_id: Option<String>,
     /// Where a fork branched off its parent.
     pub fork_seq: Option<u64>,
+    /// Whether the chat forks, and edits, through any completed turn, not only its latest: its
+    /// harness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever
+    /// family name its profile carries. Absent when unknown (the configuration was being written
+    /// as the summary was built) and from a peer on an older acpmux: a client then falls back to
+    /// the family, never reads absence as false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub forks_any_turn: Option<bool>,
     /// The session whose agent started this one, kept only while that parent
     /// is listed and is a root itself: one level, for lists that fold one level.
     /// `parent` without those rules, else an older client's `spawnedBy` tag.
@@ -169,6 +186,18 @@ pub struct SessionSummary {
     pub preview: Option<String>,
     /// One sidebar line; null before the first prompt.
     pub last_message: Option<LastMessage>,
+    /// What is done and what is next across the chat's turns (`task_list.rs`): its harness's
+    /// latest plan (TodoWrite, update_plan) or the list its agent or Chief keeps
+    /// (`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub task_list: Option<crate::task_list::TaskListSummary>,
+    /// Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar
+    /// and the chat header. Absent before the first turn that makes one, and from a peer on an
+    /// older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub rolling_summary: Option<crate::store::RollingSummary>,
     pub queued: u64,
     /// Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
     /// that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from
@@ -921,6 +950,31 @@ pub struct SessionsParams {
     pub pending_only: Option<bool>,
 }
 
+/// `_acpmux/usage` (capability `session-usage-v1`): what Session Info's Usage reads.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
+pub struct UsageParams {
+    /// The `digest` of the last reply the client holds: while the stats read the same, the reply
+    /// is `{digest, unchanged: true}` and carries none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub known: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageResult {
+    /// Names what `usage` holds: equal digests, equal stats (within one daemon run).
+    pub digest: String,
+    /// Every listed chat that reports usage, its `usageStats` by the `sessionId` its row lists it
+    /// under (this daemon's chats and the peers' rows). Absent with `unchanged`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<std::collections::BTreeMap<String, UsageStats>>,
+    /// `known` is `digest`: the client's stats stand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unchanged: Option<bool>,
+}
+
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionsResult {
@@ -995,5 +1049,19 @@ pub struct SessionChanged {
     pub peer: Option<String>,
     /// The list position this change took (`hub/row_log.rs`): the client's cursor for
     /// `_acpmux/watch {afterSeq}` is the highest it applied.
+    pub list_seq: u64,
+}
+
+/// To a watcher that asked for batches (`initialize` `_meta.acpmux.peerRowBatches`), in place of
+/// one `_acpmux/session_changed` per row: `count` rows of `peer` changed or left at once (a peer's
+/// list). Their list positions are consecutive, after `afterSeq` and up to `listSeq`; a client
+/// reads them with `_acpmux/watch {afterSeq, listEpoch}` from a cursor no higher than `afterSeq`,
+/// and keeps its cursor at most `afterSeq` until a list or follow current to `listSeq` is in.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerRowsChanged {
+    pub peer: String,
+    pub count: u64,
+    pub after_seq: u64,
     pub list_seq: u64,
 }

@@ -17,9 +17,12 @@
 // fade (`SCROLLER_FADE_ATTRIBUTE`, on in the agent pane since Lawrence 2026-10-23, msg
 // 11494: "auto-fades away"), which fades the transcript's thumb only.
 //
-// Every scroller drawn here also widens and darkens its thumb while the pointer is near its
-// trailing edge (`NEAR_ATTRIBUTE`, `installScrollerProximity`), as a macOS overlay scroller does,
-// so it is easy to grab.
+// Every scroller drawn here also widens and darkens its thumb while the pointer is over its
+// scrollbar lane (`NEAR_ATTRIBUTE`, `installScrollerProximity`), as a macOS overlay scroller does,
+// so it is easy to grab. The lane is exactly where the engine takes a press on the scrollbar, so the
+// thumb widens where a press grabs it and nowhere else (Lawrence 2026-11-20, msg 42498: "it is
+// possible for me to hover close, and for the width to change, but after i mousedown and drag, it
+// fails to scroll").
 //
 // Libraries that draw their own scrollers (Monaco; the @pierre/diffs code rows and the
 // @pierre/trees list show theirs on hover) follow the same rule: hidden at rest and while the
@@ -401,30 +404,55 @@ export function installScrollingMarks(document: Document, timers: ScrollTimers =
   );
 }
 
-/** On a scroller while the pointer is within `NEAR_PX` of its trailing edge: its thumb shows and
-    widens, as a macOS overlay scroller does (Lawrence 2026-10-23, msg 11494: "grows bigger on
-    near-hover so it's easier to grab"). */
+/** On a scroller while the pointer is over its scrollbar lane (`scrollbarLane`): its thumb shows
+    and widens, as a macOS overlay scroller does (Lawrence 2026-10-23, msg 11494: "grows bigger on
+    near-hover so it's easier to grab"), exactly where a press grabs it (Lawrence 2026-11-20, msg
+    42498). */
 export const NEAR_ATTRIBUTE = "data-cmux-scroller-near";
-/** How close to a scroller's trailing edge the pointer counts as near (ThinScroller.nearDistance). */
-export const NEAR_PX = 20;
 
-/** Whether a point at `x`, `y` is near the bottom edge of a box with `rect`'s bounds (a sideways
-    scroller's bar). */
-export function nearBottomEdge(
-  rect: { left: number; right: number; top: number; bottom: number },
-  x: number,
-  y: number,
-): boolean {
-  return y <= rect.bottom && y >= Math.max(rect.top, rect.bottom - NEAR_PX) && x >= rect.left && x <= rect.right;
+type Box = { left: number; right: number; top: number; bottom: number };
+
+/** `element`'s border widths in px (its scrollbars sit inside them). */
+function borders(element: Element): Box {
+  const style = element.ownerDocument.defaultView?.getComputedStyle(element) as unknown as
+    | Record<string, string>
+    | undefined;
+  const width = (side: string) => Number.parseFloat(style?.[`border${side}Width`] ?? "") || 0;
+  return { left: width("Left"), right: width("Right"), top: width("Top"), bottom: width("Bottom") };
 }
 
-/** Whether a point at `x`, `y` is near the trailing edge of a box with `rect`'s bounds. */
-export function nearTrailingEdge(
-  rect: { left: number; right: number; top: number; bottom: number },
-  x: number,
-  y: number,
-): boolean {
-  return x <= rect.right && x >= Math.max(rect.left, rect.right - NEAR_PX) && y >= rect.top && y <= rect.bottom;
+/**
+ * How thick `element`'s own scrollbar is on `axis` (`y`: the vertical bar's width, `x`: the
+ * sideways bar's height), in px: the lane the engine draws it in and takes presses on. 0 for an
+ * overlay scrollbar, which takes no layout and widens and hit-tests itself.
+ */
+export function scrollbarLane(element: Element, axis: "x" | "y"): number {
+  const document = element.ownerDocument;
+  const view = document.defaultView;
+  const box = element as HTMLElement;
+  if (element === document.documentElement)
+    return view
+      ? Math.max(0, axis === "y" ? view.innerWidth - box.clientWidth : view.innerHeight - box.clientHeight)
+      : 0;
+  const border = borders(element);
+  return Math.max(
+    0,
+    axis === "y"
+      ? box.offsetWidth - box.clientWidth - border.left - border.right
+      : box.offsetHeight - box.clientHeight - border.top - border.bottom,
+  );
+}
+
+/** Whether a point at `x`, `y` is over the sideways bar of a box whose inside (its border box less
+    its borders) is `rect`: its bottom `lane` px. Half-open, so a pixel row is in or out. */
+export function nearBottomEdge(rect: Box, x: number, y: number, lane: number): boolean {
+  return lane > 0 && y < rect.bottom && y >= rect.bottom - lane && x >= rect.left && x < rect.right;
+}
+
+/** Whether a point at `x`, `y` is over the vertical bar of a box whose inside is `rect`: its
+    trailing `lane` px. Half-open, so a pixel column is in or out. */
+export function nearTrailingEdge(rect: Box, x: number, y: number, lane: number): boolean {
+  return lane > 0 && x < rect.right && x >= rect.right - lane && y >= rect.top && y < rect.bottom;
 }
 
 function overflows(element: Element, axis: "x" | "y"): boolean {
@@ -441,8 +469,8 @@ function overflows(element: Element, axis: "x" | "y"): boolean {
 /**
  * The scroller the pointer is near: the first element on `path` (the pointer event's composed path,
  * innermost first, shadow roots included, so a diff's code rows count) that scrolls vertically with
- * its trailing edge within `NEAR_PX` of the pointer, or sideways with its bottom edge (its bar)
- * that close; the page's own scroller as <html>, whose edges are the viewport's.
+ * the pointer over its vertical bar's lane, or sideways with the pointer over its sideways bar's lane
+ * (`scrollbarLane`); the page's own scroller as <html>, whose edges are the viewport's.
  */
 export function nearScroller(path: readonly EventTarget[], x: number, y: number): Element | null {
   for (const node of path) {
@@ -452,11 +480,24 @@ export function nearScroller(path: readonly EventTarget[], x: number, y: number)
     const sideways = overflows(element, "x");
     if (!vertical && !sideways) continue;
     const view = element.ownerDocument.defaultView;
-    const rect =
-      element === element.ownerDocument.documentElement && view
-        ? { left: 0, top: 0, right: view.innerWidth, bottom: view.innerHeight }
-        : element.getBoundingClientRect();
-    if ((vertical && nearTrailingEdge(rect, x, y)) || (sideways && nearBottomEdge(rect, x, y))) return element;
+    let inside: Box;
+    if (element === element.ownerDocument.documentElement && view) {
+      inside = { left: 0, top: 0, right: view.innerWidth, bottom: view.innerHeight };
+    } else {
+      const rect = element.getBoundingClientRect();
+      const border = borders(element);
+      inside = {
+        left: rect.left + border.left,
+        right: rect.right - border.right,
+        top: rect.top + border.top,
+        bottom: rect.bottom - border.bottom,
+      };
+    }
+    if (
+      (vertical && nearTrailingEdge(inside, x, y, scrollbarLane(element, "y"))) ||
+      (sideways && nearBottomEdge(inside, x, y, scrollbarLane(element, "x")))
+    )
+      return element;
   }
   return null;
 }

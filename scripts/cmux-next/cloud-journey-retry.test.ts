@@ -21,6 +21,7 @@ if [ "$2" = --compare ]; then echo compared; exit ${compare}; fi
 out=""; while [ $# -gt 0 ]; do [ "$1" = --out ] && out="$2"; shift; done
 mkdir -p "$out"; code="$(head -n1 "${dir}/runs")"; sed -i.bak 1d "${dir}/runs"
 echo "| step | exit $code |" > "$out/summary.md"; echo "{}" > "$out/journey.json"
+printf '{"exit": %s}\\n' "$code" > "$out/guest-updater.json"
 echo run >> "${dir}/calls"; exit "$code"
 `)
   chmodSync(join(bin, "bun"), 0o755)
@@ -31,7 +32,11 @@ echo run >> "${dir}/calls"; exit "$code"
   })
   let calls = 0
   try { calls = readFileSync(join(dir, "calls"), "utf8").trim().split("\n").length } catch {}
-  return { code: r.exitCode, out: r.stdout.toString(), summary: readFileSync(summary, "utf8"), calls }
+  const receipt = (suffix: string) => {
+    try { return readFileSync(join(dir, "cloud-journey", `${phase ? `${phase}-` : ""}test-team${suffix}`, "guest-updater.json"), "utf8") }
+    catch { return null }
+  }
+  return { code: r.exitCode, out: r.stdout.toString(), summary: readFileSync(summary, "utf8"), calls, firstReceipt: receipt(".first"), lastReceipt: receipt("") }
 }
 
 describe("cloud-journey-ci.sh retry", () => {
@@ -42,6 +47,8 @@ describe("cloud-journey-ci.sh retry", () => {
     expect(r.out).toContain("title=Cloud journey retried::")
     expect(r.out).toContain("title=Cloud journey verdict::target=staging result=pass")
     expect(r.summary).toContain("first run, failed; run again")
+    expect(JSON.parse(r.firstReceipt!)).toEqual({ exit: 1 })
+    expect(JSON.parse(r.lastReceipt!)).toEqual({ exit: 0 })
   })
   it("a run that passes first is never run again", () => {
     const r = wrapper([0], "after")
@@ -82,7 +89,8 @@ describe("every workflow reads a Stack pair its job can see", () => {
   const repository = ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"]
   const held: Record<string, string[]> = {
     "cmux-next-vm-image-dev": ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CMUX_DOGFOOD_GUEST_STACK_EMAIL", "CMUX_DOGFOOD_GUEST_STACK_PASSWORD"],
-    "cmux-next-cloud-journey": ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"],
+    // CMUX_STAGING_STACK_*: the staging journey account, sealed here by cloud_capture_provision.py (target journey).
+    "cmux-next-cloud-journey": ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CMUX_STAGING_STACK_EMAIL", "CMUX_STAGING_STACK_PASSWORD"],
   }
   const workflows = join(import.meta.dir, "../../.github/workflows")
   it("names only pairs that exist", () => {

@@ -10,20 +10,27 @@
  * - `CMUX_AGENT_TOOLS_BIN_DIR` = AGENT_TOOLS_BIN, which holds `cmux` (the store's cmux-tui;
  *   cmux and acpmux are one binary) and `cmux-cua` (a wrapper, below). acpmux's own default
  *   (the folder of its executable) is the cmux-tui store entry, which holds neither.
- * - Computer use: acpmux starts `cmux-cua mcp` with CMUX_CUA_MCP_FORCE_PROXY=1, which on
- *   Linux needs a running `cmux-cua serve`. The wrapper starts CUA_UNIT (and through it
- *   DISPLAY_UNIT, Xvfb on AGENT_DISPLAY) before it execs the real proxy, so the display and
- *   the driver run only once an agent session asks for computer use (the session host of
- *   cloud-automation.md 16 replaces this stand-in; it then owns display.acquire).
+ * - Computer use (cmux-tui since #37003): acpmux attaches `acpmux computer-use-mcp` (server
+ *   `cmux-computer-use`), whose calls go to the worker the cmux-tui daemon starts on the first
+ *   call (cmux-tui-core computer_use_host.rs). The daemon has no display, so the worker launcher
+ *   runs the machine's desktop starter, DESKTOP_STARTER (root-owned: the only one it trusts): it
+ *   starts DISPLAY_UNIT (Xvfb on AGENT_DISPLAY) and A11Y_UNIT (its AT-SPI bus) and names them to
+ *   the worker, with CUA_REFUSE_DIR first on its PATH and no right to gain privileges, so the
+ *   display runs only once an agent asks and nothing the worker starts can install software.
+ *   Images whose cmux-tui predates #37003 attach `cmux-cua mcp` (CMUX_CUA_MCP_FORCE_PROXY=1),
+ *   which on Linux needs a running `cmux-cua serve`: its wrapper starts CUA_UNIT (and through it
+ *   DISPLAY_UNIT) before it execs the real proxy.
  * - Browser: the browser role is installed at bake (its first-use closure and programs, as
  *   browser-probe.ts installs them), and the daemon unit names the host binary and Chrome.
  *   The daemon socket-activates the host on the first agent connect and the host exits
  *   after 5 idle minutes (cmux-tui-core/src/browser_host.rs), so nothing runs while idle.
  *   Every terminal the daemon creates gets CMUX_BROWSER_HOST_SOCKET; an acpmux daemon
  *   started from such a terminal passes it to `cmux mcp serve`.
- * - `cmux mcp serve` runs only when cmux.json sets `"mcp": {"enabled": true}`. The image
- *   writes that for the work user when the file does not exist (the machine has no app to
- *   ask). The Claude Code permission prompts and acpmux permission policies are unchanged.
+ * - `cmux mcp serve` runs only when cmux.json sets `"mcp": {"enabled": true}`, and acpmux
+ *   attaches it only when `agents.cmuxMcp` is `on` (the person's yes to cmux's tools in agents
+ *   cmux starts; a chat started from a Mac follows that Mac's answer instead). The image writes
+ *   both for the work user when the file does not exist (the machine has no app to ask). The
+ *   Claude Code permission prompts and acpmux permission policies are unchanged.
  * - Desktop (role desktop): the person's view of the agent display is `cmux.rd/1` over the owner's
  *   carrier, service `desktop`. The boundary is the carrier's admission: the machine's carrier
  *   server (`cmux carrier serve`, which runs as the work user) admits only the owner's grant
@@ -67,6 +74,14 @@ export const AGENT_TOOLS_PROFILE = "/etc/profile.d/cmux-agent-tools.sh";
  * legal rule, 2026-10-07). The unit also sets NoNewPrivileges, so no setuid program works there.
  */
 export const CUA_REFUSE_DIR = `${AGENT_TOOLS_DIR}/cua-refuse`;
+/**
+ * The machine's desktop starter, which cmux-tui's Computer Use worker launcher runs when its daemon
+ * has no display (cmux-tui-core computer_use_host/linux.rs DESKTOP_STARTER). Root owns it and its
+ * folders and nobody else can write them, or the launcher refuses it.
+ */
+export const DESKTOP_STARTER = "/etc/cmux/computer-use-desktop";
+/** The worker's switch that takes away its right to gain privileges (cmux-tui-core NO_NEW_PRIVS_ENV). */
+export const NO_NEW_PRIVS_ENV = "CMUX_CU_NO_NEW_PRIVS";
 const CUA_REFUSED = ["sudo", "apt", "apt-get"] as const;
 
 const BROWSER_ROLE = "browser";
@@ -452,6 +467,33 @@ export function desktopSessionUnit(): string {
   ].join("\n");
 }
 
+/**
+ * DESKTOP_STARTER: run by the cmux-tui daemon as the work user (who has sudo for the units), with
+ * the daemon's environment. It starts the shared display (required: no display, no desktop) and its
+ * AT-SPI bus (optional: without it the worker still has screenshots and X11 input), then prints the
+ * worker's variables, one KEY=VALUE per line; what it says on stderr is the reason the launcher
+ * gives when it fails.
+ */
+export function desktopStarterScript(x11Dir = "/tmp/.X11-unix"): string {
+  const bus = `${a11yRuntimeDir(AGENT_DISPLAY_NUMBER)}/bus`;
+  return [
+    "#!/bin/sh",
+    "# cmux VM agent tools (images/cmux-vm, managed, do not edit): the agent display for cmux Computer Use.",
+    "# cmux-tui's worker launcher runs this when its daemon has no display; it prints the worker's variables.",
+    `sudo -n systemctl start ${DISPLAY_UNIT} >&2 || { echo "cmux: the agent display did not start (systemctl status ${DISPLAY_UNIT})" >&2; exit 1; }`,
+    `[ -S ${x11Dir}/X${AGENT_DISPLAY_NUMBER} ] || { echo "cmux: the agent display ${AGENT_DISPLAY} has no socket" >&2; exit 1; }`,
+    `echo DISPLAY=${AGENT_DISPLAY}`,
+    `echo XAUTHORITY=${AGENT_XAUTHORITY}`,
+    // Nobody shares this display: the worker never waits for a person's input on it.
+    "echo CMUX_CU_HEADLESS=1",
+    // Role cua-video (ffmpeg, libx264) stays off: sudo, apt and apt-get refuse first, and no setuid program works.
+    `echo "PATH=${CUA_REFUSE_DIR}:$PATH"`,
+    `echo ${NO_NEW_PRIVS_ENV}=1`,
+    `if sudo -n systemctl start ${A11Y_UNIT} >&2; then echo DBUS_SESSION_BUS_ADDRESS=unix:path=${bus}; else echo "cmux: the AT-SPI bus did not start (systemctl status ${A11Y_UNIT}); accessibility trees stay empty" >&2; fi`,
+    "",
+  ].join("\n");
+}
+
 /** A refusing stand-in for `name` on the driver's PATH (see CUA_REFUSE_DIR). */
 export function cuaRefuseScript(name: string): string {
   return [
@@ -817,8 +859,11 @@ export function agentToolsProfileScript(): string {
   return `# cmux VM agent tools (images/cmux-vm). Managed, do not edit.\nexport CMUX_AGENT_TOOLS_BIN_DIR=${AGENT_TOOLS_BIN}\n`;
 }
 
-/** The work user's cmux.json when it has none: the cmux MCP server on (browser_repl_* tools). */
-export const WORK_USER_CMUX_JSON_TEXT = `${JSON.stringify({ mcp: { enabled: true } }, null, 2)}\n`;
+/**
+ * The work user's cmux.json when it has none: the cmux MCP server on (browser_repl_* tools), and the
+ * machine's yes to it in the agents cmux starts (acpmux agent_tools.rs AGENTS_CMUX_MCP_KEY).
+ */
+export const WORK_USER_CMUX_JSON_TEXT = `${JSON.stringify({ mcp: { enabled: true }, agents: { cmuxMcp: "on" } }, null, 2)}\n`;
 
 /** Links the tool dir and writes cmux.json; the wrapper and units are written as files first (installFiles). */
 export function agentToolsLinkCommand(): string {
@@ -827,6 +872,7 @@ export function agentToolsLinkCommand(): string {
     `install -d -m 0755 ${AGENT_TOOLS_BIN}`,
     `ln -sfn ${CURRENT_BIN}/cmux-tui ${AGENT_TOOLS_BIN}/cmux`,
     `test -x ${AGENT_TOOLS_BIN}/cmux && test -x ${AGENT_TOOLS_BIN}/cmux-cua && test -x ${CURRENT_BIN}/cmux-cua`,
+    `sh -n ${DESKTOP_STARTER} && test "$(stat -c '%U:%G %a' ${DESKTOP_STARTER} /etc/cmux | tr '\\n' ' ')" = 'root:root 755 root:root 755 '`,
     `bash -n ${A11Y_SCRIPT} && python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' ${ROOT_PROPERTY_SCRIPT} && test -x ${AT_SPI_BUS_LAUNCHER} && command -v dbus-daemon >/dev/null && command -v dbus-send >/dev/null`,
     `install -d -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} ${DEVBOX_WORK_HOME}/.config ${configDir}`,
     `if [ ! -e ${WORK_USER_CMUX_JSON} ]; then printf '%s' ${sq(WORK_USER_CMUX_JSON_TEXT)} > ${WORK_USER_CMUX_JSON} && chown ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} ${WORK_USER_CMUX_JSON}; fi`,
@@ -842,6 +888,7 @@ export function agentToolsFiles(lock: InputsLock): Array<{ path: string; text: s
   const rd = rdHostPath(lock);
   return [
     { path: `${AGENT_TOOLS_BIN}/cmux-cua`, text: cuaWrapperScript(), mode: 0o755 },
+    { path: DESKTOP_STARTER, text: desktopStarterScript(), mode: 0o755 },
     { path: `/etc/systemd/system/${CUA_UNIT}`, text: cuaUnit(), mode: 0o644 },
     { path: `/etc/systemd/system/${DISPLAY_TEMPLATE_UNIT}`, text: displayTemplateUnit(), mode: 0o644 },
     { path: `/etc/systemd/system/${A11Y_TEMPLATE_UNIT}`, text: a11yTemplateUnit(), mode: 0o644 },
