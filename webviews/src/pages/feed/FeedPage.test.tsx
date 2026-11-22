@@ -62,7 +62,7 @@ afterAll(async () => {
 const { createRoot } = await import("react-dom/client");
 const { FeedPage, rejectText } = await import("./FeedPage");
 const { UiProvider } = await import("../../ui/UiProvider");
-const { LASTING_MS, setLastingGrace } = await import("../../ui/lasting");
+const { CONNECTION_QUIET_MS, setLastingGrace } = await import("../../ui/lasting");
 const { createStrings } = await import("../shared/i18n");
 const table = (await import("./generated/strings.json")).default as Record<string, Record<string, string>>;
 const { MockFeedProvider, manyNotices, sampleFeed } = await import("./mockProvider");
@@ -312,7 +312,7 @@ test("Needs you: rows with one-click answers, cards, and the one-line bar", asyn
 test("a disconnected owner shows the banner and turns the answers off", async () => {
   setLastingGrace(0);
   await mount("#/list", { connection: { state: "disconnected", reason: "" } });
-  expect(host.querySelector(".feed-banner")!.textContent).toBe("Feed is unreachable");
+  expect(host.querySelector("[data-connection-chip]")!.textContent).toBe("Feed is unreachable");
   expect(button("Allow").hasAttribute("disabled") || button("Allow").hasAttribute("data-disabled")).toBe(true);
   setLastingGrace(25_000);
 });
@@ -322,13 +322,13 @@ test("a disconnected owner shows no banner until it lasts (a daemon restart drop
   try {
     await mount("#/list", { connection: { state: "disconnected", reason: "" } });
     await act(async () => {
-      jest.advanceTimersByTime(LASTING_MS - 100);
+      jest.advanceTimersByTime(CONNECTION_QUIET_MS - 100);
     });
-    expect(host.querySelector(".feed-banner")).toBeNull();
+    expect(host.querySelector("[data-connection-chip]")).toBeNull();
     await act(async () => {
       jest.advanceTimersByTime(200);
     });
-    expect(host.querySelector(".feed-banner")!.textContent).toBe("Feed is unreachable");
+    expect(host.querySelector("[data-connection-chip]")!.textContent).toBe("Feed is unreachable");
   } finally {
     jest.useRealTimers();
   }
