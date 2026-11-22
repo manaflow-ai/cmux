@@ -26,10 +26,10 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
 
     /// GALLERY ONLY (the floating prompt variants; removed before landing).
     public enum PromptLook: String, CaseIterable, Sendable { case before, transient, prompt, identity }
-    /// GALLERY ONLY: the look a floating prompt draws (`CMUX_GALLERY_PROMPT_LOOK`, read as it builds).
+    /// GALLERY ONLY: the look a floating prompt draws (the `cmux.gallery.promptLook` default, read as it builds).
     private var promptLook: PromptLook? {
         guard overApps else { return nil }
-        return ProcessInfo.processInfo.environment["CMUX_GALLERY_PROMPT_LOOK"].flatMap(PromptLook.init(rawValue:)) ?? .identity
+        return UserDefaults.standard.string(forKey: "cmux.gallery.promptLook").flatMap(PromptLook.init(rawValue:)) ?? .identity
     }
     private var promptInks: Bool { promptLook == .prompt || promptLook == .identity }
     private var identityHeader: Bool { promptLook == .identity }

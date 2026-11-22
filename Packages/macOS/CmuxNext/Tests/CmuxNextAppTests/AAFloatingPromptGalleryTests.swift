@@ -81,7 +81,7 @@ import Testing
     static func capture(_ prompt: String, look: CmuxDialogView.PromptLook, theme: String, dark: Bool,
                         backdrop: String) throws -> CGImage {
         _ = NSApplication.shared
-        setenv("CMUX_GALLERY_PROMPT_LOOK", look.rawValue, 1)
+        UserDefaults.standard.set(look.rawValue, forKey: "cmux.gallery.promptLook")
         NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         _ = ThemeScope.app.store.apply(try AANestedGroupsGalleryTests.input(theme))
         let panel = CmuxFloatingDialogPanel(identifier: "gallery.floatingPrompt")
@@ -116,7 +116,7 @@ import Testing
         Motion.reduceMotionOverride = true
         defer {
             Motion.reduceMotionOverride = nil
-            unsetenv("CMUX_GALLERY_PROMPT_LOOK")
+            UserDefaults.standard.removeObject(forKey: "cmux.gallery.promptLook")
         }
         let root = AANestedGroupsGalleryTests.packageRoot
         let out = root.appending(path: "floating-prompt-gallery")
