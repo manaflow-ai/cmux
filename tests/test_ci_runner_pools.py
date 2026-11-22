@@ -383,6 +383,28 @@ class Evidence(unittest.TestCase):
         self.assertEqual(again["linux"], label)
         self.assertNotIn(label, again[runner_pools.DEAD_KEY])
 
+    def test_an_old_snapshot_does_not_make_the_gcp_pool_full(self) -> None:
+        # 2026-11-22 09:37Z: the 09:02Z snapshot (35 min old) read cmux-fleet-linux-x64 1 queued, oldest 0 min, 884
+        # running, a start at 09:03Z. 0 + 35 min of snapshot age crossed the cutoff, and every x64 pool went to
+        # Blacksmith. Only the wait the snapshot measured makes our pool full.
+        label = "cmux-fleet-linux-x64"
+        snapshot = copy.deepcopy(RECORDED)
+        snapshot["pools"][label] = {"queued": 1, "running": 884, "reserved_queued": 0, "oldest_queued_minutes": 0}
+        snapshot["label_started"] = {label: runner_pools.iso(SNAPSHOT_AT + dt.timedelta(minutes=1))}
+        later = SNAPSHOT_AT + dt.timedelta(minutes=35)
+        dead, started, _ = runner_pools.label_evidence(None, snapshot, now=later)
+        self.assertNotIn(label, dead)
+        pools = runner_pools.load_pools()
+        fresh, _ = runner_pools.reconcile({}, pools, dead_now=(), served_now=(), now=later)
+        value, _ = runner_pools.reconcile(fresh, pools, dead_now=dead, served_now=started, now=later,
+                                          covered=runner_pools.evidence_covers(None, snapshot, pools, now=later))
+        for name in ("linux", "linux_2", "linux_8", "linux_16", "linux_32"):
+            self.assertEqual(value[name], label, name)
+        # A wait the snapshot did measure still overflows, however fresh the snapshot is.
+        snapshot["pools"][label]["oldest_queued_minutes"] = 11
+        dead, _, _ = runner_pools.label_evidence(None, snapshot, now=SNAPSHOT_AT)
+        self.assertIn(label, dead)
+
     def test_linux_runner_stays_on_blacksmith_while_the_gcp_pool_is_live(self) -> None:
         # About 250 workflows read vars.LINUX_RUNNER with no fresh-machine check (release jobs among them), so
         # the mirror never names the persistent pool; feat-cmux-next readers fall through to the pool instead.
