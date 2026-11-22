@@ -14,13 +14,15 @@ mod outage;
 
 use std::collections::{BTreeMap, VecDeque};
 
-use cmux_rd_core::cc::{CcConfig, CongestionController, OutageEnd, PathKind};
+use cmux_rd_core::cc::{CcConfig, CongestionController, OutageEnd, PathKind, UltraConfig};
 use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
 use cmux_rd_core::input::InputApplier;
 use cmux_rd_core::packetize::{PacketizeError, Packetizer, parity_for};
+use cmux_rd_core::probe::{ProbeConfig, ProbePlanner, ProbeReason};
 pub use cmux_rd_core::profile::EncodeProfile;
 use cmux_rd_core::profile::refine_after_us;
 use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
+use cmux_rd_core::resolution::{LadderConfig, Picture, ResolutionLadder};
 use cmux_rd_proto::{
     Arrival, ClockEstimate, ClockPing, ClockPong, DatagramHeader, DatagramKind, FRAME_PREFIX_LEN,
     Feedback, FrameBody, HEADER_LEN, InputEvent, InputPacket, MAX_ARRIVALS, MAX_DATAGRAM_VPC,
@@ -63,6 +65,8 @@ pub const MAX_STREAMS: usize = 16;
 pub const POPUP_SHARE_PERCENT: u64 = 20;
 /// Floor of one popup stream's bitrate.
 pub const MIN_POPUP_KBPS: u32 = 300;
+/// Keep idle capacity fresh without making probes a background stream.
+const IDLE_PROBE_INTERVAL_US: u64 = 1_000_000;
 
 /// Limits of one media session.
 #[derive(Debug, Clone, Copy)]
@@ -89,6 +93,10 @@ pub struct EngineConfig {
     /// (`cmux_rd_core::flow::INPUT_FRAME_WINDOW_US`), so the input's effect goes out as soon
     /// as the capture delivers it instead of on the next interval.
     pub input_frame_now: bool,
+    /// The resolution ladder for the main stream (design D5): below the bits-per-pixel
+    /// floor its encoded picture gets smaller, not blurrier, and each request carries the
+    /// picture and its QP ceiling. `None` (the default): every frame is the full stream.
+    pub resolution_ladder: Option<LadderConfig>,
 }
 
 impl Default for EngineConfig {
@@ -106,6 +114,7 @@ impl Default for EngineConfig {
             stream: 0,
             frames_in_flight: 1,
             input_frame_now: false,
+            resolution_ladder: None,
         }
     }
 }
@@ -124,6 +133,9 @@ pub struct EncodeRequest {
     pub idr_reason: Option<IdrReason>,
     /// The congestion controller's target for this frame.
     pub target_kbps: u32,
+    /// The picture to encode, from the resolution ladder: its size (the source scales the
+    /// stream to it) and QP ceiling. `None` without a ladder: the full stream, no ceiling.
+    pub picture: Option<Picture>,
     /// The encoder settings for this frame (`MediaEngine::set_profile`; standard by default).
     pub profile: EncodeProfile,
     /// Ultra only: the screen went still, so this frame re-encodes the unchanged picture at a
@@ -144,6 +156,8 @@ pub enum IdrReason {
     TooLarge,
     /// Frames queued in the host's pacer through an outage were dropped unsent (D12).
     Outage,
+    /// The resolution ladder changed the encoded size.
+    Resize,
 }
 
 impl IdrReason {
@@ -154,6 +168,7 @@ impl IdrReason {
             IdrReason::TailProbe => "tail_probe",
             IdrReason::TooLarge => "too_large",
             IdrReason::Outage => "outage",
+            IdrReason::Resize => "resize",
         }
     }
 }
@@ -347,6 +362,8 @@ struct StreamState {
     sent_at_us: BTreeMap<u32, u64>,
     /// Bytes of the stream's last keyframe: what starting over costs (D12).
     last_keyframe_bytes: usize,
+    /// The resolution ladder (main stream only, when the session asks for one).
+    ladder: Option<ResolutionLadder>,
     /// Ultra: when a refinement frame is due if no damage arrives first (one frame interval
     /// after the newest frame was sent).
     refine_due_us: Option<u64>,
@@ -372,6 +389,16 @@ impl StreamState {
             last_keyframe_bytes: 0,
             refine_due_us: None,
             refine_pending: false,
+            ladder: None,
+        }
+    }
+
+    /// Applies a new picture from the ladder: its frame-rate cap now, and a keyframe when
+    /// the size changed (the encoder starts a new session at the new size).
+    fn apply_picture(&mut self, before: Picture, after: Picture) {
+        self.gate.set_max_fps(after.fps);
+        if (after.width, after.height) != (before.width, before.height) {
+            self.force_idr.get_or_insert(IdrReason::Resize);
         }
     }
 
@@ -405,6 +432,11 @@ pub struct MediaEngine {
     upstreams: BTreeMap<u16, Upstream>,
     /// The encoder profile every request carries.
     profile: EncodeProfile,
+    /// Bounded startup/idle capacity probes share the media transport sequence
+    /// space and the controller's departure accounting.
+    probe_planner: ProbePlanner,
+    probe_generation: Option<u64>,
+    last_probe_start_us: Option<u64>,
 }
 
 impl MediaEngine {
@@ -412,10 +444,11 @@ impl MediaEngine {
         let cc_cfg =
             CcConfig { start_bps: cfg.start_bps, max_bps: cfg.max_bps, ..CcConfig::default() };
         let mut streams = BTreeMap::new();
-        streams.insert(
-            cfg.stream,
-            StreamState::new(cfg.width, cfg.height, cfg.max_fps, cfg.frames_in_flight),
-        );
+        let mut main = StreamState::new(cfg.width, cfg.height, cfg.max_fps, cfg.frames_in_flight);
+        main.ladder = cfg
+            .resolution_ladder
+            .map(|l| ResolutionLadder::new(l, cfg.width, cfg.height, cfg.max_fps));
+        streams.insert(cfg.stream, main);
         Self {
             streams,
             cc: CongestionController::new(cc_cfg, cfg.path),
@@ -432,6 +465,12 @@ impl MediaEngine {
             recent_bytes: 0,
             upstreams: BTreeMap::new(),
             profile: EncodeProfile::Standard,
+            probe_planner: ProbePlanner::new(ProbeConfig::for_datagram(
+                cfg.stream,
+                cfg.max_datagram,
+            )),
+            probe_generation: None,
+            last_probe_start_us: None,
             cfg,
         }
     }
@@ -439,6 +478,15 @@ impl MediaEngine {
     /// The encoder profile requests carry from now on. Leaving ultra drops any refinement
     /// that was due.
     pub fn set_profile(&mut self, profile: EncodeProfile) {
+        self.cc.configure_ultra(UltraConfig {
+            max_wire_bps: u64::from(cmux_rd_core::profile::max_kbps(
+                profile,
+                Some(self.cfg.max_bps.saturating_div(1000) as u32),
+                cmux_rd_core::profile::ULTRA_MAX_KBPS,
+            )) * 1000,
+            ..UltraConfig::default()
+        });
+        self.cc.set_profile(profile);
         self.profile = profile;
         if !profile.is_ultra() {
             for state in self.streams.values_mut() {
@@ -490,16 +538,29 @@ impl MediaEngine {
     /// A paced datagram from `encoded` really left now: the controller times it from
     /// here, so pacing is not read as path delay. Other datagrams need no call.
     pub fn datagram_sent(&mut self, datagram: &[u8], now_us: u64) {
-        if let Ok((header, _)) = DatagramHeader::decode(datagram)
-            && matches!(header.kind, DatagramKind::Video | DatagramKind::Fec)
-        {
-            self.cc.on_departed(header.transport_seq, now_us);
+        if let Ok((header, _)) = DatagramHeader::decode(datagram) {
+            if header.kind == DatagramKind::Probe {
+                self.probe_planner.record_departure(header.transport_seq, now_us);
+            }
+            if matches!(header.kind, DatagramKind::Video | DatagramKind::Fec | DatagramKind::Probe)
+            {
+                self.cc.on_departed(header.transport_seq, now_us);
+            }
         }
     }
 
     /// The controller's target now (all display streams together).
     pub fn target_bps(&self) -> u64 {
-        self.cc.target_bps()
+        // The host passes this value to the pacer. Ultra's encoder target is
+        // media-only; pacing must reserve the same held budget for media,
+        // repairs, and probes. Standard: the controller's target.
+        self.cc.wire_budget_bps()
+    }
+
+    /// The rate the strict Ultra pacer releases datagrams at (the probed capacity; see
+    /// `CongestionController::pacing_bps`). Standard: [`Self::target_bps`].
+    pub fn pacing_bps(&self) -> u64 {
+        self.cc.pacing_bps()
     }
 
     /// Adds a lossless tile stream (rd change C3) for surface stream `of`:
@@ -574,7 +635,7 @@ impl MediaEngine {
 
     fn request(&mut self, stream: u16, action: FlowAction) -> Option<EncodeRequest> {
         let target_kbps = self.target_kbps(stream);
-        let profile = self.profile;
+        let profile = self.cc.profile();
         let state = self.streams.get_mut(&stream)?;
         match action {
             FlowAction::Encode { damage, frame } => {
@@ -590,6 +651,7 @@ impl MediaEngine {
                     force_idr: state.force_idr.is_some(),
                     idr_reason: state.force_idr,
                     target_kbps,
+                    picture: state.ladder.as_ref().map(ResolutionLadder::picture),
                     profile,
                     refine,
                 })
@@ -621,12 +683,14 @@ impl MediaEngine {
 
     /// The main stream's first frame: the whole surface, an IDR.
     pub fn start(&mut self, now_us: u64) -> Option<EncodeRequest> {
+        self.start_probe(ProbeReason::Startup, now_us);
         let main = self.cfg.stream;
         self.damage(main, Rect { x: 0, y: 0, width: 0, height: 0 }, now_us)
     }
 
     /// New damage from the source on `stream` (`None` for an unknown stream).
     pub fn damage(&mut self, stream: u16, rect: Rect, now_us: u64) -> Option<EncodeRequest> {
+        self.follow_target(stream, now_us);
         let state = self.streams.get_mut(&stream)?;
         let rect = if state.started { rect } else { state.full() };
         state.started = true;
@@ -642,12 +706,29 @@ impl MediaEngine {
     pub fn poll(&mut self, now_us: u64) -> Option<EncodeRequest> {
         let ids: Vec<u16> = self.streams.keys().copied().collect();
         for stream in ids {
+            self.follow_target(stream, now_us);
             let action = self.gate_poll(stream, now_us)?;
             if let Some(req) = self.request(stream, action) {
                 return Some(req);
             }
         }
         None
+    }
+
+    /// Moves `stream`'s resolution ladder to the controller's current target.
+    fn follow_target(&mut self, stream: u16, now_us: u64) {
+        let bps = u64::from(self.target_kbps(stream)) * 1000;
+        let Some(state) = self.streams.get_mut(&stream) else { return };
+        let Some(ladder) = state.ladder.as_mut() else { return };
+        let before = ladder.picture();
+        if let Some(after) = ladder.update(bps, now_us) {
+            state.apply_picture(before, after);
+        }
+    }
+
+    /// The picture `stream` encodes now (`None` without a resolution ladder).
+    pub fn picture(&self, stream: u16) -> Option<Picture> {
+        self.streams.get(&stream)?.ladder.as_ref().map(ResolutionLadder::picture)
     }
 
     /// When `poll` or `tick` must run next: a frame held by an fps cap, or
@@ -670,6 +751,21 @@ impl MediaEngine {
                     .filter(|_| self.profile.is_ultra())
                     .filter_map(|s| s.refine_due_us),
             )
+            // A startup probe is emitted by the caller's next tick. Once a
+            // refinement is scheduled, its media deadline wins so the probe
+            // train cannot mask the encoder's one-frame interval.
+            .chain(self.probe_due_us().filter(|_| {
+                self.profile.is_ultra()
+                    && self.frames == 0
+                    && !self.streams.values().any(|state| state.refine_due_us.is_some())
+            }))
+            .chain(
+                (self.profile.is_ultra() && self.frames == 0)
+                    .then(|| {
+                        self.last_probe_start_us.map(|t| t.saturating_add(IDLE_PROBE_INTERVAL_US))
+                    })
+                    .flatten(),
+            )
             .min()
     }
 
@@ -689,11 +785,20 @@ impl MediaEngine {
             .and_then(|s| s.tile_of)
             .and_then(|of| self.streams.get(&of))
             .map(|s| if s.last_frame == 0 { REF_NONE } else { s.last_frame });
+        let target_bps = u64::from(self.target_kbps(req.stream)) * 1000;
         let Some(state) = self.streams.get_mut(&req.stream) else { return Ok(Output::default()) };
         let Some(enc) = encoded.filter(|e| !e.access_unit.is_empty()) else {
-            // The encoder dropped the frame: its change still has to reach the viewer.
+            // The encoder dropped the frame: its change still has to reach the viewer. A drop
+            // is not a loss: no rate cut and no keyframe. With a ladder it says the picture is
+            // too large for the rate, so the ladder steps down (D3, D5).
             state.gate.clear_in_flight();
             state.gate.requeue(req.damage);
+            if let Some(ladder) = state.ladder.as_mut() {
+                let before = ladder.picture();
+                if let Some(after) = ladder.encoder_dropped(target_bps, now_us) {
+                    state.apply_picture(before, after);
+                }
+            }
             return Ok(Output::default());
         };
         let tile = state.tile_of.is_some();
@@ -836,6 +941,13 @@ impl MediaEngine {
             }
             out.outage_ended = Some(end);
         }
+        if let Some(estimate) = self.probe_planner.on_feedback(now_us, &fb.arrivals)
+            && self.probe_generation.is_some_and(|generation| {
+                self.cc.on_probe_capacity(generation, estimate.capacity_bps)
+            })
+        {
+            self.last_probe_start_us = Some(now_us);
+        }
         self.last_feedback_us = now_us;
         let Some(state) = self.streams.get_mut(&stream) else { return };
         if fb.acked_frame > 0
@@ -951,6 +1063,16 @@ impl MediaEngine {
             u.released_since_feedback |= !released.is_empty();
             out.upstream.extend(released.into_iter().map(|f| (stream, f)));
         }
+        self.emit_probe(now_us, &mut out);
+        if self.profile.is_ultra() && self.probe_planner.active().is_none() && self.idle(now_us) {
+            let due = self
+                .last_probe_start_us
+                .is_none_or(|started| now_us.saturating_sub(started) >= IDLE_PROBE_INTERVAL_US);
+            if due {
+                self.start_probe(ProbeReason::Idle, now_us);
+                self.emit_probe(now_us, &mut out);
+            }
+        }
         self.probe_tails(now_us, &mut out);
         let events = self.applier.tick(now_us);
         if may_inject {
@@ -959,6 +1081,48 @@ impl MediaEngine {
             self.note_input(&out, now_us);
         }
         out
+    }
+
+    fn idle(&self, _now_us: u64) -> bool {
+        self.streams.values().all(|state| state.gate.in_flight() == 0)
+    }
+
+    fn start_probe(&mut self, reason: ProbeReason, now_us: u64) {
+        if !self.profile.is_ultra() || self.probe_planner.active().is_some() {
+            return;
+        }
+        if self.probe_planner.start(reason, now_us).is_some() {
+            self.probe_generation = Some(self.cc.probe_generation());
+            self.last_probe_start_us = Some(now_us);
+        }
+    }
+
+    /// When the active train's next datagram may leave; `None` once the whole train left
+    /// (it then only waits for feedback) or with no train.
+    fn probe_due_us(&self) -> Option<u64> {
+        self.probe_planner
+            .active()
+            .filter(|train| train.emitted_packets < train.packet_count)
+            .and_then(|_| self.probe_planner.next_deadline_us())
+    }
+
+    /// Emits the whole due probe train in one tick. The host wakes at millisecond
+    /// granularity, so a train spaced below that would leave one datagram per wakeup and
+    /// measure the wakeup rate, not the path. The train leaves back to back instead (at
+    /// most `MAX_PROBE_BYTES`); the planner times each datagram from its socket departure
+    /// (`datagram_sent`) and reads the path's capacity from the arrival dispersion. The
+    /// planner's spacing then only orders the enqueue stamps.
+    fn emit_probe(&mut self, now_us: u64, out: &mut Output) {
+        let Some(first) = self.probe_due_us() else { return };
+        if now_us < first {
+            return;
+        }
+        while let Some(due) = self.probe_due_us() {
+            let seq = self.packetizer.reserve_transport_seq(1);
+            let Some(probe) = self.probe_planner.next_packet(due.max(now_us), seq) else { return };
+            self.cc.on_sent_bytes(probe.transport_seq, now_us, probe.bytes.len());
+            out.datagrams.push(probe.bytes);
+        }
     }
 
     /// Input goes to the source now: with `input_frame_now`, every stream's gate opens its
