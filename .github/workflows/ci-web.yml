@@ -234,6 +234,12 @@ jobs:
       - name: Validate managed relay catalog
         run: bun tools/generate-managed-iroh-relay-catalog.ts --check
 
+      # Next's route types (.next/types, which tsconfig.json includes) exist only after a build or typegen. The
+      # production build below skips type errors (CMUX_CI_TYPECHECK_SEPARATE), so this job generates them: a route
+      # type error (a page's props, a typed link) stays this check's red.
+      - name: Generate Next route types
+        run: bun x next typegen
+
       - name: Typecheck
         env:
           FIXIT_COMPILE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}

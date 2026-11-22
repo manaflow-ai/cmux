@@ -366,5 +366,16 @@ class WebValidationTests(unittest.TestCase):
         self.assertNotEqual(self.check_results({**docs, "build": {"result": "failure"}}), 0)
 
 
+    def test_web_typecheck_generates_next_route_types_the_build_no_longer_checks(self):
+        """The production build skips type errors (CMUX_CI_TYPECHECK_SEPARATE); web-typecheck runs next typegen
+        first, so a route type error in .next/types still turns web-typecheck red."""
+        workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        start = workflow.index("  web-typecheck:")
+        match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
+        block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
+        typegen = block.index("run: bun x next typegen")
+        self.assertLess(typegen, block.index("- name: Typecheck"))
+        self.assertIn("CMUX_CI_TYPECHECK_SEPARATE: \"1\"", workflow)
+
 if __name__ == "__main__":
     unittest.main()
