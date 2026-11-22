@@ -228,6 +228,8 @@ pub(super) fn run(global: &GlobalArgs, request: Request) -> i32 {
         "height": first["height"],
         "scale": first["scale"],
         "masked_areas": masked,
+        // `side-copy`: the app captured raw (a side copy with no Cloud sign-in, SideCopyCapture.swift).
+        "unmasked": first["unmasked"],
         "frames_dir": place.frames.to_string_lossy(),
     });
     let index = json!({"fps": request.fps, "frames": report_frames});
@@ -522,7 +524,9 @@ pub(super) fn human(report: &Value, messages: &crate::localization::RecordMessag
     );
     let areas: Vec<&str> =
         report["masked_areas"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
-    if !areas.is_empty() {
+    if report["unmasked"].is_string() {
+        let _ = writeln!(out, "{}", messages.unmasked);
+    } else if !areas.is_empty() {
         let _ = writeln!(out, "{}", messages.masked.replace("{areas}", &areas.join(", ")));
     }
     if report["dropped"].as_u64().unwrap_or(0) + report["failed"].as_u64().unwrap_or(0) > 0 {
@@ -670,5 +674,15 @@ mod tests {
             "{text}"
         );
         assert!(text.contains('2'), "{text}");
+    }
+
+    #[test]
+    fn a_side_copy_recording_says_nothing_was_masked() {
+        let messages = &crate::localization::catalog().app_control.record;
+        let report = json!({"frames": 3, "seconds": 1, "fps": 3, "asked_fps": 3, "path": "/x",
+                            "masked_areas": [], "unmasked": "side-copy", "dropped": 0, "failed": 0});
+        let text = human(&report, messages);
+        assert!(text.contains(messages.unmasked), "{text}");
+        assert!(!text.contains("Masked in grey"), "{text}");
     }
 }

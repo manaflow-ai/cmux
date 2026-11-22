@@ -102,6 +102,8 @@ pub(crate) struct RecordMessages {
     pub recorded: &'static str,
     /// `{areas}`: what the grey areas are.
     pub masked: &'static str,
+    /// The app is a side copy with no Cloud sign-in: nothing is masked.
+    pub unmasked: &'static str,
     /// `{dropped}`: ticks skipped because every capture was still running; `{failed}`: captures the app refused.
     pub skipped: &'static str,
     /// `{dir}`: no ffmpeg, so the frames and their times are the result.
@@ -319,6 +321,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         no_frames: "recorded no frame: {error}",
         recorded: "Recorded {frames} frames in {seconds} s ({fps} fps of {asked} asked): {path}",
         masked: "Masked in grey (pixels scripts never get): {areas}",
+        unmasked: "Nothing masked: this app is a side copy with its own fresh state and no Cloud sign-in, so chats, Home and browser pages show (in the person's own app they are grey)",
         skipped: "{dropped} frames skipped while captures were still running, {failed} refused by the app",
         no_ffmpeg: "ffmpeg is not installed, so no movie: the PNG frames, frames.json (their times) and frames.ffconcat are in {dir}. On a Mac with ffmpeg, this makes the movie:",
         encode_failed: "ffmpeg failed ({error}); the PNG frames and frames.json are kept in {dir}",
@@ -513,6 +516,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         no_frames: "フレームを 1 枚も録画できませんでした: {error}",
         recorded: "{seconds} 秒で {frames} フレームを録画しました ({asked} fps 指定のうち {fps} fps): {path}",
         masked: "灰色で隠した領域 (スクリプトには渡さないピクセル): {areas}",
+        unmasked: "何も隠していません: このアプリは独自の新しい状態を持ち Cloud にサインインしていないサイドコピーなので、チャット、Home、ブラウザのページも表示されます (本人のアプリでは灰色になります)",
         skipped: "キャプチャの実行中に {dropped} フレームを飛ばし、{failed} フレームはアプリが拒否しました",
         no_ffmpeg: "ffmpeg がインストールされていないため動画は作りません: PNG フレーム、frames.json (各フレームの時刻)、frames.ffconcat は {dir} にあります。ffmpeg のある Mac では、次のコマンドで動画になります:",
         encode_failed: "ffmpeg が失敗しました ({error})。PNG フレームと frames.json は {dir} に残しています",
