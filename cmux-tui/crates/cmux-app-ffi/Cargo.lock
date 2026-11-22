@@ -264,6 +264,8 @@ dependencies = [
  "cmux-launch-record",
  "cmux-window-rules",
  "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
