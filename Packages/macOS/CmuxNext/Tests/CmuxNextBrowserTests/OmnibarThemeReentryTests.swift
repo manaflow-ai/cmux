@@ -81,7 +81,7 @@ struct OmnibarThemeReentryTests {
 
     /// The ink the bar's theme gives its text and its page-info icon now.
     private func themeInk(_ bar: AddressBarView) -> (primary: Ink?, secondary: Ink?, icon: Ink?) {
-        bar.performWithTheme { (Ink(OmnibarStyle.textPrimary), Ink(OmnibarStyle.textSecondary), Ink(OmnibarStyle.resultsIcon)) }
+        bar.performWithTheme { (Ink(OmnibarStyle.textPrimary), Ink(OmnibarStyle.textSecondary), Ink(OmnibarStyle.iconInk)) }
     }
 
     /// Checks the bar shows `theme`'s ink on its host, path, page-info icon and label.

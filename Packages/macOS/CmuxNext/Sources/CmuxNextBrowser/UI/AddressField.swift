@@ -7,6 +7,14 @@ import CmuxNextDesign
 final class AddressField: ChromeTextField, OmnibarFieldSurface {
     /// The omnibar's own size, so the base field's density binding sets the same font as the address bar's.
     override var densityFont: NSFont { OmnibarStyle.font }
+    /// The bar's inks (`OmnibarInk`), not the theme's: the field draws on the bar's fill, glass or card.
+    override var themedTextColor: NSColor { OmnibarStyle.textPrimary } // theme-scoped
+    override var themedPlaceholderColor: NSColor { OmnibarStyle.textSecondary } // theme-scoped
+    /// The theme's caret when it reads on the bar, else the primary ink.
+    override var themedCaretColor: NSColor { // theme-scoped
+        let ink = OmnibarStyle.ink
+        return ink.reads(Palette.caret) ? Palette.caret : ink.primaryColor
+    }
 
     var onFocus: (() -> Void)?
     var onPasteAndGo: (() -> Void)?
@@ -150,6 +158,12 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         if window != nil { recolor() }
     }
 
+    /// Re-reads the bar's ink: the text, placeholder and caret (a look change; `AddressBarView.repaintInk`).
+    func repaintInk() {
+        reapplyColors()
+        recolor()
+    }
+
     private func recolor() {
         if let editor = currentEditor() as? NSTextView {
             performWithTheme {
@@ -158,6 +172,7 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
                     storage.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: storage.length))
                 }
                 editor.typingAttributes[.foregroundColor] = color
+                editor.insertionPointColor = themedCaretColor
                 editor.selectedTextAttributes = [.backgroundColor: OmnibarStyle.selection]
             }
         } else {
