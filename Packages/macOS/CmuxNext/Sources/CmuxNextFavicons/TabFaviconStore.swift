@@ -17,7 +17,8 @@ public import Observation
 /// fetched again for ``failureMemory``, doubling for each failure in a row up to
 /// ``longestFailureMemory`` (a site with no icon is not fetched every minute); when that ends, the scopes that read it re-render and
 /// fetch it again (one failure, offline at launch or a timeout, kept a site's globe for the
-/// session, #42435).
+/// session, #42435). Failures end in batches, one timer per backoff step (``FailureBatch``): 500 pages with no icon
+/// wake the app once a minute at most, not 500 times, each time mapping every row again.
 @MainActor
 @Observable
 public final class TabFaviconStore {
@@ -34,13 +35,16 @@ public final class TabFaviconStore {
     public private(set) var revision = 0
     /// One fetch per missing icon; each ends on its own (the loader's timeout).
     @ObservationIgnored private var pending: [Key: Task<Void, Never>] = [:]
-    /// Failed URLs, each until its ``failureMemory`` ends. Observed: a scope that read a failed
-    /// icon re-renders when its failure ends, and that read fetches it again.
-    private var failed: Set<Key> = []
-    /// The end of each failure's memory.
-    @ObservationIgnored private var forgetting: [Key: DemandTimer] = [:]
+    /// Failed URLs, each until its ``failureMemory`` ends.
+    @ObservationIgnored private var failed: Set<Key> = []
+    /// Counts ended batches of failures. Observed: a scope that read a missing icon re-renders when a batch ends,
+    /// and that read fetches the icons whose failure ended. One write per batch: a failure and its end write
+    /// nothing else observed, so 500 failed icons do not map every reading scope 500 times.
+    private var forgotten = 0
+    /// The failures waiting to end, per backoff step (0 is one ``failureMemory``).
+    @ObservationIgnored private var batches: [Int: FailureBatch] = [:]
     /// Failures in a row per URL, for the backoff; a landed icon clears its count.
-    @ObservationIgnored private var failures = LRUCache<Key, Int>(capacity: 256)
+    @ObservationIgnored private var failures = LRUCache<Key, Int>(capacity: 4096)
     /// Icons a page's own fetch put in the loader's cache, as this store hands them out (`adopt`), with the
     /// loader's image each came from: one stable `TabImage` per icon, made without writing observed state.
     @ObservationIgnored private var adopted = LRUCache<Key, (source: NSImage, image: TabImage)>(capacity: 256)
@@ -53,9 +57,21 @@ public final class TabFaviconStore {
     /// The longest a URL that keeps failing is held off.
     public static let longestFailureMemory: Duration = .seconds(30 * 60)
 
-    /// How long a URL is held off after `count` failures in a row.
+    /// How long a URL is held off after `count` failures in a row, at least: its failure ends with its step's batch,
+    /// at most this much later.
     public static func failureMemory(after count: Int) -> Duration {
-        min(failureMemory * (1 << min(max(count - 1, 0), 5)), longestFailureMemory)
+        min(failureMemory * (1 << step(after: count)), longestFailureMemory)
+    }
+
+    /// The backoff step of `count` failures in a row.
+    private static func step(after count: Int) -> Int { min(max(count - 1, 0), 5) }
+
+    /// The failures of one backoff step: `ending` end when `timer` fires, `next` (failed while it ran) one
+    /// memory after that, so no failure ends early and a step wakes the app once per memory at most.
+    private struct FailureBatch {
+        let timer: DemandTimer
+        var ending: [Key] = []
+        var next: [Key] = []
     }
 
     /// Creates a favicon store over the supplied loader.
@@ -110,8 +126,8 @@ public final class TabFaviconStore {
     }
 
     private func load(_ key: Key, tab: (any BrowserTab)?) {
-        // `failed` first, read even while a fetch is in flight: a scope that met this fetch re-renders when it fails
-        // and when its failure memory ends.
+        // Read even while a fetch is in flight: a scope that met this fetch re-renders when its failure memory ends.
+        _ = forgotten
         guard !failed.contains(key), pending[key] == nil else { return }
         pending[key] = Task { [weak self, weak tab, loader] in
             let icon: NSImage?
@@ -133,11 +149,27 @@ public final class TabFaviconStore {
         failed.insert(key)
         let count = (failures.peek(key) ?? 0) + 1
         failures.set(count, for: key)
-        let timer = forgetting[key] ?? DemandTimer(owner: "TabFaviconStore.failureMemory", clock: clock)
-        forgetting[key] = timer
-        timer.schedule(after: Self.failureMemory(after: count)) { @MainActor [weak self] in
-            self?.forgetting[key] = nil
-            self?.failed.remove(key)
+        let step = Self.step(after: count)
+        guard var batch = batches[step] else {
+            batches[step] = FailureBatch(timer: DemandTimer(owner: "TabFaviconStore.failureMemory", clock: clock), ending: [key])
+            return arm(step)
         }
+        batch.next.append(key)
+        batches[step] = batch
+    }
+
+    private func arm(_ step: Int) {
+        batches[step]?.timer.schedule(after: Self.failureMemory(after: step + 1)) { @MainActor [weak self] in self?.forget(step) }
+    }
+
+    /// Ends the failures of `step` whose memory is over, in one observed write, and times the ones that came after.
+    private func forget(_ step: Int) {
+        guard var batch = batches[step] else { return }
+        failed.subtract(batch.ending)
+        forgotten += 1
+        batch.ending = batch.next
+        batch.next = []
+        batches[step] = batch.ending.isEmpty ? nil : batch
+        arm(step)
     }
 }

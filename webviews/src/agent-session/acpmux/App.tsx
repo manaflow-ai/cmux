@@ -487,13 +487,17 @@ import {
 import { PendingAsks } from "./conversation/PendingAsks";
 import { forgetInsideTurn } from "./conversation/transcriptDisclosureModel";
 import {
-  answeredAsks,
+  answerState,
   bottomAsks,
+  claimAnswer,
   dismissAsk,
   dismissedAsks,
+  setAnswerState,
+  shownAsks,
+  answeredAsks,
+  givenAnswer,
   subscribeAnswers,
   withAnswered,
-  shownAsks,
 } from "./conversation/waitingAskStore";
 import { turnPreviewUrl, turnServedUrl } from "./conversation/previewUrl";
 import { projectInboxRows } from "./conversation/laneNoticeBatches";
@@ -548,6 +552,7 @@ import { viewerImages } from "./summary/chatGallery";
 import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
+import { startDevMotionAudit, useStreamAppendDeclaration } from "./devMotionAudit";
 import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools } from "./header/ChatHeaderTools";
 import { HEADER_ACTIONS, guardedChatMenu, menuGroups, type ChatMenuItem } from "./header/chatHeaderToolsModel";
@@ -696,7 +701,7 @@ import { type SignIn, SignInContext, signedOutHarnesses } from "./signIn";
 import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
 import { ForkPendingLine } from "./ForkPendingLine";
-import { HostError, HostLineSlot, HostRecoveringLine, HostUnavailableLine, HostWaitingLine } from "./HostError";
+import { HostError, HostRecoveringLine, HostUnavailableLine, HostWaitingLine, HostLineSlot } from "./HostError";
 import { hostLineText } from "./hostLine";
 import {
   AcpmuxRestartGate,
@@ -925,7 +930,6 @@ import { withdrawForTypedReply } from "./pane/hatHost";
 import { replyElsewhere } from "./homeInboxModel";
 import { quoteInReply } from "./conversation/selectionReplyModel";
 import { answerPrompt, askQuote } from "./conversation/nextStepAsk";
-import { answerState, claimAnswer, givenAnswer, setAnswerState } from "./conversation/waitingAskStore";
 import { type HatQuestionActions } from "./question/HatQuestions";
 import { reply as questionReply, replyParams, selection } from "./question/model";
 export { NewTabComposerChips, ChatComposerChips } from "./pane/ComposerChips";
@@ -1998,6 +2002,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // rules it has not read yet. A chat on another machine or in the cloud gets none.
   const [rules, setRules] = useState<ForumRule[]>([]);
   const turnWorking = snapshot.isWorking;
+  // A streaming reply grows the transcript at its end: a declared layout move.
+  useStreamAppendDeclaration(turnWorking);
   // Only once the chat's summary says where it runs: a remote chat never shows this Mac's rules.
   const rulesLocal = snapshot.summary !== undefined && healthLocal;
   useEffect(() => {
@@ -8302,6 +8308,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         setPreviewHost(host.transport === "preview");
         // Links copy in this build's scheme; only the hostless mock page falls back to Release's.
         setLinkScheme(host.linkScheme, mock ? FALLBACK_LINK_SCHEME : undefined);
+        // Dev builds judge every layout move against the layout-motion contract (devMotionAudit.ts).
+        if (!mock) startDevMotionAudit(host.linkScheme);
         if (mock) markMockPage();
         if (mock)
           setCheckpointVariant(
