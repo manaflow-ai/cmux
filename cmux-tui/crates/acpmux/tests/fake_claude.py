@@ -17,7 +17,9 @@ a user and an assistant line per prompt; "history-probe" replies with the
 prompts the conversation holds (a resumed or forked transcript's included).
 "hold: PATH" answers once PATH exists, so a test can act while a turn runs;
 "tool-hold: PATH" does so inside a running Bash call, after "partial words"
-(history-probe's "unresolved" lists tool calls stored with no result).
+(history-probe's "unresolved" lists tool calls stored with no result, and
+"replies" the assistant text it holds); "stream-hold: PATH" streams "streamed so
+far" and stores that reply only once PATH exists.
 A prompt ending in "settings-probe" replies with the prompt text as Claude
 read it, every `apply_flag_settings` it got, its argv, and how many hidden cmux
 guidance blocks the prompt carried.
@@ -961,11 +963,15 @@ while True:
                 f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at,
                                     "message": {"role": "user", "content": transcript_content(content, said)}}) + "\n")
                 reply = {"role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": "ok"}]}
+                # "stream-hold: PATH" stores its reply only once it ends, as Claude Code does.
+                if said.startswith("stream-hold: "):
+                    reply = None
                 # FAKE_CLAUDE_TRANSCRIPT_USAGE=1: the reply carries its call's model and usage, as Claude Code's does.
                 if os.environ.get("FAKE_CLAUDE_TRANSCRIPT_USAGE") == "1":
                     reply.update({"id": "msg_" + uuid.uuid4().hex, "model": "claude-opus-5-5", "usage": {
                         "input_tokens": 3, "cache_creation_input_tokens": 1000, "cache_read_input_tokens": 200_000, "output_tokens": 50}})
-                f.write(json.dumps({"type": "assistant", "sessionId": SESSION, "timestamp": at, "message": reply}) + "\n")
+                if reply is not None:
+                    f.write(json.dumps({"type": "assistant", "sessionId": SESSION, "timestamp": at, "message": reply}) + "\n")
             # The model's reply takes time: a turn's prompt is never stored in
             # the millisecond its turn ends.
             import time
@@ -1087,6 +1093,21 @@ while True:
                     f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at, "message": {"role": "user",
                                         "content": [{"type": "tool_result", "tool_use_id": "toolu_hold", "content": "waited"}]}}) + "\n")
             send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_hold", "content": "waited"}]}})
+        # "stream-hold: PATH": the turn streams "streamed so far" in API message msg_streaming,
+        # which Claude Code stores only once it ends, and holds until PATH exists.
+        if said.startswith("stream-hold: "):
+            import time
+            gate = said[len("stream-hold: "):]
+            send({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "msg_streaming",
+                                                     "model": "claude-haiku-5-5"}}})
+            send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                     "delta": {"type": "text_delta", "text": "streamed so far"}}})
+            while not os.path.exists(gate):
+                time.sleep(0.02)
+            if STORE and LAYOUT:
+                with open(stored(SESSION), "a") as f:
+                    f.write(json.dumps({"type": "assistant", "sessionId": SESSION, "timestamp": at, "message": {
+                        "id": "msg_streaming", "role": "assistant", "content": [{"type": "text", "text": "streamed so far"}]}}) + "\n")
         # "hold: PATH" keeps the turn running until PATH exists.
         if said.startswith("hold: "):
             import time
@@ -1118,7 +1139,11 @@ while True:
                                            and visible_transcript_text(r["message"]["content"]) != "history-probe"],
                                "sessions": sorted({r["sessionId"] for r in records}),
                                # Tool calls the conversation holds with no result: Claude's API refuses those.
-                               "unresolved": [i for i in used if i not in answered]})
+                               "unresolved": [i for i in used if i not in answered],
+                               # The assistant text the conversation holds, in order.
+                               "replies": [b["text"] for r in records if r.get("type") == "assistant"
+                                           for b in (r["message"]["content"] if isinstance(r["message"]["content"], list) else [])
+                                           if isinstance(b, dict) and b.get("type") == "text"]})
         documents = [b for b in content if isinstance(b, dict) and b.get("type") == "document"]
         if said.strip() == "document-probe":
             text = json.dumps({
