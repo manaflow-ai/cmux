@@ -232,33 +232,33 @@ final class AgentPaneActAsMeBadge: NSView {
 /// The card's and the indicator's words.
 enum AgentPaneActAsMeStrings {
     static var askTitle: String {
-        String(localized: "agentPane.actAsMe.askTitle", defaultValue: "Let computer use act as you?", bundle: .module)
+        String(localized: "agentPane.actAsMe.askTitle", defaultValue: "Let computer use act as you?", bundle: .localizedModule)
     }
     static var onTitle: String {
-        String(localized: "agentPane.actAsMe.onTitle", defaultValue: "Computer use can act as you", bundle: .module)
+        String(localized: "agentPane.actAsMe.onTitle", defaultValue: "Computer use can act as you", bundle: .localizedModule)
     }
     static var askBody: String {
         String(localized: "agentPane.actAsMe.askBody",
                defaultValue: "Clicks and key presses an agent's computer use makes in a chat count as yours for Send, Retry and Approve. Nothing else: answering an agent's question or permission, changing a mode or trusting a folder still needs your own click.",
-               bundle: .module)
+               bundle: .localizedModule)
     }
     static var askNote: String {
         String(localized: "agentPane.actAsMe.askNote",
                defaultValue: "Every action it lets through is logged with the app that made it. Turn it off at any time from the chat.",
-               bundle: .module)
+               bundle: .localizedModule)
     }
     static var managedNote: String {
         String(localized: "agentPane.actAsMe.managedNote",
                defaultValue: "Your organization turned this on for this Mac. Turning it off lasts until cmux restarts.",
-               bundle: .module)
+               bundle: .localizedModule)
     }
-    static var allow: String { String(localized: "agentPane.actAsMe.allow", defaultValue: "Allow", bundle: .module) }
-    static var notNow: String { String(localized: "agentPane.actAsMe.notNow", defaultValue: "Not Now", bundle: .module) }
-    static var turnOff: String { String(localized: "agentPane.actAsMe.turnOff", defaultValue: "Turn Off", bundle: .module) }
+    static var allow: String { String(localized: "agentPane.actAsMe.allow", defaultValue: "Allow", bundle: .localizedModule) }
+    static var notNow: String { String(localized: "agentPane.actAsMe.notNow", defaultValue: "Not Now", bundle: .localizedModule) }
+    static var turnOff: String { String(localized: "agentPane.actAsMe.turnOff", defaultValue: "Turn Off", bundle: .localizedModule) }
     static var badge: String {
-        String(localized: "agentPane.actAsMe.badge", defaultValue: "Computer use can act as you", bundle: .module)
+        String(localized: "agentPane.actAsMe.badge", defaultValue: "Computer use can act as you", bundle: .localizedModule)
     }
     static var badgeManaged: String {
-        String(localized: "agentPane.actAsMe.badgeManaged", defaultValue: "Computer use can act as you (managed)", bundle: .module)
+        String(localized: "agentPane.actAsMe.badgeManaged", defaultValue: "Computer use can act as you (managed)", bundle: .localizedModule)
     }
 }

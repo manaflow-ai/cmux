@@ -35,6 +35,11 @@ pub(super) struct History {
     first: u64,
     tail: usize,
     used: usize,
+    /// While the ring is empty: the ops `(committed, through]` the writer has published and
+    /// appends next ([`History::hold`]). Until the index moves past `through`, readers take
+    /// `committed` as the newest op, not the published seq, so a read between the publish
+    /// and the append waits for the op instead of finding it missing.
+    held: Option<(u64, u64)>,
     #[cfg(test)]
     encoded_ops: AtomicUsize,
     #[cfg(test)]
@@ -227,6 +232,7 @@ impl History {
             first: 0,
             tail: 0,
             used: 0,
+            held: None,
             #[cfg(test)]
             encoded_ops: AtomicUsize::new(0),
             #[cfg(test)]
@@ -350,6 +356,21 @@ impl History {
         self.first_seq().and_then(|first| first.checked_add(self.len as u64 - 1))
     }
 
+    /// The newest op a reader may take as recorded, with the index published at `published`:
+    /// the ring's last; on an empty ring, the op before the held ones while they are what
+    /// is published, else `published` (a cursor before it lagged).
+    pub(super) fn recorded_through(&self, published: u64) -> u64 {
+        self.last_seq().unwrap_or(match self.held {
+            Some((committed, through)) if published <= through => committed,
+            _ => published,
+        })
+    }
+
+    /// The writer is about to publish the ops `(committed, through]` and append them next.
+    pub(super) fn hold(&mut self, committed: u64, through: u64) {
+        self.held = Some((committed, through));
+    }
+
     fn clear(&mut self) {
         self.head = 0;
         self.len = 0;
@@ -370,6 +391,8 @@ impl History {
     }
 
     pub(super) fn append(&mut self, item: &ListItem) -> serde_json::Result<()> {
+        // Appended, or failed and cleared: either way readers stop waiting for the hold.
+        self.held = None;
         let op = match item {
             ListItem::Summary(event) => {
                 Op::Summary { seq: event.seq, summary: event.summary.as_ref() }

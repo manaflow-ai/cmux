@@ -80,7 +80,11 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
           {until - row.at < 1000 ? (
             t("subsession.state.working")
           ) : (
-            <TimedLabel text={(time) => t("turn.working", { time })} time={Math.max(0, until - row.at)} />
+            <TimedLabel
+              text={(time) => t("turn.working", { time })}
+              time={Math.max(0, until - row.at)}
+              ticking={!held}
+            />
           )}
         </span>
       )}
