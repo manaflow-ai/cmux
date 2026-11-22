@@ -11,7 +11,7 @@
 //!   (request turns, plus the connect) to first content;
 //! - warm: the link up and set up already, a re-attach on it (a foreground return; an attach
 //!   replaces the connection's last one);
-//! - reconnect (profiles with a disruption): attached to a surface printing every 250 ms, the
+//! - reconnect (profiles whose disruption drops the LAN link): attached to a surface printing every 250 ms, the
 //!   profile's disruption, then the app's policy (the link gives up after 20 s with nothing in;
 //!   an address change redials at once, iOS `NWPathMonitor` -> `path_changed`): a redial and
 //!   re-attach. `gap_after_link_back_ms` from the link's return to the first fresh output,
@@ -724,7 +724,7 @@ fn terminal_attach_under_link_profiles() {
                     bench.cold_and_warm(profile, scale, *surface, run, seed_base + run).await;
                 }
             }
-            if profile.disruption.is_some() {
+            if profile.disrupts_lan() {
                 for run in 0..runs {
                     bench.reconnect(profile, daemon.ticker, run, seed_base + run).await;
                 }
