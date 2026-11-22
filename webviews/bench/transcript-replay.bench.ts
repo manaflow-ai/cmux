@@ -721,8 +721,11 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
         await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
         console.log(`  ${burst.kind} at ${burst.rows} rows: ${await invalidations(cdp, playBurst, page, records)}`);
       } else {
+        const lcEval = process.env.LC_EVAL ? fs.readFileSync(process.env.LC_EVAL, "utf8") : undefined;
+        if (lcEval) await page.evaluate(lcEval);
         await playBurst();
         await paint(page, 2);
+        if (lcEval) console.log(`LC ${burst.kind} at ${burst.rows} rows recs ${records}: ${await page.evaluate(lcEval)}`);
       }
       const taskMs = ((await metric(clock, "TaskDuration")) - taskBefore) * 1000;
       const profiled = PROFILE ? ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile : undefined;
