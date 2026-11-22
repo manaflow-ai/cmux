@@ -32,11 +32,11 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
     ],
     "gesture": [
       "apps.grant.revoke",
-      "apps.hidden.set"
+      "apps.hidden.set",
+      "apps.install"
     ],
     "confirm": [
       "apps.grant.set",
-      "apps.install",
       "apps.set",
       "apps.uninstall",
       "apps.update"
