@@ -29,6 +29,7 @@ import { Icon } from "../icons/Icon";
 import { ToolRows } from "./TurnRows";
 import { useTranscriptReadOnly } from "./readOnly";
 import "./EditedFilesCard.css";
+import { intl } from "../../../ui/intl";
 
 /// `onOpenDiff` opens the turn's changes, at `path` when given; focus returns to `opener`.
 export function EditedFilesCard({
@@ -390,7 +391,7 @@ function UndoConfirm({
             {names.length === 1
               ? t("edited.undoSkip.unknown.one", { file: names[0]! })
               : t("edited.undoSkip.unknown.other", {
-                  files: new Intl.ListFormat(language, { type: "conjunction" }).format(names),
+                  files: intl.ListFormat(language, { type: "conjunction" }).format(names),
                 })}
           </div>
         )}
