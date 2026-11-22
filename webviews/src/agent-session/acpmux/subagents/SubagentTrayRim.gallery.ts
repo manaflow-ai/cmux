@@ -73,7 +73,10 @@ const many = chat([
 const opened = (height: number | undefined) => async (ctx: PlayContext) => {
   setHatHeight(height, false);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
-  await ctx.click({ selector: ".acpmux-running-tray__head" });
+  // The hat remembers its fold per chat, so a frame that shares storage with an earlier play can
+  // start open; a click then would fold it. Open it only when it is folded.
+  if (!ctx.document.querySelector(".acpmux-running-tray[data-open]"))
+    await ctx.click({ selector: ".acpmux-running-tray__head" });
   await ctx.waitFor(() => ctx.document.querySelector(RUNNING_TRAY_LIST_LINE));
 };
 // Leo, 2026-11-22: "the dragging isn't properly relative accurate to the cursor, and it's just jumpy
