@@ -18,6 +18,7 @@ import {
 } from "./settings";
 import { L } from "./strings";
 import { WidthField } from "./WidthField";
+import { intl } from "../../ui/intl";
 
 /** What the popover changes: one option's value, or null to reset every option. */
 export interface ReadingSettingsActions {
@@ -39,7 +40,7 @@ const shown = (value: number) => String(Number(value.toFixed(2)));
 
 export function ReadingSettings({ open, onOpenChange, anchor, settings, strings, actions }: ReadingSettingsProps) {
   const { t, format } = strings;
-  const percent = new Intl.NumberFormat(strings.language, { style: "percent", maximumFractionDigits: 0 });
+  const percent = intl.NumberFormat(strings.language, { style: "percent", maximumFractionDigits: 0 });
   const values = markdownReadingValues(settings);
   const r = MARKDOWN_READING;
   return (
