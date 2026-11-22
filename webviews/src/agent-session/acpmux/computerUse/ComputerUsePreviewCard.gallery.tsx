@@ -273,16 +273,37 @@ export default componentEntry<Props>({
       note: "A click on the card enlarges it over the chat's top right (as the Codex app does); another click shrinks it back.",
       props: { preview: running, chat: true },
       play: expand("Calculator, live"),
+      checks: {
+        layoutShiftMax: {
+          value: 0.025,
+          reason:
+            "The click enlarges the card and the column takes back the room it kept for the small card (measured 0.014-0.016): the reflow is the design.",
+        },
+      },
     },
     "expanded-done": {
       note: "Enlarged when the agent's Computer Use ended: the last frame, dimmed, with the check.",
       props: { preview: { ...running, done: true } },
       play: expand("Calculator, done"),
+      checks: {
+        layoutShiftMax: {
+          value: 0.025,
+          reason:
+            "The click enlarges the card: its own box grows over the chat's top right, which is the step's point.",
+        },
+      },
     },
     close: {
       note: 'A close: the card gives way to a small Show Preview chip where it sat (Leo, 2026-11-22: "THE ABILITY TO DRAG IT AROUND AND FUCKING HIDE IT"). Before, the card was gone with no way back.',
       props: { preview: as("cua_gallery_close") },
       play: close,
+      checks: {
+        layoutShiftMax: {
+          value: 0.002,
+          reason:
+            "Hide leaves the smaller Show Preview chip, so the column takes back the rest of the card's room (measured 0.0005).",
+        },
+      },
     },
     "hidden-chip": {
       note: "Hidden: only the chip, the Computer Use eye and Show Preview, at the card's top right. A click brings the card back with its newest frame.",
@@ -309,6 +330,13 @@ export default componentEntry<Props>({
       note: "A press that moves past 4 px drags the card (a grabbing cursor while it moves); a press that does not move still enlarges it.",
       props: { preview: as("cua_gallery_drag"), chat: true, dropTarget: true },
       play: drag("Calculator, live"),
+      checks: {
+        layoutShiftMax: {
+          value: 0.08,
+          reason:
+            "The drop moves the card where the person put it and the column takes back the room it kept at the top right (measured 0.061).",
+        },
+      },
     },
     "full-size": {
       note: 'Full Size: the frame fills the pane, letterboxed, over the chat; Exit Full Size (or a click on the frame) shrinks it back. Leo, 2026-10-29: "why can\'t I full screen this picture?"',
@@ -318,6 +346,13 @@ export default componentEntry<Props>({
       note: "The Full Size button on the card's top right, clicked.",
       props: { preview: as("cua_gallery_full_play") },
       play: fullSize,
+      checks: {
+        layoutShiftMax: {
+          value: 0.85,
+          reason:
+            "Full Size makes the card fill the pane, as the person asked (measured 0.767): the card's own box is the shift.",
+        },
+      },
     },
     "full-size-done": {
       note: "Full size when the agent's Computer Use ended: the last frame dimmed, the icon and check at its center.",

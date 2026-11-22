@@ -44,7 +44,7 @@ const playReport = (page) =>
   page.evaluate(() => {
     const r = window.cmuxGalleryPlayReport;
     if (!r) return null;
-    return { status: r.status, error: r.error, steps: (r.steps ?? []).map((s) => [s.step ?? s.name, s.status ?? s.ok, s.error]).slice(0, 12) };
+    return { status: r.status, error: r.error, steps: (r.steps ?? []).map((s) => [s.step, s.status, s.problems, s.layoutShift, s.longFrames]).slice(0, 12) };
   });
 const under = (page, x, y) =>
   page.evaluate(([x, y]) => {
@@ -57,7 +57,7 @@ let failures = 0;
 try {
   // Stills: every new variant, played where it has a play.
   const stills = ["beside-chat", "close", "hidden-chip", "hidden-chip-moved", "hidden-chip-show", "dragged",
-    "dragged-middle", "drag", "full-size", "full-size-play", "full-size-done", "expanded"];
+    "dragged-middle", "drag", "full-size", "full-size-play", "full-size-done", "expanded", "expanded-done"];
   for (const scheme of ["dark", "light"]) {
     for (const variant of stills) {
       const context = await browser.newContext({ viewport, deviceScaleFactor: 2, colorScheme: scheme });
