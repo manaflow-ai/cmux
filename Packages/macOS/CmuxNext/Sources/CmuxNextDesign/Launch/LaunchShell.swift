@@ -90,6 +90,12 @@ public final class LaunchShell {
         return LaunchShell(prepared: prepared, mark: mark)
     }
 
+    /// `body` gets the string's C form for the call, or NULL for nil.
+    private static func withOptionalCString<R>(_ string: String?, _ body: (UnsafePointer<CChar>?) -> R) -> R {
+        guard let string else { return body(nil) }
+        return string.withCString { body($0) }
+    }
+
     /// Makes the window and commits its first frame, marking `launch_shell.committed` when the
     /// commit completes (`first_window_frame_committed` stays the real window's). Does nothing when
     /// the plan made no window.
@@ -441,10 +447,4 @@ extension NSEvent {
             return nil
         }
     }
-}
-
-/// `body` gets the string's C form for the call, or NULL for nil.
-private func withOptionalCString<R>(_ string: String?, _ body: (UnsafePointer<CChar>?) -> R) -> R {
-    guard let string else { return body(nil) }
-    return string.withCString { body($0) }
 }
