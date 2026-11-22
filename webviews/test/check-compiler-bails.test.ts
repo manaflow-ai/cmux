@@ -27,12 +27,21 @@ test("a change under src/ checks only its agent-chat files", () => {
   expect(changedSources(list("Packages/x.swift"))).toEqual([]);
 });
 
-test("a change to webviews/ outside src/ (the script, the baseline, the lockfile, the config) checks every file", () => {
+test("a change to an input every count reads (the script, the baseline, the lockfile, the config) checks every file", () => {
   for (const other of [
     "webviews/scripts/compiler-bails-baseline.tsv",
     "webviews/scripts/check-compiler-bails.mjs",
     "webviews/bun.lock",
     "webviews/reactCompiler.mjs",
+    "webviews/package.json",
   ])
     expect(changedSources(list("webviews/src/agent-session/acpmux/a.tsx", other))).toBeNull();
+});
+
+test("a change to a test or another script beside the source checks only the source", () => {
+  expect(
+    changedSources(
+      list("webviews/src/agent-session/acpmux/a.tsx", "webviews/test/a.test.ts", "webviews/scripts/check-layers.ts"),
+    ),
+  ).toEqual(["src/agent-session/acpmux/a.tsx"]);
 });
