@@ -184,6 +184,15 @@ public final class CmuxMobileAuthModel {
             serviceEnvironment["CMUX_MOBILE_API_BASE"] = stored
         }
         #endif
+        #if DEBUG
+        // A tag stack's backend (review.sh --backend tag-stack, kept by CloudBackendOverride) brings its
+        // own mobile Worker, the port after its API's, unless a rig names one: the tag's Mac registers
+        // there (the stack's client-config), so the phone must look for it there too.
+        if serviceEnvironment["CMUX_MOBILE_API_BASE"] == nil,
+           let stackMobile = CloudBackendOverride.resolve(environment: environment, defaults: .standard)?.mobileAPI {
+            serviceEnvironment["CMUX_MOBILE_API_BASE"] = stackMobile.absoluteString
+        }
+        #endif
         let buildSpace = CMUXBuildSpaceState(devBuild: devBuild, devTag: devTag)
         if let refusal = buildSpace.refusal {
             authModelLog.fault("cloud calls refused: \(refusal.localizedDescription, privacy: .public)")
