@@ -234,6 +234,35 @@ async fn an_unstored_conversation_is_kept_only_when_its_agent_did_work() {
     assert!(closed(&s));
 }
 
+/// A chat out of usage, whose only work is a rate-limit continuation waiting for the reset, is
+/// idle to the conditional stop: it stops, and its continuation with it. A continuation that
+/// waits for anything else still makes it busy, and so does the rate-limit one to a release to
+/// the terminal (`busy_with`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_chat_out_of_usage_waiting_for_the_reset_stops() {
+    use crate::protocol::session::RetryReason;
+    let if_idle = StopCondition { if_idle: true, expect_revision: None };
+    let reset = now_ms() + 3_600_000;
+
+    let (hub, s) = chat().await;
+    hub.wait_to_continue_for_test(&s, "cut", reset, RetryReason::Capacity);
+    let e = hub.stop(&s, false, if_idle).await.expect_err("a capacity retry's session was stopped");
+    assert_eq!(reason(&e), (json!(BUSY), json!("turn")), "{e:?}");
+    assert!(!closed(&s));
+
+    let (hub, s) = chat().await;
+    hub.wait_to_continue_for_test(&s, "cut", reset, RetryReason::RateLimit);
+    assert!(s.rate_hold.limited());
+    assert!(hub.continuation_pending(&s));
+    assert_eq!(hub.busy_with(&s), Some("turn"), "a release waits for the continuation");
+    let rev = Hub::revision(&s);
+    hub.stop(&s, false, StopCondition { if_idle: true, expect_revision: Some(rev) })
+        .await
+        .expect("a chat out of usage is idle");
+    assert!(closed(&s));
+    assert!(!hub.continuation_pending(&s), "the stop left its continuation waiting");
+}
+
 #[test]
 fn the_condition_reads_from_the_request() {
     let read = |v: Value| StopCondition::from_params(&v);

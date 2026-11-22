@@ -114,27 +114,12 @@ enum DebugAgentPane {
             // Which engine shows the chat (the `agent.chromium` spike measures both).
             return .object(["pane": .string(pane), "engine": .string(view.engineName)])
         }
-        if action == "composer_focused" {
-            // Read only: whether the chat's composer has the page's caret (Cmd-L in a chat, keyboard-parity-e2e.py).
-            let script = """
-                const field = document.querySelector('.acpmux-composer [contenteditable="true"], .acpmux-composer textarea');
-                return !!field && document.activeElement === field;
-                """
-            let focused = (try? await view.callPageScript(script)) as? Bool ?? false
-            return .object(["pane": .string(pane), "focused": .bool(focused), "native": .bool(view.debugHoldsKeyboard)])
-        }
+        if action == "composer_focused" { return await view.debugComposerFocus(pane: pane) }
         if action == "focus_composer" {
-            // The chat's pane takes the app's focus, the chat the keyboard and its composer the caret, in
-            // either engine, for typing benches (focus elsewhere would take the keyboard back).
+            // The pane owns focus; its page owns the composer inspection in both engines.
             _ = services.registry.perform("pane.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane), origin: .script))
             view.focusChat()
-            let script = """
-                const field = document.querySelector('.acpmux-composer [contenteditable="true"], .acpmux-composer textarea');
-                field?.focus();
-                return !!field && document.activeElement === field;
-                """
-            let focused = (try? await view.callPageScript(script)) as? Bool ?? false
-            return .object(["pane": .string(pane), "focused": .bool(focused)])
+            return await view.debugComposerFocus(pane: pane, requestFocus: true)
         }
         if action == "crash_notice" {
             // The notice a page that keeps crashing shows; {"press": "reload"} presses its Reload first.
