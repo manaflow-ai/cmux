@@ -165,6 +165,11 @@ fn private_log(_logs: &Path) -> Result<()> {
 /// `launchctl print`'s exit code for a job launchd has not loaded.
 const NOT_LOADED: i32 = 113;
 
+/// How long uninstall waits for launchd to drop the job it booted out: 50
+/// checks, 100 ms apart.
+const BOOTOUT_WAIT_POLLS: u32 = 50;
+const BOOTOUT_WAIT_POLL: std::time::Duration = std::time::Duration::from_millis(100);
+
 /// Refuses a `com.cmux.server` job launchd runs from another plist than
 /// the one cmux writes (or from none it names): install would replace it
 /// and uninstall would boot it out. Not loaded (`launchctl print` exits
@@ -227,9 +232,18 @@ pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {
     check_source(s).map_err(|e| super::outcome(e, "nothing was changed"))?;
     let _ = s.runner.run(&launchctl().args(["bootout", &target(s)]));
     // A bootout that failed must not let uninstall remove what the job
-    // still uses: launchd must say it has no such job now.
+    // still uses: launchd must say it has no such job now. `bootout`
+    // returns before launchd drops the job (macOS 27 on a fleet Mac: still
+    // listed right after, gone 2 s later), so give it a moment.
     let print = launchctl().args(["print", &target(s)]);
-    let out = s.runner.run(&print).map_err(|e| Error::io(print.display(), e))?;
+    let mut out = s.runner.run(&print).map_err(|e| Error::io(print.display(), e))?;
+    for _ in 0..BOOTOUT_WAIT_POLLS {
+        if out.code == Some(NOT_LOADED) {
+            break;
+        }
+        std::thread::sleep(BOOTOUT_WAIT_POLL);
+        out = s.runner.run(&print).map_err(|e| Error::io(print.display(), e))?;
+    }
     if out.code != Some(NOT_LOADED) {
         return Err(Error::rejected(format!(
             "launchd still has {LAUNCHD_LABEL} after cmux booted it out (`{}` exited {}), so cmux removed nothing it may still use. Boot it out (`launchctl bootout {}`), then run the command again",

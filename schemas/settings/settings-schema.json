@@ -10,6 +10,16 @@
         ],
         "groups" : [
           {
+            "key" : "settings.group.language",
+            "rows" : [
+              "app.language"
+            ],
+            "title" : {
+              "key" : "settings.group.language",
+              "text" : "Language"
+            }
+          },
+          {
             "key" : "settings.group.window",
             "rows" : [
               "window.titlebar",
@@ -673,6 +683,7 @@
               "appearance.chromeStyle",
               "appearance.titleAreaTone",
               "appearance.titleAreaContrast",
+              "appearance.twoTone",
               "appearance.cornerFlush",
               "layout.paneSeparation",
               "layout.panePadding",
@@ -1309,7 +1320,6 @@
             "key" : "settings.group.agentChat",
             "rows" : [
               "agentPane.newChatsIn",
-              "agentPane.sessionWorktrees",
               "agents.defaultPermissionMode",
               "agents.promptCache",
               "agents.modelRouter.model",
@@ -1596,6 +1606,18 @@
             "title" : {
               "key" : "settings.group.banners",
               "text" : "Banners and Sound"
+            }
+          },
+          {
+            "key" : "settings.group.notificationDelivery",
+            "rows" : [
+              "notifications.delivery.permissionRequest",
+              "notifications.delivery.question",
+              "notifications.delivery.taskComplete"
+            ],
+            "title" : {
+              "key" : "settings.group.notificationDelivery",
+              "text" : "Delivery by Event"
             }
           },
           {
@@ -2408,6 +2430,323 @@
     ]
   },
   "rows" : [
+    {
+      "accepts" : [
+        "system",
+        "en",
+        "ar",
+        "bs",
+        "da",
+        "de",
+        "es",
+        "fr",
+        "it",
+        "nb",
+        "pl",
+        "pt-BR",
+        "tr",
+        "vi",
+        "ru",
+        "uk",
+        "th",
+        "km",
+        "ja",
+        "ko",
+        "zh-Hans",
+        "zh-Hant"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.app.language.system",
+            "text" : "System"
+          },
+          "value" : "system"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "English"
+          },
+          "value" : "en"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "العربية"
+          },
+          "value" : "ar"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Bosanski"
+          },
+          "value" : "bs"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Dansk"
+          },
+          "value" : "da"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Deutsch"
+          },
+          "value" : "de"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Español"
+          },
+          "value" : "es"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Français"
+          },
+          "value" : "fr"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Italiano"
+          },
+          "value" : "it"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Norsk bokmål"
+          },
+          "value" : "nb"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Polski"
+          },
+          "value" : "pl"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Português (Brasil)"
+          },
+          "value" : "pt-BR"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Türkçe"
+          },
+          "value" : "tr"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Tiếng Việt"
+          },
+          "value" : "vi"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Русский"
+          },
+          "value" : "ru"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Українська"
+          },
+          "value" : "uk"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "ไทย"
+          },
+          "value" : "th"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "ខ្មែរ"
+          },
+          "value" : "km"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "日本語"
+          },
+          "value" : "ja"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "한국어"
+          },
+          "value" : "ko"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "简体中文"
+          },
+          "value" : "zh-Hans"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "繁體中文"
+          },
+          "value" : "zh-Hant"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "system",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.language",
+        "text" : "Language"
+      },
+      "help" : {
+        "key" : "settings.app.language.help",
+        "text" : "The language of cmux's menus, pages and messages."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.language",
+      "keywords" : [
+        "language",
+        "locale",
+        "localization",
+        "translation",
+        "Sprache",
+        "langue",
+        "idioma",
+        "lingua",
+        "言語",
+        "언어",
+        "语言",
+        "язык"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "language"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:app.language"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.app.language",
+        "text" : "Language"
+      },
+      "validation" : "portable"
+    },
     {
       "accepts" : [
         true,
@@ -34685,6 +35024,181 @@
     },
     {
       "accepts" : [
+        "off",
+        "flush",
+        "flush-tight",
+        "flush-goo"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.off",
+            "text" : "Pill"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.flush",
+            "text" : "Flush"
+          },
+          "value" : "flush"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.tight",
+            "text" : "Flush, Tight to the Sidebar"
+          },
+          "value" : "flush-tight"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.goo",
+            "text" : "Goo"
+          },
+          "value" : "flush-goo"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "flush",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.appearance.cornerFlush.help",
+        "text" : "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.cornerFlush",
+      "keywords" : [
+        "corner",
+        "flush",
+        "goo",
+        "gooey",
+        "folder tab",
+        "fillet",
+        "pill",
+        "selected tab",
+        "tab shape",
+        "card",
+        "material"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "cornerFlush"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.cornerFlush.summary",
+        "text" : "Pill, flush or goo for the selected tab"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.cornerFlush"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.cornerFlush",
+        "text" : "Selected Tab Shape"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -38970,75 +39484,130 @@
     {
       "accepts" : [
         "off",
-        "flush",
-        "flush-tight",
-        "flush-goo"
+        "auto",
+        "inkSakura",
+        "charcoalRose",
+        "inkMagenta",
+        "creamForest",
+        "navySand",
+        "boneOxblood",
+        "slateMatcha",
+        "plumAmber"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
         {
           "title" : {
-            "key" : "settings.choice.cornerFlush.off",
-            "text" : "Pill"
+            "key" : "settings.choice.off",
+            "text" : "Off"
           },
           "value" : "off"
         },
         {
           "title" : {
-            "key" : "settings.choice.cornerFlush.flush",
-            "text" : "Flush"
+            "key" : "settings.choice.twoTone.auto",
+            "text" : "From Theme"
           },
-          "value" : "flush"
+          "value" : "auto"
         },
         {
           "title" : {
-            "key" : "settings.choice.cornerFlush.tight",
-            "text" : "Flush, Tight to the Sidebar"
+            "key" : "settings.choice.twoTone.inkSakura",
+            "text" : "Ink & Sakura"
           },
-          "value" : "flush-tight"
+          "value" : "inkSakura"
         },
         {
           "title" : {
-            "key" : "settings.choice.cornerFlush.goo",
-            "text" : "Goo"
+            "key" : "settings.choice.twoTone.charcoalRose",
+            "text" : "Charcoal & Rose"
           },
-          "value" : "flush-goo"
+          "value" : "charcoalRose"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.twoTone.inkMagenta",
+            "text" : "Ink Blue & Magenta"
+          },
+          "value" : "inkMagenta"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.twoTone.creamForest",
+            "text" : "Cream & Forest"
+          },
+          "value" : "creamForest"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.twoTone.navySand",
+            "text" : "Navy & Sand"
+          },
+          "value" : "navySand"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.twoTone.boneOxblood",
+            "text" : "Bone & Oxblood"
+          },
+          "value" : "boneOxblood"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.twoTone.slateMatcha",
+            "text" : "Slate & Matcha"
+          },
+          "value" : "slateMatcha"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.twoTone.plumAmber",
+            "text" : "Plum & Amber"
+          },
+          "value" : "plumAmber"
         }
       ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "flush",
+      "default" : "off",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.panes",
         "text" : "Panes"
       },
       "help" : {
-        "key" : "settings.appearance.cornerFlush.help",
-        "text" : "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."
+        "key" : "settings.appearance.twoTone.help",
+        "text" : "The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme."
       },
       "kept_on_reset_all" : false,
-      "key" : "appearance.cornerFlush",
+      "key" : "appearance.twoTone",
       "keywords" : [
-        "corner",
-        "flush",
-        "goo",
-        "gooey",
-        "folder tab",
-        "fillet",
-        "pill",
-        "selected tab",
-        "tab shape",
-        "card",
-        "material"
+        "two tone",
+        "two-tone",
+        "duotone",
+        "tone",
+        "pairing",
+        "sidebar",
+        "tab bar",
+        "chrome",
+        "color",
+        "sakura",
+        "pink",
+        "magenta",
+        "forest",
+        "sand",
+        "oxblood",
+        "matcha",
+        "amber",
+        "palette"
       ],
       "kind" : "choice",
       "page_hidden" : false,
       "path" : [
         "appearance",
-        "cornerFlush"
+        "twoTone"
       ],
       "placeholder" : null,
       "refuses" : [
@@ -39048,8 +39617,8 @@
       ],
       "section" : "appearance",
       "summary" : {
-        "key" : "settings.appearance.cornerFlush.summary",
-        "text" : "Pill, flush or goo for the selected tab"
+        "key" : "settings.appearance.twoTone.summary",
+        "text" : "A second tone for the sidebar and tab bar"
       },
       "surfaces" : {
         "cli" : {
@@ -39110,7 +39679,7 @@
 
           ],
           "reason" : null,
-          "row" : "setting:appearance.cornerFlush"
+          "row" : "setting:appearance.twoTone"
         },
         "socket" : {
           "aliases" : [
@@ -39137,8 +39706,8 @@
         }
       },
       "title" : {
-        "key" : "settings.appearance.cornerFlush",
-        "text" : "Selected Tab Shape"
+        "key" : "settings.appearance.twoTone",
+        "text" : "Two-Tone"
       },
       "validation" : "portable"
     },
@@ -105149,6 +105718,460 @@
     },
     {
       "accepts" : [
+        "off",
+        "badge",
+        "banner"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.badge",
+            "text" : "Badge"
+          },
+          "value" : "badge"
+        },
+        {
+          "title" : {
+            "key" : "settings.notifications.delivery.banner",
+            "text" : "Banner"
+          },
+          "value" : "banner"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "banner",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.notificationDelivery",
+        "text" : "Delivery by Event"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.delivery.permissionRequest",
+      "keywords" : [
+        "banner",
+        "delivery",
+        "permissionRequest"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "delivery",
+        "permissionRequest"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:notifications.delivery.permissionRequest"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.notifications.delivery.permissionRequest",
+        "text" : "Permission Request"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "badge",
+        "banner"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.badge",
+            "text" : "Badge"
+          },
+          "value" : "badge"
+        },
+        {
+          "title" : {
+            "key" : "settings.notifications.delivery.banner",
+            "text" : "Banner"
+          },
+          "value" : "banner"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "banner",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.notificationDelivery",
+        "text" : "Delivery by Event"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.delivery.question",
+      "keywords" : [
+        "banner",
+        "delivery",
+        "question"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "delivery",
+        "question"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:notifications.delivery.question"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.notifications.delivery.question",
+        "text" : "Question"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "banner"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.notifications.delivery.banner",
+            "text" : "Banner"
+          },
+          "value" : "banner"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "banner",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.notificationDelivery",
+        "text" : "Delivery by Event"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.delivery.taskComplete",
+      "keywords" : [
+        "banner",
+        "delivery",
+        "taskComplete"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "delivery",
+        "taskComplete"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:notifications.delivery.taskComplete"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.notifications.delivery.taskComplete",
+        "text" : "Task Complete"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -109177,163 +110200,6 @@
       "title" : {
         "key" : "settings.agentPane.newChatsIn",
         "text" : "Start New Chats In"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "off",
-        "shared",
-        "project"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.off",
-            "text" : "Off"
-          },
-          "value" : "off"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.sessionWorktreesShared",
-            "text" : "Shared Worktree Folder"
-          },
-          "value" : "shared"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.sessionWorktreesProject",
-            "text" : "Inside Project"
-          },
-          "value" : "project"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "off",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.agentChat",
-        "text" : "Agent Chat"
-      },
-      "help" : {
-        "key" : "settings.agentPane.sessionWorktrees.help",
-        "text" : "Choose where to keep worktrees for local chats and forks."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "agentPane.sessionWorktrees",
-      "keywords" : [
-        "git",
-        "worktree",
-        "fork",
-        "folder"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "agentPane",
-        "sessionWorktrees"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "options",
-          "offered" : true,
-          "operations" : [
-
-          ],
-          "reason" : null,
-          "row" : "setting:agentPane.sessionWorktrees"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.agentPane.sessionWorktrees",
-        "text" : "Session Worktrees"
       },
       "validation" : "portable"
     },
