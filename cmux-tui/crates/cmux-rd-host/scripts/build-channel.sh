@@ -43,7 +43,10 @@ trap cleanup EXIT
 rm -f "$out/cmux-rd" "$out/cmux-rd-notices.md"
 
 rustup target add "$target"
-CMUX_BUILD_SHA="$ref" cargo zigbuild --release --locked --manifest-path "$manifest" \
+# The release profile keeps `debug = 1` for cmux-rd-release.yml; the channel binary drops the
+# DWARF and keeps the symbol table (backtraces still name functions): 32.8 MB to 6.0 MB on
+# x86_64, measured on the published tree f65972f9 with `strip --strip-debug` (CMUX-570).
+CARGO_PROFILE_RELEASE_STRIP=debuginfo CMUX_BUILD_SHA="$ref" cargo zigbuild --release --locked --manifest-path "$manifest" \
   --no-default-features --features "$FEATURES" --bin cmux-rd --target "$target.$GLIBC_FLOOR"
 
 # The license gate and the notices read one crate list (release.py linked_crates, from
