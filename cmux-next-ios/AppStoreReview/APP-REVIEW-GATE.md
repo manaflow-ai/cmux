@@ -1,8 +1,12 @@
 # App Review gate (before Apple sees it)
 
 The app App Review judges is the NEXT iOS app, `cmux-next-ios` (CmuxMobileApp).
-Its public build is project.yml's `AppStore` configuration, bundle `com.cmux.app`,
-which replaces the classic app as an update.
+The App Store submission is cmux INTERNAL (bundle `dev.cmux.app.internal`, ASC
+app 6791408425), built by project.yml's TestFlight configuration (version base
+1.2.0). `com.cmux.app` (ASC 6783338052, project.yml's `AppStore` configuration)
+is not the submission record. The gate below still checks the `AppStore`
+configuration; the INTERNAL submission lane is being built on
+`lane/ios-internal-app-store-lane`.
 
 `.github/workflows/ios-review-gate.yml` answers "would Apple accept this build
 right now?" with one ranked list, in the run summary and in the
@@ -98,6 +102,15 @@ and takes screenshots through the app's window (`surface(_:)`) or the screen,
 never through `app` itself, judges only controls in the app's window (the
 system keyboard spans the whole screen), and tells iPad from iPhone by the
 simulator's model, since `UIDevice` says phone in compatibility mode.
+
+A pull request does not walk the iPad leg while the app is iPhone-only (every
+`TARGETED_DEVICE_FAMILY` in `project.yml` is `"1"`, checked by the plan job on each
+run): the plan writes an `ipad.skipped.json` marker and the report accepts it in place
+of the iPad result. A feat-cmux-next push, a dispatch and the production pipeline's
+call still walk iPad and require its result, so an iPad-only break (dark mode, the
+compatibility window) is red on base before any upload. The leg comes back on pull
+requests by itself once the app targets iPad (`"1,2"`). Leo, 2026-11-21: "for
+connection and ci, we can simply move. and go."
 Each launch closes Safari first: after a link hands off to it, Safari stays in
 front of the relaunched app on iPad. `scrollTo` scrolls to the end of the
 content, not a fixed number of swipes, since rows per swipe depend on the screen.

@@ -96,7 +96,7 @@ nonisolated enum Strings {
     }
     /// Chromium's `IDS_OMNIBOX_EMPTY_HINT`.
     static var omnibarPlaceholder: String {
-        String(localized: "browser.omnibar.placeholder", defaultValue: "Search or type URL", bundle: .localizedModule)
+        String(localized: "browser.omnibar.placeholder", defaultValue: "Search or enter address", bundle: .localizedModule)
     }
     /// Chromium `IDS_CONTEXT_MENU_SHOW_FULL_URLS`.
     static var alwaysShowFullURLs: String {

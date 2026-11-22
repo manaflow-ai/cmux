@@ -83,6 +83,9 @@ blob Resources/theme-files/charcoal.json
 blob Resources/theme-files/classic-desktop.json
 blob Resources/theme-files/claude-desktop.json
 blob Resources/theme-files/harbor.json
+blob Resources/theme-files/lily-pond.json
+blob Resources/theme-files/meadow.json
+blob Resources/theme-files/moss.json
 blob Resources/theme-files/phosphor.json
 blob Resources/theme-files/teal.json
 # cmux-config embeds the shipped sidebar looks (sidebar_look::shipped).
@@ -120,6 +123,7 @@ blob schemas/settings/source/mcp-servers.json
 blob schemas/settings/source/subsessions.json
 blob schemas/settings/source/trust.json
 blob schemas/settings/settings-schema.json
+blob schemas/transcript-look/transcript-look.json
 # cmux-action-catalog's customize_elements test embeds the shipped settings defaults.
 blob schemas/defaults/cmux-next.json
 blob schemas/settings/source/subsessions.json
