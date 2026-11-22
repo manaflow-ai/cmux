@@ -601,7 +601,7 @@ extension LiveCoordinator {
             return DaemonClient(channel: channel, eventCapacity: BoundedDaemonEventBuffer.defaultCapacity)
         })
         terminal.macName = owner.name
-        terminal.scrollFramesSink = { [weak self] line in await self?.sendScrollFrames(line, macID: macID) }
+        terminal.scrollFramesSink = { [weak self] pan in await self?.sendScrollFrames(pan, macID: macID) }
         // Its channel died or went silent: the link is checked at once too.
         terminal.onLinkSuspect = { [weak self] in self?.sessions[macID]?.link.suspect() }
         owner.terminals.removeAll { $0.session == nil }
@@ -616,9 +616,13 @@ extension LiveCoordinator {
     /// One terminal pan's frame times (``TerminalPanFrames``) to the Mac's `phone-frames`
     /// service, which logs them where an agent on the Mac reads them. Only a Mac that lists
     /// `phone-frames-v1`; nothing waits past 10 s, and a line that cannot go is dropped.
-    func sendScrollFrames(_ line: Data, macID: String) async {
+    /// It adds the link's last round trip, the pan's network load.
+    func sendScrollFrames(_ pan: TerminalPanFrames, macID: String) async {
         guard store.macCapabilities[macID]?.contains("phone-frames-v1") == true,
-              let link = session(macID: macID)?.servedLink else { return }
+              let owner = session(macID: macID), let link = owner.servedLink else { return }
+        var pan = pan
+        if case .connected(_, _, let rtt) = owner.link.phase { pan.rttMs = rtt.map(Int.init) }
+        guard let line = pan.line() else { return }
         guard let channel = try? await LinkDeadline.run(
             timeout: .seconds(10),
             operation: { try await link.openChannel(service: "phone-frames", args: [:]) },

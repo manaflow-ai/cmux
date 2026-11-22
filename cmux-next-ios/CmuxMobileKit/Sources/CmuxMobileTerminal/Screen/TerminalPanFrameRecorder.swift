@@ -17,14 +17,20 @@ final class TerminalPanFrameRecorder {
 
     var isRecording: Bool { token != nil }
 
-    /// Starts a pan of `kind`; a pan still recording ends first.
-    func begin(_ kind: TerminalPanFrames.Kind) {
+    /// Starts a pan of `kind` over a page of `rows` rows; a pan still recording ends first.
+    func begin(_ kind: TerminalPanFrames.Kind, rows: Int) {
         finish()
         self.kind = kind
+        tally.rows = rows
         token = FrameClock.shared.subscribe { [weak self] tick in
             guard let self else { return }
             if self.tally.tick(timestamp: tick.timestamp, nominal: tick.nominal) { self.finish() }
         }
+    }
+
+    /// Terminal output arrived: counted only while a pan records.
+    func output(_ bytes: Int) {
+        if token != nil { tally.output(bytes) }
     }
 
     /// Ends the pan, if one records (of `kind`, when given), and hands it over.

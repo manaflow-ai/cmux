@@ -28,19 +28,32 @@ public struct TerminalPanFrames: Encodable, Equatable, Sendable {
     public var expectedMs: Double
     /// Each interval between consecutive frames (ms, 0.01 ms steps).
     public var intervalsMs: [Double]
+    /// The load the pan ran under, so a reading says what it was measured against:
+    /// rows the page held when the pan began (scrollback plus screen),
+    public var rows: Int?
+    /// terminal output bytes that arrived during the pan,
+    public var bytesIn: Int?
+    /// and the link's last measured round trip to the Mac (ms), when known (the session fills it in).
+    public var rttMs: Int?
 
-    public init(kind: Kind, program: String? = nil, app: String? = TerminalPanFrames.appVersion, expectedMs: Double, intervalsMs: [Double]) {
+    public init(kind: Kind, program: String? = nil, app: String? = TerminalPanFrames.appVersion, expectedMs: Double, intervalsMs: [Double],
+                rows: Int? = nil, bytesIn: Int? = nil, rttMs: Int? = nil) {
         self.kind = kind
         self.program = program
         self.app = app
         self.expectedMs = Self.rounded(expectedMs)
         self.intervalsMs = intervalsMs.prefix(Self.maxFrames).map(Self.rounded)
+        self.rows = rows
+        self.bytesIn = bytesIn
+        self.rttMs = rttMs
     }
 
     enum CodingKeys: String, CodingKey {
-        case v, kind, program, app
+        case v, kind, program, app, rows
         case expectedMs = "expected_ms"
         case intervalsMs = "intervals_ms"
+        case bytesIn = "bytes_in"
+        case rttMs = "rtt_ms"
     }
 
     /// The JSON line for `phone-frames`, or nil when the pan is too short or has no display rate.
@@ -60,10 +73,17 @@ public struct TerminalPanFrames: Encodable, Equatable, Sendable {
 
 /// Counts one pan's frames from display-link ticks, in constant time per frame: one append
 /// into storage reserved for ``TerminalPanFrames/maxFrames`` intervals, kept across pans.
+/// Also the pan's load: the rows the page held at its start and the output bytes during it.
 public struct TerminalPanFrameTally: Sendable {
     public private(set) var intervalsMs: [Double] = []
     private var last: Double?
     private var nominalMs = Double.infinity
+    /// Rows the page held when the pan began.
+    public var rows: Int?
+    public private(set) var bytesIn = 0
+
+    /// Terminal output arrived during the pan.
+    public mutating func output(_ bytes: Int) { bytesIn += bytes }
 
     public init() { intervalsMs.reserveCapacity(TerminalPanFrames.maxFrames) }
 
@@ -80,10 +100,13 @@ public struct TerminalPanFrameTally: Sendable {
 
     /// The pan so far, and a tally ready for the next one (its storage kept).
     public mutating func take(_ kind: TerminalPanFrames.Kind) -> TerminalPanFrames {
-        let pan = TerminalPanFrames(kind: kind, expectedMs: nominalMs.isFinite ? nominalMs : 0, intervalsMs: intervalsMs)
+        let pan = TerminalPanFrames(kind: kind, expectedMs: nominalMs.isFinite ? nominalMs : 0, intervalsMs: intervalsMs,
+                                    rows: rows, bytesIn: bytesIn)
         intervalsMs.removeAll(keepingCapacity: true)
         last = nil
         nominalMs = .infinity
+        rows = nil
+        bytesIn = 0
         return pan
     }
 }

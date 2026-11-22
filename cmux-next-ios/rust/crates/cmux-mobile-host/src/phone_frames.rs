@@ -2,9 +2,10 @@
 //!
 //! The phone times every display frame of one pan of a terminal (the finger's drag and its
 //! fling) and sends the intervals here when the pan ends, one JSON line per pan:
-//! `{"kind":"tui"|"scrollback","program"?,"app"?,"expected_ms","intervals_ms":[...]}`.
+//! `{"kind":"tui"|"scrollback","program"?,"app"?,"expected_ms","intervals_ms":[...],"rows"?,"bytes_in"?,"rtt_ms"?}`.
 //! This host turns them into a summary (frames, p50/p95/max frame time, hitches, frames
-//! dropped, hitch time per second) and appends it, one JSON line, to `phone-frames.jsonl` in
+//! dropped, hitch time per second, and the load it ran under: the page's rows, output bytes per
+//! second during the pan, the link's round trip) and appends it, one JSON line, to `phone-frames.jsonl` in
 //! hostd's state folder (`~/Library/Application Support/cmux-mobile-host/` unless
 //! `CMUX_MOBILE_STATE_DIR` says otherwise), rotating at [`ROTATE_AT`] with one previous file
 //! kept, and logs the same summary to hostd's log. An agent on the Mac reads the phone's
@@ -51,6 +52,15 @@ pub struct Pan {
     pub expected_ms: f64,
     /// Every interval between consecutive frames of the pan (ms, in order).
     pub intervals_ms: Vec<f64>,
+    /// The load it ran under: rows the page held when the pan began,
+    #[serde(default)]
+    pub rows: Option<u64>,
+    /// terminal output bytes that arrived during the pan,
+    #[serde(default)]
+    pub bytes_in: Option<u64>,
+    /// and the link's last measured round trip (ms).
+    #[serde(default)]
+    pub rtt_ms: Option<u64>,
 }
 
 /// What one pan came to: one line of `phone-frames.jsonl`.
@@ -79,6 +89,17 @@ pub struct Summary {
     pub duration_ms: f64,
     /// Time spent late per second of motion (ms/s), Apple's hitch time ratio.
     pub hitch_ms_per_s: f64,
+    /// The load the pan ran under (absent from a phone that does not say): the page's rows,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rows: Option<u64>,
+    /// the output bytes during the pan and their rate,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bytes_in: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bytes_per_s: Option<u64>,
+    /// and the link's round trip (ms).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rtt_ms: Option<u64>,
 }
 
 /// Why a pan line was dropped.
@@ -133,6 +154,13 @@ pub fn summarize(pan: Pan, phone: &str, at_ms: i64) -> Result<Summary, Invalid> 
         dropped,
         duration_ms: round(duration),
         hitch_ms_per_s: if duration > 0.0 { round(late / (duration / 1000.0)) } else { 0.0 },
+        rows: pan.rows,
+        bytes_in: pan.bytes_in,
+        bytes_per_s: pan
+            .bytes_in
+            .filter(|_| duration > 0.0)
+            .map(|b| (b as f64 / (duration / 1000.0)).round() as u64),
+        rtt_ms: pan.rtt_ms,
     })
 }
 
@@ -172,6 +200,9 @@ pub fn record(line: &[u8], phone: &str, path: &Path) -> Result<Summary, Invalid>
         max_ms = summary.max_ms,
         hitches = summary.hitches,
         hitch_ms_per_s = summary.hitch_ms_per_s,
+        rows = summary.rows,
+        bytes_per_s = summary.bytes_per_s,
+        rtt_ms = summary.rtt_ms,
         "phone frames"
     );
     let _guard = WRITE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -218,6 +249,9 @@ mod tests {
             app: Some("1.0 (7)".into()),
             expected_ms: 8.33,
             intervals_ms: intervals,
+            rows: None,
+            bytes_in: None,
+            rtt_ms: None,
         }
     }
 
@@ -229,6 +263,7 @@ mod tests {
         assert_eq!(s.hitch_ms_per_s, 0.0);
         assert_eq!(s.program.as_deref(), Some("claude"), "control characters go");
         assert_eq!(s.duration_ms, 999.6);
+        assert_eq!((s.rows, s.bytes_per_s, s.rtt_ms), (None, None, None), "an older phone says no load");
     }
 
     #[test]
@@ -271,8 +306,7 @@ mod tests {
     fn a_pan_line_lands_as_one_json_line() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("phone-frames.jsonl");
-        let line =
-            br#"{"kind":"scrollback","program":"zsh","expected_ms":16.67,"intervals_ms":[16.6,16.7,50.1]}"#;
+        let line = br#"{"kind":"scrollback","program":"zsh","expected_ms":16.67,"intervals_ms":[16.6,16.7,50.1],"rows":12000,"bytes_in":8340,"rtt_ms":41}"#;
         record(line, "phone-1", &path).unwrap();
         assert_eq!(record(b"not json", "phone-1", &path), Err(Invalid::Json));
         let text = std::fs::read_to_string(&path).unwrap();
@@ -285,5 +319,10 @@ mod tests {
         assert_eq!(rows[0]["dropped"], 2);
         assert_eq!(rows[0]["max_ms"], 50.1);
         assert!(rows[0].get("app").is_none());
+        // The load it ran under: 8340 bytes over 83.4 ms is 100 000 bytes/s.
+        assert_eq!(rows[0]["rows"], 12000);
+        assert_eq!(rows[0]["bytes_in"], 8340);
+        assert_eq!(rows[0]["bytes_per_s"], 100_000);
+        assert_eq!(rows[0]["rtt_ms"], 41);
     }
 }

@@ -1479,6 +1479,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         switch event {
         case .output(let data):
+            panFrames.output(data.count)
             let isReset = data == Self.mirrorReset
             if isReset {
                 sizingLog.notice("mirror reset cause=session-reset (the session's replay follows)")
@@ -3053,7 +3054,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // Pinned only once the touch reaches the keyboard (R3-1).
         dragPin.began(following: following, keyboardUp: model.keyboardVisible, isTUI: model.isTUI)
         // The alternate screen's drag is the TUI scroll's (`installTUIScroll`).
-        if !model.isTUI { panFrames.begin(.scrollback) }
+        if !model.isTUI { panFrames.begin(.scrollback, rows: documentRows) }
         // A finger owns the offset until it lifts (or the deceleration ends).
         scroll.began()
         restoredMark = nil
@@ -3677,8 +3678,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         // The rows move under a selection: it would point at other text.
         tuiScroll.dragBegan = { [weak self] in
-            self?.tuiSelection.clear()
-            self?.panFrames.begin(.tui)
+            guard let self else { return }
+            tuiSelection.clear()
+            panFrames.begin(.tui, rows: documentRows)
         }
         tuiScroll.panEnded = { [weak self] in self?.panFrames.finish(.tui) }
         tuiScroll.install(in: tuiClip, surface: surface, tap: tuiTap)

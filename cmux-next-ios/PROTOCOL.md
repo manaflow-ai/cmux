@@ -905,9 +905,12 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   scroll. The phone times every display frame of one pan of a terminal (the drag and its
   fling) and, when the pan ends, sends one data frame per pan, then `eof`:
   `{"v": 1, "kind": "tui" | "scrollback", "program"?, "app"?, "expected_ms", "intervals_ms":
-  [...]}` (`expected_ms` the display's nominal frame, `intervals_ms` each frame interval, at
-  most 1800). hostd (`phone_frames.rs`) summarizes it (frames, p50/p95/max ms, hitches:
-  intervals over 1.5 frames, frames dropped, hitch ms per second) and appends one JSON line to
+  [...], "rows"?, "bytes_in"?, "rtt_ms"?}` (`expected_ms` the display's nominal frame,
+  `intervals_ms` each frame interval, at most 1800; the load the pan ran under: `rows` the page
+  held when it began, `bytes_in` terminal output that arrived during it, `rtt_ms` the link's
+  last round trip). hostd (`phone_frames.rs`) summarizes it (frames, p50/p95/max ms, hitches:
+  intervals over 1.5 frames, frames dropped, hitch ms per second, and the load: `rows`,
+  `bytes_in`, `bytes_per_s`, `rtt_ms`) and appends one JSON line to
   `phone-frames.jsonl` in its state folder (`~/Library/Application
   Support/cmux-mobile-host/`, rotated at 1 MB with one previous file) and to its log. At most
   16 pans of 64 KiB per channel; a line that does not parse is dropped. The phone sends
