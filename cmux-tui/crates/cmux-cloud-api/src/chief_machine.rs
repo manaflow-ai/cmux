@@ -502,11 +502,20 @@ impl Session<'_> {
             )
             .await?;
         let object = reply.json();
+        // `/v1/ops` answers `{ok: true, value}`; `/v1/read` answers `{value}` and says `ok` only when false.
         match object.as_ref().filter(|_| reply.ok()) {
-            Some(o) if o.get("ok") == Some(&Value::Bool(true)) => {
-                Ok(o.get("value").cloned().unwrap_or(Value::Null))
+            Some(o) if o.get("ok") != Some(&Value::Bool(false)) && o.get("value").is_some() => {
+                Ok(o["value"].clone())
             }
-            _ => Err(worker_error(reply.status, object.as_ref())),
+            _ => Err(match worker_error(reply.status, object.as_ref()) {
+                // Name the request when the answer says nothing itself.
+                Failure::Http { status, code: None, message: None, .. } => Failure::http(
+                    status,
+                    None,
+                    Some(format!("{path}: {}", body_summary(object.as_ref()))),
+                ),
+                other => other,
+            }),
         }
     }
 }
@@ -538,6 +547,15 @@ impl Cloud for Session<'_> {
 
     async fn pause(&self, duration: Duration) {
         tokio::time::sleep(duration).await;
+    }
+}
+
+/// An answer's shape for a refusal that names nothing: its top-level keys, never its values.
+fn body_summary(body: Option<&Value>) -> String {
+    match body {
+        Some(Value::Object(o)) => format!("an answer with keys {:?}", o.keys().collect::<Vec<_>>()),
+        Some(_) => "an answer that is not an object".into(),
+        None => "no JSON answer".into(),
     }
 }
 

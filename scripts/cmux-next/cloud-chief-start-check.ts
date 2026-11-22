@@ -201,12 +201,14 @@ async function main(): Promise<number> {
         return { value: null, detail: install };
       }).catch(() => undefined);
     }
-    if (machine) {
-      await J.step("delete machine", async () => {
-        await api.deleteMachine(machine, `chief-start-${run}-delete`);
-        return { value: null, detail: machine };
-      }).catch(() => undefined);
-    }
+    await J.step("delete machine", async () => {
+      // A call that failed after its create answers no id: the machine is found by this run's name.
+      const ids = machine ? [machine] : (await listAllMachines((p) => api.read("cloud.machine.list", p)))
+        .filter((r) => r?.name === machineName && r.status !== "deleted" && r.status !== "deleting")
+        .map((r) => String(r.id ?? r.machine_id));
+      for (const id of ids) await api.deleteMachine(id, `chief-start-${run}-delete-${id}`);
+      return { value: null, detail: ids.join(", ") || "none made" };
+    }).catch(() => undefined);
   }
 }
 
