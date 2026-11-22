@@ -26,7 +26,8 @@ nonisolated struct SidebarDragLook {
     /// The groups a group of the list sits in.
     private let subgroupParents: Set<GroupID>
     /// Sections with a group under a collapsed one: `make` leaves such a group out of the node count, so a top-level
-    /// row's index there is not its node's.
+    /// row's index there is not its node's. With the Archive section drawn, also a section the archive split takes
+    /// top-level nodes out of (`splittingArchive`): the base counts only the nodes left, the move counts every node.
     private let hidingSections: Set<SectionID>
     /// With the Archive section drawn: groups that are archived, hold an archived workspace, or sit in such a group.
     /// A move in or out of one may move it to the Archive or keep it there (`splittingArchive`).
@@ -57,9 +58,12 @@ nonisolated struct SidebarDragLook {
         var looseLeaving: [Int: Int] = [:]
         for (s, section) in sections.enumerated() {
             var hidden = Set<GroupID>()
+            let splits = archive && section.id != .pinned && section.id != .custom(SidebarDocStore.pinnedSection)
+            var leavesWhole = Set<GroupID>()
             for (n, node) in section.nodes.enumerated() {
                 switch node {
                 case let .workspace(ws):
+                    if splits, ws.isArchived, ws.id != options.activeWorkspaceID { hiding.insert(section.id) }
                     if !seen.insert(ws.id).inserted { repeats = true }
                     if wanted.contains(ws.id) {
                         moving.append((ws, s, nil))
@@ -78,12 +82,18 @@ nonisolated struct SidebarDragLook {
                     if archive, group.isArchived || group.workspaces.contains(where: \.isArchived) || group.parent.map(bound.contains) == true {
                         bound.insert(group.id)
                     }
+                    // A group the archive split takes out of its list whole (`splittingArchive`).
+                    if splits, group.isArchived || (!group.workspaces.isEmpty && group.workspaces.allSatisfy(\.isArchived))
+                        || group.parent.map(leavesWhole.contains) == true {
+                        leavesWhole.insert(group.id)
+                        hiding.insert(section.id)
+                    }
                     for ws in group.workspaces {
                         if !seen.insert(ws.id).inserted { repeats = true }
                         if wanted.contains(ws.id) { moving.append((ws, s, group.id)) }
                     }
-                case .item:
-                    break
+                case let .item(item):
+                    if splits, item.isArchived { hiding.insert(section.id) }
                 }
             }
         }
