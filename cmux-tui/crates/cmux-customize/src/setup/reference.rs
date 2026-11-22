@@ -1,11 +1,18 @@
 //! Repo references: where a setup (or an extension it lists) lives.
 
+use std::path::{Path, PathBuf};
+
 use serde::{Deserialize, Serialize};
 
 use crate::Error;
 
+/// The host a folder on this computer is installed from.
+pub const LOCAL_HOST: &str = "local";
+
 /// A repo reference: `[https://]HOST/OWNER/REPO[/PATH][@REF]`, also
-/// `https://HOST/OWNER/REPO.git` and `https://github.com/OWNER/REPO/tree/REF/PATH`.
+/// `https://HOST/OWNER/REPO.git` and `https://github.com/OWNER/REPO/tree/REF/PATH`;
+/// or a folder on this computer (`./looks/night`, `/abs/path`), read in
+/// place with no fetch and no commit, so an edit applies with no push.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Reference {
     pub host: String,
@@ -17,6 +24,10 @@ pub struct Reference {
     /// A branch, tag or 40-hex commit; `None` is the default branch.
     #[serde(default, rename = "ref", skip_serializing_if = "Option::is_none")]
     pub git_ref: Option<String>,
+    /// A folder on this computer, absolute: the setup is read from it in
+    /// place ([`Reference::local`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dir: Option<PathBuf>,
 }
 
 impl Reference {
@@ -76,11 +87,66 @@ impl Reference {
         {
             return Err(bad("the ref is not a branch, tag or commit"));
         }
-        Ok(Reference { host, owner, repo, path, git_ref })
+        Ok(Reference { host, owner, repo, path, git_ref, dir: None })
+    }
+
+    /// Whether `text` names a folder on this computer rather than a repo:
+    /// a path (`/`, `./`, `../`, `~/`, `.`), or a folder that holds a setup.
+    pub fn is_local_text(text: &str) -> bool {
+        let text = text.trim();
+        text == "."
+            || text == ".."
+            || ["/", "./", "../", "~/"].iter().any(|prefix| text.starts_with(prefix))
+            || Path::new(text).join(super::SETUP_FILE).is_file()
+    }
+
+    /// A folder on this computer, made absolute (`~/` is the home folder).
+    pub fn local(text: &str) -> Result<Reference, Error> {
+        let text = text.trim();
+        let expanded = match text.strip_prefix("~/") {
+            Some(rest) => {
+                std::env::var_os("HOME").map(|home| PathBuf::from(home).join(rest)).ok_or_else(
+                    || Error::Setup("there is no home folder to read ~/ from".to_owned()),
+                )?
+            }
+            None => PathBuf::from(text),
+        };
+        let dir = std::fs::canonicalize(&expanded).map_err(|error| {
+            Error::Setup(format!("{text:?} is not a folder on this computer: {error}"))
+        })?;
+        if !dir.is_dir() {
+            return Err(Error::Setup(format!("{text:?} is not a folder")));
+        }
+        let name = dir
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "setup".to_owned());
+        Ok(Reference {
+            host: LOCAL_HOST.to_owned(),
+            owner: LOCAL_HOST.to_owned(),
+            repo: name,
+            path: String::new(),
+            git_ref: None,
+            dir: Some(dir),
+        })
+    }
+
+    /// A folder ([`Reference::local`]) when `text` names one, else a repo.
+    pub fn parse_any(text: &str) -> Result<Reference, Error> {
+        if Reference::is_local_text(text) { Reference::local(text) } else { Reference::parse(text) }
+    }
+
+    /// Whether it is a folder on this computer.
+    pub fn is_local(&self) -> bool {
+        self.dir.is_some()
     }
 
     /// `HOST/OWNER/REPO[/PATH]`, without the ref: what a receipt is keyed by.
+    /// A folder's key is its absolute path.
     pub fn key(&self) -> String {
+        if let Some(dir) = &self.dir {
+            return dir.display().to_string();
+        }
         let mut key = format!("{}/{}/{}", self.host, self.owner, self.repo);
         if !self.path.is_empty() {
             key.push('/');
@@ -89,8 +155,11 @@ impl Reference {
         key
     }
 
-    /// The canonical https URL of the repo.
+    /// The canonical https URL of the repo (a folder's `file://` URL).
     pub fn repository(&self) -> String {
+        if let Some(dir) = &self.dir {
+            return format!("file://{}", dir.display());
+        }
         format!("https://{}/{}/{}", self.host, self.owner, self.repo)
     }
 
@@ -101,6 +170,9 @@ impl Reference {
 
     /// Its page on cmux.com (GitHub keeps the short form).
     pub fn page_url(&self) -> String {
+        if self.dir.is_some() {
+            return self.repository();
+        }
         let mut url = if self.host == "github.com" {
             format!("https://cmux.com/setups/{}/{}", self.owner, self.repo)
         } else {

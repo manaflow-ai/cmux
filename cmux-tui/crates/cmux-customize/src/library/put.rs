@@ -135,4 +135,53 @@ impl Customize {
         }
         Ok(())
     }
+
+    /// The file paths entry `name`'s profile holds (`None`: no such entry).
+    pub(crate) fn library_entry_files(&self, name: &str) -> Result<Option<Vec<String>>, Error> {
+        Ok(self
+            .read_library()?
+            .entries
+            .iter()
+            .find(|entry| entry.name() == name)
+            .map(|entry| entry.profile.files.keys().cloned().collect()))
+    }
+
+    /// The value entry `name`'s profile gives setting `key` (`None`: no such
+    /// entry, or it does not set it).
+    pub(crate) fn library_entry_setting(
+        &self,
+        name: &str,
+        key: &str,
+    ) -> Result<Option<serde_json::Value>, Error> {
+        Ok(self
+            .read_library()?
+            .entries
+            .iter()
+            .find(|entry| entry.name() == name)
+            .and_then(|entry| entry.profile.settings.get(key).cloned()))
+    }
+
+    /// Sets `key` to `value` inside entry `name`'s own profile, for a caller
+    /// that holds the store lock: the entry's layer carries it, so turning
+    /// the entry off (or removing it) takes it off with the rest. One
+    /// applied generation, as any toggle.
+    pub(crate) fn library_entry_set_locked(
+        &self,
+        name: &str,
+        key: &str,
+        value: serde_json::Value,
+        label: &str,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Changed, Error> {
+        self.library_change_locked(label, origin, now_ms, |library| {
+            let entry = library
+                .entries
+                .iter_mut()
+                .find(|entry| entry.name() == name)
+                .ok_or_else(|| Error::Library(format!("there is no library entry {name}")))?;
+            entry.profile.settings.insert(key.to_owned(), value);
+            Ok(())
+        })
+    }
 }

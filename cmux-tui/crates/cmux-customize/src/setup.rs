@@ -127,11 +127,15 @@ impl Setup {
 }
 
 mod export;
+mod history;
 mod reference;
 mod secrets;
+mod variant;
 pub use export::readme_text;
-pub use reference::Reference;
+pub use history::{SetupState, SetupStep, SetupSteps};
 use reference::plain;
+pub use reference::{LOCAL_HOST, Reference};
+pub use variant::THEME_FILE_KEY;
 
 /// The id rule every repo listing follows: `OWNER/NAME`, lowercase, starting
 /// with the repo's owner; `cmux/` and `manaflow-ai/` only from manaflow-ai.
@@ -521,7 +525,7 @@ impl Customize {
 
     /// The installed setup `which` names: its reference (any form), or id.
     pub fn setup(&self, which: &str) -> Result<Option<Receipt>, Error> {
-        let key = Reference::parse(which).ok().map(|reference| reference.key());
+        let key = Reference::parse_any(which).ok().map(|reference| reference.key());
         Ok(self
             .setups()?
             .into_iter()
@@ -776,6 +780,12 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Removed, Error> {
+        // The files its layer held: a theme file among them that the
+        // settings still name once it is gone is cleared below.
+        let layer_files = match &receipt.library {
+            Some(name) => self.library_entry_files(name)?.unwrap_or_default(),
+            None => Vec::new(),
+        };
         let library = match &receipt.library {
             Some(name) if self.library_names()?.contains(name) => {
                 self.library_take_off_locked(name, receipt.library_created, origin, now_ms)?;
@@ -803,9 +813,12 @@ impl Customize {
             }
             if !actions.is_empty() {
                 tree::write(self.roots(), SETTINGS, text.as_bytes(), false)?;
-                let label = format!("setup {}: removed", receipt.id);
-                self.apply_locked(Some(&label), origin, now_ms)?;
             }
+        }
+        let cleared_theme = self.clear_removed_theme_file(&layer_files)?;
+        if !actions.is_empty() || cleared_theme {
+            let label = format!("setup {}: removed", receipt.id);
+            self.apply_locked(Some(&label), origin, now_ms)?;
         }
         let mut file = self.read_setup_receipts()?;
         file.setups.retain(|old| old.reference.key() != receipt.reference.key());
