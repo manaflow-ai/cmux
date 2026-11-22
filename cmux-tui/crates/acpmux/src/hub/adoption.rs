@@ -187,6 +187,23 @@ impl Hub {
         adopted_in(&self.sessions.lock().unwrap(), stores, family, agent_session_id)
     }
 
+    /// Every `(store family, agent session id)` an acpmux session adopted or ran, with its session
+    /// id: one read for a whole import preview.
+    pub(crate) async fn adopted_sessions(&self) -> BTreeMap<(String, String), String> {
+        let stores = store_families(&*self.config.read().await);
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let mut adopted = BTreeMap::new();
+        for session in sessions.values() {
+            let meta = session.meta();
+            if let (Some(id), Some(family)) =
+                (meta.agent_session_id.clone(), session_store(&stores, &meta))
+            {
+                adopted.entry((family, id)).or_insert_with(|| session.id.clone());
+            }
+        }
+        adopted
+    }
+
     /// An agent that could not load the adopted session started a fresh one
     /// instead; with no acpmux history to rehydrate, that would be a new
     /// conversation posing as the adopted one, so the session is removed.

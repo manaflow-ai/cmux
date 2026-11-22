@@ -487,6 +487,66 @@ pub(super) async fn route(
             })
             .await
         }
+        // What importing a project's recent chats would bring, before anything is imported
+        // (`chats/import_preview.rs`). Read only: Import is `_acpmux/chat_open`'s plan per row.
+        "_acpmux/chat_import_preview" => {
+            use crate::chats::import_preview::{DEFAULT_CHATS, MAX_CHATS, PreviewContext, preview};
+            let project = params.get("project").and_then(Value::as_str).map(str::to_owned);
+            if project.as_deref().is_some_and(|p| !p.starts_with('/')) {
+                return Err(RpcError::invalid_params("project must be an absolute folder"));
+            }
+            let keys = match params.get("keys") {
+                None | Some(Value::Null) => Vec::new(),
+                Some(Value::Array(items)) if items.len() <= MAX_CHATS => items
+                    .iter()
+                    .map(|item| item.as_str().and_then(crate::chats::parse_key))
+                    .collect::<Option<Vec<_>>>()
+                    .ok_or_else(|| {
+                        RpcError::invalid_params("keys must be <harness>:<session id>")
+                    })?,
+                Some(_) => {
+                    return Err(RpcError::invalid_params(format!(
+                        "keys must be a list of at most {MAX_CHATS} chat keys"
+                    )));
+                }
+            };
+            if project.is_none() && keys.is_empty() {
+                return Err(RpcError::invalid_params("name a project or keys"));
+            }
+            let limit = params
+                .get("limit")
+                .and_then(Value::as_u64)
+                .map_or(DEFAULT_CHATS, |n| usize::try_from(n).unwrap_or(MAX_CHATS))
+                .clamp(1, MAX_CHATS);
+            let Some(service) = service else {
+                return Ok(json!({"ready": false, "rows": []}));
+            };
+            let homes = hub.harness_homes();
+            let profiles = crate::chats::store_profiles(&*hub.config.read().await, &homes);
+            let adopted = hub.adopted_sessions().await;
+            blocking(move || {
+                let Some(chats) = service.import_candidates(project.as_deref(), &keys, limit)
+                else {
+                    return Ok(json!({"ready": true, "enabled": false, "rows": []}));
+                };
+                let home = dirs::home_dir().unwrap_or_default();
+                let host = crate::host_pressure::host_name();
+                let lookup = |family: &str, id: &str| {
+                    adopted.get(&(family.to_owned(), id.to_owned())).cloned()
+                };
+                let cx = PreviewContext {
+                    profiles: &profiles,
+                    home: &home,
+                    host: &host,
+                    adopted: &lookup,
+                };
+                let mut value = preview(project.as_deref(), &chats, &cx);
+                value.set("ready", json!(true));
+                value.set("enabled", json!(true));
+                Ok(value)
+            })
+            .await
+        }
         "_acpmux/chats_window" => super::chat_windows::open(hub, conn, service, &params).await,
         "_acpmux/chats_window_close" => super::chat_windows::close(conn, &params),
         other => Err(RpcError::method_not_found(other)),
