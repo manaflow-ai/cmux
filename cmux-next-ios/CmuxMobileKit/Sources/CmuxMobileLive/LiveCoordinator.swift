@@ -1085,8 +1085,15 @@ public final class LiveCoordinator {
         await incidents.signOut()
     }
 
-    /// App foreground: immediately replace stale links and refresh presence.
+    /// App foreground: keep the links a short suspend left alive, replace stale ones, refresh presence.
     public func foreground() {
+        let away = backgroundedAt.map { ContinuousClock.now - $0 }
+        backgroundedAt = nil
+        foreground(after: away)
+    }
+
+    /// `away` is how long iOS kept the app away; nil (no background seen) redials every link.
+    func foreground(after away: Duration?) {
         isBackgrounded = false
         incidents.appActive(true)
         log.info("foreground: \(String(describing: self.link.phase), privacy: .public)")
@@ -1099,8 +1106,6 @@ public final class LiveCoordinator {
         presence?.kick()
         discovery.resume()
         // How long iOS kept the app away decides whether the links are kept (LinkMachine.shortSuspend).
-        let away = backgroundedAt.map { ContinuousClock.now - $0 }
-        backgroundedAt = nil
         for session in sessions.values { session.link.send(away.map { .resumed(after: $0) } ?? .resume) }
     }
 

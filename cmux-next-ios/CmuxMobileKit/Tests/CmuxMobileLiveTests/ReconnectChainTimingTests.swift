@@ -528,7 +528,8 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
                 mac.lockstep.hold()
                 live.background()
                 marks.mark("resume")
-                live.foreground()
+                // A suspend iOS ended the link of: `.resume` replaces it (a short one keeps it).
+                live.foreground(after: nil)
                 // Main-actor marks: each counts once its old state was seen gone.
                 var sawUnpaired = false
                 var sawNotReady = false
