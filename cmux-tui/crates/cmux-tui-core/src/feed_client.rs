@@ -77,8 +77,12 @@ pub type ReplySender = Arc<dyn Fn(&str, &str, &str) -> bool + Send + Sync>;
 /// while the feed's is held.
 pub type Places = Box<dyn Fn(&FeedItem) -> Option<Place> + Send>;
 
-/// Snapshots the daemon's store into a [`Places`] lookup for one read.
-pub type PlaceResolver = Arc<dyn Fn() -> Places + Send + Sync>;
+/// Snapshots the daemon's store into a [`Places`] lookup for one read:
+/// `None` for a read that may name any item (one pass over the tabs),
+/// `Some(items)` for a read that names only these (a delta read, a
+/// `feed.item.get`): each costs a few map lookups, and no pass over the
+/// tabs runs.
+pub type PlaceResolver = Arc<dyn Fn(Option<&[FeedItem]>) -> Places + Send + Sync>;
 
 /// What the client reads from its host.
 pub struct FeedDeps {
@@ -362,7 +366,11 @@ impl FeedClient {
     pub fn view(&self, request: &ViewRequest) -> Value {
         self.ensure_started();
         let now = self.inner.now();
-        let places = self.places(true);
+        // A delta read names only the items it asks for in full.
+        let places = match &request.only {
+            Some(ids) => self.places_of(ids),
+            None => self.places(true),
+        };
         let mut state = self.inner.lock();
         // A snooze that ended shows again with this read.
         let woke: Vec<FeedEvent> = state.mirror.tick(now).into_iter().map(view_event).collect();
@@ -375,7 +383,19 @@ impl FeedClient {
     /// The store's place lookup for one read (none when the read shows no
     /// rows). Taken before the feed state lock.
     fn places(&self, rows: bool) -> Places {
-        if rows { (self.inner.deps.place)() } else { Box::new(|_| None) }
+        if rows { (self.inner.deps.place)(None) } else { Box::new(|_| None) }
+    }
+
+    /// The place lookup of a read that names only `ids`: their items are
+    /// copied under a short feed lock, then named with no feed lock held,
+    /// so the read costs a few lookups per item and no pass over the tabs.
+    /// An item that changed between the two locks keeps the place it had.
+    fn places_of(&self, ids: &[String]) -> Places {
+        let items: Vec<FeedItem> = {
+            let state = self.inner.lock();
+            ids.iter().filter_map(|id| state.mirror.visible(id).cloned()).collect()
+        };
+        (self.inner.deps.place)(Some(&items))
     }
 
     fn context<T>(
@@ -411,7 +431,7 @@ impl FeedClient {
     pub fn items(&self, ids: &[String], confirmed: bool) -> Vec<Value> {
         self.ensure_started();
         let now = self.inner.now();
-        let places = self.places(!confirmed);
+        let places = if confirmed { self.places(false) } else { self.places_of(ids) };
         let state = self.inner.lock();
         self.context(&state, now, &places, |context| {
             ids.iter()

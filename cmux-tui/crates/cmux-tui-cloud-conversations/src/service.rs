@@ -16,6 +16,7 @@ use super::contract::{
     mutation_data, read_body, read_value, requests_list_data, require_agent, require_conversation,
     snapshot_data,
 };
+use super::inbox_cache::InboxCache;
 use super::session::{CloudSession, SessionParams};
 use super::stream::{CloudEvent, StreamAction, StreamState};
 use cmux_json::JsonSet as _;
@@ -333,6 +334,9 @@ struct Inner {
     /// set, nor an owner set newer than it. Taken before `subscriptions`; the
     /// sink only queues the event.
     presence_order: Mutex<()>,
+    /// The inbox as last read whole, kept from the stream (inbox_cache.rs).
+    /// A leaf lock: nothing is taken while it is held.
+    inbox: Mutex<InboxCache>,
     /// The next [`Subscription::driver`].
     next_driver: AtomicU64,
 }
@@ -386,6 +390,7 @@ impl CloudConversations {
                 requests_in_flight: AtomicUsize::new(0),
                 presence_order: Mutex::new(()),
                 next_driver: AtomicU64::new(0),
+                inbox: Mutex::new(InboxCache::default()),
             }),
         }
     }
@@ -455,6 +460,7 @@ impl CloudConversations {
             lease.app_held = false;
             lease.generation += 1;
         }
+        self.inner.inbox().forget();
         self.inner.notify();
         Ok(json!({"state": "signed_out"}))
     }
@@ -551,6 +557,31 @@ impl CloudConversations {
             }
         }
         Ok(json!({"entries": entries, "revision": revision, "next_cursor": cursor}))
+    }
+
+    /// `home-inbox`'s Cloud entries with no Cloud read: the inbox the daemon
+    /// last read whole, with every entry the live inbox stream wrote since
+    /// (inbox_cache.rs). `None` when there is none to trust (no live stream
+    /// for the lease's account, or nothing read since it went live): the
+    /// caller then takes a request slot and calls [`Self::home_inbox_read`].
+    pub fn home_inbox_kept(&self) -> Option<Vec<Value>> {
+        let account = self.inner.lease_account();
+        self.inner.inbox().entries(account.as_deref())
+    }
+
+    /// `home-inbox`'s Cloud entries read from the network
+    /// ([`Self::inbox_list_all`]); a whole read is kept while the inbox
+    /// stream is live, so the next `home-inbox` reads nothing.
+    pub fn home_inbox_read(&self, budget: Duration) -> Result<Vec<Value>, CloudError> {
+        let account = self.inner.lease_account();
+        let start = self.inner.inbox().begin();
+        let all = self.inbox_list_all(false, budget)?;
+        let whole = all.get("next_cursor").is_none_or(Value::is_null);
+        let entries = all.get("entries").and_then(Value::as_array).cloned().unwrap_or_default();
+        if !whole {
+            return Ok(entries);
+        }
+        Ok(self.inner.inbox().finish(account.as_deref(), &start, entries))
     }
 
     fn inbox_page(
@@ -1182,7 +1213,12 @@ impl CloudConversations {
 }
 
 impl Inner {
+    fn inbox(&self) -> std::sync::MutexGuard<'_, InboxCache> {
+        self.inbox.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     fn emit(&self, event: CloudEvent) {
+        self.inbox().observe(&event);
         let sink = self.sink.lock().unwrap_or_else(PoisonError::into_inner).clone();
         if let Some(sink) = sink {
             sink(event);

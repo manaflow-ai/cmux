@@ -103,3 +103,61 @@ fn unknown_ids_name_nothing_and_the_row_names_the_poster() {
     assert_eq!(row(&mux, context), (Some("api-hook".to_owned()), None));
     mux.shutdown();
 }
+
+/// The point lookups of a delta read (`feed_places_of`) name the same tab,
+/// workspace and agent as the whole index, for every way an item names them.
+#[test]
+fn point_lookups_name_what_the_index_names() {
+    let mux = Mux::new_for_test("feed-places-point", crate::SurfaceOptions::default());
+    let (surface, pane, workspace, tab, term) = named_terminal(&mux);
+    run(
+        &mux,
+        json!({"cmd":"new-conversation-tab","pane":pane,
+               "agent_session":{"host":"install:mac-test","session":"sess-point","harness":"claude"}}),
+    )
+    .unwrap();
+    let contexts = [
+        json!({"terminal": term}),
+        json!({"tab": tab}),
+        json!({"tab": surface.to_string()}),
+        json!({"workspace": workspace}),
+        json!({"workspace": "ws_unknown", "terminal": term}),
+        json!({"acp_session": "sess-point"}),
+        json!({"acp_session": "sess-elsewhere"}),
+        json!({"tab": "tab_00000000000000000000000000000000", "terminal": term}),
+        json!({"tab": "tab_00000000000000000000000000000000"}),
+    ];
+    let whole = mux.feed_places();
+    for context in contexts {
+        let item = item(context.clone());
+        let point = mux.feed_places_of(std::slice::from_ref(&item));
+        assert_eq!(point(&item), whole(&item), "{context}");
+    }
+    mux.shutdown();
+}
+
+/// Detector (audit 2026-11-18 §15): a delta `feed.view.read` (`only`, the
+/// ids a `feed-view-changed` carries) names only those items, with no pass
+/// over every tab; a whole read makes one.
+#[test]
+fn a_delta_view_read_makes_no_pass_over_the_tabs() {
+    let mux = Mux::new_for_test("feed-places-delta", crate::SurfaceOptions::default());
+    let (_, _, _, _, term) = named_terminal(&mux);
+    let feed = mux.feed_client();
+    let posted = feed.post(item(json!({"terminal": term})));
+    let read = |request: Value| {
+        super::INDEX_BUILDS.with(|builds| builds.set(0));
+        let view = feed.view(&serde_json::from_value(request).unwrap());
+        (view, super::INDEX_BUILDS.with(std::cell::Cell::get))
+    };
+    let (_, whole) = read(json!({"layout": "list"}));
+    assert_eq!(whole, 1, "a whole read builds the index once");
+    let (view, delta) = read(json!({"layout": "list", "only": [posted.id]}));
+    assert_eq!(delta, 0, "a delta read built the whole place index");
+    let entry = &view["groups"][1]["entries"][0]["item"];
+    assert_eq!(entry["row"]["where"], "api › server", "{view}");
+    let (view, _) = read(json!({"layout": "list", "only": []}));
+    assert_eq!(view["groups"][1]["entries"][0]["item"], json!({"id": posted.id, "same": true}));
+    feed.shutdown();
+    mux.shutdown();
+}
