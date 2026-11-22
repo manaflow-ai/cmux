@@ -229,3 +229,59 @@ fn a_resume_from_another_or_no_epoch_gets_a_manifest() {
     same.on_message(Message::Resume(Resume { epoch: "e1".into(), rev: 2 })).unwrap();
     assert!(matches!(&drain(&mut same, &p)[..], [Message::Delta(d)] if d.epoch == "e1"));
 }
+
+fn only(id: &'static str) -> RowFilter {
+    RowFilter::new(move |tab| tab == id)
+}
+
+#[test]
+fn a_filter_hides_rows_and_their_blobs_from_manifest_delta_and_want() {
+    let mut p = Producer::new("e1", 0, 16, 8);
+    p.observe(browser("a", "A", b"fa", b"ta"));
+    p.observe(browser("b", "B", b"fb", b"tb"));
+    let mut s = Session::new();
+    s.set_row_filter(Some(only("a")));
+    s.on_message(Message::Want(vec![h(b"tb")])).unwrap();
+    let out = drain(&mut s, &p);
+    let Message::Manifest(m) = &out[0] else { panic!("{out:?}") };
+    assert_eq!(m.rows.iter().map(|r| r.tab_id.as_str()).collect::<Vec<_>>(), ["a"]);
+    assert_eq!(blob_hashes(&out), [h(b"fa"), h(b"ta")]);
+    assert_eq!(s.stats().skipped_hidden, 1);
+
+    p.observe(browser("b", "B2", b"fb", b"tb2"));
+    p.observe(browser("a", "A2", b"fa", b"ta"));
+    p.set_order(&["b", "a"]);
+    let out = drain(&mut s, &p);
+    let Message::Delta(d) = &out[0] else { panic!("{out:?}") };
+    assert_eq!(d.changed.iter().map(|c| c.tab_id.as_str()).collect::<Vec<_>>(), ["a"]);
+    assert_eq!(d.order.as_deref(), Some(&["a".to_owned()][..]));
+    assert!(blob_hashes(&out).is_empty());
+
+    // A closed tab is listed as removed even if hidden.
+    p.remove("b");
+    let out = drain(&mut s, &p);
+    assert!(matches!(&out[..], [Message::Delta(d)] if d.removed == ["b"]));
+}
+
+#[test]
+fn a_new_filter_sends_a_manifest_and_a_resume_under_a_hiding_filter_too() {
+    let p = producer();
+    let mut s = Session::without_push();
+    s.on_message(Message::Viewport(Viewport::default())).unwrap();
+    drain(&mut s, &p);
+    s.set_row_filter(Some(only("b")));
+    let out = drain(&mut s, &p);
+    assert!(
+        matches!(&out[..], [Message::Manifest(m)] if m.rows.len() == 1 && m.rows[0].tab_id == "b")
+    );
+
+    let mut s = Session::without_push();
+    s.set_row_filter(Some(only("b")));
+    s.on_message(Message::Resume(Resume { epoch: "e1".into(), rev: 2 })).unwrap();
+    assert!(matches!(&drain(&mut s, &p)[..], [Message::Manifest(_)]));
+
+    let mut s = Session::without_push();
+    s.set_row_filter(Some(RowFilter::new(|_| true)));
+    s.on_message(Message::Resume(Resume { epoch: "e1".into(), rev: 2 })).unwrap();
+    assert!(matches!(&drain(&mut s, &p)[..], [Message::Delta(_)]));
+}
