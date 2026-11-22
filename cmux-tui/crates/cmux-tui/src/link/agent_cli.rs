@@ -616,7 +616,7 @@ fn fresh(args: &Args, records: &Records, clock: &mut Clock) -> Result<Moved, Fai
             Err(stuck) => Failed { error: format!("{}; {}", failed.error, stuck.error), ..stuck },
         });
     }
-    let manifest = &begun["manifest"];
+    let manifest = begun.get("manifest").unwrap_or(&Value::Null);
     let (mut target, bytes) =
         match up_to_finish(args, &mut source, records, &mut record, manifest, &vm_kind, clock) {
             Ok(copied) => copied,
