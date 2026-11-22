@@ -176,6 +176,8 @@ startGalleryLoad(env.load);
 if (env.load) root.dataset.galleryLoad = env.load;
 root.dataset.galleryEntry = entry.id;
 root.dataset.galleryVariant = variantName;
+// Every variant of the entry, for a tool that renders them all (scripts/gallery/proof-clip.mjs).
+root.dataset.galleryVariants = Object.keys(entry.variants).join(",");
 root.dataset.gallerySource = entryState?.path ?? "";
 root.dataset.galleryEntryVersion = String(entryState?.version ?? "");
 root.dataset.galleryRevision = revision.sha;
