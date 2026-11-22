@@ -938,6 +938,82 @@ class PassedBefore(unittest.TestCase):
         self.assertFalse(out.exists())
 
 
+class SharedBaseReplay(unittest.TestCase):
+    """A base check reads the base replays other pull requests' base checks shared at its merge parent's inputs key."""
+
+    @staticmethod
+    def art(id, at, run, name="webviews-base-replay-k-t", head_repo=7, expired=False):
+        return {"id": id, "name": name, "created_at": at, "expired": expired,
+                "archive_download_url": f"https://api.example/artifacts/{id}/zip",
+                "workflow_run": {"id": run, "head_branch": f"lane/{run}", "repository_id": 7,
+                                 "head_repository_id": head_repo}}
+
+    @staticmethod
+    def zipped(runs):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as archive:
+            archive.writestr("history.json", json.dumps({"runs": runs}))
+        return buf.getvalue()
+
+    def test_another_pull_requests_replay_answers_known_and_forks_this_run_and_other_keys_do_not(self):
+        name = "webviews-base-replay-k-t"
+        listing = json.dumps({"artifacts": [
+            self.art(1, "2026-11-22T01:00:00Z", 11), self.art(2, "2026-11-22T02:00:00Z", 12, head_repo=9),
+            self.art(3, "2026-11-22T03:00:00Z", 99), self.art(4, "2026-11-22T04:00:00Z", 14, name="webviews-base-replay-x-t"),
+            self.art(5, "2026-11-22T05:00:00Z", 15, expired=True)]}).encode()
+        shared = history.record([], "b" * 40, 1000.0, {"test/a.test.ts > a": False, "test/b.test.ts > b": True}, "k")
+        wrong_key = history.record([], "c" * 40, 1001.0, {"test/c.test.ts > c": False}, "other")
+        calls = []
+
+        def get(url, token):
+            calls.append(url)
+            if "/actions/artifacts?" in url:
+                return 200, {}, listing
+            if url == "https://api.example/artifacts/1/zip":
+                return 302, {"Location": "https://blob.example/1"}, b""
+            if url == "https://blob.example/1":
+                return 200, {}, self.zipped(shared + wrong_key)
+            return 404, {}, b""
+
+        runs, said = history.fetch_shared("o/r", name, "k", 99, "tok", get=get)
+        self.assertEqual([r["sha"] for r in runs], ["b" * 40])  # only run 11's, and only its runs at key k
+        self.assertIn("1 shared base replays from 1", said)
+        self.assertNotIn("https://api.example/artifacts/2/zip", calls)
+        head = {"test/a.test.ts > a": False, "test/b.test.ts > b": False}
+        base, replay = history.known(history.with_shared([], runs), "k", head)
+        # A red answers from one replay; a green needs GREEN_SAMPLES runs, so b's file still replays.
+        self.assertEqual(base, {"test/a.test.ts > a": False})
+        self.assertEqual(replay, ["test/b.test.ts"])
+
+    def test_a_failed_listing_reads_nothing_and_says_why(self):
+        runs, said = history.fetch_shared("o/r", "webviews-base-replay-k-t", "k", 1, None,
+                                          get=lambda url, token: (403, {}, b""))
+        self.assertEqual(runs, [])
+        self.assertIn("403", said)
+
+    def test_the_tools_key_moves_with_the_runner_and_the_workflow(self):
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        runner = folder / "runner"
+        runner.mkdir()
+        (runner / "run-webviews-tests.sh").write_text("a\n")
+        workflow = folder / "ci-web.yml"
+        workflow.write_text("w\n")
+        first = history.tools_key(runner, workflow)
+        self.assertEqual(first, history.tools_key(runner, workflow))
+        (runner / "run-webviews-tests.sh").write_text("b\n")
+        second = history.tools_key(runner, workflow)
+        self.assertNotEqual(first, second)
+        workflow.write_text("w2\n")
+        self.assertNotEqual(second, history.tools_key(runner, workflow))
+
+    def test_the_base_check_reads_known_from_the_shared_history_and_uploads_its_own_replay(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('known "$history.shared"', text)
+        self.assertIn("fetch-shared", text)
+        self.assertIn("name: ${{ steps.history.outputs.shared }}", text)
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", text.split("- name: Share this base replay", 1)[1].split("run:", 1)[0])
+
+
 class Workflow(unittest.TestCase):
     def job(self, name):
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -994,7 +1070,11 @@ class Workflow(unittest.TestCase):
         self.assertIn('webviews_test_history.py" fetch', restore)
         self.assertIn('--branch "$BASE_REF"', restore)
         self.assertIn("continue-on-error: true", restore)
-        self.assertNotIn("upload-artifact", base.split("Restore the base's webview test history")[1].split("Fail on the change")[0])
+        # A pull request never writes the base's push history: its only upload is its own replay, under the shared name.
+        span = base.split("Restore the base's webview test history")[1].split("Fail on the change")[0]
+        self.assertEqual(span.count("upload-artifact"), 1)
+        self.assertNotIn("name: webviews-test-history", span)
+        self.assertIn("name: ${{ steps.history.outputs.shared }}", span)
         self.assertNotIn("actions/cache/save", base)  # a pull request never writes the base's history
         self.assertIn('webviews_test_history.py" flaky', base)
 
@@ -1182,8 +1262,10 @@ class Workflow(unittest.TestCase):
         self.assertLess(pick.index("webviews_affected.py --base HEAD^1 --head HEAD"), pick.index("git checkout -q --detach HEAD^1"))
         self.assertIn("early-files", pick)
         # A narrowed pick hands the early job its shards' files (RFD 0023 item 3); they replace the affected list.
-        self.assertLess(pick.index("webviews_affected.py --base HEAD^1 --head HEAD"), pick.index("webviews-durations/pr-shard-files"))
-        self.assertLess(pick.index("webviews-durations/pr-shard-files"), pick.index('only=(--only'))
+        # The manifest path is a file name, not a timing; its index is read once for both order checks.
+        shard_files_at = pick.index("webviews-durations/pr-shard-files")
+        self.assertLess(pick.index("webviews_affected.py --base HEAD^1 --head HEAD"), shard_files_at)
+        self.assertLess(shard_files_at, pick.index('only=(--only'))
         scope = {s["name"]: s for s in jobs["web-subarea-scope"]["steps"]}
         self.assertIn("--files-of", scope["Pick the react-apps-check shards"]["run"])
         self.assertIn("webviews-durations/pr-shard-files", scope["Upload the duration manifest"]["with"]["path"])
