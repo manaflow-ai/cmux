@@ -22933,6 +22933,29 @@
     "vi": "Hiện mức dùng ngữ cảnh",
     "zh-Hans": "显示上下文用量",
     "zh-Hant": "顯示上下文用量"
+   },
+   "action.home.makeItYours": {
+    "ar": "اجعل cmux خاصًا بك",
+    "bs": "Prilagodite cmux",
+    "da": "Gør cmux til dit eget",
+    "de": "Mach cmux zu deinem",
+    "en": "Make cmux Yours",
+    "es": "Haz cmux a tu medida",
+    "fr": "Personnalisez cmux",
+    "it": "Rendi cmux tuo",
+    "ja": "cmuxを自分好みに",
+    "km": "ធ្វើឲ្យ cmux ជារបស់អ្នក",
+    "ko": "cmux를 내 스타일로",
+    "nb": "Gjør cmux til ditt eget",
+    "pl": "Dostosuj cmux do siebie",
+    "pt-BR": "Deixe o cmux do seu jeito",
+    "ru": "Настройте cmux под себя",
+    "th": "ทำให้ cmux เป็นแบบของคุณ",
+    "tr": "cmux'u Kendinize Göre Ayarlayın",
+    "uk": "Налаштуйте cmux під себе",
+    "vi": "Tùy chỉnh cmux theo ý bạn",
+    "zh-Hans": "打造你的 cmux",
+    "zh-Hant": "打造你的 cmux"
    }
   },
   "AgentChatMenu": {
