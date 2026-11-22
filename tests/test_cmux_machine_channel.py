@@ -604,6 +604,23 @@ class MacLivePayload(unittest.TestCase):
         self.assertEqual(files["cmux-tui"]["url"], f"{channel.FILES}/{MAC_COMMIT}/cmux-tui-aarch64-apple-darwin")
         self.assertEqual(files["cmux-tui"]["size"], len(b"cmux-tui-aarch64-apple-darwin bytes"))
 
+    def test_daemon_from_is_signed_beside_live_from(self):
+        # The nightly-live channel follows daemon_from: app commits past the whole-app floor whose daemon ABI
+        # still matches. A live-from file without it (an older hot-apply.py) signs live_from alone.
+        self.assertNotIn("daemon_from", self.run_payload())
+        self.live.write_text(json.dumps({"live_from": [MAC_COMMIT, "e" * 40],
+                                         "daemon_from": [MAC_COMMIT, "e" * 40, "f" * 40]}))
+        value = self.run_payload()
+        self.assertEqual((value["live_from"], value["daemon_from"]),
+                         ([MAC_COMMIT, "e" * 40], [MAC_COMMIT, "e" * 40, "f" * 40]))
+
+    def test_daemon_from_refusals(self):
+        for daemon in (["f" * 40], [MAC_COMMIT, "f" * 40], [MAC_COMMIT, "e" * 40, "short"],
+                       [MAC_COMMIT, "e" * 40] + ["%040x" % i for i in range(399)], "nope"):
+            self.live.write_text(json.dumps({"live_from": [MAC_COMMIT, "e" * 40], "daemon_from": daemon}))
+            with self.subTest(daemon=str(daemon)[:60]), self.assertRaises(SystemExit):
+                self.run_payload()
+
     def test_refusals(self):
         (self.served / "cmux-tui-host-aarch64-apple-darwin").write_bytes(b"other bytes")
         with self.assertRaises(SystemExit):
