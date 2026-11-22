@@ -28,6 +28,8 @@ public final class WebDevOverrideWatcher {
     /// Counts ``reloadPages(live:hosting:pages:served:watcher:)`` calls, so an engine move a later reload
     /// superseded does not finish.
     private var reloadGeneration = 0
+    /// Reloads each Chromium page at its safe point, under a picture of itself.
+    let pageReload = PageGracefulReload()
     /// Reloads the served views each at its own safe point (``reloadPages(live:hosting:pages:served:watcher:)``).
     let gracefulReload = WebBundleGracefulReload()
 
@@ -113,7 +115,7 @@ public final class WebDevOverrideWatcher {
     ///   - served: The WebKit views the scheme handlers served.
     ///   - watcher: The watcher whose reload count supersedes earlier engine moves (tests pass their own).
     ///   - why: What changed, for the log line that counts the views reloaded.
-    /// - Returns: The work still running for pages that change engine, nil for none (tests wait on it).
+    /// - Returns: The work still running for pages that change engine or reload in Chromium, nil for none (tests wait on it).
     @discardableResult
     static func reloadPages(live: Bool = WebDevOverride.current.isActive,
                             hosting: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
@@ -152,10 +154,10 @@ public final class WebDevOverrideWatcher {
                 for move in moves { await move.value }
             }
         }
-        // Chromium pages reload when they serve the loop now or did until now.
+        // Chromium pages reload when they serve the loop now or did until now, each at its safe point
+        // under a picture of itself (``PageGracefulReload``), as the WebKit views do.
         guard chromiumLive || watcher.chromiumServedLive else { return nil }
-        for page in pages where page.chromiumPage != nil { page.reload() }
-        return nil
+        return watcher.pageReload.reload(pages.filter { $0.chromiumPage != nil })
     }
 
     /// Follows the overlay's `manifest.json`, which an install writes after its files.
