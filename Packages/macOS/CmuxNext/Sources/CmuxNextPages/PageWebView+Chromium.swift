@@ -480,8 +480,11 @@ extension PageWebView {
     /// needs (a dev server's lets the page's HMR socket connect).
     func chromiumResource(_ url: URL, range: String? = nil) async -> PageChromiumResponse {
         guard let request = PageSchemeHandler.dynamicRequest(for: url, page: descriptor) else {
+            // Pinned to the update this page's document loaded with, as a WebKit page is: one
+            // document never mixes two builds' files.
             return await PageSchemeHandler.liveChromiumResponse(to: url, range: range, page: descriptor,
-                                                                root: Self.servedRoot(for: descriptor), dynamicSource: dynamicResources)
+                                                                root: Self.servedRoot(for: descriptor), dynamicSource: dynamicResources,
+                                                                pinnedIn: webView)
         }
         if let ranged = dynamicResources as? any PageRangedResourceSource {
             return await PageSchemeHandler.rangedResponse(to: request, range: range, source: ranged)
