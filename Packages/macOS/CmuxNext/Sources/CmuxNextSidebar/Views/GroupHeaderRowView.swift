@@ -61,7 +61,7 @@ final class GroupHeaderRowView: SidebarRowView {
     let dot = CALayer()
     /// The more button (the shared ⋮, `OverflowButton`): the group editor, as a click on the
     /// name (cx-rcby, Lawrence 2026-10-08); a right-click shows the group's flat menu.
-    let moreButton = OverflowButton(label: GroupEditorStrings.more)
+    let moreButton = OverflowButton.rowControl(label: GroupEditorStrings.more)
     /// The add button (+): a new workspace at the end of the group (cmuxterm-hq#1829,
     /// the Edge group header). Shows with the more button.
     let addButton = SidebarIconButton(plus: GroupEditorStrings.newWorkspace)
@@ -69,8 +69,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// workspace row's does; the bar's pin is only a mark, and a click there folds the group. An
     /// unpinned group shows none (Leo 2026-10-21: "no empty pin symbol by default"); Pin Group stays in
     /// its menu and editor.
-    let pinButton = SidebarIconButton(icon: .browserToolbarUnpin, pointSize: { Metrics.smallIconSize - Metrics.space2 },
-                                      label: GroupEditorStrings.unpin)
+    let pinButton = SidebarIconButton.rowControl(icon: .browserToolbarUnpin, label: GroupEditorStrings.unpin)
     private var pinned = false
     /// A remote group's machine mark (``SidebarGroup/machine``, ``SidebarHostGroupLook``).
     let machineMark = DecorativeImageView()
@@ -210,7 +209,7 @@ final class GroupHeaderRowView: SidebarRowView {
         count.stringValue = details.memberCount && collapsed && row.childCount > 0 ? "\(row.childCount)" : ""
         chevronIcon = Self.disclosureIcon(collapsed: collapsed)
         // One right-pointing glyph turned a quarter turn when open: a user's fold turns it as the rows slide.
-        chevron.setImage(NSImage.icon(.disclosureCollapsed, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2)))
+        chevron.setImage(NSImage.icon(.disclosureCollapsed, size: SidebarStyle.rowSymbolSide)) // the + ⋮ and Unpin's size (#49583)
         chevron.setOpen(!collapsed, animated: animated && configuredOnce)
         configuredOnce = true
         // Lawrence 2026-10-20: "All we care about is the loading"; msg 11983: and blue, orange and red.
