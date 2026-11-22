@@ -117,9 +117,11 @@ jobs:
           sdk="$(./scripts/ci/macos-cross.sh ref-sdk "$RUNNER_TEMP/macos-cross/ref/cmux-tui-app-host-aarch64-apple-darwin")"
           ./scripts/ci/macos-cross.sh toolchain "$sdk"
           ghostty="$(git -C ghostty-next rev-parse HEAD)"
-          ./scripts/ci/macos-cross.sh hosts "$GITHUB_SHA" "$ghostty"
+          # all: the package build's own pass (cmux-tui-build-package.yml), every cargo invocation of a target at once in
+          # its own target dir (cargo-groups.sh). hosts then bins ran them one at a time: with codegen-units 1 the slowest
+          # crate's last unit holds one core while the rest wait (run 44985475776: bins 1934 s for aarch64 alone).
+          ./scripts/ci/macos-cross.sh all "$GITHUB_SHA" "$ghostty" "0.0.0-r2.sha-$GITHUB_SHA"
           ./scripts/ci/macos-cross.sh vt
-          ./scripts/ci/macos-cross.sh bins "$GITHUB_SHA" "$ghostty" "0.0.0-r2.sha-$GITHUB_SHA"
 
       - name: Compare with the Mac builds
         run: |

@@ -31,7 +31,8 @@ import { SubsessionContext } from "../subagents/subsessions";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
 /// text, which a path that gets no chip draws as.
-export function PathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
+type PathChipProps = { path: string; line?: number; label?: ReactNode; written?: string };
+export function PathChip({ path, line, label, written }: PathChipProps) {
   const scope = useMessageScope();
   const readOnly = useTranscriptReadOnly();
   if (isDeniedPath(path)) return <span className="cv-chip-plain">{written ?? label ?? path}</span>;
@@ -39,10 +40,10 @@ export function PathChip({ path, label, written }: { path: string; label?: React
   // reader's every path is on the owner's machine.
   if (scope?.host !== undefined || readOnly)
     return <ElsewhereChip path={path} host={scope?.host ?? ""} label={label} />;
-  return <HostPathChip path={path} label={label} written={written} />;
+  return <HostPathChip path={path} line={line} label={label} written={written} />;
 }
 
-function HostPathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
+function HostPathChip({ path, line, label, written }: PathChipProps) {
   const t = useT();
   const { info, policy } = usePathInfo(path);
   const plain =
@@ -61,7 +62,7 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
       title={outside ? `${t("chip.outsideProject")}\n${path}` : path}
       /* It drags out as the file itself (conversation/dragOut.ts). */
       draggable
-      onClick={() => void callChipHost("link.openPath", { path })}
+      onClick={() => void callChipHost("link.openPath", policy.supportsFileLine && line ? { path, line } : { path })}
     >
       {folder ? <Folder size={16} className="cv-chip__icon" /> : <FileKindIcon path={path} className="cv-chip__icon" />}
       <span className="cv-chip__label">{label ?? pathName(path)}</span>

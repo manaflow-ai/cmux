@@ -32,7 +32,7 @@ extension ActionRegistry {
         let items = menuItems(shown, target: target, context: effective, implied: runFacts, arguments: arguments, labels: labels,
                               machineID: machineID)
         (contextMenuStyleV2 ? styleV2(items) : items).forEach(menu.addItem)
-        if customize ?? (entries == nil) { appendCustomizeItem(to: menu, for: context) }
+        if customize ?? (entries == nil) { appendCustomizeItem(to: menu, for: context, target: target) }
         return menu
     }
 
