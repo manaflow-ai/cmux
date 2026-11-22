@@ -146,10 +146,14 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
         }
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         if event.type == .keyDown, FindPillView.forwardArrowKeyDown(event, in: keyWindow ?? event.window) { return }
+        // `cmux app clicks`: every press, the window AppKit gives it, and where the keyboard is once it is dispatched.
+        let press = ClickTrace.isPress(event.type)
+        if press { ClickTrace.shared.press(event, window: event.window) }
         if event.type == .keyUp || event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown, keyUpOrClickInterceptor?(event) == true { return }
         if event.type == .leftMouseDown || event.type == .leftMouseUp {
             BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { super.sendEvent(event) }
         } else { super.sendEvent(event) }
+        if press { ClickTrace.shared.dispatched(event, keyWindow: keyWindow) }
         if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown { BenchSpans.measure("app.mouseDownObserver") { mouseDownObserver?(event) } }
         if event.type == .leftMouseUp || event.type == .leftMouseDragged { leftButtonObserver?(event) }
         // After AppKit handled the move: a browser toolbar under the pointer in a window that is

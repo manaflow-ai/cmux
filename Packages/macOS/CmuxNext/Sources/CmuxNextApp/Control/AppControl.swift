@@ -140,6 +140,11 @@ final class AppControl {
                 guard tab.agentSession != nil else { return .notAgentChat }
                 return services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }.map { .page($0) } ?? .notLoaded
             }.controlMethod(),
+            // `cmux app clicks`: where each of the person's last presses went (ClickTrace, every build, read-only).
+            .mainActor(ClickTrace.controlMethod) { call in
+                let report = ClickTrace.shared.report(limit: call.params["limit"]?.intValue)
+                return .value((try? JSONDecoder().decode(CmuxNextSettings.JSONValue.self, from: JSONEncoder().encode(report))) ?? .null)
+            },
         ])
         // Diagnostics for tagged DEV builds; a release build registers none (ControlRouter drops them: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
