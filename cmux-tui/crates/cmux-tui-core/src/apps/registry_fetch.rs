@@ -124,7 +124,9 @@ impl Supervisor {
             return;
         }
         let Some(url) = configured_url() else { return };
-        let Some(apps_dir) = self.config.sources.local.parent().map(Path::to_path_buf) else {
+        let Some(apps_dir) =
+            self.config.sources.local.as_deref().and_then(Path::parent).map(Path::to_path_buf)
+        else {
             return;
         };
         let me = Arc::downgrade(self);
