@@ -1,0 +1,48 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "settle-now",
+      "entry": "agent-pane.settle-moment",
+      "variant": "now",
+      "width": 760,
+      "height": 320,
+      "clip": ".smd"
+    },
+    {
+      "name": "settle-toast",
+      "entry": "agent-pane.settle-moment",
+      "variant": "toast",
+      "width": 760,
+      "height": 320,
+      "clip": ".smd"
+    },
+    {
+      "name": "settle-fade",
+      "entry": "agent-pane.settle-moment",
+      "variant": "fade",
+      "width": 760,
+      "height": 320,
+      "clip": ".smd"
+    },
+    {
+      "name": "settle-chip",
+      "entry": "agent-pane.settle-moment",
+      "variant": "chip",
+      "width": 760,
+      "height": 320,
+      "clip": ".smd"
+    },
+    {
+      "name": "shipped-toast",
+      "entry": "agent-pane.settled-toast",
+      "variant": "merged",
+      "width": 560,
+      "height": 320,
+      "clip": ".toast-gallery"
+    }
+  ]
+}
