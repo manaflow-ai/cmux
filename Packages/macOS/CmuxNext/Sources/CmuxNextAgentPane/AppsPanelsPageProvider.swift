@@ -12,7 +12,8 @@ import UniformTypeIdentifiers
 ///
 /// Ops: `list`, `composer` (the composer's extension slash commands and mention providers, as the
 /// daemon answers `apps.composer.list`), `mentions {query, prefix?, limit?}` (the extension `@` items
-/// that match, as the daemon ranks them in `apps.composer.mentions`), `mount {surface, app, section?, context}` (answers `{mount_id, asset_base?}`),
+/// that match, as the daemon ranks them in `apps.composer.mentions`), `chatActions {role?}` (the
+/// installed extensions' message actions, `apps.chat_actions.list`), `mount {surface, app, section?, context}` (answers `{mount_id, asset_base?}`),
 /// `dispatch` and `reload {mount_id}` (both only from the person's own click or key), `layout
 /// {mount_id, height}` and `unmount`. The `scene` stream carries each mount's ops batches and its
 /// status, `{mount_id, status: loading|ready|failed|disconnected, reason?}`, as the host model has it.
@@ -107,6 +108,15 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
             } catch {
                 throw PageError.failed(error, code: "cmux.apps.panels.failed", retryable: true)
             }
+        case Self.namespace + "chatActions":
+            // The daemon decides which message actions a message of `role` gets; the page reports
+            // them with the message, and the pane's native menu runs the pick (``runChatAction``).
+            let role = params["role"]?.stringValue
+            do {
+                return try await pageJSON(client.chatActions(role: role))
+            } catch {
+                throw PageError.failed(error, code: "cmux.apps.panels.failed", retryable: true)
+            }
         case Self.namespace + "mount":
             return try mount(params)
         case Self.namespace + "dispatch":
@@ -169,6 +179,12 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
         }
         changedListeners[id] = onEvent
         return PageSubscription { [weak self] in self?.changedListeners.removeValue(forKey: id) }
+    }
+
+    /// Runs the message action the person picked in a message's native menu (`apps-chat-action`).
+    /// The menu item is the person's click, so it never comes from page script.
+    public func runChatAction(app: String, action: String, message: AppChatMessage) {
+        Task { [client] in _ = try? await client.runChatAction(app: app, action: action, message: message) }
     }
 
     /// Mounts the app's implementation for `surface` (``AppMountSurface``), resolved as that surface's

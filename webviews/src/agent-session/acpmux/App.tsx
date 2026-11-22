@@ -521,6 +521,7 @@ import {
   forkToTarget,
   forksAnyTurn,
   latestForkSeq,
+  chatActionMessage,
   messageMenuTarget,
   messageMenuSessionMatches,
   openReportedImage,
@@ -788,6 +789,7 @@ import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
 import { runResume } from "./resumeCommand";
 import { useExtensionCommands, withExtensionCommands } from "./composer/extensionCommands";
+import { useChatActionRows, withChatActions } from "./conversation/chatActions";
 import {
   CMUX_PASS_THROUGH,
   CmuxCommandRefused,
@@ -6828,6 +6830,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   });
   /// The chat menu shows New side chat: the right-click menu then opens one from any turn that forks.
   const opensSideChat = useRef(false);
+  /// The installed extensions' message actions, read by the menu report when the menu opens.
+  const chatActionRows = useChatActionRows();
+  const chatActionRowsRef = useRef(chatActionRows);
+  chatActionRowsRef.current = chatActionRows;
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
   const recheckCloudChat = useCallback(async () => {
     // A machine woken while the pane's link was down: connect again now, not at the backoff's turn.
@@ -10205,7 +10211,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           const current = snapshotRef.current;
           if (!current) return undefined;
           const target = messageMenuTarget(current, rowId, opensSideChat.current, counted.current.childRows);
-          return withSendPromptAgain(target, rowId, readSendAgain(), translate);
+          // Installed extensions' message actions (none: the report, and the menu, are unchanged).
+          return withChatActions(
+            withSendPromptAgain(target, rowId, readSendAgain(), translate),
+            chatActionMessage(current, rowId, counted.current.childRows),
+            chatActionRowsRef.current,
+          );
         });
         // The harness switch runs on this client; one waiting on a connection runs now.
         switchPort = {

@@ -74,6 +74,9 @@ public protocol AppsTransport: AnyObject {
     /// Offers a clicked link to the app whose `cmux.opener/1` matches it (`apps-open-link`; the
     /// daemon picks the app). The answer is `{handled, app?, error?}`.
     func openLink(_ url: String, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON
+    /// Runs the message action `action` of `app` (`cmux.chat.action/1`, `apps-chat-action`) on
+    /// `message`; the daemon checks the app lists it and runs its op. The answer is the op's result.
+    func chatAction(app: String, action: String, message: AppChatMessage, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON
 }
 
 public extension AppsTransport {
@@ -87,6 +90,11 @@ public extension AppsTransport {
 extension AppsTransport {
     /// A transport with no supervisor link handlers (tests, previews): cmux opens every link itself.
     public func openLink(_ url: String, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON { ["handled": .bool(false)] }
+
+    /// A transport with no supervisor (tests, previews) runs no message action.
+    public func chatAction(app: String, action: String, message: AppChatMessage, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON {
+        throw AppsTransportError(code: "operation.unsupported", message: "apps-chat-action")
+    }
 }
 
 extension AppsTransport {

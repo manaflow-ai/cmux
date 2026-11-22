@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextApps
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
@@ -335,6 +336,9 @@ extension AgentPaneView {
                 self?.runMessageAction("chat.pinChapter", ["rowId": rowId, "sessionId": sessionId])
             },
             page: { [weak self] name, params in self?.runMessageAction(name, params) },
+            chatAction: { [weak self] app, action, message in
+                self?.chatActionRunner?.runChatAction(app: app, action: action, message: message)
+            },
             pasteTarget: webView,
             inspectElement: AgentPaneTunables.pointerInspector.value ? {
                 NotificationCenter.default.post(name: .cmuxNextInspectUIElement, object: self)

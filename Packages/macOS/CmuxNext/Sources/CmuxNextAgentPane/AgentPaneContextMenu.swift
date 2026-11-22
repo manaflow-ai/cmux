@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextApps
 import CmuxNextDesign
 import CmuxNextPages
 
@@ -33,9 +34,13 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     var hasImage: Bool
     /// The code block, command, path or link under the pointer (webviews conversation/menuParts.ts).
     var part: AgentPaneMenuPart?
+    /// The installed extensions' message actions for this message (`cmux.chat.action/1`), as the
+    /// daemon listed them to the page; nil with none, and the menu is as it is without extensions.
+    var chatActions: AgentPaneChatActions?
 
     init(text: String, rowId: String? = nil, sessionId: String? = nil, markdown: String? = nil, replyTime: String? = nil, forkSeq: Int? = nil, sideChat: Bool = false, retryRowId: String? = nil,
-         links: [URL] = [], opensImage: Bool = false, hasImage: Bool? = nil, part: AgentPaneMenuPart? = nil, sendPromptAgain: AgentPanePromptAgainMenu? = nil) {
+         links: [URL] = [], opensImage: Bool = false, hasImage: Bool? = nil, part: AgentPaneMenuPart? = nil, sendPromptAgain: AgentPanePromptAgainMenu? = nil,
+         chatActions: AgentPaneChatActions? = nil) {
         self.rowId = rowId
         self.sessionId = sessionId
         self.text = text
@@ -49,6 +54,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
         self.opensImage = opensImage
         self.hasImage = hasImage ?? opensImage
         self.part = part
+        self.chatActions = chatActions
     }
 
     /// A prompt (the person's own message) has no Markdown source.
@@ -74,6 +80,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
         sideChat = (object["sideChat"] as? NSNumber)?.boolValue ?? false
         retryRowId = (object["retryRowId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         links = (object["links"] as? [Any] ?? []).compactMap { ($0 as? String).flatMap(URL.init(string:)) }.filter(Self.isWebLink)
+        chatActions = AgentPaneChatActions(report: object["chatActions"])
     }
 
     /// An http(s) link with a host and no credentials, the only kind the pane opens outside it.
@@ -129,6 +136,8 @@ enum AgentPaneContextMenu {
         var pinChapter: (String, String) -> Void = { _, _ in }
         /// One of the page's own menu actions (`window.cmuxAcpmuxActions`) by name.
         var page: (String, [String: String]) -> Void = { _, _ in }
+        /// An extension's message action, picked: `(app, action, message)` (`apps-chat-action`).
+        var chatAction: (String, String, AppChatMessage) -> Void = { _, _, _ in }
         /// The web view WebKit's Paste item runs `paste:` on (``AgentPaneDroppedPaths``); nil keeps WebKit's own action.
         var pasteTarget: AnyObject?
         /// The UI pointer picker, offered for every app-owned webview element (Point at Element…).
@@ -365,6 +374,8 @@ enum AgentPaneContextMenu {
         if selection == nil, let resend = target?.sendPromptAgain {
             message += resend.items(page: actions.page)
         }
+        // The installed extensions' rows for this message, in their own group after the message's.
+        let extensions = target.flatMap { $0.text.isEmpty ? nil : $0.chatActions?.items(run: actions.chatAction) } ?? []
         // A reply's menu opens on its non-interactive date and time header (not a selection's).
         let header: [NSMenuItem]
         if target?.markdown != nil, let time = target?.replyTime {
@@ -382,12 +393,12 @@ enum AgentPaneContextMenu {
             find.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.askAboutThis, symbol: "questionmark.bubble") {
                 actions.edit(Self.quote(selection) + AgentPaneMenuStrings.askAboutThisPrompt)
             })
-            add([image, opens, row, part, copies, selectionActions, message, links, inspectors, find], to: menu)
+            add([image, opens, row, part, copies, selectionActions, message, extensions, links, inspectors, find], to: menu)
             return
         }
         // Empty space (no message, no image, nothing to edit) gets the chat's own menu, its sections kept.
         let chat = target == nil && edits.isEmpty && image.isEmpty ? chatMenu.filter { $0.menu == nil } : []
-        add([header, image, opens, row, part, copies, message, links, chat, inspectors], to: menu)
+        add([header, image, opens, row, part, copies, message, extensions, links, chat, inspectors], to: menu)
     }
 
     /// Adds the non-empty groups, split by separators.

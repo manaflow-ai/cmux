@@ -113,10 +113,10 @@ final class DaemonAppsTransport: AppsTransport {
 
     func storeCall(_ op: String, args: AppJSON) async throws(AppsTransportError) -> AppJSON { try await AppJSON(send(AppsStoreRequest(op: op, args: args.daemonValue))) }
 
-    func storeCall(_ op: String, args: AppJSON, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON {
-        let wire = origin.wire(userOriginAllowed: await daemon.connection?.userOriginAllowed == true)
-        return try await AppJSON(send(AppsStoreRequest(op: op, args: args.daemonValue, origin: wire)))
-    }
+    func storeCall(_ op: String, args: AppJSON, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON { try await AppJSON(send(AppsStoreRequest(op: op, args: args.daemonValue, origin: wire(origin)))) }
+
+    /// `user` only on a connection the daemon verified as the cmux app.
+    private func wire(_ origin: AppOrigin) async -> AppsRunRequest.Origin { origin.wire(userOriginAllowed: await daemon.connection?.userOriginAllowed == true) }
 
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord {
         let request = AppsSetRequest(idempotencyKey: idempotencyKey, app: app, origin: origin.rawValue, installed: change.installed,
@@ -153,8 +153,7 @@ final class DaemonAppsTransport: AppsTransport {
 
     func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] { AppsWireDecoding().logs(try await send(AppsLogsRequest(app: app, follow: follow))) }
 
-    func openLink(_ url: String, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON {
-        let wire = origin.wire(userOriginAllowed: await daemon.connection?.userOriginAllowed == true)
-        return AppJSON(try await send(AppsOpenLinkRequest(url: url, origin: wire)))
-    }
+    func openLink(_ url: String, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON { try await AppJSON(send(AppsOpenLinkRequest(url: url, origin: wire(origin)))) }
+
+    func chatAction(app: String, action: String, message m: AppChatMessage, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON { try await AppJSON(send(AppsChatActionRequest(app: app, action: action, message: .init(id: m.id, role: m.role, text: m.text, session: m.session), origin: wire(origin)), timeout: Self.runTimeout)) }
 }

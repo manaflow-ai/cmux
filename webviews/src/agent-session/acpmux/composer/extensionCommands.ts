@@ -43,7 +43,8 @@ export function withExtensionCommands(
   return [...commands, ...extension.filter((command) => !taken.has(command.name.toLowerCase()))];
 }
 
-/// All composer places use one list and one change subscription per page client.
+/// All composer places use one list and one change subscription per page client. `op` and
+/// `params` name the list (the message menu's chat actions read `cmux.apps.panels.chatActions`).
 export class ComposerContributions {
   private reply: unknown = null;
   private readonly listeners = new Set<() => void>();
@@ -52,7 +53,11 @@ export class ComposerContributions {
   private active = false;
   private stopWatch?: () => void;
 
-  constructor(private readonly client: PageClient | null) {}
+  constructor(
+    private readonly client: PageClient | null,
+    private readonly op = "cmux.apps.panels.composer",
+    private readonly params: Record<string, unknown> = {},
+  ) {}
 
   getSnapshot = (): unknown => this.reply;
 
@@ -93,7 +98,7 @@ export class ComposerContributions {
   async refresh(): Promise<void> {
     if (!this.active || !this.client) return;
     const reading = ++this.reading;
-    const next = await this.client.call("cmux.apps.panels.composer", {}).catch(() => null);
+    const next = await this.client.call(this.op, this.params).catch(() => null);
     if (!this.active || reading !== this.reading || JSON.stringify(next) === JSON.stringify(this.reply)) return;
     this.reply = next;
     for (const listener of this.listeners) listener();

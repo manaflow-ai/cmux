@@ -81,6 +81,16 @@ export function mockPanelScene(panel: AppPanel, context?: MountContext): SceneOp
   ];
 }
 
+/** One message action as an installed extension's manifest names it (`cmux.chat.action/1`). */
+export type MockChatAction = {
+  app: string;
+  extension: string;
+  id: string;
+  title: string;
+  symbol?: string;
+  roles?: string[];
+};
+
 /** A real PageClient-shaped mock, so ?mock exercises list, mount, subscription, scene reduction,
  * dispatch, and unmount through the production controller instead of injecting rendered rows. */
 export class MockAppPanelsClient implements PageClient {
@@ -89,6 +99,8 @@ export class MockAppPanelsClient implements PageClient {
   composerCommands: readonly unknown[] = MOCK_COMPOSER_COMMANDS;
   composerMentions: readonly { prefix: string; id: string; label: string; detail?: string; insert: string }[] =
     MOCK_COMPOSER_MENTIONS;
+  /** The message actions the daemon would list (`apps.chat_actions.list`); none by default. */
+  chatActions: readonly MockChatAction[] = [];
   readonly mentionAsks: unknown[] = [];
   readonly dispatches: unknown[] = [];
   readonly reloads: string[] = [];
@@ -117,6 +129,16 @@ export class MockAppPanelsClient implements PageClient {
           toolbarButtons: this.toolbarButtons,
         };
         break;
+      case "cmux.apps.panels.chatActions": {
+        // The daemon's filter, cut down: an action with no roles is offered on every message.
+        const role = params.role;
+        result = {
+          actions: this.chatActions
+            .filter((entry) => role === undefined || !entry.roles || entry.roles.includes(String(role)))
+            .map(({ roles: _roles, ...row }) => row),
+        };
+        break;
+      }
       case "cmux.apps.panels.mentions": {
         // The daemon's match, cut down: a prefix narrows to its provider, the query matches id or label.
         this.mentionAsks.push(params);
@@ -199,6 +221,12 @@ export class MockAppPanelsClient implements PageClient {
   /** A mock save of an extension's composer commands: the page lists them again on `changed`. */
   setComposerCommands(commands: readonly unknown[]): void {
     this.composerCommands = commands;
+    for (const listener of this.changed) listener(undefined, ++this.seq);
+  }
+
+  /** A mock save of an extension's message actions: the page lists them again on `changed`. */
+  setChatActions(actions: readonly MockChatAction[]): void {
+    this.chatActions = actions;
     for (const listener of this.changed) listener(undefined, ++this.seq);
   }
 
