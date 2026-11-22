@@ -106,6 +106,7 @@ fn start(until_machine: bool) -> Start {
         team: None,
         api: "https://api.example".into(),
         until_machine,
+        keep_awake: false,
     }
 }
 
@@ -132,15 +133,30 @@ async fn a_new_start_makes_pairs_places_and_starts_the_host() {
     assert_eq!(answer["host_unit"], "image");
     let calls = fake.calls();
     assert!(calls.contains(&"cloud.machine.create chief-machine-k1-create".to_owned()));
-    assert!(calls.contains(&"cloud.machine.idle_policy.set chief-machine-k1-idle".to_owned()));
+    // It pauses when idle (RFD 0037): the short policy, not "never".
+    assert!(calls.contains(&"cloud.machine.idle_policy.set chief-machine-k1-idle-180".to_owned()));
     assert!(calls.contains(&"cloud.machine.keep chief-machine-k1-keep".to_owned()));
     assert!(calls.contains(&"server.pair.approve chief-machine-k1-approve-abcd2345".to_owned()));
     assert!(calls.contains(&"chief.create chief-machine-k1-chief".to_owned()));
     assert_eq!(fake.count("exec pair"), 1);
     assert_eq!(fake.count("exec host"), 1);
-    // The team came from the person's policy, the Chief is not the default.
-    assert_eq!(fake.count("team.policy.get"), 1);
+    // The team came from the person's policy (for the approval and the place), the Chief is not the default.
+    assert_eq!(fake.count("team.policy.get"), 2);
     assert_eq!(fake.chiefs.borrow()[0]["brain_place"]["install"], "inst_1");
+    // The place names the machine and team, so a message resumes a paused machine (cmux-api).
+    assert_eq!(fake.chiefs.borrow()[0]["brain_place"]["machine"], answer["machine"]);
+    assert_eq!(fake.chiefs.borrow()[0]["brain_place"]["team"], "team_1");
+}
+
+#[tokio::test]
+async fn keep_awake_sets_no_idle_pause() {
+    let fake = Fake::default();
+    let mut s = start(true);
+    s.keep_awake = true;
+    run(&fake, &s).await.unwrap();
+    assert!(
+        fake.calls().contains(&"cloud.machine.idle_policy.set chief-machine-k1-idle-0".to_owned())
+    );
 }
 
 #[tokio::test]
