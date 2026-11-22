@@ -55,13 +55,13 @@ impl Hub {
         // binary, as a hibernated chat wakes (`idle.rs`). Restarting it at once started an agent
         // for every chat that was up at an update, the idle Chief sub-sessions among them: 30 at
         // one cmux NIGHTLY relaunch (2026-11-15), each a Claude process for its two idle minutes.
-        let mut slept = 0;
+        let mut slept: usize = 0;
         for id in stale.clone() {
             if let Ok(session) = self.resolve(&id)
                 && self.end_idle_stale(&session).await
             {
                 stale.remove(&id);
-                slept += 1;
+                slept = slept.saturating_add(1);
             }
         }
         tracing::info!(
@@ -93,13 +93,13 @@ impl Hub {
         if stale.is_empty() {
             return HarnessRestarts::default();
         }
-        let mut slept = 0;
+        let mut slept: usize = 0;
         for id in stale.clone() {
             if let Ok(session) = self.resolve(&id)
                 && self.end_idle_stale_for(&session, "stale-proxy").await
             {
                 stale.remove(&id);
-                slept += 1;
+                slept = slept.saturating_add(1);
             }
         }
         tracing::info!(
