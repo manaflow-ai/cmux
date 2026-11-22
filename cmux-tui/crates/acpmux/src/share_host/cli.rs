@@ -154,7 +154,11 @@ async fn verb(cmd: ShareHostCmd) -> Result<(&'static str, Value)> {
                 };
                 ("move", verbs::move_share(&call, &own, &session, side, &target))
             }
-            ShareHostCmd::Status | ShareHostCmd::On | ShareHostCmd::Off | ShareHostCmd::Session => {
+            ShareHostCmd::Status
+            | ShareHostCmd::On
+            | ShareHostCmd::Off
+            | ShareHostCmd::Link { .. }
+            | ShareHostCmd::Session => {
                 anyhow::bail!("not a share verb")
             }
         };
