@@ -136,6 +136,7 @@ jobs:
           def redeploy(extra):
               body = {"name": PROJECT, "deploymentId": live["id"], "target": "production",
                       "meta": {"action": "redeploy"}, **extra}
+              body = {k: v for k, v in body.items() if v is not None}
               new = api("/v13/deployments?forceNew=1", "POST", body)
               print(f"new deployment https://{new.get('url')} ({new['id']})")
               deadline = time.time() + 25 * 60
@@ -154,10 +155,20 @@ jobs:
           print(f"redeploying {live.get('url')} ({live['id']})")
           state, new_id, new_url = redeploy({})
           if state == "CANCELED":
-              # web/vercel.json's ignoreCommand skips a build whose commit has no web change since the last one,
-              # and a redeploy of the live commit has none; this redeploy is asked for, so it builds.
-              print("cancelled; redeploying again with the ignored build step off for this deployment")
-              state, new_id, new_url = redeploy({"projectSettings": {"commandForIgnoringBuildStep": "exit 1"}})
+              # web/vercel.json's ignoreCommand skips a build with no web change since the branch's last deployment
+              # (VERCEL_GIT_PREVIOUS_SHA), and a redeploy has none. A deployment of the same commit under a branch
+              # name with no deployments has no previous SHA, so the ignore step builds it (actions run 45041469204:
+              # projectSettings.commandForIgnoringBuildStep does not override vercel.json).
+              ld = api(f"/v13/deployments/{live['id']}")
+              meta = ld.get("meta") or {}
+              sha = meta.get("githubCommitSha") or (ld.get("gitSource") or {}).get("sha")
+              repo_id = meta.get("githubRepoId") or (ld.get("gitSource") or {}).get("repoId")
+              if not sha or not repo_id:
+                  sys.exit("the live deployment names no git commit or repo id; cannot rebuild it")
+              ref = f"vercel-env-redeploy/{sha[:12]}"
+              print(f"cancelled; deploying commit {sha} as ref {ref} so the ignored build step builds it")
+              state, new_id, new_url = redeploy({"deploymentId": None, "meta": None, "gitSource": {
+                  "type": "github", "repoId": repo_id, "ref": ref, "sha": sha}})
           if state != "READY":
               sys.exit(f"redeploy ended {state}; the env change is saved but not live")
           print(f"new deployment READY: https://{new_url}")
