@@ -13,7 +13,7 @@ import { Dialog } from "../../../ui/Dialog";
 import { NoticeStack, createNoticeQueue } from "../../../ui/NoticeStack";
 import { useT, translate } from "../i18n";
 import { copyTextResult } from "../conversation/clipboard";
-import { ShareDialogBody } from "./ShareDialog";
+import { lazyView } from "../lazyView";
 import {
   shareClient,
   shareView,
@@ -23,6 +23,9 @@ import {
   type ShareView,
 } from "./shareState";
 import "./share.css";
+
+/** The dialog's body, in its own chunk: drawn only once Share… opens it (App.tsx LAZY_VIEWS preloads it). */
+export const ShareDialogBody = lazyView(() => import("./ShareDialog").then((module) => module.ShareDialogBody));
 
 /** The pane's share toasts (one queue per page; the header owns one Share control at a time). */
 export const shareToasts = createNoticeQueue(1);
