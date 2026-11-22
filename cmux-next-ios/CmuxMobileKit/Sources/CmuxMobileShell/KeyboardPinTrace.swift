@@ -87,6 +87,9 @@ public final class KeyboardPinTrace: NSObject {
                 let local = (info[UIResponder.keyboardIsLocalUserInfoKey] as? Bool) ?? true
                 MainActor.assumeIsolated {
                     guard let self else { return }
+                    // A keyboard change can swap the composer (a folded reply, another page): find it again.
+                    self.cachedField = nil
+                    self.cachedContent = nil
                     // The keyboard's own animation, which a nested layout pass inherits.
                     let inherited = UIView.inheritedAnimationDuration
                     self.events.append(String(format: "%@@%.2f:%.2f/%.2f/%.0f", label, CACurrentMediaTime() - self.start, duration, inherited, end.minY))
@@ -142,9 +145,33 @@ public final class KeyboardPinTrace: NSObject {
         }
         return marker
     }()
+    /// The file's writes, off the main thread: the per-frame write cost the
+    /// keyboard bench's main thread about 19 ms per chat keyboard window
+    /// (input-latency hitches, step 160f1e7c).
+    private let writes = DispatchQueue(label: "cmux.kbd-pin-trace", qos: .utility)
 
     private func write(_ line: String) {
-        handle?.write(Data((line + "\n").utf8))
+        guard let handle else { return }
+        let data = Data((line + "\n").utf8)
+        writes.async { handle.write(data) }
+    }
+
+    /// The composer field and the content behind it, found once and kept
+    /// while they stay in the key window: the walks ran every frame.
+    private weak var cachedField: UIView?
+    private weak var cachedContent: UIScrollView?
+
+    private func field(in window: UIWindow) -> UIView? {
+        if let field = cachedField, field.window === window { return field }
+        cachedContent = nil
+        cachedField = Self.composerField(in: window)
+        return cachedField
+    }
+
+    private func content(behind field: UIView, in window: UIWindow) -> UIScrollView? {
+        if let scroll = cachedContent, scroll.window === window { return scroll }
+        cachedContent = Self.content(behind: field, in: window)
+        return cachedContent
     }
 
     private var keyWindow: UIWindow? {
@@ -166,7 +193,7 @@ public final class KeyboardPinTrace: NSObject {
         } else {
             parts.append("kb=-")
         }
-        if let field = Self.composerField(in: window) {
+        if let field = field(in: window) {
             let rect = MobileKeyboardProbe().onScreen(field, in: window)
             parts.append(String(format: "field=%@ fy=%.2f fb=%.2f fx=%.1f fw=%.1f fr=%d",
                                 field.accessibilityIdentifier ?? "?", rect.minY, rect.maxY, rect.minX, rect.width,
@@ -182,12 +209,17 @@ public final class KeyboardPinTrace: NSObject {
                 let frame = dock.owningView.map { window.convert(dock.layoutFrame, from: $0) } ?? .zero
                 parts.append(String(format: "dg=%.2f", frame.minY))
             }
-            if let scroll = Self.content(behind: field, in: window) {
+            if let scroll = content(behind: field, in: window) {
                 let frame = MobileKeyboardProbe().onScreen(scroll, in: window)
                 let bounds = (scroll.layer.presentation() ?? scroll.layer).bounds
                 // The content's bottom edge on screen.
                 let bottom = frame.minY + scroll.contentSize.height - bounds.minY
                 parts.append(String(format: "cb=%.2f off=%.2f inb=%.2f trk=%d", bottom, bounds.minY, scroll.contentInset.bottom, scroll.isTracking ? 1 : 0))
+                // The content area's layout bottom: the scroll view's frame as
+                // drawn less its bottom inset. A scroll (a drag, a fling's
+                // deceleration) leaves it alone; only the layout's own motion
+                // after a keyboard move changes it.
+                parts.append(String(format: "cl=%.2f dec=%d", frame.maxY - scroll.adjustedContentInset.bottom, scroll.isDecelerating ? 1 : 0))
             }
         } else {
             parts.append("field=-")

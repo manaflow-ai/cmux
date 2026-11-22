@@ -192,6 +192,13 @@ def analyze_step(frames, events, side, nominal, rest, lo, hi, step):
     r["content_ms"] = ms(c0, c1)
     ours_end = max([x for x in (f1, c1) if x is not None], default=None)
     r["after_kb_ms"] = None if kb1 is None or ours_end is None else max(0.0, round((ours_end - kb1) * 1000, 1))
+    # The layout only: the field and the content area's frame less its inset
+    # (`cl`), which a scroll or a fling's deceleration leaves alone. `cb` moves
+    # with the content offset, so a drag-dismiss's own scroll inflated after_kb_ms.
+    l0, l1 = first_last_move(frames, "cl", lo, hi)
+    r["layout_ms"] = ms(l0, l1)
+    lay_end = max([x for x in (f1, l1) if x is not None], default=None)
+    r["layout_after_kb_ms"] = None if kb1 is None or lay_end is None else max(0.0, round((lay_end - kb1) * 1000, 1))
     span_lo = min([x for x in (kb0, f0, c0) if x is not None], default=None)
     span_hi = max([x for x in (kb1, f1, c1) if x is not None], default=None)
     if span_lo is not None:
@@ -219,7 +226,7 @@ def analyze_step(frames, events, side, nominal, rest, lo, hi, step):
 
 
 def summarize(steps):
-    keys = ["kb_notif_ms", "kb_frames_ms", "field_ms", "content_ms", "after_kb_ms", "off_frames", "content_off_frames",
+    keys = ["kb_notif_ms", "kb_frames_ms", "field_ms", "content_ms", "after_kb_ms", "layout_ms", "layout_after_kb_ms", "off_frames", "content_off_frames",
             "hitches", "hitch_max_ms", "tti_ms", "tti_after_kb_ms", "pty_resizes"]
     out = {"n": len(steps)}
     for k in keys:
@@ -280,6 +287,7 @@ NETCOND_METRICS = (
     ("keyboard_notification_ms", "kb_notif_ms"),
     ("motion_duration_ms", "motion_ms"),
     ("motion_after_keyboard_ms", "after_kb_ms"),
+    ("layout_after_keyboard_ms", "layout_after_kb_ms"),
     ("offset_frames_gt_1pt", "off_frames"),
     ("content_offset_frames_gt_1pt", "content_off_frames"),
     ("hitches", "hitches"),
@@ -315,8 +323,8 @@ def netcond_lines(report):
 
 
 def table(report):
-    rows = ["| surface | dir | n | kb notif ms | kb frames ms | field ms | content ms | after kb ms | off frames | hitches | TTI ms | PTY resizes |",
-            "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    rows = ["| surface | dir | n | kb notif ms | kb frames ms | field ms | content ms | after kb ms | layout after kb ms | off frames | hitches | TTI ms | PTY resizes |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     fmt = lambda d, k: "-" if k not in d else (f"{d[k]['median']:g} / {d[k]['max']:g}" if "median" in d[k] else f"{d[k]['total']}")
     for name, s in report["surfaces"].items():
         if "error" in s:
@@ -325,7 +333,7 @@ def table(report):
         for direction, d in s["directions"].items():
             tti = d.get("tti", {})
             rows.append(f"| {name} | {direction} | {d['n']} | {fmt(d, 'kb_notif_ms')} | {fmt(d, 'kb_frames_ms')} | {fmt(d, 'field_ms')} | "
-                        f"{fmt(d, 'content_ms')} | {fmt(d, 'after_kb_ms')} | {fmt(d, 'off_frames')} | {fmt(d, 'hitches')} | "
+                        f"{fmt(d, 'content_ms')} | {fmt(d, 'after_kb_ms')} | {fmt(d, 'layout_after_kb_ms')} | {fmt(d, 'off_frames')} | {fmt(d, 'hitches')} | "
                         f"{fmt(tti, 'tti_ms')} | {fmt(d, 'pty_resizes')} |")
     return "\n".join(rows)
 

@@ -1,0 +1,23 @@
+# Tide: measured sRGB palette; see ../README.md.
+background = #06101a
+foreground = #b8cdd9
+cursor-color = #4fe3c1
+cursor-text = #06101a
+selection-background = #143349
+selection-foreground = #dcebf3
+palette = 0=#0e1c29
+palette = 1=#e26a6a
+palette = 2=#52c79a
+palette = 3=#d4b25e
+palette = 4=#4a90c9
+palette = 5=#9179c9
+palette = 6=#3fbdc9
+palette = 7=#9db4c2
+palette = 8=#47606f
+palette = 9=#f18787
+palette = 10=#74dcb2
+palette = 11=#e6ca7f
+palette = 12=#6dabdd
+palette = 13=#ab95dc
+palette = 14=#64d5df
+palette = 15=#dcebf3

@@ -53,7 +53,7 @@ def parse(path):
         f["kbw"] = float(kv["kbw"]) if "kbw" in kv else 0.0
         f["kbh"] = float(kv["kbh"]) if "kbh" in kv else 0.0
         f["field"] = kv.get("field", "-")
-        for k in ("fy", "fb", "cb", "off", "inb", "kg", "kgh", "dg"):
+        for k in ("fy", "fb", "cb", "cl", "off", "inb", "kg", "kgh", "dg"):
             f[k] = float(kv[k]) if k in kv else None
         f["fr"] = kv.get("fr") == "1"
         f["trk"] = kv.get("trk") == "1"

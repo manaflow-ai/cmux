@@ -61,8 +61,11 @@ nonisolated public struct RollbackSwap {
 
     /// The helper that reopens the app once `pid` has exited: `caffeinate -w`
     /// waits on the kernel's exit event (no polling), then `open` starts the
-    /// swapped bundle.
-    public static func relaunchCommand(pid: Int32, app: URL) -> [String] {
-        ["/bin/sh", "-c", "/usr/bin/caffeinate -w \(pid); /usr/bin/open \"$0\"", app.path]
+    /// swapped bundle. `openOptions` follow the bundle as positional arguments: the running app's
+    /// home (``RelaunchHome``), so an app in a custom home reopens in it; none for the account's
+    /// own home, where `open`'s argv is just the bundle.
+    public static func relaunchCommand(pid: Int32, app: URL,
+                                       openOptions: [String] = RelaunchHome.openArguments()) -> [String] {
+        ["/bin/sh", "-c", "/usr/bin/caffeinate -w \(pid); /usr/bin/open \"$@\" \"$0\"", app.path] + openOptions
     }
 }
