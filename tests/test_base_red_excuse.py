@@ -3094,7 +3094,9 @@ class WebShardBaseVerdict(unittest.TestCase):
                 gh = self.red_web_status(WebShardBaseGitHub())
                 text = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, runs, gh, checks=checks))
                 self.assertIn(f"excused '{WEB_SHARD}'", text)
-                self.assertNotIn(f"'{WEB_STATUS}'", text)
+                # The rollup is named by the judge that excused its shards (run_rollup_lines), after them.
+                self.assertIn(f"excused '{WEB_STATUS}': every failed job under its needs ('{WEB_SHARD}')", text)
+                self.assertLess(text.index(f"excused '{WEB_SHARD}'"), text.index(f"excused '{WEB_STATUS}'"))
 
     def test_a_red_web_status_with_one_shard_not_red_on_the_base_blocks(self):
         other = WEB_SHARD.replace("(1/4)", "(2/4)")
@@ -4088,8 +4090,8 @@ class OtherRepoRollups(unittest.TestCase):
     def test_a_summary_with_a_failed_step_of_its_own_is_not_excused(self):
         self.gh.jobs[3]["steps"].append({"name": "Every shard's steps stay within 25% of the measured step table",
                                          "conclusion": "failure"})
-        with self.assertRaisesRegex(excuse.Refused, f"'{SKILL_DOCS}' .* failed in its own step .Every shard's steps"):
-            self.judge()
+        lines = self.judge()
+        self.assertFalse([line for line in lines if line.startswith(f"excused '{SKILL_DOCS}'")], lines)
 
     def test_a_summary_whose_steps_were_not_read_is_not_excused(self):
         # Its steps are listed with no conclusion read (an empty list is refused at setup before this).
