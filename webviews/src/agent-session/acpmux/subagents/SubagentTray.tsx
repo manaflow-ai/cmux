@@ -792,7 +792,6 @@ export const SubagentTray = memo(function SubagentTray({
               faces={
                 faces.length > 0 && facesArm !== "lead" ? (
                   <HatFaces
-                    t={t}
                     faces={faces}
                     size={ROW_ICON}
                     narrow={narrow}

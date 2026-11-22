@@ -131,7 +131,7 @@ export default agentPaneEntry({
     script: [{ name: "cross the icons", run: (ctx) => scrub(ctx) }],
   },
   variants: {
-    one: variant(1, "One subagent: its one icon, named on hover."),
+    one: variant(1, "One subagent: the hat heads it as before, its mark and its task by name (no row of one)."),
     three: variant(3, "Three: side by side, each named in turn as the pointer crosses them."),
     "leo-seven": variant(
       7,
@@ -139,7 +139,7 @@ export default agentPaneEntry({
     ),
     twenty: variant(
       20,
-      "Twenty: they overlap evenly within the cap, each still a strip the pointer finds; on a quarter split the first ones then a +N.",
+      "Twenty: they overlap evenly within the cap, each still a strip the pointer finds; on a quarter split the first eleven then +9.",
     ),
   },
 });

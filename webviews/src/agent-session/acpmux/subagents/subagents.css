@@ -2638,6 +2638,8 @@ button.cv-subagent > :last-child {
   display: inline-flex;
   align-items: center;
   gap: var(--ds-space-1, 4px);
+  /* The row ends a clear step before the counts, so the last icon never reads as part of the words. */
+  margin-inline-end: var(--ds-space-2, 8px);
   color: var(--agent-muted);
 }
 .acpmux-hat-faces__row {

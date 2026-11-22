@@ -115,7 +115,6 @@ export function faceLayout(
 /// its own tooltip (ui/titleTooltips.ts: instant, above, so crossing the row reads each name in
 /// turn); a click opens that subagent and never toggles the hat.
 export function HatFaces({
-  t,
   faces,
   size,
   narrow,
@@ -123,7 +122,6 @@ export function HatFaces({
   onOpen,
   onOpenSession,
 }: {
-  t: Translate;
   faces: readonly HatFace[];
   size: number;
   narrow: boolean;
@@ -182,8 +180,9 @@ export function HatFaces({
         ))}
       </span>
       {layout.more > 0 && (
+        // Only the figure: the counts after the row already say how many there are.
         <span className="acpmux-hat-faces__more" aria-hidden="true">
-          {t("tools.more", { n: layout.more })}
+          +{layout.more}
         </span>
       )}
     </span>
