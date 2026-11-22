@@ -881,6 +881,9 @@ pub async fn serve_unix_with_v2(
     listener: UnixListener,
     v2: Option<Arc<acpmux_core::life::V2>>,
 ) -> Result<()> {
+    // Auto chat placement weighs this machine's Auto chats from now on (once per daemon); it
+    // asks for no move while the person's setting is off (the default).
+    place_auto::start(&hub);
     loop {
         let (stream, _) = match listener.accept().await {
             Ok(s) => s,
@@ -2585,6 +2588,8 @@ pub(crate) mod peer_status;
 pub mod peer_text;
 mod pending;
 mod place;
+/// Auto chat placement's rejudge task (`place_auto.rs`).
+mod place_auto;
 mod processes;
 mod prompt_cancel;
 mod workflow_activity;

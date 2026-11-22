@@ -1275,6 +1275,13 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "On, Auto moves the person's running chats and their folders to Cloud and back: only the person turns that on.",
+      "keys": [
+        "agentPane.autoPlacement.moveChats"
+      ]
+    },
+    {
       "agent": "destructive",
       "why": "The quit behavior ends sessions; confirmQuit off lets one Cmd-Q end them without asking.",
       "keys": [

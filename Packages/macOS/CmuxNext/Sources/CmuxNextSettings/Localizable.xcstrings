@@ -195545,6 +195545,268 @@
         }
       }
     },
+    "settings.agentPane.autoPlacementMoveChats": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Running Chats"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نقل المحادثات الجارية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premještaj aktivne razgovore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyt kørende chats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Laufende Chats verschieben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover chats en curso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Déplacer les discussions en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sposta le chat in corso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "実行中のチャットを移動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាស់ទីការជជែកដែលកំពុងដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "실행 중인 채팅 이동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytt pågående chatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenoś trwające czaty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover conversas em andamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемещать идущие чаты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้ายแชตที่กำลังทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışan sohbetleri taşı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переміщувати активні чати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Di chuyển cuộc trò chuyện đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移动运行中的聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移動執行中的聊天"
+          }
+        }
+      }
+    },
+    "settings.agentPane.autoPlacementMoveChats.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto may move a chat it placed to Cloud when this Mac sleeps or is busy, then bring it back."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قد ينقل الوضع التلقائي محادثة وضعها إلى السحابة عندما ينام هذا الـ Mac أو يكون مشغولًا، ثم يعيدها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auto može premjestiti razgovor koji je smjestio u Cloud kada ovaj Mac spava ili je zauzet, pa ga vratiti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auto kan flytte en chat, den har placeret, til Cloud, når denne Mac sover eller er optaget, og flytte den tilbage igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auto kann einen von ihm platzierten Chat in die Cloud verschieben, wenn dieser Mac schläft oder ausgelastet ist, und ihn danach zurückholen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auto puede mover un chat que colocó a Cloud cuando este Mac está en reposo u ocupado, y luego traerlo de vuelta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auto peut déplacer une discussion qu'il a placée vers Cloud quand ce Mac est en veille ou occupé, puis la ramener."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auto può spostare una chat che ha collocato su Cloud quando questo Mac è in stop o occupato, e poi riportarla indietro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このMacがスリープ中または混雑しているとき、Autoは配置したチャットをCloudへ移動し、あとで戻すことがあります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auto អាចផ្លាស់ទីការជជែកដែលវាបានដាក់ទៅ Cloud នៅពេល Mac នេះដេក ឬរវល់ ហើយនាំវាត្រឡប់មកវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac이 잠자기 중이거나 바쁠 때 Auto가 배치한 채팅을 Cloud로 옮겼다가 다시 가져올 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auto kan flytte en chat den har plassert til Cloud når denne Macen sover eller er opptatt, og hente den tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auto może przenieść umieszczony przez siebie czat do Cloud, gdy ten Mac śpi lub jest zajęty, a potem go przywrócić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Auto pode mover uma conversa que posicionou para a Cloud quando este Mac dorme ou está ocupado e depois trazê-la de volta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auto может перенести размещённый им чат в Cloud, когда этот Mac спит или занят, а потом вернуть его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auto อาจย้ายแชตที่วางไว้ไปยัง Cloud เมื่อ Mac เครื่องนี้พักเครื่องหรือไม่ว่าง แล้วนำกลับมาภายหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auto, bu Mac uykudayken veya meşgulken yerleştirdiği bir sohbeti Cloud'a taşıyabilir, sonra geri getirir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auto може перенести розміщений ним чат у Cloud, коли цей Mac спить або зайнятий, а потім повернути його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auto có thể chuyển cuộc trò chuyện nó đã đặt sang Cloud khi máy Mac này ngủ hoặc bận, rồi đưa trở lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "当这台 Mac 睡眠或繁忙时，Auto 可能会把它安排的聊天移到 Cloud，之后再移回来。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "當這台 Mac 睡眠或忙碌時，Auto 可能會把它安排的聊天移到 Cloud，之後再移回來。"
+          }
+        }
+      }
+    },
     "settings.group.machineColors": {
       "extractionState": "manual",
       "localizations": {

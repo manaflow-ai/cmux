@@ -230,6 +230,189 @@ pub(super) fn brief_work(brief: &str) -> Work {
     if text.contains("capture") || text.contains("build") { Work::Build } else { Work::Agent }
 }
 
+/// `_acpmux/place_chat_event {kind: "willSleep"|"didWake"}`: the app's power events, which no
+/// health reading sees in time (the lid closes, the system sleeps seconds later). Until `didWake`
+/// Auto treats this Mac as away (`hub.chat_place`, `chat_place_bus.rs`). `willSleep` answers once
+/// the rejudge task has answered the change (at most `REJUDGE_BOUND`, 3 s), with the chats it
+/// started moving: `{sleeping, moving}` (none while Auto's moves are off, the default).
+pub(super) async fn chat_place_event(
+    hub: &Hub,
+    origin: Origin,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    use crate::hub::chat_place_bus::REJUDGE_BOUND;
+    local_only(origin)?;
+    let sleeping = match params.get("kind").and_then(Value::as_str) {
+        Some("willSleep") => true,
+        Some("didWake") => false,
+        other => {
+            return Err(RpcError::invalid_params(format!(
+                "kind is willSleep or didWake, not {other:?}"
+            )));
+        }
+    };
+    let generation = hub.chat_place.set_sleeping(sleeping);
+    if sleeping {
+        hub.chat_place.wait_rejudged(generation, REJUDGE_BOUND).await;
+    }
+    Ok(json!({"sleeping": sleeping, "moving": hub.chat_place.in_flight()}))
+}
+
+/// The longest `_acpmux/place_chat_settled` waits: macOS sleeps 30 s after it asked anyway.
+const SETTLED_MAX_MS: u64 = 30_000;
+
+/// `_acpmux/place_chat_settled {waitMs}`: waits, at most `waitMs` (capped at 30 s), until no move
+/// Auto started is in flight; `{moving}` names the chats still moving.
+pub(super) async fn place_chat_settled(
+    hub: &Hub,
+    origin: Origin,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    local_only(origin)?;
+    let wait = params.get("waitMs").and_then(Value::as_u64).unwrap_or(0).min(SETTLED_MAX_MS);
+    let moving = hub.chat_place.settled(std::time::Duration::from_millis(wait)).await;
+    Ok(json!({"moving": moving}))
+}
+
+/// Auto chat placement answers this machine's own clients only, as `_acpmux/place` does: its unix
+/// socket and the app's own pane, never the Web or a peer (the verdict names every machine).
+fn local_only(origin: Origin) -> Result<(), RpcError> {
+    if matches!(origin, Origin::Local | Origin::LocalApp) {
+        return Ok(());
+    }
+    Err(RpcError::invalid_params(
+        "Auto chat placement answers on this machine's unix socket and the app's own pane only",
+    ))
+}
+
+/// The most entries [`folder_bytes`] walks, and the longest it takes: a folder past either is
+/// "size unknown" (big), never a stall of the request.
+const FOLDER_WALK_ENTRIES: usize = 200_000;
+const FOLDER_WALK_MS: u128 = 400;
+
+/// A folder's size from a bounded walk (symlinks not followed). `None` past the bound.
+fn folder_bytes(root: &std::path::Path) -> Option<u64> {
+    let started = std::time::Instant::now();
+    let mut stack = vec![root.to_path_buf()];
+    let (mut bytes, mut seen) = (0u64, 0usize);
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            seen += 1;
+            if seen > FOLDER_WALK_ENTRIES || started.elapsed().as_millis() > FOLDER_WALK_MS {
+                return None;
+            }
+            let Ok(kind) = entry.file_type() else { continue };
+            if kind.is_dir() {
+                stack.push(entry.path());
+            } else if kind.is_file() {
+                bytes += entry.metadata().map(|m| m.len()).unwrap_or(0);
+            }
+        }
+    }
+    Some(bytes)
+}
+
+/// `_acpmux/place_chat`: where a new chat on Auto starts (`chat_place::decide`), or, with
+/// `running`, whether Auto moves that chat now (`chat_place::rejudge`).
+///
+/// Params: `{cwd, needs: {macos, gpu, longBuild}, cloud: {available, gpu, hourlyCost,
+/// budgetLeft}, folder: {bytes, peersWithCopy}, running: {place, peer, home, homePeer, pinned,
+/// turnActive, localOverSecs}}`, every field optional. Without `folder.bytes`, `cwd` is measured
+/// with a bounded walk. The result is the verdict (`Verdict::to_json`), and with `running`,
+/// `move`: the move or null.
+pub(super) async fn chat_place(
+    hub: &Hub,
+    origin: Origin,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    local_only(origin)?;
+    use crate::chat_place::{Cloud, Folder, Needs, Place, Running};
+    let from_app = origin == Origin::LocalApp;
+    // A missing or null object reads as every field's default.
+    let parse = |k: &str| match params.get(k) {
+        None | Some(Value::Null) => json!({}),
+        Some(v) => v.clone(),
+    };
+    let needs: Needs = serde_json::from_value(parse("needs"))
+        .map_err(|e| RpcError::invalid_params(format!("needs: {e}")))?;
+    let cloud: Cloud = serde_json::from_value(parse("cloud"))
+        .map_err(|e| RpcError::invalid_params(format!("cloud: {e}")))?;
+    let mut folder: Folder = serde_json::from_value(parse("folder"))
+        .map_err(|e| RpcError::invalid_params(format!("folder: {e}")))?;
+    if folder.bytes.is_none()
+        && let Some(cwd) = params.get("cwd").and_then(Value::as_str).filter(|c| !c.is_empty())
+    {
+        let cwd = std::path::PathBuf::from(cwd);
+        folder.bytes = tokio::task::spawn_blocking(move || folder_bytes(&cwd)).await.ok().flatten();
+    }
+    // The app's own pane passes the person's plan and whether folders go by projection: the
+    // rejudge task (`place_auto.rs`) weighs Cloud with them and tells the mover how to carry it.
+    if from_app && params.get("cloud").is_some_and(Value::is_object) {
+        hub.chat_place.set_cloud(cloud.clone());
+    }
+    if from_app && params.get("folder").is_some_and(Value::is_object) {
+        hub.chat_place.set_projected(folder.projected);
+    }
+    let input = auto_input(hub, folder, needs, cloud).await;
+    let verdict = crate::chat_place::decide(&input);
+    let mut out = verdict.to_json();
+    if let Some(r) = params.get("running").filter(|r| r.is_object()) {
+        let text = |k: &str| r.get(k).and_then(Value::as_str);
+        let place = |kind: &str, peer: &str| {
+            Place::parse(text(kind).unwrap_or("local"), text(peer))
+                .ok_or_else(|| RpcError::invalid_params(format!("running.{kind}: peer names one")))
+        };
+        let running = Running {
+            place: place("place", "peer")?,
+            home: place("home", "homePeer")?,
+            pinned: r.get("pinned").and_then(Value::as_bool) == Some(true),
+            turn_active: r.get("turnActive").and_then(Value::as_bool) == Some(true),
+            local_over_secs: r.get("localOverSecs").and_then(Value::as_u64).unwrap_or(0),
+        };
+        let mv = crate::chat_place::rejudge(&running, &input);
+        cmux_json::JsonSet::set(&mut out, "move", mv.map(|m| m.to_json()).unwrap_or(Value::Null));
+    }
+    Ok(out)
+}
+
+/// What `chat_place::decide` and `rejudge` weigh, read now: this machine's health, each connected
+/// peer's last reading (less the ones the registry keeps a person's), the app's sleep word, and
+/// the folder, needs and Cloud plan given. `_acpmux/place_chat` and the rejudge task
+/// (`place_auto.rs`) both read it here.
+pub(super) async fn auto_input(
+    hub: &Hub,
+    folder: crate::chat_place::Folder,
+    needs: crate::chat_place::Needs,
+    cloud: crate::chat_place::Cloud,
+) -> crate::chat_place::Input {
+    let local = this_machine(hub).await;
+    let (peers, _down) = split_peers(hub.peers());
+    let registry = crate::placement::load_registry();
+    // Machines the registry keeps a person's (personal, interactive) take no one else's chat.
+    let (peers, _) = leave_out(peers, |name| {
+        crate::placement::personal(registry.as_ref(), name)
+            || crate::placement::interactive(registry.as_ref(), name)
+    });
+    let mut power = crate::chat_place::Power::from_health(&local.health);
+    power.sleeping |= hub.chat_place.sleeping();
+    crate::chat_place::Input { local, peers, registry, power, folder, needs, cloud }
+}
+
+/// Auto chat placement's requests, one arm in `dispatch_request` (its poll frame grows with each
+/// arm, and the request path stays inside a 2 MiB worker stack).
+pub(super) async fn request(
+    hub: &Hub,
+    method: &str,
+    origin: Origin,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    match method {
+        "_acpmux/place_chat" => chat_place(hub, origin, params).await,
+        "_acpmux/place_chat_event" => chat_place_event(hub, origin, params).await,
+        _ => place_chat_settled(hub, origin, params).await,
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
