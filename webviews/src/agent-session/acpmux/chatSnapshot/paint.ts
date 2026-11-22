@@ -21,6 +21,7 @@ import {
   type ChatSnapshot,
   type SnapshotAttributes,
 } from "./shared";
+import { installScrollerSheets } from "../../../scrollers";
 
 /// The copy shows its final frame: what was running when it was written ends at once, as the
 /// motion-off rule ends it (WebTheme `data-cmux-motion="off"`), so nothing in it enters again.
@@ -210,6 +211,9 @@ export function paintSnapshot(
     link.addEventListener("load", loaded, { once: true });
     link.addEventListener("error", failed, { once: true });
   }
+  // The sheets the bundle adds to the page at its start, added now, while the document is all but
+  // empty: one added over the copy restyles its every element (scrollers.ts installScrollerSheets).
+  installScrollerSheets(doc);
   doc.body.appendChild(host);
   return true;
 }

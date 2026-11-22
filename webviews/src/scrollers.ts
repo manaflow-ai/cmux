@@ -982,9 +982,11 @@ export const MINIMAL_SCROLLER_CSS = `
 }
 `;
 
-/** Installs the root rules, the card and minimal scrollers, the Monaco rule, the wheel marks and
-    the pointer-near marks once per document. */
-export function installScrollers(document: Document, timers: ScrollTimers = defaultTimers): void {
+/** The scroller sheets alone, once per document. A sheet added to a document restyles every element
+    of it, shadow trees included, so the chat's drawn copy (chatSnapshot/paint.ts) adds them before it
+    draws: the bundle's `installScrollers` then finds them, and adds none over the copy's ~1000
+    elements at the page's busiest moment. */
+export function installScrollerSheets(document: Document): void {
   if (!document.getElementById("cmux-scrollers")) {
     const style = document.createElement("style");
     style.id = "cmux-scrollers";
@@ -992,6 +994,12 @@ export function installScrollers(document: Document, timers: ScrollTimers = defa
     (document.head ?? document.documentElement).appendChild(style);
   }
   installSidewaysScrollers(document);
+}
+
+/** Installs the root rules, the card and minimal scrollers, the Monaco rule, the wheel marks and
+    the pointer-near marks once per document. */
+export function installScrollers(document: Document, timers: ScrollTimers = defaultTimers): void {
+  installScrollerSheets(document);
   installScrollingMarks(document, timers);
   installScrollerProximity(document);
 }

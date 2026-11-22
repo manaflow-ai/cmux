@@ -1,3 +1,5 @@
+// l10n-allow-file: test fixtures, not shipped UI.
+//
 // The chat page's root starts as its bundle leaves it, so the bundle's start writes nothing to it.
 // A root attribute a rule reads (`:lang()`, `:dir()`, FOCUS_RING_GATE's `[data-focus-modality]`)
 // restyles every element of the page when it is first written, the chat's drawn copy's shadow tree
@@ -12,6 +14,15 @@ import { RTL_LANGUAGES, splitStrings } from "../scripts/pages/split-strings.mjs"
 import { isRtlLanguage, setDocumentLanguage } from "../src/pages/shared/i18n";
 import { gridScale } from "../src/agent-session/acpmux/transcriptGrid";
 import { FOCUS_MODALITY_ATTRIBUTE, installFocusModality } from "../src/ui/focusModality";
+import { installScrollers } from "../src/scrollers";
+import { paintSnapshot } from "../src/agent-session/acpmux/chatSnapshot/paint";
+import {
+  PAGE_STYLE_ID,
+  SNAPSHOT_HOST_TAG,
+  SNAPSHOT_THEME_GLOBAL,
+  SNAPSHOT_VERSION,
+  type ChatSnapshot,
+} from "../src/agent-session/acpmux/chatSnapshot/shared";
 
 const table = { en: { "a.b": "Hi" }, ar: { "a.b": "Salam" }, de: { "a.b": "Hallo" } };
 
@@ -80,8 +91,8 @@ test("the page's root starts with the focus modality its bundle installs", () =>
   const doc = dom.window.document;
   let off = () => {};
   expect(rootWrites(doc, () => (off = installFocusModality(doc)))).toEqual([]);
-  off();
   expect(doc.documentElement.getAttribute(FOCUS_MODALITY_ATTRIBUTE)).toBe("pointer");
+  off();
 });
 
 test("gridScale reads the host's inline scale without a computed read", () => {
@@ -107,4 +118,54 @@ test("gridScale reads the host's inline scale without a computed read", () => {
     scope.document = prior.document;
     scope.getComputedStyle = prior.getComputedStyle;
   }
+});
+
+test("the drawn copy adds the bundle's scroller sheets before itself, so the bundle adds none over it", () => {
+  const dom = new JSDOM(
+    `<!doctype html><html><head><link rel="stylesheet" id="${PAGE_STYLE_ID}" href="https://cmux.test/pane.css" data-copy="pane-copy.css"></head><body><main id="root"></main></body></html>`,
+    { url: "https://cmux.test/" },
+  );
+  const view = dom.window as unknown as Record<string, unknown>;
+  // jsdom has no constructed sheets: a stand-in that parses nothing, enough for the copy to draw.
+  view.CSSStyleSheet = class {
+    cssRules = [] as unknown as CSSRuleList;
+    replaceSync(): void {}
+  };
+  view[SNAPSHOT_THEME_GLOBAL] = "dark";
+  const doc = dom.window.document;
+  const snapshot: ChatSnapshot = {
+    v: SNAPSHOT_VERSION,
+    html: "<p>hello</p>",
+    width: dom.window.innerWidth,
+    height: dom.window.innerHeight,
+    root: {},
+    body: {},
+    sheets: [],
+    styles: [],
+    theme: "dark",
+    savedAt: 0,
+  };
+  const added: string[] = [];
+  const observer = new dom.window.MutationObserver((records) => {
+    for (const record of records)
+      for (const node of Array.from(record.addedNodes)) {
+        const element = node as Element;
+        if (element.localName === "style") added.push(`style#${element.id}`);
+        if (element.localName === SNAPSHOT_HOST_TAG) added.push(SNAPSHOT_HOST_TAG);
+      }
+  });
+  observer.observe(doc, { childList: true, subtree: true });
+  expect(paintSnapshot(doc, snapshot)).toBe(true);
+  for (const record of observer.takeRecords())
+    for (const node of Array.from(record.addedNodes)) {
+      const element = node as Element;
+      if (element.localName === "style") added.push(`style#${element.id}`);
+      if (element.localName === SNAPSHOT_HOST_TAG) added.push(SNAPSHOT_HOST_TAG);
+    }
+  expect(added).toEqual(["style#cmux-scrollers", "style#cmux-sideways-scrollers", SNAPSHOT_HOST_TAG]);
+  // The bundle's start then adds no sheet of its own.
+  const before = doc.querySelectorAll("style").length;
+  installScrollers(doc, { set: () => 0, clear: () => {} });
+  expect(doc.querySelectorAll("style").length).toBe(before);
+  observer.disconnect();
 });
