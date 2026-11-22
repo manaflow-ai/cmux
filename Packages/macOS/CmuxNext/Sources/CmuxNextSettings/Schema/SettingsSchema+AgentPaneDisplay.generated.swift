@@ -7,6 +7,7 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let widthDefault: Double = 800
     nonisolated static let widthRange: ClosedRange<Double> = 480...4000
     nonisolated static let widthPlaceholder: Double = 800
+    nonisolated static let widthValues = ["narrow", "medium", "wide"]
     /// `agentPane.display.fullWidth`.
     nonisolated static let fullWidthPath = ["agentPane", "display", "fullWidth"]
     nonisolated static let fullWidthDefault = false
@@ -92,6 +93,13 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let presentationPath = ["agentPane", "display", "presentation"]
     nonisolated static let presentationDefault = "transcript"
     nonisolated static let presentationValues = ["transcript", "messages"]
+    /// `agentPane.display.transcriptLook`: A named look of the transcript (docs/cmux-next/transcript-customization.md): a bundle of look tokens from schemas/transcript-look/transcript-look.json. cmux sets no token, so it is the chat as it draws today.
+    nonisolated static let transcriptLookPath = ["agentPane", "display", "transcriptLook"]
+    nonisolated static let transcriptLookDefault = "cmux"
+    nonisolated static let transcriptLookValues = ["cmux", "claude", "codex", "studio"]
+    /// `agentPane.display.transcriptTokens`: Per-token overrides of the transcript look: an object of token name to value, each checked against schemas/transcript-look/transcript-look.json (cmux-config transcript_look; the page drops a value it refuses).
+    nonisolated static let transcriptTokensPath = ["agentPane", "display", "transcriptTokens"]
+    nonisolated static let transcriptTokensDefault: JSONValue = .object([:])
     /// `agentPane.display.promptCoach`: Prompt coach (webviews conversation/PromptCoachCard.tsx; Leo, 2026-11-08): after a chat in which the person corrected the agent three or more times before moving on, a card under that turn shows the chat's first prompt rewritten with what they added later, with Copy. Off: the chat asks acpmux for no rewrite (`_acpmux/prompt_coach`) and draws no card.
     nonisolated static let promptCoachPath = ["agentPane", "display", "promptCoach"]
     nonisolated static let promptCoachDefault = true
@@ -127,6 +135,13 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let railSidePath = ["agentPane", "display", "rail", "side"]
     nonisolated static let railSideDefault = "left"
     nonisolated static let railSideValues = ["left", "right"]
+    /// `agentPane.display.rail.show`: What the prompt rail draws a tick for (webviews threadMinimap/railShow.ts; Leo, 2026-11-21: "why cant you see an agents'? why cant you filter it? customize it immediately?"). The rail's right-click menu and its head control write it too, so every rail changes at once.
+    nonisolated static let railShowPath = ["agentPane", "display", "rail", "show"]
+    nonisolated static let railShowDefault = "prompts"
+    nonisolated static let railShowValues = ["prompts", "mine", "received", "replies", "everything", "errors", "edits", "tools", "subagents"]
+    /// `agentPane.display.rail.control`: A control at the prompt rail's head that names what it shows and opens the same choices (webviews threadMinimap/RailShowControl.tsx). Off by default: the rail looks as it did.
+    nonisolated static let railControlPath = ["agentPane", "display", "rail", "control"]
+    nonisolated static let railControlDefault = false
     /// `agentPane.display.commandLabels`: How the chat's running tray names background commands no built-in rule knows (CommandLabelsSetting; webviews session-info/commandLabelSettings.ts): preset names and rules of one's own, edited as JSON.
     nonisolated static let commandLabelsPath = ["agentPane", "display", "commandLabels"]
     nonisolated static let commandLabelsDefault: [String] = []

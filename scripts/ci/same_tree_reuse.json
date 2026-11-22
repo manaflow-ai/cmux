@@ -180,9 +180,6 @@
    "react-doctor": "below break-even: 100 runs, 103 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves",
    "fast-check-route": "its outputs feed later jobs; a skipped run leaves them empty"
   },
-  "cmux-next-remote-daemon.yml": {
-   "release-packaging": "publish, release, deploy, live or cloud work (by its name)"
-  },
   "cmux-next-shell-integration.yml": {
    "shell-integration": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for",
    "zsh-head-watch": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
@@ -379,12 +376,7 @@
    "body": "reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree; checks out ${{ github.event.pull_request.base.ref }}, not the run's commit; publish, release, deploy, live or cloud work (by its name)"
   },
   "pr-checks.yml": {
-   "base-only": "its outputs feed later jobs; a skipped run leaves them empty; needed by link, split, swift-logic, ui-review: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action, github.event.before, github.event.pull_request.base.ref), not only the tree",
-   "link": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.pull_request.base.ref, github.event.pull_request.draft), not only the tree; checks out ${{ github.event.pull_request.base.ref }}, not the run's commit",
-   "swift-logic": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.pull_request.base.ref, github.event.pull_request.base.sha), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit",
-   "size": "reads pull request metadata or the base (github.event.action, github.event.pull_request.base.sha, github.event.pull_request.draft), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit; judges other jobs (if: always() or failure())",
-   "ui-review": "reads pull request metadata or the base (github.event.action, github.event.pull_request.base.sha, github.event.pull_request.body), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit; judges other jobs (if: always() or failure())",
-   "split": "reads pull request metadata or the base (github.event.action, github.event.pull_request.base.sha, github.event.pull_request.head.sha), not only the tree; checks out ${{ github.event.pull_request.head.sha }}, not the run's commit; judges other jobs (if: always() or failure())"
+   "advisory": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.before, github.event.changes), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit"
   },
   "relay-tls.yml": {
    "diagnostic-presentation": "below break-even: 1 runs, 4 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves",

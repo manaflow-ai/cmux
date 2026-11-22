@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import type { CloudMachine } from "./ops";
 import { format, L } from "./strings";
+import { intl } from "../../ui/intl";
 
 const MINUTE = 60_000;
 /** Hours in an average month (365 days / 12), for a paused machine's rate by the month. */
@@ -13,12 +14,14 @@ const MONTH_HOURS = 730;
 
 /** US dollars to the cent ("$0.26"). */
 function price(usd: number, language: string): string {
-  return new Intl.NumberFormat(language, {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(usd);
+  return intl
+    .NumberFormat(language, {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+    .format(usd);
 }
 
 /** Time running in at most two units ("2h 14m", "3d 4h"); under a minute reads as one. */
@@ -33,9 +36,7 @@ function duration(ms: number, language: string): string {
   return units
     .slice(first, first + 2)
     .filter(([, value]) => value > 0)
-    .map(([unit, value]) =>
-      new Intl.NumberFormat(language, { style: "unit", unit, unitDisplay: "narrow" }).format(value),
-    )
+    .map(([unit, value]) => intl.NumberFormat(language, { style: "unit", unit, unitDisplay: "narrow" }).format(value))
     .join(" ");
 }
 
