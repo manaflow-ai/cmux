@@ -7,7 +7,7 @@
   "version": "1.0.0",
   "license": "MIT",
   "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/looks/plush",
-  "screenshots": [],
+  "screenshots": ["screenshots/plush-light.png", "screenshots/plush-dark.png", "screenshots/plush-dusk.png", "screenshots/plush-dusk-dark.png", "screenshots/plush-clay.png", "screenshots/plush-clay-dark.png"],
 
   "cmuxProfile": 1,
   "settings": {
