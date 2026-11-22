@@ -34,8 +34,9 @@ enum MacScreenLookA {
     static let toolbarHeight: CGFloat = 28
     /// How long a live, idle toolbar stays before it fades out.
     static let idleDelay = Duration.milliseconds(2500)
-    /// How long a stall lasts before the quiet Reconnecting pill shows (a short blip shows nothing).
-    static let outageMarkDelay = Duration.milliseconds(1000)
+    /// How long a stall lasts before the quiet Reconnecting pill shows (a short blip shows nothing): the pill's own
+    /// hold, ``MacScreenPictureMark/reconnectingDelay``.
+    static let outageMarkDelay = MacScreenPictureMark.reconnectingDelay
     /// The pane's top band that brings the toolbar back, at least.
     static let revealHeight: CGFloat = 40
     /// While this Mac controls the picture, only the pane's top edge brings the toolbar back (as a full-screen Mac's
