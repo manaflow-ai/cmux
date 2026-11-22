@@ -1983,6 +1983,31 @@ const TickList = memo(function TickList({
     next = to;
   }
   if (ticks.length > next) drawn.push(<Spacer key={`gap-${next}`} rows={ticks.length - next} pitch={rowPitch} />);
+  {
+    const seen = new Map<string, number>();
+    for (const [from, to] of ranges)
+      for (let index = from; index < to; index += 1) {
+        const k = ticks.at(index)!.key;
+        const was = seen.get(k);
+        if (was !== undefined)
+          console.warn(
+            "DUPDIAG rail " +
+              JSON.stringify({
+                key: k,
+                len: ticks.length,
+                pending: ticks.pendingCount,
+                heldStart: ticks.heldStart,
+                earlier: ticks.earlier.length,
+                a: was,
+                aid: ticks.at(was)!.id,
+                b: index,
+                bid: ticks.at(index)!.id,
+                held: ticks.items.slice(0, 3).map((t) => t.id),
+              }),
+          );
+        else seen.set(k, index);
+      }
+  }
   return drawn;
 
   function labelOf(tick: MinimapTickRow, index: number, marked: boolean): string {
