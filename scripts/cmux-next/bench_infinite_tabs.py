@@ -118,9 +118,10 @@ def build_workspace(app: bm.App, sock: str, chats: bm.FakeChats | None, index: i
             print(f"   workspace {index}: terminal: {made['error']}", file=sys.stderr)
     pages = []
     for url in urls:
-        page = bw.created_tab(app.run("openBrowser.chromium", url=url))
+        opened = app.run("openBrowser.chromium", url=url)
+        page = bw.created_tab(opened)
         if page is None:
-            print(f"   workspace {index}: no page for {url}", file=sys.stderr)
+            print(f"   workspace {index}: no page for {url}: {opened.get('error') or opened}", file=sys.stderr)
             continue
         # The page answers script only once it loaded: a page hibernated before that has no last frame to keep.
         if bw.evaluate(sock, page, bw.SET_SCROLL) is None:
@@ -268,6 +269,7 @@ def run(argv: list[str]) -> int:
     made: list[dict] = []
     tally = {"workspace_refused": 0, "tab_asked": 0, "tab_refused": 0}
     status = 1
+    pages_checked = False
     try:
         time.sleep(args.settle)  # test script: the launched app settles before its empty sample
         phase(pid, bundle, sock, "empty", 0, args.measure, report)
@@ -280,6 +282,14 @@ def run(argv: list[str]) -> int:
             entry = build_workspace(app, sock, chats if index < args.chats else None, index, urls)
             if entry:
                 made.append(entry)
+            # No page of the first ten asked opened: the app has no Chromium engine or refuses the open, and
+            # the hour that follows would measure another mix. Stop here with the reason printed above.
+            asked_pages = (index + 1) * args.tabs // args.workspaces
+            if asked_pages >= 10 and not pages_checked:
+                pages_checked = True
+                if not any(e["pages"] for e in made):
+                    print(f"bench-infinite-tabs: none of the first {asked_pages} pages opened; stopping", file=sys.stderr)
+                    return 3
             if len(made) > args.lag and not made[-1 - args.lag].get("asked"):
                 made[-1 - args.lag]["asked"] = True
                 hibernate(app, sock, made[-1 - args.lag], tally)
