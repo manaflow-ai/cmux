@@ -1,6 +1,7 @@
 import Foundation
 @testable import CmuxNextPages
 import Testing
+import WebKit
 
 /// The served web update (plans/cmux-next/web-ota.md): a scheme handler keeps its bundled root and
 /// gets the same folder inside the active update; with none (or outside a registered bundle) it
@@ -95,5 +96,28 @@ struct WebBundleOverlayTests {
         #expect(pins.pinned == [newer.standardizedFileURL])
         // With no tree (the bundle) a request keeps its bundled root.
         #expect(overlay.root(for: settings, tree: nil) == settings)
+    }
+    /// A Chromium page asks for its files with no web view of its own: each request read whichever
+    /// update was active, so a chat loaded with one merge's entry took the next merge's unhashed
+    /// `chunks/X.mjs` after a swap, and a swap never reloaded it. It reads the update its document
+    /// loaded with now, keeps that tree on disk, and takes the newer one with its next document.
+    @MainActor @Test func aChromiumPageReadsTheUpdateItsDocumentLoadedWith() async {
+        let overlay = Self.overlay()
+        let views = WebBundleServedViews()
+        let newer = URL(fileURLWithPath: "/Support/web-updates/trees/def", isDirectory: true)
+        let pane = Self.bundledPane
+        let chat = WKWebView()
+        let older = Self.tree.path + "/" + Self.paneOutput
+        overlay.activate(Self.tree)
+        views.chromiumDocument(chat)
+        #expect(await views.root(for: pane, in: chat, overlay: overlay).path == older)
+        overlay.activate(newer)
+        // A lazy chunk after the swap: the document's own build, never the newer one.
+        #expect(await views.root(for: pane, in: chat, overlay: overlay).path == older)
+        #expect(views.pinnedTrees.contains(Self.tree.standardizedFileURL))
+        // The swap never reloads it under the eye; its next document takes the newer web.
+        #expect(views.behind(newer.standardizedFileURL).isEmpty)
+        views.chromiumDocument(chat)
+        #expect(await views.root(for: pane, in: chat, overlay: overlay).path == newer.path + "/" + Self.paneOutput)
     }
 }
