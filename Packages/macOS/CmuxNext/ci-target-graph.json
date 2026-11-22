@@ -1037,6 +1037,7 @@
       ],
       "packages": [],
       "reads": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl.swift",
         "cmux-tui/spec/"
       ]
     },
