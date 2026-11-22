@@ -73,6 +73,13 @@ nonisolated extension AcpmuxPaneMethods {
             ])),
             "pick": .string,
         ]),
+        // Auto's decision (read-only): where the chat goes and why, in the fields autoWhereModel.ts
+        // reads. The budget's numbers, the target count and anything else stay out.
+        "_acpmux/place_chat": .object([
+            "placement": .object(["at": .string, "place": .string]),
+            "reason": .object(["code": .string]),
+            "why": .string,
+        ]),
         // Reconnect returns the same safe peer state needed by the offline copy's banner. The
         // relay derives transport from `url` and drops the endpoint and all other metadata.
         "_acpmux/peer_reconnect": .object([
