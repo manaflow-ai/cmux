@@ -2302,13 +2302,8 @@ function afterPaint(run: () => void): () => void {
   return stop;
 }
 
-/// "New since you looked" from acpmux's `lastReturn` (`{since, turns}`, `hub/seen.rs`), when it has one.
-function returnOf(sessionId: string, value: unknown): (Omit<AcpmuxSince, "key"> & { sessionId: string }) | undefined {
-  const back = value as { since?: unknown; turns?: unknown } | null | undefined;
-  return typeof back?.since === "number" && typeof back.turns === "number" && back.turns > 0
-    ? { sessionId, seq: back.since, turns: back.turns }
-    : undefined;
-}
+/// "New since you looked" comes only from the daemon's persisted unread cursor.
+/// A missing cursor is the never-focused state and must stay empty on first open.
 
 /// A thought chunk continues the thought it follows: a thought streams into one growing item,
 /// not one row per chunk. `at` (the chunk's time) dates the thought's first and latest chunk, so
@@ -4050,6 +4045,9 @@ export class AcpmuxDirectClient {
   /// The last attach sent, and what acpmux last accepted about whether the page shows its chat.
   private attaching: Promise<unknown> = Promise.resolve();
   private shownToAcpmux?: { sessionId: string; visible: boolean };
+  /// The highest row seq sent for the current chat. Seen cursors only move forward, so repeated
+  /// transcript layout commits do not write to the daemon.
+  private sentSeen?: { sessionId: string; seq: number };
   private viewSync: Promise<void> = Promise.resolve();
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
@@ -6882,6 +6880,36 @@ export class AcpmuxDirectClient {
     });
   }
 
+  /// Record the newest row that was actually in the transcript viewport. The caller derives this
+  /// from the visible layout range, while this client keeps the page-active and reader-here gates
+  /// next to the daemon request so selection alone cannot advance the cursor.
+  markSeenThrough(sessionId: string, seq: number): void {
+    if (!Number.isFinite(seq) || !pageShown() || !readerHere()) return;
+    const previous = this.sentSeen;
+    if (previous?.sessionId === sessionId && previous.seq >= seq) return;
+    const generation = this.selectionGeneration;
+    this.viewSync = this.viewSync.then(async () => {
+      await this.attaching;
+      if (
+        generation !== this.selectionGeneration ||
+        this.closed ||
+        !pageShown() ||
+        !readerHere() ||
+        this.selectedSessionId !== sessionId
+      )
+        return;
+      const latest = this.sentSeen;
+      if (latest?.sessionId === sessionId && latest.seq >= seq) return;
+      await this.typed("_acpmux/seen", { sessionId, seq }).then(
+        () => {
+          if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
+            this.sentSeen = { sessionId, seq };
+        },
+        () => undefined,
+      );
+    });
+  }
+
   /// Selecting a session is seeing it, including an unread flag acpmux sent, and so is coming back
   /// to it by hand after stepping away (`attentionChanged`). Turns that ended since the person last
   /// left it or stepped away put "New since you looked" after what they had seen; it stays until
@@ -6893,7 +6921,12 @@ export class AcpmuxDirectClient {
     if (typeof turns === "number" && turns > 0 && typeof seq === "number") {
       this.since = { sessionId, seq, turns, ...(inPlace && { inPlace: true as const }) };
       this.placeSince();
-    } else if (this.since?.sessionId !== sessionId) this.since = returnOf(sessionId, listed?.lastReturn);
+    } else {
+      // A selected chat with no unread turns has no cutover. Clear any prior marker so
+      // refocusing after it was seen cannot resurrect a false New line.
+      this.since = undefined;
+      this.placeSince();
+    }
     this.sessions = this.sessions.map((session) =>
       session.sessionId === sessionId && (session.unread === true || session.unreadTurns)
         ? { ...session, unread: false, unreadTurns: 0 }
@@ -6910,11 +6943,9 @@ export class AcpmuxDirectClient {
   /// divider is placed again even when its mark did not change.
   private sinceStale = false;
   private placeSince(): void {
-    // Its attach answered before the list said turns ended unseen (a cold open): acpmux keeps the
-    // return on the chat while the person stays (`lastReturn`).
+    // A chat with no daemon cursor has no cutover. The summary's lastReturn is a
+    // transport/reconnect detail, not evidence that new rows arrived after focus.
     const selected = this.selectedSessionId;
-    if (selected && this.since?.sessionId !== selected && this.summary?.sessionId === selected)
-      this.since = returnOf(selected, this.summary.lastReturn);
     const since = this.since;
     if (!since || since.sessionId !== this.selectedSessionId) {
       if (this.rows.has(SINCE_DIVIDER)) this.rows.delete(SINCE_DIVIDER);

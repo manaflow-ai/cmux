@@ -202,5 +202,17 @@ export default componentEntry<Props>({
       note: "Collapsed in the light theme.",
       props: { part: "banner", theme: "light", mode: "collapsed" },
     },
+    "refocus-no-new": {
+      note: "Refocusing a chat after no new rows leaves the transcript free of a New cutover and keeps the overlay zero-height.",
+      props: { part: "line", theme: "dark", read: true, recap: false },
+    },
+    "never-focused": {
+      note: "A chat with no persisted seen cursor stays quiet on its first open, with no fabricated New line.",
+      props: { part: "line", theme: "dark", read: true, recap: false },
+    },
+    "long-absence": {
+      note: "A long absence keeps the cutover over the existing transcript rhythm while its recap remains optional.",
+      props: { part: "line", theme: "dark", recap: true },
+    },
   },
 });

@@ -313,11 +313,19 @@ export function ThreadMinimap({
   scrollTop,
   scrolls,
   change,
+  cutoverSeq,
+  onCutover,
   ...rest
-}: Omit<ThreadMinimapProps, "source" | "version"> & MinimapSourceValues) {
+}: Omit<ThreadMinimapProps, "source" | "version"> &
+  MinimapSourceValues & {
+    cutoverSeq?: number;
+    onCutover?: () => void;
+  }) {
   const source = useMinimapSource();
   const version = source.update({ rows, layout, scrollTop, scrolls, change });
-  return <ThreadMinimapRail source={source} version={version} {...rest} />;
+  return (
+    <ThreadMinimapRail source={source} version={version} cutoverSeq={cutoverSeq} onCutover={onCutover} {...rest} />
+  );
 }
 
 function ThreadMinimapView({
@@ -336,6 +344,8 @@ function ThreadMinimapView({
   columnWidth = width,
   placed,
   topInset = 0,
+  cutoverSeq,
+  onCutover,
 }: {
   /// The transcript's rows, layout and offset (MinimapSource): read when the rail draws.
   source: MinimapSource;
@@ -379,6 +389,9 @@ function ThreadMinimapView({
   /// CSS pixels of the scroller's top a floating tab row covers (VirtualTranscript `topInset`): a jump lands
   /// its prompt LANDING_OFFSET below the row, not under it.
   topInset?: number;
+  /// The persisted "since you were here" row. This is an absolute overlay, so it never changes rail height.
+  cutoverSeq?: number;
+  onCutover?: () => void;
 }) {
   const t = useT();
   const topInsetNow = useRef(topInset);
@@ -617,6 +630,14 @@ function ThreadMinimapView({
     : railClearHeight(boxRail, boxTop, boxHeight, boxFoot ?? boxHeight, liveFoot);
   /// Where the list's first row draws in the view.
   const railTop = boxTop;
+  /// The cutover is an overlay on the fixed rail. It is anchored to the first loaded row at or after
+  /// the daemon cursor, so adding or dismissing it never changes the list's height or row pitch.
+  const cutoverIndex =
+    cutoverSeq === undefined ? -1 : rows.findIndex((row) => typeof row.seq === "number" && row.seq >= cutoverSeq);
+  const cutoverTop =
+    cutoverIndex < 0 || layout.totalHeight <= 0
+      ? undefined
+      : Math.max(0, Math.min(height - 2, (tops(cutoverIndex) / layout.totalHeight) * height));
   // The compact rail is pinned to the pane's left edge. It never follows the centered transcript or
   // Session Info's chat shift; only its own pane-width inset changes.
   // Its edge (railSide.ts): on the right it is the same rail mirrored, `placement.left` in from the
@@ -1705,6 +1726,16 @@ function ThreadMinimapView({
             }
           }}
         >
+          {cutoverTop !== undefined && (
+            <button
+              type="button"
+              className="acpmux-minimap__cutover"
+              style={{ transform: `translateY(${cutoverTop}px)` }}
+              aria-label="Since you were here"
+              title="Since you were here"
+              onClick={onCutover}
+            />
+          )}
           {controlOn && repliesLook !== "ruler" && !full && (
             <RailShowControl
               show={show}
