@@ -46,12 +46,16 @@ pub(super) fn partial_refusal(plan: &Plan, allow_partial: bool) -> Option<&[Stri
 pub(super) fn parse_plan(text: &str) -> Option<Plan> {
     // The plan is the JSON object on stdout; progress lines may come before it.
     let start = text.find('{')?;
-    let value: Value = serde_json::from_str(text[start..].trim()).ok()?;
-    let parts =
-        value["parts"].as_array()?.iter().filter_map(|p| p.as_str().map(str::to_owned)).collect();
+    let value: Value = serde_json::from_str(text.get(start..)?.trim()).ok()?;
+    let parts = value
+        .get("parts")?
+        .as_array()?
+        .iter()
+        .filter_map(|p| p.as_str().map(str::to_owned))
+        .collect();
     let mut left = Vec::new();
     let mut excluded = Vec::new();
-    if let Some(map) = value["left"].as_object() {
+    if let Some(map) = value.get("left").and_then(Value::as_object) {
         for (kind, why) in map {
             let items: Vec<String> = match why {
                 Value::Array(items) => {

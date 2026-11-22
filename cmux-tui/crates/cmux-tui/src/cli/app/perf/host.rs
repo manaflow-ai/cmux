@@ -67,8 +67,9 @@ pub(super) fn summarize(samples: &[Sample]) -> HostSummary {
         let mut total = 0.0;
         let mut peak: f64 = 0.0;
         for pair in samples.windows(2) {
-            let used = growth(&pair[0].cpu_s, &pair[1].cpu_s);
-            let dt = pair[1].at - pair[0].at;
+            let [before, after] = pair else { continue };
+            let used = growth(&before.cpu_s, &after.cpu_s);
+            let dt = after.at - before.at;
             if dt > 0.0 {
                 peak = peak.max(used * 100.0 / dt);
             }
@@ -82,8 +83,9 @@ pub(super) fn summarize(samples: &[Sample]) -> HostSummary {
             };
             let (mut read, mut written) = (0.0, 0.0);
             for pair in samples.windows(2) {
-                read += growth(&column(&pair[0], |io| io.0), &column(&pair[1], |io| io.0));
-                written += growth(&column(&pair[0], |io| io.1), &column(&pair[1], |io| io.1));
+                let [before, after] = pair else { continue };
+                read += growth(&column(before, |io| io.0), &column(after, |io| io.0));
+                written += growth(&column(before, |io| io.1), &column(after, |io| io.1));
             }
             summary.disk_read_mb = Some(read / (1024.0 * 1024.0));
             summary.disk_write_mb = Some(written / (1024.0 * 1024.0));
@@ -97,9 +99,9 @@ pub(super) fn parse_gpu(text: &str) -> Option<f64> {
     const KEY: &str = "\"Device Utilization %\"=";
     text.match_indices(KEY)
         .filter_map(|(at, _)| {
-            let rest = &text[at + KEY.len()..];
+            let rest = text.get(at + KEY.len()..)?;
             let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
-            rest[..end].parse::<f64>().ok()
+            rest.get(..end)?.parse::<f64>().ok()
         })
         .reduce(f64::max)
 }

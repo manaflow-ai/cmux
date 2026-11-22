@@ -119,8 +119,7 @@ fn seconds(value: Option<&str>, default: u64, max: u64) -> Result<u64, UsageErro
 pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
     let messages = &crate::localization::catalog().app_control.perf;
     let usage = || UsageError::new(messages.usage);
-    let Some(verb) = args.first() else { return Err(usage()) };
-    let rest = &args[1..];
+    let Some((verb, rest)) = args.split_first() else { return Err(usage()) };
     match verb.as_str() {
         "profile" => {
             let options =
