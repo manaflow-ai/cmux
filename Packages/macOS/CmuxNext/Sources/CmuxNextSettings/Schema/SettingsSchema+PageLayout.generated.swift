@@ -42,6 +42,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case importSuggestions
         /// Every release channel's recent builds, with the one this Mac runs (Settings > Updates).
         case channels
+        /// Settings > General's first card, on by default for everyone (Leo 2026-11-22: "a customizations checklist. actually, this needs to be SOMEWHERE as a default. not just for me."): the steps for making cmux your own (theme, look, shortcuts, notifications, agents and models, MCP, GitHub, sidebar, chat, New Tab, ...), n of m done, each linking to where it is done, with a check-off and Dismiss (customize.checklist.enabled). Steps and progress are cmux-customize checklist.rs (`cmux customize checklist`), through `cmux.settings.customize.checklist`.
+        case customizeProgress
         /// The app update's status: a check, a download's progress and Cancel, Restart to Update, a failure's Try Again (Settings > Updates; the sidebar shows only the staged update).
         case appUpdate
         /// The web UI served now, its last check and Roll Back (plans/cmux-next/web-ota.md); NIGHTLY only.

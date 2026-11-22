@@ -29,6 +29,13 @@
     {
       "agent": "settable",
       "keys": [
+        "customize.checklist.done",
+        "customize.checklist.enabled"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
         "shortcuts.showModifierHoldHints"
       ]
     },

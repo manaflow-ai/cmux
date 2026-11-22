@@ -57,6 +57,8 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize profiles                     The saved profiles
   cmux customize recipes [--open]             Ready-made changes to try with `use` (--open: the guide, in cmux)
   cmux customize library [VERB]               Everything you applied, kept as layers: list|status|on|off|order|export|import|remove
+  cmux customize checklist [--has NAME]...    The customizations checklist: each step, done or not, and n of m
+                                              (--has models|mcp|github|phone: a connection the caller knows of)
 
 If a layer broke cmux (no app needed, with cmux quit too):
   cmux customize library status               Which layers are on, in one line (also in `cmux version`)
@@ -107,6 +109,7 @@ const VERBS: &[&str] = &[
     "keep",
     "revert",
     "library",
+    "checklist",
     "paths",
     "brief",
     "check",
@@ -178,6 +181,11 @@ pub(super) enum Request {
         open: bool,
     },
     Library(library::Request),
+    /// The customizations checklist, with the connections the caller
+    /// reports (`--has NAME`).
+    Checklist {
+        connected: Vec<String>,
+    },
     Paths,
     Schema {
         section: Option<Section>,
@@ -235,6 +243,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
         },
         "try" | "try-on" => try_of(rest),
         "library" | "lib" => library::parse(rest).map(Request::Library),
+        "checklist" => checklist_of(rest),
         "paths" => none(Request::Paths),
         "apply" => Ok(Request::Apply { note: (!rest.is_empty()).then(|| rest.join(" ")) }),
         "rollback" | "undo" | "switch" => match rest {
@@ -323,6 +332,26 @@ fn try_of(words: &[String]) -> Result<Request, String> {
 }
 
 /// `schema [PART] [--typescript|--rust]`.
+/// `checklist [--has NAME]...`: each NAME one of the checklist's connections.
+fn checklist_of(words: &[String]) -> Result<Request, String> {
+    let mut connected = Vec::new();
+    let mut iter = words.iter();
+    while let Some(word) = iter.next() {
+        if word != "--has" {
+            return Err(format!("customize checklist takes only --has NAME, got {word:?}"));
+        }
+        let name = value_of(&mut iter, word)?;
+        if !cmux_customize::checklist::facts().any(|known| known == name) {
+            let known: Vec<&str> = cmux_customize::checklist::facts().collect();
+            return Err(format!("--has takes one of {}, got {name:?}", known.join(", ")));
+        }
+        if !connected.contains(&name) {
+            connected.push(name);
+        }
+    }
+    Ok(Request::Checklist { connected })
+}
+
 fn schema_of(words: &[String]) -> Result<Request, String> {
     let (mut section, mut format) = (None, SchemaFormat::Schema);
     for word in words {
@@ -713,6 +742,10 @@ pub(super) fn execute(
         Request::Profiles => Answer::Profiles(customize.profiles()?),
         Request::Recipes { open } => recipes(customize, open, chat)?,
         Request::Library(request) => library::execute(customize, request, origin, now_ms)?,
+        Request::Checklist { connected } => Answer::Checklist(cmux_customize::checklist::read(
+            customize,
+            &connected.into_iter().collect(),
+        )?),
         Request::Paths => Answer::Paths(customize.roots().clone()),
         Request::Schema { section, format } => Answer::Schema(Schema::current(), section, format),
     })

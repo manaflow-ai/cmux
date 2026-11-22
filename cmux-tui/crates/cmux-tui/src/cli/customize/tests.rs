@@ -542,3 +542,15 @@ fn schema_lists_what_can_change_and_needs_no_store() {
     assert!(human.contains("cmux.section/1") && human.contains("defaultRegion: top|middle|bottom"));
     assert!(human.contains("\nNext:\n"));
 }
+
+#[test]
+fn checklist_takes_only_the_connections_it_knows() {
+    assert_eq!(parse(&words(&["checklist"])), Ok(Request::Checklist { connected: vec![] }));
+    assert_eq!(
+        parse(&words(&["checklist", "--has", "github", "--has", "mcp", "--has", "github"])),
+        Ok(Request::Checklist { connected: vec!["github".to_owned(), "mcp".to_owned()] })
+    );
+    assert!(parse(&words(&["checklist", "--has", "slack"])).is_err());
+    assert!(parse(&words(&["checklist", "--has"])).is_err());
+    assert!(parse(&words(&["checklist", "theme"])).is_err());
+}
