@@ -31,6 +31,7 @@ mod pending_bells;
 mod pty_surface;
 mod render_tap;
 mod render_view;
+pub(crate) mod resume_ring;
 mod scrolling;
 mod shutdown;
 pub(crate) mod spawn;
@@ -307,6 +308,16 @@ pub struct AttachStream {
     pub history_rows_skipped: Option<u64>,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
+    /// Where the output stream stood at the replay (`terminal-resume-v1`).
+    pub(crate) stamp: resume_ring::StreamStamp,
+}
+
+/// A `terminal-resume-v1` reattach the daemon could answer exactly: the bytes
+/// after the viewer's offset, and an attach stream with no replay, whose live
+/// tap follows them.
+pub(crate) struct ResumeAttach {
+    pub missing: Vec<u8>,
+    pub attach: AttachStream,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -860,6 +871,7 @@ impl Surface {
                     input_port::InputRoute::Hosted(attachment.input_route()),
                 ))),
                 input_port: port,
+                paste_pacer: Mutex::default(),
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",

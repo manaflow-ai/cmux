@@ -106,6 +106,7 @@
     "cloud.machine.keep",
     "cloud.machine.list",
     "cloud.machine.pause",
+    "cloud.machine.pause_all",
     "cloud.machine.rename",
     "cloud.machine.start",
     "cloud.machine.upgrade",

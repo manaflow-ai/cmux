@@ -595,6 +595,32 @@ test("failure copy matches the native AppFailureCopy cases", () => {
   });
 });
 
+test("a node's glass puts it on the page glass at that level, replaces its fill and changes no box", () => {
+  const { container, store } = render([
+    { op: "create", id: "root", type: "VStack", props: { padding: 8, background: "#112233", cornerRadius: 12 } },
+    { op: "root", id: "root" },
+  ]);
+  const node = () => container.querySelector<HTMLElement>("[data-app-node=root]")!;
+  const box = () => ({ padding: node().style.padding, radius: node().style.borderRadius });
+  const before = box();
+  expect(node().classList.contains("ui-glass")).toBe(false);
+  expect(node().style.backgroundColor).not.toBe("");
+
+  act(() => store.apply([{ op: "update", id: "root", props: { glass: "chip" } }]));
+  expect(node().classList.contains("ui-glass")).toBe(true);
+  expect(node().getAttribute("data-glass-level")).toBe("chip");
+  expect(node().style.backgroundColor).toBe("");
+  expect(box()).toEqual(before);
+
+  act(() => store.apply([{ op: "update", id: "root", props: { glass: "frosted" } }]));
+  expect(node().classList.contains("ui-glass")).toBe(false);
+  expect(node().hasAttribute("data-glass-level")).toBe(false);
+
+  act(() => store.apply([{ op: "update", id: "root", props: { glass: null } }]));
+  expect(node().classList.contains("ui-glass")).toBe(false);
+  expect(node().style.backgroundColor).not.toBe("");
+});
+
 const list: SceneOp[] = [
   { op: "create", id: "root", type: "VStack" },
   { op: "create", id: "a", type: "Text", props: { text: "Milk", transition: "slide" } },
@@ -751,6 +777,44 @@ test("layout: HStack aligns top or bottom, ZStack centers, a shape's frame wins 
   expect(css).toMatch(/\.cmux-app-scene-zstack \{\s*display: grid;\s*place-items: center;/);
 });
 
+test("a drop in a Reorderable sends the list its item key and final index", () => {
+  const { container, calls } = render([
+    { op: "create", id: "pins", type: "Reorderable", props: { onMove: true } },
+    ...["n1", "n2", "n3"].map((id) => ({
+      op: "create" as const,
+      id,
+      type: "Row",
+      props: { title: id, reorderKey: "chat-" + id },
+    })),
+    { op: "children", id: "pins", children: ["n1", "n2", "n3"] },
+    { op: "root", id: "pins" },
+  ]);
+  const rows = Array.from(container.querySelectorAll<HTMLElement>(".cmux-app-scene-move-row"));
+  rows.forEach((row, i) => {
+    row.getBoundingClientRect = () => ({ top: 20 * i, height: 20 }) as DOMRect;
+  });
+  function dragEvent(row: HTMLElement, name: string, y: number) {
+    const event = new MouseEvent(name, { bubbles: true, cancelable: true, clientY: y });
+    Object.defineProperty(event, "dataTransfer", { value: { setData() {} } });
+    act(() => {
+      row.dispatchEvent(event);
+    });
+  }
+  dragEvent(rows[0]!, "dragstart", 5);
+  dragEvent(rows[2]!, "dragover", 55);
+  expect(rows[2]?.dataset.dropEdge).toBe("after");
+  dragEvent(rows[2]!, "drop", 55);
+  dragEvent(rows[2]!, "dragstart", 55);
+  dragEvent(rows[0]!, "drop", 5);
+  dragEvent(rows[0]!, "drop", 5); // A drop that began outside this list.
+  dragEvent(rows[1]!, "dragstart", 25);
+  dragEvent(rows[1]!, "drop", 35);
+  expect(calls).toEqual([
+    ["pins", "move", { id: "chat-n1", index: 2 }],
+    ["pins", "move", { id: "chat-n3", index: 0 }],
+  ]);
+});
+
 test("fontDesign draws the system font's rounded, serif or monospaced design at the type scale's size", () => {
   const { container } = render([
     { op: "create", id: "root", type: "VStack" },
@@ -813,9 +877,13 @@ test("formatSceneDate formats each date style as SwiftUI's Text(date, style:)", 
 });
 
 test("a date Text ticks itself on the shared clock with no scene batch, and stops when hidden or unmounted", async () => {
+  // The shared clock ticks on wall-clock seconds, so the countdown ends on one too: then its first
+  // tick turns the shown second over. An end at an arbitrary millisecond can need a second tick,
+  // after the 1.1 s below (it failed whenever another test file ran first and shifted the phase).
+  const end = Math.floor(Date.now() / 1_000) * 1_000 + 65_000;
   const { container, store, calls } = render([
     { op: "create", id: "root", type: "VStack" },
-    { op: "create", id: "timer", type: "Text", props: { text: "", date: Date.now() + 65_000, dateStyle: "timer" } },
+    { op: "create", id: "timer", type: "Text", props: { text: "", date: end, dateStyle: "timer" } },
     { op: "create", id: "time", type: "Text", props: { text: "", date: Date.now(), dateStyle: "time" } },
     { op: "children", id: "root", children: ["timer", "time"] },
     { op: "root", id: "root" },

@@ -23,7 +23,7 @@ export const SCENE_SF_SYMBOLS: Readonly<Record<string, string>> = {
   "checkmark.square": "checkbox.on",
   "checkmark.square.fill": "checkbox.on",
   square: "checkbox.off",
-  checklist: "tunable.tasks",
+  checklist: "view.list",
   circle: "radio.off",
   "circle.fill": "color.swatch",
   "largecircle.fill.circle": "radio.on",
