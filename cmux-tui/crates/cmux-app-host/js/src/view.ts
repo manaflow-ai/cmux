@@ -114,6 +114,19 @@ export class ViewNode {
     this.menu = items
     return this
   }
+  // Finished components (Row, Badge, Button, ProgressView, Toggle, Slider, TextField, Image,
+  // EmptyState, Stat, Chart): how loud they are, and the state the host draws in their place.
+  /** How much the component stands out, never a style prop: `standard` (the default), `prominent`
+   * (the one thing to look at: accent ink, a stronger fill) or `subtle` (quieter ink, no fill).
+   * Row, Badge, Button, ProgressView, Stat and Chart have all three; the others only `standard`. */
+  variant(v: Bindable<ComponentVariant>) { return this.set("variant", v) }
+  /** Draws the host's own state in place of the component: `loading` (the spinner), `error` (a
+   * warning glyph) or `empty` (a quiet tray), each with an optional one-line `message`. null
+   * draws the component again. */
+  state(v: Bindable<ComponentState | null>, message?: Bindable<string | null>) {
+    this.set("state", v)
+    return message === undefined ? this : this.set("stateMessage", message)
+  }
   // Symbols
   /** How an `Icon`'s layers take color, as SF Symbols draw them: `monochrome` (the default: all in
    * `color`), `hierarchical` (the layers in `color` at falling opacity), `palette` (the layers in
@@ -128,6 +141,11 @@ export class ViewNode {
     return this.set("symbolColors", [...colors])
   }
 }
+
+/** A finished component's emphasis (`.variant(...)`). */
+export type ComponentVariant = "standard" | "prominent" | "subtle"
+/** What a finished component shows in place of its content (`.state(...)`). */
+export type ComponentState = "loading" | "error" | "empty"
 
 // Fills: a color, or a gradient value the renderers validate the same way the builders below do.
 
@@ -321,6 +339,43 @@ export function Badge(text: Bindable<string | number>, tone: Bindable<string> = 
 
 export function EmptyState(props: { title: Bindable<string>; message?: Bindable<string>; symbol?: Bindable<string> }): ViewNode {
   return new ViewNode("EmptyState").withProps(props)
+}
+
+/** A stat: a big `value` in the numeral role (34 pt semibold, digits roll on change), a `label` caption
+ * under it, and an optional `delta` ("+12%") marked by `trend`: `up` in success with an up arrow, `down`
+ * in danger with a down arrow, `flat` in secondary. `trend` `up` is good unless `goodTrend` is `down`
+ * (a latency, a price). */
+export function Stat(
+  value: Bindable<string | number>,
+  options: { label?: Bindable<string>; delta?: Bindable<string | null>; trend?: Bindable<"up" | "down" | "flat" | null>; goodTrend?: "up" | "down" } = {}
+): ViewNode {
+  const node = new ViewNode("Stat")
+  node.props.value = typeof value === "function" ? () => String((value as () => unknown)() ?? "") : String(value)
+  if (options.label !== undefined) node.props.label = options.label
+  if (options.delta !== undefined) node.props.delta = options.delta
+  if (options.trend !== undefined) node.props.trend = options.trend
+  if (options.goodTrend !== undefined) node.props.goodTrend = options.goodTrend
+  return node
+}
+
+/** At most this many values in a `Chart`; the host draws the last ones. */
+export const CHART_MAX_VALUES = 64
+
+/** A small chart the host draws from numbers (never pixels): `kind` `line` (a sparkline, the
+ * default) or `bar` (one bar per value), filling its width, 32 points tall unless a `frame` sets
+ * the height. Bars stand on zero (or on the lowest value when every value is below it); a line
+ * spans the values' range. `color` is a role (accent by default); the last 64 values draw. */
+export function Chart(values: Bindable<readonly number[]>, options: { kind?: Bindable<"line" | "bar">; color?: Bindable<string> } = {}): ViewNode {
+  const node = new ViewNode("Chart")
+  node.props.values = typeof values === "function" ? () => chartValues((values as () => readonly number[])()) : chartValues(values)
+  node.props.kind = options.kind ?? "line"
+  if (options.color !== undefined) node.props.color = options.color
+  return node
+}
+
+/** Finite numbers only, the last `CHART_MAX_VALUES` of them. */
+function chartValues(values: readonly number[] | null | undefined): number[] {
+  return (Array.isArray(values) ? values : []).filter((v): v is number => typeof v === "number" && Number.isFinite(v)).slice(-CHART_MAX_VALUES)
 }
 
 export function ForEach<T>(spec: ListSpec<T>, template: (item: Read<T>, key: string) => ViewNode): ViewNode {

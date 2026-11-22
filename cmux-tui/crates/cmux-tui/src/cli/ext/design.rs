@@ -13,6 +13,8 @@
 //! - `contrast`: a hex text color below the WCAG minimum on its background, or on cmux's
 //!   light or dark surface when it sits on the theme's.
 //! - `line-limit`: (widgets) a Text with no line limit, which overflows a small tile.
+//! - `component`: a finished component's `variant` or `state` it does not draw, or a `Chart`
+//!   with no values or more than it draws (`design_components.rs`).
 //!
 //! The system is cmux's, or the folder's own `cmux-design.json` over it (`design_system.rs`).
 //! Findings warn; they never fail the load. `ext dev --once --json` lists them as `design`.
@@ -21,6 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Value, json};
 
+use super::design_components;
 use super::design_system::System;
 use super::scene::{self, Node};
 
@@ -148,8 +151,15 @@ pub(super) fn check_in(batches: &[&Value], surface: Surface, system: &System) ->
         if node.kind == "Text" {
             text(node, &behind, surface, system, &mut findings, &mut styles);
         }
+        if node.kind == "Stat" {
+            // A Stat draws its value in the numeral role and its label as a caption.
+            styles.extend(["numeral".to_string(), "caption".to_string()]);
+        }
         spacing(node, system, &mut findings);
         colors(node, &mut findings, &mut accents);
+        for (message, fix) in design_components::problems(node) {
+            findings.add("component", Some(node), message, fix);
+        }
         stack.extend(node.children.iter().rev().map(|child| (child.clone(), behind.clone())));
     }
     let max_roles = system.max_roles;

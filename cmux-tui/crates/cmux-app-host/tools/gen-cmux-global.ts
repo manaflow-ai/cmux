@@ -544,7 +544,13 @@ interface CmuxView {
   fixed(): this; destructive(): this; disabled(v?: Bindable<boolean>): this; onTap(fn: () => unknown): this; contextMenu(items: CmuxView[] | (() => CmuxView[])): this
   /** How an Icon's layers take color, as SF Symbols draw them: monochrome (the default), hierarchical, palette (1 to 3 colors, in layer order) or multicolor (the symbol's own colors, the tint where it has none). */
   symbolRendering(mode: "monochrome" | "hierarchical" | "palette" | "multicolor", colors?: readonly string[]): this
+  /** A finished component's emphasis, never a style prop: standard (the default), prominent (accent ink, a stronger fill) or subtle (quieter ink, no fill). Row, Badge, Button, ProgressView, Stat and Chart have all three; the other components only standard. */
+  variant(v: Bindable<CmuxComponentVariant>): this
+  /** The host's own state in place of a finished component: loading (spinner), error (warning glyph) or empty (a quiet tray), with an optional one-line message; null draws the component. */
+  state(v: Bindable<CmuxComponentState | null>, message?: Bindable<string | null>): this
 }
+type CmuxComponentVariant = "standard" | "prominent" | "subtle"
+type CmuxComponentState = "loading" | "error" | "empty"
 type CmuxChildren = Array<CmuxView | (() => unknown) | null | undefined | false>
 interface CmuxListSpec<T> { items: () => readonly T[] | null | undefined; key: (item: T, index: number) => string | number; onMove?: (id: string, index: number, extra: { side?: string; block?: boolean }) => unknown; onDragChange?: (state: unknown) => unknown; spacing?: number }
 declare function VStack(propsOrChildren?: Record<string, unknown> | CmuxChildren, children?: CmuxChildren): CmuxView
@@ -581,6 +587,10 @@ declare function Slider(value: Bindable<number>, options?: { min?: number; max?:
 declare function Panel(propsOrChildren?: { title?: Bindable<string>; style?: "glass" | "card"; spacing?: number } | CmuxChildren, children?: CmuxChildren): CmuxView
 declare function Badge(text: Bindable<string | number>, tone?: Bindable<string>): CmuxView
 declare function EmptyState(props: { title: Bindable<string>; message?: Bindable<string>; symbol?: Bindable<string> }): CmuxView
+/** A stat: a big value in the numeral role, a label caption under it, and an optional delta marked by trend (up success, down danger, flat secondary; goodTrend "down" swaps the tones). */
+declare function Stat(value: Bindable<string | number>, options?: { label?: Bindable<string>; delta?: Bindable<string | null>; trend?: Bindable<"up" | "down" | "flat" | null>; goodTrend?: "up" | "down" }): CmuxView
+/** A small chart the host draws from numbers: kind line (a sparkline, the default) or bar, full width, 32 points tall unless a frame sets it; the last 64 finite values draw; color is a role (accent by default). */
+declare function Chart(values: Bindable<readonly number[]>, options?: { kind?: Bindable<"line" | "bar">; color?: Bindable<string> }): CmuxView
 declare function ForEach<T>(spec: CmuxListSpec<T>, template: (item: CmuxSignal<T>, key: string) => CmuxView): CmuxView
 declare function Reorderable<T>(spec: CmuxListSpec<T>, template: (item: CmuxSignal<T>, key: string) => CmuxView): CmuxView
 /** A linear gradient for .background(...) or a shape's .fill(...): 2 to 8 stops along angle degrees (0 up, 90 right, 180 down, the default). Throws on a bad stop or angle. */

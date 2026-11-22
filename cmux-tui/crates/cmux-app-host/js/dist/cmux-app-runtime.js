@@ -45,7 +45,9 @@
   __export(exports_view, {
     Badge: () => Badge,
     Button: () => Button,
+    CHART_MAX_VALUES: () => CHART_MAX_VALUES,
     Capsule: () => Capsule,
+    Chart: () => Chart,
     Circle: () => Circle,
     Divider: () => Divider,
     EmptyState: () => EmptyState,
@@ -65,6 +67,7 @@
     Row: () => Row,
     Slider: () => Slider,
     Spacer: () => Spacer,
+    Stat: () => Stat,
     Text: () => Text,
     TextField: () => TextField,
     Toggle: () => Toggle,
@@ -750,6 +753,13 @@
       this.menu = items;
       return this;
     }
+    variant(v) {
+      return this.set("variant", v);
+    }
+    state(v, message) {
+      this.set("state", v);
+      return message === undefined ? this : this.set("stateMessage", message);
+    }
     symbolRendering(mode, colors) {
       if (!SYMBOL_RENDERINGS.includes(mode))
         throw new TypeError(`symbolRendering: unknown mode ${JSON.stringify(mode)}`);
@@ -906,6 +916,31 @@
   }
   function EmptyState(props) {
     return new ViewNode("EmptyState").withProps(props);
+  }
+  function Stat(value, options = {}) {
+    const node = new ViewNode("Stat");
+    node.props.value = typeof value === "function" ? () => String(value() ?? "") : String(value);
+    if (options.label !== undefined)
+      node.props.label = options.label;
+    if (options.delta !== undefined)
+      node.props.delta = options.delta;
+    if (options.trend !== undefined)
+      node.props.trend = options.trend;
+    if (options.goodTrend !== undefined)
+      node.props.goodTrend = options.goodTrend;
+    return node;
+  }
+  var CHART_MAX_VALUES = 64;
+  function Chart(values, options = {}) {
+    const node = new ViewNode("Chart");
+    node.props.values = typeof values === "function" ? () => chartValues(values()) : chartValues(values);
+    node.props.kind = options.kind ?? "line";
+    if (options.color !== undefined)
+      node.props.color = options.color;
+    return node;
+  }
+  function chartValues(values) {
+    return (Array.isArray(values) ? values : []).filter((v) => typeof v === "number" && Number.isFinite(v)).slice(-CHART_MAX_VALUES);
   }
   function ForEach(spec, template) {
     return new ViewNode("ForEach", [], { spec, template });
