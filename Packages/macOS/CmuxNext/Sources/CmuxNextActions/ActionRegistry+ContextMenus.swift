@@ -31,7 +31,7 @@ extension ActionRegistry {
         let shown = entries ?? contextMenuEntries(for: context), labels = ContextMenuCatalog.shared.labels(for: context)
         menuItems(shown, target: target, context: effective, implied: runFacts, arguments: arguments, labels: labels,
                   machineID: machineID).forEach(menu.addItem)
-        if customize ?? (entries == nil) { appendCustomizeItem(to: menu, for: context) }
+        if customize ?? (entries == nil) { appendCustomizeItem(to: menu, for: context, target: target) }
         return menu
     }
 

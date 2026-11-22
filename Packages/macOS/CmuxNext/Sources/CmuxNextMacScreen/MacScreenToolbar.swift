@@ -24,12 +24,17 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private let displayButton: MacScreenMenuButton
     private let quality: MacScreenMenuButton
     private let sendKeys: MacScreenMenuButton
+    private let record: MacScreenMenuButton
+    private var recordShowsActive: Bool?
     private let refresh: MacScreenButton
     private let connect: MacScreenButton
     private let disconnect: MacScreenButton
     private let line = MacScreenFill(\.separator)
     /// Slots shown now (the stats and hint slots exist while their condition holds, whether or not they fit).
     private var statsSlot = false
+    /// The bar's stats line in full and without codec and size (``statsLine(_:)``): the layout shows the full one only
+    /// beside the whole name, so the name and the rate never truncate for the codec. Nil: the stats slot shows one text.
+    private var statsLines: (full: String, short: String, room: CGFloat)?
     private var hintSlot = false
     private var controlsShown = false
     private var accessIsViewOnly: Bool?
@@ -42,8 +47,26 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private var surfaceLook: MacScreenViewerLook?
     /// The pill layout (``MacScreenViewerStyle/ToolbarLayout/pill``): one row, the secondary controls in More.
     private var isPill: Bool { model.viewerLook.style.toolbarLayout == .pill }
+    /// Look A's auto-hide faded the toolbar out (``MacScreenViewerOverlay``): it stays hidden so clicks reach the picture.
+    var autoHidden = false {
+        didSet { syncHidden() }
+    }
+
+    /// Whether the selected look hides the toolbar now: under look B's strip (it carries the state and the controls), a
+    /// pill anywhere but over a live picture, or a toolbar look A's auto-hide faded out. The toolbar's own state and the
+    /// pane's layout both set ``isHidden`` from here, so neither undoes the other.
+    var hiddenByLook: Bool {
+        let style = model.viewerLook.style
+        if style.statusStrip || autoHidden { return true }
+        return style.toolbarLayout == .pill && !(model.showsSessionControls && model.isLive)
+    }
+
+    func syncHidden() {
+        let hidden = hiddenByLook
+        if isHidden != hidden { isHidden = hidden }
+    }
     /// The pill's width the pane last laid out (nil: not a pill).
-    private var reportedPillWidth: CGFloat?
+    private var reportedWidth: CGFloat?
     /// The look's View | Control segments, in place of `access` when it asks (``MacScreenViewerStyle/toolbarScopeSegments``).
     private lazy var segments = MacScreenScopeSegments { [weak self] scope in self?.actions.requestScope(scope) }
     private var scopeControl: NSView { model.viewerLook.style.toolbarScopeSegments ? segments : access }
@@ -63,6 +86,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
                                       id: "macScreen.quality")
         quality.themedToolTip = L.t("macScreen.toolbar.qualityHelp", "Quality and stats")
         sendKeys = MacScreenMenuButton(symbol: "command", accessibilityTitle: L.t("macScreen.toolbar.sendKeys", "Send Keys"), id: "macScreen.sendKeys")
+        record = MacScreenMenuButton(symbol: "record.circle", accessibilityTitle: L.t("macScreen.record.title", "Record Screen"), id: "macScreen.record")
         refresh = MacScreenButton(L.t("macScreen.toolbar.refresh", "Refresh Screen"), role: .icon, symbol: "arrow.clockwise") { actions.refresh() }
         refresh.themedToolTip = L.t("macScreen.toolbar.refresh", "Refresh Screen")
         connect = MacScreenButton(L.t("macScreen.toolbar.connect", "Connect"), role: .primary, compact: true, id: "macScreen.connect") {
@@ -74,13 +98,14 @@ final class MacScreenToolbarView: MacScreenThemedView {
         super.init(frame: .zero)
         wantsLayer = true
         stats.setAccessibilityIdentifier("macScreen.stats")
-        for view in [dot, icon, name, stats, access, segments, hint, displayButton, quality, sendKeys, refresh, fullScreen, more, connect, disconnect, line] as [NSView] {
+        for view in [dot, icon, name, stats, access, segments, hint, displayButton, quality, sendKeys, record, refresh, fullScreen, more, connect, disconnect, line] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = true
             addSubview(view)
         }
         displayButton.makeMenu = { [weak self] in self?.displayMenu() ?? NSMenu() }
         quality.makeMenu = { [weak self] in self?.qualityMenu() ?? NSMenu() }
         sendKeys.makeMenu = { [weak self] in self?.sendKeysMenu() ?? NSMenu() }
+        record.makeMenu = { [weak self] in self?.recordMenu() ?? NSMenu() }
         access.makeMenu = { [weak self] in self?.accessMenu() ?? NSMenu() }
         more.makeMenu = { [weak self] in self?.moreMenu() ?? NSMenu() }
         track()
@@ -138,11 +163,11 @@ final class MacScreenToolbarView: MacScreenThemedView {
         }
         needsLayout = true
         let height = height(for: bounds.width)
-        // A pill's width follows what it shows (the keyboard hint, Reconnect): the pane centres it again.
-        let width = isPill ? expandedWidth : nil
-        if reportedHeight != height || reportedPillWidth != width {
+        // A floating toolbar's width follows what it shows (the stats, the keyboard hint, Reconnect): the pane centres it again.
+        let width = model.viewerLook.style.toolbarPlacement == .floating ? floatingWidth : nil
+        if reportedHeight != height || reportedWidth != width {
             reportedHeight = height
-            reportedPillWidth = width
+            reportedWidth = width
             superview?.needsLayout = true
         }
     }
@@ -171,12 +196,18 @@ final class MacScreenToolbarView: MacScreenThemedView {
         let session = model.session
         let live = model.isLive
         statsSlot = session != nil && live
+        statsLines = nil
         if statsSlot, let session {
             // A pill keeps to the latency, and says a brief outage there quietly (the picture stays up); the full
             // stats line is the bar's.
-            stats.stringValue = isPill && model.isQuietOutage ? L.t("macScreen.card.reconnecting", "Reconnecting…")
-                : session.preferences.showStats && !isPill ? Self.statsLine(session)
-                : session.stats.latencyMs.map { String(format: "%.0f ms", $0) } ?? "— ms"
+            if session.preferences.showStats && !isPill {
+                let lines = Self.statsLines(session)
+                statsLines = lines
+                stats.stringValue = lines.full
+            } else {
+                stats.stringValue = isPill && model.isQuietOutage ? L.t("macScreen.card.reconnecting", "Reconnecting…")
+                    : session.stats.latencyMs.map { String(format: "%.0f ms", $0) } ?? "— ms"
+            }
         }
         let viewOnly = model.viewOnly
         if accessIsViewOnly != viewOnly {
@@ -190,7 +221,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         controlsShown = model.showsSessionControls
         let pill = isPill
         // A pill floats only over a live picture: every other state takes the pane with its own actions.
-        isHidden = pill && !(controlsShown && live)
+        syncHidden()
         access.isHidden = !controlsShown || scopeControl !== access
         segments.isHidden = !controlsShown || scopeControl !== segments
         access.isEnabled = controlsShown
@@ -208,6 +239,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         setThemedTip(viewOnly
             ? L.t("macScreen.toolbar.sendKeysViewOnly", "Send Keys is off in a View Only session")
             : L.t("macScreen.toolbar.sendKeys", "Send Keys"), on: sendKeys)
+        applyRecord(live: live)
         refresh.isHidden = !controlsShown || pill
         refresh.isEnabled = live
         let ended: Bool = switch session?.phase {
@@ -232,7 +264,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         icon.resize(to: MacScreenType.body)
         hintGlyph.resize(to: MacScreenType.caption)
         guard changed else { return }
-        for button in [access, displayButton, quality, sendKeys, more] { button.reloadType() }
+        for button in [access, displayButton, quality, sendKeys, record, more] { button.reloadType() }
         for button in [refresh, fullScreen, connect, disconnect] { button.reloadType() }
     }
 
@@ -263,6 +295,19 @@ final class MacScreenToolbarView: MacScreenThemedView {
         let stats = session.stats
         return statsLine(path: session.streamPath, fps: stats.fps, targetFps: stats.targetFps, latencyMs: stats.latencyMs,
                          encoding: stats.encoding, frameSize: session.frameSize)
+    }
+
+    /// The stats line in full and short (no codec, no size), and the room the full one takes with every number at three
+    /// digits, so a floating toolbar sized for it does not move as the numbers change.
+    static func statsLines(_ session: MacScreenSession) -> (full: String, short: String, room: CGFloat) {
+        let stats = session.stats
+        let full = statsLine(path: session.streamPath, fps: stats.fps, targetFps: stats.targetFps, latencyMs: stats.latencyMs,
+                             encoding: stats.encoding, frameSize: session.frameSize)
+        let short = statsLine(path: session.streamPath, fps: stats.fps, targetFps: stats.targetFps, latencyMs: stats.latencyMs,
+                              encoding: "-", frameSize: .zero)
+        let widest = statsLine(path: session.streamPath, fps: 888, targetFps: stats.targetFps.map { _ in 888 }, latencyMs: 888,
+                               encoding: stats.encoding, frameSize: session.frameSize)
+        return (full, short, max(textWidth(full, font: MacScreenType.stats), textWidth(widest, font: MacScreenType.stats)))
     }
 
     /// The stats line: path, frame rate (measured, then the rate the Mac
@@ -310,6 +355,12 @@ final class MacScreenToolbarView: MacScreenThemedView {
         let refresh = NSMenuItem.macScreen(L.t("macScreen.toolbar.refresh", "Refresh Screen")) { [weak self] in self?.actions.refresh() }
         refresh.isEnabled = model.isLive
         menu.addItem(refresh)
+        if record.isHidden {
+            // A compact bar folds Record into More with the rest.
+            let recordItem = NSMenuItem(title: L.t("macScreen.record.title", "Record Screen"), action: nil, keyEquivalent: "")
+            recordItem.submenu = recordMenu()
+            menu.addItem(recordItem)
+        }
         if pill {
             // The pill's More also holds what the bar shows as buttons: Full Screen.
             menu.addItem(.separator())
@@ -334,6 +385,15 @@ final class MacScreenToolbarView: MacScreenThemedView {
         let menu = NSMenu()
         menu.autoenablesItems = false
         guard let session = model.session else { return menu }
+        // The whole stats line first, codec and frame size included: the bar's label drops them when it is short of
+        // room and shows no tooltip (a control that shows text has none), so its own control says them (Chief,
+        // 2026-11-21: what the cut tooltip said shows somewhere visible).
+        if session.phase == .connected {
+            let stats = NSMenuItem(title: Self.statsLines(session).full, action: nil, keyEquivalent: "")
+            stats.isEnabled = false
+            menu.addItem(stats)
+            menu.addItem(.separator())
+        }
         for quality in ScreenQuality.allCases {
             menu.addItem(NSMenuItem.macScreen(Self.qualityTitle(quality), checked: session.preferences.quality == quality) { [weak self] in
                 self?.actions.setQuality(quality)
@@ -343,7 +403,34 @@ final class MacScreenToolbarView: MacScreenThemedView {
         menu.addItem(NSMenuItem.macScreen(L.t("macScreen.toolbar.showStats", "Show Stats"), checked: session.preferences.showStats) { [weak self] in
             self?.actions.toggleStats()
         })
+        addCustomize(to: menu, session.preferences)
         return menu
+    }
+
+    /// The Quality menu's Customize part: a bitrate cap and the cursor in the stream. Each
+    /// change starts a new session, as a quality or display change does.
+    private func addCustomize(to menu: NSMenu, _ preferences: ScreenPreferences) {
+        menu.addItem(.separator())
+        menu.addItem(.sectionHeader(title: L.t("macScreen.customize.title", "Customize")))
+        let bitrate = NSMenuItem(title: L.t("macScreen.customize.bitrate", "Bitrate Cap"), action: nil, keyEquivalent: "")
+        let caps = NSMenu()
+        caps.autoenablesItems = false
+        for kbps in ScreenPreferences.maxKbpsChoices {
+            caps.addItem(NSMenuItem.macScreen(Self.bitrateTitle(kbps), checked: preferences.maxKbps == kbps) { [weak self] in
+                self?.actions.setMaxKbps(kbps)
+            })
+        }
+        bitrate.submenu = caps
+        menu.addItem(bitrate)
+        menu.addItem(NSMenuItem.macScreen(L.t("macScreen.customize.showCursor", "Show Cursor in Stream"),
+                                          checked: preferences.showCursorInStream) { [weak self] in
+            self?.actions.toggleStreamCursor()
+        })
+    }
+
+    static func bitrateTitle(_ kbps: Int?) -> String {
+        guard let kbps else { return L.t("macScreen.customize.bitrateAuto", "Auto") }
+        return String(format: L.t("macScreen.customize.bitrateMbps", "%d Mbps"), kbps / 1000)
     }
 
     func sendKeysMenu() -> NSMenu {
@@ -365,6 +452,40 @@ final class MacScreenToolbarView: MacScreenThemedView {
         for shortcut in MacScreenShortcut.all {
             menu.addItem(NSMenuItem.macScreen(shortcut.title) { [weak self] in self?.actions.sendKeys(shortcut) })
         }
+        return menu
+    }
+
+    /// Record: red while a file is being written; its menu starts or stops
+    /// it and shows the newest file in Finder.
+    private func applyRecord(live: Bool) {
+        let recording = model.recording
+        let active = recording.isRecording
+        record.isHidden = !controlsShown
+        record.isEnabled = active || (live && recording.canRecord) || recording.lastFile != nil
+        if recordShowsActive != active {
+            recordShowsActive = active
+            record.image = NSImage(systemSymbolName: active ? "record.circle.fill" : "record.circle", accessibilityDescription: nil)
+            record.ink = active ? \.danger : \.secondary
+        }
+        setThemedTip(recording.failed
+            ? L.t("macScreen.record.failed", "The recording could not be saved")
+            : active ? L.t("macScreen.record.stop", "Stop Recording") : L.t("macScreen.record.title", "Record Screen"), on: record)
+    }
+
+    private func recordMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let recording = model.recording
+        let toggle = NSMenuItem.macScreen(recording.isRecording
+            ? L.t("macScreen.record.stop", "Stop Recording")
+            : L.t("macScreen.record.start", "Start Recording")) { [weak self] in self?.actions.toggleRecording() }
+        toggle.isEnabled = recording.isRecording || (model.isLive && recording.canRecord)
+        menu.addItem(toggle)
+        let show = NSMenuItem.macScreen(L.t("macScreen.record.showInFinder", "Show Recording in Finder")) { [weak self] in
+            self?.actions.showRecording()
+        }
+        show.isEnabled = recording.file != nil || recording.lastFile != nil
+        menu.addItem(show)
         return menu
     }
 
@@ -399,9 +520,9 @@ final class MacScreenToolbarView: MacScreenThemedView {
 
     var expandedWidth: CGFloat {
         if isPill { return pillWidth }
-        let controls = [scopeControl, displayButton, quality, sendKeys, refresh, fullScreen, connect, disconnect] as [NSView]
+        let controls = [scopeControl, displayButton, quality, sendKeys, record, refresh, fullScreen, connect, disconnect] as [NSView]
         return controls.filter { $0 !== displayButton || model.displays.count > 1 }
-            .reduce((Metrics.space6 * 2) * 8) { total, control in
+            .reduce((Metrics.space6 * 2) * 9) { total, control in
                 total + controlWidth(control) + Metrics.space2
             }
     }
@@ -435,8 +556,23 @@ final class MacScreenToolbarView: MacScreenThemedView {
             + hintRoom + controlsRoom)
     }
 
-    /// The pill's controls: access (View Only shows as such), quality, More, Connect or Disconnect.
-    private var pillControls: [NSView] { ([access, quality, more, connect, disconnect] as [NSView]).filter { !$0.isHidden } }
+    /// A floating bar's width (look A): room for the whole name, the full stats line, the keyboard hint and the
+    /// controls side by side, so the name and stats never truncate beside empty space. The pane caps it at its own
+    /// width; below the full width the layout drops the codec and size first. A pill keeps ``expandedWidth``.
+    var floatingWidth: CGFloat {
+        guard !isPill else { return expandedWidth }
+        let gap = Metrics.space2
+        let nameRoom = min(Self.textWidth(name), ceil(MacScreenType.body.pointSize * 16))
+        let statsRoom = statsSlot ? (statsLines?.room ?? Self.textWidth(stats)) + gap : 0
+        let hintRoom = hintSlot ? hint.fittingSize.width + gap : 0
+        let header = Metrics.space3 * 2 + Metrics.space2 + gap + icon.intrinsicContentSize.width + gap + nameRoom + gap + statsRoom + hintRoom
+        // ``expandedWidth`` is the controls' room plus a fixed allowance for the header: the header's own room instead.
+        let allowance = (Metrics.space6 * 2) * 8
+        return ceil(expandedWidth + max(0, header - allowance))
+    }
+
+    /// The pill's controls: access (View Only shows as such), quality, Record, More, Connect or Disconnect.
+    private var pillControls: [NSView] { ([access, quality, record, more, connect, disconnect] as [NSView]).filter { !$0.isHidden } }
 
     private func arrangedControls(for width: CGFloat) -> [NSView] {
         if isPill {
@@ -447,8 +583,9 @@ final class MacScreenToolbarView: MacScreenThemedView {
         displayButton.isHidden = !controlsShown || model.displays.count <= 1 || compact
         sendKeys.isHidden = !controlsShown || compact
         refresh.isHidden = !controlsShown || compact
+        record.isHidden = !controlsShown || compact
         more.isHidden = !controlsShown || !compact
-        return ([scopeControl, displayButton, quality, sendKeys, refresh, fullScreen, more, connect, disconnect] as [NSView]).filter { !$0.isHidden }
+        return ([scopeControl, displayButton, quality, sendKeys, record, refresh, fullScreen, more, connect, disconnect] as [NSView]).filter { !$0.isHidden }
     }
 
     override func layout() {
@@ -482,7 +619,15 @@ final class MacScreenToolbarView: MacScreenThemedView {
         x += Metrics.space2 + gap
         icon.isHidden = compact
         if !icon.isHidden { place(icon, width: icon.intrinsicContentSize.width, y: 0) }
-        let statsWidth = min(Self.textWidth(stats), max(0, (headerRight - x) / 2))
+        if let lines = statsLines {
+            // The whole name and the rate come before the codec and size: the full line only when both fit.
+            let fits = Self.textWidth(lines.full, font: MacScreenType.stats) + gap + Self.textWidth(name) <= headerRight - x
+            let text = fits ? lines.full : lines.short
+            if stats.stringValue != text { stats.stringValue = text }
+        }
+        // The name keeps its whole width up to half the header; the stats take the rest.
+        let nameFloor = min(Self.textWidth(name), max(0, (headerRight - x) / 2))
+        let statsWidth = min(Self.textWidth(stats), max(0, headerRight - x - nameFloor - gap))
         stats.isHidden = !statsSlot
         let remaining = max(0, headerRight - x - (statsSlot ? statsWidth + gap : 0))
         let hintWidth = hint.fittingSize.width
@@ -508,6 +653,11 @@ extension MacScreenToolbarView {
     static func textWidth(_ label: NSTextField) -> CGFloat {
         let cell = label.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: 1000)).width
         return ceil(max(cell ?? 0, label.attributedStringValue.size().width + 4))
+    }
+
+    /// A one-line string's width in `font`, with the same slack as a label's.
+    static func textWidth(_ text: String, font: NSFont) -> CGFloat {
+        ceil(NSAttributedString(string: text, attributes: [.font: font]).size().width + 4)
     }
 }
 

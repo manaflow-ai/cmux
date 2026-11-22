@@ -6,6 +6,8 @@ extension SettingsSchema {
     public static let agentRefusedKeys: [String: AgentRefusal] = [
         // The live-tree preview changes how the person's shared editing workflow is presented; only the person turns it on.
         "labs.liveTree": .userOnly,
+        // Extension chat widgets draw installed extensions' cards in agent chat; only the person turns them on.
+        "experiments.chatWidgets": .userOnly,
         // What leaves the machine: a device proof to the Cloud service (cx-ds09i).
         "freeModel.enabled": .privacy,
         // The Cloud toggle copies the person's folder off this Mac to a paid machine: theirs to set.
@@ -94,6 +96,8 @@ extension SettingsSchema {
         "labs.voiceRoomURL": .network,
         // On, Add Device mints a line that joins any machine to the team's machines: only the person turns that on.
         "labs.machineJoin": .network,
+        // Whether new nonpersistent Cloud agent machines opt into the Mac pause/resume experiment: the person decides this lifecycle change.
+        "labs.pauseAgentMachines": .userOnly,
         // On, a live code build loads Swift patches into the running app: only the person turns that on.
         "labs.liveCode": .userOnly,
         // On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.
@@ -181,6 +185,8 @@ extension SettingsSchema {
         "remote.endSharingOnQuit": .userOnly,
         // Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.
         "remote.ultra": .userOnly,
+        // Ultra spends up to 150 Mbps on every Screen Sharing session this Mac views; only the person picks it.
+        "remote.screenSharingProfile": .userOnly,
         // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.
         "macScreen.debug.relayOnly": .userOnly,
         // Chooses the server this Mac registers its device keys with; only the person sets it.
@@ -188,8 +194,6 @@ extension SettingsSchema {
         "updates.installOnQuit": .destructive,
         // On, one click restarts cmux into an update: the person's call.
         "updates.oneClickInstall": .userOnly,
-        // On, a failed check after an update restarts cmux into another build: the person's call.
-        "updates.autoRollback": .userOnly,
         // On, What's New offers Install, which restarts cmux into another build: the person's call.
         "updates.whatsNewInstall": .userOnly,
         // On, pages load from a loopback server the person runs: the person's call.

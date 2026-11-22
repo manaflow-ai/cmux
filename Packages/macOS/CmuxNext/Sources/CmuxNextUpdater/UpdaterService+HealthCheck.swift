@@ -33,8 +33,8 @@ nonisolated public struct UpdateHealthFailure: Equatable, Sendable {
 /// The check after a relaunch into a new build: once, after the launch settles, the running
 /// bundle's `cmux app health` (``UpdateHealthCheck``) checks chat, the model picker, the relay and
 /// a terminal. A failure is filed (``attachHealthCheck(socket:file:)``) and, with a kept copy of the build that
-/// ran before, the notice card offers Go Back (``UpdateCard/healthFailed(previousBuild:reason:)``);
-/// with `updates.autoRollback` on, cmux goes back by itself. Never on a build the person picked
+/// ran before, the notice card offers Go Back (``UpdateCard/healthFailed(previousBuild:reason:)``).
+/// Automatic rollback on this verdict is a separate change. Never on a build the person picked
 /// (a rollback or Install this version): going back from it is their call, and it stops a loop.
 extension UpdaterService {
     /// The build the last launch ran (the check runs when this launch's differs).
@@ -84,10 +84,9 @@ extension UpdaterService {
         guard failure.canGoBack, !runsPickedBuild else { return }
         healthFailure = failure
         followCardExpiry()
-        if preferences.autoRollback { await goBackAfterHealthFailure() }
     }
 
-    /// Go Back on the failed check's card (or `updates.autoRollback`): restarts into the kept
+    /// Go Back on the failed check's card: restarts into the kept
     /// build through the one drop-back path (``UpdateDropBack``), which refuses a kept build that
     /// cannot read the stores; a refusal stays on the card.
     public func goBackAfterHealthFailure() async {
