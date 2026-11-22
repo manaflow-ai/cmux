@@ -26,14 +26,10 @@ final class TabContentCache {
     private let daemon: DaemonService
     var terminals: [String: TerminalEntry] = [:]
     var browsers: [String: BrowserEntry] = [:] {
-        didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged(); pageInstalls.bump(Set(browsers.keys).symmetricDifference(oldValue.keys), installed: false); for key in oldValue.keys where browsers[key] == nil { openTabFeed.stop(key); phoneFavicons.removeValue(forKey: key)?.cancel() } } } // a page that left takes its Switch to Tab row
+        didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged(); pageInstalls.bump(Set(browsers.keys).symmetricDifference(oldValue.keys), installed: false); for key in oldValue.keys where browsers[key] == nil { openTabFeed.stop(key); phonePictures?.stopFavicon(tab: key) } } } // a page that left takes its Switch to Tab row
     }
     let openTabFeed = OmniboxOpenTabFeed() // the omnibar engines' open-tab indexes, kept as pages open, navigate and close
-    /// Browser tabs' thumbnails and favicons for the phones' tab overview (`TabContentCache+PhonePictures`); nil: none.
-    var phonePictures: PhoneTabPictures?
-    /// Each live page's favicon follow for the phones, and the surface its pictures went out as.
-    var phoneFavicons: [String: Task<Void, Never>] = [:]
-    var phoneSurfaces: [String: UInt64] = [:]
+    var phonePictures: PhoneTabPictures? // browser tabs' thumbnails and favicons for the phones' tab overview; nil: none
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
     var withdrawnBy: [String: WeakPresenter] = [:] // the pane that last withdrew each tab (`release`)
@@ -356,6 +352,13 @@ final class TabContentCache {
         return blank
     }
 
+    /// The surface the phones know tab `key` by (``PhoneTabPictures``): a tab of this Mac's daemon showing a page that is not incognito.
+    func phoneSurface(_ key: String) -> UInt64? {
+        guard let page = browsers[key]?.tab, !cef.stores.offTheRecord.isOffTheRecord(page.profileID),
+              let tab = tabModel(key), browserTabs.daemon(for: tab).isLocal else { return nil }
+        return tab.surface.rawValue
+    }
+
     /// The tab with durable id `key` on any machine.
     func tabModel(_ key: String) -> TabModel? {
         browserTabs.tabModel(key) ?? findTab?(key)
@@ -449,7 +452,7 @@ final class TabContentCache {
         pageRequests.siteEngines.follow(entry.state, page: page) // browser.siteEngines for the pages it reaches (#45018)
         browsers[key] = entry
         openTabFeed.follow(page, key: key) { [weak self] page in self?.suggestionEngine(forPage: page) }
-        followPhoneFavicon(page, key: key)
+        phonePictures?.followFavicon(tab: key) { [weak page] in page?.favicon }
         (page as? CEFTab)?.onReadyForKeys = { [weak self] in self?.onBrowserReady?(key) } // the page is ready for keys (a restored one: its document loaded)
         pageInstalls.bump([key])
         // Pages are kept by hibernation, never by the terminal warm set.
@@ -502,7 +505,7 @@ final class TabContentCache {
     func release(_ key: String, displacing: Bool = true) { // displacing false: the pane keeps its view (a stand-in's moved to its daemon tab)
         if displacing, terminals[key] != nil, browsers[key] == nil, ((presenter(of: key) ?? withdrawnBy[key]?.value) as? PaneController)?.holdsRelease(of: key, { [weak self] in self?.release(key) }) == true { return } // F1: every release of a closing pane's terminal waits for its landing (its presenter first, else the pane that owned and withdrew it: Cmd-W withdraws first); a page goes now
         withdrawnBy[key] = nil
-        forgetPhonePictures(key)
+        phonePictures?.forget(tab: key)
         onRelease?(key)
         // A closed tab is mirrored nowhere any more (`TabMirrors`); a stand-in moving to its daemon tab keeps nothing to drop.
         if displacing { pageRequests.services?.tabMirrors.remove(key) }

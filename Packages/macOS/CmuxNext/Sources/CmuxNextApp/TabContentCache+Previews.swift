@@ -85,7 +85,7 @@ extension TabContentCache {
         // no hidden page); decoded 640 px pictures in the 16 MB budget kept only about 14 pages' (fleet e2fb152d, 05f0ba3c).
         pageThumbnails.insertCompressingLater(fitted, for: key)  // nobody who waits for this picture waits for its encode
         pageThumbnailVersions[key] = blank ? nil : version
-        if !blank { offerPhoneThumbnail(image, key: key) }
+        if !blank { phonePictures?.offerThumbnail(image, tab: key) }
         return image
     }
 
