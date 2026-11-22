@@ -54,7 +54,8 @@ describe("make cmux yours", () => {
     ])
       expect(words).toContain(strings.t(key));
     // Every density Settings has, by Settings' names (cmux#49636).
-    for (const name of ["Ultra-compact", "Compact", "Default", "Comfortable", "Spacious"]) expect(words).toContain(name);
+    for (const name of ["Ultra-compact", "Compact", "Default", "Comfortable", "Spacious"])
+      expect(words).toContain(name);
     // Settings' two rows for a background: Opacity and Material, with every material.
     for (const key of [
       "onboarding.makeItYours.opacity",

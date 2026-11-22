@@ -143,7 +143,11 @@ export function MakeItYoursStep({
         <legend className="onb-make-label">{strings.t("onboarding.makeItYours.density.label")}</legend>
         <div className="onb-make-segments" style={{ "--onb-make-count": choices.densities.length } as CSSProperties}>
           {choices.densities.map((density) => (
-            <label key={density.id} className="onb-make-segment" data-checked={choices.density === density.id || undefined}>
+            <label
+              key={density.id}
+              className="onb-make-segment"
+              data-checked={choices.density === density.id || undefined}
+            >
               <input
                 type="radio"
                 name="density"
@@ -202,7 +206,11 @@ export function MakeItYoursStep({
             </span>
             <div className="onb-make-chips">
               {choices.materials.map((material) => (
-                <label key={material} className="onb-make-chip" data-checked={choices.material === material || undefined}>
+                <label
+                  key={material}
+                  className="onb-make-chip"
+                  data-checked={choices.material === material || undefined}
+                >
                   <input
                     type="radio"
                     name="material"
