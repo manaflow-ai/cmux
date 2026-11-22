@@ -496,6 +496,19 @@
       "title" : "Only Above Context Used (%)",
       "type" : "number"
     },
+    "agents.chats.archiveInactive" : {
+      "default" : "never",
+      "description" : "Archives chats after a period of no activity. Chats that are running or have background work never are.",
+      "enum" : [
+        "never",
+        "1d",
+        "3d",
+        "7d",
+        "30d"
+      ],
+      "title" : "Archive Inactive Chats",
+      "type" : "string"
+    },
     "agents.chats.coldArchive" : {
       "default" : false,
       "description" : "Unused chats are compressed into one small file each and open as before.",
@@ -3822,6 +3835,12 @@
       "default" : false,
       "description" : "Shows Screen sharing and Control in Settings > Devices once this Mac joins.",
       "title" : "Screen Sharing for Joined Machines",
+      "type" : "boolean"
+    },
+    "labs.mobileDeviceRevoke" : {
+      "default" : false,
+      "description" : "Show locally approved iPhones and revoke their access from Mobile Pairing.",
+      "title" : "Revoke iPhone Access",
       "type" : "boolean"
     },
     "labs.previewFeatures" : {
