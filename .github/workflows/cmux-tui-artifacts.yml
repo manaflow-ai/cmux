@@ -235,7 +235,8 @@ jobs:
     name: cmux-tui superseded push gate
     if: ${{ github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
-    timeout-minutes: 3
+    # The superseded check takes seconds; the branch-inputs check fetches commit history and one tree (about a minute).
+    timeout-minutes: 5
     continue-on-error: true
     permissions:
       contents: read
@@ -243,15 +244,21 @@ jobs:
       actions: read
     outputs:
       stale: ${{ steps.stale.outputs.stale }}
+      # true when the push changes no tree-key input against its merge base with feat-cmux-next.
+      inputs_unchanged: ${{ steps.inputs.outputs.unchanged }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
           fetch-depth: 1
+          # A blob:none partial clone: the branch-inputs step reads trees and one blob from origin.
+          filter: blob:none
           # BASH_ENV (above) sources scripts/ci/api_call_log/env.sh in every step.
           sparse-checkout: |
             scripts/ci/cmux_tui_superseded_push.py
+            scripts/ci/cmux_tui_branch_inputs.py
+            scripts/ci/cmux_tui_tree_key.py
             scripts/ci/api_call_log/
           sparse-checkout-cone-mode: false
       - name: Check whether a newer push superseded this one
@@ -263,6 +270,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
         run: python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA"
+      # BRANCH-INPUTS-GATE: a pull request head whose tree key equals its merge base's (it changes no
+      # tree-key input) builds nothing: no musl, macOS or daemon-test leg (interim-coord, 2026-11-21:
+      # "have the musl builds path-filtered on PRs and main, and run the full set only on merge queue or
+      # nightly"). feat-cmux-next, nightly-next, main and dispatches never take this job. Any failure
+      # answers "changed" (scripts/ci/cmux_tui_branch_inputs.py). Undo: vars.CMUX_TUI_BRANCH_INPUT_GATE = '0'.
+      - name: Check whether the push changes any tree-key input
+        id: inputs
+        if: ${{ steps.stale.outputs.stale != 'true' && format('{0}', vars.CMUX_TUI_BRANCH_INPUT_GATE) != '0' }}
+        env:
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+        run: python3 scripts/ci/cmux_tui_branch_inputs.py --ref "$REF" --sha "$SHA"
 
   # Keep the common path cheap: a tree-addressed publication is complete when
   # all runtime binaries and checksum markers exist, so there is no reason to spend a macOS build
@@ -272,7 +291,7 @@ jobs:
     # push-gate is skipped for trunk pushes and dispatches; !cancelled() runs this job then.
     # coalesce is skipped (run empty) everywhere but a feat-cmux-next push, so only a coalesced push stops here.
     needs: [push-gate, coalesce]
-    if: ${{ !cancelled() && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && needs.push-gate.outputs.stale != 'true' && needs.coalesce.outputs.run != 'false' }}
+    if: ${{ !cancelled() && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && needs.push-gate.outputs.stale != 'true' && needs.push-gate.outputs.inputs_unchanged != 'true' && needs.coalesce.outputs.run != 'false' }}
     # Secrets only: no deployment on the PR. The tree-claim authority checks the token's
     # repository and workflow_ref, not its subject (cmuxterm-hq controller tree_claim.go).
     environment:

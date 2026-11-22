@@ -13,7 +13,7 @@ use base64::Engine as _;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
-use super::{GlobalArgs, parse_globals};
+use super::{GlobalArgs, MachineFlag, scan_globals};
 
 const HELP: &str = "Usage: cmux computer-use <status|tools|call|screenshot|approvals|machines>\n\ncmux Computer Use is built into cmux: agents get it in the cmux MCP server as the cu_* tools (scripted in cmux_exec as cu.click({...})). These commands reach the same worker.\n\n  cmux computer-use status [--machine M]        Platform, permissions, mode and denied apps\n  cmux computer-use tools                        The tools and their arguments\n  cmux computer-use mcp [--primary]              Serve the tools alone as an MCP stdio server (cmux-computer-use, for other MCP clients;\n                                                 --primary: the client's only Computer Use, never presented as a second choice)\n  cmux computer-use call TOOL [--args JSON] [--machine M]\n                                                 Run one tool (arguments as a JSON object)\n  cmux computer-use screenshot --out FILE [--window ID] [--machine M]\n                                                 Save a PNG of a window, or of the main display\n  cmux computer-use approvals list               Apps saved as Always allow or Never\n  cmux computer-use approvals forget APP         Forget APP's saved answer (needs the cmux app; use Settings > Computer Use)\n  cmux computer-use approvals revoke-sessions    End every agent session's approvals now\n  cmux computer-use machines                     Your other machines and whether Computer Use is on there\n\nSettings (mode, denied apps, other machines) are in Settings > Computer Use and `cmux settings get|set computerUse.<key>`.\n";
 
@@ -24,12 +24,18 @@ const AGENT_SESSION_ENV: &str = "CMUX_AGENT_SESSION";
 
 /// Handles `cmux computer-use` before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
-    let (global, command_args) = parse_globals(args).ok()?;
+    let (global, rest) = split(args)?;
+    Some(run(&global, &rest))
+}
+
+/// The global options and the words after `computer-use`, or None for
+/// another command. A `--machine` after `computer-use` stays the command's
+/// own flag: the global option swallowed it, so `status --machine m` and
+/// `call TOOL --machine m` ran on this machine instead of `m`.
+fn split(args: &[String]) -> Option<(GlobalArgs, Vec<String>)> {
+    let (global, command_args) = scan_globals(args, MachineFlag::Command).ok()?;
     let (first, rest) = command_args.split_first()?;
-    if first != "computer-use" {
-        return None;
-    }
-    Some(run(&global, rest))
+    (first == "computer-use").then(|| (global, rest.to_vec()))
 }
 
 /// What the command asked for.
@@ -44,6 +50,23 @@ pub(super) enum Request {
     Machines,
 }
 
+impl Request {
+    /// `cmux --machine m computer-use status`: the global option names the
+    /// machine when the command named none.
+    fn on_machine(self, fallback: Option<&str>) -> Self {
+        let pick = |own: Option<String>| own.or_else(|| fallback.map(str::to_owned));
+        match self {
+            Request::Call { tool, args, machine } => {
+                Request::Call { tool, args, machine: pick(machine) }
+            }
+            Request::Screenshot { out, window, machine } => {
+                Request::Screenshot { out, window, machine: pick(machine) }
+            }
+            other => other,
+        }
+    }
+}
+
 pub(super) fn parse(args: &[String]) -> Result<Request, String> {
     let words: Vec<&str> = args.iter().map(String::as_str).collect();
     let (verb, rest) = words.split_first().map_or(("help", &[][..]), |(v, r)| (*v, r));
@@ -51,6 +74,12 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
         let mut out = Vec::new();
         let mut words = rest.iter();
         while let Some(word) = words.next() {
+            if let Some((flag, value)) = word.split_once('=')
+                && allowed.contains(&flag)
+            {
+                out.push((flag.to_owned(), value.to_owned()));
+                continue;
+            }
             if !allowed.contains(word) {
                 return Err(format!("unknown argument {word:?}"));
             }
@@ -208,7 +237,7 @@ fn print(global: &GlobalArgs, outcome: Outcome) -> i32 {
 }
 
 fn run(global: &GlobalArgs, args: &[String]) -> i32 {
-    let request = match parse(args) {
+    let request = match parse(args).map(|r| r.on_machine(global.machine.as_deref())) {
         Ok(request) => request,
         Err(message) => {
             eprintln!("cmux computer-use: {message}\n\n{HELP}");

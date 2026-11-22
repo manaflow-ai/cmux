@@ -267,15 +267,16 @@ fn edits(a: &str, b: &str) -> usize {
     let b: Vec<char> = b.chars().collect();
     let mut row: Vec<usize> = (0..=b.len()).collect();
     for (i, ca) in a.chars().enumerate() {
-        let mut previous = row[0];
-        row[0] = i + 1;
-        for (j, cb) in b.iter().enumerate() {
-            let here = row[j + 1];
-            row[j + 1] = (previous + usize::from(ca != *cb)).min(row[j] + 1).min(here + 1);
-            previous = here;
+        let mut next = Vec::with_capacity(row.len());
+        next.push(i + 1);
+        for (cb, pair) in b.iter().zip(row.windows(2)) {
+            let [diagonal, up] = *pair else { continue };
+            let left = next.last().copied().unwrap_or(i + 1);
+            next.push((diagonal + usize::from(ca != *cb)).min(left + 1).min(up + 1));
         }
+        row = next;
     }
-    row[b.len()]
+    row.last().copied().unwrap_or(0)
 }
 
 /// The target as acpmux names it.
