@@ -49,6 +49,8 @@ enum ThemePhone {
     /// The first that holds:
     /// 1. A background chosen in cmux (`selected`): its picture (`selectedPicture`; one without a
     ///    still, as a living shader, sends none) at the tint the windows lay over it (`selectedTint`).
+    ///    Desktop Wallpaper (`selectedDesktop`) is the desktop, which the watch reads off the main
+    ///    thread and follows as macOS rotates it.
     /// 2. The Ghostty config's `background-image` (`terminalImage`): that picture. Ghostty draws an
     ///    opaque pixel of it at `terminalImage.opacity` over the window's background, so the phone's
     ///    tint is the rest, `1 - opacity`. In a see-through window part of that rest is the desktop
@@ -56,9 +58,10 @@ enum ThemePhone {
     /// 3. A see-through window (`windowSeeThrough`): the desktop picture under the window's tint
     ///    sheet (`windowTint`, ``WindowBackdrop/tintOpacity``: the resolved `background-opacity`).
     /// 4. An opaque window with no picture: none.
-    static func wallpaper(selected: Bool, selectedPicture: URL?, selectedTint: Double,
+    static func wallpaper(selected: Bool, selectedDesktop: Bool = false, selectedPicture: URL?, selectedTint: Double,
                           terminalImage: TerminalBackgroundImage?, windowSeeThrough: Bool,
                           windowTint: Double) -> Wallpaper? {
+        if selectedDesktop { return Wallpaper(source: .desktop, tint: selectedTint) }
         if selected { return selectedPicture.map { Wallpaper(source: .file($0), tint: selectedTint) } }
         if let terminalImage { return Wallpaper(source: .file(terminalImage.url), tint: 1 - terminalImage.opacity) }
         if windowSeeThrough { return Wallpaper(source: .desktop, tint: min(max(windowTint, 0), 1)) }
@@ -122,7 +125,9 @@ enum ThemePhone {
                                       selection: selection, tuning: scope.appearanceTuning,
                                       tintOpacity: scope.backdropTintOpacity)
         let selectedTint = scope.backdropTintOpacity ?? tokens.wallpaperTintOpacity
-        let wallpaper = wallpaper(selected: selection != nil, selectedPicture: selection.flatMap { $0.resolvedImageURL(dark: tokens.isDark) },
+        let selectedDesktop = selection?.resolved(dark: tokens.isDark) == .desktop
+        let wallpaper = wallpaper(selected: selection != nil, selectedDesktop: selectedDesktop,
+                                  selectedPicture: selectedDesktop ? nil : selection.flatMap { $0.resolvedImageURL(dark: tokens.isDark) },
                                   selectedTint: selectedTint, terminalImage: store.terminalBackgroundImage,
                                   windowSeeThrough: !backdrop.isOpaque, windowTint: backdrop.tintOpacity)
         var appearance = appearance(input: store.input, tokens: tokens, accentFollowsArt: store.accentFollowsArt,

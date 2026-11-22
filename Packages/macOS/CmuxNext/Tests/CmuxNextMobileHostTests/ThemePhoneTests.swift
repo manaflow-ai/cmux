@@ -52,6 +52,10 @@ import Testing
                                          windowSeeThrough: false, windowTint: 1)
         #expect(image?.source == .file(ghostty.url))
         #expect(abs((image?.tint ?? 0) - 0.7) < 1e-9)
+        // Desktop Wallpaper chosen in cmux: the desktop (followed as macOS rotates it), at the chosen tint.
+        #expect(ThemePhone.wallpaper(selected: true, selectedDesktop: true, selectedPicture: nil, selectedTint: 0.6,
+                                     terminalImage: ghostty, windowSeeThrough: true, windowTint: 0.8)
+                == ThemePhone.Wallpaper(source: .desktop, tint: 0.6))
         // A see-through window: the desktop under the window's tint sheet.
         #expect(ThemePhone.wallpaper(selected: false, selectedPicture: nil, selectedTint: 0.6, terminalImage: nil,
                                      windowSeeThrough: true, windowTint: 0.8)
