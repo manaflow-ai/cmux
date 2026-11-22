@@ -1,6 +1,7 @@
 // A link in a pull request's body or comment: it opens through the host only when it is https, on
 // the person's click (GitHubMarkdown.tsx and githubHTML.tsx draw them).
 import type { ReactNode } from "react";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 export type Open = (url: string) => void;
 
@@ -18,16 +19,20 @@ export function Link({ href, open, children }: { href: string; open: Open; child
   const url = openableLink(href);
   if (!url) return <span className="gh-md-link">{children}</span>;
   return (
-    <a
-      className="gh-md-link"
-      href={url}
-      aria-description={url}
-      onClick={(event) => {
-        event.preventDefault();
-        open(url);
-      }}
-    >
-      {children}
-    </a>
+    <WithFacts facts={[{ value: url, code: true }]}>
+      {(facts) => (
+        <a
+          {...facts}
+          className="gh-md-link"
+          href={url}
+          onClick={(event) => {
+            event.preventDefault();
+            open(url);
+          }}
+        >
+          {children}
+        </a>
+      )}
+    </WithFacts>
   );
 }

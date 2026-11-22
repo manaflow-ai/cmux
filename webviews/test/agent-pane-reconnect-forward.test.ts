@@ -69,7 +69,7 @@ type Wire = { attaches: { params: any; bytes: number }[]; gapReads: any[] };
 /// for history reads).
 function daemon(
   history: Recorded[],
-  options: { ignoresAfterSeq?: boolean; pageFrom?: number; forwardLimit?: number } = {},
+  options: { ignoresAfterSeq?: boolean; refusesAfterSeq?: boolean; pageFrom?: number; forwardLimit?: number } = {},
 ) {
   let socket: any;
   let createdAt = CREATED;
@@ -146,6 +146,22 @@ function daemon(
         if (message.method === "_acpmux/attach") wire.attaches.push({ params: message.params, bytes: 0 });
         const asked = wire.attaches.at(-1);
         queueMicrotask(() => {
+          // A host whose params rule does not take `afterSeq` refuses the attach as malformed.
+          if (
+            options.refusesAfterSeq &&
+            message.method === "_acpmux/attach" &&
+            message.params?.afterSeq !== undefined
+          ) {
+            if (asked) asked.bytes = 1;
+            socket.onmessage?.({
+              data: JSON.stringify({
+                jsonrpc: "2.0",
+                id: message.id,
+                error: { code: -32602, message: "invalid params", data: { code: "transport.intent_invalid" } },
+              }),
+            });
+            return;
+          }
           const data = JSON.stringify({
             jsonrpc: "2.0",
             id: message.id,
@@ -307,6 +323,22 @@ test("a daemon that ignores afterSeq answers its newest page, laid as before wit
     expect(fake.wire.attaches.map((attach) => attach.params.afterSeq)).toEqual([undefined, 10]);
     await until(() => replies(session.snapshot()).includes(6), "the missed turn");
     expect(replies(session.snapshot())).toEqual([1, 2, 3, 4, 5, 6]);
+  } finally {
+    session.client.close();
+  }
+});
+
+test("a host that refuses afterSeq is asked once more for the newest page, without it", async () => {
+  const fake = daemon(chat(5), { refusesAfterSeq: true });
+  const session = await connect(fake);
+  try {
+    fake.add(turn(11, 6));
+    await reconnect(fake, session);
+    // The forward attach, refused, then one plain attach that carries no afterSeq at all.
+    expect(fake.wire.attaches.map((attach) => "afterSeq" in attach.params)).toEqual([false, true, false]);
+    await until(() => replies(session.snapshot()).includes(6), "the missed turn");
+    expect(replies(session.snapshot())).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(session.snapshot().connection).toBe("connected");
   } finally {
     session.client.close();
   }
