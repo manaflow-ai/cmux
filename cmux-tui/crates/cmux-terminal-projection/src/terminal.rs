@@ -148,6 +148,9 @@ pub struct Terminal {
     /// The scrollback or every row changed in a way a diff cannot follow
     /// (RIS, ED 3, a host resize): the view starts over.
     pub reset_needed: bool,
+    /// Counts the primary screen's clears and switches between screens:
+    /// after one, the host's screen lays out the rows again.
+    pub screen_cleared: u64,
     /// An OSC 133 prompt or input mark was seen (Ghostty's `semantic_prompt.seen`).
     prompt_seen: bool,
     semantic: Semantic,
@@ -199,6 +202,7 @@ impl Terminal {
             replies: Vec::new(),
             alt_mode: 1049,
             reset_needed: true,
+            screen_cleared: 0,
             prompt_seen: false,
             semantic: Semantic::Output,
             semantic_clear_eol: false,
@@ -783,6 +787,7 @@ impl Terminal {
         if on == self.alt_active {
             return;
         }
+        self.screen_cleared += 1;
         if on {
             if save_cursor {
                 self.save_cursor();
@@ -1239,6 +1244,9 @@ impl Terminal {
                 // marks; Ctrl+L at a prompt), and `ED 22` (Kitty's
                 // scroll-clear) always: then the screen's rows up to its
                 // last non-blank one go to the scrollback first.
+                if !self.alt_active {
+                    self.screen_cleared += 1;
+                }
                 if !self.alt_active && (mode == 22 || self.at_prompt()) {
                     let last = self.primary.iter().rposition(|row| {
                         row.cells.iter().any(|c| !c.is_empty_or_space() || c.style != 0)
