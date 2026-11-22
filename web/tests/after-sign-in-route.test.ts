@@ -42,6 +42,7 @@ const promoteVerifiedAnonymousUser = mock(async () => {
 const { makeAfterSignInHandler } = await import("../app/handler/after-sign-in/handler");
 const { appPricingNativeReturnURL } = await import("../app/lib/billing");
 const { GET: startNativeSignIn } = await import("../app/handler/native-sign-in/route");
+const { makeNativeTokenHandler } = await import("../app/api/native/token/handler");
 const { makeSignOutAndSignInHandler } = await import("../app/handler/sign-out-and-sign-in/route");
 const { hashNativeSignInCode, s256CodeChallenge } = await import("../app/lib/native-sign-in-codes");
 type NativeSignInCodeRecord = import("../app/lib/native-sign-in-codes").NativeSignInCodeRecord;
@@ -820,6 +821,96 @@ describe("after sign-in native handoff", () => {
         process.env.CMUX_APP_PRICING_RELAY_SECRET = previousSecret;
       }
     }
+  });
+
+  describe("end to end: the browser's code, redeemed by the app", () => {
+    function tokenRoute(createSession = defaultCreateSession) {
+      return makeNativeTokenHandler({
+        store: codeStore,
+        issuer: "test-project",
+        getUserById: async (id: string) => (id === "user-1" ? { createSession } : null),
+      });
+    }
+    function redeem(body: Record<string, unknown>): NextRequest {
+      return new NextRequest("https://cmux.test/api/native/token", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    }
+    async function codeFromClick(nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-e2e") {
+      const response = await handOff(signInRequest(nativeReturnTo, "handoff-nonce"));
+      expect(response.status).toBe(307);
+      return new URL(response.headers.get("location")!).searchParams.get("code")!;
+    }
+
+    test("the app's verifier turns the clicked code into a session, once", async () => {
+      const code = await codeFromClick();
+      expect(defaultCreateSession).not.toHaveBeenCalled();
+
+      const redeemed = await tokenRoute()(redeem({ code, code_verifier: VERIFIER, scheme: "cmux" }));
+      expect(redeemed.status).toBe(200);
+      expect(await redeemed.json()).toEqual({ refresh_token: "minted-refresh", access_token: "minted-access" });
+      expect(defaultCreateSession).toHaveBeenCalledTimes(1);
+
+      const replay = await tokenRoute()(redeem({ code, code_verifier: VERIFIER, scheme: "cmux" }));
+      expect(replay.status).toBe(400);
+      expect(defaultCreateSession).toHaveBeenCalledTimes(1);
+    });
+
+    test("a code read off the callback URL is worthless without the app's verifier", async () => {
+      // Another app that registered the scheme, or anything that logs URLs, sees the code only.
+      const code = await codeFromClick();
+
+      for (const body of [
+        { code, scheme: "cmux" },
+        { code, code_verifier: CHALLENGE, scheme: "cmux" },
+        { code, code_verifier: VERIFIER, scheme: "cmux-rc" },
+      ]) {
+        expect((await tokenRoute()(redeem(body))).status).toBe(400);
+      }
+      expect(defaultCreateSession).not.toHaveBeenCalled();
+      expect(storedCodes.size).toBe(0);
+    });
+
+    test("a code issued for cmux-rc redeems only as cmux-rc", async () => {
+      const code = await codeFromClick("cmux-rc://auth-callback?cmux_auth_state=rc");
+      expect((await tokenRoute()(redeem({ code, code_verifier: VERIFIER, scheme: "cmux" }))).status).toBe(400);
+
+      const again = await codeFromClick("cmux-rc://auth-callback?cmux_auth_state=rc");
+      expect((await tokenRoute()(redeem({ code: again, code_verifier: VERIFIER, scheme: "cmux-rc" }))).status).toBe(200);
+    });
+
+    test("pressing back to the confirmation link after the hand-off issues no second code", async () => {
+      const page = await GET(signInRequest("cmux://auth-callback?cmux_auth_state=back", "unused"));
+      const confirm = confirmFromPage(await page.text(), page);
+      const first = await GET(confirm);
+      expect(first.status).toBe(307);
+      expect(storedCodes.size).toBe(1);
+
+      // The browser applied the hand-off's Set-Cookie, which cleared the confirmation.
+      expect(first.headers.get("set-cookie")).toContain("Max-Age=0");
+      confirmCookie = undefined;
+      const again = await GET(new NextRequest(confirm.nextUrl, { headers: { "accept-language": "en" } }));
+
+      expect(again.headers.get("location") ?? "").not.toContain("code=");
+      expect(storedCodes.size).toBe(1);
+    });
+
+    test("a confirmation from one sign-in does not release another's code", async () => {
+      const pageA = await GET(signInRequest("cmux://auth-callback?cmux_auth_state=a", "unused"));
+      const confirmA = confirmFromPage(await pageA.text(), pageA);
+      const pageB = await GET(signInRequest("cmux://auth-callback?cmux_auth_state=b", "unused"));
+      const confirmB = confirmFromPage(await pageB.text(), pageB);
+
+      // The cookie now holds B's nonce; A's link must not hand off with it.
+      const crossed = await GET(confirmA);
+      expect(crossed.headers.get("location") ?? "").not.toContain("code=");
+
+      const real = await GET(confirmB);
+      expect(real.status).toBe(307);
+      expect(new URL(real.headers.get("location")!).searchParams.get("cmux_auth_state")).toBe("b");
+    });
   });
 });
 
