@@ -65,9 +65,9 @@ async function openFixture(prewarm: "ok" | "refused") {
   const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
   const { ChatUnavailableState } = await import("../src/agent-session/acpmux/ChatUnavailableState");
   const { cloudChatUnavailable } = await import("../src/agent-session/acpmux/cloudChatRecovery");
-  const { useEffect } = await import("react");
+  const { useEffect, useRef } = await import("react");
   const calls: string[] = [];
-  const box = { stage: "paused" };
+  const box = { stage: "paused" as string };
   Object.assign(dom.window, {
     webkit: {
       messageHandlers: {
@@ -76,7 +76,7 @@ async function openFixture(prewarm: "ok" | "refused") {
             calls.push(method);
             if (method === "cloudMachine.prewarm") {
               if (prewarm === "refused") return { ok: false, error: { code: "unavailable", retryable: false } };
-              box.stage = "connecting";
+              // The list still reads it paused while it starts.
               return { ok: true, value: {} };
             }
             if (method === "cloudMachine.attach") return { ok: true, value: {} };
@@ -96,16 +96,23 @@ async function openFixture(prewarm: "ok" | "refused") {
     },
   });
   const noop = () => {};
+  // Stable, as the App's `recheckCloudChat` (useCallback) is: a new one each render reruns the read.
+  const recheck = async () => {};
   function Recovery() {
     const recovery = useCloudChatRecovery({
       cloud: { id: "vm-demo", account: ["user", null] },
       session: "chat-demo",
       active: true,
-      recheck: async () => {},
+      recheck,
     });
-    // The App's open wake: once the recovery reads the machine paused.
+    // The App's open wake: once per sleep (App's `cloudTypeWoke`), when the recovery reads it paused.
+    const woke = useRef(false);
+    const wake = useRef(recovery.wake);
+    wake.current = recovery.wake;
     useEffect(() => {
-      if (recovery.state === "paused") recovery.wake();
+      if (recovery.state !== "paused" || woke.current) return;
+      woke.current = true;
+      wake.current();
     }, [recovery.state]);
     return (
       <>

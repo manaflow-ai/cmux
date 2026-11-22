@@ -10847,11 +10847,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     deleted: cloudRecovery.state === "deleted",
     watching: !!snapshot.summary?.watching,
   });
+  const cloudOpenWake = useRef(cloudRecovery.wake);
+  cloudOpenWake.current = cloudRecovery.wake;
   useEffect(() => {
     if (!cloudOpenWakeChat || cloudTypeWoke.current === cloudOpenWakeChat) return;
     cloudTypeWoke.current = cloudOpenWakeChat;
     setCloudTypeWaking(true);
-    cloudRecovery.wake();
+    cloudOpenWake.current();
   }, [cloudOpenWakeChat]);
   const cloudChat = summary?.hostKind === "cloud";
   useEffect(() => {
