@@ -43,5 +43,11 @@
   "appearance.chromeStyle": "card-outlined",
   "sidebar.border": true,
   "sidebar.borderWidth": 0.5,
-  "sidebar.sectionLook": "tray"
+  "sidebar.sectionLook": "tray",
+
+  // Shape, not only color (Leo: "customizing the tabs/sidebars a lot deeper"): Windows 11 Mica: 4 pt corners, a 260 pt sidebar of 32 pt rows.
+  "density": { "basedOn": "cozy", "tokens": {"tabCornerRadius": 4, "verticalTabCornerRadius": 4, "sidebarCornerRadius": 4, "itemCornerRadius": 4, "sidebarWidth": 260, "sidebarRowHeight": 32, "sidebarRowGap": 2, "tabGap": 2 } },
+  "window.titlebarButtons": "always",
+  "tabs.plusButton": "always",
+  "agentPane.display.sessionInfo.placement": "push"
 }
