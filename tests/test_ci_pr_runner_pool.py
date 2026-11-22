@@ -3441,6 +3441,54 @@ class IOSRouting(unittest.TestCase):
                        if "needs.runner.outputs.runs_on" in str(job.get("runs-on", ""))]
         self.assertEqual(kit_readers, ["kit-tests"])
 
+    def test_review_gate_picks_in_plan_from_the_gate_copy_and_budgets_every_leg(self):
+        # cmux#48629 review: reviewer-path starts one leg per planned family (iPhone and iPad on a
+        # push), so the picker budgets that many simulator minis; it runs in plan (no extra job),
+        # from the gate's own checkout, so a call from main's pipeline picks with the gate's script.
+        workflow = yaml.safe_load((WORKFLOWS / "ios-review-gate.yml").read_text())
+        self.assertNotIn("runner", workflow["jobs"])
+        plan = workflow["jobs"]["plan"]
+        self.assertEqual(plan.get("name", "plan"), ios_pool.REVIEW_GATE_PICKER_JOB)
+        self.assertEqual(plan["permissions"]["actions"], "read")
+        steps = plan["steps"]
+        checkout = next(step for step in steps if "actions/checkout@" in step.get("uses", ""))
+        self.assertEqual(checkout["with"]["ref"], "${{ steps.plan.outputs.gate_sha }}")
+        self.assertIn("scripts/ci/ios_runner_pool.py", checkout["with"]["sparse-checkout"])
+        pick = next(step for step in steps if step.get("id") == "pool")
+        self.assertIn("gate/scripts/ci/ios_runner_pool.py", pick["run"])
+        self.assertIn("--lane review-gate", pick["run"])
+        self.assertIn("--queue-rounds 0", pick["run"])
+        self.assertTrue(pick["continue-on-error"])
+        self.assertNotIn("review-gate", ios_pool.SIM_FIRST_LANES)
+        readers = [name for name, job in workflow["jobs"].items()
+                   if "needs.plan.outputs.runs_on" in str(job.get("runs-on", ""))]
+        self.assertEqual(readers, ["reviewer-path"])
+        self.assertEqual((ios_pool.run_jobs("review-gate", device_family=""),
+                          ios_pool.sim_jobs("review-gate", "")), (2, 2))
+        self.assertEqual((ios_pool.run_jobs("review-gate", device_family="iphone"),
+                          ios_pool.sim_jobs("review-gate", "iphone")), (1, 1))
+        gate = {"id": 1, "display_title": "App Review gate · feat-cmux-next · appstore",
+                "path": ".github/workflows/ios-review-gate.yml", "run_attempt": 1,
+                "created_at": pool.iso(NOW - dt.timedelta(minutes=10))}
+        self.assertEqual((ios_pool.charged_jobs(gate), ios_pool.charged_sim_jobs(gate)), (2, 2))
+        self.assertEqual(ios_pool.charged_sim_jobs(gate, ios_pool.Placements(frozenset()), NOW), 0)
+        leg = {"name": "Reviewer path (appstore, iphone)", "labels": [MINI, IOS_SIM],
+               "status": "in_progress", "runner_name": "mini-a-glaeda"}
+        self.assertTrue(ios_pool.SIM_JOB.fullmatch(leg["name"]))
+        self.assertEqual(ios_pool.hold(gate, [leg], MINI, None, NOW).sim_hosts, frozenset({"mini-a"}))
+        # The plan job is the gate's picker: finished with no macOS job and no marker means Blacksmith.
+        done = {"name": "plan", "status": "completed", "conclusion": "success", "labels": ["blacksmith-4vcpu-ubuntu-2404"]}
+        self.assertTrue(ios_pool.picked_unmarked(gate, [done]))
+
+        def live(pool_free, sim_free, family):
+            load = ios_pool.IOSLoad(None, live=ios_pool.LiveFree(pool=pool_free, sim=sim_free, sim_first=2))
+            return ios_route(measure=lambda: load, lane="review-gate", device_family=family)[0]
+
+        self.assertFalse(live(2, 1, "").persistent)
+        self.assertTrue(live(2, 2, "").persistent)
+        self.assertTrue(live(1, 1, "iphone").persistent)
+        self.assertFalse(live(0, 0, "iphone").persistent)
+
     def test_matrix_nightly_dispatch_may_take_the_owned_pool(self):
         # The nightly arrives as a workflow_dispatch from main's copy (cmux#40397): GitHub fires
         # `schedule` only from the default branch, so this file's own cron never runs.
