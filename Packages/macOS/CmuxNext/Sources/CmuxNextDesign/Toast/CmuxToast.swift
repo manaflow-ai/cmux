@@ -113,11 +113,13 @@ public nonisolated struct CmuxToastStack: Equatable, Sendable {
     public init() {}
 
     /// Adds toast `serial`; returns the serials it replaces (same id, then
-    /// the oldest over the limit).
-    public mutating func push(serial: Int, id: String, undo isUndo: Bool) -> [Int] {
+    /// the oldest over the limit). With `keepsSlot` it takes the slot of the toast with its id (a working
+    /// toast's result, ``CmuxToastTone/working``) instead of resting newest.
+    public mutating func push(serial: Int, id: String, undo isUndo: Bool, keepsSlot: Bool = false) -> [Int] {
+        let slot = keepsSlot ? serials.firstIndex { ids[$0] == id } : nil
         var removed = serials.filter { ids[$0] == id }
         for old in removed { remove(old) }
-        serials.append(serial)
+        serials.insert(serial, at: slot ?? serials.endIndex)
         ids[serial] = id
         if isUndo { undo.insert(serial) }
         while serials.count > Self.limit {
