@@ -14,6 +14,7 @@ use super::{Command, Live, Plan, choose, parse, try_live, undo_live};
 
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 const APP_COMMIT: &str = "89abcde";
+const APP_FULL_COMMIT: &str = "89abcdef0123456789abcdef0123456789abcdef";
 
 fn words(list: &[&str]) -> Vec<String> {
     list.iter().map(|word| (*word).to_owned()).collect()
@@ -44,7 +45,8 @@ fn payload(purpose: &str, commit: &str, targets: Value) -> Value {
     json!({
         "schema": 1, "purpose": purpose, "channel": "nightly-live", "commit": commit,
         "committed_at": 1_000, "published_at": 1_100, "expires_at": 2_000,
-        "tree_key": "k", "live_from": [COMMIT, "89abcdef0123456789abcdef0123456789abcdef"],
+        "tree_key": "k", "live_from": [COMMIT, APP_FULL_COMMIT],
+        "native_from": [COMMIT, APP_FULL_COMMIT],
         "targets": {"aarch64-apple-darwin": targets},
     })
 }
@@ -409,6 +411,70 @@ fn app_try_verify_checks_signature_purpose_and_commit() {
     assert!(live::verify(&good, &keys(), &other).unwrap_err().contains("not"));
     let unsigned = cmux_host::updater::channel::trusted_keys();
     assert!(live::verify(&good, &unsigned, COMMIT).unwrap_err().contains("signature"));
+}
+
+#[test]
+fn app_try_native_proof_is_required_even_when_the_daemon_is_compatible() {
+    let fixture = fixture();
+    let listing = json!({"installed": "400", "switches": true, "builds": [
+        {"build": "500", "commit": COMMIT, "installed": false, "switchable": true, "health": "pending"},
+    ]});
+    for proof in [None, Some(json!([])), Some(json!([COMMIT]))] {
+        let mut body = payload(live::PURPOSE, COMMIT, good_targets());
+        body.as_object_mut().unwrap().remove("native_from");
+        if let Some(proof) = proof {
+            body["native_from"] = proof;
+        }
+        let live = Live::Found(live::verify(&envelope(&body), &keys(), COMMIT).unwrap());
+        // A Swift-only edit can retain live_from membership. It still needs the full app.
+        let plan = choose(COMMIT, Some(APP_COMMIT), &live, Some(Ok(&listing)), &fixture.base);
+        let Plan::Full { build, .. } = plan else { panic!("expected full, got {plan:?}") };
+        assert_eq!(build["build"], "500");
+        // No matching full build must never report that the requested app is live.
+        let plan = choose(COMMIT, Some(APP_COMMIT), &live, None, &fixture.base);
+        let Plan::None { why } = plan else { panic!("expected none, got {plan:?}") };
+        assert!(why.iter().any(|reason| reason.contains("native")), "{why:?}");
+        assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+        assert!(fixture.store.last().is_none());
+    }
+}
+
+#[test]
+fn app_try_native_proof_keeps_compatible_live_swaps_and_same_commit_legacy_manifests() {
+    let fixture = fixture();
+    let live = found(good_targets());
+    assert!(matches!(
+        choose(COMMIT, Some(APP_COMMIT), &live, None, &fixture.base),
+        Plan::Live { .. }
+    ));
+    let mut legacy = payload(live::PURPOSE, COMMIT, good_targets());
+    legacy.as_object_mut().unwrap().remove("native_from");
+    let live = Live::Found(live::verify(&envelope(&legacy), &keys(), COMMIT).unwrap());
+    assert!(matches!(
+        choose(COMMIT, Some(&COMMIT[..10]), &live, None, &fixture.base),
+        Plan::Live { .. }
+    ));
+}
+
+#[test]
+fn app_try_native_proof_must_name_the_same_full_commit_as_daemon_compatibility() {
+    let fixture = fixture();
+    let mut body = payload(live::PURPOSE, COMMIT, good_targets());
+    // Sharing the installed app's short prefix is not proof about the resolved full commit.
+    body["native_from"] = json!([format!("{APP_COMMIT}{}", "0".repeat(33))]);
+    let live = Live::Found(live::verify(&envelope(&body), &keys(), COMMIT).unwrap());
+    assert!(matches!(
+        choose(COMMIT, Some(APP_COMMIT), &live, None, &fixture.base),
+        Plan::None { .. }
+    ));
+    // Native equality also cannot replace daemon compatibility.
+    body["native_from"] = json!([APP_FULL_COMMIT]);
+    body["live_from"] = json!([COMMIT]);
+    let live = Live::Found(live::verify(&envelope(&body), &keys(), COMMIT).unwrap());
+    assert!(matches!(
+        choose(COMMIT, Some(APP_COMMIT), &live, None, &fixture.base),
+        Plan::None { .. }
+    ));
 }
 
 #[test]

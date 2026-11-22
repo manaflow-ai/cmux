@@ -110,6 +110,34 @@ pub fn agent_hook_live_question(native_event: &str, native: &Value) -> Option<St
     fit(out)
 }
 
+/// A kept question as Feed text: each question (after its header), then its options, one per
+/// line with its description. `None` when it holds no question text.
+pub(crate) fn question_text(question: &Value) -> Option<String> {
+    let blocks: Vec<String> = question
+        .get("questions")?
+        .as_array()?
+        .iter()
+        .filter_map(|item| {
+            let prompt = item.get("question").and_then(Value::as_str)?;
+            let mut block = match item.get("header").and_then(Value::as_str) {
+                Some(header) => format!("**{header}:** {prompt}"),
+                None => prompt.to_owned(),
+            };
+            for option in item.get("options").and_then(Value::as_array).into_iter().flatten() {
+                let Some(label) = option.get("label").and_then(Value::as_str) else { continue };
+                block.push_str("\n- ");
+                block.push_str(label);
+                if let Some(description) = option.get("description").and_then(Value::as_str) {
+                    block.push_str(" \u{2014} ");
+                    block.push_str(description);
+                }
+            }
+            Some(block)
+        })
+        .collect();
+    (!blocks.is_empty()).then(|| blocks.join("\n\n"))
+}
+
 /// See `the_second_hook_keeps_the_first_hooks_tool_use_id`.
 pub(crate) fn carry_tool_use_id(question: &mut Value, previous: Option<&Value>) {
     if question.get("tool_use_id").is_some() {
