@@ -863,8 +863,7 @@ fn repository_runs_nothing(git_bin: &Path, env: &Env, dir: &Path, depth: u8) -> 
     let Some(config) = git(dir, &["config", "--list", "--show-scope", "-z"]) else { return false };
     // `-z`: scope NUL key LF value NUL; a key with no value has no LF.
     let fields: Vec<&[u8]> = config.split(|b| *b == 0).collect();
-    for pair in fields.chunks_exact(2) {
-        let [scope, entry] = pair else { return false };
+    for [scope, entry] in fields.as_chunks::<2>().0 {
         let (Ok(scope), Ok(entry)) = (std::str::from_utf8(scope), std::str::from_utf8(entry))
         else {
             return false;

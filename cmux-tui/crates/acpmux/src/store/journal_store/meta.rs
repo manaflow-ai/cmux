@@ -281,10 +281,10 @@ impl Image {
         match self {
             Self::Whole(image) => image.clone(),
             Self::Chain { patches, .. } => {
-                patches.iter().flat_map(|(_, body)| body.iter().copied().chain([b'\n'])).collect()
+                patches.iter().flat_map(|(_, body)| body.iter().copied().chain(*b"\n")).collect()
             }
             Self::Broken { bodies, .. } => {
-                bodies.iter().flat_map(|body| body.iter().copied().chain([b'\n'])).collect()
+                bodies.iter().flat_map(|body| body.iter().copied().chain(*b"\n")).collect()
             }
         }
     }
