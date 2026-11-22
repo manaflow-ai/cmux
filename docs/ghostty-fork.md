@@ -12,6 +12,28 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Upstream libghostty-vt vt-1.0.1 merged into the pin (ghostty-next)
+
+- Release branch `release/cmux-vt-1.0.1` at `2bd5d2503`: a merge of upstream tag `vt-1.0.1` (`108cacb17`, on
+  ghostty-org/ghostty main, 2026-11-11) into `b37a94dfe`, plus three fixups (manaflow-ai/ghostty-next#92). It brings the
+  209 upstream commits since the last sync `c7f68a7f4` (2026-11-03), `vt-1.0.0` and `vt-1.0.1` included. Base per
+  `plans/cmux-next/ghostty-next.md` section 1; sync target per `skills/cmux-ghostty` (newest upstream `vt-*` tag).
+  GhosttyNextKit `xcframework-2bd5d2503393243a2cf64b1cb21987f09d583477-apple-v6` (zip sha256 `b64cc772...efa546`, run 45009529949).
+- C API: upstream's 1.0 ABI wins where it renamed or renumbered; the fork's additions stay (1024+ option and data
+  values, Kitty replay, history digest, deferred prompt clear, deferred clipboard token). Renames cmux-tui's binding
+  follows: `GhosttyTerminalCursorStyle` and the render state's cursor visual style are `GhosttyCursorStyle`
+  (`GHOSTTY_CURSOR_STYLE_*`); `GHOSTTY_KITTY_IMAGE_DATA_*` are `GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_*` and the pixels
+  are one `GhosttyString` (`..._PIXELS`); the formatter options struct is gone (`ghostty_formatter_set` per option,
+  extras as `GHOSTTY_FORMATTER_EXTRA_*` bits); `*_setopt` are `*_set`; `GHOSTTY_SCROLL_VIEWPORT_*` are
+  `GHOSTTY_TERMINAL_SCROLL_VIEWPORT_*`; `GhosttySelection`, `GhosttyGridRef`, `GhosttyStyle`,
+  `GhosttyClipboardRead` and `GhosttyTerminalProgramStatus` have no `size` field; `GhosttyStyle` attributes are
+  `flags` bits; `GHOSTTY_TERMINAL_OPT_*` 40-48 are renumbered (upstream added `CLIPBOARD_WRITE_MAX_BYTES = 40`).
+- Prompt redraw on resize: upstream's design (prompt start tracked before the resize, `PageList.Resize.blank` keeps the
+  prompt's row count on reflow) replaces the fork's cursor-up fix on the immediate path. The deferred clear
+  (`prompt_redraw_waits_for_shell`) keeps its cursor-up in `Screen.clearPromptAtCursor`.
+- Conflict notes: the merge commit's message lists each conflict and its resolution. The next sync merges the next
+  `vt-*` tag the same way.
+
 ### A frame with no built cells draws the background only (ghostty-next, cmux f14)
 
 - Release branch `release/cmux-gi-land-1-cell-guard` at `b37a94dfe`: `c370b103a` (`release/cmux-gi-land-1`) and the

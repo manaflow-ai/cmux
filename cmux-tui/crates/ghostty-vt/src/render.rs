@@ -440,7 +440,7 @@ impl RenderState {
         unsafe {
             sys::ghostty_render_state_set(
                 self.raw,
-                sys::GHOSTTY_RENDER_STATE_OPTION_DIRTY,
+                sys::GHOSTTY_RENDER_STATE_OPT_DIRTY,
                 &value as *const _ as *const c_void,
             );
         }
@@ -495,12 +495,12 @@ impl RenderState {
     /// Current cursor shape and blink mode, even when the cursor is hidden
     /// or outside the viewport.
     pub fn cursor_visual(&self) -> Result<(CursorShape, bool)> {
-        let shape = match self.get::<sys::GhosttyRenderStateCursorVisualStyle>(
-            sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_VISUAL_STYLE,
-        )? {
-            sys::GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BAR => CursorShape::Bar,
-            sys::GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_UNDERLINE => CursorShape::Underline,
-            sys::GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BLOCK_HOLLOW => CursorShape::BlockHollow,
+        let shape = match self
+            .get::<sys::GhosttyCursorStyle>(sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_VISUAL_STYLE)?
+        {
+            sys::GHOSTTY_CURSOR_STYLE_BAR => CursorShape::Bar,
+            sys::GHOSTTY_CURSOR_STYLE_UNDERLINE => CursorShape::Underline,
+            sys::GHOSTTY_CURSOR_STYLE_BLOCK_HOLLOW => CursorShape::BlockHollow,
             _ => CursorShape::Block,
         };
         let blinking: bool = self.get(sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_BLINKING)?;
@@ -651,7 +651,7 @@ impl RenderState {
                 unsafe {
                     sys::ghostty_render_state_row_set(
                         self.rows,
-                        sys::GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY,
+                        sys::GHOSTTY_RENDER_STATE_ROW_OPT_DIRTY,
                         &clean as *const _ as *const c_void,
                     );
                 }
@@ -720,8 +720,7 @@ fn fill_cell(cells: sys::GhosttyRenderStateRowCells, cell: &mut Cell, grapheme_b
         }
     }
 
-    let mut style =
-        sys::GhosttyStyle { size: size_of::<sys::GhosttyStyle>(), ..Default::default() };
+    let mut style = sys::GhosttyStyle::default();
     let style_ok = unsafe {
         sys::ghostty_render_state_row_cells_get(
             cells,
@@ -758,8 +757,7 @@ pub(crate) fn read_grid_ref_cell(
     let mut raw = sys::GhosttyCell::default();
     check(unsafe { sys::ghostty_grid_ref_cell(grid_ref, &mut raw) })?;
 
-    let mut style =
-        sys::GhosttyStyle { size: size_of::<sys::GhosttyStyle>(), ..Default::default() };
+    let mut style = sys::GhosttyStyle::default();
     check(unsafe { sys::ghostty_grid_ref_style(grid_ref, &mut style) })?;
 
     let mut grapheme_len = 0usize;
@@ -793,9 +791,15 @@ pub(crate) fn read_grid_ref_cell(
 }
 
 fn style_color_spec(color: sys::GhosttyStyleColor) -> ColorSpec {
-    match color.tag {
-        sys::GHOSTTY_STYLE_COLOR_PALETTE => ColorSpec::Palette(unsafe { color.value.palette }),
-        sys::GHOSTTY_STYLE_COLOR_RGB => ColorSpec::Rgb(Rgb::from(unsafe { color.value.rgb })),
+    // libghostty-vt 1.0 stores the tag in one byte; bindgen types the
+    // constants as i32 or u32 by target, so compare as i64.
+    match i64::from(color.tag) {
+        tag if tag == i64::from(sys::GHOSTTY_STYLE_COLOR_PALETTE) => {
+            ColorSpec::Palette(unsafe { color.value.palette })
+        }
+        tag if tag == i64::from(sys::GHOSTTY_STYLE_COLOR_RGB) => {
+            ColorSpec::Rgb(Rgb::from(unsafe { color.value.rgb }))
+        }
         _ => ColorSpec::Default,
     }
 }
@@ -871,16 +875,30 @@ fn underline_style(value: i32) -> Option<UnderlineStyle> {
     .find_map(|(raw, style)| (raw == value).then_some(style))
 }
 
+// GhosttyStyleFlags bits (libghostty-vt 1.0 style.h). The header defines
+// them as casting macros, which bindgen does not translate.
+const STYLE_FLAG_BOLD: u16 = 1 << 0;
+const STYLE_FLAG_ITALIC: u16 = 1 << 1;
+const STYLE_FLAG_FAINT: u16 = 1 << 2;
+const STYLE_FLAG_BLINK: u16 = 1 << 3;
+const STYLE_FLAG_INVERSE: u16 = 1 << 4;
+const STYLE_FLAG_INVISIBLE: u16 = 1 << 5;
+const STYLE_FLAG_STRIKETHROUGH: u16 = 1 << 6;
+const STYLE_UNDERLINE_SHIFT: u16 = 8;
+const STYLE_UNDERLINE_MASK: u16 = 0x7 << STYLE_UNDERLINE_SHIFT;
+
 fn apply_style(cell: &mut Cell, raw: sys::GhosttyCell, style: &sys::GhosttyStyle) {
-    cell.bold = style.bold;
-    cell.faint = style.faint;
-    cell.italic = style.italic;
-    cell.underline_style = underline_style(style.underline);
+    let flags: u16 = style.flags;
+    cell.bold = flags & STYLE_FLAG_BOLD != 0;
+    cell.faint = flags & STYLE_FLAG_FAINT != 0;
+    cell.italic = flags & STYLE_FLAG_ITALIC != 0;
+    cell.underline_style =
+        underline_style(((flags & STYLE_UNDERLINE_MASK) >> STYLE_UNDERLINE_SHIFT).into());
     cell.underline = cell.underline_style.is_some();
-    cell.strikethrough = style.strikethrough;
-    cell.inverse = style.inverse;
-    cell.blink = style.blink;
-    cell.invisible = style.invisible;
+    cell.strikethrough = flags & STYLE_FLAG_STRIKETHROUGH != 0;
+    cell.inverse = flags & STYLE_FLAG_INVERSE != 0;
+    cell.blink = flags & STYLE_FLAG_BLINK != 0;
+    cell.invisible = flags & STYLE_FLAG_INVISIBLE != 0;
     cell.fg = style_color_spec(style.fg_color);
     cell.bg = raw_cell_bg_spec(raw).unwrap_or_else(|| style_color_spec(style.bg_color));
 }

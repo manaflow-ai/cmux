@@ -203,6 +203,13 @@ import PackageDescription
 // (Contents.framePlan), so a new surface shows its plain background, never
 // cells of another buffer. No C API change.
 //
+// Since b37a94dfe..2bd5d2503 (release/cmux-vt-1.0.1): a merge of upstream
+// libghostty-vt tag vt-1.0.1 (108cacb17, 209 upstream commits since
+// c7f68a7f4), per plans/cmux-next/ghostty-next.md section 1. The embedded
+// C API (ghostty.h) only gains GHOSTTY_ACTION_SET_WINDOW_THEME; the
+// libghostty-vt C API takes upstream's 1.0 ABI (cmux-tui's ghostty-vt
+// binding moves with it in the same pin change).
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -226,8 +233,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-b37a94dfec401407047f34ecfbc5151be6566a56-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "d5085be1f0af3145bbb45e7b9d5dbdeeab13693ef954a9d00d04c984714814ed"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-2bd5d2503393243a2cf64b1cb21987f09d583477-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "b64cc7724131cfbd67f7678d4bde6b07d13cf9ddc3ef930cb3da0cd819efa546"
         ),
     ]
 )
