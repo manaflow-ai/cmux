@@ -1,5 +1,5 @@
-import CmuxMobileArtifacts
 #if os(iOS)
+import CmuxMobileArtifacts
 import CmuxMobileDesign
 import CmuxMobileRealtime
 import CmuxMobileTransport

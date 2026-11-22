@@ -163,21 +163,15 @@ impl IntegrationOwner {
         {
             return (Err(Reject::Closed(Box::new(item.clone()))), Vec::new());
         }
-        // Only the items the intent names are copied and compared; Mark All
-        // Read names none, so it visits every item.
-        let changes = |item: &FeedItem| {
-            let mut next = item.clone();
-            intent.apply(&mut next, &self.user, &self.device);
-            (next != *item).then_some(next)
-        };
-        let mut changed: Vec<FeedItem> = match intent.items() {
-            Some(mut ids) => {
-                ids.sort_unstable();
-                ids.dedup();
-                ids.into_iter().filter_map(|id| self.items.get(id)).filter_map(changes).collect()
-            }
-            None => self.items.values().filter_map(changes).collect(),
-        };
+        let mut changed: Vec<FeedItem> = self
+            .items
+            .values()
+            .filter_map(|item| {
+                let mut next = item.clone();
+                intent.apply(&mut next, &self.user, &self.device);
+                (next != *item).then_some(next)
+            })
+            .collect();
         if changed.is_empty() {
             return (Ok(()), Vec::new());
         }
@@ -209,23 +203,19 @@ impl IntegrationOwner {
         let settled = |item: &FeedItem| {
             item.read_at.is_some() || item.archived_at.is_some() || item.state.is_closed()
         };
-        let order = |a: &&FeedItem, b: &&FeedItem| {
+        let mut oldest: Vec<&FeedItem> =
+            self.items.values().filter(|item| !item.is_open_request()).collect();
+        oldest.sort_by(|a, b| {
             settled(b)
                 .cmp(&settled(a))
                 .then(a.updated_at.cmp(&b.updated_at))
                 .then_with(|| a.id.cmp(&b.id))
-        };
-        let mut oldest: Vec<&FeedItem> =
-            self.items.values().filter(|item| !item.is_open_request()).collect();
-        // A post past the bound drops one item: select the oldest few in
-        // linear time and sort only those, not every held item per post.
-        let excess = self.items.len().saturating_sub(self.max_items).min(oldest.len());
-        if excess < oldest.len() {
-            oldest.select_nth_unstable_by(excess, order);
-        }
-        oldest.truncate(excess);
-        oldest.sort_by(order);
-        let removed: Vec<String> = oldest.iter().map(|item| item.id.clone()).collect();
+        });
+        let removed: Vec<String> = oldest
+            .iter()
+            .take(self.items.len().saturating_sub(self.max_items))
+            .map(|item| item.id.clone())
+            .collect();
         if removed.is_empty() {
             return None;
         }

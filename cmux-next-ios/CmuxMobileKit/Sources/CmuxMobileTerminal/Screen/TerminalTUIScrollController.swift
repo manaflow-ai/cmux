@@ -19,8 +19,6 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
     var selectionOwns: (UITouch?) -> Bool = { _ in false }
     /// A drag began scrolling the app (its content moves under any selection).
     var dragBegan: () -> Void = {}
-    /// The drag ended with no fling, was cancelled, or its fling ended or stopped.
-    var panEnded: () -> Void = {}
     /// DEBUG: a wheel report went to the surface (cmux#48951's round trip).
     var wheelSent: () -> Void = {}
 
@@ -81,11 +79,7 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
             send(scroll.moved(translationY: pan.translation(in: surface).y, velocityY: pan.velocity(in: surface).y))
             if isEnabled(), let fling = TerminalTUIMomentum(velocityY: pan.velocity(in: surface).y) {
                 startMomentum(fling)
-            } else {
-                panEnded()
             }
-        case .cancelled, .failed:
-            panEnded()
         default:
             break
         }
@@ -139,10 +133,8 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
 
     private func endLink() {
         momentum = nil
-        guard let link else { return }
-        link.invalidate()
-        self.link = nil
-        panEnded()
+        link?.invalidate()
+        link = nil
     }
 
     // MARK: UIGestureRecognizerDelegate
