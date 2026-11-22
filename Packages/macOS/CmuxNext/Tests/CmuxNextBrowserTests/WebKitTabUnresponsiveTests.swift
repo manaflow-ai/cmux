@@ -39,6 +39,28 @@ import WebKit
         #expect(!tab.state.isUnresponsive)
     }
 
+    /// WebKit reports a hang once; after Wait, a page still hung shows the notice again, one that answers does not.
+    @Test func waitLooksAgainAndAPageStillHungShowsTheNoticeAgain() async throws {
+        let engine = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory())
+        let tab = engine.makeWebKitTab()
+        defer { tab.close() }
+        try await Self.load(tab)
+        #expect(tab.webProcessIsResponsive, "a loaded page counted as hung")
+        tab.hangRecheckDelay = .milliseconds(20)
+        var hung = true
+        tab.webProcessIsResponsiveOverride = { !hung }
+        tab.webViewWebProcessDidBecomeUnresponsive(tab.webView)
+        tab.answerUnresponsivePage(terminate: false)
+        #expect(!tab.state.isUnresponsive)
+        for _ in 0..<400 where !tab.state.isUnresponsive { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(tab.state.isUnresponsive, "Wait hid the notice of a page still hung for good")
+
+        hung = false
+        tab.answerUnresponsivePage(terminate: false)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(!tab.state.isUnresponsive, "the notice came back for a page that answers")
+    }
+
     @Test func anAnswerWithNoHangDoesNothing() async throws {
         let engine = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory())
         let tab = engine.makeWebKitTab()

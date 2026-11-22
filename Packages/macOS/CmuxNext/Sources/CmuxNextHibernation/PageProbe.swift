@@ -21,12 +21,19 @@ package struct PageProbe: Hashable, Sendable {
     /// page's media script pushes that state (`BrowserMediaState+Scripts`), with no round trip.
     /// WebKit's own camera and microphone state is the planner's `isCapturing`; Chromium reports none to the app.
     package static func unanswered(media: BrowserMediaState?, muted: Bool) -> PageProbe {
-        PageProbe(playingMedia: tabPlays(media, muted: muted), mediaSession: media != nil, answered: false)
+        PageProbe(playingMedia: tabPlays(media, muted: muted), mediaSession: resumable(media), answered: false)
+    }
+
+    /// The tab's media the person resumes from outside the page (``mediaSession``): an element that is not
+    /// muted, or one whose page handles `mediaSession` actions. A muted autoplay or ad video, or sound with no
+    /// element, is no session: such a page still freezes.
+    package static func resumable(_ media: BrowserMediaState?) -> Bool {
+        media.map { !$0.isSoundOnly && (!$0.isMuted || !$0.actions.isEmpty) } ?? false
     }
 
     /// Unmuted media playing, media the tab's mute silences, or Picture in Picture.
     package var playingMedia = false
-    /// The tab reports a media session (`BrowserTabState.media`), paused ones too: the person resumes it from
+    /// The tab reports media it can resume (``resumable(_:)``), paused too: the person resumes it from
     /// macOS Now Playing, the media keys or the tab's media menu, and each of those runs in the page. A frozen
     /// page runs none of them, so Play did nothing (https://github.com/manaflow-ai/cmux/issues/51079: a
     /// paused open.spotify.com tab froze 30 s after it was hidden, and its music never came back). It keeps
