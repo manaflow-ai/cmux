@@ -17,6 +17,14 @@
 //!
 //! The work is the checkout's own `scripts/cmux-next/hot-verify.py run|extract|stop` (with
 //! side-instance.sh): the tree being tried brings the scripts. This file names the clone, routes, and prints.
+//!
+//! `cmux app try <PR|branch|sha> --copy` is the same copy for a commit with no checkout of its own: the target
+//! resolves to its full sha (and the PR number for a PR), and an engine-bearing cmux checkout (`$CMUX_CHECKOUT`,
+//! else the one around this folder, else ~/Projects/cmux) runs `hot-verify.py run --source sha:FULL` with that
+//! checkout as `--repo` (the engine fetches the commit into it) and, for a PR, `--pr N` so its web layer is the
+//! bundles CI published for the PR. Its copy is `try-<12 hex of the sha>` (a PR's `try-pr-N`, so `N --copy --stop`
+//! still finds it after a push). Tools that would ask for a dev build of a commit (dev-build-try, pr-capture) put
+//! the commit in a copy this way first: cmuxterm-hq docs/handbook/swap-before-dev-build.md.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -26,6 +34,7 @@ use cmux_process::Command as Process;
 use serde_json::{Value, json};
 
 use super::super::super::{GlobalArgs, OutputMode};
+use super::resolve;
 
 /// The golden copy when no `--from` names one.
 pub(super) const DEFAULT_FROM: &str = "/Applications/cmux NIGHTLY.app";
@@ -33,6 +42,33 @@ pub(super) const DEFAULT_FROM: &str = "/Applications/cmux NIGHTLY.app";
 pub(super) const ENGINE: &str = "scripts/cmux-next/hot-verify.py";
 /// hot-verify.py's "the change needs a build" exit.
 const NEEDS_BUILD: i32 = 3;
+
+/// What a copy is of: a working tree (`.`, `dir:PATH`), or a PR, branch or commit as typed (`--copy`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Target {
+    Tree(PathBuf),
+    Commit(String),
+}
+
+/// The engine's `--source`: a checkout's working tree, or a full commit (with the PR it is the head of).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Source {
+    Tree(PathBuf),
+    Commit { sha: String, pr: Option<u64> },
+}
+
+impl Source {
+    fn arg(&self) -> OsString {
+        match self {
+            Self::Tree(tree) => {
+                let mut source = OsString::from("dir:");
+                source.push(tree);
+                source
+            }
+            Self::Commit { sha, .. } => format!("sha:{sha}").into(),
+        }
+    }
+}
 
 /// What `cmux app try .` does with the clone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,52 +122,63 @@ pub(super) fn side_name(tree: &Path) -> String {
     format!("try-{slug}-{:06x}", hash & 0xff_ffff)
 }
 
-/// hot-verify.py's arguments for `action` (dry run: its plan of the tree against the golden copy). `pick`: no
-/// `--from` was given, so when `from` (the installed NIGHTLY) needs a build for the tree, the engine picks the
-/// nearest published build that does not (`golden` is that pick, planned only).
+/// The copy's side-instance name for a commit: `try-pr-N` for a PR (one copy per PR, found again after a push),
+/// else `try-<first 12 hex of the sha>`.
+pub(super) fn commit_side(sha: &str, pr: Option<u64>) -> String {
+    match pr {
+        Some(number) => format!("try-pr-{number}"),
+        None => format!("try-{}", sha.get(..12).unwrap_or(sha)),
+    }
+}
+
+/// hot-verify.py's arguments for `action` (dry run: its plan of the source against the golden copy), run from
+/// `repo`'s engine with `repo` as the clone the source is read in. `pick`: no `--from` was given, so when `from`
+/// (the installed NIGHTLY) needs a build for the source, the engine picks the nearest published build that does
+/// not (`golden` is that pick, planned only). A PR's commit also names the PR (`--pr N`): its published web layer.
 pub(super) fn engine_args(
     action: Action,
-    tree: &Path,
+    source: &Source,
+    repo: &Path,
     from: &Path,
     side: &str,
     dry_run: bool,
     pick: bool,
 ) -> Vec<OsString> {
-    let source = || {
-        let mut source = OsString::from("dir:");
-        source.push(tree);
-        source
+    let pr = match source {
+        Source::Commit { pr: Some(number), .. } => Some(number.to_string()),
+        Source::Commit { pr: None, .. } | Source::Tree(_) => None,
     };
     let words: Vec<OsString> = match (action, dry_run) {
         (Action::Run, true) => vec![
             if pick { "golden" } else { "plan" }.into(),
             "--source".into(),
-            source(),
+            source.arg(),
             "--app".into(),
             from.into(),
             "--repo".into(),
-            tree.into(),
+            repo.into(),
         ],
         (Action::Run, false) => vec![
             "run".into(),
             "--source".into(),
-            source(),
+            source.arg(),
             "--app".into(),
             from.into(),
             "--repo".into(),
-            tree.into(),
+            repo.into(),
             "--side".into(),
             side.into(),
             "--label".into(),
             format!("cmux {side}").into(),
         ]
         .into_iter()
+        .chain(pr.into_iter().flat_map(|number| ["--pr".into(), number.into()]))
         .chain(pick.then(|| "--pick".into()))
         .collect(),
         (Action::Extract, _) => vec!["extract".into(), "--side".into(), side.into()],
         (Action::Stop, _) => vec!["stop".into(), "--side".into(), side.into(), "--remove".into()],
     };
-    let mut argv = vec![tree.join(ENGINE).into_os_string()];
+    let mut argv = vec![repo.join(ENGINE).into_os_string()];
     argv.extend(words);
     argv
 }
@@ -140,30 +187,154 @@ fn messages() -> &'static crate::localization::TryMessages {
     super::messages()
 }
 
-/// Runs `cmux app try <tree> [--from APP] [--extract|--stop] [--dry-run]`.
+/// One copy to drive: the engine's source, the checkout whose engine runs (and reads the source), the side
+/// name, and the words that name it again (`cmux app try {again} --stop`).
+struct Job {
+    source: Source,
+    repo: PathBuf,
+    side: String,
+    again: String,
+}
+
+/// Runs `cmux app try <tree> [--from APP] [--extract|--stop] [--dry-run]`, or the same for
+/// `<PR|branch|sha> --copy`.
 pub(super) fn run(
     global: &GlobalArgs,
-    tree: &Path,
+    target: &Target,
     from: Option<&Path>,
     action: Action,
     dry_run: bool,
 ) -> i32 {
     let messages = messages();
-    let Some(tree) = checkout(tree) else {
-        return super::failure("try.no_checkout", messages.copy_no_checkout, global.output);
+    let job = match target {
+        Target::Tree(tree) => {
+            let Some(tree) = checkout(tree) else {
+                return super::failure("try.no_checkout", messages.copy_no_checkout, global.output);
+            };
+            if !cfg!(target_os = "macos") {
+                return elsewhere(global, &tree);
+            }
+            Job {
+                source: Source::Tree(tree.clone()),
+                side: side_name(&tree),
+                again: shell_word(&tree.to_string_lossy()),
+                repo: tree,
+            }
+        }
+        Target::Commit(word) => match commit_job(global, word, action) {
+            Ok(job) => job,
+            Err(code) => return code,
+        },
+    };
+    drive(global, &job, from, action, dry_run)
+}
+
+/// The checkouts a commit's copy may take its engine from, in order: `$CMUX_CHECKOUT`, the folder this runs in,
+/// ~/Projects/cmux.
+pub(super) fn checkout_candidates(
+    named: Option<PathBuf>,
+    cwd: Option<PathBuf>,
+    home: Option<&Path>,
+) -> Vec<PathBuf> {
+    named
+        .filter(|path| !path.as_os_str().is_empty())
+        .into_iter()
+        .chain(cwd)
+        .chain(home.map(|home| home.join("Projects/cmux")))
+        .collect()
+}
+
+/// `<PR|branch|sha> --copy`: the engine's checkout, the commit's full sha (and PR), its side.
+fn commit_job(global: &GlobalArgs, word: &str, action: Action) -> Result<Job, i32> {
+    let messages = messages();
+    let Some(spec) = resolve::classify(word) else {
+        let text = messages.not_found.replace("{target}", word);
+        return Err(super::failure("try.not_found", &text, global.output));
+    };
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let candidates = checkout_candidates(
+        std::env::var_os("CMUX_CHECKOUT").map(PathBuf::from),
+        std::env::current_dir().ok(),
+        home.as_deref(),
+    );
+    let Some(repo) = candidates.iter().find_map(|path| checkout(path)) else {
+        let text = messages.copy_commit_no_checkout;
+        return Err(super::failure("try.no_checkout", text, global.output));
     };
     if !cfg!(target_os = "macos") {
-        return elsewhere(global, &tree);
+        let text = messages.copy_commit_elsewhere.replace("{target}", word);
+        return Err(super::super::super::wire::print_local_error(
+            &json!({ "code": "try.no_mac", "message": text }),
+            global.output,
+            2,
+        ));
     }
+    let pr = match spec {
+        resolve::Spec::Pull(number) => Some(number),
+        resolve::Spec::Commit(_) | resolve::Spec::Branch(_) => None,
+    };
+    // A PR's copy is found by its number: stopping or extracting it needs no lookup of its head.
+    let sha = if pr.is_some() && action != Action::Run {
+        String::new()
+    } else {
+        resolve_commit(global, &spec, &repo, word)?
+    };
+    let side = commit_side(&sha, pr);
+    let again = format!("{} --copy", pr.map_or_else(|| sha.clone(), |number| number.to_string()));
+    Ok(Job { source: Source::Commit { sha, pr }, repo, side, again })
+}
+
+/// `spec`'s full sha: a short sha the checkout already has resolves there, the rest through GitHub.
+fn resolve_commit(
+    global: &GlobalArgs,
+    spec: &resolve::Spec,
+    repo: &Path,
+    word: &str,
+) -> Result<String, i32> {
+    let messages = super::messages();
+    let local = |short: &str| {
+        git_line(repo, &["rev-parse", "--verify", "-q", &format!("{short}^{{commit}}")])
+    };
+    if let resolve::Spec::Commit(short) = spec
+        && let Some(sha) = local(short)
+        && sha.len() == 40
+        && sha.starts_with(short.as_str())
+    {
+        return Ok(sha);
+    }
+    resolve::resolve(spec).map_err(|error| match error {
+        resolve::Unresolved::RateLimited => {
+            super::failure("try.rate_limited", messages.rate_limited, global.output)
+        }
+        resolve::Unresolved::NotFound => super::failure(
+            "try.not_found",
+            &messages.not_found.replace("{target}", word),
+            global.output,
+        ),
+        resolve::Unresolved::Other(error) => super::failure("try.resolve", &error, global.output),
+    })
+}
+
+/// Runs the engine for `job` and prints what it did.
+fn drive(
+    global: &GlobalArgs,
+    job: &Job,
+    from: Option<&Path>,
+    action: Action,
+    dry_run: bool,
+) -> i32 {
+    let messages = messages();
     let pick = from.is_none();
     let from = from.map_or_else(|| PathBuf::from(DEFAULT_FROM), Path::to_path_buf);
     if action == Action::Run && !from.join("Contents/Info.plist").is_file() {
         let text = messages.copy_no_app.replace("{app}", &from.to_string_lossy());
         return super::failure("try.no_app", &text, global.output);
     }
-    let side = side_name(&tree);
+    let side = &job.side;
     let mut process = Process::new("python3");
-    process.args(engine_args(action, &tree, &from, &side, dry_run, pick)).current_dir(&tree);
+    process
+        .args(engine_args(action, &job.source, &job.repo, &from, side, dry_run, pick))
+        .current_dir(&job.repo);
     if let Some(path) =
         super::super::live::tool_path(std::env::var_os("PATH"), std::env::var_os("HOME"))
     {
@@ -188,18 +359,18 @@ pub(super) fn run(
         .rev()
         .find_map(|line| serde_json::from_str::<Value>(line).ok())
         .unwrap_or(Value::Null);
-    let tree_arg = shell_word(&tree.to_string_lossy());
+    let tree_arg = &job.again;
     match action {
         Action::Stop => {
             if code != 0 {
                 return super::failure("try.stop_failed", messages.copy_stop_failed, global.output);
             }
-            let text = messages.copy_stopped.replace("{side}", &side);
+            let text = messages.copy_stopped.replace("{side}", side);
             report(global, &json!({ "side": side, "stopped": true }), &text)
         }
         Action::Extract => {
             if code != 0 || result.is_null() {
-                let text = messages.copy_nothing_to_extract.replace("{tree}", &tree_arg);
+                let text = messages.copy_nothing_to_extract.replace("{tree}", tree_arg);
                 return super::failure("try.nothing_to_extract", &text, global.output);
             }
             let text = messages
@@ -207,14 +378,14 @@ pub(super) fn run(
                 .replace("{branch}", result.get_str("branch").unwrap_or_default())
                 .replace("{patch}", result.get_str("patch").unwrap_or_default())
                 .replace("{count}", &result.get_array("files").len().to_string())
-                .replace("{tree}", &tree_arg);
+                .replace("{tree}", tree_arg);
             report(global, &result, &text)
         }
-        Action::Run if code == NEEDS_BUILD => needs_build(global, &tree, &side, &result),
+        Action::Run if code == NEEDS_BUILD => needs_build(global, job, &result),
         Action::Run if code == 0 && !result.is_null() => {
             // The golden copy the engine took (`from` in its result), which `--pick` may have moved off the NIGHTLY.
             let from = result.get_str("from").map_or_else(|| from.clone(), PathBuf::from);
-            let text = running(&result, &from, &tree_arg);
+            let text = running(&result, &from, tree_arg);
             report(global, &result, &text)
         }
         Action::Run => {
@@ -311,8 +482,15 @@ pub(super) fn golden_line(result: &Value) -> Option<String> {
 /// A change a copy of the NIGHTLY cannot take: why, and the build that can, which never runs on this Mac.
 /// Hook: when the Swift binary swap (the app's executable and frameworks put into the copy and re-sealed)
 /// lands, the Swift reasons route there before the dev build is offered.
-fn needs_build(global: &GlobalArgs, tree: &Path, side: &str, result: &Value) -> i32 {
-    let text = needs_build_text(result, &head_of(tree), side, &tree.to_string_lossy());
+fn needs_build(global: &GlobalArgs, job: &Job, result: &Value) -> i32 {
+    let (head, shown) = match &job.source {
+        Source::Tree(tree) => (head_of(tree), tree.to_string_lossy().into_owned()),
+        Source::Commit { sha, pr: Some(number) } => {
+            (sha.clone(), format!("cmux#{number} ({})", super::short(sha)))
+        }
+        Source::Commit { sha, pr: None } => (sha.clone(), super::short(sha).to_owned()),
+    };
+    let text = needs_build_text(result, &head, &job.side, &shown);
     super::super::super::wire::print_local_error(
         &json!({ "code": "try.needs_build", "message": text, "plan": result.get("plan") }),
         global.output,

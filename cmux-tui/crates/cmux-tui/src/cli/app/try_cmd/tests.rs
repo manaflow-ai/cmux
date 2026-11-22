@@ -347,7 +347,151 @@ fn nightly_live_channel_takes_daemon_from_past_the_whole_app_floor() {
 }
 
 fn copy_of(tree: &str, from: Option<&str>, action: CopyAction, dry_run: bool) -> Command {
-    Command::Copy { tree: tree.into(), from: from.map(PathBuf::from), action, dry_run }
+    Command::Copy {
+        target: copy::Target::Tree(tree.into()),
+        from: from.map(PathBuf::from),
+        action,
+        dry_run,
+    }
+}
+
+fn commit_copy_of(target: &str, from: Option<&str>, action: CopyAction, dry_run: bool) -> Command {
+    Command::Copy {
+        target: copy::Target::Commit(target.into()),
+        from: from.map(PathBuf::from),
+        action,
+        dry_run,
+    }
+}
+
+#[test]
+fn app_try_commit_with_copy_flag_is_that_commit_in_a_copy() {
+    let full = "0123456789abcdef0123456789abcdef01234567";
+    assert_eq!(
+        parse(&words(&[full, "--copy"])).unwrap(),
+        commit_copy_of(full, None, CopyAction::Run, false)
+    );
+    assert_eq!(
+        parse(&words(&["--copy", "49187", "--from", "/A.app", "--dry-run"])).unwrap(),
+        commit_copy_of("49187", Some("/A.app"), CopyAction::Run, true)
+    );
+    assert_eq!(
+        parse(&words(&["lane/app-try", "--copy", "--app=/A.app"])).unwrap(),
+        commit_copy_of("lane/app-try", Some("/A.app"), CopyAction::Run, false)
+    );
+    assert_eq!(
+        parse(&words(&["#49187", "--copy", "--stop"])).unwrap(),
+        commit_copy_of("#49187", None, CopyAction::Stop, false)
+    );
+    assert_eq!(
+        parse(&words(&["abc1234", "--copy", "--extract"])).unwrap(),
+        commit_copy_of("abc1234", None, CopyAction::Extract, false)
+    );
+    // A working tree is a copy already: --copy changes nothing there.
+    assert_eq!(
+        parse(&words(&[".", "--copy"])).unwrap(),
+        copy_of(".", None, CopyAction::Run, false)
+    );
+    // Without --copy a commit still goes into this app, unchanged.
+    assert_eq!(
+        parse(&words(&[full])).unwrap(),
+        Command::Try { target: full.into(), dry_run: false, app: None }
+    );
+    for refused in [
+        &["--copy"][..],
+        &["49187", "main", "--copy"],
+        &["status", "--copy"],
+        &["undo", "--copy"],
+        &["channel", "--copy"],
+        &["a..b", "--copy"],
+        &["49187", "--copy", "--stop", "--extract"],
+        &["49187", "--copy", "--stop", "--dry-run"],
+        &["49187", "--copy", "--extract", "--from", "/A.app"],
+        &["49187", "--copy", "--from", "/A.app", "--app", "/B.app"],
+    ] {
+        assert!(parse(&words(refused)).is_err(), "{refused:?}");
+    }
+}
+
+#[test]
+fn app_try_commit_copy_runs_the_engine_on_the_sha_in_its_side() {
+    let repo = Path::new("/src/cmux");
+    let from = Path::new("/Applications/cmux NIGHTLY.app");
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    let argv = |source: &copy::Source, side: &str, action, dry_run, pick| -> Vec<String> {
+        copy::engine_args(action, source, repo, from, side, dry_run, pick)
+            .iter()
+            .map(|word| word.to_string_lossy().into_owned())
+            .collect()
+    };
+    let engine = "/src/cmux/scripts/cmux-next/hot-verify.py";
+    let commit = copy::Source::Commit { sha: sha.into(), pr: None };
+    let side = copy::commit_side(sha, None);
+    assert_eq!(side, "try-0123456789ab");
+    assert_eq!(
+        argv(&commit, &side, CopyAction::Run, false, true),
+        [
+            engine,
+            "run",
+            "--source",
+            &format!("sha:{sha}"),
+            "--app",
+            "/Applications/cmux NIGHTLY.app",
+            "--repo",
+            "/src/cmux",
+            "--side",
+            "try-0123456789ab",
+            "--label",
+            "cmux try-0123456789ab",
+            "--pick",
+        ]
+    );
+    // A PR's head names the PR, so the engine takes the web bundles CI published for it.
+    let pull = copy::Source::Commit { sha: sha.into(), pr: Some(49187) };
+    let side = copy::commit_side(sha, Some(49187));
+    assert_eq!(side, "try-pr-49187");
+    let run = argv(&pull, &side, CopyAction::Run, false, false);
+    assert_eq!(run[3], format!("sha:{sha}"));
+    assert!(run.ends_with(&["--pr".to_owned(), "49187".to_owned()]), "{run:?}");
+    assert_eq!(
+        argv(&pull, &side, CopyAction::Run, true, true),
+        [
+            engine,
+            "golden",
+            "--source",
+            &format!("sha:{sha}"),
+            "--app",
+            "/Applications/cmux NIGHTLY.app",
+            "--repo",
+            "/src/cmux"
+        ]
+    );
+    assert_eq!(
+        argv(&pull, &side, CopyAction::Stop, false, false),
+        [engine, "stop", "--side", "try-pr-49187", "--remove"]
+    );
+    assert_eq!(
+        argv(&commit, "try-0123456789ab", CopyAction::Extract, false, false),
+        [engine, "extract", "--side", "try-0123456789ab"]
+    );
+}
+
+#[test]
+fn app_try_commit_copy_finds_its_checkout_in_order() {
+    let home = Path::new("/Users/me");
+    assert_eq!(
+        copy::checkout_candidates(Some("/env/cmux".into()), Some("/cwd".into()), Some(home)),
+        [
+            PathBuf::from("/env/cmux"),
+            PathBuf::from("/cwd"),
+            PathBuf::from("/Users/me/Projects/cmux")
+        ]
+    );
+    assert_eq!(
+        copy::checkout_candidates(Some(PathBuf::new()), None, Some(home)),
+        [PathBuf::from("/Users/me/Projects/cmux")]
+    );
+    assert!(copy::checkout_candidates(None, None, None).is_empty());
 }
 
 #[test]
@@ -383,6 +527,7 @@ fn app_try_copy_flags_are_refused_where_they_mean_nothing() {
     assert!(parse(&words(&["43455", "--stop"])).is_err());
     assert!(parse(&words(&["main", "--extract"])).is_err());
     assert!(parse(&words(&["main", "--from", "/A.app"])).is_err());
+    assert!(parse(&words(&["status", "--stop"])).is_err());
     assert!(parse(&words(&[".", "--stop", "--extract"])).is_err());
     assert!(parse(&words(&[".", "--stop", "--dry-run"])).is_err());
     assert!(parse(&words(&[".", "--extract", "--from", "/A.app"])).is_err());
@@ -438,10 +583,18 @@ fn app_try_copy_routes_each_action_to_the_checkout_s_engine() {
     let tree = Path::new("/src/cmux");
     let from = Path::new("/Applications/cmux NIGHTLY.app");
     let argv = |action, dry_run| -> Vec<String> {
-        copy::engine_args(action, tree, from, "try-cmux-abc123", dry_run, false)
-            .iter()
-            .map(|word| word.to_string_lossy().into_owned())
-            .collect()
+        copy::engine_args(
+            action,
+            &copy::Source::Tree(tree.into()),
+            tree,
+            from,
+            "try-cmux-abc123",
+            dry_run,
+            false,
+        )
+        .iter()
+        .map(|word| word.to_string_lossy().into_owned())
+        .collect()
     };
     let engine = "/src/cmux/scripts/cmux-next/hot-verify.py";
     assert_eq!(
@@ -487,10 +640,18 @@ fn app_try_copy_with_no_from_lets_the_engine_pick_a_closer_golden_copy() {
     let tree = Path::new("/src/cmux");
     let from = Path::new("/Applications/cmux NIGHTLY.app");
     let argv = |dry_run| -> Vec<String> {
-        copy::engine_args(CopyAction::Run, tree, from, "try-cmux-abc123", dry_run, true)
-            .iter()
-            .map(|word| word.to_string_lossy().into_owned())
-            .collect()
+        copy::engine_args(
+            CopyAction::Run,
+            &copy::Source::Tree(tree.into()),
+            tree,
+            from,
+            "try-cmux-abc123",
+            dry_run,
+            true,
+        )
+        .iter()
+        .map(|word| word.to_string_lossy().into_owned())
+        .collect()
     };
     let run = argv(false);
     assert_eq!(run[1], "run");

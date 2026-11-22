@@ -5,6 +5,7 @@
     hot-verify.py look --source dir:PATH|pr:N|sha:SHA --app APP --out DIR [--repo CMUX_CLONE] [--side NAME]
                        [--kit DIR] [--state STEPS.json] [--no-video] [--watch]
     hot-verify.py run --source dir:PATH|pr:N|sha:SHA --app APP --side NAME [--repo CMUX_CLONE] [--label TEXT]
+                      [--pick] [--pr N]
     hot-verify.py extract --side NAME [--out FILE.patch]
     hot-verify.py stop --side NAME [--remove]
 
@@ -2082,6 +2083,10 @@ def command_run(args) -> int:
                 planned = golden["plan"]
             else:
                 golden, planned = None, plan(repo, args.source, str(the_app), None)
+        if getattr(args, "pr", None) and not planned.get("pr"):
+            # A sha: source of pull request N (`cmux app try N --copy`, which resolves N to the head it names): its
+            # web layer is the bundles CI published for the PR while they name this head, as `look --pr` takes them.
+            planned["pr"] = args.pr
         result["plan"] = planned
         built_app = None
         if planned["needs_build"] and not can_build_swift_app(planned):
@@ -2212,6 +2217,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--label")
     p.add_argument("--pick", action="store_true",
                    help="when APP needs a build for the source, copy the nearest published build that does not")
+    p.add_argument("--pr", type=int, help="the pull request a sha: source is the head of: its published web layer")
     p.set_defaults(func=command_run)
     p = sub.add_parser("golden")
     p.add_argument("--source", required=True)

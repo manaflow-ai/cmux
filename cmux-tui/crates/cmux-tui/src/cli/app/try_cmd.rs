@@ -30,6 +30,12 @@
 //! `cmux app try .` (or `dir:PATH`) is the working-tree form (try_cmd/copy.rs): a fresh clone of the
 //! installed NIGHTLY (`--from APP`) beside the running app, the checkout swapped in; `--extract` keeps
 //! the code that went in, `--stop` deletes the clone. The running app is never changed.
+//!
+//! `cmux app try <PR|branch|sha> --copy` puts a commit into such a copy instead of this app: the target resolves
+//! to its full sha (and PR), an engine-bearing cmux checkout (`$CMUX_CHECKOUT`, the one around this folder, else
+//! ~/Projects/cmux) runs the engine on `sha:FULL`, and `--from`, `--extract`, `--stop` and `--dry-run` work as for
+//! `.`. Exit 0 the copy runs, 3 it needs a build (`try.needs_build`, no copy made), else failed; it never builds.
+//! Leo (2026-11-18): "just copy your nightly and swap the code into that copy".
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -65,7 +71,7 @@ pub(crate) enum Command {
         app: Option<PathBuf>,
     },
     Copy {
-        tree: PathBuf,
+        target: copy::Target,
         from: Option<PathBuf>,
         action: copy::Action,
         dry_run: bool,
@@ -99,6 +105,7 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
     let mut app = None;
     let mut from = None;
     let mut copy_flags: Vec<(&str, copy::Action)> = Vec::new();
+    let mut to_copy = false;
     let mut words = Vec::new();
     let mut iter = rest.iter();
     while let Some(word) = iter.next() {
@@ -120,14 +127,30 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             }
             flag @ ("--stop" | "--delete") => copy_flags.push((flag, copy::Action::Stop)),
             flag @ "--extract" => copy_flags.push((flag, copy::Action::Extract)),
+            "--copy" => to_copy = true,
             other if other.starts_with('-') => return Err(unexpected(other)),
             other => words.push(other.to_owned()),
         }
     }
     let home = std::env::var_os("HOME").map(PathBuf::from);
-    if let [word] = words.as_slice()
-        && let Some(tree) = copy::dir_target(word, home.as_deref())
-    {
+    // A working tree always goes into a copy; a PR, branch or commit does with --copy.
+    let copy_target = match words.as_slice() {
+        [word] => match copy::dir_target(word, home.as_deref()) {
+            Some(tree) => Some(copy::Target::Tree(tree)),
+            None if to_copy => {
+                if matches!(word.as_str(), "channel" | "status" | "undo") {
+                    return Err(unexpected("--copy"));
+                }
+                if resolve::classify(word).is_none() {
+                    return Err(UsageError::new(messages().not_found.replace("{target}", word)));
+                }
+                Some(copy::Target::Commit(word.clone()))
+            }
+            None => None,
+        },
+        _ => None,
+    };
+    if let Some(target) = copy_target {
         let action = match copy_flags.as_slice() {
             [] => copy::Action::Run,
             [(_, action)] => *action,
@@ -140,9 +163,14 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
         if action != copy::Action::Run && (dry_run || from.is_some()) {
             return Err(UsageError::new(messages().usage));
         }
-        return Ok(Command::Copy { tree, from, action, dry_run });
+        return Ok(Command::Copy { target, from, action, dry_run });
     }
-    // --from, --extract and --stop belong to the working-tree form.
+    // --copy, --from, --extract and --stop belong to the copy forms.
+    if to_copy {
+        return Err(words
+            .get(1)
+            .map_or_else(|| UsageError::new(messages().usage), |extra| unexpected(extra)));
+    }
     if from.is_some() {
         return Err(unexpected("--from"));
     }
@@ -187,8 +215,8 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     if let Command::Channel { dry_run, app } = command {
         return run_channel(global, *dry_run, app.as_deref());
     }
-    if let Command::Copy { tree, from, action, dry_run } = command {
-        return copy::run(global, tree, from.as_deref(), *action, *dry_run);
+    if let Command::Copy { target, from, action, dry_run } = command {
+        return copy::run(global, target, from.as_deref(), *action, *dry_run);
     }
     // `status` and `undo` read the store of the app this CLI belongs to.
     let (app, _) = find_app(global, None);

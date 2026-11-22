@@ -572,6 +572,17 @@ class PlanTest(unittest.TestCase):
         self.assertEqual((result["side"], result["copy"]), ("try-test", None))
         self.assertEqual(made, [])
 
+    def test_run_pr_names_the_pull_request_a_sha_source_is_the_head_of(self):
+        """`cmux app try N --copy` runs --source sha:HEAD --pr N: the plan carries N, so the web layer is the PR's
+        published bundles (published_web_key reads planned["pr"]), as for `look --pr`."""
+        head = self.fx.change({"Packages/macOS/CmuxNext/Resources/Info.plist": "plist\n"})
+        app = self.fake_app(self.fx.base)
+        with unittest.mock.patch.object(hv.Side, "run", lambda side, *a, **k: ""):
+            code, text = self.cli("run", "--source", f"sha:{head}", "--app", str(app), "--repo", str(self.fx.repo),
+                                  "--side", "try-test", "--pr", "4242")
+        self.assertEqual(code, 3)
+        self.assertEqual(json.loads(text.strip().splitlines()[-1])["plan"]["pr"], 4242)
+
     def test_swift_app_fallback_is_only_for_the_carried_swift_layer(self):
         self.assertTrue(hv.can_build_swift_app({"needs_build": True, "build": {"Swift": ["App.swift"]}}))
         self.assertFalse(hv.can_build_swift_app({
