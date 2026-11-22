@@ -6,8 +6,6 @@
 //! 6 h), when another host took about 1 MB/s. Placement now passes over a host whose copy is
 //! estimated past [`SLOW_COPY`] (`walk`), and a named one is refused unless `--slow-ok`.
 
-use std::io::{BufRead as _, Write as _};
-use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 /// A copy estimated past this is slow: passed over by `auto`, refused for a named host without
@@ -34,53 +32,32 @@ pub(crate) fn copy_secs(wire: u64, rate: f64) -> f64 {
     wire as f64 / rate.max(1.0)
 }
 
-/// Bytes a second a fresh ssh to `ssh` carries, the way the move's forward goes: 1 MiB of
-/// bytes that do not compress, timed from the far end's first line to its last, so the ssh
-/// handshake is not counted. A link that does not finish in [`PROBE_BOUND`] is at most that
-/// fast. `None` when the probe could not run at all.
+/// Bytes a second a fresh ssh to `ssh` carries, the way the move's forward goes: one ssh that
+/// takes 1 MiB of bytes that do not compress, less one that takes none (the handshake and the
+/// round trip). A link that does not finish in [`PROBE_BOUND`] is at most that fast. `None`
+/// when the probe could not run at all.
 pub(crate) fn probe_rate(ssh: &str) -> Option<f64> {
-    let script = "read -r _; echo ready; head -c 1048576 >/dev/null; echo done";
-    let argv = crate::cli::hosts::ssh_argv(ssh, script).ok()?;
-    let mut child = Command::new("ssh")
-        .args(argv)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let mut stdin = child.stdin.take()?;
-    let stdout = child.stdout.take()?;
-    let (tx, rx) = std::sync::mpsc::channel::<String>();
-    std::thread::spawn(move || {
-        for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
-            if tx.send(line).is_err() {
-                break;
-            }
+    let timed = |bytes: usize| -> Option<(f64, bool)> {
+        let argv = crate::cli::hosts::ssh_argv(ssh, "cat >/dev/null").ok()?;
+        let mut cmd = cmux_process::Command::new("ssh");
+        cmd.args(argv);
+        let started = Instant::now();
+        let ran =
+            crate::cli::owned_child::owned(&mut cmd, Some(noise(bytes)), PROBE_BOUND, "link probe");
+        let secs = started.elapsed().as_secs_f64();
+        match ran {
+            Ok(out) if out.status.success() => Some((secs, true)),
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => Some((secs, false)),
+            _ => None,
         }
-    });
-    let started = Instant::now();
-    let rate = (|| {
-        stdin.write_all(b"go\n").ok()?;
-        stdin.flush().ok()?;
-        let ready = rx.recv_timeout(PROBE_BOUND).ok()?;
-        if ready.trim() != "ready" {
-            return None;
-        }
-        let t0 = Instant::now();
-        let payload = noise(PROBE_BYTES);
-        let writer = std::thread::spawn(move || {
-            let _ = stdin.write_all(&payload);
-        });
-        let left = PROBE_BOUND.saturating_sub(started.elapsed()).max(Duration::from_secs(2));
-        // Unfinished in time: at most this fast.
-        let _ = rx.recv_timeout(left);
-        let secs = t0.elapsed().as_secs_f64().max(0.001);
-        drop(writer);
-        Some(PROBE_BYTES as f64 / secs)
-    })();
-    let _ = child.kill();
-    let _ = child.wait();
-    rate
+    };
+    let (empty, done) = timed(0)?;
+    if !done {
+        return None;
+    }
+    let (full, _) = timed(PROBE_BYTES)?;
+    // Unfinished in time: at most this fast.
+    Some(PROBE_BYTES as f64 / (full - empty).max(0.001))
 }
 
 /// `n` bytes that do not compress (xorshift).

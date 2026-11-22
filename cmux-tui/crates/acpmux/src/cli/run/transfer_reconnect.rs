@@ -88,13 +88,14 @@ impl<'a> Daemon<'a> {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
     /// A daemon swapped mid-move (its first connection drops on the first page) is reached again
     /// at the same socket, and the page is asked again there: the move goes on.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_request_whose_daemon_was_swapped_is_sent_again_to_the_new_one() {
         let dir = tempfile::tempdir().unwrap();
