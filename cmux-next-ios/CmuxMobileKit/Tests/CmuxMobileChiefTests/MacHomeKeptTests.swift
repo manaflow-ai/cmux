@@ -51,7 +51,7 @@ import Testing
         #expect(feed.rows?.count == 4)
     }
 
-    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up and load
+    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up and load
     /// faster/percievably load faster". A relaunch draws the kept rows in the first frame: they
     /// are on the feed in the same turn as `showKeptRows`, with no await. Before, they came from a
     /// disk read off the main thread, so Home's first frame said "Connecting to <Mac>…".
