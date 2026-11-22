@@ -477,7 +477,10 @@ pub(super) fn run(global: &GlobalArgs, prefix: &[String], request: Request) -> i
                     Err(code) => return code,
                 },
             };
-            let file = read(&paths, &name, text.as_deref());
+            let mut file = read(&paths, &name, text.as_deref());
+            // The font pack's face files: the check stats them, the read does not.
+            let faces = file.face_diagnostics();
+            file.diagnostics.extend(faces);
             let problems: Vec<String> = file.diagnostics.iter().map(|d| d.display()).collect();
             if matches!(global.output, OutputMode::Json | OutputMode::JsonLines) {
                 super::wire::print_local_success(

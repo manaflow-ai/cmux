@@ -37,6 +37,14 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
         try checkFullScreenApp(try runDemo(phase: "kbtui", name: "vim-tap", defaults: ["CmuxMobileTerminalDemoToggle": "tap"]))
     }
 
+    /// Leo's flow (ask-b8451d6e4b): the composer takes the keyboard, a
+    /// message goes from it to the app, and the keyboard key puts the
+    /// keyboard away: one grid change per toggle, as with the key alone.
+    @MainActor
+    func testFullScreenAppMessageSentFromTheComposer() throws {
+        try checkFullScreenApp(try runDemo(phase: "kbtui", name: "vim-send", defaults: ["CmuxMobileTerminalDemoToggle": "send"]))
+    }
+
     /// Hidden from outside our code (the terminal resigns, as a swipe or the
     /// system does): only will-hide claims the rows.
     @MainActor
