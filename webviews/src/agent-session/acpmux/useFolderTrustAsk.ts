@@ -10,7 +10,7 @@ import {
   type TrustSource,
 } from "./folderTrust";
 import type { StringKey } from "./i18n";
-import { trustRefusal } from "./direct";
+import { trustRefusal } from "./trustRefusal";
 import { knownRefusalText } from "./transportErrors";
 
 /// The chat's trust question: "ask" while the folder reads as unknown for the chat's agent, then
