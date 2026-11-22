@@ -74,5 +74,36 @@ import Testing
         #expect(rows.dropFirst().allSatisfy { $0.id.hasPrefix("m-m0#0.") && $0.gap == ChatParagraphParts.lineGap })
         #expect(Set(rows.map(\.id)).count == rows.count, "ids are unique")
     }
+
+    /// Find in Chat in a 100-line paragraph: a match in its last part resolves to that part's row
+    /// (not the first part, screens above), with its place in that part; one in the first part to
+    /// the first.
+    @Test func aFindMatchResolvesToThePartThatHoldsIt() throws {
+        let paragraph = (0..<100).map { "line \($0) of the log, attempt=\($0 * 3)" }.joined(separator: "\n")
+        let store = AgentChatStore(source: SmoothChatTests.Silent())
+        store.nextFrame = nil
+        store.apply(.batch([
+            .userMessage(text: "log", promptId: "p0", turnId: "t0", attachments: [], at: SmoothChatTests.at),
+            .turnStarted(turnId: "t0", at: SmoothChatTests.at),
+            .update(.agentMessageChunk(text: paragraph, messageId: "m0")),
+            .turnResult(turnId: "t0", status: .completed, errorText: nil, at: SmoothChatTests.at),
+        ]))
+        let list = ChatTranscriptList(store: store, surface: AgentChatSurface())
+        list.foldsWork = false
+        list.collectionView.frame = CGRect(x: 0, y: 0, width: 390, height: 800)
+        list.boundsMayHaveChanged()
+        list.collectionView.layoutIfNeeded()
+        let parts = list.layout.items.map(\.id).filter { $0.hasPrefix("m-m0#0") }
+        #expect(parts.count == 5, "100 lines in parts of 24: \(parts)")
+        let blocks = AgentChatFind.blocks(of: store.turns)
+        let last = try #require(AgentChatFind.matches(of: "line 99 of", in: blocks).first)
+        let target = list.findTarget(block: last.block, position: last.position)
+        #expect(target.id == parts.last, "a match in the last part resolves to it, got \(target.id)")
+        #expect(target.position > 0.5, "near the end of that part: \(target.position)")
+        let first = try #require(AgentChatFind.matches(of: "line 3 of", in: blocks).first)
+        #expect(list.findTarget(block: first.block, position: first.position).id == "m-m0#0")
+        let middle = try #require(AgentChatFind.matches(of: "line 50 of", in: blocks).first)
+        #expect(list.findTarget(block: middle.block, position: middle.position).id == "m-m0#0.2", "line 50 is in the third part")
+    }
 }
 #endif

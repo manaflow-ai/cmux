@@ -880,7 +880,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             shownDisclosures = disclosures
         }
         // Find in Chat's current match moved: the rows losing and taking the mark draw again.
-        let marked = surface.find?.currentBlock.map(Self.rowID(findBlock:))
+        let marked = surface.find?.currentMatch.map { findTarget(block: $0.block, position: $0.position).id }
         if marked != lookup.findMarked {
             for id in [lookup.findMarked, marked].compactMap(\.self) where rows[id] != nil { forced.insert(id) }
             lookup.findMarked = marked
@@ -1322,6 +1322,26 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// The transcript row that draws Find in Chat's block `key` (`AgentChatFind.promptKey`:
     /// the turn's prompt bubble; `AgentChatFind.steerKey`: a steered message's row;
     /// `AgentChatFind.blockKey`: one block of an answer).
+    /// The row that draws Find in Chat's match, and the match's place in that row's text (0 the
+    /// top, 1 the end): a long paragraph is several rows (`ChatParagraphParts`), and the match's
+    /// place in the paragraph says which.
+    func findTarget(block key: String, position: Double) -> (id: String, position: Double) {
+        let id = Self.rowID(findBlock: key)
+        guard rows["\(id).1"] != nil else { return (id, position) }
+        var parts: [(id: String, length: Int)] = []
+        var partID = id
+        while let row = rows[partID], case .block(_, let block) = row.kind, case .paragraph(let text) = block.kind {
+            parts.append((partID, text.count))
+            partID = "\(id).\(parts.count)"
+        }
+        guard parts.count > 1 else { return (id, position) }
+        let total = parts.reduce(0) { $0 + $1.length } + parts.count - 1
+        let found = ChatParagraphParts.locate(offset: Int((position * Double(max(total, 1))).rounded(.down)),
+                                              partLengths: parts.map(\.length))
+        let length = max(parts[found.part].length, 1)
+        return (parts[found.part].id, min(1, Double(found.offset) / Double(length)))
+    }
+
     static func rowID(findBlock key: String) -> String {
         guard let bar = key.lastIndex(of: "|") else { return key }
         let owner = key[..<bar], part = key[key.index(after: bar)...]

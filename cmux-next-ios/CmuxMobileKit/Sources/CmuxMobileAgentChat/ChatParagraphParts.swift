@@ -34,6 +34,20 @@ enum ChatParagraphParts {
         return parts.count > 1 ? parts : [block]
     }
 
+    /// Which part holds character `offset` of the paragraph, and the offset within it. The parts
+    /// rejoin with a newline between them (`split`), so part `k` starts after the lengths before
+    /// it and one newline each.
+    static func locate(offset: Int, partLengths: [Int]) -> (part: Int, offset: Int) {
+        var start = 0
+        for (index, length) in partLengths.enumerated() {
+            if offset < start + length + 1 || index == partLengths.count - 1 {
+                return (index, max(0, min(offset - start, length)))
+            }
+            start += length + 1
+        }
+        return (0, 0)
+    }
+
     /// The lines close every inline mark they open: code spans, emphasis, links.
     static func closes(_ lines: ArraySlice<Substring>) -> Bool {
         var ticks = 0, stars = 0, unders = 0, open = 0, shut = 0
