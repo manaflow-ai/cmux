@@ -1163,6 +1163,9 @@ pub struct Hub {
     pub(super) resumes: tokio::sync::watch::Sender<u64>,
     /// When a person last prompted a chat here, Unix ms, 0 for never (`person_prompt_at.rs`).
     pub(super) person_prompts: tokio::sync::watch::Sender<u64>,
+    /// The reviewed, root-owned list of presets whose spawn env needs no person
+    /// (`hub/person/approved_presets.rs`). Always the system path, but in unit tests.
+    pub(crate) approved_presets: std::sync::Mutex<person::approved_presets::Source>,
     /// Set when `shutdown_all` starts: the idle reaper stops for good.
     pub(super) stopping: AtomicBool,
     /// Held by one idle reaper pass; shutdown waits for it after `stopping`.
@@ -1617,6 +1620,7 @@ impl Hub {
             resume_watch: resume::new_watch(),
             resumes: tokio::sync::watch::channel(0).0,
             person_prompts: tokio::sync::watch::channel(0).0,
+            approved_presets: std::sync::Mutex::new(person::approved_presets::Source::system()),
             stopping: AtomicBool::new(false),
             idle_pass: Mutex::new(()),
             pool: Arc::new(pool::PoolState::new()),

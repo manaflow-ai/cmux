@@ -93,7 +93,8 @@
 //! deny-all, deny rules, asking modes). It may never allow (a permission answer, a question's
 //! answer, a group's allow) without a proof or an approver's signature that counts (above), and never widen what runs without asking (a policy other than ask or
 //! deny-all for a session, the daemon default, a family default or a preset; a rule that could
-//! auto-approve; a mode the reviewed asking table does not list; a spawn env). Such a request gets
+//! auto-approve; a mode the reviewed asking table does not list; a spawn env, except a preset's
+//! env the root-owned list approves, `person/approved_presets.rs`). Such a request gets
 //! [`REASON`] and changes nothing: a prompt stays pending. One exception, off by default
 //! (`agents.subsessions.answerQuestions`): a proven caller session (a) may answer a question a
 //! session under it asked, never a permission prompt, a plan approval or a lasting allow. The hub
@@ -804,6 +805,7 @@ impl PersonGate {
 
 pub use crate::person_proof::{TRANSPORT_APP, TRANSPORT_UNIX, person_proof, valid_key};
 
+pub mod approved_presets;
 mod decision_answers;
 pub mod policy_grant;
 pub use decision_answers::decision_answers_proof;
@@ -1034,8 +1036,24 @@ impl Hub {
                     Value::Object(o) => !o.is_empty(),
                     _ => true,
                 });
-                if env {
-                    return Err(person_required("a spawn env"));
+                // A preset's env the reviewed root-owned list approves (`approved_presets.rs`);
+                // its policy and mode are still checked below.
+                if env
+                    && !(m == method::MUX_PRESETS
+                        && approved_presets::approves(
+                            &self
+                                .approved_presets
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .clone(),
+                            params,
+                        ))
+                {
+                    return Err(person_required(if cfg!(target_os = "linux") {
+                        "a spawn env (one /etc/acpmux/approved-presets.json does not approve)"
+                    } else {
+                        "a spawn env"
+                    }));
                 }
                 if !asking_policy_value(set.and_then(|s| s.get("policy"))) {
                     return Err(person_required("a permission policy other than ask or deny-all"));
@@ -1287,3 +1305,7 @@ impl Hub {
 #[cfg(test)]
 #[path = "person/provision_tests.rs"]
 mod provision_tests;
+
+#[cfg(test)]
+#[path = "person/approved_presets_tests.rs"]
+mod approved_presets_tests;
