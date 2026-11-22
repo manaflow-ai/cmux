@@ -9,8 +9,8 @@ extension AgentPriorityChats {
     // A function, not the property's initial value: the archive closure is nonisolated, the stores main-actor.
     private static func makeApp() -> AgentPriorityChats {
         AgentPriorityChats(marks: .shared, stores: [.shared, .chief],
-                           restore: { try await AcpmuxChatArchive(socketPath: $0).unarchive(sessionId: $1) },
-                           archive: { try await AcpmuxChatArchive(socketPath: $0).archive(sessionId: $1) })
+                           archive: { try await AcpmuxChatArchive(socketPath: $0).archive(sessionId: $1) },
+                           unarchive: { try await AcpmuxChatArchive(socketPath: $0).unarchive(sessionId: $1) })
     }
 }
 

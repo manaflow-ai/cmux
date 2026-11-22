@@ -1,4 +1,3 @@
-import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextAgentLanes
@@ -60,11 +59,6 @@ extension SidebarPriorityFeed {
                                                 peer: { [weak machines] in machines?.machineName(peer: $0) },
                                                 local: { nil }) // This Mac's rows gain its name with `sidebar.showLocalMachine` (#22763).
         SidebarPriorityRowActions(chats: .app, unavailable: { preferences().priorityViewEnabled ? nil : SidebarPriorityPanel.unavailableReason }).bind(into: registry)
-        // A row's Archive shows the sidebar's Undo toast (as auto-archive does); Undo restores the chat.
-        AgentPriorityChats.app.onArchived = { [weak services = context.services] id, _ in
-            CmuxToastCenter.shared.showUndo(SidebarPriorityPanel.archivedToast, id: "priority-archive",
-                                            in: services?.windows.active?.window ?? NSApp?.mainWindow) { _ = AgentPriorityChats.app.restore(id) }
-        }
         AgentNeedsInputJump(chats: .app, tabs: { AgentNeedsInputJump.tabs(of: context.services.daemon.store) })
             .bind(into: registry, open: { Self.open($0, services: context.services) }, reveal: { _ = context.services.revealTab($0) })
     }

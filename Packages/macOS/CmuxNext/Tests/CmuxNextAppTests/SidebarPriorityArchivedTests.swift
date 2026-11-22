@@ -21,7 +21,6 @@ struct SidebarPriorityArchivedTests {
         let chats: AgentPriorityChats
         let archives: AsyncStream<String>
         let restores: AsyncStream<String>
-        var archivedToasts: [String] = []
 
         init(refuseRestore: Bool = false) {
             store.socketPath = SidebarPriorityArchivedTests.socket
@@ -36,12 +35,11 @@ struct SidebarPriorityArchivedTests {
             self.restores = restores
             chats = AgentPriorityChats(marks: AgentPriorityMarks(defaults: nil), stores: [store], checksFailing: { _ in false },
                                        archivedChats: turns.archivedChats,
-                                       restore: { socket, id in
+                                       archive: { socket, id in archiveSink.yield("\(socket) \(id)") },
+                                       unarchive: { socket, id in
                                            restoreSink.yield("\(socket) \(id)")
                                            if refuseRestore { throw Refused() }
-                                       },
-                                       archive: { socket, id in archiveSink.yield("\(socket) \(id)") })
-            chats.onArchived = { [unowned self] id, _ in archivedToasts.append(id) }
+                                       })
         }
 
         /// acpmux reports `id` archived at `ms` (a `session_changed` with the `archived` tag).
@@ -124,14 +122,23 @@ struct SidebarPriorityArchivedTests {
         #expect(panel.archived.count == 1)
     }
 
-    @Test func aRowsArchiveListsTheChatUnderArchivedAtOnceAndShowsTheToast() async throws {
+    @Test func aRowsArchiveListsTheChatUnderArchivedAtOnce() async throws {
         let fixture = Fixture()
         #expect(fixture.chats.archive("shelved"))
         #expect(fixture.turns.archivedChats.contains("shelved"))
         #expect(fixture.chats.isArchived("shelved"))
-        #expect(fixture.archivedToasts == ["shelved"])
         var archives = fixture.archives.makeAsyncIterator()
         #expect(await archives.next() == "\(Self.socket) shelved")
+    }
+
+    /// An archive's Undo (toasts v2) takes the chat out of the Archived fold too, not only back into the ranked rows.
+    @Test func anArchivesUndoLeavesTheArchivedFold() async throws {
+        let fixture = Fixture()
+        #expect(fixture.chats.archive("shelved"))
+        fixture.chats.unarchive("shelved", socketPath: Self.socket)
+        #expect(!fixture.chats.isArchived("shelved"))
+        var restores = fixture.restores.makeAsyncIterator()
+        #expect(await restores.next() == "\(Self.socket) shelved")
     }
 
     @Test func restoreListsTheChatAgainAndAsksAcpmuxToDropTheTag() async throws {

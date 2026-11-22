@@ -296,6 +296,7 @@ fn log_own_phone_control(hub: &crate::hub::Hub, sender: Option<&str>, m: &str, p
 
 /// Check (and canonicalize the folder fields of) a request from a
 /// connection that is not the unix socket (`hint::check` adds `servedAs`).
+#[allow(clippy::too_many_arguments)]
 async fn check_inner(
     hub: &std::sync::Arc<crate::hub::Hub>,
     origin: super::Origin,
@@ -304,6 +305,7 @@ async fn check_inner(
     m: &str,
     params: &mut Value,
     policy_proved: bool,
+    web_device: bool,
 ) -> Result<(), RpcError> {
     // The mode rules below give an authenticated connection more (any mode
     // of the Codex bridge, `Hub::any_mode_for_web`): none without a proof.
@@ -635,8 +637,20 @@ async fn check_inner(
         )
         .with_data(serde_json::json!({"reason": "workflows.remote"})));
     }
+    // A prompt from a browser that presented its own device on the mesh hub (`web_device.rs`)
+    // to a chat the hub lists for the person's other machine, which nothing here or on a peer
+    // resolves: it goes through the hub with that device's credential only (`mesh_read.rs`
+    // `prompt`) and runs there, under that machine's own rules on the hub-stamped person
+    // (`mesh_relay.rs`). No session here to hold to the asking table; every check above held.
+    // Without a device, the asking check below refuses it as before.
+    let device_hub_prompt = web_device
+        && m == method::SESSION_PROMPT
+        && super::session_key(params).is_ok_and(|key| {
+            hub.resolve(key).is_err()
+                && super::mesh_relay::read::hub_prompt_target(hub, key).is_some()
+        });
     // After the folder checks: what the request starts from, and its mode.
-    if web {
+    if web && !device_hub_prompt {
         let control = control_of(origin, auth, params);
         let vm_boundary = crate::hub::vm_boundary::asked(auth, control, params);
         web_starts_asking(hub, control, vm_boundary, sender, m, params).await?;
