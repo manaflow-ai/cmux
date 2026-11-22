@@ -426,10 +426,14 @@ final class AppReviewGateUITests: XCTestCase {
         }
         capture("walk-\(screen)-start", app)
         var dead: [String] = []
+        var covered: [String] = []
         var disabledWithoutReason: [String] = []
         for (offset, control) in controls.prefix(limit).enumerated() {
             if offset > 0 {
                 app.terminate()
+                // A link the last control opened left Safari in front (beside
+                // cmux on iPad); closed, so this control's link shows anew.
+                XCUIApplication(bundleIdentifier: "com.apple.mobilesafari").terminate()
                 app = reach()
             }
             let target = resolve(control, in: app)
@@ -446,8 +450,15 @@ final class AppReviewGateUITests: XCTestCase {
             // checked picker row) changes nothing on purpose; its siblings are
             // what the walk judges.
             if target.isSelected { continue }
+            // A row scrolled under the navigation bar or the tab bar reports
+            // hittable, yet a tap at its center lands on the bar; a person
+            // scrolls it into view first. Listed, never judged dead.
+            if let bar = coveringBar(of: target, in: app) {
+                covered.append("\(control.key) (under the \(bar))")
+                continue
+            }
             let before = signature(app)
-            target.tap()
+            tap(target, as: control.type)
             let changed = waitForChange(from: before, in: app, timeout: 3)
             if !changed {
                 dead.append("\(screen): \(control.key)")
@@ -458,6 +469,9 @@ final class AppReviewGateUITests: XCTestCase {
             gateNote("walk-\(screen)-truncated", "\(screen) has \(controls.count) controls; the walk tapped the first \(limit)")
         }
         app.terminate()
+        if !covered.isEmpty {
+            gateNote("walk-\(screen)-covered", "not tapped, under a bar on this screen: \(covered.joined(separator: ", "))")
+        }
         if !disabledWithoutReason.isEmpty {
             // A disabled control with no stated reason reads as broken to a
             // reviewer. Reported, not failed: some are legitimately idle.
@@ -505,7 +519,10 @@ final class AppReviewGateUITests: XCTestCase {
     }
 
     /// What a person would see change: the element tree minus frames and
-    /// addresses, the app's state (a link opens Safari), and springboard alerts.
+    /// addresses, the app's state (a link opens Safari), Safari's own state,
+    /// and springboard alerts. On iPad (windowed apps) a link opens Safari
+    /// beside cmux, which stays `runningForeground` with the same tree, so
+    /// the hand-off shows only in Safari's state.
     @MainActor
     private func signature(_ app: XCUIApplication) -> String {
         guard app.state == .runningForeground else { return "state:\(app.state.rawValue)" }
@@ -513,7 +530,52 @@ final class AppReviewGateUITests: XCTestCase {
         tree = tree.replacingOccurrences(of: #"0x[0-9a-fA-F]+"#, with: "", options: .regularExpression)
         tree = tree.replacingOccurrences(of: #"\{\{[^}]*\}, \{[^}]*\}\}"#, with: "", options: .regularExpression)
         let alerts = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.count
-        return "\(tree)|alerts:\(alerts)"
+        // Only Safari in front counts: a Safari left running by an earlier
+        // link may move from background to suspended during a dead tap.
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari").state == .runningForeground
+        return "\(tree)|alerts:\(alerts)|safari-front:\(safari)"
+    }
+
+    /// Taps a control where a person would. A SwiftUI `Toggle` row is a
+    /// switch element the width of the row, with the real switch inside it
+    /// at the trailing edge; its center is the label, which does nothing on
+    /// iOS, so the walk taps the switch itself (as ScreenSharingSheetUITests
+    /// does).
+    @MainActor
+    private func tap(_ target: XCUIElement, as type: XCUIElement.ElementType) {
+        guard type == .switch else {
+            target.tap()
+            return
+        }
+        let knob = target.switches.firstMatch
+        if knob.exists, knob.isHittable {
+            knob.tap()
+        } else {
+            target.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        }
+    }
+
+    /// The bar a scrolled row sits under, if any: a control that is not one
+    /// of the bar's own whose center is behind the navigation bar (or the
+    /// status bar above it) or behind the tab bar.
+    @MainActor
+    private func coveringBar(of target: XCUIElement, in app: XCUIApplication) -> String? {
+        let frame = target.frame
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        let own = NSPredicate(format: "identifier == %@ AND label == %@", target.identifier, target.label)
+        func covers(_ bar: XCUIElement, _ behind: (CGRect) -> Bool) -> Bool {
+            guard bar.exists else { return false }
+            let edge = bar.frame
+            guard !edge.isEmpty, center.x >= edge.minX, center.x <= edge.maxX, behind(edge) else { return false }
+            return !bar.descendants(matching: target.elementType).matching(own).firstMatch.exists
+        }
+        if app.navigationBars.allElementsBoundByIndex.contains(where: { covers($0) { center.y < $0.maxY } }) {
+            return "navigation bar"
+        }
+        if app.tabBars.allElementsBoundByIndex.contains(where: { covers($0) { center.y > $0.minY } }) {
+            return "tab bar"
+        }
+        return nil
     }
 
     @MainActor
