@@ -172,6 +172,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_WARM, Run(json!({"sessionIds": ["$S"], "limit": 1}))),
         (method::MUX_PREWARM, Run(json!({"cwd": "$CWD"}))),
         (method::MUX_START_MODE, Run(json!({"harness": "fake", "cwd": "$CWD"}))),
+        (method::MUX_COMPOSER, Run(json!({"harness": "fake", "cwd": "$CWD"}))),
         ("_acpmux/set_default_policy", Run(json!({"policy": "ask"}))),
         ("_acpmux/peers", Run(json!({}))),
         ("_acpmux/host_health", Run(json!({}))),

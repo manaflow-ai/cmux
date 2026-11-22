@@ -1150,6 +1150,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/composer",
+      "params": {
+        "$ref": "#/types/ComposerParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/queue_remove",
       "params": {
         "$ref": "#/types/QueueRemoveParams"
@@ -3130,6 +3138,19 @@
         "routeId": true,
         "sessionId": true,
         "when": true
+      },
+      "type": "object"
+    },
+    "ComposerParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "cwd": true,
+        "harness": true,
+        "pick": true,
+        "selection": true
       },
       "type": "object"
     },

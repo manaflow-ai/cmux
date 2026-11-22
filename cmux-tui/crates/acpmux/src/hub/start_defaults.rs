@@ -101,6 +101,38 @@ pub(super) fn profile_sets_model(
     in_argv || in_env(&profile.env) || in_env(defaults_env)
 }
 
+/// The main model a profile chooses itself ([`profile_sets_model`]), as its argv or its env
+/// names it: the model its chats run, which the composer names (`composer_view.rs`).
+pub(super) fn profile_model(
+    profile: &HarnessProfile,
+    defaults_env: &std::collections::BTreeMap<String, String>,
+) -> Option<String> {
+    if !profile_sets_model(profile, defaults_env) {
+        return None;
+    }
+    let argv = &profile.argv;
+    let after = |flags: &[&str]| {
+        argv.iter().position(|a| flags.contains(&a.as_str())).and_then(|i| argv.get(i + 1))
+    };
+    let joined = argv.iter().find_map(|a| a.strip_prefix("--model=")).map(str::to_owned);
+    let configured = argv.iter().enumerate().find_map(|(i, a)| {
+        let value = argv.get(i + 1).filter(|_| a == "-c" || a == "--config")?;
+        Some(value.trim_start().strip_prefix("model=")?.trim_matches('"').to_owned())
+    });
+    let from_env = |env: &std::collections::BTreeMap<String, String>| {
+        env.iter()
+            .find(|(k, _)| MAIN_MODEL_ENV.contains(&k.to_ascii_uppercase().as_str()))
+            .map(|(_, v)| v.clone())
+    };
+    joined
+        .or_else(|| after(&["--model"]).cloned())
+        .or(configured)
+        .or_else(|| after(&["-m"]).cloned())
+        .or_else(|| from_env(&profile.env))
+        .or_else(|| from_env(defaults_env))
+        .filter(|model| !model.is_empty())
+}
+
 /// Where a start value came from (`_acpmux/harnesses` `start.*Source`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum StartSource {
@@ -140,7 +172,7 @@ fn usable(value: &str) -> bool {
 /// The catalog's entry for the model a chat names `model`: its id, one of its aliases, or either
 /// with a variant suffix (Claude Code's `[1m]`), which changes no effort. One rule for every
 /// effort question, so a model named another way still starts on, and shows, its default effort.
-fn catalog_model<'a>(
+pub(super) fn catalog_model<'a>(
     curated: Option<&'a CatalogHarness>,
     model: &str,
 ) -> Option<&'a crate::catalog::HarnessModel> {

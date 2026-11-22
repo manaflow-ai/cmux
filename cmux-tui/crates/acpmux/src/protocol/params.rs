@@ -196,6 +196,8 @@ keyed! {
     BtwParams: ["sessionId", "question", "model", "inline", "targetHarness"];
     /// `_acpmux/chat/route.set`.
     ChatRouteSetParams: ["sessionId", "routeId", "when"];
+    /// `_acpmux/composer`.
+    ComposerParams: ["harness", "cwd", "selection", "pick"];
     /// `_acpmux/draft_get`.
     DraftGetParams: ["sessionId"];
     /// `_acpmux/draft_set`.

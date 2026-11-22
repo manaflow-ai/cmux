@@ -55,6 +55,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_WARM,
     method::MUX_PREWARM,
     method::MUX_START_MODE,
+    method::MUX_COMPOSER,
     method::MUX_IMPORT,
     method::MUX_SHUTDOWN,
     // Briefs are daemon-scoped and dispatch selects its peer explicitly.
