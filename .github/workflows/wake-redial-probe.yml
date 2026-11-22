@@ -1,0 +1,79 @@
+name: Wake and redial probe (staging, measurement only)
+
+# Measurement for cmux#50108: does a carrier connection wake a machine cmux paused for idleness, and how long
+# does a redial take to reach a stream, before (published feat-cmux-next build) and after (#50108's head).
+# Not a gate. Push to its lane branch runs it. Secrets: the staging agent Stack pair in cmux-next-vm-image-dev.
+on:
+  push:
+    branches:
+      - lane/wake-redial-measure
+
+permissions:
+  contents: read
+
+jobs:
+  build-after:
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/cmux-tui-build-package.yml
+    with:
+      version: 0.0.1-nightly.19700101.0
+      package_npm: false
+      package_pypi: false
+      target_set: linux
+      lto: thin
+      artifact_prefix: wake-probe-
+      verify_linux_arm64: false
+      checkout_ref: 0b2bff81a97ebd37d0242ca1a45bb2b27b5cb949
+      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+
+  measure:
+    needs: build-after
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+      - name: Before binary (published feat-cmux-next build cee4d8671b0a)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/before" "$RUNNER_TEMP/after-dl"
+          curl -fsSL -o "$RUNNER_TEMP/before/cmux-tui" https://files.cmux.com/cmux-tui/cee4d8671b0addc901e1cbaf168f96bfa15b9ddd/cmux-tui-x86_64-unknown-linux-musl
+          echo "d7fdfcfc54c47dce141dc89fccf2807b15fb57f96e270cc3eafb35ebf7790710  $RUNNER_TEMP/before/cmux-tui" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/before/cmux-tui"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: wake-probe-cmux-tui-x86_64-unknown-linux-musl
+          path: ${{ runner.temp }}/after-dl
+      - name: Probe
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          set -euo pipefail
+          ls -la "$RUNNER_TEMP/after-dl"
+          mkdir -p "$RUNNER_TEMP/after"
+          cp "$RUNNER_TEMP/after-dl/cmux-tui-x86_64-unknown-linux-musl" "$RUNNER_TEMP/after/cmux-tui"
+          chmod +x "$RUNNER_TEMP/after/cmux-tui"
+          "$RUNNER_TEMP/after/cmux-tui" carrier serve --help 2>&1 | head -5 || true
+          bun scripts/cmux-next/wake-redial-probe.ts --before "$RUNNER_TEMP/before/cmux-tui" --after "$RUNNER_TEMP/after/cmux-tui" --out "$RUNNER_TEMP/wake" --idle 5 --quiet 2 --wait-min 40
+      - name: Result
+        if: always()
+        run: |
+          cat "$RUNNER_TEMP/wake/wake-probe.json" 2>/dev/null | head -c 60000 || echo none
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: wake-probe
+          path: ${{ runner.temp }}/wake
+          if-no-files-found: ignore
