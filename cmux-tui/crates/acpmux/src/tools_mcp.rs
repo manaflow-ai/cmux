@@ -301,12 +301,13 @@ pub(crate) fn answer(servers: &[Served], message: &Value) -> Answer {
         "tools/list" => Answer::Now(response(&id, json!({"tools": served.tools}))),
         _ => {
             // An argument under another name than the schema's (`session` for `name`) is
-            // read as the schema's, and the result says so (`mcp_args.rs`).
-            let renamed = crate::mcp_args::normalize(&served.tools, &mut params);
+            // read as the schema's, and one the tool does not implement is named instead of
+            // dropped in silence; the result says so either way (`mcp_args.rs`).
+            let read = crate::mcp_args::normalize(&served.tools, &mut params);
             let call = (served.call)(served.session.clone(), params);
             Answer::Call(Box::pin(async move {
                 let mut result = call.await;
-                crate::mcp_args::tell(&mut result, &renamed);
+                crate::mcp_args::tell(&mut result, &read);
                 response(&id, result)
             }))
         }
