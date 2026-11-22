@@ -729,6 +729,53 @@ bytes}`, which its own keyboard already uses on the person's terminals.
   only the person's chosen option numbers and printable text, into a terminal
   the person already types into from the phone.
 
+### Answering a terminal agent's approval from the phone (`feat-cmux-next-terminal-feed-content`)
+
+A terminal-hosted Claude Code permission prompt ("Do you want to proceed?") is
+answered from its Feed card with **Allow once** or **Deny**, the same way a
+question is: by typing on that terminal's approval screen. No command is added
+to the allowlist: the phone uses `read-screen {surface}` and `send {surface,
+bytes}`, which its own keyboard already uses on the person's terminals.
+
+- Where the approval comes from: the agent hook reads Claude Code's
+  `PermissionRequest` tool input before redaction and sends `{harness, tool,
+  command?, target?, description?}` beside the journal event
+  (`live_approval`); the daemon keeps it in memory only, on the
+  notification's `list-notifications` row, while the agent is blocked on it
+  (never the journal, the ledger, the database or a log). While the daemon
+  cannot be reached, the hook's private per-agent queue (`hook-spool/`,
+  owner-only, deleted once the daemon answers) holds the request line with it,
+  as it already does for `live_prompt`, `live_reply` and `live_question`. It leaves when the
+  agent works, idles or ends (`an_approval_leaves_the_ledger_row_once_the_agent_moves_on`).
+  Only Claude Code's (`claude`, `claude-code`) and never for AskUserQuestion
+  (its own card) or ExitPlanMode (a plan review keeps "Answer in Terminal").
+- What is typed: one key. Allow once is `1` (Claude Code's "1. Yes"); Deny is
+  Escape (its "No" / "Esc to cancel"). A lasting grant ("Yes, and don't ask
+  again", "switch to auto mode") is never offered from a phone, as for agent
+  chats (`ACPPermissionRequest.phoneOptions`).
+- Which approval: right before typing, the phone makes its own
+  `list-notifications` request for this answer (never its last read, nor a
+  coalesced read that may not run) and goes on only while this very row still
+  carries this very approval (the agent still blocked on it). A failed read
+  types nothing.
+- Where it is typed: only while `read-screen` shows Claude Code's approval
+  dialog at the bottom of the screen: from the last horizontal rule above
+  "Do you want to" down to "Esc to cancel" as the last line, with "1. Yes" as
+  the row under the question. A command must show in full above the question
+  (spaces and line breaks ignored, so a wrapped command still matches; the
+  first 400 characters of a longer one); a file's name must be in the question
+  ("Do you want to create todo.txt?"). The transcript above the dialog never
+  counts, so a stale card can never answer a newer approval, even one whose
+  command starts the same way. An approval the dialog cannot be told by (no
+  command and no file: an MCP tool, a URL) gets no buttons and keeps "Answer
+  in Terminal". A terminal that moved on gets nothing, and the card says so.
+- Who: the paired owner's phone only, over its approved link (the same
+  admission as the terminal keyboard and the Feed reply).
+- Residual: as for questions, the screen check reads text, so an agent that
+  draws a lookalike approval screen in the same terminal could receive the
+  `1`; it is still one key into a terminal the person already types into
+  from the phone.
+
 ## `acpmux`: agent chats in the person's workspaces (`feat-cnx-ios-agentcwd`, in `feat-cnx-ios-parity`)
 
 Implemented on `feat-cnx-ios-parity` (2026-10-14) after the person asked that

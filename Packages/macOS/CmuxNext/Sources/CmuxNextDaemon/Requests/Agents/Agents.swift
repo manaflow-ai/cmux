@@ -6,6 +6,10 @@ public enum AgentState: String, Sendable, Hashable, Codable {
 
 public struct AgentStatus: Sendable, Hashable, Decodable {
     public var surface: SurfaceID
+    /// The terminal's public id (`term_…`, `terminal_id`): a terminal restored or reopened into a
+    /// new tab keeps it while its tab's surface changes, so the store matches a status to the tabs
+    /// that show its terminal by it (cmux#49392). Nil from an older daemon: the surface alone.
+    public var terminalID: ResourceID?
     public var state: AgentState
     public var source: String?
     public var session: String?
@@ -21,10 +25,11 @@ public struct AgentStatus: Sendable, Hashable, Decodable {
     /// memory only; nil before one or from an older daemon.
     public var lastPrompt: String?
 
-    public init(surface: SurfaceID, state: AgentState, source: String? = nil, session: String? = nil, agent: String? = nil,
-                agentSessionID: String? = nil, updatedAtMs: UInt64 = 0, sinceMs: UInt64? = nil,
-                lastPrompt: String? = nil) {
+    public init(surface: SurfaceID, terminalID: ResourceID? = nil, state: AgentState, source: String? = nil,
+                session: String? = nil, agent: String? = nil, agentSessionID: String? = nil, updatedAtMs: UInt64 = 0,
+                sinceMs: UInt64? = nil, lastPrompt: String? = nil) {
         self.surface = surface
+        self.terminalID = terminalID
         self.state = state
         self.source = source
         self.session = session
@@ -37,6 +42,7 @@ public struct AgentStatus: Sendable, Hashable, Decodable {
 
     enum CodingKeys: String, CodingKey {
         case surface, state, source, session, agent
+        case terminalID = "terminal_id"
         case agentSessionID = "agent_session_id"
         case updatedAtMs = "updated_at_ms"
         case sinceMs = "since_ms"
@@ -46,6 +52,7 @@ public struct AgentStatus: Sendable, Hashable, Decodable {
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         surface = try c.decode(SurfaceID.self, forKey: .surface)
+        terminalID = (try? c.decodeIfPresent(String.self, forKey: .terminalID)).flatMap { $0.isEmpty ? nil : ResourceID(rawValue: $0) }
         state = (try? c.decode(AgentState.self, forKey: .state)) ?? .unknown
         source = try c.decodeIfPresent(String.self, forKey: .source)
         session = try c.decodeIfPresent(String.self, forKey: .session)

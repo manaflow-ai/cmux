@@ -555,7 +555,7 @@ test("failed workflow agents show their error instead of stale output in every r
       );
       const message = document.window.document.querySelector(".acpmux-workflow-agent__doing");
       expect(message?.textContent).toBe(agent.error);
-      expect(message?.getAttribute("title")).toBe(agent.error);
+      expect(message?.getAttribute("title")).toBeNull();
       expect(document.window.document.querySelector("button")?.getAttribute("aria-label")).toContain(agent.error);
       expect(document.window.document.body.textContent).not.toContain("Earlier reply");
       document.window.close();

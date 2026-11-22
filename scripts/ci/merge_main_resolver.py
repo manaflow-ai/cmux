@@ -48,9 +48,11 @@ MIN_GIT = (2, 46)
 # unmerged for the trusted merges below; a clone configured by
 # scripts/install-git-hooks.sh would otherwise run the driver from the tree
 # being merged, which on a fork head is untrusted code.
-# The generated web bundle driver is pinned the same way: it keeps one side
-# without reporting a conflict, and this resolver's unmerged list must stay
-# the authority on what still needs resolving.
+# The generated-file drivers are pinned the same way: cmux-generated-v1 keeps
+# one side without reporting a conflict when its three-way merge fails, and
+# the Mac-only exports (cmux-export-v1) are rebuilt by the regen-swift job,
+# so this resolver's unmerged list must stay the authority on what still
+# needs resolving or rebuilding.
 GIT = [
     "git",
     "-c", "merge.conflictStyle=diff3",
@@ -59,6 +61,7 @@ GIT = [
     "-c", "merge.pbxproj.driver=false",
     "-c", "merge.pbxproj-v1.driver=false",
     "-c", "merge.cmux-generated-v1.driver=false",
+    "-c", "merge.cmux-export-v1.driver=false",
     "-c", "rerere.enabled=false",
     "-c", "maintenance.auto=false",
     "-c", "gc.auto=0",
