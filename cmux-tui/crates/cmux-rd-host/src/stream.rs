@@ -29,6 +29,10 @@ mod paced;
 #[derive(Clone)]
 pub struct SessionCfg {
     pub display: String,
+    /// Linux X11: the viewer's display pick, an index into the host's display list (`main`
+    /// or none is the whole X screen). macOS picks through `display` itself.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub display_pick: Option<String>,
     pub max_fps: u32,
     /// `--encode-profile`: standard (default) or ultra (the engine marks every frame with it).
     pub encode_profile: cmux_rd_core::profile::EncodeProfile,
