@@ -101,6 +101,8 @@ public final class TerminalModel {
     /// The composer is shown (classic cmux iOS: open by default, closed with
     /// the compose key for this page's life).
     public internal(set) var composerPresented = true
+    /// A Show Chat key in the key bar's scroller (nil: none, the default; the toolbar has it).
+    public var keyBarChatToggle: KeyBarChatToggle?
     /// Hide Toolbar took the key row and the composer away until the next terminal tap.
     public internal(set) var chromeHidden = false
     /// Attachments are being sent; the composer waits.

@@ -259,10 +259,39 @@ extension WorkspaceTabsSource {
         let faces = pairFaces(tab, in: workspace)
         guard faces.offered else { return [] }
         let other: TabFace = face(of: tab, faces: faces) == .chat ? .terminal : .chat
-        return [TabsKitMenuItem(id: "tab.toggleTerminalChat", title: other == .chat ? "Show Chat" : "Show Terminal",
+        return [TabsKitMenuItem(id: Self.toggleTerminalChatID, title: other == .chat ? "Show Chat" : "Show Terminal",
                                 systemImage: other == .chat ? "bubble.left" : "terminal") { [weak self] in
             self?.swapTerminalChat(tab.id, to: other)
         }]
+    }
+
+    /// The Show Chat / Show Terminal button beside the Tabs button (the page menu's row,
+    /// one tap away), on half of a pair. Nil elsewhere, and when a DEBUG placement puts
+    /// the terminal face's toggle in the key bar instead.
+    func terminalChatToolbarAction(_ tab: WorkspaceTab, in workspace: Workspace) -> TabsKitTrailingAction? {
+        let faces = pairFaces(tab, in: workspace)
+        guard faces.offered else { return nil }
+        let chatShown = face(of: tab, faces: faces) == .chat
+        guard chatShown || TerminalChatTogglePlacement.current == .toolbar else { return nil }
+        return chatShown
+            ? TabsKitTrailingAction(id: Self.toggleTerminalChatID, title: "Show Terminal", systemImage: "terminal")
+            : TabsKitTrailingAction(id: Self.toggleTerminalChatID, title: "Show Chat", systemImage: "bubble.left")
+    }
+
+    func performTerminalChatToolbarAction(_ action: TabsKitTrailingAction, in tabID: String) {
+        guard action.id == Self.toggleTerminalChatID, let workspace, let tab = workspaceTab(tabID) else { return }
+        swapTerminalChat(tabID, to: showsChatFace(tab, in: workspace) ? .terminal : .chat)
+    }
+
+    static let toggleTerminalChatID = "tab.toggleTerminalChat"
+
+    /// The DEBUG key bar placements: Show Chat as the scroller's first or last key.
+    func placeKeyBarChatToggle(_ tab: WorkspaceTab, in workspace: Workspace, offered: Bool) {
+        let placement = TerminalChatTogglePlacement.current
+        let tabID = tab.id
+        let action: (@MainActor () -> Void)? = offered && placement != .toolbar
+            ? { [weak self] in self?.swapTerminalChat(tabID, to: .chat) } : nil
+        terminal.setKeyBarChatToggle(first: placement == .keyBarFirst, action: action, for: tab, in: workspace)
     }
 
     /// Whether terminal `tab` shows its chat face now (its key bar and keyboard stay away then).
@@ -338,7 +367,26 @@ struct TerminalChatPage<Terminal: View>: View {
         // Runs again when another chat shows the session, so the pairing kept on disk follows it.
         .task(id: "\(tab.linkIDs?.harnessSession ?? "")|\(faces.offered)|\(chatSession ?? "")") {
             if faces.offered { source.openTerminalChatIfNeeded(tab.id) }
+            source.placeKeyBarChatToggle(tab, in: workspace, offered: faces.offered)
         }
     }
 }
 #endif
+
+/// Where the terminal face shows its Show Chat toggle. Release always uses `.toolbar`;
+/// DEBUG builds read `CMUX_TERMINAL_CHAT_TOGGLE` (`toolbar`, `keybar-first`, `keybar-last`)
+/// so the three placements can be recorded side by side. The chat face has no key bar,
+/// so its Show Terminal stays beside the Tabs button in every placement.
+public enum TerminalChatTogglePlacement: String, Sendable {
+    case toolbar
+    case keyBarFirst = "keybar-first"
+    case keyBarLast = "keybar-last"
+
+    public static var current: TerminalChatTogglePlacement {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["CMUX_TERMINAL_CHAT_TOGGLE"].flatMap(Self.init(rawValue:)) ?? .toolbar
+        #else
+        .toolbar
+        #endif
+    }
+}

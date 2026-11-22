@@ -491,7 +491,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 address: .title(tab.title, subtitle: status ?? directory, monospaced: status == nil),
                 navigation: TabsKitNavigationState(canGoBack: true),
                 features: [.history, .pageMenu],
-                statusBarStyle: .lightContent
+                statusBarStyle: .lightContent,
+                trailingAction: terminalChatToolbarAction(tab, in: workspace)
             )
         case .browser:
             let model: (any BrowserTabState)? = native.model(tab: tab.id, macID: workspace.macID)
@@ -1373,6 +1374,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public func reloadOrStop(_ id: TabsKitTab.ID) {
         if let tab = workspaceTab(id), tab.kind == .browser { browser(tab).reloadOrStop() }
+    }
+
+    public func performTrailingAction(_ action: TabsKitTrailingAction, in id: TabsKitTab.ID) {
+        performTerminalChatToolbarAction(action, in: id)
     }
 
     public func navigate(_ id: TabsKitTab.ID, to text: String) {

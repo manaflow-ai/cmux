@@ -28,10 +28,15 @@ public struct TabsKitTab: Identifiable, Hashable, Sendable {
     /// appearance). For a web page use `TabsKitStatusBarStyle(over:)` with
     /// the page's top color.
     public var statusBarStyle: TabsKitStatusBarStyle?
+    /// A button in the address capsule's trailing slot, for a tab without
+    /// reload (a terminal's Show Chat). A tap calls
+    /// `TabsDataSource.performTrailingAction`.
+    public var trailingAction: TabsKitTrailingAction?
 
     public init(id: ID, kind: TabsKitTabKind, title: String, subtitle: String = "", systemImage: String = "globe",
                 address: TabsKitAddress, navigation: TabsKitNavigationState = TabsKitNavigationState(),
-                features: TabsKitTabFeatures = .web, statusBarStyle: TabsKitStatusBarStyle? = nil) {
+                features: TabsKitTabFeatures = .web, statusBarStyle: TabsKitStatusBarStyle? = nil,
+                trailingAction: TabsKitTrailingAction? = nil) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -41,6 +46,22 @@ public struct TabsKitTab: Identifiable, Hashable, Sendable {
         self.navigation = navigation
         self.features = features
         self.statusBarStyle = statusBarStyle
+        self.trailingAction = trailingAction
+    }
+}
+
+/// The address capsule's trailing button for a tab that has no reload.
+public struct TabsKitTrailingAction: Hashable, Sendable {
+    /// What the data source gets back on a tap.
+    public var id: String
+    /// The accessibility label (and the large-text HUD name).
+    public var title: String
+    public var systemImage: String
+
+    public init(id: String, title: String, systemImage: String) {
+        self.id = id
+        self.title = title
+        self.systemImage = systemImage
     }
 }
 

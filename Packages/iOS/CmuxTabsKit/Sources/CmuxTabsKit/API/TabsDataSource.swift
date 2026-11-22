@@ -107,6 +107,8 @@ public protocol TabsDataSource: AnyObject, Observable {
     func navigate(_ id: TabsKitTab.ID, to text: String)
     /// Reload, or stop while loading (`TabsKitTabFeatures.reload`).
     func reloadOrStop(_ id: TabsKitTab.ID)
+    /// The tab's `trailingAction` button was tapped.
+    func performTrailingAction(_ action: TabsKitTrailingAction, in id: TabsKitTab.ID)
     /// The page menu's groups (`TabsKitTabFeatures.pageMenu`).
     func pageMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]]
     /// False while a tab's live content would show nothing yet (a terminal
@@ -171,6 +173,7 @@ extension TabsDataSource {
     public func goToHistoryItem(_ item: TabsKitHistoryItem, in id: TabsKitTab.ID) {}
     public func navigate(_ id: TabsKitTab.ID, to text: String) {}
     public func reloadOrStop(_ id: TabsKitTab.ID) {}
+    public func performTrailingAction(_ action: TabsKitTrailingAction, in id: TabsKitTab.ID) {}
     public func pageMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]] { [] }
     public func isContentReady(_ id: TabsKitTab.ID) -> Bool { true }
     public func cardMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]] { [] }

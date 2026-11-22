@@ -64,6 +64,7 @@ struct TabsToolbar: View {
     var onBack: () -> Void
     var onForward: () -> Void
     var onReload: () -> Void
+    var onTrailingAction: (TabsKitTrailingAction) -> Void = { _ in }
     var onMenu: () -> Void
     var onTabs: () -> Void
     var onBeginEditing: () -> Void
@@ -106,6 +107,8 @@ struct TabsToolbar: View {
     private var showsMenuGlyph: Bool { features.contains(.pageMenu) && !isPlaceholder && titleOnly == nil }
     private var showsReload: Bool { features.contains(.reload) && !isPlaceholder && titleOnly == nil }
     private var loading: Bool { tab?.navigation.isLoading == true }
+    /// The tab's own trailing button, where a web page has reload.
+    private var trailingAction: TabsKitTrailingAction? { showsReload ? nil : tab?.trailingAction }
 
     var body: some View {
         let m = theme.metrics
@@ -319,6 +322,24 @@ struct TabsToolbar: View {
             .accessibilityHidden(collapsed || chrome.editing || !showsReload)
             .frame(maxWidth: .infinity, alignment: .trailing)
             .accessibilityLabel(loading ? "Stop" : "Reload")
+
+            if let action = trailingAction {
+                Button(action: unlessSwiped { onTrailingAction(action) }) {
+                    Image(systemName: action.systemImage)
+                        .font(.system(size: 17, weight: .medium))
+                        .frame(width: m.control, height: m.control)
+                        .contentShape(.rect)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.colors.label)
+                .opacity(glyphOpacity)
+                .allowsHitTesting(!collapsed && !chrome.editing)
+                .accessibilityHidden(collapsed || chrome.editing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .accessibilityLabel(action.title)
+                .accessibilityIdentifier("tabskit.trailingAction")
+            }
         }
         .frame(width: r.width, height: r.height)
         .overlay(alignment: .bottomLeading) {
