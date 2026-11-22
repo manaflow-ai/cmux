@@ -73,7 +73,7 @@ if [[ "$only" != terminal ]]; then
     grep -E "^RESTART_SETTLED_JSON |^restart split" "$out/chat-$link.log" || true
     # PROFILE=1 or WIRE_TRACE=1 (the bench's knobs, passed through the environment): what they print, too.
     if [[ "${PROFILE:-}" == 1 || "${WIRE_TRACE:-}" == 1 ]]; then
-      grep -E "^wire |relaunch long tasks|^  round |profile|^ +[0-9.]+ ms " "$out/chat-$link.log" | head -n 400 || true
+      grep -E "^wire |relaunch long tasks|^  round |^    [0-9]+-[0-9]+ |profile|^ +[0-9.]+ ms " "$out/chat-$link.log" | head -n 3000 || true
     fi
   done
 fi
