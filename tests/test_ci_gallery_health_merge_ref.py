@@ -632,9 +632,9 @@ class GalleryHealthPathRouting(unittest.TestCase):
         self.assertIn("github.event_name", workflow["concurrency"]["group"])
         # A post-merge batch run (inputs.sha set) takes the same full-render path with no base, whatever event
         # started the batch, and keys its concurrency on its own commit, not the caller's tip.
-        for name in ("Choose the entries to render", "Resolve the head and the merge"):
-            self.assertEqual(step(name)["env"]["EVENT"],
-                             "${{ inputs.sha != '' && 'workflow_dispatch' || github.event_name }}", name)
+        batch_event = "${{ inputs.sha != '' && 'workflow_dispatch' || github.event_name }}"
+        self.assertEqual(plan_step("Choose the entries to render")["env"]["EVENT"], batch_event)
+        self.assertEqual(step("Resolve the head and the merge")["env"]["EVENT"], batch_event)
         self.assertIn("inputs.sha || github.sha", workflow["concurrency"]["group"])
 
 
