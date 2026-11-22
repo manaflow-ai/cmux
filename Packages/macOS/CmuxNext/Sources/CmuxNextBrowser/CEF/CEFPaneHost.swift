@@ -333,7 +333,6 @@ final class CEFPaneHost {
         window = .live(window: windowID)
         lastActivated = browser
         runtime.register(tab, browser: browser)
-        hostView.inTree.isAllowed = !isPopupHost  // a popup's page draws nothing in tree yet (`CEFInTreeHosting.isAllowed`)
         hostView.pageWindowCreated(browser: browser, shim: runtime.shim, apiVersion: runtime.forkAPIVersion)
         // Tabs shown or created while the window was being built. The window's first tab is its
         // active one until a shown tab joins it as active (`tab_add` with activate).
