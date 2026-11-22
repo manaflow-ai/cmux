@@ -210,7 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
         // Labs > Live Code starts the live code watcher with the other non-paint services.
-        firstFrame.whenOpen { [weak services] in services?.startNonPaintServices(); services?.liveCode.labsSwitch(services?.settings?.snapshot.liveCode == true) }
+        firstFrame.whenOpen { [weak services] in services?.startNonPaintServices(); services?.liveCode.labsSwitch(services?.settings?.snapshot.liveCode == true); services?.environment.launch.bundleID.map { LaunchShellPaths.follow(support: LaunchTimesFile.supportDirectory(bundleID: $0)) { [weak services] in services.map { $0.settings?.snapshot.launchShellFirst ?? false } } } } // the last: Labs > Show Window Shell at Launch, for the next launch
         firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds(); LaunchTypeProbe(environment: ProcessInfo.processInfo.environment) { DebugTimings.markLaunch($0) }?.type() } // launch-ready type=1
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services, shell = launchReads.shell] controller in
@@ -290,7 +290,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // when the user reloads a browser tab.
         services.observeBorders()
         services.observeGlass()
-        if let id = services.environment.launch.bundleID { firstFrame.whenOpen { [weak services] in LaunchShellPaths.follow(support: LaunchTimesFile.supportDirectory(bundleID: id)) { [weak services] in services.map { $0.settings?.snapshot.launchShellFirst ?? false } } } } // Labs > Show Window Shell at Launch, for the next launch
         services.updateFeedObservation = UpdateFeedPosting.follow(services)
         // The runtime pack check wires the engine reason at once; its download waits until asked.
         services.startChromiumRuntime()
