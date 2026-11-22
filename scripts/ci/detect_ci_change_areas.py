@@ -202,6 +202,7 @@ _NON_RUNNING_FILES = frozenset({
     ".github/checkout-lean.json",
     ".github/cloud-backend-paths.json",
     ".github/cloud-machine-count-probe/request",
+    ".github/cloud-surge-proof/request",
     ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
     ".github/defaults-call-owners.json",
     ".github/design-surfaces.json",
@@ -1659,7 +1660,7 @@ def is_macos_neutral(
     if re.match(r"Packages/iOS/[^/]+/Tests/", path):
         return True
     # Agent instructions at any depth, and skill documentation. The app bundles
-    # skills/cmux-cua as a folder resource, and skill scripts and manifests are
+    # skills/cmux-computer-use as a folder resource, and skill scripts and manifests are
     # executable inputs, so only Markdown outside that folder is neutral.
     if path.rsplit("/", 1)[-1] in {"CLAUDE.md", "AGENTS.md"}:
         return True
@@ -1711,7 +1712,7 @@ def is_macos_neutral(
         return True
     if path == "README.md" or (path.startswith("README.") and path.endswith(".md")):
         return True
-    return path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-cua/")
+    return path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-computer-use/")
 
 
 def is_macos_change(
