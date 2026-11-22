@@ -577,6 +577,7 @@ export function Combobox({
               <Autocomplete.Popup
                 ref={host ? setPopup : undefined}
                 className="ui-popup ui-glass ui-combobox-popup"
+                // host-glass-allow: popupSurfaceAttributes sets data-host-glass, except on a solid composer popup (opaque, no host glass)
                 {...popupSurfaceAttributes(solid, "menu")}
               >
                 {listed}

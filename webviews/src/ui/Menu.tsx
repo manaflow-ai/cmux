@@ -445,6 +445,7 @@ export function MenuPopup({
           aria-label={label}
           // The App's menu glass under the page (glass/hostGlass.ts), or, opened from a composer, the
           // solid popup surface (solidPopups.tsx).
+          // host-glass-allow: popupSurfaceAttributes sets data-host-glass, except on a solid composer popup (opaque, no host glass)
           {...popupSurfaceAttributes(solid, "menu")}
           className={cx(
             "ui-popup ui-glass ui-menu",
