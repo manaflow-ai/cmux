@@ -1598,7 +1598,7 @@
 }
 /* The gallery's other two roundings (composerRound.gallery.ts, data-composer-round), each still
    concentric: `moderate` is the + plate's corner plus the inset (16), `pill` half the one-line box
-   (24), so a one-line composer is a full pill as in ChatGPT. */
+   (24), so a one-line composer is a full pill. */
 :where(:root[data-composer-round="moderate"]) :is(.acpmux-dock, .acpmux-composer, .nt-composer, .nt-popover) {
   --grid-composer-radius: calc(8px * var(--acpmux-density) + var(--grid-composer-inset));
 }

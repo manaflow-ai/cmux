@@ -55,6 +55,6 @@ export default agentPaneEntry({
       "Selected: 22, half a round control (the mic, Send) plus the inset; the hat over it takes the same corner.",
     ),
     moderate: variant("Alternative: 16, the + plate's 8 corner plus the inset.", "moderate"),
-    pill: variant("Alternative: 24, half the one-line box, so one line is a full pill as in ChatGPT.", "pill"),
+    pill: variant("Alternative: 24, half the one-line box, so one line is a full pill.", "pill"),
   },
 });
