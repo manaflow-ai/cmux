@@ -5,7 +5,7 @@
 # one controller, N sessions over HOSTS hosts) and copies the tables and raw samples to
 # $FAST_CHECKS_OUT. Defaults: ramps 50,200,2000, a 300 s window, 10 hosts, 3 fan-out rounds
 # (ROUNDS 0, or FANIN_FANOUT_ROUNDS=0, measures fan-in with no fan-out bursts). A 5th argument
-# `perf` builds acpmux with frame pointers and profiles the largest ramp's controller (perf.txt).
+# `perf` builds acpmux with frame pointers and profiles the largest ramp's controller (perf.self.txt, perf.children.txt, perf.stacks.gz).
 set -uo pipefail
 RAMPS=${1:-50,200,2000}
 WINDOW=${2:-300}
@@ -51,7 +51,8 @@ profile() {
   echo "FANIN perf: $(grep -o '([0-9]* samples)' "$OUT/perf.record.log")"
   perf report -i "$OUT/perf.data" --stdio --no-children --sort sym -g none --percent-limit 0.3 >"$OUT/perf.self.txt" 2>/dev/null
   perf report -i "$OUT/perf.data" --stdio --children --sort sym -g none --percent-limit 2 >"$OUT/perf.children.txt" 2>/dev/null
-  perf report -i "$OUT/perf.data" --stdio --no-children --sort sym -g caller,0.5,callee,function,percent --percent-limit 2 >"$OUT/perf.txt" 2>/dev/null
+  # Every sample's stack, for any caller/callee split afterwards (perf.data itself is too big to keep).
+  perf script -i "$OUT/perf.data" -F tid,sym 2>/dev/null | gzip >"$OUT/perf.stacks.gz"
   rm -f "$OUT/perf.data"
   echo "FANIN perf: top self:"; grep -E '^ +[0-9]' "$OUT/perf.self.txt" | head -25
 }
