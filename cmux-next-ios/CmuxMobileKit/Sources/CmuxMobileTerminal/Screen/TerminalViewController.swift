@@ -2794,7 +2794,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             echoMeter = TerminalFirstEcho()
         }
         #endif
-        if model.connectionState.isAttached { LaunchMarks.shared.mark("terminal_ready") }
+        if model.connectionState.isAttached {
+            LaunchMarks.shared.mark("terminal_ready")
+            // R2: the first frame of the Mac's attached terminal since the last tap.
+            LaunchMarks.shared.firstContent("terminal", cached: false)
+        }
         #if DEBUG
         if let probe = TerminalBenchProbe.shared {
             probe.presented()
