@@ -414,6 +414,17 @@ export class AcpmuxPerf {
     this.renders.clear();
   }
 
+  /** The chat's records the direct client took while measuring: live ones it reduced (`apply`), ones a gap read
+   *  merged (`fetchMissedEvents`), and the newest seq of either (session-scale-scroll.bench.ts: what a hidden page
+   *  still works on, and that it caught up once shown). */
+  readonly records = { applied: 0, read: 0, newest: 0 };
+
+  recordsTaken(kind: "applied" | "read", count: number, seq: number): void {
+    if (!this.enabled) return;
+    this.records[kind] += count;
+    if (seq > this.records.newest) this.records.newest = seq;
+  }
+
   /// Rows unmounted in the commit now running: a row mounted again in the same commit was remounted
   /// in place (its key or its type changed), which redraws it from nothing.
   private unmountedNow = new Set<string>();
