@@ -24,6 +24,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub mod act;
 pub mod act_ids;
+pub mod prompt_lifecycle;
 pub mod queue;
 pub mod source;
 pub mod stream;
