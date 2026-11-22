@@ -186,6 +186,75 @@ class PaidPortablePoolSnapshotTests(unittest.TestCase):
         self.assertEqual(janitor.label_started([run], {run["id"]: jobs}), {LINUX: iso(10)})
 
 
+class OwnedIdleTests(unittest.TestCase):
+    """The owned Linux labels' idle runners in the pool snapshot (attach_owned_idle()), which runner_pools.py reads
+    to tell a full owned label from one whose waiting jobs its idle runners do not take."""
+
+    LABEL = "cmux-fleet-linux-x64"
+
+    def runner(self, *, busy: bool, status: str = "online", labels=("self-hosted", "cmux-fleet-linux-x64")):
+        return {"id": next(_ids), "status": status, "busy": busy, "labels": [{"name": name} for name in labels]}
+
+    def test_counts_online_idle_and_busy_runners_per_owned_label(self) -> None:
+        roster = ([self.runner(busy=False)] * 3 + [self.runner(busy=True)] * 2
+                  + [self.runner(busy=False, status="offline")] + [self.runner(busy=False, labels=("other",))])
+        counts = janitor.owned_linux_idle(roster)
+        self.assertEqual(counts[self.LABEL], {"online": 5, "busy": 2, "idle": 3})
+        self.assertEqual(counts["glaeda-linux-arm64"], {"online": 0, "busy": 0, "idle": 0})
+
+    def test_attaches_counts_to_the_label_pool_entry(self) -> None:
+        snapshot = {"pools": {self.LABEL: {"queued": 19, "running": 309, "oldest_queued_minutes": 12}}}
+        runners = [self.runner(busy=False) for _ in range(4)] + [self.runner(busy=True)]
+
+        def fetch(path: str):
+            if path.startswith("repos/"):
+                return {"runners": runners}
+            if "runner-groups?" in path:
+                return {"runner_groups": []}
+            raise AssertionError(path)
+
+        janitor.attach_owned_idle(snapshot, None, "manaflow-ai/cmux", now=NOW, fetch=fetch)
+        self.assertEqual(snapshot["pools"][self.LABEL]["idle"], 4)
+        self.assertEqual(snapshot["pools"][self.LABEL]["busy"], 1)
+        self.assertEqual(snapshot["owned_runners"]["read_at"], "2026-09-22T17:00:00Z")
+
+    def test_reads_a_pool_of_700_runners_whole(self) -> None:
+        # Review F1 on cmux#49556: the roster's default 5 pages (500 runners) made the idle count of a ~700-runner
+        # pool a sample in arbitrary order, so busy pages alone could read as "full" beside hundreds idle.
+        runners = [self.runner(busy=True) for _ in range(500)] + [self.runner(busy=False) for _ in range(200)]
+        snapshot = {"pools": {self.LABEL: {"queued": 19, "running": 500, "oldest_queued_minutes": 12}}}
+
+        def fetch(path: str):
+            if "runner-groups?" in path:
+                return {"runner_groups": [{"id": 7}]}
+            if "runner-groups/7/runners" in path:
+                page = int(path.rsplit("page=", 1)[1])
+                return {"runners": runners[(page - 1) * 100:page * 100]}
+            return {"runners": []}
+
+        janitor.attach_owned_idle(snapshot, None, "manaflow-ai/cmux", now=NOW, fetch=fetch)
+        self.assertEqual(snapshot["pools"][self.LABEL]["online"], 700)
+        self.assertEqual(snapshot["pools"][self.LABEL]["idle"], 200)
+
+    def test_an_unread_roster_leaves_no_idle_reading(self) -> None:
+        for token, fetch in ((None, None), ("t", mock.Mock(side_effect=RuntimeError("HTTP 500")))):
+            with self.subTest(token=token):
+                snapshot = {"pools": {self.LABEL: {"queued": 19, "running": 0, "oldest_queued_minutes": 12}}}
+                with mock.patch("sys.stderr", new=io.StringIO()):
+                    janitor.attach_owned_idle(snapshot, token, "manaflow-ai/cmux", now=NOW, fetch=fetch)
+                self.assertNotIn("idle", snapshot["pools"][self.LABEL])
+                self.assertIn("error", snapshot["owned_runners"])
+
+    def test_the_sweep_step_gets_the_roster_token(self) -> None:
+        doc = yaml.safe_load(WORKFLOW.read_text())
+        steps = [step for job in doc["jobs"].values() for step in job.get("steps") or ()]
+        [mint] = [step for step in steps if step.get("id") == "route-token"]
+        self.assertEqual(mint["with"]["permission-organization-self-hosted-runners"], "read")
+        self.assertTrue(mint.get("continue-on-error"))
+        [sweep] = [step for step in steps if step.get("name") == "Cancel wasted macOS runs"]
+        self.assertEqual(sweep["env"]["ROUTE_TOKEN"], "${{ steps.route-token.outputs.token }}")
+
+
 class ProtectionTests(unittest.TestCase):
     def test_never_touched_runs(self):
         cases = [
