@@ -91,8 +91,11 @@ public final class WebUpdater {
     /// Whether cmux is in the front: checks come every ``interval`` there and every
     /// ``backgroundInterval`` behind other apps (``noteActivation(stale:)`` brings one in).
     @ObservationIgnored public var foreground = true
+    /// A check ended, whatever it took: the app reads the channel's switch file of web pieces
+    /// then (cmux-tui/crates/cmux-web-pieces), with the state the check left.
+    @ObservationIgnored public var onChecked: () -> Void = {}
 
-    let store: WebUpdateStore
+    public let store: WebUpdateStore
     public let app: App
     let keys: WebUpdateKeys
     let base: URL
@@ -256,6 +259,7 @@ public final class WebUpdater {
                 let next = foreground ? interval : backgroundInterval
                 nextCheck.schedule(after: self.follows == follows ? next : .zero) { @MainActor [weak self] in await self?.check() }
             }
+            onChecked()
         }
         do {
             guard let fresh = try await newPointer() else {
