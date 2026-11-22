@@ -168,7 +168,7 @@ impl System {
                 .map(|n| n.as_f64().filter(|n| (0.0..=64.0).contains(n)))
                 .collect::<Option<_>>()
                 .ok_or("space steps must be numbers of points, 0 to 64")?;
-            let ascending = steps.windows(2).all(|pair| pair[0] < pair[1]);
+            let ascending = steps.windows(2).all(|pair| matches!(pair, [low, high] if low < high));
             if steps.first() != Some(&0.0) || !ascending || !(2..=16).contains(&steps.len()) {
                 return Err("\"space\" must start at 0 and go up, 2 to 16 steps".into());
             }
