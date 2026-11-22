@@ -7,14 +7,15 @@ import type { Named } from "@gdp-ts/core";
 import { Clock, Effect } from "effect";
 import { MAX_LABELS, type CreateVmRequest } from "../api.ts";
 import { AgentStore } from "../db/agents.ts";
-import { estimatedUsdPerHour, sizeOfCreate, type AgentBudget } from "../domain/agents.ts";
+import { OwnershipStore } from "../db/stores.ts";
+import { estimatedSpendUsd, estimatedUsdPerHour, sizeOfCreate, spendWindows, type AgentBudget, type SpendSpan } from "../domain/agents.ts";
 import { actorRef, type Principal } from "../domain/principal.ts";
 import { badRequest, Forbidden, QuotaExceeded, unavailable } from "../errors.ts";
 import type { TenantId } from "../lib/ids.ts";
 import { TenantLimits } from "../limits/service.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import { visitOwnedVms } from "../proofs/tenant-owns-resource.ts";
-import { UpstreamClient, type SizeRequest } from "../upstream/client.ts";
+import { UpstreamClient, type SizeRequest, type UpstreamVm } from "../upstream/client.ts";
 
 const describeLabels = (labels: Readonly<Record<string, string>>) =>
   Object.entries(labels)
@@ -82,17 +83,12 @@ export const agentBudgetAllows = <C>(caller: Named<C, Principal>, scope: KeyHasS
   Effect.gen(function* () {
     const budget = caller.value.agent;
     if (budget === undefined) return undefined;
-    const upstream = yield* UpstreamClient;
-    const page = yield* visitOwnedVms(caller, { limit: budget.maxVms + 1, after: null, labels: null }, (vm, owns) =>
-      upstream.getVmForWrite(vm, { owns, scope }).pipe(
-        Effect.map((found) => estimatedUsdPerHour(found.resources.cpu, found.resources.memory)),
-        // Gone upstream: it costs nothing, though it still counts until deleted here.
-        Effect.catchAll((error) => (error.status === 404 ? Effect.succeed(0) : Effect.fail(unavailable(error)))),
-      ),
-    ).pipe(Effect.catchTag("StoreError", (error) => Effect.fail(unavailable(error))));
+    const page = yield* liveBudgetVms(caller, scope, budget);
     if (page.results.length >= budget.maxVms) return yield* Effect.fail(overVmCap(budget, page.results.length));
+    // The new VM runs and costs from now: it must fit the running cap and the spend caps too.
+    yield* runningAndSpendAllow(caller.value, budget, page.results, 1);
     const next = sizeOfCreate(size);
-    const total = page.results.reduce((sum, usd) => sum + usd, 0) + estimatedUsdPerHour(next.vcpus, next.memoryMib);
+    const total = page.results.reduce((sum, vm) => sum + vm.usdPerHour, 0) + estimatedUsdPerHour(next.vcpus, next.memoryMib);
     if (total > budget.maxUsdPerHour + 1e-9) {
       return yield* Effect.fail(
         new QuotaExceeded({
@@ -114,6 +110,120 @@ export const agentBudgetAllows = <C>(caller: Named<C, Principal>, scope: KeyHasS
     // Lost a race to a concurrent create: its slot fills the cap.
     if (!admitted) return yield* Effect.fail(overVmCap(budget, budget.maxVms));
     return { agent, slotId };
+  });
+
+/** One live VM of a budgeted key, as its caps count it. */
+interface BudgetVm {
+  readonly usdPerHour: number;
+  /** Running or booting: it counts against maxRunningVms. */
+  readonly running: boolean;
+  readonly span: SpendSpan;
+}
+
+/** Paused, stopped or gone: not running, and costing nothing now. */
+const idleStates = new Set(["paused", "pausing", "stopped", "stopping"]);
+
+const budgetVmOf = (found: UpstreamVm, createdAt: Date): BudgetVm => {
+  const usdPerHour = estimatedUsdPerHour(found.resources.cpu, found.resources.memory);
+  const running = !idleStates.has(found.state);
+  // A paused or stopped VM's last change is (at latest) its pause: it has cost nothing since. A later change only
+  // moves the end later, so the estimate errs high.
+  const updated = Date.parse(found.updatedAt);
+  const toMs = running ? null : Math.max(createdAt.getTime(), Number.isFinite(updated) ? updated : createdAt.getTime());
+  return { usdPerHour, running, span: { usdPerHour, fromMs: createdAt.getTime(), toMs } };
+};
+
+/** The key's live VMs (at most maxVms + 1), each with its size, whether it runs, and its span for the spend estimate. */
+const liveBudgetVms = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, budget: AgentBudget) =>
+  Effect.gen(function* () {
+    const upstream = yield* UpstreamClient;
+    return yield* visitOwnedVms(caller, { limit: budget.maxVms + 1, after: null, labels: null }, (vm, owns, row) =>
+      upstream.getVmForWrite(vm, { owns, scope }).pipe(
+        Effect.map((found) => budgetVmOf(found, row.createdAt)),
+        // Gone upstream: it costs nothing and does not run, though it still counts until deleted here.
+        Effect.catchAll((error) =>
+          error.status === 404
+            ? Effect.succeed<BudgetVm>({ usdPerHour: 0, running: false, span: { usdPerHour: 0, fromMs: row.createdAt.getTime(), toMs: row.createdAt.getTime() } })
+            : Effect.fail(unavailable(error)),
+        ),
+      ),
+    ).pipe(Effect.catchTag("StoreError", (error) => Effect.fail(unavailable(error))));
+  });
+
+/** How many deleted VMs the spend estimate reads per check; past it, the oldest deletes in the month are not counted. */
+const DELETED_SPAN_LIMIT = 1000;
+
+const usd = (value: number) => value.toFixed(2);
+
+/**
+ * The running cap and the spend caps, for `starting` more VMs to run (1 for a create, a start or a resume): fewer than
+ * maxRunningVms running now, and the key's estimated spend this UTC day and month under maxUsdPerDay and
+ * maxUsdPerMonth. Spend counts the live VMs (`live`) and the VMs deleted this month, each at its list price for its
+ * time in the window (domain/agents.ts estimatedSpendUsd). A deleted VM is priced at the default size. Each refusal
+ * names the holder, the cap and its current value. Read, then act: two concurrent starts can pass at the cap together.
+ */
+const runningAndSpendAllow = (principal: Principal, budget: AgentBudget, live: ReadonlyArray<BudgetVm>, starting: number) =>
+  Effect.gen(function* () {
+    const holder = budget.holder ?? "agent key";
+    if (budget.maxRunningVms !== undefined) {
+      const running = live.filter((vm) => vm.running).length;
+      if (running + starting > budget.maxRunningVms) {
+        return yield* Effect.fail(
+          new QuotaExceeded({
+            message: `This ${holder} has ${running} running VMs, at its maxRunningVms cap of ${budget.maxRunningVms}; pause or stop one first`,
+            budget: "agent_running_vms",
+          }),
+        );
+      }
+    }
+    if (budget.maxUsdPerDay === undefined && budget.maxUsdPerMonth === undefined) return;
+    const nowMs = yield* Clock.currentTimeMillis;
+    const { dayStartMs, monthStartMs } = spendWindows(nowMs);
+    const labels = principal.requiredLabels ?? {};
+    const deleted = yield* (yield* OwnershipStore)
+      .deletedVmsSince(principal.tenantId, labels, new Date(monthStartMs), DELETED_SPAN_LIMIT)
+      .pipe(Effect.mapError(unavailable));
+    const base = sizeOfCreate(undefined);
+    const baseUsdPerHour = estimatedUsdPerHour(base.vcpus, base.memoryMib);
+    const spans: ReadonlyArray<SpendSpan> = [
+      ...live.map((vm) => vm.span),
+      ...deleted.map((vm) => ({ usdPerHour: baseUsdPerHour, fromMs: vm.createdAt.getTime(), toMs: vm.deletedAt.getTime() })),
+    ];
+    const caps = [
+      { cap: budget.maxUsdPerDay, since: dayStartMs, name: "maxUsdPerDay", period: "today (UTC)", tag: "agent_usd_per_day" as const },
+      { cap: budget.maxUsdPerMonth, since: monthStartMs, name: "maxUsdPerMonth", period: "this month (UTC)", tag: "agent_usd_per_month" as const },
+    ];
+    for (const { cap, since, name, period, tag } of caps) {
+      if (cap === undefined) continue;
+      const spent = estimatedSpendUsd(spans, since, nowMs);
+      if (spent >= cap) {
+        return yield* Effect.fail(
+          new QuotaExceeded({
+            message: `This ${holder} has spent an estimated ${usd(spent)} USD ${period}, at its ${name} cap of ${cap} USD; it resets at the next UTC ${name === "maxUsdPerDay" ? "day" : "month"}`,
+            budget: tag,
+          }),
+        );
+      }
+    }
+  });
+
+/**
+ * A start or resume by a budgeted key (a team key) of a VM that is not running: it must fit the key's running cap and
+ * spend caps, as a create does. `current` reads the VM's state; a key with none of those caps set passes without it,
+ * and a VM already running passes.
+ */
+export const agentStartAllows = <C, E, R>(
+  caller: Named<C, Principal>,
+  scope: KeyHasScope<C, "vm:write">,
+  current: Effect.Effect<UpstreamVm, E, R>,
+) =>
+  Effect.gen(function* () {
+    const budget = caller.value.agent;
+    if (budget === undefined) return;
+    if (budget.maxRunningVms === undefined && budget.maxUsdPerDay === undefined && budget.maxUsdPerMonth === undefined) return;
+    if (!idleStates.has((yield* current).state)) return;
+    const page = yield* liveBudgetVms(caller, scope, budget);
+    yield* runningAndSpendAllow(caller.value, budget, page.results, 1);
   });
 
 /** Whose live-VM budget an agent slot counts against: one per key (or CI trust row). */

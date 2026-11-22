@@ -122,6 +122,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const billed = new Set<string>(["team_alpha", "team_bravo"]);
   /** Public ids marked deleted; their rows stay in `resources` for inspection. */
   const deleted = new Set<string>();
+  /** When each deleted row was marked deleted, for spend estimates over deleted VMs. */
+  const deletedAt = new Map<string, Date>();
   const live = (row: OwnedResource) => !deleted.has(row.cmuxId);
   /** Strictly increasing creation times, so "newest first" is deterministic within a millisecond. */
   let lastCreatedMs = 0;
@@ -203,9 +205,24 @@ export async function makeHarness(options: HarnessOptions = {}) {
           .slice(0, page.limit),
       ),
     countLive: (tenantId, kind) => Effect.sync(() => resources.filter((row) => row.tenantId === tenantId && row.kind === kind && live(row) && row.committed !== false).length),
-    markDeleted: (tenantId, kind, cmuxId) =>
+    deletedVmsSince: (tenantId, labels, since, limit) =>
+      Effect.sync(() =>
+        resources
+          .filter((row) => row.tenantId === tenantId && row.kind === "vm" && deleted.has(row.cmuxId))
+          .filter((row) => Object.entries(labels).every(([key, value]) => row.labels[key] === value))
+          .flatMap((row) => {
+            const at = deletedAt.get(row.cmuxId);
+            return at !== undefined && at.getTime() > since.getTime() ? [{ cmuxId: row.cmuxId, createdAt: row.createdAt, deletedAt: at }] : [];
+          })
+          .sort((a, b) => b.deletedAt.getTime() - a.deletedAt.getTime())
+          .slice(0, limit),
+      ),
+    markDeleted: (tenantId, kind, cmuxId, at) =>
       Effect.sync(() => {
-        if (resources.some((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId)) deleted.add(cmuxId);
+        if (resources.some((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId)) {
+          if (!deleted.has(cmuxId)) deletedAt.set(cmuxId, at);
+          deleted.add(cmuxId);
+        }
       }),
     findDeleted: (tenantId, kind, cmuxId) =>
       Effect.sync(() =>

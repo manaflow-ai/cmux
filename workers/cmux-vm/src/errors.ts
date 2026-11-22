@@ -135,6 +135,10 @@ export class QuotaExceeded extends Schema.TaggedError<QuotaExceeded>()(
         // An agent key's own budget: its live VMs, and their estimated USD per hour.
         "agent_vms",
         "agent_usd_per_hour",
+        // A team key's optional caps (RFD 0016): VMs running at once, and estimated spend this UTC day and month.
+        "agent_running_vms",
+        "agent_usd_per_day",
+        "agent_usd_per_month",
       ),
     ),
   },
