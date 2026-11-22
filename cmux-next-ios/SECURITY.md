@@ -597,6 +597,20 @@ the Mac.
 - **Rule 6 (tests):** `agent_tabs_get_this_macs_host` and
   `agent_tabs_refuse_other_sources_and_hosts` (policy), and the
   `new-conversation-tab` rewrite in `tests/host.rs`.
+- **A chat tab's first message from the phone:** `bind-conversation-tab-session`
+  is new on the allowlist, so a chat tab made on the Mac (or a Duplicate) that
+  has no session yet starts from the phone's first message, as it does from the
+  Mac's. The phone starts the session over its `acpmux` lane (`session/new`,
+  under the same remote guard as above), then binds it to the tab.
+  `DaemonPolicy::bind_verdict` narrows the command to one shape:
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. It records which acpmux session a chat tab shows. The session was already started over the `acpmux` lane, under its guard. |
+| Mutates or destroys objects the session does not own? | Only an unbound tab. The phone may set only `surface` (a number), `session` (`[A-Za-z0-9._:-]`, at most 128 bytes), `harness` (the same alphabet, at most 64) and `expected_session`, which must be null: the daemon's compare-and-swap then refuses a tab that already shows a session (`conversation_tab.session_conflict`), so the phone can never move a running chat to another session. Any other field is refused. The daemon itself refuses `registry:` tabs, which start through `agent-session-start`. Without `CMUX_MOBILE_AGENT_TAB_HOST` (an older app) the command is refused with `unavailable`, as `new-conversation-tab` is. |
+| Reads local state the remote should not see? | No new read. |
+
+- **Rule 6 (tests):** `a_phone_binds_its_new_session_only_to_an_unbound_chat_tab` (policy).
 
 ## `daemon`: terminal agents in the Feed
 
@@ -838,7 +852,7 @@ were added to `policy.rs` or `DaemonLanePolicy.swift`:
 | --- | --- | --- |
 | New Agent Chat, New Agent Chat With… | acpmux `_acpmux/harnesses`, `_acpmux/models` (reads), `session/new` (harness, `policy: ask`, workspace folder), `session/set_model` on the phone's own new session; daemon `new-conversation-tab` (host set by hostd) | The catalog read is the one the handoff sheet already made. A model choice is a free config (`FREE_CONFIG_IDS`), never a mode. A Claude chat the Mac started takes the owner's own paired phone's prompts, stops, answers, model and mode, as the Mac's do (acpmux D13: a live `phone` credential; in a mode that does not ask, only while the phone's Full-access setting is on, the one the Mac app issues for a phone its host admits under the Mac owner's account; removing the phone revokes it). With the phone's Full-access setting off, the owner's phone still passes the D13 refusal, so the user's own Claude permission rules run in a turn it sends; every other Web rule (an asking mode, an asking policy, no lasting grant, the sandbox) still holds it, as Leo asked on 2026-11-14 ("chat writable in both directions"). Any other client is refused with `remote.local_claude_session` and `action: new_chat`. |
 | Rename Tab… | `rename-surface {surface, name}` | The person's own tab; the name is text the daemon shows. |
-| Duplicate Tab | `new-tab {pane}` (folder chosen by hostd, `with_pane_folder`), `new-browser-tab {url, pane}` (http/https only) | Same as New Terminal and New Browser Tab. Agent chats have no duplicate. |
+| Duplicate Tab | `new-tab {pane}` (folder chosen by hostd, `with_pane_folder`), `new-browser-tab {url, pane}` (http/https only) | Same as New Terminal and New Browser Tab. An agent chat's duplicate is `new-conversation-tab` with its harness (and session, if it has one), under the agent chat tabs rules. |
 | Drag to reorder tabs | `move-tab {surface, pane, index}` | Position only, within the person's workspaces. |
 | New Workspace in a recent folder | `new-workspace {name}`, then `send {surface, text: "cd '<folder>' && clear\n"}` into the new terminal | The same input the person can type into any phone terminal; no `cwd` reaches the daemon. The folder is single-quoted, and a folder with any control or format character (DEL, ^U, ESC, line separators), a backslash or `!` is never typed, since a shell's line editor acts on those inside quotes (`foldersThatCouldEditTheLineAreNeverTyped`). |
 
