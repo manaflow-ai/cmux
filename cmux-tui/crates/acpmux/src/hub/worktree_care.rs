@@ -37,7 +37,7 @@ use std::time::Duration;
 
 use cmux_worktree_care::inventory::now_ms;
 use cmux_worktree_care::pass::{self, Options};
-use cmux_worktree_care::policy::{self as care_policy, Pressure, Settings as CareSettings};
+use cmux_worktree_care::policy::{Pressure, Settings as CareSettings};
 use cmux_worktree_care::schedule::{self, Claim, Refused};
 use cmux_worktree_care::{Store as ArchiveStore, disk};
 
