@@ -94,7 +94,7 @@ await requireBrowserLane("live-line-stream-renders-browser.test.ts", async () =>
     expect(run.error).toBeUndefined();
     const drawn = lineRenders(run.renders ?? {});
     console.log(`live line under a streamed reply: ${JSON.stringify({ ...drawn, moves })} in ${run.seconds}s`);
-    // About 250 chunks. The line mounts, says "Writing", moves as the reply grows a line, and its
+    // About 250 chunks. The line mounts, keeps its box hidden under the streaming reply, moves as the reply grows a line, and its
     // clock may tick each second; the chunks themselves draw nothing.
     expect(moves).toBeGreaterThan(0);
     expect(drawn.frame).toBeLessThanOrEqual(moves + SECONDS * 2 + 4);

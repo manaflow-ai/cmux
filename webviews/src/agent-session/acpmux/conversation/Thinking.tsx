@@ -635,6 +635,7 @@ export function Thinking({
   // the finished thought over the reply and "Writing" under it reading as two working signs). The
   // line keeps its box, hidden (`is-quiet`), so nothing moves when the reply pauses into "Thinking",
   // a call names the line again, or the turn ends and its footer takes the slot.
+  // (Waiting on the person and a retry return their own line before this one is drawn.)
   const streaming = writing && doing === undefined && waiting === undefined && retry === undefined;
   // A retry, a start look or a streaming answer draws other words (or none) in place of the line:
   // coming back rolls nothing, so the hidden "Writing" never rolls out over the words that follow.

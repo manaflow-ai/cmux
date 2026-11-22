@@ -172,6 +172,7 @@ export async function loadRun(
   const work: number[] = [];
   const late: number[] = [];
   let blank = 0;
+  let liveLineSeen = false;
   let liveLineMissing = 0;
   let liveLineWriting = 0;
   // The scroll: up from the bottom at `speed` until `depth` viewports above it, then back down to
@@ -199,15 +200,18 @@ export async function loadRun(
     if (!streamDone && requested()) scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight - offset;
     // The live line under a reply whose text streams keeps its box but draws no words (Thinking.tsx
     // `is-quiet`): it never leaves and comes back mid-turn, and the streaming text is the one working
-    // sign, with no "Writing" under it (https://github.com/manaflow-ai/cmux/issues/50991).
+    // sign, with no "Writing" under it (https://github.com/manaflow-ai/cmux/issues/50991). Counted
+    // from the first frame the line is seen (the turn's first commit lands after this loop's first
+    // frames) and only at the bottom, where the virtual list keeps the last row mounted.
     if (!streamDone) {
       const line = document.querySelector(".cv-worked--live");
-      if (!line) liveLineMissing += 1;
-      else if (
-        line.matches("[data-streaming]:not(.is-quiet)") ||
-        (!line.matches(".is-quiet") && /\bWriting\b/.test(line.textContent ?? ""))
-      )
-        liveLineWriting += 1;
+      if (line) liveLineSeen = true;
+      const atBottom = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop < scroller.clientHeight;
+      if (liveLineSeen && atBottom) {
+        if (!line) liveLineMissing += 1;
+        else if (line.hasAttribute("data-streaming") && getComputedStyle(line).visibility !== "hidden")
+          liveLineWriting += 1;
+      }
     }
     const blankNow = isBlank(acpmuxPerf.mounted, scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight);
     if (blankNow) blank += 1;

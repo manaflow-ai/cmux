@@ -67,7 +67,10 @@ const replyVariant = (stage: "writing" | "replied" | "silent" | "ended", note: s
   note,
   snapshot: afterReply(stage),
   play: async (ctx) => {
-    if (stage !== "ended") await lineDrawn(ctx);
+    // While the reply streams the line keeps its box with no words (Thinking.tsx `is-quiet`).
+    if (stage === "writing")
+      await ctx.waitFor(() => ctx.document.querySelector(".acpmux-scroll .cv-worked--live.is-quiet[data-streaming]"));
+    else if (stage !== "ended") await lineDrawn(ctx);
     if (stage === "replied" && ctx.document.querySelector(".acpmux-scroll .cv-worked--live .cv-worked__time"))
       throw new Error("the line still ticks the turn's clock under a finished reply");
     if (stage === "silent") {
@@ -231,7 +234,7 @@ export default agentPaneEntry({
     ),
     "after-reply-writing": replyVariant(
       "writing",
-      'A turn of only a reply, while it streams: "Writing" with the turn\'s time.',
+      "A turn of only a reply, while it streams: the live line keeps its box with no words, the streaming text the one working sign (Codex parity, cmux#50991).",
     ),
     "after-reply": replyVariant(
       "replied",
