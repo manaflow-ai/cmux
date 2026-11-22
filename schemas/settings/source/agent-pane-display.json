@@ -1470,6 +1470,131 @@
           ]
         },
         {
+          "key": "agentPane.display.rail.show",
+          "name": "railShow",
+          "note": "What the prompt rail draws a tick for (webviews threadMinimap/railShow.ts; Leo, 2026-11-21: \"why cant you see an agents'? why cant you filter it? customize it immediately?\"). The rail's right-click menu and its head control write it too, so every rail changes at once.",
+          "title": {
+            "key": "settings.agentPane.display.rail.show",
+            "text": "Prompt Rail Shows"
+          },
+          "help": {
+            "key": "settings.agentPane.display.rail.show.help",
+            "text": "Right-click the rail to change it."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "prompts",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.prompts",
+                "text": "All Messages"
+              }
+            },
+            {
+              "value": "mine",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.mine",
+                "text": "My Messages"
+              }
+            },
+            {
+              "value": "received",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.received",
+                "text": "Agent Messages"
+              }
+            },
+            {
+              "value": "replies",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.replies",
+                "text": "Agent Replies"
+              }
+            },
+            {
+              "value": "everything",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.everything",
+                "text": "Messages and Replies"
+              }
+            },
+            {
+              "value": "errors",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.errors",
+                "text": "Turns with Errors"
+              }
+            },
+            {
+              "value": "edits",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.edits",
+                "text": "Turns with Edits"
+              }
+            },
+            {
+              "value": "tools",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.tools",
+                "text": "Turns with Tool Calls"
+              }
+            },
+            {
+              "value": "subagents",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.subagents",
+                "text": "Turns with Subagents"
+              }
+            }
+          ],
+          "default": "prompts",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "rail",
+            "minimap",
+            "prompts",
+            "ticks",
+            "scroll",
+            "filter",
+            "replies",
+            "errors",
+            "edits",
+            "tools",
+            "subagents"
+          ]
+        },
+        {
+          "key": "agentPane.display.rail.control",
+          "name": "railControl",
+          "note": "A control at the prompt rail's head that names what it shows and opens the same choices (webviews threadMinimap/RailShowControl.tsx). Off by default: the rail looks as it did.",
+          "title": {
+            "key": "settings.agentPane.display.rail.control",
+            "text": "Prompt Rail Button"
+          },
+          "help": {
+            "key": "settings.agentPane.display.rail.control.help",
+            "text": "Shows what the rail lists above it while you point at it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "rail",
+            "minimap",
+            "filter",
+            "button",
+            "control",
+            "replies"
+          ]
+        },
+        {
           "key": "agentPane.display.commandLabels",
           "note": "How the chat's running tray names background commands no built-in rule knows (CommandLabelsSetting; webviews session-info/commandLabelSettings.ts): preset names and rules of one's own, edited as JSON.",
           "title": {
