@@ -2220,6 +2220,17 @@ function drawShown(): void {
   for (const wait of due) wait();
 }
 
+let typedAt = -Infinity;
+let typingHeard = false;
+function listenForTyping(): void {
+  if (typingHeard || typeof document === "undefined" || typeof performance === "undefined") return;
+  typingHeard = true;
+  const heard = () => (typedAt = performance.now());
+  for (const type of ["keydown", "beforeinput"]) document.addEventListener(type, heard, { capture: true, passive: true });
+}
+/// A key since the last frame: that frame carries the typed text alone.
+const typedThisFrame = (): boolean => typeof performance !== "undefined" && performance.now() - typedAt < 16;
+
 /// Runs `run` once before the next display frame, or after 50 ms when a shown page draws no frames
 /// (an occluded window). A hidden page draws nothing: `run` waits until it shows, also when the page
 /// hides before the frame comes, and its first frame then draws everything that landed meanwhile
@@ -2230,7 +2241,9 @@ function drawShown(): void {
 /// waiting woke the page 50 ms after every drawn frame to do nothing (CMUX-571 idle wakeups).
 export const nextFrame = (run: () => void): (() => void) => {
   let done = false;
+  let yielded = false;
   let stopPending: (() => void) | undefined;
+  listenForTyping();
   const frame = () => {
     if (done) return;
     if (!pageShown()) return waitForShow(frame);
@@ -2247,6 +2260,13 @@ export const nextFrame = (run: () => void): (() => void) => {
       ran = true;
       stop();
       if (!pageShown()) return waitForShow(frame);
+      if (!yielded && typedThisFrame()) {
+        yielded = true;
+        ran = false;
+        drawn = requestAnimationFrame(once);
+        fallback = setTimeout(once, 50);
+        return;
+      }
       done = true;
       run();
     };
