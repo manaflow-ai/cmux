@@ -1131,12 +1131,9 @@ async fn a_triage_record_lowers_the_held_count_by_the_messages_it_decides() {
         ..Default::default()
     };
     let body = [json!({"type":"text","text":"runner queued"})];
-    assert!(
-        hub.hold_surge_message(&session, "first", "cli", &body, &opts, 41_000).unwrap().is_none()
-    );
-    for (n, id) in ["m1", "m2", "m3"].into_iter().enumerate() {
-        let at = 42_000 + n as u64;
-        assert!(hub.hold_surge_message(&session, id, "cli", &body, &opts, at).unwrap().is_some());
+    assert!(hub.hold_surge_message(&session, "first", "cli", &body, &opts).unwrap().is_none());
+    for id in ["m1", "m2", "m3"] {
+        assert!(hub.hold_surge_message(&session, id, "cli", &body, &opts).unwrap().is_some());
     }
     assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 3);
     let record = json!({"batchId":"b1","items":[{"promptId":"m1"},{"promptId":"m2"}]});
