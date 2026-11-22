@@ -569,8 +569,11 @@ impl View {
 
     /// The blank rows below the content the phone's grid starts with (a
     /// resize's, [`rows_below_after_resize`]). Set before the first paint.
-    pub fn set_rows_below(&mut self, rows: Option<usize>) {
+    /// `cleared`: the host's [`Terminal::screen_cleared`] now (a view made
+    /// on the alternate screen first paints after the switch back).
+    pub fn set_rows_below(&mut self, rows: Option<usize>, cleared: u64) {
         self.grid_below = rows;
+        self.cleared_at = Some(cleared);
     }
 
     pub fn request_reset(&mut self) {
@@ -640,7 +643,7 @@ impl View {
             }
         }
         self.fresh = false;
-        if *self.cleared_at.get_or_insert(term.screen_cleared) != term.screen_cleared {
+        if self.cleared_at.is_some_and(|at| at != term.screen_cleared) {
             self.grid_below = None;
         }
         if self.settled_host < term.history_dropped {
@@ -1119,6 +1122,12 @@ mod tests {
         let wrapped = wrap_line(&term, &rows, 120, 33, Some((0, 10)), false);
         assert_eq!(wrapped.cursor, Some((0, 10)));
         assert_eq!(wrapped.rows.len(), 1);
+        // Exact: the space the prompt printed is a cell of the line, as
+        // Ghostty's reflow keeps it (only never-written cells are trimmed).
+        assert_eq!(wrapped.rows[0].width(), 2, "the prompt's printed space is kept");
+        // Compact: the trailing space is not drawn.
+        let wrapped = wrap_line(&term, &rows, 120, 33, Some((0, 10)), true);
+        assert_eq!(wrapped.cursor, Some((0, 10)));
         assert_eq!(wrapped.rows[0].width(), 1, "the prompt's trailing space is not drawn");
     }
 

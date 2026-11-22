@@ -128,9 +128,12 @@ impl Projection {
     ) -> Vec<Segment> {
         let mut view = View::new(cols, rows);
         view.compact = self.compact;
-        view.set_rows_below(old.and_then(|old| {
-            project::rows_below_after_resize(&self.term, self.compact, old, (cols, rows))
-        }));
+        view.set_rows_below(
+            old.and_then(|old| {
+                project::rows_below_after_resize(&self.term, self.compact, old, (cols, rows))
+            }),
+            self.term.screen_cleared,
+        );
         if let Some(old) = &self.view {
             view.bytes_out = old.bytes_out;
             view.resets = old.resets;
