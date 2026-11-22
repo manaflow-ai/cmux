@@ -115,7 +115,12 @@ async function scenarioNamed(name: string): Promise<SimScenario> {
   return bigClaudeTurn();
 }
 
-type Sample = { t: number; folding: boolean; rows: [key: string, top: number, height: number, ink: number][] };
+type Sample = {
+  t: number;
+  folding: boolean;
+  rows: [key: string, top: number, height: number, ink: number][];
+  view?: number;
+};
 
 const keys = new WeakMap<Element, string>();
 let ghosts = 0;
@@ -145,7 +150,7 @@ function sampleFrame(): Sample {
     const ink = Number(style.opacity) * Number(getComputedStyle(element.firstElementChild!).opacity);
     if (view) rows.push(["fold-card", top - view.top, Math.max(0, bottom - top), ink]);
   }
-  return { t: performance.now(), folding: !!thread?.hasAttribute(TURN_END_ATTR), rows };
+  return { t: performance.now(), folding: !!thread?.hasAttribute(TURN_END_ATTR), rows, view: view?.height };
 }
 
 // fixed-wait: the steps' real clock is what this page records; a turn plays at the pace a live one does.
