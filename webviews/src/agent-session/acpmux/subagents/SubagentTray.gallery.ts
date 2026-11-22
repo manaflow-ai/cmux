@@ -971,6 +971,9 @@ export default agentPaneEntry({
     },
     "several-running": {
       note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each once its header is opened (it starts folded to the header). The ended task remains a compact status card.",
+      // The header-time test measures this time (hat-header-time-width.test.ts); the default draws none
+      // in a several-item header (trayHeadClock.experiment.ts).
+      experiments: { "subagent-tray-head-clock": "run" },
       play: trayLines(3),
       snapshot: chat(
         [

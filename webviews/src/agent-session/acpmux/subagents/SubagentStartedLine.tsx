@@ -46,16 +46,15 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
       const agent = agents[index]!;
       return (
         <SubagentChipPreview key={agent.id} agent={agent} name={names[index]}>
-          {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/prefer-tag-over-role */}
-          <span
+          <button
+            type="button"
             className="cv-subagent-started__face"
-            role="button"
-            tabIndex={open ? 0 : -1}
             aria-label={t("subagents.open", { name: names[index]! })}
+            disabled={!open}
             onClick={open && (() => open(agent.id))}
           >
             {identity(index)}
-          </span>
+          </button>
         </SubagentChipPreview>
       );
     };

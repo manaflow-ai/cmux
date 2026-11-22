@@ -14,8 +14,15 @@
   display: inline-flex;
   flex: none;
   line-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
   cursor: pointer;
   border-radius: 999px;
+}
+.cv-subagent-started__face:disabled {
+  cursor: default;
 }
 .cv-subagent-started__faces {
   display: inline-flex;
