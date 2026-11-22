@@ -204,6 +204,7 @@ public final class IPhoneHostService {
     /// The folders acpmux gets (``followWorkspaceFolders()``).
     @ObservationIgnored private let folders = MobileHostWorkspaceFolders()
     @ObservationIgnored private var followingPicks: Task<Void, Never>?
+    @ObservationIgnored private var followingBrowserWorkspaceSource: Task<Void, Never>?
     /// This Mac's theme and wallpaper for the phones (`followAppearance(of:)`).
     @ObservationIgnored var followingAppearance: Task<Void, Never>?
     @ObservationIgnored private var pairingWatch: Task<Void, Never>?
@@ -419,6 +420,34 @@ public final class IPhoneHostService {
         })
     }
 
+    /// Registers this build's daemon while its existing remote-connection setting permits it.
+    /// Projection and authorization stay in Rust; this passes only the captured app endpoint.
+    func followBrowserWorkspaceSource() {
+        followingBrowserWorkspaceSource?.cancel()
+        // task-owner: follows the host's account and existing remote-connection setting.
+        followingBrowserWorkspaceSource = Task { [weak self] in
+            for await enabled in ObservationStream({ [weak self] in
+                guard let self else { return false }
+                return allowed && account != nil
+            }) {
+                guard let self else { return }
+                guard enabled, let dependencies else {
+                    approverSync?.updateBrowserWorkspaceSource(socket: nil, host: nil)
+                    continue
+                }
+                let socket = try? await dependencies.daemonSocket()
+                guard !Task.isCancelled, allowed, account != nil else {
+                    approverSync?.updateBrowserWorkspaceSource(socket: nil, host: nil)
+                    continue
+                }
+                if approverSync == nil, let environment = dependencies.acpmuxEnvironment {
+                    approverSync = makeApproverSync(environment)
+                }
+                approverSync?.updateBrowserWorkspaceSource(socket: socket, host: dependencies.agentTabHost())
+            }
+        }
+    }
+
     /// Hands acpmux the agent and model this Mac's New Tab page picked last while iPhone
     /// connections are allowed for a signed-in account, so a phone's New Agent Chat starts
     /// where this Mac's does (the Mac keeps them locally: `newTab.lastAgent`, `newTab.lastPicks`).
@@ -514,6 +543,7 @@ public final class IPhoneHostService {
         pairingWatch?.cancel()
         folders.stop()
         followingPicks?.cancel()
+        followingBrowserWorkspaceSource?.cancel()
         followingAppearance?.cancel()
         approverSync?.stop()
         quietAttention()
