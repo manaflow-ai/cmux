@@ -34,7 +34,7 @@ extension JoinedMachineAction {
 /// page's (webviews/src/pages/machines, the same table).
 nonisolated enum JoinedMachineStrings {
     private static func s(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "AddMachine", bundle: .module)
+        String(localized: key, defaultValue: value, table: "AddMachine", bundle: .localizedModule)
     }
 
     /// How long a revoked machine keeps access at most: the platform's heartbeat interval. Every
