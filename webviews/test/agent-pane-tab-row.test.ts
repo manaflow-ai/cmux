@@ -198,8 +198,8 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
       Math.round(document.querySelector(".acpmux-handoff-header-tools")!.getBoundingClientRect().width),
     );
     expect(tools).toBeGreaterThan(0);
-    // The tools' width and the gap the tabs keep from them.
-    expect(reported.at(-1)).toEqual({ width: tools + 4 });
+    // The tools' width and the gap the tabs keep from them; with no accessory (header/tabRow.ts) it is all need.
+    expect(reported.at(-1)).toEqual({ width: tools + 4, need: tools + 4 });
     // Only the tools take clicks: the row's left part is the App's tabs.
     expect(await page.evaluate(() => getComputedStyle(document.querySelector(".acpmux-header")!).pointerEvents)).toBe(
       "none",
