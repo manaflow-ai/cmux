@@ -970,6 +970,49 @@ try {
               .join("\n");
           console.log(`stages ${chat.scale}:${arm} profile, self ms in the stretch:\n${top(selfMs, 30)}`);
           console.log(`stages ${chat.scale}:${arm} profile, inclusive ms of src/ functions:\n${top(inclusive, 45)}`);
+          // The stretch as a timeline of React phases (render, commit, passive effects, else the nearest src/
+          // function): how many renders the attach takes, and in each render the components that cost most (a
+          // sample counts toward the nearest component frame under React's renderWithHooks).
+          type Run = { phase: string; from: number; ms: number; parts: Map<string, number> };
+          const runs: Run[] = [];
+          let clock = profiled.startTime;
+          profiled.samples.forEach((id, index) => {
+            clock += profiled.timeDeltas[index] ?? 0;
+            if (clock < start || clock > end) return;
+            const ms = (profiled.timeDeltas[index + 1] ?? 100) / 1000;
+            let phase: string | undefined;
+            let component: string | undefined;
+            let below: number | undefined;
+            for (let node: number | undefined = id; node !== undefined; below = node, node = parent.get(node)) {
+              const fn = byId.get(node)!.callFrame.functionName;
+              if (!component && fn === "renderWithHooks" && below !== undefined) component = name(below);
+              if (fn === "renderRootSync" || fn === "renderRootConcurrent") phase ??= "render";
+              else if (fn === "commitRoot") phase ??= "commit";
+              else if (fn === "flushPassiveEffects") phase ??= "passive";
+            }
+            phase ??= "other";
+            const last = runs.at(-1);
+            const run =
+              last && last.phase === phase && clock - (last.from + last.ms * 1000) < 1500
+                ? last
+                : (runs.push({ phase, from: clock, ms: 0, parts: new Map() }), runs.at(-1)!);
+            run.ms += ms;
+            const part = component ?? name(id);
+            run.parts.set(part, (run.parts.get(part) ?? 0) + ms);
+          });
+          console.log(
+            `stages ${chat.scale}:${arm} timeline (start in the stretch, phase, ms, top parts):\n${runs
+              .filter((run) => run.ms >= 1)
+              .map(
+                (run) =>
+                  `  ${((run.from - start) / 1000).toFixed(0)}\t${run.phase}\t${run.ms.toFixed(1)}\t${[...run.parts]
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 6)
+                    .map(([key, ms]) => `${key.replace(/ src\/agent-session\/acpmux\//, " ")} ${ms.toFixed(1)}`)
+                    .join("; ")}`,
+              )
+              .join("\n")}`,
+          );
         }
         const mark = (name: string) => events.find((event) => event.name === name && event.cat.includes("user_timing"));
         const from = mark("bench:attach")?.ts;
