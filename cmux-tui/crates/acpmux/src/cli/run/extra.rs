@@ -169,12 +169,28 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::SessionInboxCmd(crate::cli::command::SessionInboxTarget {
             session,
+            search,
+            before,
+            subscribe,
+            unsubscribe,
+            subscriptions,
             thread,
             unread,
         }) => {
             let client = connect(true).await?;
-            crate::cli::session_inbox::run(&client, &session, thread.as_deref(), unread, json_out)
-                .await
+            crate::cli::session_inbox::run(
+                &client,
+                &session,
+                thread.as_deref(),
+                unread,
+                search.as_deref(),
+                before,
+                subscribe.as_deref(),
+                unsubscribe.as_deref(),
+                subscriptions,
+                json_out,
+            )
+            .await
         }
         Command::TurnCapCmd { session, minutes, off, clear } => {
             use crate::cli::session_turn_cap::Change;
@@ -1232,6 +1248,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     let list =
                         peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
                     let (name, host, port) = crate::cli::host_enroll::pick_target(&list, &target);
+                    if !json_out
+                        && let Some(note) = crate::cli::host_enroll::hub_route_note(&list, &name)
+                    {
+                        println!("{note}");
+                    }
                     let plan = crate::cli::host_enroll::Plan {
                         name,
                         host,
