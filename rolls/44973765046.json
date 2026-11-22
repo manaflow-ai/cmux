@@ -11,9 +11,19 @@
   },
   "rolled_back": false,
   "rollback": {
-    "result": "pushed",
+    "result": "verified",
     "commit": "11efb90ea8b46790a879821bb2d26d2bc8c8d10c",
-    "at": "2026-11-22T02:16:27Z"
+    "at": "2026-11-22T02:16:27Z",
+    "deploys": {
+      "1": {
+        "commit": "11efb90ea8b46790a879821bb2d26d2bc8c8d10c",
+        "run": "https://github.com/manaflow-ai/cmux/actions/runs/44975320538",
+        "deploy": "success",
+        "product_smoke": "success",
+        "boot_image": "cloud-native-auto-b97aeae7-44962192333-1",
+        "at": "2026-11-22T02:29:25Z"
+      }
+    }
   },
   "schema": 1,
   "run": "https://github.com/manaflow-ai/cmux/actions/runs/44973765046",
@@ -178,5 +188,6 @@
     "image": "cloud-native-auto-602f51e1-44973765046-1",
     "revision": "ci-44973765046-1",
     "at": "2026-11-22T02:23:48Z"
-  }
+  },
+  "rollback_failed": false
 }
