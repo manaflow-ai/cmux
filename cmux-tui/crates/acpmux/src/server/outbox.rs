@@ -87,6 +87,9 @@ const MAX_MOVES_FOLLOWED: u32 = 16;
 
 /// How long one attempt waits for the target's acceptance.
 const ATTEMPT_WAIT: Duration = Duration::from_secs(120);
+/// How often a delivery held behind another (`Delivery::waits_behind`) looks again when no
+/// outbox change woke it.
+const AFTER_RECHECK: Duration = Duration::from_secs(5);
 /// The longest a `send_status` waits for a delivery to settle.
 const MAX_STATUS_WAIT_MS: u64 = 10_000;
 
@@ -512,9 +515,9 @@ async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
     let id = str_param(params, "deliveryId")
         .ok_or_else(|| RpcError::invalid_params("deliveryId is required"))?;
     if id.starts_with(super::mesh_send::PREFIX)
-        && let Some(mesh) = hub.mesh.get()
+        && let Some(reply) = super::mesh_relay::read::mesh_status(hub, conn, id).await
     {
-        return super::mesh_send::status(hub, conn, &mesh, id).await;
+        return reply;
     }
     let status = outbox_status(hub, id, params).await?;
     match hub.outbox.get(id) {
@@ -642,6 +645,15 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             }
             return;
         }
+        // Behind an earlier message to the same session (`AFTER_KEY`): it waits for that one to
+        // settle, woken by every outbox change and looking again at least every few seconds.
+        let changed = hub.outbox.changed.notified();
+        tokio::pin!(changed);
+        changed.as_mut().enable();
+        if delivery.waits_behind(&hub.outbox).is_some() {
+            let _ = tokio::time::timeout(AFTER_RECHECK, changed).await;
+            continue;
+        }
         // Armed before the attempt: `notify_waiters` wakes only waits that exist, so a peer
         // ready while the attempt runs or its failure is saved still ends the retry wait.
         let ready = hub.outbox.peer_ready.notified();
@@ -660,6 +672,10 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             return;
         }
         let mut request = delivery.request.clone();
+        // Ordering for this outbox alone: the receiver never sees it.
+        if let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+            mux.remove(crate::hub::outbox::AFTER_KEY);
+        }
         // A later attempt asks for the first one's outcome when the target took it already.
         if attempt > 1
             && let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut)
