@@ -227,6 +227,11 @@ struct SubagentTranscriptScreen: View {
     /// rows added below move nothing (the list keeps its place from the top).
     @State private var follow: SubagentFollow
     @State private var phase = ScrollPhase.idle
+    @State private var heights = SubagentRowHeights()
+    /// Bumped when a tall answer's height is measured (its row is pinned on the next body).
+    @State private var measured = 0
+    @State private var contentWidth: CGFloat = 0
+    @Environment(\.dynamicTypeSize) private var textSize
 
     /// `startsAtEnd`: opens on the transcript's end, following (the rig's follow measurement).
     init(store: AgentChatStore, surface: AgentChatSurface, subagentID: String, startsAtEnd: Bool = false, probe: FollowProbe? = nil) {
@@ -244,6 +249,9 @@ struct SubagentTranscriptScreen: View {
             let running = agent.state == .running
             // Offline, a running subagent's footer stops: no spinner while nothing can come.
             let offline = agent.state == .running && store.isOffline
+            let key = SubagentRowHeights.Key(width: contentWidth, size: textSize)
+            let live = running ? Self.answerID(rows.last) : nil
+            let _ = measured
             ScrollView {
                 // Lazy: a long subagent run builds the rows on screen only.
                 LazyVStack(alignment: .leading, spacing: 14) {
@@ -268,6 +276,8 @@ struct SubagentTranscriptScreen: View {
                     ForEach(rows) { row in
                         SubagentRowView(row: row, turn: turn, store: store, diffs: store.diffs, isLast: row.id == rows.last?.id) { nested = $0 }
                             .environment(\.loadFullToolOutput, LoadFullToolOutputAction { [store] call in await store.loadFullOutput(of: call) })
+                            // A tall answer's measured height: the lazy stack knows it before it builds the row.
+                            .frame(height: pinned(row, key: key), alignment: .top)
                     }
                     HStack(spacing: 8) {
                         SubagentStateGlyph(state: offline ? .disconnected : agent.state)
@@ -280,6 +290,12 @@ struct SubagentTranscriptScreen: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width - 40 } action: { contentWidth = $0 }
+            // When an answer's text arrives (the rows change) or the width or text size does:
+            // after the body, not in it.
+            .task(id: SubagentRowHeights.TaskID(rows: memo.builds, key: key, live: live)) {
+                if heights.measure(rows, key: key, live: live) { measured &+= 1 }
             }
             .defaultScrollAnchor(.top)
             // Following a running subagent, growth keeps the end in place in the same layout pass
@@ -317,6 +333,28 @@ struct SubagentTranscriptScreen: View {
         } else {
             ContentUnavailableView("Subagent not found", systemImage: "person.2.slash")
         }
+    }
+}
+
+extension SubagentTranscriptScreen {
+    /// The id of `row` when it is an answer.
+    static func answerID(_ row: TurnRow?) -> String? {
+        if case .message(let id, _)? = row { return id }
+        return nil
+    }
+
+    /// The pinned height of a tall, measured answer row; nil for any other row.
+    private func pinned(_ row: TurnRow, key: SubagentRowHeights.Key) -> CGFloat? {
+        guard case .message(let id, let markdown) = row, SubagentRowHeights.isTall(markdown) else { return nil }
+        return heights.height(id, markdown: markdown, key: key)
+    }
+}
+
+extension SubagentRowHeights {
+    struct TaskID: Hashable {
+        var rows: Int
+        var key: Key
+        var live: String?
     }
 }
 
