@@ -178,7 +178,6 @@ import type { UnsentPromptRecord, UnsentPromptStore } from "./unsentPrompts";
 import {
   SessionPageError,
   SessionPager,
-  type SessionPage,
   withUsage,
   LIST_FOLLOW_CAPABILITY,
   USAGE_CAPABILITY,
