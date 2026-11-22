@@ -698,6 +698,7 @@ fn daemon_a(url: &str, own: Arc<DaemonIdentity>) -> Arc<Hub> {
         harness: "fake".into(),
         state: "idle".into(),
         last_seen_at: 1,
+        ..Default::default()
     };
     a.set_mesh_book(hosts, vec![row]);
     a

@@ -279,6 +279,11 @@
     }
   },
   {
+    "key": "cmd+quote",
+    "command": "focusTabRecentInWorkspace",
+    "when": "terminalFocused && !paletteOpen"
+  },
+  {
     "key": "cmd+shift+p",
     "command": "commandPalette"
   },
