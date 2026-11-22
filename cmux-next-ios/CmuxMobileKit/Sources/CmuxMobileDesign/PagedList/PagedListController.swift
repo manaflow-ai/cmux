@@ -735,7 +735,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// end, re-sorted) is skipped: following it would carry the reader away. Returns the row used.
     @discardableResult
     private func restore(_ anchor: Anchor, shiftedBy shift: CGFloat = 0, deliberate: Bool = false, owed: CGFloat = 0) -> Anchor.Row? {
-        let survivors = anchor.rows.dropFirst(anchor.straddles ? 1 : 0).compactMap { row in dataSource.indexPath(for: row.id).map { (row, $0.item) } }
+        let survivors = anchor.rows.dropFirst(0).compactMap { row in dataSource.indexPath(for: row.id).map { (row, $0.item) } }
         guard !survivors.isEmpty else { return nil }
         func stable(_ i: Int) -> Bool {
             guard survivors.count > 1 else { return true }
