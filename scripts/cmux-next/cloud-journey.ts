@@ -128,6 +128,7 @@ import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
+import { clientSpans, hopDurations, readStartTrace, slowestHop, traceMarkdown } from "./cloud-start-trace.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
 // The shipped app's CloudMachineCreateFlow.named and the platform's CHAT_START_SHAPE (4/16/64).
@@ -1792,10 +1793,10 @@ export async function runPreclaimBurst(args: {
   return verificationFailed || !preclaimRunComplete(rows, failures, args.claims) ? 1 : 0;
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Test-side bounded wait on a machine field (the product never polls; this is the harness). */
-async function waitMachine(api: Api, machine: string, want: (m: any) => boolean, budgetMs: number, goneOk = false): Promise<any> {
+export async function waitMachine(api: Api, machine: string, want: (m: any) => boolean, budgetMs: number, goneOk = false): Promise<any> {
   const t0 = Date.now();
   let last: any = null;
   let lastError = "";
@@ -1821,8 +1822,8 @@ async function sign(key: CryptoKey, message: string): Promise<string> {
   return Buffer.from(sig).toString("base64url");
 }
 
-type ExecResult = { code: number; stdout: string; stderr: string };
-type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
+export type ExecResult = { code: number; stdout: string; stderr: string };
+export type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
 
 /** Follow a fresh session's ACP stream on the guest and return on text, not turn end. The exec response carries
  * only a marker, never the model's text. --since 0 closes the subscribe/send race on this run's unique session.
@@ -1925,7 +1926,7 @@ export async function finishJourney(cleanup: () => Promise<void>, observer: Prom
 }
 
 /** The CLI's exec (cloud_client_session.rs): mint a client session, then the provider's exec-await. */
-export function directExec(api: Api, machine: string, journey: Journey, backgroundPollMs = 2_000): Exec {
+export function directExec(api: Api, machine: string, journey: Pick<Journey, "secrets">, backgroundPollMs = 2_000): Exec {
   let session: { token: string; vm_id: string; linux_user: string; api_base_url: string; expires_at: number } | null = null;
   let guestRoute = false;
   const guestExec: Exec = async (command, timeoutMs = 60_000) => {
@@ -3927,7 +3928,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // --start-bench N (with --preclaim): create-to-first-command per start path (runStartBench, cloud-start-bench.ts) instead
   // of the burst; PRECLAIM_START_BENCH=N does the same from the dispatch's env.
   const startBench = argValue("--start-bench", argv) ?? (process.env.PRECLAIM_START_BENCH || undefined);
-  // --spare-wait SECONDS (0..900): each preclaim claim first waits, at most this long, for the warm to name a ready spare.
+  // --spare-wait SECONDS (0..900): each preclaim claim, and a single run's --preclaim-login, first waits, at most this long,
+  // for the warm to name a ready spare.
   const preclaimSpareWait = Number(argValue("--spare-wait", argv) ?? 0);
   if (!Number.isInteger(preclaimSpareWait) || preclaimSpareWait < 0 || preclaimSpareWait > 900) throw new Error("--spare-wait must be 0..900 seconds");
   // --machine ID: run on that existing machine and keep it (no create, pause, resume or delete).
@@ -4353,13 +4355,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const platform = clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
           const scope = { platform, team: scopeTeam, install: install.id, credential: createHash("sha256").update(login).digest("hex") };
           const account = `${String(user?.id ?? user?.user?.id ?? "")}/${team ?? String(user?.personal_team ?? user?.team ?? "")}`;
-          prepared = await prepareSpareLogin({
-            api, cmux: preclaimLoginCmux, stateDir: preclaimStateDir, installToken: install.token,
-            request: { platform, account, scope, currentScope: scope }, wireTeam: scopeTeam || api.team,
+          // --spare-wait: the app warms when it opens, long before a person's first chat; one warm 2 s before create
+          // finds an empty pool every time (11-22 06:50Z: "warm-spare named no spare"). So warm and wait, bounded, before
+          // create, outside the create -> first text window, as the burst does.
+          const wireTeam = scopeTeam || api.team;
+          const { prepared: got, wait } = await waitForReadySpare(() => prepareSpareLogin({
+            api, cmux: preclaimLoginCmux!, stateDir: preclaimStateDir!, installToken: install.token,
+            request: { platform, account, scope, currentScope: scope }, wireTeam,
             programs: loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "claude", Boolean(team)), login,
             ownerScope: team ? "owner or team" : "owner", index: 0, journey: J, readyBudgetMs: 120_000,
-          });
-          J.record({ step: name, status: prepared.spare ? "pass" : "skip", ms: Date.now() - t0, detail: prepared.spare ? `a spare warmed; the login copied on its spare.ready and reported installed${prepared.generation ? "" : " (no copy generation: no receipt to read)"}` : "warm-spare named no spare: the login is copied after bind" });
+          }), preclaimSpareWait * 1000, { ready: (ms) => waitForAnySpareReady({ ...api, team: wireTeam }, ms) });
+          prepared = got;
+          const waited = wait ? `; waited ${wait.waited_ms} ms over ${wait.attempts} warm(s)${wait.cold_after_wait ? ", bound ran out" : wait.ready_by === "claim_path" ? ", the claim path's spare ready" : ""}` : "";
+          J.record({ step: name, status: prepared.spare ? "pass" : "skip", ms: Date.now() - t0, detail: (prepared.spare ? `a spare warmed; the login copied on its spare.ready and reported installed${prepared.generation ? "" : " (no copy generation: no receipt to read)"}` : "warm-spare named no spare: the login is copied after bind") + waited });
         } catch (e) {
           prepared = null;
           J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `the login is copied after bind: ${String((e as Error)?.message ?? e).slice(0, 300)}` });
@@ -5180,6 +5188,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (lifecycle) await J.step("turn after resume", async () => laterTurn("Back after a pause: answer in one short sentence."));
       else J.skip("turn after resume", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
     }
+    // The start's waterfall (cmux-platform /v1/cloud/start-traces): the platform's own hops for this create, keyed by
+    // its idempotency key, plus the agent's start and first token this run measured; then the last day's p50/p95.
+    if (!reuse) await J.step("start trace", async () => {
+      const got = await readStartTrace((m, r, b, t) => api.raw(m, r, b, t), `${tag}-create`, clientSpans(J.firstText.fields().create_marks_ms, createSentAt), created.id);
+      if ("missing" in got) return { value: null, detail: got.missing };
+      if (outDir) {
+        writeFileSync(path.join(outDir, "start-trace.json"), `${JSON.stringify(got, null, 2)}\n`);
+        appendFileSync(path.join(outDir, "start-trace.md"), traceMarkdown(got.trace, got.list));
+      }
+      const slow = got.list ? slowestHop(got.list) : null;
+      const hops = Object.entries(hopDurations(got.trace)).map(([h, ms]) => `${h} ${ms}`).join(", ");
+      return { value: null, detail: `${got.trace.trace} ${got.trace.path ?? "?"} ${got.trace.total_ms} ms: ${hops}${slow ? `; slowest 24 h p50 ${slow.hop} ${slow.p50_ms} ms (p95 ${slow.p95_ms ?? "-"})` : ""}` };
+    }).catch(() => undefined);
     // A step that failed without ending the run (the key probe, a chaos fault, the handoff record): its facts first.
     await readGuestDiagnostics("before-cleanup");
     await readFailureFacts();

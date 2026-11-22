@@ -22,6 +22,7 @@
     {
       "agent": "settable",
       "keys": [
+        "agentPane.links.openCitationsInEditor",
         "window.titlebar"
       ]
     },
@@ -147,7 +148,8 @@
     {
       "agent": "settable",
       "keys": [
-        "tabs.overflow"
+        "tabs.overflow",
+        "tabs.shellIconTheme"
       ]
     },
     {
@@ -206,7 +208,8 @@
         "layout.minimumPaneHeight",
         "appearance.theme",
         "appearance.appTheme",
-        "appearance.accent"
+        "appearance.accent",
+        "appearance.selection"
       ]
     },
     {
@@ -399,6 +402,7 @@
         "sidebar.chromeGroups",
         "sidebar.sideBySide",
         "sidebar.groupBy",
+        "sidebar.nav",
         "sidebar.priorityView.enabled",
         "sidebar.priorityView.shown",
         "browser.defaultEngine",
@@ -486,7 +490,15 @@
         "experiments.glassToolbarGroups",
         "experiments.composerV2",
         "experiments.agentBadges",
-        "experiments.agentBadgesBeam"
+        "experiments.agentBadgesBeam",
+        "experiments.toastsV2"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Extension chat widgets draw installed extensions' cards in agent chat; only the person turns them on.",
+      "keys": [
+        "experiments.chatWidgets"
       ]
     },
     {
@@ -527,6 +539,14 @@
       "keys": [
         "agentPane.newChatsIn",
         "agentPane.sessionWorktrees"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The composer's look and where an empty chat's composer sits: layout choices a profile or the person's agent may set, like the chat's other looks.",
+      "keys": [
+        "agentPane.composerLook",
+        "agentPane.emptyChatComposerPosition"
       ]
     },
     {
@@ -785,6 +805,8 @@
         "agentPane.display.minimap",
         "agentPane.display.transcriptView",
         "agentPane.display.presentation",
+        "agentPane.display.transcriptLook",
+        "agentPane.display.transcriptTokens",
         "agentPane.display.promptCoach",
         "agentPane.display.statusVerbs.mode",
         "agentPane.display.statusVerbs.custom",
@@ -1301,6 +1323,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether new nonpersistent Cloud agent machines opt into the Mac pause/resume experiment: the person decides this lifecycle change.",
+      "keys": [
+        "labs.pauseAgentMachines"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "On, a live code build loads Swift patches into the running app: only the person turns that on.",
       "keys": [
         "labs.liveCode"
@@ -1612,6 +1641,13 @@
       "why": "Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.",
       "keys": [
         "remote.ultra"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Ultra spends up to 150 Mbps on every Screen Sharing session this Mac views; only the person picks it.",
+      "keys": [
+        "remote.screenSharingProfile"
       ]
     },
     {

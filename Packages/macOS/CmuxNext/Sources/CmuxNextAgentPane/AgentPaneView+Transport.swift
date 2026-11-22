@@ -191,6 +191,7 @@ extension AgentPaneView {
         default:
             guard webView.bounds.contains(webView.convert(event.locationInWindow, from: nil)) else { return }
         }
+        if !model.hostTouch.marked, !isHiddenOrHasHiddenAncestor { model.hostTouch.mark(by: event) } // the mark's own check first: a marked page asks no hidden state at a key. A parked page has the pane's frame too, and gets no input
         // Repeats belong to the original press, whose DOM proof may still be redeeming.
         // A new page event revokes it, even when posted input cannot grant a fresh witness.
         model.transport.gestures.recordQuestionReturn(false)
@@ -214,6 +215,7 @@ extension AgentPaneView {
         default:
             guard chromiumPageContains(eventWindow.convertPoint(toScreen: event.locationInWindow), eventWindow: eventWindow) else { return }
         }
+        if !model.hostTouch.marked, !isHiddenOrHasHiddenAncestor { model.hostTouch.mark(by: event) }
         model.transport.gestures.recordQuestionReturn(false)
         guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return recordPosted(event) }
         model.transport.gestures.record(click: event.type != .keyDown)
