@@ -409,7 +409,7 @@ impl Chain {
         let shared =
             self.open.iter().zip(&parts).take_while(|((open, _), part)| open == *part).count();
         self.open.truncate(shared);
-        for part in &parts[shared..] {
+        for part in parts.iter().skip(shared) {
             let at = self.open.last().map_or(root, |(_, dir)| dir);
             let Some(next) = at.child(part)? else { return Ok(None) };
             self.open.push(((*part).to_string(), next));
