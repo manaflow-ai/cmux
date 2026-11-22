@@ -3,6 +3,7 @@
 
   graceful-swap.py record --host air-blue --trigger 'CMD' --out DIR [--label before]
                           [--region NAME=x,y,w,h ...] [--pre 1.5] [--post 4] [--probe-file PATH]
+  graceful-swap.py latency --host H --trigger 'SAVE' [--trigger-b 'UNDO'] --watch NAME --runs 20 --out DIR --region ...
   graceful-swap.py analyze MOVIE.mp4 --marks MARKS.txt --out DIR [--region ...] [--probe PROBE.ndjson]
 
 `record` films the capture Mac's main display with Cua Driver's ScreenCaptureKit recorder (it holds the
@@ -278,8 +279,9 @@ def analyze(movie: Path, marks_path: Path, regions: list, out: Path, label: str,
     return result
 
 
-def record(args) -> None:
-    out: Path = args.out
+def record(args, trigger: str | None = None, out: Path | None = None) -> dict:
+    trigger = trigger or args.trigger
+    out = out or args.out
     out.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%dT%H%M%S")
     remote = f"~/graceful-swap/{args.label}-{stamp}"
@@ -289,7 +291,7 @@ def record(args) -> None:
         subprocess.run(["scp", "-q", str(runner), f"{args.host}:/tmp/graceful-swap-runner.py"], check=True)
     trigger_epoch_ms = (time.time() + args.pre) * 1000 - 2000  # probe records from shortly before the trigger
     cmd = " ".join(shlex.quote(v) for v in ["python3", "/tmp/graceful-swap-runner.py", str(args.pre), str(args.post),
-                                             args.trigger, remote])
+                                             trigger, remote])
     run = subprocess.run(["ssh", args.host, cmd], capture_output=True, text=True, timeout=600)
     (out / "marks.txt").write_text(run.stdout)
     (out / "trigger.log").write_text(run.stderr)
@@ -301,8 +303,45 @@ def record(args) -> None:
     if args.probe_file:
         probe = out / "probe.ndjson"
         subprocess.run(["scp", "-q", f"{args.host}:{shlex.quote(args.probe_file)}", str(probe)], check=False)
-    analyze(movie, out / "marks.txt", args.region, out, args.label, args.trigger, probe,
-            args.frames_dir or out / "frames", trigger_epoch_ms)
+    return analyze(movie, out / "marks.txt", args.region, out, args.label, trigger, probe,
+                   args.frames_dir or out / "frames", trigger_epoch_ms)
+
+
+def percentile(values: list[float], q: float) -> float | None:
+    """Nearest-rank percentile (q in 0..100) of `values`, None when empty."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    rank = max(1, -(-len(ordered) * q // 100))
+    return ordered[int(rank) - 1]
+
+
+def latency(args) -> dict:
+    """Edit-to-visible: `--runs` films, each one save (`--trigger`, then `--trigger-b` on odd runs to undo it),
+    timed to the first frame the `--watch` region changed in; every other region must keep its picture (a
+    draft, a chip, a streaming turn's text outside the edit). The film's frame rate bounds the resolution."""
+    runs = []
+    for i in range(args.runs):
+        trigger = args.trigger_b if (i % 2 and args.trigger_b) else args.trigger
+        result = record(args, trigger, args.out / f"run-{i:02d}")
+        runs.append(result)
+    regions = {name for name, _ in args.region}
+    summary: dict = {"version": VERSION, "label": args.label, "runs": len(runs), "watch": args.watch,
+                     "fps": [r["video"]["fps"] for r in runs], "regions": {}}
+    for name in sorted(regions):
+        rows = [r["regions"].get(name, {}) for r in runs]
+        if name == args.watch:
+            seen = [float(r["first_change_ms"]) for r in rows if r.get("first_change_ms") is not None]
+            summary["regions"][name] = {"n": len(seen), "missed": len(rows) - len(seen),
+                                        "p50_ms": percentile(seen, 50), "p95_ms": percentile(seen, 95),
+                                        "max_ms": max(seen) if seen else None, "samples_ms": seen}
+        else:
+            kept = [bool(r.get("kept")) for r in rows]
+            summary["regions"][name] = {"n": len(kept), "kept": sum(kept), "lost": len(kept) - sum(kept),
+                                        "transient_frames": sum(r.get("transient_frames", 0) for r in rows)}
+    (args.out / "latency.json").write_text(json.dumps(summary, indent=2) + "\n")
+    print("GRACEFUL_SWAP_LATENCY " + json.dumps(summary, separators=(",", ":")))
+    return summary
 
 
 def main() -> None:
@@ -318,6 +357,19 @@ def main() -> None:
     rec.add_argument("--post", type=float, default=4.0)
     rec.add_argument("--probe-file", help="the app's agent-page-flicker.ndjson on the host")
     rec.add_argument("--frames-dir", type=Path)
+    lat = sub.add_parser("latency", help="edit-to-visible p50/p95 over --runs saves")
+    lat.add_argument("--host", required=True)
+    lat.add_argument("--trigger", required=True, help="the save that makes the change (run on the host)")
+    lat.add_argument("--trigger-b", help="the save that undoes it, run on odd runs")
+    lat.add_argument("--watch", required=True, help="the region the change shows in")
+    lat.add_argument("--runs", type=int, default=20)
+    lat.add_argument("--out", type=Path, required=True)
+    lat.add_argument("--label", default="latency")
+    lat.add_argument("--region", type=parse_region, action="append", default=[])
+    lat.add_argument("--pre", type=float, default=1.0)
+    lat.add_argument("--post", type=float, default=2.5)
+    lat.add_argument("--probe-file")
+    lat.add_argument("--frames-dir", type=Path)
     ana = sub.add_parser("analyze")
     ana.add_argument("movie", type=Path)
     ana.add_argument("--marks", type=Path, required=True)
@@ -330,6 +382,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.cmd == "record":
         record(args)
+    elif args.cmd == "latency":
+        latency(args)
     else:
         analyze(args.movie, args.marks, args.region, args.out, args.label, args.trigger_text, args.probe,
                 args.frames_dir)
