@@ -102,6 +102,8 @@ mod screen_host;
 mod selftest;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
 mod serve;
+#[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
+mod serve_wish;
 #[cfg(target_os = "linux")]
 mod shm;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
