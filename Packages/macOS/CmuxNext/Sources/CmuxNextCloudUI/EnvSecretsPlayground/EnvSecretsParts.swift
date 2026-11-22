@@ -77,9 +77,12 @@ func envProvenance(_ entry: EnvSecretsEntry) -> NSView {
              size: TypeScale.caption, color: EnvInk.secondary, digits: true)
 }
 
-/// The type menu of a review row: the row's badge and a chevron; a click lists the four types.
+/// The type menu of a review row, drawn as a borderless menu: the type's symbol and short name in the text
+/// colour, then a small chevron; a click lists the four types.
 func envKindMenu(_ model: EnvSecretsPlaygroundModel, _ entry: EnvSecretsEntry, reload: @escaping @MainActor () -> Void) -> NSView {
-    let content = envH([envKindBadge(model.kind(of: entry)), envSymbol("chevron.down", size: TypeScale.caption, color: EnvInk.tertiary)], spacing: 3)
+    let kind = model.kind(of: entry)
+    let content = envH([envIconLabel(kind.short, symbol: kind.symbol, size: TypeScale.body, color: EnvInk.text),
+                        envSymbol("chevron.down", size: TypeScale.caption, weight: .semibold, color: EnvInk.text)], spacing: 3)
     return EnvClickArea(content) { area in
         let menu = NSMenu()
         for kind in EnvSecretsKind.allCases {  // visible-only: the four row types
@@ -120,10 +123,29 @@ func envRequestScopePicker(_ model: EnvSecretsPlaygroundModel, reload: @escaping
         narrow.priority = .init(2)
         narrow.isActive = true
         let text = envV([tagRow, envLabel(choice.note, size: TypeScale.caption, color: EnvInk.secondary)], spacing: 1)
-        let radio = envSymbol(picked ? "largecircle.fill.circle" : "circle", color: picked ? .controlAccentColor : EnvInk.tertiary)
-        let row = envH([radio, text, envSpacer()], spacing: 8, align: .top)
-        return EnvClickArea(row) { model.requestScope = choice.scope; reload() }
+        return EnvClickArea(envRadioRow(picked: picked, title: tagRow, text: text)) { model.requestScope = choice.scope; reload() }
     }
     return envV(rows, spacing: 6, fill: true)
+}
+
+/// A radio choice: the circle (filled in the accent colour when `picked`) centred on `title`, the one-line
+/// first row of `text`, then `text` (the title over its note), as SwiftUI centres a radio on its label.
+func envRadioRow(picked: Bool, title: NSView, text: NSView, size: CGFloat = TypeScale.detail) -> NSView {
+    let radio = envSymbol(picked ? "largecircle.fill.circle" : "circle", size: size, color: picked ? .controlAccentColor : EnvInk.tertiary)
+    let row = NSView()
+    row.translatesAutoresizingMaskIntoConstraints = false
+    radio.translatesAutoresizingMaskIntoConstraints = false
+    text.translatesAutoresizingMaskIntoConstraints = false
+    row.addSubview(radio)
+    row.addSubview(text)
+    NSLayoutConstraint.activate([
+        radio.leadingAnchor.constraint(equalTo: row.leadingAnchor),
+        radio.centerYAnchor.constraint(equalTo: title.centerYAnchor),
+        radio.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor),
+        text.leadingAnchor.constraint(equalTo: radio.trailingAnchor, constant: 8),
+        text.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+        text.topAnchor.constraint(equalTo: row.topAnchor), text.bottomAnchor.constraint(equalTo: row.bottomAnchor),
+    ])
+    return row
 }
 #endif

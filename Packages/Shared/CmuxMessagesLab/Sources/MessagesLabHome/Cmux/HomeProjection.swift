@@ -88,6 +88,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var onAttachmentRefusal: (HomeAttachmentError) -> Void = { _ in }
     /// The field's text changed.
     var onDraftTextChange: () -> Void = {}
+    /// The content hashes of the field's attachments, in order, each time they change: a chip
+    /// added or removed, or the draft sent (design mode takes a pick off the page once its chip left).
+    var onDraftAttachmentsChange: ([String]) -> Void = { _ in }
+    /// What `onDraftAttachmentsChange` last heard, so a key typed reports nothing.
+    private var reportedDraftHashes: [String] = []
     /// Forward… on a bubble (u5402): the host asks where its text goes; nil offers no Forward….
     var onForward: ((String) -> Void)?
     /// Retry a committed person message in a Chief conversation. The app
@@ -527,6 +532,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
             media.useLocal(a.files, for: a.ref.hash)
             drafts[a.ref.hash] = nil
         }
+        reportDraftAttachments(draftAttachments)
         let homeStore = self.homeStore, conversation = self.conversation
         let plain = pieces.map(\.part)
         // Messages' link rule: URL-only lines are cards whose previews this Mac attaches. Each text's
@@ -625,7 +631,17 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private func saveDraft() {
         guard !stopped, !restoringDraftAttachments, let store = controller.store else { return }
         homeStore.setDraft(store.state.ui.draft.text, for: conversation)
-        homeStore.setDraftAttachments(draftAttachments, for: conversation)
+        let attachments = draftAttachments
+        homeStore.setDraftAttachments(attachments, for: conversation)
+        reportDraftAttachments(attachments)
+    }
+
+    /// Tells the host the field's attachments when they differ from what it last heard.
+    private func reportDraftAttachments(_ attachments: [LocalAttachment]) {
+        let hashes = attachments.map(\.ref.hash)
+        guard hashes != reportedDraftHashes else { return }
+        reportedDraftHashes = hashes
+        onDraftAttachmentsChange(hashes)
     }
 
     /// The field's attachments from the cache, once, into a field without any, each at its mark
@@ -853,7 +869,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     func draftChanged() {
-        if sendNotice == CmuxStrings.threadRootNotReady { sendNotice = nil }  // the user moved on
+        // The user moved on. (No notice, no localized lookup: this runs on every key.)
+        if let notice = sendNotice, notice == CmuxStrings.threadRootNotReady { sendNotice = nil }
         // The text with its marks, and the attachments (Delete or a cut can take a chip with the text).
         saveDraft()
         // My typing dots for the other members (HomeStore+Typing); off once the field is empty.

@@ -69,14 +69,19 @@ def compare(old: dict[str, str], new: dict[str, str], new_reasons: list[str]) ->
     return Verdict("unexplained", f"dropped {change} with no fast-tier reason")
 
 
-# A cmux-tui path no Swift compile reads (the router's NO_SWIFT_COMPILE_REASON) drops only the Swift
-# compiles: native and scheme, nothing else, and the same Swift test targets.
+# A path no Swift compile reads (the router's NO_SWIFT_COMPILE_REASON: cmux-tui Rust, a CI file, a tree in
+# NO_SWIFT_COMPILE_ROOTS) drops only the Swift compiles: native and scheme, and `macos` when they were its only
+# Mac tier (macos is derived: any Mac tier), nothing else, and the same Swift test targets.
 NO_SWIFT_COMPILE_REASON = "(no Swift compile reads it)"
-SWIFT_COMPILE_TIERS = frozenset(("native", "scheme"))
+SWIFT_COMPILE_TIERS = frozenset(("native", "scheme", "macos"))
 # A pull request a running app takes live (the router's hot_only) drops the app build and test tiers, never the
 # daemon tier or `full`.
 HOT_ONLY_REASON = "(hot-only: no app build)"
 HOT_ONLY_TIERS = frozenset(("native", "macos", "scheme", "generated", "swift", "fast_tier"))
+# A pull request whose CmuxNext paths are no action or settings export input (the router's
+# NO_GENERATOR_INPUT_REASON) drops the generated tier alone, and `macos` when it was its only Mac tier.
+NO_GENERATOR_INPUT_REASON = "(no generator input)"
+GENERATED_TIERS = frozenset(("generated", "macos"))
 
 
 def explain(old: dict[str, str], new: dict[str, str], new_reasons: list[str]) -> Verdict:
@@ -90,6 +95,10 @@ def explain(old: dict[str, str], new: dict[str, str], new_reasons: list[str]) ->
     if (reason and dropped and dropped <= SWIFT_COMPILE_TIERS and not added
             and old.get("swift_targets", "") == new.get("swift_targets", "")):
         return Verdict("explained", f"dropped {', '.join(sorted(dropped))}: {reason}")
+    generated = next((r for r in new_reasons if NO_GENERATOR_INPUT_REASON in r), None)
+    if (generated and "generated" in dropped and dropped <= GENERATED_TIERS and not added
+            and old.get("swift_targets", "") == new.get("swift_targets", "")):
+        return Verdict("explained", f"dropped {', '.join(sorted(dropped))}: {generated}")
     hot = next((r for r in new_reasons if HOT_ONLY_REASON in r), None)
     if hot and dropped and dropped <= HOT_ONLY_TIERS and not added and new.get("hot_only") == "true":
         return Verdict("explained", f"dropped {', '.join(sorted(dropped))}: {hot}")
