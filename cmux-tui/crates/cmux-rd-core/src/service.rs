@@ -40,6 +40,11 @@ pub mod caps {
     /// viewer that does not offer it refuses such headers, so it gets those frames with
     /// only the parity one block holds.
     pub const FEC_BLOCKS: &str = "fec.blocks";
+    /// The viewer shows a picture smaller than the stream scaled up to the stream's size and
+    /// keeps sending input in stream pixels, so the host may encode a smaller picture under
+    /// the bits-per-pixel floor (the resolution ladder, design D5). A viewer that does not
+    /// offer it gets the full stream on every frame.
+    pub const VIDEO_SCALED: &str = "video.scaled";
     /// The stage ledger (screen-share-under-100ms.md D8): after each frame's last shard the
     /// host sends its times for that frame in a `FrameTimes` datagram.
     pub const LEDGER: &str = "ledger";
@@ -57,6 +62,7 @@ pub mod caps {
         LINK_UDP,
         CURSOR,
         FEC_BLOCKS,
+        VIDEO_SCALED,
         LEDGER,
         CLIPBOARD_TEXT,
     ];
