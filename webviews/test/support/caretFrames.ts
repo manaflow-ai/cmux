@@ -37,8 +37,24 @@ export const CARET_SLOP_PX = 1.5;
 /** One frame at 60 Hz. */
 export const FRAME_MS = 1000 / 60;
 
+/** The composer's shell-mode input in one painted frame (composer-shell-caret-frames.browser.test.ts). */
+export type ShellFrame = {
+  at: number;
+  readAt: number;
+  mounted: boolean;
+  focused: boolean;
+  value: string;
+  start: number;
+  end: number;
+  promptFocused: boolean;
+  promptText: string;
+  promptCaretAtEnd: boolean;
+};
+export type ShellTrace = { inputAt: number; frames: ShellFrame[]; final: ShellFrame };
+
 declare global {
   interface Window {
+    cmuxShellTrace?: { start(): void; stop(): ShellTrace; read(): ShellFrame };
     cmuxCaretTrace?: {
       start(field: string): void;
       /** Marks the input now (an event the test dispatches itself). */
