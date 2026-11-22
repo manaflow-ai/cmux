@@ -191,7 +191,7 @@ nonisolated final class DesktopStoreCache: Sendable {
         var found: String?
         for id in ids {
             for case .system(let path) in videos where URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent == id
-                && FileManager.default.isReadableFile(atPath: path) {
+                && FileManager.checked.isReadableFile(atPath: path) {
                 found = path
                 break
             }
