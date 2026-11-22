@@ -5,9 +5,10 @@
 //! The steps, each one found done or done now, so running the call again with the same `key`
 //! finishes a half-done start and never makes a second machine:
 //!
-//! 1. the machine: `cloud.machine.create {name, size}` under the idempotency key
-//!    `chief-machine-<key>-create` (a same-key retry never makes a second machine), started again
-//!    when it is paused, then waited on until it runs with a host;
+//! 1. the machine: `cloud.machine.create {name, size}` at the size the person's plan gives a
+//!    Chief ([`chief_size_for`]: the included 2 vCPU / 4 GiB / 32 GiB unless the plan names an
+//!    add-on) under the idempotency key `chief-machine-<key>-create` (a same-key retry never makes
+//!    a second machine), started again when it is paused, then waited on until it runs with a host;
 //! 2. no idle pause: `cloud.machine.idle_policy.set {idle_seconds: 0}` (no early pause; the
 //!    platform's 24 h backstop pauses a machine only after a day with no activity reports, and a
 //!    Chief host that answers its conversation reports activity) and `cloud.machine.keep` (never
@@ -40,8 +41,56 @@ use serde_json::{Map, Value, json};
 use super::http::{Body, Http, path_text, worker_error};
 use super::{Auth, Failure, Request, optional_text, text};
 
-/// The size a Chief's own computer gets: its agents, a browser and builds.
-pub const CHIEF_SIZE: (i64, i64, i64) = (4, 8192, 32768);
+/// The sizes a Chief's own computer comes in (cmuxterm-hq RFD 0037, "Chief sizes, upgrades and
+/// cmux-ci"): every paid plan includes the smallest; the others are paid add-ons on any paid plan.
+/// A Chief is never moved up to a paid size on its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChiefSize {
+    /// 2 vCPU / 4 GiB / 32 GiB, on every paid plan.
+    Included,
+    /// Chief M: 2 vCPU / 8 GiB / 32 GiB.
+    M,
+    /// Chief L: 4 vCPU / 16 GiB / 64 GiB.
+    L,
+    /// Chief XL: 8 vCPU / 32 GiB / 128 GiB.
+    Xl,
+}
+impl ChiefSize {
+    /// `(cpu, memory_mb, disk_mb)` as `cloud.machine.create`'s `size` takes them. The create takes
+    /// any whole numbers, each held to the plan (memory one of its `memory_options_mb`, vCPU up to
+    /// `max_cpu`, disk up to `max_disk_mb`; cmux-platform Admission.ts `admitSize`), not only the
+    /// ladder's named sizes, so the included 32 GiB disk is asked for as is (the ladder's `sm` is
+    /// 2/4/16 and has no 2/4/32).
+    pub const fn shape(self) -> (i64, i64, i64) {
+        match self {
+            Self::Included => (2, 4096, 32768),
+            Self::M => (2, 8192, 32768),
+            Self::L => (4, 16384, 65536),
+            Self::Xl => (8, 32768, 131_072),
+        }
+    }
+    /// The add-on a plan's data names (`chief_m`, `chief_l`, `chief_xl`), or none.
+    fn add_on(name: &str) -> Option<Self> {
+        match name {
+            "chief_m" => Some(Self::M),
+            "chief_l" => Some(Self::L),
+            "chief_xl" => Some(Self::Xl),
+            _ => None,
+        }
+    }
+}
+
+/// The size the person's plan gives a new Chief, from the Chief add-on the plan names: the
+/// included size unless it names a bigger Chief it pays for. An add-on name this build does not
+/// know is the included size too: never a paid size the plan did not name.
+///
+/// No Cloud read names a Chief add-on yet: `cloud.plan.get` answers `plan_id`, `limits` and
+/// `usage` and no Chief size (cmux-platform Plan.ts `planView`), and add-ons are not sold, so
+/// [`run`] passes none and every Chief starts at the included size. Once the platform answers
+/// the person's Chief add-on, [`run`] passes it here and nothing else changes.
+pub fn chief_size_for(add_on: Option<&str>) -> ChiefSize {
+    add_on.and_then(ChiefSize::add_on).unwrap_or(ChiefSize::Included)
+}
 /// The unit the Cloud image carries (images/cmux-vm/chief) and the fallback writes.
 pub const HOST_UNIT: &str = "cmux-chief.service";
 /// The folder on the Cloud machine (never this build's own state: the image's work user, the
@@ -311,13 +360,18 @@ async fn probe<C: Cloud>(cloud: &C, machine: &str) -> Result<Probe, Failure> {
         .map_err(|e| Failure::Decoding(format!("the machine's probe could not be read: {e}")))
 }
 
-/// The machine, made or found by its key, running with a host.
-async fn machine<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
-    let (cpu, memory_mb, disk_mb) = CHIEF_SIZE;
-    let params = json!({
+/// `cloud.machine.create`'s params for a Chief of `size`.
+pub fn create_params(start: &Start, size: ChiefSize) -> Value {
+    let (cpu, memory_mb, disk_mb) = size.shape();
+    json!({
         "name": start.machine_name,
         "size": { "cpu": cpu, "memory_mb": memory_mb, "disk_mb": disk_mb },
-    });
+    })
+}
+
+/// The machine, made at `size` or found by its key, running with a host.
+async fn machine<C: Cloud>(cloud: &C, start: &Start, size: ChiefSize) -> Result<Value, Failure> {
+    let params = create_params(start, size);
     let made = cloud
         .op("cloud.machine.create", params, &format!("chief-machine-{}-create", start.key))
         .await?;
@@ -405,7 +459,8 @@ async fn placed_chief<C: Cloud>(
 
 /// The whole start; see the module docs.
 pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
-    let row = machine(cloud, start).await?;
+    // The plan names no Chief add-on yet (see chief_size_for): the included size.
+    let row = machine(cloud, start, chief_size_for(None)).await?;
     let id = id_of(&row, "/id").unwrap_or_default();
     let idle = row.pointer("/idle_policy/idle_seconds").and_then(Value::as_i64);
     if idle != Some(0) {

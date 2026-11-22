@@ -256,3 +256,61 @@ fn shell_quoting_survives_a_quote() {
         fallback_unit("/b/x").contains("Environment=ACPMUX_BIN=/opt/cmux/current/bin/acpmux\n")
     );
 }
+
+#[test]
+fn the_plan_gives_the_included_chief_unless_it_names_an_add_on() {
+    // Every paid plan's Chief: 2 vCPU / 4 GiB / 32 GiB (RFD 0037), not the old 4/8/32.
+    assert_eq!(chief_size_for(None), ChiefSize::Included);
+    assert_eq!(ChiefSize::Included.shape(), (2, 4096, 32768));
+    assert_eq!(chief_size_for(Some("chief_m")).shape(), (2, 8192, 32768));
+    assert_eq!(chief_size_for(Some("chief_l")).shape(), (4, 16384, 65536));
+    assert_eq!(chief_size_for(Some("chief_xl")).shape(), (8, 32768, 131_072));
+    // A name this build does not know is never a paid size.
+    assert_eq!(chief_size_for(Some("chief_xxl")), ChiefSize::Included);
+    assert_eq!(chief_size_for(Some("")), ChiefSize::Included);
+}
+
+#[test]
+fn the_create_asks_for_the_size_it_was_given() {
+    let params = create_params(&start(false), ChiefSize::L);
+    assert_eq!(
+        params,
+        json!({ "name": "chief-k1", "size": { "cpu": 4, "memory_mb": 16384, "disk_mb": 65536 } })
+    );
+}
+
+/// The Cloud a start sees, keeping every create's params.
+#[derive(Default)]
+struct Recording {
+    fake: Fake,
+    creates: RefCell<Vec<Value>>,
+}
+
+impl Cloud for Recording {
+    async fn op(&self, op: &str, params: Value, key: &str) -> Result<Value, Failure> {
+        if op == "cloud.machine.create" {
+            self.creates.borrow_mut().push(params.clone());
+        }
+        self.fake.op(op, params, key).await
+    }
+    async fn read(&self, op: &str, params: Value) -> Result<Value, Failure> {
+        self.fake.read(op, params).await
+    }
+    async fn exec(&self, machine: &str, command: &str) -> Result<(i64, String, String), Failure> {
+        self.fake.exec(machine, command).await
+    }
+    async fn pause(&self, duration: Duration) {
+        self.fake.pause(duration).await;
+    }
+}
+
+#[tokio::test]
+async fn a_start_creates_the_included_chief() {
+    let cloud = Recording::default();
+    run(&cloud, &start(true)).await.unwrap();
+    assert_eq!(
+        *cloud.creates.borrow(),
+        vec![json!({ "name": "chief-k1",
+                     "size": { "cpu": 2, "memory_mb": 4096, "disk_mb": 32768 } })]
+    );
+}
