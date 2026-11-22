@@ -1,3 +1,10 @@
+#[test]
+fn identity_refusals_name_the_command_that_lists_the_ids() {
+    assert!(IdentityError::UnknownPending("x".into()).to_string().contains("enroll pending"));
+    assert!(IdentityError::UnknownDevice("x".into()).to_string().contains("enroll devices"));
+    assert!(IdentityError::InvitationExpired("x".into()).to_string().contains("enroll create"));
+}
+
 use super::*;
 use crate::crypto::NetworkPeer;
 use cmux_remote_protocol::{Lane, SessionId};

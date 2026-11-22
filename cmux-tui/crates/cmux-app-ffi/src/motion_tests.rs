@@ -29,3 +29,33 @@ fn no_spring_token_is_under_damped() {
         }
     }
 }
+
+/// The light field crosses the C ABI whole: a warm sun on a navy sky comes
+/// back with its key light, and the point and rim calls take it back.
+#[test]
+fn light_field_round_trips() {
+    let (w, h) = (32u32, 20u32);
+    let mut px = Vec::new();
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            let sun = (x - 25).pow(2) + (y - 4).pow(2) < 9;
+            px.extend_from_slice(&if sun { [255, 200, 120, 255] } else { [12, 18, 40, 255] });
+        }
+    }
+    let mut field = CmuxLightField::default();
+    // SAFETY: `px` is `px.len()` readable bytes; `field` is writable.
+    assert!(unsafe { cmux_motion_light_field(px.as_ptr(), px.len(), w, h, w * 4, &mut field) });
+    assert!(field.key_x > 0.7 && field.key_y < 0.35 && field.key_strength > 0.5, "{field:?}");
+    // SAFETY: a buffer one byte short is refused, never read past.
+    assert!(!unsafe {
+        cmux_motion_light_field(px.as_ptr(), px.len() - 1, w, h, w * 4, &mut field)
+    });
+    let mut xy = [0.; 2];
+    // SAFETY: `field` is readable; `xy` is 2 writable doubles.
+    assert!(unsafe { cmux_motion_light_point(&field, 1.6, 1600., 1000., xy.as_mut_ptr()) });
+    let mut rim = CmuxLightRim::default();
+    let rect = [0., 0., 400., 1000.];
+    // SAFETY: every pointer is valid for its size.
+    assert!(unsafe { cmux_motion_light_rim(&field, xy[0], xy[1], rect.as_ptr(), 1886., &mut rim) });
+    assert!(rim.alpha > 0. && rim.center_x > 1., "the light lies right of a sidebar: {rim:?}");
+}

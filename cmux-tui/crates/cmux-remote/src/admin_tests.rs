@@ -1,3 +1,13 @@
+#[test]
+fn a_missing_admin_socket_names_the_next_command() {
+    let gone = AdminError::Io(io::Error::from(io::ErrorKind::NotFound)).to_string();
+    assert!(gone.starts_with("admin socket failed: "), "{gone}");
+    assert!(gone.contains("cmux daemon start --remote-ws"), "{gone}");
+    assert!(gone.contains("--session NAME"), "{gone}");
+    let denied = AdminError::Io(io::Error::from(io::ErrorKind::PermissionDenied)).to_string();
+    assert!(!denied.contains("cmux daemon start"), "{denied}");
+}
+
 use tempfile::tempdir;
 use tokio::io::AsyncWriteExt;
 use tokio::net::UnixListener;

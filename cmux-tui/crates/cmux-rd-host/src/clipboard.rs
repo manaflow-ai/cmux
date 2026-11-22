@@ -46,10 +46,13 @@ pub trait Pasteboard {
 /// sync on for this session (`serve`'s setup `"clipboard": true`; `host` never offers it), and
 /// only where the host has a clipboard it can watch (macOS). Off by default: a new way for
 /// the shared machine's clipboard to leave it is opt-in until a person decides otherwise.
+/// With `link` only, as its one caller (`serve`).
+#[cfg(feature = "link")]
 pub fn offered(opted_in: bool) -> bool {
     opted_in && available()
 }
 
+#[cfg(feature = "link")]
 fn available() -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -96,6 +99,18 @@ pub struct Counters {
     pub view_refused: u64,
     pub write_failed: u64,
     pub local_too_large: u64,
+}
+
+impl Counters {
+    /// The session log's line for these counts; `None` when nothing was refused.
+    pub fn log_line(&self) -> Option<String> {
+        (*self != Self::default()).then(|| {
+            format!(
+                "cmux-rd host: clipboard: {} refused in view, {} writes failed, {} local texts over {MAX_CLIPBOARD_TEXT} bytes",
+                self.view_refused, self.write_failed, self.local_too_large
+            )
+        })
+    }
 }
 
 pub struct ClipboardChannel {

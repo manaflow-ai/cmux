@@ -24,6 +24,23 @@ fn a_joined_machine_has_a_credential() {
 }
 
 #[test]
+fn a_join_signs_in_at_its_own_deployments_hub() {
+    let dir = home(
+        "deployment",
+        Some(
+            r#"{"credential":"cmm_x","machine_id":"m","hub_origin":"https://cmux-platform-production.debussy.workers.dev"}"#,
+        ),
+    );
+    let join = Join::read(&dir).unwrap().unwrap();
+    assert_eq!(join.hub, "https://cmux-device-hub.debussy.workers.dev");
+    assert_eq!(join.home, dir);
+    let unknown = r#"{"credential":"cmm_x","hub_origin":"https://elsewhere.example"}"#;
+    let e = Join::read(&home("deployment-unknown", Some(unknown))).unwrap_err();
+    assert!(e.to_string().contains("no device hub serves"), "{e}");
+    assert!(Join::read(&home("deployment-none", None)).unwrap().is_none());
+}
+
+#[test]
 fn revoked_copied_empty_or_missing_records_sign_nothing_in() {
     assert!(load(&home("none", None)).unwrap().is_none());
     for body in [

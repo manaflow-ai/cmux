@@ -726,3 +726,91 @@ async fn authenticated_control_socket_has_an_idle_deadline() {
         RelayControl::Error { code, retryable: true, .. } if code == "control-idle-timeout"
     ));
 }
+
+/// A Connect to `slot-a` with a fresh Connect ticket: what the relay answers first.
+async fn connect_answer(server: &TestServer, config: &RelayConfig) -> RelayControl {
+    let lane = LaneToken("interactive".into());
+    let ticket = provider_ticket(config, RelayPermission::Connect, Some(lane.clone()), Some(1));
+    let mut client = server.connect().await;
+    send_control(
+        &mut client,
+        RelayControl::Connect {
+            protocol: REMOTE_PROTOCOL_VERSION,
+            slot: "slot-a".into(),
+            ticket,
+            lane,
+            generation: 1,
+            accepts_parked: false,
+        },
+    )
+    .await;
+    receive_control(&mut client).await
+}
+
+async fn register(server: &TestServer, ticket: String) -> TestSocket {
+    let mut daemon = server.connect().await;
+    send_control(
+        &mut daemon,
+        RelayControl::Register { protocol: REMOTE_PROTOCOL_VERSION, slot: "slot-a".into(), ticket },
+    )
+    .await;
+    assert!(matches!(receive_control(&mut daemon).await, RelayControl::Registered { .. }));
+    daemon
+}
+
+fn code_of(answer: &RelayControl) -> (&str, bool) {
+    match answer {
+        RelayControl::Error { code, retryable, .. } => (code.as_str(), *retryable),
+        other => panic!("expected a relay error, got {other:?}"),
+    }
+}
+
+/// F2 (cmuxterm-hq `docs/design/remote-cloud-durability.md`): a daemon whose Register ticket
+/// runs out while it still answers (no renewal came: its ticket mint is down) leaves its slot
+/// saying why. A Connect reads `credential-unavailable`, retryable, not a bare `slot-offline`
+/// that a client shows as still connecting; the slot's next Register clears it.
+#[tokio::test]
+async fn a_ticket_that_ran_out_unrenewed_answers_connect_with_credential_unavailable() {
+    let config = RelayConfig {
+        ticket_secret: Some(vec![9; 32]),
+        ticket_issuer: "relay.test".into(),
+        ..RelayConfig::default()
+    };
+    let server = TestServer::start(config.clone()).await;
+    assert_eq!(code_of(&connect_answer(&server, &config).await), ("slot-offline", true));
+
+    let expires = unix_timestamp(SystemTime::now()).unwrap() + 1;
+    let _daemon = register(
+        &server,
+        provider_ticket_expiring_at(&config, RelayPermission::Register, None, None, expires),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(2_100)).await;
+    // Before the sweep, the expired registration already says why.
+    assert_eq!(code_of(&connect_answer(&server, &config).await), ("credential-unavailable", true));
+    server.relay.cleanup_expired(Instant::now()).await;
+    assert_eq!(code_of(&connect_answer(&server, &config).await), ("credential-unavailable", true));
+
+    let _renewed =
+        register(&server, provider_ticket(&config, RelayPermission::Register, None, None)).await;
+    assert!(matches!(connect_answer(&server, &config).await, RelayControl::Allocated { .. }));
+}
+
+/// A daemon that went silent (its lease ran out before its ticket) is plainly offline: the
+/// relay cannot tell a dead machine from a dead link, so it names no credential.
+#[tokio::test]
+async fn a_silent_daemon_whose_lease_ran_out_is_slot_offline() {
+    let config = RelayConfig {
+        ticket_secret: Some(vec![9; 32]),
+        ticket_issuer: "relay.test".into(),
+        lease_duration: Duration::from_secs(1),
+        ..RelayConfig::default()
+    };
+    let server = TestServer::start(config.clone()).await;
+    let _daemon =
+        register(&server, provider_ticket(&config, RelayPermission::Register, None, None)).await;
+    tokio::time::sleep(Duration::from_millis(1_200)).await;
+    assert_eq!(code_of(&connect_answer(&server, &config).await), ("slot-offline", true));
+    server.relay.cleanup_expired(Instant::now()).await;
+    assert_eq!(code_of(&connect_answer(&server, &config).await), ("slot-offline", true));
+}

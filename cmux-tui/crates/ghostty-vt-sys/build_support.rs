@@ -160,6 +160,30 @@ pub fn installed_zig_paths(version: &str) -> Vec<String> {
     vec![format!("/opt/zig-{version}/zig")]
 }
 
+/// The zigs the build tries, in order: `explicit` (``zig_program``'s pick), PATH's
+/// first `zig`, every other `zig` on PATH, then ``installed_zig_paths`` of the pin.
+///
+/// Every PATH entry, not only the first: a host that keeps an older Zig early on PATH
+/// (cmux10s's ~/.cargo/bin/zig, 0.16) hid setup-zig's pinned one further down.
+pub fn zig_candidates(
+    explicit: String,
+    path: Option<&std::ffi::OsStr>,
+    required: Option<&str>,
+) -> Vec<String> {
+    let mut candidates = vec![explicit, "zig".to_string()];
+    let exe = if cfg!(windows) { "zig.exe" } else { "zig" };
+    for dir in path.into_iter().flat_map(std::env::split_paths) {
+        let zig = dir.join(exe);
+        if zig.is_file() {
+            candidates.push(zig.display().to_string());
+        }
+    }
+    if let Some(required) = required {
+        candidates.extend(installed_zig_paths(required));
+    }
+    candidates
+}
+
 /// The zig the build runs: the first of `candidates` (``zig_program``'s pick,
 /// then PATH, then ``installed_zig_paths``) whose `zig version` serves
 /// `required`. With no pin, or when none serves it, the first candidate, which

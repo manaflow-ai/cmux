@@ -65,7 +65,7 @@ impl Tool {
             if OBSERVES.contains(&self.name) {
                 props.insert(
                     "settle".into(),
-                    json!({"type": "string", "enum": ["adaptive", "anthropic", "openai"], "description": "How to wait before the state is captured. adaptive (default setting): ~120 ms, then until the window changes, at most 1 s. anthropic: a fixed 2 s (none after typing; typing goes 12 ms per key). openai: capture at once."}),
+                    json!({"type": "string", "enum": ["adaptive", "anthropic", "openai"], "description": "How to wait before the state is captured. adaptive (default setting): up to ~120 ms (less once the app signals a change), then until the window changes, at most 1 s; an app that signals nothing and shows nothing new returns after the first look. anthropic: a fixed 2 s (none after typing; typing goes 12 ms per key). openai: capture at once."}),
                 );
                 props.insert(
                     "observe".into(),

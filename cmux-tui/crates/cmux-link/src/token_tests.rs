@@ -94,10 +94,25 @@ fn token_issue_time_g3_start_log_names_mode_and_reason_but_never_the_value() {
         let choice = VerifierChoice::from_daemon_config(value.map(OsStr::new));
         mode_log_line(choice, &StampChecks::at_daemon_start(choice.config))
     };
-    assert_eq!(
-        line(None),
-        "cmux link: token verifier mode deny_all: CMUX_LINK_TOKEN_VERIFIER is not set"
+    let absent = line(None);
+    assert!(
+        absent.starts_with(
+            "cmux link: token verifier mode deny_all: CMUX_LINK_TOKEN_VERIFIER is not set, \
+                 so this host refuses link tokens. This is normal for a host that pairs by \
+                 invitation or enrollment, which works as usual; "
+        ),
+        "{absent}"
     );
+    if cfg!(any(target_os = "linux", target_os = "android")) {
+        assert!(absent.ends_with("but this platform does not support it yet"), "{absent}");
+    } else {
+        assert!(
+            absent.ends_with(
+                "set CMUX_LINK_TOKEN_VERIFIER=control_plane to check control-plane link tokens"
+            ),
+            "{absent}"
+        );
+    }
     assert_eq!(
         line(Some("deny_all")),
         "cmux link: token verifier mode deny_all: named by CMUX_LINK_TOKEN_VERIFIER"

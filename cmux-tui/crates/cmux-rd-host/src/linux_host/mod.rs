@@ -269,33 +269,33 @@ fn stack_token(args: &Args) -> Res<String> {
 /// The enabled host: its device, account and hub.
 /// A desktop never enabled and never joined signs in first; a joined machine signs itself in
 /// with its machine credential, so the host needs no step on it (machine.rs).
-fn load() -> Res<(std::path::PathBuf, Hub, Account)> {
-    let (dir, hub, account, _) = load_locked()?;
+fn load(old: serving::OldRecord) -> Res<(std::path::PathBuf, Hub, Account)> {
+    let (dir, hub, account, _) = load_locked(old)?;
     Ok((dir, hub, account))
 }
 
 /// [`load`], with the identity's [`serving::Lock`] still held for a caller that writes.
-fn load_locked() -> Res<(std::path::PathBuf, Hub, Account, serving::Lock)> {
+fn load_locked(old: serving::OldRecord) -> Res<(std::path::PathBuf, Hub, Account, serving::Lock)> {
     const NOT_ENABLED: &str = "not enabled: run `cmux-rd linux-host enable` first";
     let dir = identity::config_dir()?;
     let lock = serving::lock(&dir)?;
     let Some(account) = Account::load(&dir)? else {
         let (home, credential) = machine::current()?.ok_or(NOT_ENABLED)?;
+        let join = machine::Join::of(&home, credential)?;
         identity::private_dir(&dir)?;
         // Nothing is signed in, so no host serves yet: there is no unit to stop first.
-        let device =
-            serving::join(&dir, DEFAULT_HUB, &home, credential.clone(), &serving::ThisProcess)?;
+        let device = serving::join(&dir, &join, &serving::ThisProcess)?;
         let account = Account::load(&dir)?.ok_or(NOT_ENABLED)?;
-        let hub = Hub::with_renewal(&account.hub, device, None, machine_renewal(credential))?;
+        let hub = Hub::with_renewal(&join.hub, device, None, machine_renewal(join.credential))?;
         return Ok((dir, hub, account, lock));
     };
     if let Some(joined) = machine::Joined::load(&dir)? {
-        // Only the current join's host serves (serving.rs); a record from before joins were
-        // marked may sign in again, so the device and account are read after it.
-        let credential = serving::current_join(&dir, &account.hub, &joined)?;
+        // Only the current join's host serves, at its own hub (serving.rs); a record from
+        // before joins were marked may sign in again, so the device and account are read after.
+        let join = serving::current_join(&dir, &joined, machine::Join::read, old)?;
         let account = Account::load(&dir)?.ok_or(NOT_ENABLED)?;
         let device = Device::load(&dir)?.ok_or(NOT_ENABLED)?;
-        let hub = Hub::with_renewal(&account.hub, device, None, machine_renewal(credential))?;
+        let hub = Hub::with_renewal(&join.hub, device, None, machine_renewal(join.credential))?;
         return Ok((dir, hub, account, lock));
     }
     let device = Device::load(&dir)?.ok_or(NOT_ENABLED)?;
@@ -318,13 +318,13 @@ fn load_locked() -> Res<(std::path::PathBuf, Hub, Account, serving::Lock)> {
 /// only here, at the first sign-in, so a person's later "off" from any device stays off.
 fn sign_in_machine(
     dir: &std::path::Path,
-    hub_url: &str,
-    acpmux_home: &std::path::Path,
-    credential: machine::MachineCredential,
+    join: &machine::Join,
+    previous: Option<&machine::Joined>,
 ) -> Res<(Hub, Account)> {
+    let (hub_url, acpmux_home, credential) = (join.hub.as_str(), &join.home, &join.credential);
     // The join record first: records that a crash leaves half written are never read as a
     // person's (`load`).
-    machine::Joined::of(acpmux_home, &credential).save(dir)?;
+    machine::Joined::signed_in(previous, acpmux_home, credential).save(dir)?;
     let device = match Device::load(dir)? {
         Some(device) => device,
         None => {
@@ -403,17 +403,25 @@ fn set_up_for_join(args: &Args) -> Res<()> {
     let _lock = serving::lock(&dir)?;
     // The identity first, before any step that can fail: a person's host that was here is torn
     // down now, not left running when a later step fails.
-    let hub_url = args.get("hub").unwrap_or(DEFAULT_HUB);
     let joined = machine::current()?;
     let from_join = joined.is_some();
-    let Some(device) = join_device(&dir, hub_url, joined, &serving::HostUnit)? else {
+    // The join this machine was signed in for before this run signs it in again: a join from
+    // before consent-join.json existed keeps its consent through that ([`join_consent`]).
+    let before = machine::Joined::load(&dir).ok().flatten();
+    let mark = joined.as_ref().map(|(home, credential)| machine::Joined::of(home, credential));
+    // Before signing in: signing in rewrites joined.json, so a run stopped after it would
+    // otherwise make a join from before the marker read as this build's stopped first run.
+    mark_join_from_before_marker(&dir, before.as_ref(), mark.as_ref())?;
+    let Some(device) = join_device(&dir, args.get("hub"), joined, &serving::HostUnit)? else {
         println!("{NOT_INSTALLED}");
         return Ok(());
     };
-    let consent = enable_consent(args);
-    consent.save(&dir)?;
     let desktop = setup::detect_desktop();
-    grant_capture_now(consent.full, &desktop, Some(JOIN_GRANT_WAIT));
+    // The portal's grant is asked for only with consent this run wrote: a join's kept (or
+    // withdrawn) choice is never asked again on someone's screen.
+    let consent = join_consent(&dir, mark.as_ref(), args, &mut |control| {
+        grant_capture_now(control, &desktop, Some(JOIN_GRANT_WAIT))
+    })?;
     let virtual_display = desktop == setup::Desktop::None;
     if virtual_display {
         let display = setup::set_up_virtual_display()?;
@@ -429,17 +437,21 @@ fn set_up_for_join(args: &Args) -> Res<()> {
         "This desktop is shared as \"{}\" ({}), {}; the host runs as {}. {encoder}.",
         device.name,
         device.id,
-        shares_line(&Ok(consent), host_applies_input()),
+        shares_line(&consent, host_applies_input()),
         setup::HOST_UNIT
     );
     Ok(())
 }
 
 /// The device `enable --non-interactive` installs the host as, or None when nothing signed
-/// this machine in. A join always goes through [`serving::join`]: the host is the joiner's.
+/// this machine in. A join always goes through [`serving::join`]: the host is the joiner's, at
+/// the hub of the credential's own deployment ([`machine::Join`]). `expected_hub` is the hub the
+/// caller (the acpmux daemon's `--hub`) read for the join: when the credential read here is
+/// another deployment's (a leave and a join elsewhere came since), nothing is sent anywhere and
+/// the daemon sets the new join up at its next check, from its own read of it.
 fn join_device(
     dir: &std::path::Path,
-    hub_url: &str,
+    expected_hub: Option<&str>,
     joined: Option<(std::path::PathBuf, machine::MachineCredential)>,
     unit: &dyn serving::Unit,
 ) -> Res<Option<Device>> {
@@ -450,7 +462,16 @@ fn join_device(
             _ => None,
         });
     };
-    serving::join(dir, hub_url, &home, credential, unit).map(Some)
+    let join = machine::Join::of(&home, credential)?;
+    if let Some(expected) = expected_hub.filter(|hub| hub.trim_end_matches('/') != join.hub) {
+        return Err(format!(
+            "this machine's join is now at {}, not {}: it was joined again since the caller read it, so nothing was signed in",
+            join.hub,
+            printable(expected)
+        )
+        .into());
+    }
+    serving::join(dir, &join, unit).map(Some)
 }
 
 /// The seam the identity tests stop the unit through.
@@ -595,6 +616,84 @@ fn enable_consent(args: &Args) -> LocalConsent {
     LocalConsent { view: true, full: !args.flag("view-only") }
 }
 
+/// Beside `consent.json`: the join whose consent it is, written only after the consent itself
+/// (review F1 of #45480). A rerun for that join keeps the consent as its person left it; a run
+/// that stopped before this file was written writes the consent again on its next run, so a
+/// joined machine is never left unshared by a crash.
+const CONSENT_JOIN_FILE: &str = "consent-join.json";
+
+fn write_consent_join(dir: &std::path::Path, mark: &machine::Joined) -> Res<()> {
+    identity::write_private(&dir.join(CONSENT_JOIN_FILE), &serde_json::to_vec_pretty(mark)?)
+}
+
+/// The join `consent.json` was written for, if a run finished writing it.
+fn consent_join(dir: &std::path::Path) -> Res<Option<machine::Joined>> {
+    match identity::read_private(&dir.join(CONSENT_JOIN_FILE))? {
+        Some(bytes) => Ok(serde_json::from_slice(&bytes).ok()),
+        None => Ok(None),
+    }
+}
+
+/// Writes the marker for the join `mark` when `before` (joined.json as this run found it, before
+/// signing in) is that join from a build before the marker: from this home, naming this machine
+/// or no machine at all (a record from before joins were marked), without
+/// [`machine::Joined::consent_tracked`]. Its consent is then kept exactly as found: present,
+/// missing (withdrawn) or unreadable. A record with the flag is this build's, so no marker
+/// means its first run stopped before the consent, and [`join_consent`] writes it.
+fn mark_join_from_before_marker(
+    dir: &std::path::Path,
+    before: Option<&machine::Joined>,
+    mark: Option<&machine::Joined>,
+) -> Res<()> {
+    let (Some(before), Some(mark)) = (before, mark) else { return Ok(()) };
+    let from_before = !before.consent_tracked
+        && (before.same_machine(mark) || before.unmarked_from(&mark.acpmux_home));
+    if from_before && consent_join(dir)?.is_none() {
+        write_consent_join(dir, mark)?;
+    }
+    Ok(())
+}
+
+/// The consent `enable --non-interactive` leaves in `dir` for the join `mark` (None: not a
+/// join), asking `grant` for the portal's grant (with control or not) only when it wrote it.
+/// One join is one machine from one acpmux home: a credential generation the hub raises for
+/// it (recovery) is no choice made at this screen.
+fn join_consent(
+    dir: &std::path::Path,
+    mark: Option<&machine::Joined>,
+    args: &Args,
+    grant: &mut dyn FnMut(bool),
+) -> Res<Res<LocalConsent>> {
+    let same_join = match (mark, consent_join(dir)?) {
+        (Some(mark), Some(written)) => mark.same_machine(&written),
+        _ => false,
+    };
+    if same_join {
+        // The person's choice stays, including a withdrawn one (no file). Only a narrower one
+        // is taken: `--view-only` turns control off, never on.
+        return match LocalConsent::load(dir) {
+            Ok(kept) if kept.full && args.flag("view-only") => {
+                let narrowed = LocalConsent { full: false, ..kept };
+                narrowed.save(dir)?;
+                Ok(Ok(narrowed))
+            }
+            kept => Ok(kept),
+        };
+    }
+    let consent = enable_consent(args);
+    consent.save(dir)?;
+    // The consent first, then whose it is: a run cut off between the two writes it again.
+    match mark {
+        Some(mark) => write_consent_join(dir, mark)?,
+        None => match std::fs::remove_file(dir.join(CONSENT_JOIN_FILE)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+            _ => {}
+        },
+    }
+    grant(consent.full);
+    Ok(Ok(consent))
+}
+
 /// On a Wayland desktop, asks the portal for its grant now, while the person who ran `enable` is
 /// at the screen (with `control`, the RemoteDesktop grant: keyboard and pointer too), and keeps
 /// the restore token it returns: later sessions start from that token with no dialog, so no
@@ -643,7 +742,7 @@ pub(crate) fn with_fresh_identity<T>(
 }
 
 fn share_on(args: &Args) -> Res<()> {
-    let (dir, hub, mut account, _lock) = load_locked()?;
+    let (dir, hub, mut account, _lock) = load_locked(serving::OldRecord::Keep)?;
     if machine::Joined::load(&dir)?.is_some() {
         // A joined machine's session may turn its own sharing on (PROTOCOL.md, Machine sign-in).
         hub.set_shared(true)?;
@@ -668,7 +767,7 @@ fn share_on(args: &Args) -> Res<()> {
 }
 
 fn share_off() -> Res<()> {
-    let (_, hub, _) = load()?;
+    let (_, hub, _) = load(serving::OldRecord::Keep)?;
     hub.set_shared(false)?;
     println!("Sharing is off; the hub ended any session.");
     Ok(())
@@ -707,7 +806,7 @@ fn requests() -> Res<()> {
 }
 
 fn approve(id: &str, args: &Args) -> Res<()> {
-    let (dir, hub, _) = load()?;
+    let (dir, hub, _) = load(serving::OldRecord::Keep)?;
     let runtime = identity::runtime_dir()?;
     let pending = Pending::new(&runtime);
     let now = now_ms();
@@ -738,7 +837,7 @@ fn approve(id: &str, args: &Args) -> Res<()> {
 }
 
 fn deny(id: &str) -> Res<()> {
-    let (_, hub, _) = load()?;
+    let (_, hub, _) = load(serving::OldRecord::Keep)?;
     let runtime = identity::runtime_dir()?;
     let pending = Pending::new(&runtime);
     let now = now_ms();
@@ -870,7 +969,7 @@ fn withdraw_unconsented(
 }
 
 fn run(args: &Args) -> Res<()> {
-    let (dir, hub, account) = load()?;
+    let (dir, hub, account) = load(serving::OldRecord::Heal)?;
     // What this process serves as, read now; it exits once the records say otherwise.
     let serving_as = serving::Serving::now(&dir)?;
     // Held while this process lives: a teardown that takes it knows no host serves.
@@ -1223,3 +1322,7 @@ fn end_later(hub: &Arc<Hub>, id: &str, reason: &'static str) {
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "join_consent_tests.rs"]
+mod join_consent_tests;

@@ -208,6 +208,40 @@ fn the_trees_pin_wins_over_a_recipe_that_hands_over_an_older_zig() {
     assert_eq!(select_zig(&candidates, None, versions), ("zig".to_string(), None));
 }
 
+/// cmux10s keeps a Zig 0.16 in ~/.cargo/bin, and in the Mac legs it came before setup-zig's
+/// 0.17 on PATH (macos-cross-parity run 45000510727, after 7e85a5ac): the first `zig` on PATH
+/// was the only PATH candidate, so the build failed on Ghostty's version check although the
+/// pinned Zig was on PATH too.
+#[test]
+fn a_pinned_zig_later_on_path_wins_over_an_older_one_first_on_path() {
+    let root = scratch_tree("zig-path", &["stale/zig", "tool/zig", "empty/.keep"]);
+    let (stale, tool) = (root.join("stale/zig"), root.join("tool/zig"));
+    let path =
+        std::env::join_paths([root.join("empty"), root.join("stale"), root.join("tool")]).unwrap();
+    let (stale_s, tool_s) = (stale.display().to_string(), tool.display().to_string());
+    let versions = |zig: &str| {
+        if zig == "zig" || zig == stale_s {
+            Some("0.16.0".to_string())
+        } else if zig == tool_s {
+            Some("0.17.0".to_string())
+        } else {
+            None
+        }
+    };
+    let candidates = zig_candidates("zig".to_string(), Some(path.as_os_str()), Some("0.17.0"));
+    let (zig, why) = select_zig(&candidates, Some("0.17.0"), versions);
+    assert_eq!(zig, tool_s);
+    assert!(why.unwrap().contains("0.17.0"));
+    // an explicit ZIG still comes first, and no PATH means the old list
+    let explicit = zig_candidates("/x/zig".to_string(), Some(path.as_os_str()), None);
+    assert_eq!(explicit.first().map(String::as_str), Some("/x/zig"));
+    assert_eq!(
+        zig_candidates("zig".to_string(), None, Some("0.17.0")),
+        vec!["zig".to_string(), "zig".to_string(), "/opt/zig-0.17.0/zig".to_string()]
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn mirrored_packages_reads_the_tagged_lines() {
     let lock = "# comment\n\

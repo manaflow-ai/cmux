@@ -12,13 +12,37 @@ fn documents_round_trip_like_the_mac() {
         display: Some(1),
         max_width: Some(1920),
         max_fps: Some(60),
+        max_kbps: Some(5_000),
+        cursor: Some(false),
+        encode_profile: Some("ultra".into()),
         displays: vec![(2560, 1440)],
         current_display: Some(0),
+        display_id: Some(17),
+        display_ids: vec![1, 17],
     };
+    assert!(doc.text().contains("\r\na=cmux-rd-encode-profile:ultra\r\n"));
     let text = doc.text();
+    assert!(text.contains("a=cmux-rd-display-id:17\r\n"));
+    assert!(text.contains("a=cmux-rd-display-ids:1,17\r\n"));
+    assert!(text.contains("a=cmux-rd-max-kbps:5000\r\n"));
+    assert!(text.contains("a=cmux-rd-cursor:0\r\n"));
     assert!(text.starts_with("cmux.rd/1\r\na=fingerprint:cmux-rd-key 0011"));
     assert_eq!(RdDocument::parse(&text), Some(doc));
     assert_eq!(fingerprint_of(&text).as_deref(), Some(format!("cmux-rd-key {KEY}").as_str()));
+}
+
+#[test]
+fn customize_wishes_round_trip_and_unset_ones_stay_out() {
+    let shown = RdDocument { key: KEY.into(), cursor: Some(true), ..RdDocument::default() };
+    assert!(shown.text().contains("a=cmux-rd-cursor:1\r\n"));
+    assert_eq!(RdDocument::parse(&shown.text()), Some(shown));
+    // Today's offer: no bitrate cap and no cursor line, so an older host reads the same.
+    let plain = RdDocument { key: KEY.into(), ..RdDocument::default() }.text();
+    assert!(!plain.contains("max-kbps") && !plain.contains("cmux-rd-cursor"));
+    // A value this side does not know is no wish, not a wrong one.
+    let odd = format!("{plain}a=cmux-rd-cursor:yes\r\na=cmux-rd-max-kbps:-3\r\n");
+    let parsed = RdDocument::parse(&odd).unwrap();
+    assert_eq!((parsed.cursor, parsed.max_kbps), (None, None));
 }
 
 #[test]
