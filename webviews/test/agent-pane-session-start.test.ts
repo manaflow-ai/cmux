@@ -9,6 +9,7 @@ import { expect, test } from "bun:test";
 import { insertRunChange, type RunChange } from "../src/agent-session/acpmux/conversation/sessionStart";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow, AcpmuxSessionStart } from "../src/agent-session/acpmux/model";
+import { until } from "./support/until";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000d8";
 const START = Date.UTC(2026, 9, 18, 9, 0, 0);
@@ -458,11 +459,11 @@ test("usage limits acpmux reports after the chat opened reach the summary withou
     plan: "max",
   };
   daemon.push(record([["mux", "usage_limits", { usageLimits: merged }]], 3));
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await until(() => summary()?.usageLimits?.plan === "max");
   expect(summary()?.usageLimits).toEqual(merged);
 
   // A Codex report with no plan window left clears them: unreported, not a stale ring.
   daemon.push(record([["mux", "usage_limits", { usageLimits: null }]], 4));
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await until(() => summary()?.usageLimits === undefined);
   expect(summary()?.usageLimits).toBeUndefined();
 });
