@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44972186951",
+  "recorded_at": "2026-11-22T01:50:53Z",
+  "reason": "cmux-tui 8d8de102ea75 changes the image's cmux-tui (pinned 9d9419a91089)",
+  "dry_run": false,
+  "cmux_tui": "8d8de102ea75d30ed7268ee61d36f70d0700d7c4",
+  "fixes": [
+    {
+      "sha": "8d8de102ea75d30ed7268ee61d36f70d0700d7c4",
+      "mergedAt": "2026-11-21T23:37:33+00:00",
+      "subject": "acpmux: archive and unarchive chats, ls --archived, and archive inactive chats on a setting (#46973)"
+    },
+    {
+      "sha": "36d2bb5c1834dab570a4d559256b838fb164519a",
+      "mergedAt": "2026-11-21T15:35:18-08:00",
+      "subject": "Feed: terminal Claude Code events show what the agent said, and its approvals and questions are answerable from the phone (#47070)"
+    },
+    {
+      "sha": "0b2ea794160772e518464fd2caed0475dd67994f",
+      "mergedAt": "2026-11-21T23:30:52+00:00",
+      "subject": "acpmux: asks about a peer down for minutes no longer re-dial its ssh each second (#49190)"
+    },
+    {
+      "sha": "edef8d5f752eaa5a8c3b6742e1d52f9b580f037c",
+      "mergedAt": "2026-11-21T23:29:30+00:00",
+      "subject": "acpmux: mesh read retries stay within READ_WAIT; inbox failures say how (#49453)"
+    },
+    {
+      "sha": "e96390ee5ef5e1ec6bc490479d02ebf06aa97e01",
+      "mergedAt": "2026-11-21T15:28:00-08:00",
+      "subject": "fix(rd-host): Capture::start builds only with bench, as its one caller"
+    },
+    {
+      "sha": "554c3774e0a4128a37de4e1ef7c9cdeac6dba390",
+      "mergedAt": "2026-11-21T23:19:02+00:00",
+      "subject": "machine join: install cmux-rd from the files channel so a joined Linux machine's screen is shareable (on base) (#49079)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-22T01:50:53Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
