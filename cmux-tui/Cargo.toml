@@ -120,6 +120,7 @@ members = [
     "crates/cmux-customize",
     "crates/cmux-customize-recipes",
     "crates/cmux-theme-tokens",
+    "crates/cmux-theme-pack",
     "crates/cmux-image-linear",
     "crates/cmux-app-manifest",
     "crates/cmux-extension-sdk",
@@ -253,6 +254,7 @@ default-members = [
     "crates/cmux-customize",
     "crates/cmux-customize-recipes",
     "crates/cmux-theme-tokens",
+    "crates/cmux-theme-pack",
     "crates/cmux-image-linear",
     "crates/cmux-app-manifest",
     "crates/cmux-extension-sdk",
@@ -379,6 +381,7 @@ acpmux-hot = { path = "crates/acpmux-hot" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
 cmux-theme-tokens = { path = "crates/cmux-theme-tokens" }
+cmux-theme-pack = { path = "crates/cmux-theme-pack" }
 cmux-image-linear = { path = "crates/cmux-image-linear" }
 cmux-action-catalog = { path = "crates/cmux-action-catalog" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
