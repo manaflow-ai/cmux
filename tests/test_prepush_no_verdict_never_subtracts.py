@@ -203,6 +203,49 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         base, head = self.scanner_push()
         self.assertEqual(dict(self.quiet(self.gate.gate, self.repo, base, head, {"scanners"}, False)), {})
 
+    # Leo 2026-11-22: a gate refuses only for the pusher's own diff. A NoVerdict is never subtracted (above), but one
+    # whose cause is outside the diff (the check stops at the base too, or times out) carries that cause, and main()
+    # warns with it and lets the push through (own_refusals). One the push's change caused still refuses.
+
+    def test_a_scanner_that_crashes_alike_on_both_sides_warns_and_passes(self) -> None:
+        self.fake_scanner(CRASH)
+        base, head = self.scanner_push()
+        found = self.quiet(self.gate.gate, self.repo, base, head, {"scanners"}, False)
+        self.assertRefusedWithNoVerdict(dict(found)["Fake check"], "crash alike")
+        refused, warned = self.gate.own_refusals(found)
+        self.assertEqual(refused, [], "a check broken without the push refused it")
+        self.assertEqual(len(warned), 1, warned)
+        self.assertIn("WARNING: Fake check", warned[0])
+        self.assertIn("no verdict at the base either", warned[0])
+
+    def test_a_scanner_the_push_crashes_still_refuses(self) -> None:
+        # The base judges; only the pushed file crashes the scanner: the push's own change stopped it.
+        self.fake_scanner("import pathlib, sys\n"
+                          "if '2' in (pathlib.Path(sys.argv[1]) / 'webviews/a.ts').read_text():\n    " + CRASH)
+        base, head = self.scanner_push()
+        found = self.quiet(self.gate.gate, self.repo, base, head, {"scanners"}, False)
+        refused, warned = self.gate.own_refusals(found)
+        self.assertEqual(warned, [])
+        self.assertRefusedWithNoVerdict(dict(refused)["Fake check"], "a crash the push caused")
+
+    def test_a_scanner_that_times_out_warns_and_passes(self) -> None:
+        # run()'s timeout is this machine's load or a hang, not the push's diff.
+        record = self.gate.NoVerdict("Fake check timed out at the pushed head", self.gate.outside_cause("timed out"))
+        refused, warned = self.gate.own_refusals([("Fake check", [record, "webviews/a.ts:1: [fake] a real finding"])])
+        self.assertEqual(refused, [("Fake check", ["webviews/a.ts:1: [fake] a real finding"])],
+                         "a real finding beside a timeout must still refuse")
+        self.assertIn("timed out", warned[0])
+
+    def test_the_reserved_keys_layer_crashing_alike_warns(self) -> None:
+        base, head = self.reserved_repo()
+        found = self.quiet(self.gate.reserved_keys, self.repo, base, head, self.installed)
+        self.assertRefusedWithNoVerdict(found, "reserved keys")
+        self.assertEqual(self.gate.own_refusals([(self.gate.RESERVED_CHECK, found)])[0], [])
+
+    def test_a_deleted_input_is_the_push_s_own_and_refuses(self) -> None:
+        found = self.gate.deleted_input_refusals("Some check", ["a.json"])
+        self.assertEqual(self.gate.own_refusals([("Some check", found)]), ([("Some check", found)], []))
+
     def test_gate_own_never_takes_a_no_verdict_off(self) -> None:
         # A merge: the upstream range's run crashes the same way as the push's own, and must not take its refusal off.
         base, upstream = self.reserved_repo()

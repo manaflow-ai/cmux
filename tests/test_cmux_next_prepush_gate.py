@@ -574,8 +574,9 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("2 own commit(s)", output)
 
     def test_a_push_nothing_bounds_is_refused_with_what_to_fetch(self):
-        # No ref of the remote at all in this clone: the gate cannot tell the push's own commits, so it refuses
-        # on purpose (one line per ref, no traceback) instead of judging HEAD~1 alone.
+        # No ref of the remote at all in this clone: nothing can tell the push's own commits (one line per ref, no
+        # traceback), and nothing judges HEAD~1 alone. The cmux-next gate now warns and passes here (Leo 2026-11-22:
+        # refuse only for the pusher's own diff); the web lint, which runs first, still refuses it.
         for ref in self.git("for-each-ref", "--format=%(refname)", "refs/remotes/").stdout.split():
             self.git("update-ref", "-d", ref)
         self.git("checkout", "--quiet", "-b", "fresh")
@@ -593,6 +594,7 @@ class PrePushGateTests(unittest.TestCase):
         self.assertNotIn("Traceback", output)
 
     def test_a_snapshot_without_push_range_refuses_the_push_and_says_how_to_fix_it(self):
+        # The web lint, which runs first, refuses; the cmux-next gate alone would warn and pass (CannotDecide).
         snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
         (snapshot.resolve() / "push_range.py").unlink()
         self.kit("Fresh", NEW_CLEAN)
@@ -607,9 +609,10 @@ class PrePushGateTests(unittest.TestCase):
 
     STALE = "the installed hook is older than the checks this push needs: rerun scripts/install-git-hooks.sh"
 
-    def test_a_stale_install_refuses_and_never_runs_the_pushed_check(self):
-        # The hook never runs code the push controls. A reviewed copy older than a check must refuse with how to fix
-        # it, never fall back to the pushed head's copy of that check.
+    def test_a_stale_install_warns_and_never_runs_the_pushed_check(self):
+        # The hook never runs code the push controls. A reviewed copy older than a check says how to fix it and never
+        # falls back to the pushed head's copy of that check; the stale install is the clone's, not the push's diff,
+        # so the push goes through with that warning (Leo 2026-11-22).
         snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
         marker = self.root / "pushed-code-ran"
         payload = f"open({str(marker)!r}, 'w').close()\n"
@@ -632,9 +635,10 @@ class PrePushGateTests(unittest.TestCase):
 
                 output = result.stdout + result.stderr
                 self.assertFalse(marker.exists(), f"the hook ran the pushed {name}")
-                self.assertNotEqual(result.returncode, 0, output)
-                self.assertEqual(self.remote_head(), before)
+                self.assertEqual(result.returncode, 0, output)
+                self.assertNotEqual(self.remote_head(), before)
                 self.assertIn(self.STALE, output)
+                self.assertIn("goes through UNCHECKED", output)
                 self.assertNotIn("Traceback", output)
 
     def test_a_stale_install_never_takes_the_tool_pins_from_the_checkout(self):
@@ -667,9 +671,10 @@ class PrePushGateTests(unittest.TestCase):
         output = result.stdout + result.stderr
         self.assertFalse(marker.exists(), "the hook ran a binary the pushed lock named")
         self.assertFalse(tools.exists() and any(tools.iterdir()), "the hook downloaded what the pushed lock named")
-        self.assertNotEqual(result.returncode, 0, output)
-        self.assertEqual(self.remote_head(), before)
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotEqual(self.remote_head(), before)
         self.assertIn(self.STALE, output)
+        self.assertIn("goes through UNCHECKED", output)
         self.assertNotIn("Traceback", output)
 
     def test_a_merge_cannot_use_an_upstream_removal_to_pay_for_the_branch_s_own_debt(self):
