@@ -61,7 +61,10 @@ class FakeDaemon:
 
 
 class AcceptingApp:
+    calls = []
+
     def call(self, method, params=None, **kw):
+        AcceptingApp.calls.append((method, params))
         return {"ok": True}
 
     def close(self):
@@ -84,12 +87,14 @@ class AgentMark(unittest.TestCase):
                       f"{mark} is marked only in {senders}; the page host (AgentPageProvider) answers through "
                       "AgentPaneModel.respond")
 
-    def test_a_page_host_chat_seeds_the_agent_profile(self):
+    def seed(self, lines, session="sess-1"):
+        """seed_realistic on a pipe launch with `lines` marks; (seeded_agent, stderr, action.run params)."""
         root = tempfile.mkdtemp(prefix="seed-agent-")
+        AcceptingApp.calls = []
         try:
             tag = "seedagent"
             os.makedirs(os.path.join(root, "Library/Application Support/cmux-next/tags", tag, "tui"))
-            PipeLaunch.lines = PAGE_HOST_SEED
+            PipeLaunch.lines = lines
             fake_storm = types.ModuleType("bench_cli_storm")
             fake_storm.Client = FakeDaemon
             env = {k: v for k, v in os.environ.items() if k != "BENCH_LAUNCH_STATE_BASE"}
@@ -101,13 +106,52 @@ class AgentMark(unittest.TestCase):
                     mock.patch.object(bench_startup, "reset_state", lambda tag: None), \
                     mock.patch.object(bench_startup, "daemon_socket", lambda tag, timeout=20: "/nonexistent.sock"), \
                     mock.patch.object(bench_startup, "app_client", lambda *a, **k: AcceptingApp()), \
-                    mock.patch.object(bench_startup, "app_tab_id", lambda *a, **k: "tab-1"):
+                    mock.patch.object(bench_startup, "app_tab_id", lambda *a, **k: "tab-1"), \
+                    mock.patch.object(bench_startup, "seed_chat_session", lambda tag: session):
                 with redirect_stderr(io.StringIO()) as err:
                     bench_startup.seed_realistic(tag, tempfile.mkdtemp(dir=root), 2)
-                self.assertNotIn("never loaded", err.getvalue())
-                self.assertTrue(bench_startup.seeded_agent(tag), err.getvalue())
+                    marker = bench_startup.seeded_focus(tag)
+                return bench_startup.seeded_agent(tag), err.getvalue(), [p for m, p in AcceptingApp.calls if m == "action.run"], marker
         finally:
             shutil.rmtree(root, ignore_errors=True)
+
+    def test_a_page_host_chat_seeds_the_agent_profile(self):
+        agent, err, _, _ = self.seed(PAGE_HOST_SEED)
+        self.assertNotIn("never loaded", err)
+        self.assertTrue(agent, err)
+
+    def test_the_seeded_chat_is_a_session_shown_in_the_focused_pane(self):
+        """The chat is an acpmux session opened as a tab (agent.openSessionTab, shown), not New Agent Chat: a chat with
+        no session restores as a New Tab page, which marks agent_pane.newtab_painted and never the bench's mark, so the
+        launch-chat part had no agent_pane.painted in 10 of 10 relaunches on the measure Macs (2026-11-19)."""
+        agent, err, runs, marker = self.seed(PAGE_HOST_SEED)
+        self.assertTrue(agent, err)
+        actions = [p["action"] for p in runs]
+        self.assertNotIn("palette.newAgentChat", actions)
+        opened = [p for p in runs if p["action"] == "agent.openSessionTab"]
+        self.assertEqual(len(opened), 1, actions)
+        self.assertEqual(opened[0]["args"], {"session": "sess-1"})
+        self.assertTrue(opened[0]["focus"], "a script's open leaves the tab unshown, so its page never loads")
+        self.assertLess(actions.index("splitRight"), actions.index("agent.openSessionTab"))
+        self.assertEqual(marker, bench_startup.seed_layout())
+
+    def test_a_new_tab_page_chat_is_not_an_agent_seed(self):
+        """A seeding launch whose chat only drew a New Tab page (agent_pane.newtab_painted) seeds terminals, said."""
+        lines = [line.replace("agent_pane.painted", "agent_pane.newtab_painted") for line in PAGE_HOST_SEED]
+        agent, err, _, _ = self.seed(lines)
+        self.assertFalse(agent)
+        self.assertIn("never loaded", err)
+
+    def test_no_session_seeds_terminals_and_says_why(self):
+        agent, err, runs, _ = self.seed(PAGE_HOST_SEED, session=None)
+        self.assertFalse(agent)
+        self.assertIn("no session on the test agent", err)
+        self.assertNotIn("agent.openSessionTab", [p["action"] for p in runs])
+
+    def test_a_tag_seeded_with_the_old_chat_seeds_again(self):
+        """A marker from before SEED_CHAT_KIND (the New Agent Chat seed, "terminals focus=agent") is not this layout."""
+        self.assertNotEqual("agent", bench_startup.seed_layout())
+        self.assertTrue(bench_startup.seed_layout().endswith("+" + bench_startup.SEED_CHAT_KIND))
 
 
 if __name__ == "__main__":

@@ -29,7 +29,7 @@ on waitpid for the app, and on kqueue NOTE_EXIT for the tag's daemon.
 each run (a first launch on a new Mac; cold mode only). --profile realistic
 seeds one priming launch with REALISTIC_WORKSPACES workspaces of three
 terminal tabs and a split, then splits the selected pane and opens an agent
-chat in it, so the measured launch restores a full sidebar, a terminal and
+chat in it (a session on the acpmux test agent with an answered turn), so the measured launch restores a full sidebar, a terminal and
 an agent pane. Its runs wait for the agent chat's first frame (agent_pane.painted,
 which both agent page hosts send) as well as the first terminal frame.
 --profile stress seeds one priming launch with the standard
@@ -628,6 +628,14 @@ STEP_STARTED_WALL = {}
 SEED_FOCUS = "agent"
 # --chat-pane: with --focus terminal, the chat's pane (first or last).
 SEED_CHAT_PANE = "last"
+# The realistic profile's chat: a session on the acpmux test agent (idle_cost_agent.py, as bench_memory's FakeChats
+# make one) with its first turn answered, opened as a tab of the focused pane. A New Agent Chat chat has no session
+# until a person sends in it: it is a New Tab page, which marks agent_pane.newtab_painted, so the seeding launch
+# waited for AGENT_MARK in vain, wrote "terminals" and every measured relaunch had no chat row (launch-chat, 10 of 10
+# runs on the measure Macs, 2026-11-19). SEED_CHAT_KIND goes in the seeded marker: a tag seeded the old way seeds again.
+SEED_CHAT_ACTION = "agent.openSessionTab"
+SEED_CHAT_KIND = "session"
+SEED_CHAT_TEXT = "launch bench chat: what restores after a relaunch"
 # --hidden-screens: the realistic profile's shown workspace gets this many more screens, each a split of two
 # terminals, that are hidden at quit (its first screen shows). 0, the default, seeds the profile as before.
 HIDDEN_SCREENS = 0
@@ -1053,16 +1061,28 @@ def seed_realistic(tag, scratch, timeout):
             # one, which a launch that ignores the saved focus would pick.
             index = 0 if SEED_CHAT_PANE == "first" else -1
             steps.append(("palette.goToTab", lambda: {"kind": "tab", "id": project_panes(app)[index]["tabs"][0]["id"]}))
-        steps.append(("palette.newAgentChat", None))
+        # A chat with a session and an answered turn (SEED_CHAT_ACTION): New Agent Chat's empty chat restores as a New
+        # Tab page, which marks agent_pane.newtab_painted and never AGENT_MARK.
+        session = seed_chat_session(tag)
+        if session:
+            steps.append((SEED_CHAT_ACTION, {"session": session}))
         agent = True
         for action, target in steps:
             target = target() if callable(target) else target
-            reply = app.call("action.run", {"action": action, **({"target": target} if target else {})})
+            if action == SEED_CHAT_ACTION:
+                # Shown in the focused pane, as a person's open does (focus): a script's run opens it unshown.
+                params = {"action": action, "args": target, "focus": True, "wait": True}
+            else:
+                params = {"action": action, **({"target": target} if target else {})}
+            reply = app.call("action.run", params)
             if not reply.get("ok"):
                 print(f"  {tag}: seeding without an agent chat ({action}: {reply.get('error')})", file=sys.stderr)
                 agent = False
                 break
         app.close()
+        if agent and not session:
+            print(f"  {tag}: seeding without an agent chat (no session on the test agent)", file=sys.stderr)
+            agent = False
         if agent and not prime.wait_for(AGENT_MARK, timeout):
             print(f"  {tag}: the seeded agent chat never loaded", file=sys.stderr)
             agent = False
@@ -1092,6 +1112,25 @@ def seed_realistic(tag, scratch, timeout):
         prime.quit()
     with open(seeded_marker(tag), "w") as out:
         out.write(f"agent focus={seed_layout()}\n" if agent else f"terminals focus={seed_layout()}\n")
+
+
+def seed_chat_session(tag):
+    """The realistic profile's chat (SEED_CHAT_ACTION): a session on the acpmux test agent in the tag's own acpmux,
+    its first turn answered; its id, or None (said on stderr)."""
+    import bench_memory as bm  # noqa: E402  (App, FakeChats: the test agent as a harness of the app)
+    import idle_cost_load as load  # noqa: E402  (new_session)
+    sock = next((path for path in socket_candidates(tag) if os.path.exists(path)), None)
+    if not sock:
+        print(f"  {tag}: no app socket for the seeded chat", file=sys.stderr)
+        return None
+    bundle = os.path.dirname(os.path.dirname(os.path.dirname(app_binary(tag))))
+    app = bm.App(bundle, sock)
+    try:
+        chats = bm.FakeChats(app, bundle, os.path.join(os.path.dirname(os.path.abspath(__file__)), "idle_cost_agent.py"))
+    except SystemExit as error:  # FakeChats says what failed (no harness, no acpmux socket)
+        print(f"  {tag}: no test agent for the seeded chat ({error})", file=sys.stderr)
+        return None
+    return load.new_session(app.cli_path, chats.env, SEED_CHAT_TEXT)
 
 
 def seed_hidden_screens(tag, timeout):
@@ -1170,7 +1209,8 @@ def seeded_agent(tag):
 
 def seed_layout():
     layout = SEED_FOCUS if SEED_FOCUS == "agent" or SEED_CHAT_PANE == "last" else f"{SEED_FOCUS}-chat-{SEED_CHAT_PANE}"
-    return f"{layout}-hidden{HIDDEN_SCREENS}" if HIDDEN_SCREENS else layout
+    layout = f"{layout}-hidden{HIDDEN_SCREENS}" if HIDDEN_SCREENS else layout
+    return f"{layout}+{SEED_CHAT_KIND}"
 
 
 def seeded_focus(tag):
