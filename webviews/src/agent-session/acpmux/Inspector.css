@@ -287,10 +287,12 @@
   top: 0;
   bottom: 0;
   border-radius: var(--ds-space-1);
+  /* chat-surface-allow: a perf bar is its status colour (good, slow, hung), not a surface */
   background: color-mix(in srgb, var(--perf-status) 70%, transparent);
 }
 
 .acpmux-inspector-perf-bar:nth-child(even) {
+  /* chat-surface-allow: a perf bar is its status colour (good, slow, hung), not a surface */
   background: color-mix(in srgb, var(--perf-status) 40%, transparent);
 }
 
