@@ -2133,8 +2133,13 @@ test("three chips: the machine chip's dot stays quiet through a link that comes 
     ];
     expect(shown).toEqual([0, 0, 15_000 - CONNECTION_QUIET_MS]);
     expect(dot()?.getAttribute("data-connected")).toBe("true");
-    // A refused sign-in needs the person: it is said at once.
-    await link("authFailed")();
+    // A refused sign-in needs the person: it is said at once. The daemon sends it as the whole link
+    // word with the older state word folded to "offline" (peer_state.rs MachineLink::folded).
+    await updateProps({
+      peerConnected: { "gpu-box": false },
+      peerStates: { "gpu-box": "offline" },
+      peerLinks: { "gpu-box": { link: "authFailed", since: Date.now() } },
+    });
     expect(notConnected()).toBe(true);
   } finally {
     jest.useRealTimers();
