@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import { type TranscriptView } from "./transcriptView";
 import { forgetThoughtChoices } from "./thoughtChoices";
+import { notifyDisclosure, subscribeDisclosure } from "./disclosureStore";
 
 /**
  * Disclosure state for transcript details. Rows are virtualized, so the state cannot live in a
@@ -18,7 +19,6 @@ type SessionChoices = Map<string, boolean>;
 type Choices = Map<string, SessionChoices>;
 
 let choices: Choices | undefined;
-const listeners = new Set<() => void>();
 
 function parseChoices(value: unknown): Choices {
   const result: Choices = new Map();
@@ -49,11 +49,13 @@ function storageValue(): Record<string, Record<string, boolean>> {
   return Object.fromEntries([...load()].map(([sessionId, session]) => [sessionId, Object.fromEntries(session)]));
 }
 
-function notify(): void {
-  for (const listener of listeners) listener();
+/// The one open-state store's notification (disclosureStore.ts): `rows` are the rows of chat
+/// `sessionId` the change shows in, which the list's state signature for each reads.
+function notify(sessionId?: string, rows?: Iterable<string>): void {
+  notifyDisclosure(sessionId, rows);
 }
 
-function save(sessionId: string, key: string, value: boolean): void {
+function save(sessionId: string, key: string, value: boolean, rows?: Iterable<string>): void {
   const all = load();
   let session = all.get(sessionId);
   if (!session) all.set(sessionId, (session = new Map()));
@@ -66,7 +68,7 @@ function save(sessionId: string, key: string, value: boolean): void {
   } catch {
     // The in-memory choice still lasts for this page when storage is unavailable.
   }
-  notify();
+  notify(sessionId, rows);
 }
 
 /// Whether disclosure key `key` names one of `ids`: a call's (`row:<id>`), a group's or run's line
@@ -123,7 +125,8 @@ function forgetInside(
   } catch {
     // The in-memory change still lasts for this page when storage is unavailable.
   }
-  notify();
+  // The rows the fold holds are the ones whose lines changed (`ids` names them, and its calls).
+  notify(sessionId, ids);
 }
 
 /// A turn's "Worked for" closed (App.tsx): every line inside it closes, in every view of the chat,
@@ -144,12 +147,13 @@ function read(sessionId: string, key: string): boolean | undefined {
   return load().get(sessionId)?.get(key);
 }
 
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-};
+const subscribe = subscribeDisclosure;
 
 export const DisclosureSession = createContext<string>(DEFAULT_SESSION);
+/// The transcript row a disclosure is drawn in (VirtualTranscript.tsx's row frame): a change to it is
+/// credited to that row in the store (disclosureStore.ts `rowRevision`), which the list's state
+/// signature reads. Undefined outside the transcript (a gallery, a card elsewhere).
+export const DisclosureRow = createContext<string | undefined>(undefined);
 /** The chat's transcript view (transcriptView.ts), read once here for every row under it. */
 export const ViewContext = createContext<TranscriptView>("normal");
 
@@ -282,6 +286,7 @@ export function useTranscriptDisclosure(
 ): [boolean, DisclosureSetter] {
   const view = useContext(ViewContext);
   const sessionId = useDisclosureSessionId();
+  const rowId = useContext(DisclosureRow);
   const opens = defaultOpen || (verboseOpen && view === "verbose");
   const from = (links.inherits ?? NONE).join("\n");
   const down = (links.passesDown ?? NONE).join("\n");
@@ -315,11 +320,13 @@ export function useTranscriptDisclosure(
       // set takes the same choice, so a run line they closed never reopens as its group's line when the
       // run splits back into groups. A line they never set keeps its own default, and a group's line
       // passes nothing up, so closing one group never closes its sibling through the run's key.
+      const rows = rowId === undefined ? undefined : [rowId];
       if (down !== "")
-        for (const other of down.split("\n")) if (read(sessionId, other) !== undefined) save(sessionId, other, next);
-      save(sessionId, key, next);
+        for (const other of down.split("\n"))
+          if (read(sessionId, other) !== undefined) save(sessionId, other, next, rows);
+      save(sessionId, key, next, rows);
     },
-    [sessionId, key, current, down, held, by, thoughts],
+    [sessionId, key, current, down, held, by, thoughts, rowId],
   );
   return [open, setOpen];
 }
@@ -357,11 +364,13 @@ export const FoldPin = createContext<() => void>(() => {});
 /// it, unless the reader already set it), then the folds around it. Keyed reads only.
 export function useFoldPin(key: string): () => void {
   const sessionId = useDisclosureSessionId();
+  const rowId = useContext(DisclosureRow);
   const outer = useContext(FoldPin);
   return useCallback(() => {
     outer();
-    if (key !== "" && read(sessionId, key) === undefined) save(sessionId, key, true);
-  }, [outer, sessionId, key]);
+    if (key !== "" && read(sessionId, key) === undefined)
+      save(sessionId, key, true, rowId === undefined ? undefined : [rowId]);
+  }, [outer, sessionId, key, rowId]);
 }
 
 /**
