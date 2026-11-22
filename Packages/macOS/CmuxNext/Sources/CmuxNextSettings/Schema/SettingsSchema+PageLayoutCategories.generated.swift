@@ -4,7 +4,7 @@
 extension SettingsPageLayout {
     /// The sidebar's sections: what a person looks for together sits together under one small header.
     public static let sidebarSections: [SidebarSection] = [
-        SidebarSection(id: "app", title: nil, categories: [generalCategory, updatesCategory]),
+        SidebarSection(id: "app", title: nil, categories: [generalCategory, customizeCategory, updatesCategory]),
         SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [appearanceCategory, sidebarCategory, tabsCategory]),
         SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
         SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, chiefCategory, modelsCategory]),
@@ -32,6 +32,13 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.announcements"),
         ],
         lead: [.textSize], actions: [.general], aliases: [.general]
+    )
+
+    /// One click per customization (Leo 2026-11-22, ask-931361017e): only the checklist card, right after General so it is found first.
+    private static let customizeCategory = CategorySpec(
+        id: "customize", title: SettingsText.keyed("settings.category.customize", "Customize"), symbol: "switch.2",
+        groups: [],
+        lead: [.customizeChecklist]
     )
 
     /// The app update's status, how this Mac updates, then every channel's recent builds (docs/release-rings.md in hq). After the groups: the Web UI card (the web half of Updates; NIGHTLY only), then the channels.
@@ -154,7 +161,7 @@ extension SettingsPageLayout {
             GroupSpec(keys: ["agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom", "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand", "agentPane.display.thinking.jumpButton", "agentPane.needsYou.enabled", "agentPane.display.finishSound", "agentPane.showMachineLoadWarnings"], title: SettingsText.keyed("settings.pageGroup.transcript", "Transcript")),
             GroupSpec(keys: ["agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap", "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle", "agentPane.display.unreadBanner", "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner", "agentPane.display.rail.side", "agentPane.display.rail.show", "agentPane.display.rail.control", "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement"], title: SettingsText.keyed("settings.pageGroup.chatLayout", "Chat Layout")),
             GroupSpec(keys: ["agentPane.display.font.ui", "agentPane.display.font.uiFamily", "agentPane.display.font.preset", "agentPane.display.font.proseFamily", "agentPane.display.font.faces", "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.family", "agentPane.display.code.scale"], title: SettingsText.keyed("settings.pageGroup.chatText", "Chat Text")),
-            GroupSpec(keys: ["agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking", "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement", "agentPane.display.promptCoach"], title: SettingsText.keyed("settings.pageGroup.messageBox", "Message Box")),
+            GroupSpec(keys: ["agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking", "agentPane.composerLook", "agentPane.emptyChatComposerPosition", "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement", "agentPane.display.promptCoach"], title: SettingsText.keyed("settings.pageGroup.messageBox", "Message Box")),
             GroupSpec(keys: ["agentPane.links.outsideRoots", "agentPane.links.openCitationsInEditor", "agentPane.images.remote", "agentPane.editedFiles.show", "agentPane.editedFiles.maxRows", "agentPane.editedFiles.scope"], title: SettingsText.keyed("settings.pageGroup.filesLinks", "Files and Links")),
             GroupSpec(group: "settings.group.chats"),
         ]
