@@ -22,12 +22,18 @@ final class SidebarPullRequestCardController {
     static let cardID = HoverTargetID("sidebar:pull-requests")
 
     /// How long the card stays after the pointer leaves the badge or the card, so it can cross
-    /// the gap between them.
-    static let grace: Duration = .milliseconds(250)
+    /// the gap between them: the hover card grace (`HoverIntentTiming.cardGrace`).
+    static var grace: Duration { HoverIntentTiming.current.cardGrace }
+    /// How long the pointer rests on the badge before a cold card opens: the delay every hover card
+    /// waits (`sidebar.hoverCards.delay`, Chrome's 1300 ms). While a card shows, or just went (Chrome's
+    /// `kShowWithoutDelayTimeBuffer`, the coordinator's grace phase), it opens at once, as Chrome
+    /// moves its card to the next tab.
+    static var openDelay: Duration { DesignSettings.shared.hoverCardDelay }
 
     private let host = SidebarPopoverIslandHost(width: SidebarPullRequestCardView.width)
     private let content = SidebarPullRequestCardView()
     private let closer = DemandTimer(owner: "sidebar.pull-request-card.close")
+    private let opener = DemandTimer(owner: "sidebar.pull-request-card.open")
     private weak var badge: SidebarPullRequestBadgeView?
     private weak var cards: HoverCardCoordinator?
     private var open: ((URL) -> Void)?
@@ -51,8 +57,25 @@ final class SidebarPullRequestCardController {
     /// clicked one.
     func badgeEntered(_ badge: SidebarPullRequestBadgeView, items: [SidebarPullRequestItem], cards: HoverCardCoordinator,
                       open: @escaping (URL) -> Void) {
-        guard !items.isEmpty, let window = badge.window else { return }
+        guard !items.isEmpty, badge.window != nil else { return }
         closer.cancel()
+        opener.cancel()
+        let machine = cards.machine
+        if isPresented || machine.ownedCardShown || machine.shownTarget != nil || machine.phase.isGrace {
+            present(badge, items: items, cards: cards, open: open)
+            return
+        }
+        opener.schedule(after: Self.openDelay) { @MainActor [weak self, weak badge, weak cards] in
+            // The row may have been reused, its pull requests changed or its badge hidden during the
+            // wait: open with what the badge under the pointer lists now, or not at all.
+            guard let self, let badge, let cards, let items = badge.pointedItems, !items.isEmpty else { return }
+            self.present(badge, items: items, cards: cards, open: open)
+        }
+    }
+
+    private func present(_ badge: SidebarPullRequestBadgeView, items: [SidebarPullRequestItem], cards: HoverCardCoordinator,
+                         open: @escaping (URL) -> Void) {
+        guard let window = badge.window else { return }
         self.badge = badge
         self.cards = cards
         self.open = open
@@ -66,10 +89,12 @@ final class SidebarPullRequestCardController {
 
     /// The pointer left the badge: the card closes unless it reaches the card in time.
     func badgeExited() {
+        opener.cancel()
         scheduleClose()
     }
 
     func dismiss() {
+        opener.cancel()
         closer.cancel()
         open = nil
         cards?.endOwned(Self.cardID)
@@ -112,7 +137,7 @@ final class SidebarPullRequestCardView: NSView, HoverCardTextReporting {
     static let visibleRows = 8
 
     var onOpen: ((SidebarPullRequestItem) -> Void)?
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private let list = FlippedView()
     private(set) var rows: [SidebarPullRequestCardRow] = []
 

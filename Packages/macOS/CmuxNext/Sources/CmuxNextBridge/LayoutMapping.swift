@@ -1,12 +1,15 @@
 public import CmuxNextDaemon
 public import CmuxNextLayout
+import CoreGraphics
 
 /// Maps one daemon workspace (screens, split trees, scrolling columns) into
 /// `LayoutScreen`s keyed by durable ids.
 ///
 /// Rules (REWRITE.md Integration notes): a daemon `stack` becomes one leaf
 /// showing its expanded pane; a zoomed pane fills its screen; unknown node
-/// types drop out and their sibling takes the space.
+/// types drop out and their sibling takes the space. A floating pane
+/// (`floating-panes-v1`) drops out of the tiled layout the same way and is
+/// listed in `LayoutScreen.floating`.
 public struct LayoutMapping {
     public static let shared = Self()
     public struct Result: Equatable, Sendable {
@@ -26,12 +29,31 @@ public struct LayoutMapping {
             }
             let screenID = LayoutScreenID(screen.id)
             handles.screens[screenID] = screen.handle
-            guard let layout = layout(of: screen, paneIDs: paneIDs, handles: &handles) else { continue }
             let zoomed = screen.zoomedPane.flatMap { paneIDs[$0] } != nil
+            // A zoomed pane fills its screen, whether it floats or not: the floating panes come back with the unzoom.
+            let floating = zoomed ? [] : floatingPanes(of: screen, paneIDs: paneIDs)
+            var tiled = paneIDs
+            for entry in screen.floating where !floating.isEmpty { tiled[entry.pane] = nil }
+            guard let layout = layout(of: screen, paneIDs: tiled, handles: &handles) else { continue }
             screens.append(LayoutScreen(id: screenID, name: screen.name ?? "", layout: layout, zoomed: zoomed,
-                                        hiddenDividers: hiddenDividers(of: screen, in: layout, handles: handles)))
+                                        hiddenDividers: hiddenDividers(of: screen, in: layout, handles: handles),
+                                        floating: floating))
         }
         return Result(screens: screens, handles: handles)
+    }
+
+    /// The screen's floating panes, back to front. The daemon keeps at least one pane tiled; a list that names every
+    /// pane of the screen (a daemon fault) is no list, so the screen still shows each pane.
+    func floatingPanes(of screen: ScreenModel, paneIDs: [DaemonPaneID: LayoutPaneID]) -> [LayoutFloatingPane] {
+        guard !screen.floating.isEmpty else { return [] }
+        var seen: Set<LayoutPaneID> = []
+        var list: [LayoutFloatingPane] = []
+        for entry in screen.floating {
+            guard let id = paneIDs[entry.pane], seen.insert(id).inserted else { continue }
+            let frame = CGRect(x: entry.frame.x, y: entry.frame.y, width: entry.frame.w, height: entry.frame.h)
+            list.append(LayoutFloatingPane(pane: id, frame: LayoutFloatingPane.clamped(frame)))
+        }
+        return list.count < paneIDs.count ? list : []
     }
 
     /// The layout ids of the screen's splits whose divider the daemon hides (`hidden_dividers`), among the ones it shows.

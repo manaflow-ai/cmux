@@ -145,7 +145,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "start-session",
-                "({target} | --name NAME) --agent AGENT [--model MODEL] [--cwd DIR | --from-folder PATH] [--login pass|machine|none]",
+                "({target} | --name NAME) --agent AGENT [--model MODEL] [--cwd DIR | --from-folder PATH] [--no-focus]",
                 "Start an agent session (claude, codex, ...) there",
                 "エージェントセッション（claude、codex など）を開始",
             ),
@@ -154,6 +154,12 @@ const GROUPS: &[Group] = &[
                 "{target} [--viewer rd]",
                 "Show the machine's desktop in a new workspace",
                 "マシンのデスクトップを新しいワークスペースに表示",
+            ),
+            verb(
+                "setup-desktop",
+                "{target}",
+                "Set up the machine's desktop, then show it",
+                "マシンのデスクトップを設定して表示",
             ),
             verb(
                 "setup-github",
@@ -379,6 +385,88 @@ const GROUPS: &[Group] = &[
                 "移したチャットをこの Mac に戻す",
             ),
             verb(
+                "transfer-local",
+                "[--path DIR]",
+                "Transfer any other Cloud chat (or a teammate's copy) to this Mac",
+                "ほかの Cloud チャット（チームメイトのものはコピー）をこの Mac に転送",
+            ),
+        ],
+    },
+    // Team Cloud sessions (CloudTeamActionCatalog.swift): what the sidebar's Team section shows
+    // and does. SESSION is a `cloud:TEAM/VM/ID` key or a `cmux://cloud/…` link; without
+    // --session the action reads the targeted or focused Cloud workspace or chat.
+    Group {
+        en: "TEAM",
+        ja: "チーム",
+        verbs: &[
+            verb(
+                "team-sessions",
+                "[--scope mine|team|following] [--by USER] [--archived true] [--limit N] [--cursor CURSOR]",
+                "List the team's Cloud workspaces and chats",
+                "チームの Cloud ワークスペースとチャットを一覧表示",
+            ),
+            verb(
+                "team-session",
+                "[--session SESSION]",
+                "Show one team Cloud workspace or chat",
+                "チームの Cloud ワークスペースまたはチャットを 1 件表示",
+            ),
+            verb(
+                "copy-session-link",
+                "[--session SESSION]",
+                "Copy the link teammates open it with",
+                "チームメイトが開くためのリンクをコピー",
+            ),
+            verb(
+                "follow",
+                "[--session SESSION]",
+                "Follow a teammate's Cloud workspace or chat",
+                "チームメイトの Cloud ワークスペースまたはチャットをフォロー",
+            ),
+            verb("unfollow", "[--session SESSION]", "Stop following it", "フォローを解除"),
+            verb(
+                "reassign",
+                "[--session SESSION] --to USER",
+                "Assign it to another member of the team",
+                "チームの別のメンバーに割り当てる",
+            ),
+            verb(
+                "archive-session",
+                "[--session SESSION] [--archived false]",
+                "Archive it for the team, or bring it back",
+                "チームでアーカイブ、または元に戻す",
+            ),
+            verb(
+                "show-team-section",
+                "",
+                "Add the Team section to the sidebar",
+                "サイドバーにチームセクションを追加",
+            ),
+            verb(
+                "team-members",
+                "",
+                "List the members you can reassign to",
+                "割り当て先にできるメンバーを一覧表示",
+            ),
+            verb(
+                "group-members",
+                "--group GROUP_ID",
+                "List a cloud group's members",
+                "クラウドグループのメンバーを一覧表示",
+            ),
+            verb(
+                "group-member-set",
+                "--group GROUP_ID --user USER --role owner|edit|view",
+                "Add a member to a cloud group or change their role",
+                "クラウドグループにメンバーを追加、または役割を変更",
+            ),
+            verb(
+                "group-member-remove",
+                "--group GROUP_ID --user USER",
+                "Remove a member from a cloud group",
+                "クラウドグループからメンバーを削除",
+            ),
+            verb(
                 "move-to-machine",
                 "[--machine vm:VM_ID]",
                 "Move a moved chat on to another Cloud machine",
@@ -485,6 +573,20 @@ SECRETS (stored in this Mac's Keychain)
   cmux cloud secret rm NAME [--repo OWNER/NAME]
 set reads the value from a hidden prompt or stdin, never a command argument.
 
+MODEL CONNECTIONS (what a Cloud session runs on; secrets go into this Mac's Keychain)
+  cmux cloud connections
+  cmux cloud connect claude [--label L]
+  cmux cloud connect api-key --provider anthropic|openai [--label L]
+  cmux cloud connect chatgpt [--no-wait] [--timeout SECONDS]
+claude runs `claude setup-token` and captures its token without showing it; api-key reads
+the key from a hidden prompt or stdin; chatgpt prints a link to open in a browser on this Mac.
+
+TEAM KEYS (one shared key per agent for the team; owners and admins)
+  cmux cloud team-keys status --team TEAM_ID --json
+  cmux cloud team-keys set claude|codex --team TEAM_ID [--kind api_key|oauth] [--secret-file PATH]
+  cmux cloud team-keys remove claude|codex --team TEAM_ID
+A team key overrides each member's own key on the team's Cloud machines.
+
 CLIENT SESSIONS (a scoped token for one of your machines, no app needed)
   cmux cloud client-session create --target vm:VM_ID [--ttl SECONDS] [--token-file PATH]
   cmux cloud client-session exec --target vm:VM_ID -- COMMAND...
@@ -507,6 +609,20 @@ DEV と nightly は切り替え可能です。Release と RC は既定で prod �
   cmux cloud secret rm NAME [--repo OWNER/NAME]
 set は値を非表示の入力プロンプトまたは標準入力から読み取ります。コマンドの引数には指定しません。
 
+モデル接続（Cloud セッションが使うもの。シークレットはこの Mac のキーチェーンに保存）
+  cmux cloud connections
+  cmux cloud connect claude [--label L]
+  cmux cloud connect api-key --provider anthropic|openai [--label L]
+  cmux cloud connect chatgpt [--no-wait] [--timeout SECONDS]
+claude は `claude setup-token` を実行し、トークンを表示せずに取り込みます。api-key はキーを
+非表示の入力プロンプトまたは標準入力から読み取ります。chatgpt はこの Mac のブラウザで開くリンクを表示します。
+
+チームキー（チームでエージェントごとに 1 つの共有キー、オーナーと管理者）
+  cmux cloud team-keys status --team TEAM_ID --json
+  cmux cloud team-keys set claude|codex --team TEAM_ID [--kind api_key|oauth] [--secret-file PATH]
+  cmux cloud team-keys remove claude|codex --team TEAM_ID
+チームキーは、チームの Cloud マシンで各メンバー自身のキーより優先されます。
+
 クライアントセッション（自分のマシン 1 台だけに使える短期トークン、アプリ不要）
   cmux cloud client-session create --target vm:VM_ID [--ttl SECONDS] [--token-file PATH]
   cmux cloud client-session exec --target vm:VM_ID -- COMMAND...
@@ -520,13 +636,17 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
 /// `cmux cloud start-chat --help` (cloud_start_chat.rs runs it).
 pub(super) const START_CHAT_USAGE: &str = "\
 usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT] [--model MODEL]
-                             [--cwd DIR | --from-folder PATH [--allow-large]]
-                             [--login pass|machine|none] [--environment ENV]
+                             [--effort EFFORT] [--mode MODE]
+                             [--cwd DIR | --from-folder PATH [--allow-large] | --no-folder]
+                             [--environment ENV]
                              [--name VM | --target vm:VM_ID]
-                             [--wait] [--timeout SECONDS] [--make-room] [--json]
+                             [--wait] [--timeout SECONDS] [--make-room]
+                             [--no-focus] [--json]
 
 Starts an agent chat on a Cloud machine and sends it a prompt, in one step.
 The chat opens as a tab in the machine's workspace in the cmux app.
+The machine's agents reach models through the Cloud service's model route;
+no login is copied from this Mac (`cmux cloud machine-auth --machine ID` checks it).
 This is `cmux chat --on vm:ID|NAME|new` (`cmux chat --help`), by its
 older name; both run the same start.
 
@@ -539,7 +659,14 @@ older name; both run the same start.
                      the model
   --model MODEL      The model the agent starts on there (claude-haiku-5-5;
                      default: the harness's own)
+  --effort EFFORT    Its thinking effort (low, medium, high, xhigh, max; what
+                     the harness offers), as the composer's effort picker
+                     sets it; set before the first prompt
+  --mode MODE        The permission mode it starts in (plan, acceptEdits, ...)
   --cwd DIR          A folder on the machine (default: a new one under ~/chats)
+  --no-folder        The composer's No folder: a new folder of the chat's own
+                     under ~/chats, nothing copied (also what no folder flag
+                     means); not with --cwd or --from-folder
   --from-folder PATH A folder on this Mac (relative: of this shell's folder),
                      copied to the machine as the composer's Cloud start
                      copies one; the chat starts in the copy. Never home,
@@ -548,13 +675,12 @@ older name; both run the same start.
                      reuses the finished copy.
   --allow-large      Copy --from-folder even past 20 GB or 500,000 files
                      (the files the copy sends), which are refused without it
-  --login pass|machine|none
-                     The agent's login there: yours from this Mac, the
-                     machine's own, or none (default: the machine's login or
-                     your earlier choice)
   --name VM          Use the VM with this name, or create it
   --target vm:VM_ID  Use this VM (`cmux vm ls`)
-                     Neither: create a new small machine with a new name
+                     Neither: create a new small machine with a new name.
+                     One that doesn't connect or start its agent within
+                     90 s is deleted and the chat starts on a fresh one,
+                     once
   --environment ENV  Boot the new machine in this Cloud environment (its
                      env_ id or its name); not with --target
   --account ACCOUNT  Start and send only while the app is signed in to this
@@ -563,18 +689,29 @@ older name; both run the same start.
   --wait             Wait for the turn to end and print the reply (no
                      prompt: the chat is ready, nothing to wait for)
   --timeout SECONDS  How long --wait waits (default 900)
+  --timings          Where the start's time went, as a table on stderr
   --make-room        At a machine cap, free the machine the refusal offers
                      (a leftover it names is deleted; else the paused one
                      used longest ago is archived and deleted) and start again
+  --no-focus         Start without changing what the app shows: its workspace,
+                     tab, window and focus stay as they are (for an agent or a
+                     script; the chat's tab still opens in the machine's
+                     workspace)
 
 Answers machine_id, machine_name, session_id, workspace_id and tab_id,
-plus reply with --wait, or sent: false and ready_ms with no prompt, and
-new_machine: true when this run made the machine.
+plus reply with --wait, or sent: false, ready_ms and daemon_tab (the
+chat tab's number on the machine's daemon, when start-session names one)
+with no prompt, and new_machine: true when this run made the machine.
+stages: the milliseconds from the command's start to each mark it reached
+(created, connect, session_start, session_ready, send, sent, first_text,
+reply) and total, by the names scripts/cmux-next/cloud-journey.ts uses;
+stages_ms: every step it ran.
 
 EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
   cmux cloud start-chat --name dev --prompt 'Run the tests' --json
-  cmux cloud start-chat --agent codex --login machine --json
+  cmux cloud start-chat --agent codex --json
+  cmux cloud start-chat --model claude-sonnet-5-5 --effort high --no-folder --prompt 'What is 1+1?' --wait
 
 FOLLOW-UPS (SESSION_ID from the answer)
   cmux chat send SESSION_ID 'next prompt' --wait
@@ -587,6 +724,7 @@ list` lists it.
 
 /// The CLI's own cleanup verbs, not app actions (cloud_retention.rs runs them).
 pub(super) const KEEP: &str = "keep-machine";
+pub(super) const PAUSE_ALL_USAGE: &str = "usage: cmux vm pause-all [--json] [--idempotency-key KEY]\nPause all Cloud machines you manage. Automatic wakes stay stopped until you resume each machine with cmux vm resume NAME.\n";
 pub(super) const ARCHIVE: &str = "archive-machine";
 
 pub(super) const KEEP_USAGE: &str = "\
@@ -662,9 +800,9 @@ pub(super) fn overview(japanese: bool) -> String {
         "\nCHAT REPOSITORIES (use --socket for the Cloud machine)\n  repo list --session CHAT [--query NAME]\n  repo add --session CHAT --repo NAME [--ref REF]\n  repo wait-github --session CHAT [--timeout-ms N]\n  repo attached --session CHAT\n  repo local\n  repo sync --repos-json JSON [--recent-json JSON] [--install-url URL] [--complete true|false]\n"
     });
     text.push_str(if japanese {
-        "\nクリーンアップ\n  keep-machine --target vm:VM_ID [--off]       自動で削除されないよう保持\n  archive-machine --target vm:VM_ID --yes      一時停止中のマシンをアーカイブして削除 (--yes)\n"
+        "\nクリーンアップ\n  pause-all                                管理する全マシンを一時停止し、自動再開を停止\n  keep-machine --target vm:VM_ID [--off]       自動で削除されないよう保持\n  archive-machine --target vm:VM_ID --yes      一時停止中のマシンをアーカイブして削除 (--yes)\n"
     } else {
-        "\nCLEANUP\n  keep-machine --target vm:VM_ID [--off]       Keep a machine from automatic deletion\n  archive-machine --target vm:VM_ID --yes      Archive a paused machine's disk, then delete it (--yes)\n"
+        "\nCLEANUP\n  pause-all                                Pause all managed machines; hold automatic wakes\n  keep-machine --target vm:VM_ID [--off]       Keep a machine from automatic deletion\n  archive-machine --target vm:VM_ID --yes      Archive a paused machine's disk, then delete it (--yes)\n"
     });
     text.push('\n');
     text.push_str(if japanese { OUTRO_JA } else { OUTRO_EN });
@@ -684,6 +822,9 @@ pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
     }
     if name == KEEP {
         return Some(KEEP_USAGE.to_owned());
+    }
+    if name == "pause-all" {
+        return Some(PAUSE_ALL_USAGE.to_owned());
     }
     if name == ARCHIVE {
         return Some(ARCHIVE_USAGE.to_owned());

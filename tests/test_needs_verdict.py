@@ -71,6 +71,10 @@ NOT_MERGE_GATES = {
     ("cmux-next.yml", "compile-status-handoff"): "a status poster: cmux-next/compile carries the fallback's verdict; "
                                                  "no fallback run posts error with the no-verdict marker (exit 3)",
     ("cmux-next.yml", "generated-verdict"): "its own no-verdict line (base_red_excuse GENERATED_NO_VERDICT)",
+    ("cmux-next.yml", "same-tree-status-daemon"): "a status poster: scripts/ci/cmux_next_same_tree_status.py judges "
+                                                  "toJSON(needs) with needs_verdict.judge; no verdict posts error",
+    ("cmux-next.yml", "same-tree-status-scheme"): "a status poster: scripts/ci/cmux_next_same_tree_status.py judges "
+                                                  "toJSON(needs) with needs_verdict.judge; no verdict posts error",
     ("cmux-next.yml", "release-compile-fast-admission"): "push-only promotion step, after the merge",
     ("ios-review-gate.yml", "report"): "advisory on push and pull_request (its ADVISORY env); it blocks only the App "
                                        "Store dispatch, after the merge",
@@ -275,7 +279,8 @@ MIXED = {
         "WEB_NEEDS": json.dumps({"web-subarea-scope": {"result": "abandoned"}, "web-tests": {"result": "failure"},
                                  **{job: {"result": "skipped"} for job in (
                                      "web-typecheck", "web-production-build", "web-instant-navigation",
-                                     "react-apps-check", "diff-sidecar-check", "web-db-migrations")}})},
+                                     "react-apps-check", "agent-pane-real-acpmux", "diff-sidecar-check",
+                                     "web-db-migrations")}})},
 }
 # Rule jobs that judge one result, so no two can disagree.
 SINGLE_RESULT = {

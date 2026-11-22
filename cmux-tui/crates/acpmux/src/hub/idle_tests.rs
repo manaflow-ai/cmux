@@ -38,6 +38,8 @@ async fn each_gate_keeps_a_session_awake() {
         m.claude_unstored = true;
         m.turn_count = 1;
     }
+    assert!(hub.idle_eligible(&session), "a Claude chat whose unstored turns did no work");
+    session.meta.lock().unwrap_or_else(|e| e.into_inner()).claude_unstored_work = true;
     assert!(!hub.idle_eligible(&session), "a Claude chat whose turns are not stored");
     session.meta.lock().unwrap().claude_unstored = false;
     session.queued.fetch_add(1, Ordering::SeqCst);
@@ -47,7 +49,7 @@ async fn each_gate_keeps_a_session_awake() {
     hub.shutdown_all().await;
 }
 
-/// A chat stored as hibernated comes back marked (it wakes on a click after a restart), and
+/// A chat stored as hibernated comes back marked (after a restart it wakes for a turn), and
 /// clearing the hibernation drops the mark, a cause a wake recorded, and the stored flag.
 #[tokio::test]
 async fn a_stored_hibernation_comes_back_and_clearing_it_drops_every_trace() {

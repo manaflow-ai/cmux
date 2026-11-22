@@ -3,6 +3,7 @@
 // "last week", "2 months ago", "last year" (it never switches to a date there), and on hover
 // "Oct 20, 2026, 10:16 PM". Intl words both in the pane's language.
 import { hasTimestamp } from "./timestamps";
+import { intl } from "../../../ui/intl";
 
 /// Claude's units, largest first, in seconds: the age reads in the largest one it has reached.
 const UNITS: readonly (readonly [Intl.RelativeTimeFormatUnit, number])[] = [
@@ -19,7 +20,7 @@ const UNITS: readonly (readonly [Intl.RelativeTimeFormatUnit, number])[] = [
 let lastWords: { locale: string; formatter: Intl.RelativeTimeFormat; englishNow: boolean } | undefined;
 function relativeWords(locale?: string) {
   if (locale !== undefined && lastWords?.locale === locale) return lastWords;
-  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  const formatter = intl.RelativeTimeFormat(locale, { numeric: "auto" });
   const words = { formatter, englishNow: formatter.resolvedOptions().locale.toLowerCase().startsWith("en") };
   if (locale !== undefined && Intl.RelativeTimeFormat.supportedLocalesOf(locale).length)
     lastWords = { locale, ...words };
@@ -57,10 +58,10 @@ const EXACT: Intl.DateTimeFormatOptions = {
 /// `at` as Claude's hover tooltip writes it, in `locale`.
 export function exactTime(at: number, locale?: string): string {
   try {
-    return new Date(at).toLocaleString(locale, EXACT);
+    return intl.DateTimeFormat(locale, EXACT).format(at);
   } catch {
     // A language tag Intl does not take: the system's.
-    return new Date(at).toLocaleString(undefined, EXACT);
+    return intl.DateTimeFormat(undefined, EXACT).format(at);
   }
 }
 
@@ -70,9 +71,9 @@ export function replyTime(at: number, now: number, locale?: string): string {
   const sameYear = new Date(at).getFullYear() === new Date(now).getFullYear();
   const fields: Intl.DateTimeFormatOptions = sameYear ? { ...EXACT, year: undefined } : EXACT;
   try {
-    return new Date(at).toLocaleString(locale, fields);
+    return intl.DateTimeFormat(locale, fields).format(at);
   } catch {
-    return new Date(at).toLocaleString(undefined, fields);
+    return intl.DateTimeFormat(undefined, fields).format(at);
   }
 }
 
@@ -87,9 +88,9 @@ export function replyMenuTime(at: number, now: number, locale?: string): string 
   const delta = Math.round((day - current) / 86_400_000);
   if (delta !== 0 && delta !== -1) return exactTime(at, locale);
   try {
-    const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(delta, "day");
+    const relative = intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(delta, "day");
     const label = relative.charAt(0).toLocaleUpperCase(locale) + relative.slice(1);
-    return `${label}, ${new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" }).format(date)}`;
+    return `${label}, ${intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" }).format(date)}`;
   } catch {
     return exactTime(at, locale);
   }
@@ -126,10 +127,29 @@ function messageDate(at: number, now: number, locale?: string): string {
   const sameYear = new Date(at).getFullYear() === new Date(now).getFullYear();
   const fields: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", year: sameYear ? undefined : "numeric" };
   try {
-    return new Date(at).toLocaleDateString(locale, fields);
+    return intl.DateTimeFormat(locale, fields).format(at);
   } catch {
-    return new Date(at).toLocaleDateString(undefined, fields);
+    return intl.DateTimeFormat(undefined, fields).format(at);
   }
+}
+
+/// Every wording a prompt's age takes in its first hour in `locale`, one per line ("just now",
+/// "1 minute ago", "59 minutes ago"; Polish adds "22 minuty temu", wider than "59 minut temu"): the row
+/// lays them out in a hidden line so the widest sets its width (conversation.css `.cv-user__time::before`).
+/// Digits are tabular there, so one line per wording; kept per language, 60 labels once.
+const agesWidest = new Map<string, string>();
+export function messageAgeWidest(locale?: string): string {
+  const key = locale ?? "";
+  const kept = agesWidest.get(key);
+  if (kept !== undefined) return kept;
+  const lines = new Map<string, string>();
+  for (let minute = 0; minute < 60; minute += 1) {
+    const label = messageAge(0, minute * 60_000 + 30_000, locale);
+    lines.set(label.replace(/\p{Nd}/gu, "0"), label);
+  }
+  const widest = [...lines.values()].join("\n");
+  agesWidest.set(key, widest);
+  return widest;
 }
 
 /** First shared wall-clock minute where messageAge's text changes. Once it is a date, that is only
