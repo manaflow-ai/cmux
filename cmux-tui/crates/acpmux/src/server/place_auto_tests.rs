@@ -34,13 +34,20 @@ fn big_box() -> Candidate {
         local: false,
         health: health(100.0, 32, 2.0, 3, "linux"),
         health_at: None,
+        via_hub: false,
     }
 }
 
 fn input(local: Value, peers: Vec<Candidate>) -> Input {
     let power = Power::from_health(&local);
     Input {
-        local: Candidate { name: "leos-mac".into(), local: true, health: local, health_at: None },
+        local: Candidate {
+            name: "leos-mac".into(),
+            local: true,
+            health: local,
+            health_at: None,
+            via_hub: false,
+        },
         peers,
         registry: None,
         power,
