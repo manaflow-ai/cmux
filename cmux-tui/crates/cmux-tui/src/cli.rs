@@ -198,6 +198,7 @@ mod machine_doctor;
 mod machine_join;
 #[cfg(unix)]
 mod machine_link;
+mod mobile_pair_requests;
 #[cfg(unix)]
 pub(crate) use machine_join::{
     Auth as PlatformAuth, CallError as PlatformCallError, Platform,
@@ -323,6 +324,7 @@ const REMOTE_COMMANDS: &[&str] = &[
     "rpc",
     "remote-exec",
     "remote-cp",
+    "spill",
     "enroll",
     "known-daemons",
     "remote-probe",
@@ -751,6 +753,13 @@ pub(crate) fn acp_scope_args(raw_args: &[String]) -> Vec<std::ffi::OsString> {
     raw_args.iter().skip(skip).map(std::ffi::OsString::from).collect()
 }
 
+/// `cmux share screens|start|stop|move …` (and `share list --screens`) as acpmux's
+/// `share-host` words; None for the other `share` commands, which are the app's chat links.
+#[cfg(unix)]
+pub(crate) fn share_screen_args(raw_args: &[String]) -> Option<Vec<std::ffi::OsString>> {
+    share_cli::screen_verb(raw_args).map(|words| words.into_iter().map(Into::into).collect())
+}
+
 /// The acpmux-owned aliases under `cmux agent`. Existing app actions keep their
 /// current parser and semantics, while these verbs share the acpmux implementation
 /// without duplicating its command logic in the app CLI.
@@ -988,6 +997,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_automation_relay::run_if_requested(args))
         .or_else(|| cloud_auth_handoff_relay::run_if_requested(args))
         .or_else(|| machine_link::run_if_requested(args))
+        .or_else(|| mobile_pair_requests::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| safe_mode::run_if_requested(args))
