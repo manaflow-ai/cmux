@@ -47,7 +47,7 @@ fn a_dropped_gate_lock_is_free_while_a_forked_child_keeps_its_descriptor() {
     let dir = tempfile::tempdir().unwrap();
     let gate = Gate::new(&Paths::new(dir.path()));
     let path = gate.paths.at(GATE_LOCK);
-    let locked = gate.lock();
+    let locked = gate.lock().unwrap();
     assert!(!free(&path), "the gate took its lock");
     let child = forked_keeper();
     drop(locked);
