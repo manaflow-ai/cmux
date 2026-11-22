@@ -29,7 +29,7 @@ Mbit/s is `bytes * 8 / duration`.
 
 ## Two things Mac to Linux needs today
 
-- `--fwd`: a Mac behind a NAT that maps per destination (cmux17's site NAT) gives its socket one
+- `--fwd`: a Mac behind a NAT that maps per destination (a fleet Mac's site NAT) gives its socket one
   port toward STUN and another toward the VM. The Mac host is the link's responder, and its punches
   do not authenticate, so the Linux viewer never learns the port that works (`secure handshake
   timed out ... heard 0`). `punchfwd.py` binds a public port on the VM, tells the Mac host
