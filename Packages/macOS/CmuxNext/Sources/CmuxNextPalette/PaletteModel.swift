@@ -212,10 +212,11 @@ public final class PaletteModel {
         return nil
     }
 
-    /// Footer title for Return.
+    /// Footer title for Return: what it does, and to what when the row's own subject is the target
+    /// ("Switch to Tab “Fix the login bug”"). A command row's title is already its outcome.
     public var primaryTitle: String? {
         guard let item = selectedItem, item.isEnabled else { return nil }
-        return item.primary.title
+        return item.primary.namesRow ? PaletteStrings.primaryNamingRow(item.primary.title, item.title) : item.primary.title
     }
 
     public var depth: Int { nav.depth }

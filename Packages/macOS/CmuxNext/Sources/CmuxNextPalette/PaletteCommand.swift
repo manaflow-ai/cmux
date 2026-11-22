@@ -79,12 +79,17 @@ public struct PaletteCommand: Identifiable {
     public var symbol: String?
     public var isDestructive: Bool
     public var effect: PaletteEffect
+    /// The command acts on its row's own subject (Switch to Tab on a tab's row), so the footer's Return
+    /// label names it: "Switch to Tab “Fix the login bug”" says what Return does before it runs.
+    public var namesRow: Bool
 
-    public init(id: String, title: String, symbol: String? = nil, isDestructive: Bool = false, effect: PaletteEffect) {
+    public init(id: String, title: String, symbol: String? = nil, isDestructive: Bool = false, namesRow: Bool = false,
+                effect: PaletteEffect) {
         self.id = id
         self.title = title
         self.symbol = symbol
         self.isDestructive = isDestructive
+        self.namesRow = namesRow
         self.effect = effect
     }
 }

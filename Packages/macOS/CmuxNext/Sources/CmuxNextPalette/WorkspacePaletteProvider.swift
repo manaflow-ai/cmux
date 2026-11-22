@@ -66,7 +66,8 @@ public final class WorkspacePaletteProvider: PaletteProvider {
                 section: Self.section,
                 keywords: [PaletteStrings.workspaceKeyword] + [workspace.groupName, workspace.machineName].compactMap { $0 }
                     + workspace.keywords,
-                primary: PaletteCommand(id: "select", title: PaletteStrings.switchToWorkspace, symbol: "return", effect: .perform {
+                primary: PaletteCommand(id: "select", title: PaletteStrings.switchToWorkspace, symbol: "return", namesRow: true,
+                                        effect: .perform {
                     source.selectWorkspace(id: id)
                 }),
                 secondary: [
