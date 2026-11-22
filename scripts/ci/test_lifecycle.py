@@ -176,7 +176,7 @@ def cmd_filter(args: argparse.Namespace) -> int:
     listed = read_list(path)
     manifest = load_manifest(root)
     changed = changed_files(root) if args.tier == "pull_request" else None
-    keep, dropped = [], {"touched": 0, "sampled": 0}
+    keep, dropped = [], {"always": 0, "touched": 0, "sampled": 0}
     for name in listed:
         entry = resolve(root, name, manifest)
         if runs(entry, args.tier, changed, root):
@@ -185,7 +185,8 @@ def cmd_filter(args: argparse.Namespace) -> int:
             dropped[entry["tier"] if entry["tier"] in dropped else "sampled"] += 1
     path.write_bytes(b"".join(name.encode() + b"\0" for name in keep))
     print(f"test categories ({args.tier}): {len(keep)} of {len(listed)} files run; skipped "
-          f"{dropped['touched']} proofs this change leaves alone and {dropped['sampled']} in the nightly sample",
+          f"{dropped['always']} guards, contracts and unclassified (not in this tier), "
+          f"{dropped['touched']} live proofs this change leaves alone and {dropped['sampled']} in the nightly sample",
           file=sys.stderr)
     return 0
 

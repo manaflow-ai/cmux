@@ -844,7 +844,7 @@ jobs:
           fi
           # The comparison and the flake history are the head's too: the base's copies may predate --flaky.
           cp ../scripts/ci/run-webviews-tests.sh ../scripts/ci/timeout.sh ../scripts/ci/webviews_test_results.py ../scripts/ci/webviews_test_shards.py \
-            ../scripts/ci/guards_new_reds.py ../scripts/ci/webviews_test_history.py ../scripts/ci/test_reds.py \
+            ../scripts/ci/guards_new_reds.py ../scripts/ci/webviews_test_history.py ../scripts/ci/test_reds.py ../scripts/ci/test_lifecycle.py \
             "$RUNNER_TEMP/webviews-head-results/runner/"
           # A pull request runs the test files its change can reach (scripts/ci/webviews_affected.py:
           # the import graph, every test that reads files from disk, and every file for a build input
