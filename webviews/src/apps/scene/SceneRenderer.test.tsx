@@ -1023,3 +1023,65 @@ test("frame maxWidth infinity takes a row's free width with no Spacer, and fills
   expect(css).toMatch(/\.cmux-app-scene-root\) > \[data-fill-width\] \{\s*align-self: stretch;/);
   expect(css).toMatch(/\.cmux-app-scene-zstack > \[data-fill-width\] \{\s*justify-self: stretch;/);
 });
+
+const scene = (nodes: Array<{ id: string; type: string; props: Record<string, unknown> }>): SceneOp[] => [
+  { op: "create", id: "root", type: "VStack" },
+  ...nodes.map((n) => ({ op: "create" as const, ...n })),
+  { op: "children", id: "root", children: nodes.map((n) => n.id) },
+  { op: "root", id: "root" },
+];
+
+test("Stat draws its value, label and a delta colored by whether its trend is the good one", () => {
+  const { container } = render(
+    scene([
+      { id: "up", type: "Stat", props: { value: "1,284", label: "Requests", delta: "+12%", trend: "up" } },
+      { id: "slow", type: "Stat", props: { value: "212 ms", delta: "+8%", trend: "up", goodTrend: "down" } },
+    ]),
+  );
+  const up = container.querySelector('[data-app-node="up"]')!;
+  expect(up.querySelector(".cmux-app-scene-stat-value")!.textContent).toBe("1,284");
+  expect(up.querySelector(".cmux-app-scene-stat-label")!.textContent).toBe("Requests");
+  const delta = up.querySelector<HTMLElement>(".cmux-app-scene-stat-delta")!;
+  expect(delta.textContent).toBe("↑ +12%");
+  expect(delta.style.color).toBe("var(--agent-status-success)");
+  const slow = container.querySelector('[data-app-node="slow"] .cmux-app-scene-stat-delta') as HTMLElement;
+  expect(slow.style.color).toBe("var(--agent-danger)");
+});
+
+test("Chart draws a polyline for a line and one rect per value for bars, and nothing with no values", () => {
+  const { container } = render(
+    scene([
+      { id: "line", type: "Chart", props: { values: [1, 3, 2], kind: "line" } },
+      { id: "bar", type: "Chart", props: { values: [1, -1, 2, 0], kind: "bar", variant: "subtle" } },
+      { id: "none", type: "Chart", props: { values: [] } },
+    ]),
+  );
+  expect(container.querySelectorAll('[data-app-node="line"] polyline')).toHaveLength(1);
+  expect(container.querySelectorAll('[data-app-node="bar"] rect')).toHaveLength(4);
+  expect(container.querySelector('[data-app-node="bar"]')!.getAttribute("data-variant")).toBe("subtle");
+  expect(container.querySelector('[data-app-node="none"] svg')).toBeNull();
+});
+
+test("a finished component in a state draws the state in its place and does not tap; null draws it again", () => {
+  const { container, calls, store } = render(
+    scene([
+      { id: "b", type: "Button", props: { title: "Deploy", state: "error", stateMessage: "Offline" } },
+      { id: "s", type: "Stat", props: { value: "42", state: "loading" } },
+      { id: "e", type: "EmptyState", props: { title: "No events", symbol: "calendar", state: "empty" } },
+      { id: "v", type: "VStack", props: { state: "loading" } },
+    ]),
+  );
+  const button = container.querySelector<HTMLElement>('[data-app-node="b"]')!;
+  expect(button.getAttribute("data-state")).toBe("error");
+  expect(button.tagName).toBe("DIV");
+  expect(button.textContent).toBe("Offline");
+  act(() => button.click());
+  expect(calls).toEqual([]);
+  expect(container.querySelector('[data-app-node="s"] .cmux-app-scene-stat-value')).toBeNull();
+  expect(container.querySelector('[data-app-node="e"]')!.textContent).toBe("No events");
+  // A layout node has no state to draw.
+  expect(container.querySelector('[data-app-node="v"]')!.hasAttribute("data-state")).toBe(false);
+  act(() => store.apply([{ op: "update", id: "b", props: { state: null } }]));
+  const drawn = container.querySelector<HTMLElement>('[data-app-node="b"]')!;
+  expect([drawn.tagName, drawn.textContent, drawn.hasAttribute("data-state")]).toEqual(["BUTTON", "Deploy", false]);
+});

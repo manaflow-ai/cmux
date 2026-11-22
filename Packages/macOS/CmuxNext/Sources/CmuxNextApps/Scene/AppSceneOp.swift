@@ -53,9 +53,37 @@ public nonisolated enum AppSceneNodeType: String, Sendable, Hashable, CaseIterab
     case progressView = "ProgressView", textField = "TextField"
     case row = "Row", badge = "Badge", emptyState = "EmptyState"
     case toggle = "Toggle", slider = "Slider", panel = "Panel"
+    case stat = "Stat", chart = "Chart"
 
     /// Lays its children out inline in the parent's stack.
     public var isInline: Bool { self == .group || self == .forEach }
+
+    /// The finished components: they take `variant` and `state` (the Rust design check's table,
+    /// cmux-tui `src/cli/ext/design_components.rs`; webviews' `sceneComponents.tsx`).
+    public var isFinishedComponent: Bool {
+        switch self {
+        case .row, .badge, .button, .progressView, .stat, .chart, .toggle, .slider, .textField, .image, .emptyState: true
+        default: false
+        }
+    }
+
+    /// The finished components that draw more than `standard`.
+    public var hasVariants: Bool {
+        switch self {
+        case .row, .badge, .button, .progressView, .stat, .chart: true
+        default: false
+        }
+    }
+}
+
+/// A finished component's emphasis (`.variant(...)`): anything else draws `standard`.
+public nonisolated enum AppSceneComponentVariant: String, Sendable, Hashable {
+    case standard, prominent, subtle
+}
+
+/// What the host draws in place of a finished component (`.state(...)`).
+public nonisolated enum AppSceneComponentState: String, Sendable, Hashable {
+    case loading, error, empty
 }
 
 /// One node of a mounted scene.
@@ -80,4 +108,16 @@ public nonisolated struct AppSceneNode: Sendable, Hashable {
 
     public func number(_ key: String) -> Double? { props[key]?.numberValue }
     public func flag(_ key: String) -> Bool { props[key]?.boolValue ?? false }
+
+    /// The state drawn in place of this node: only a finished component has one.
+    public var componentState: AppSceneComponentState? {
+        guard type.isFinishedComponent, let name = props["state"]?.stringValue else { return nil }
+        return AppSceneComponentState(rawValue: name)
+    }
+
+    /// The variant this node draws: `standard` unless it is one of the components with variants.
+    public var componentVariant: AppSceneComponentVariant {
+        guard type.hasVariants, let name = props["variant"]?.stringValue else { return .standard }
+        return AppSceneComponentVariant(rawValue: name) ?? .standard
+    }
 }
