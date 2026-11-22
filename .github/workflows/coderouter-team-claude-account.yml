@@ -1,0 +1,92 @@
+# Leo, 2026-11-22: "don't we just... point sr2 at it?"
+#
+# Gives the Cloud test account's team (the Stack user cloud-claude-matrix signs in as) one shared
+# (visibility=team) Claude account in cmux.com's coderouter, so a production machine's chatmux-token call
+# through coderouter.cmux.internal has an upstream. Without one, the matrix sr2 row gets coderouter's 403
+# "No Claude upstream account is configured for this team or shared with this caller" (run 45053704158).
+# The token comes from this environment's CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY); it is sent to
+# coderouter only and never printed. Idempotent: a team that already has a shared Claude account is left as is.
+name: Coderouter team Claude account
+
+on:
+  workflow_dispatch:
+    inputs:
+      kind:
+        description: "anthropic_oauth (CLAUDE_CODE_OAUTH_TOKEN) or anthropic_api_key (ANTHROPIC_API_KEY)"
+        type: choice
+        options: [anthropic_oauth, anthropic_api_key]
+        default: anthropic_oauth
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coderouter-team-claude-account
+  cancel-in-progress: false
+
+jobs:
+  add:
+    if: github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/main'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    environment: cmux-next-cloud-journey
+    steps:
+      - name: Add the shared Claude account to the test account's team
+        env:
+          STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          KIND: ${{ inputs.kind }}
+        shell: python3 -I {0}
+        run: |
+          import json, os, sys, urllib.error, urllib.request
+
+          ORIGIN = "https://cmux.com"
+          STACK = "https://api.stack-auth.com"
+          PROJECT = "9790718f-14cd-4f7e-824d-eaf527a82b82"  # production (scripts/cmux-next/cloud-journey.ts STACK.prod)
+
+          def call(method, url, body=None, headers=None):
+              data = json.dumps(body).encode() if body is not None else None
+              req = urllib.request.Request(url, data=data, method=method, headers={"content-type": "application/json", **(headers or {})})
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return r.status, json.loads(r.read() or b"{}")
+              except urllib.error.HTTPError as e:
+                  try:
+                      return e.code, json.loads(e.read() or b"{}")
+                  except ValueError:
+                      return e.code, {}
+
+          status, signed = call("POST", f"{STACK}/api/v1/auth/password/sign-in",
+              {"email": os.environ["STACK_EMAIL"], "password": os.environ["STACK_PASSWORD"]},
+              {"x-stack-access-type": "client", "x-stack-project-id": PROJECT})
+          if status != 200 or not signed.get("access_token"):
+              sys.exit(f"Stack sign-in: HTTP {status} {signed.get('code', '')}")
+          team = signed["user_id"]  # a machine token's team_id is its owner, the Stack user (CoderouterEdge.ts)
+          auth = {"authorization": f"Bearer {signed['access_token']}", "x-stack-refresh-token": signed["refresh_token"], "x-cmux-team-id": team}
+          print(f"team {team}")
+
+          status, listed = call("GET", f"{ORIGIN}/api/coderouter/claude-upstream?teamId={team}", headers=auth)
+          if status != 200:
+              sys.exit(f"list Claude accounts: HTTP {status} {listed.get('error', '')}")
+          shared = [a for a in listed.get("accounts", []) if a.get("visibility") == "team"]
+          for a in listed.get("accounts", []):
+              print(f"existing: {a.get('id')} {a.get('kind')} {a.get('visibility')} {a.get('label', '')}")
+          if shared:
+              print("the team already has a shared Claude account; nothing to add")
+              sys.exit(0)
+
+          kind = os.environ.get("KIND") or "anthropic_oauth"
+          body = {"kind": kind, "label": "Cloud test account (cloud-claude-matrix)", "visibility": "team"}
+          if kind == "anthropic_oauth":
+              body["token"] = os.environ["CLAUDE_CODE_OAUTH_TOKEN"].strip()
+          else:
+              body["apiKey"] = os.environ["ANTHROPIC_API_KEY"].strip()
+          if not (body.get("token") or body.get("apiKey")):
+              sys.exit(f"{kind}: its secret is empty in this environment")
+          status, added = call("POST", f"{ORIGIN}/api/coderouter/claude-upstream?teamId={team}", body, auth)
+          if status not in (200, 201):
+              sys.exit(f"add Claude account: HTTP {status} {added.get('error', '')}")
+          account = added.get("account") or added
+          print(f"added: {account.get('id')} {account.get('kind')} {account.get('visibility')}")
