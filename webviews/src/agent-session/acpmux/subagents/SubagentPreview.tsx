@@ -12,13 +12,12 @@
 // their own title tooltip (SubagentTray.tsx `agentTooltip`).
 import { cloneElement, type ReactElement, type ReactNode } from "react";
 import { Tooltip } from "../../../ui/Tooltip";
-import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { subagentStateText, subagentStatus, type SubagentStatus } from "../summary/subagentStatusListModel";
 import { useAgentProgress } from "./agentProgressStore";
 import { isRepeatedAgentKind } from "./agentIdentityModel";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
-import { elapsed, useNow } from "./subagentGroupModel";
+import { subagentTime, useNow } from "./subagentGroupModel";
 import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { latestLine } from "./trayDetail";
 
@@ -76,7 +75,7 @@ export function SubagentPreviewCard({
   const kind = agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined;
   const state = [
     subagentStateText(t, agent, waiting, now),
-    formatDuration(elapsed(agent, now)),
+    subagentTime(agent, now),
     // Its own name, when its chip names it by its task.
     own !== title ? own : undefined,
     kind !== own ? kind : undefined,

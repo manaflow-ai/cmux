@@ -75,6 +75,21 @@ const MANY = chat(
   { isWorking: true },
 );
 
+/** An end acpmux recovered for a run the chat never saw start (its spawn older than the page read):
+ * its start and end are one moment, so its time is unknown and its line names none, never "0s". */
+const RECOVERED_END = chat([
+  user("Look at the daemon", 30),
+  group(
+    [
+      agent("Explore the daemon", 29, "completed", { startedAt: minutesAgo(29), endedAt: minutesAgo(27.5) }),
+      agent("Read the logs", 29, "disconnected", { startedAt: minutesAgo(28), endedAt: minutesAgo(28) }),
+    ],
+    29,
+  ),
+  assistant("Both are back.", 27),
+  summary(27, { status: "completed", durationMs: 180_000 }),
+]);
+
 const DONE = chat([
   user(prompt, 12),
   group(
@@ -329,6 +344,20 @@ export default agentPaneEntry({
         ),
         summary(4.7, { status: "cancelled" }),
       ]),
+    },
+    "recovered-end-no-time": {
+      note: "A subagent whose end acpmux recovered after a restart, its start never read, pointed at: its line and its hover card name no time (\"Disconnected\", never \"Disconnected · 0s\"); the finished one keeps 1m 30s.",
+      theme: { subagentTray: true },
+      snapshot: RECOVERED_END,
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-subagent-done").length === 2);
+        const times = [...ctx.document.querySelectorAll(".cv-subagent-done__time")].map((node) => node.textContent);
+        if (times.join("|") !== "1m 30s") throw new Error(`done lines read ${times.join("|")}`);
+        await ctx.hover({ selector: '.cv-subagent-done[data-state="disconnected"] .cv-agent-tag' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-subagent-preview .acpmux-agent-card__state"));
+        const state = ctx.document.querySelector(".acpmux-subagent-preview .acpmux-agent-card__state")?.textContent;
+        if (state !== "Disconnected") throw new Error(`its card reads ${state}`);
+      },
     },
     "stopped-open": {
       note: "The stopped group opened: one done, one cancelled, one disconnected; the line counts the two as stopped.",
