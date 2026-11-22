@@ -62,7 +62,19 @@ final class CEFRuntime {
     private(set) var pageSpareWindow: CEFSpareWindow?
     /// Agent chat pages draw a key's frame at once (fork API 35, Debug Settings; `CEFDrawOnInput`). Made at the first
     /// browser, once the shim is loaded.
-    private(set) lazy var drawOnInput = CEFDrawOnInput(shim: shim, apiVersion: forkAPIVersion)
+    ///
+    /// Kept only once the shim is there: it binds the fork's calls at init, so one built before the library loaded
+    /// would hold no call and, cached, would leave the mode inert for the whole process however the setting reads —
+    /// the trap this PR is about. A read before then (an early `debug.cef`, which the typing bench does make) gets an
+    /// unbound one that is not kept, so the real one is still built when CEF starts.
+    var drawOnInput: CEFDrawOnInput {
+        if let made = madeDrawOnInput { return made }
+        let made = CEFDrawOnInput(shim: shim, apiVersion: forkAPIVersion)
+        if shim != nil { madeDrawOnInput = made }
+        return made
+    }
+
+    private var madeDrawOnInput: CEFDrawOnInput?
     /// Collects the garbage closed cmux pages leave in the renderer they shared (`CEFPageRendererGC`).
     private(set) lazy var pageRendererGC = CEFPageRendererGC(
         pages: { [weak self] in
@@ -364,8 +376,13 @@ final class CEFRuntime {
         case .shutDown: "shutDown"
         }
         return CEFStartReport(state: name, preloaded: preloaded, trigger: trigger, loadDuration: loadDuration,
-                              initializeDuration: initializeDuration, readyAfterLaunch: readyAfterLaunch)
+                              initializeDuration: initializeDuration, readyAfterLaunch: readyAfterLaunch,
+                              launchSwitches: launchSwitches)
     }
+
+    /// The setting-decided switches this process passed Chromium, recorded where they were built
+    /// (`startCEF`), so `debug.cef` reports what the launch used and not a later store read.
+    private(set) var launchSwitches: [String] = []
 
     var forkAPIVersion: Int32 { shim?.forkAPIVersion() ?? 0 }
 
@@ -648,6 +665,8 @@ final class CEFRuntime {
             logger.error("keychain item refused")
         }
         chromiumUsesMockKeychain = switchSet.useMockKeychain
+        // What this launch actually used, for `debug.cef` (a bench arm reads it to prove its switch landed).
+        launchSwitches = switchSet.noFrameRateLimit ? CEFFramePacing.switches.sorted() : []
         noteStartupProfile(switchSet)
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
