@@ -417,27 +417,34 @@ fn render_json(row: Row) -> Value {
 pub fn table() -> Value {
     let mut rows = Vec::new();
     for row in sample_states() {
-        for (index, kind) in Event::KINDS.iter().enumerate() {
-            let ages: &[(&str, u64)] = if sample_events(SAMPLE)[index].generation().is_some() {
-                &AGES
+        // The same event at each age, so the ages of one event zip together.
+        let [older, same, newer] = AGES.map(|(_, generation)| sample_events(generation));
+        for ((older, same), newer) in older.into_iter().zip(same).zip(newer) {
+            let tried: Vec<(Option<&str>, Event)> = if same.generation().is_some() {
+                vec![(Some("older"), older), (Some("same"), same), (Some("newer"), newer)]
             } else {
-                &AGES[1..2]
+                vec![(None, same)]
             };
-            for (age, generation) in ages {
-                let event = sample_events(*generation)[index];
-                let mut entry = json!({ "from": row.kind(), "event": kind });
-                if event.generation().is_some() {
-                    entry["generation"] = json!(age);
+            for (age, event) in tried {
+                let mut entry = serde_json::Map::new();
+                entry.insert("from".into(), json!(row.kind()));
+                entry.insert("event".into(), json!(event.kind()));
+                if let Some(age) = age {
+                    entry.insert("generation".into(), json!(age));
                 }
                 match step(row, event) {
                     Ok((after, effects)) => {
-                        entry["to"] = json!(after.kind());
-                        entry["effects"] =
-                            json!(effects.iter().map(Effect::kind).collect::<Vec<_>>());
+                        entry.insert("to".into(), json!(after.kind()));
+                        entry.insert(
+                            "effects".into(),
+                            json!(effects.iter().map(Effect::kind).collect::<Vec<_>>()),
+                        );
                     }
-                    Err(refusal) => entry["refusal"] = json!(refusal.as_str()),
+                    Err(refusal) => {
+                        entry.insert("refusal".into(), json!(refusal.as_str()));
+                    }
                 }
-                rows.push(entry);
+                rows.push(Value::Object(entry));
             }
         }
     }
