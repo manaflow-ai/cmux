@@ -2647,7 +2647,7 @@ button.cv-subagent > :last-child {
   pointer-events: auto;
 }
 
-/* ---------- The hat's step slot (HatStep.tsx, hatStep.experiment.ts; Leo, 2026-11-22) ---------- */
+/* ---------- The hat's step slot (HatStepSlot.tsx, hatStep.experiment.ts; Leo, 2026-11-22) ---------- */
 /* Every word the slot can say sits in one grid cell, the shown one visible, so the slot is as wide as
    the widest word in the pane's language and no change of word moves what follows it. A new word
    cross-fades in place on the micro step: no roll, no slide, no width change. */

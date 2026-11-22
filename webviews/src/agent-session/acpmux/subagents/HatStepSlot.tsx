@@ -8,10 +8,13 @@ import { HAT_PHASES, hatPhaseWord, PHASE_DWELL_MS, SAMPLE_DWELL_MS, type HatPhas
 /// only the newest waiting value then shows, so a burst collapses to one change.
 export function useDwell<T>(value: T, dwellMs: number): T {
   const [shown, setShown] = useState(value);
-  const shownAt = useRef(0);
+  // The first value is held too: a part that mounts mid-burst (a new kind in the hat's header) shows
+  // what it mounted with for a whole dwell before its first change.
+  const shownAt = useRef<number | undefined>(undefined);
+  shownAt.current ??= Date.now();
   useEffect(() => {
     if (Object.is(value, shown)) return;
-    const wait = shownAt.current + dwellMs - Date.now();
+    const wait = (shownAt.current ?? 0) + dwellMs - Date.now();
     const show = () => {
       shownAt.current = Date.now();
       setShown(value);

@@ -65,7 +65,7 @@ export const composerHatHeadScript = [
 
 const variants = {
   calm: {
-    note: "One subagent runs, its step in the shipped arm (one word for the kind of call, held 1.5 s); the header's words and count are held 1.5 s too. The feel test feeds this one bursts.",
+    note: "One subagent runs, its step in the shipped arm (one word for the kind of call, held 1.6 s); the header's words and count are held 1.6 s too. The feel test feeds this one bursts.",
     props: { start: "running" as const, stepLook: "default" as const },
   },
   running: {

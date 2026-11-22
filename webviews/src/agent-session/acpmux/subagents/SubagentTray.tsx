@@ -118,7 +118,7 @@ import { attentionFirst, type TrayCard } from "./trayAttention";
 import { actionDetail, latestLine, namedAction } from "./trayDetail";
 import { hatStepLook, type HatStepArm } from "./hatStep.experiment";
 import { hatPhase, PHASE_DWELL_MS } from "./hatStep";
-import { Dwelt, HatPhaseSlot, HatSampledSlot, useDwell } from "./HatStep";
+import { Dwelt, HatPhaseSlot, HatSampledSlot, useDwell } from "./HatStepSlot";
 import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
 import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
