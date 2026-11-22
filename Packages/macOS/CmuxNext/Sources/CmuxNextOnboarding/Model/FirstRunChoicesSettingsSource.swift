@@ -66,6 +66,8 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
     private var openedWorkStyle: WorkStyle?
     /// `markOpened` asked for the read (it may still be running).
     private var captureAsked = false
+    /// The open-time read threw: Skip has nothing to put back, so the caller writes the old choices.
+    private var captureFailed = false
 
     /// `settings` is the app's settings owner (nil before it started); `windowOpacity` reads the
     /// opacity the window shows now (Settings' unset slider's reading).
@@ -112,13 +114,16 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
     }
 
     /// Reads the file's values at every path a pick may write (absent ones too), before any pick.
+    /// The read queues after a restore still waiting from the window before (a quick reopen from the
+    /// palette), so that Skip puts back its own snapshot before this one is taken.
     public func markOpened() {
-        opened = nil
         captureAsked = true
+        captureFailed = false
         openedWorkStyle = currentChoices().workStyle
         pickedWorkStyle = nil
         pending.removeAll { if case .capture = $0 { true } else { false } }
-        pending.insert(.capture, at: 0)
+        let afterRestore = pending.lastIndex { if case .restore = $0 { true } else { false } }.map { $0 + 1 } ?? 0
+        pending.insert(.capture, at: afterRestore)
         drain()
     }
 
@@ -144,9 +149,9 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
     }
 
     /// Skip: puts back the file's values from open in one publish (nothing when no pick changed them).
-    /// False when the step never read them (no settings owner): the caller writes the old choices instead.
+    /// False when the step never read them (no settings owner, or the read threw): the caller writes the old choices instead.
     public func restoreOpened() -> Bool {
-        guard captureAsked else { return false }
+        guard captureAsked, !captureFailed else { return false }
         if pickedWorkStyle != nil { pickedWorkStyle = openedWorkStyle }
         // Picks not yet written never need writing: the restore puts their paths back anyway.
         pending.removeAll { if case .write = $0 { true } else { false } }
@@ -173,13 +178,20 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
             while let self, !pending.isEmpty {
                 let work = pending.removeFirst()
                 guard let settings = settings() else {
+                    if case .capture = work { opened = nil; captureFailed = true }
                     failed("settings are not started")
                     continue
                 }
                 do {
                     switch work {
                     case .capture:
-                        opened = try await settings.fileValues(at: SettingsController.pathsWritten(by: Self.pickPaths))
+                        opened = nil
+                        do {
+                            opened = try await settings.fileValues(at: SettingsController.pathsWritten(by: Self.pickPaths))
+                        } catch {
+                            captureFailed = true
+                            throw error
+                        }
                     case .write(let writes):
                         try await settings.setSettings(writes, by: .user)
                     case .restore:

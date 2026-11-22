@@ -287,6 +287,24 @@ import Testing
         #expect(writer.publishes == 6)
     }
 
+    /// A reopen from the palette right after Skip (its restore still queued behind a pick's write)
+    /// reads its snapshot after that restore lands, so the first Skip is not lost.
+    @Test func reopenRightAfterSkipKeepsTheSkip() async throws {
+        let (settings, _, url) = try await countedSettings(Self.ownSettings)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let source = FirstRunChoicesSettingsSource(settings: { settings })
+        source.markOpened()
+        await source.settled()
+        let opened = source.currentChoices()
+        source.apply(FirstRunChoices(workStyle: opened.workStyle, density: "spacious", background: opened.background,
+                                     opacity: 0.4, material: opened.material), from: opened)
+        #expect(source.restoreOpened())
+        source.markOpened()
+        await source.settled()
+        #expect(try JSONC.parse(String(contentsOf: url, encoding: .utf8)) == JSONC.parse(Self.ownSettings))
+        #expect(source.restoreOpened(), "the reopened step has its own snapshot")
+    }
+
     /// Skip and Escape put back the file as it was when the step opened, in one publish: every
     /// value a pick wrote, linked edits included, present or absent, so a walk replayed over a
     /// person's own settings loses nothing (the custom density and Plain Backgrounds come back).
