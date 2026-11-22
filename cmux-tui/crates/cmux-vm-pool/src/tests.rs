@@ -37,6 +37,8 @@ fn no_delete_path() {
         include_str!("schedule.rs"),
         include_str!("plan.rs"),
         include_str!("http.rs"),
+        include_str!("runner.rs"),
+        include_str!("runner_cli.rs"),
     ];
     for source in sources {
         for banned in ["Method::DELETE", "/delete", "/stop\"", "\"stop\"", "/retire"] {
@@ -510,3 +512,5 @@ fn providers_read_the_schedule_opt_in() {
     let inst = json!({"name": "cmux-runner-pool-w", "status": "RUNNING", "labels": {"purpose": "cmux-runner-pool"}});
     assert!(gce::parse_instance(&inst).is_some_and(|m| !m.schedule_pause));
 }
+
+mod runner_tests;

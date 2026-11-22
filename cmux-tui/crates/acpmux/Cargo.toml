@@ -87,6 +87,8 @@ cmux-build-space.workspace = true
 cmux-cloud-client.workspace = true
 # Each deployment's device hub origin, for the share host's machine sign-in (`share_host/`).
 cmux-cloud-environment.workspace = true
+# A browser's own email-code sign-in on the web listener (`server/web_device.rs`).
+cmux-stack-auth.workspace = true
 # The event log's journal (R-DURABILITY S2; always on).
 cmux-journal.workspace = true
 cmux-chat-index.workspace = true
@@ -112,6 +114,8 @@ cmux-agent-customize.workspace = true
 cmux-file-lock.workspace = true
 cmux-supervise-core.workspace = true
 cmux-git.workspace = true
+# The trusted session-flag hook a Codex start at a repository head gets (src/codex_repo_gate.rs).
+cmux-tui-hooks.workspace = true
 cmux-worktree-care.workspace = true
 cmux-wg.workspace = true
 anyhow = "1"
