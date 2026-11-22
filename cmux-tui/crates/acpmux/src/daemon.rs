@@ -94,6 +94,8 @@ pub(crate) use crate::term_sender;
 use stop_causes::next_signal;
 use stop_causes::{AbortOnDrop, store_asks_to_stop};
 pub use stop_causes::{EXIT_REPAIR, exit_status};
+#[cfg(target_os = "linux")]
+mod restart_backoff;
 pub(crate) mod unused_exit;
 #[cfg(target_os = "linux")]
 mod watchdog;
@@ -401,6 +403,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Under systemd's watchdog: pings only while this socket answers hello (`daemon/watchdog.rs`).
     #[cfg(target_os = "linux")]
     watchdog::start(socket_path());
+    // A daemon that serves for a minute resets its unit's restart delay (`daemon/restart_backoff.rs`).
+    #[cfg(target_os = "linux")]
+    restart_backoff::start();
     // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and `local-coderouter`
     // routes read its port and mint keys from it. Opt-in (the cmux app sets ACPMUX_LOCAL_ROUTER=1).
     // Its owner ties the router's life to this daemon (daemon/router_owner.rs: the owner FIFO,

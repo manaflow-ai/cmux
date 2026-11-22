@@ -984,7 +984,7 @@ export function restartStatusSampler(): string {
  */
 export function restartTimelineCommand(sinceMs: number): string {
   const since = `@${Math.floor(sinceMs / 1000) - 1}`;
-  const journal = `journalctl --user -u acpmux.service --since ${since} --no-pager -o short-unix 2>/dev/null | grep -iE 'start|stop|kill|exited|signal|fail' | head -n 15`;
+  const journal = `journalctl --user -u acpmux.service --since ${since} --no-pager -o short-unix 2>/dev/null | grep -vE ' (DEBUG|TRACE) ' | grep -viE 'model probe failed' | head -n 60`;
   const kept = `tail -n 600 "$HOME"/.acpmux/daemon.log "$HOME"/.cmux/acpmux/daemon.log 2>/dev/null | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' | grep -vE ' (DEBUG|TRACE) '`;
   return `echo "@@now $(date +%s%3N)"; ${journal}; ${kept}; cat ${restartStatusFile()} 2>/dev/null`;
 }
