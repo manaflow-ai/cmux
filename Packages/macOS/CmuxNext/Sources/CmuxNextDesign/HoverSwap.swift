@@ -18,7 +18,8 @@ import QuartzCore
 /// Marks a person points at (a usage warning with a tooltip, an audio button, a pull request chip that moves beside
 /// the actions) are not tagged: they keep their place by design.
 @MainActor
-public enum HoverSwap {
+public struct HoverSwap {
+    public init() {}
     public enum Role: Int {
         /// A hover action: the close ✕, the more ⋮, the pin.
         case action
