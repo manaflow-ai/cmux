@@ -151,6 +151,25 @@ CELLS = 20
 GUARD = (True, False, True, False)
 
 
+def marker_click_at(line):
+    """mac-marker's `marker-origin X,Y click-at X,Y` line -> [x, y] of its gray pad, where a click or
+    scroll counts and touches no read cell (None: the line names none)."""
+    words = line.split()
+    if len(words) >= 4 and words[0] == "marker-origin" and words[2] == "click-at":
+        x, y = words[3].split(",")
+        return [int(x), int(y)]
+    return None
+
+
+def bench_input(kind, samples, at):
+    """`cmux-rd bench`'s input flags. A click or scroll aims at AT (the marker's pad): the bench's
+    own --at default, 960,600, misses the marker, which then counts nothing (every trial lost)."""
+    flags = f"--input {kind} --samples {samples}"
+    if kind in ("click", "scroll") and at:
+        flags += f" --at {at[0]},{at[1]}"
+    return flags
+
+
 def motion_link(series):
     """Received Mbps for each second of a `--input none` run (video and FEC datagram bytes into
     the viewer) and the host's smoothed datagram loss (its `stats` control, computed from the
@@ -844,6 +863,9 @@ def cmd_rig(args):
                     if line.startswith("marker-origin "):
                         x, y = line.split()[1].split(",")
                         reply["origin"] = [int(x), int(y)]
+                        at = marker_click_at(line)
+                        if at:
+                            reply["at"] = at
                     if "stream width" in line:
                         reply["geometry"] = line
                 if "origin" not in reply:
@@ -1506,7 +1528,8 @@ class Orchestrator:
         session = "vs-" + os.urandom(8).hex()
         bench = (f"{self.root}/bin/cmux-rd bench --link 1 --marker-origin {origin[0]},{origin[1]} ")
         if mode == "key":
-            bench += f"--input {getattr(self.a, 'cmux_input', 'key')} --samples {self.a.samples}"
+            bench += bench_input(getattr(self.a, "cmux_input", "key"), self.a.samples,
+                                 getattr(self, "marker_at", None))
         else:
             bench += f"--input none --duration-s {self.a.fps_seconds}"
             if getattr(self.a, "marker_log", False):
@@ -1720,7 +1743,11 @@ class Orchestrator:
         """The marker's origin for the next attempt: the marker app's (the rig), or 0,0."""
         if self.synthetic:
             return [0, 0]
-        origin = self.rig({"cmd": "marker", "flags": flags})["origin"]
+        reply = self.rig({"cmd": "marker", "flags": flags})
+        origin = reply["origin"]
+        # click and scroll must land on the marker or it never counts them (the bench's own --at
+        # default, 960,600, misses it): the marker's click-at, else its pad from the origin.
+        self.marker_at = reply.get("at") or [origin[0] + 32 * (CELLS + 2), origin[1] + 16]
         time.sleep(0.5)
         return origin
 

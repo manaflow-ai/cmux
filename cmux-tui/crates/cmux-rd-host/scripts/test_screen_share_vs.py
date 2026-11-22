@@ -239,6 +239,17 @@ class FrameScore(unittest.TestCase):
         self.assertEqual(vs.motion_geometry(log), GEO)
         self.assertIsNone(vs.motion_geometry("marker-origin 0,50\n"))
 
+    def test_click_and_scroll_aim_at_the_marker_pad(self):
+        # Without --at the bench clicks 960,600, off the marker, and every click/scroll trial is lost.
+        at = vs.marker_click_at("marker-origin 0,50 click-at 704,66")
+        self.assertEqual(at, [704, 66])
+        self.assertIsNone(vs.marker_click_at("marker-origin 0,50"))
+        self.assertIsNone(vs.marker_click_at("marker: stream width 1920 px"))
+        for kind in ("click", "scroll"):
+            self.assertEqual(vs.bench_input(kind, 30, at), f"--input {kind} --samples 30 --at 704,66")
+        self.assertEqual(vs.bench_input("key", 30, at), "--input key --samples 30")
+        self.assertEqual(vs.bench_input("click", 30, None), "--input click --samples 30")
+
 
 FAKE_VNC = '''
 import socket, struct
