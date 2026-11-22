@@ -18,6 +18,7 @@ import { useT } from "../i18n";
 import type { RetryNote } from "./retryState";
 import { canResume, resumeVersion, settledResume, shownResume, type ResumeRun } from "./resumeState";
 import type { Subagent } from "./subagentFold";
+import { Described } from "../chips/FactsHoverCard";
 
 /// What a surface needs for Resume: the chat's `resumeAgent` and the capabilities acpmux named. A
 /// surface inside the transcript reads them from TurnActionsContext; one outside it takes them as
@@ -79,17 +80,21 @@ export function ResumeButton({ busy, onResume }: { busy: boolean; onResume: () =
   const t = useT();
   const label = t("subagents.resume");
   return (
-    <button
-      type="button"
-      className="cv-iconbtn cv-iconbtn--compact cv-subagent-restart cv-subagent-resume"
-      aria-label={label}
-      title={label}
-      data-tooltip-detail={t("subagents.resumeDetail")}
-      disabled={busy}
-      onClick={onResume}
-    >
-      <Retry size={14} />
-    </button>
+    <Described text={t("subagents.resumeDetail")}>
+      {(described) => (
+        <button
+          {...described}
+          type="button"
+          className="cv-iconbtn cv-iconbtn--compact cv-subagent-restart cv-subagent-resume"
+          aria-label={label}
+          title={label}
+          disabled={busy}
+          onClick={onResume}
+        >
+          <Retry size={14} />
+        </button>
+      )}
+    </Described>
   );
 }
 

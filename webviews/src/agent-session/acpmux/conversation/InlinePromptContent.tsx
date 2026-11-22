@@ -26,12 +26,14 @@ import { sentUIPick } from "./sentUIPickModel";
  * file too) keeps its chip. */
 export const InlinePromptContent = memo(function InlinePromptContent({
   rowId,
+  messageAt,
   parts,
   show,
   renderImage,
   renderFile,
 }: {
   rowId: string;
+  messageAt?: number;
   parts: readonly PromptContentPart[];
   show(text: string): string;
   renderImage(image: PromptImage): ReactNode;
@@ -50,6 +52,7 @@ export const InlinePromptContent = memo(function InlinePromptContent({
   return (
     <PromptText
       rowId={rowId}
+      messageAt={messageAt}
       // What the fold measures: the words the bubble draws, from the same join.
       text={bodyText(body)}
       // What Find searches (chatFind.ts `drawnPromptText`, the same text): those words and each text
@@ -83,6 +86,7 @@ export const InlinePromptContent = memo(function InlinePromptContent({
       return (
         <PromptTyped
           key={`text-${index}`}
+          messageAt={messageAt}
           text={part.text}
           show={show}
           plain={"huge" in part && part.huge === true}
