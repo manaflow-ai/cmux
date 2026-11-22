@@ -148,11 +148,11 @@ const WIDE_HAS: [RegExp, string][] = [
   [/:has\(\s*>\s*\.acpmux-composer-box\s+:focus-visible/, "the form's card focus: [data-focused]"],
   [/\.acpmux-composer-box:has\(\s*:focus-visible/, "the card's focus: [data-focused]"],
   [/\.nt-box:has\(\s*:focus-visible/, "the New Tab box's focus: [data-focused]"],
-  [/\.nt-composer:has\(/, "the New Tab composer's focus: [data-focused]"],
+  [/\.nt-composer:has\([^)]*:focus-visible/, "the New Tab composer's focus: [data-focused]"],
   [/\bbody:has\(/, "a body-wide :has(): the owner's class or attribute"],
   [/\.acpmux-dock:has\(/, "the dock's focus or foot: [data-focused] / [data-foot]"],
-  [/:has\(\s*>\s*\.acpmux-composer-queue\b/, "the form's queue: [data-queue]"],
-  [/:has\(\s*>\s*\.acpmux-composer-strip\b/, "the form's strip: [data-strip]"],
+  [/:has\(\s*>\s*\.acpmux-composer-queue\s*\)/, "the form's queue: [data-queue]"],
+  [/:has\(\s*>\s*\.acpmux-composer-strip\s*\)/, "the form's strip: [data-strip]"],
   [/:has\(\s*\.acpmux-composer-foot\b/, "the form's foot: [data-foot]"],
 ];
 
@@ -176,8 +176,9 @@ test("the wide :has() ban catches each replaced form", () => {
     ".acpmux-composer:has(> .acpmux-composer-box :focus-visible) { color: red }",
     ".acpmux-composer-box:has(:focus-visible) { color: red }",
     ".nt-box:has(:focus-visible) { color: red }",
-    "body:has(.nt-box:focus-visible) .nt-popover { color: red }",
-    ".acpmux-dock:has(.acpmux-composer-foot) { color: red }",
+    "body:has(.nt-popover-open) .nt-popover { color: red }",
+    ".acpmux-dock:has(:focus-visible) { color: red }",
+    ".acpmux-composer:has(.acpmux-composer-foot) .x { color: red }",
     ".acpmux-composer:has(> .acpmux-composer-queue) .x { color: red }",
     ".acpmux-composer:not(:has(> .acpmux-composer-strip)) { color: red }",
   ])
@@ -185,4 +186,9 @@ test("the wide :has() ban catches each replaced form", () => {
   expect(wideHas(".acpmux-composer[data-queue] .x { color: red }")).toEqual([]);
   expect(wideHas("/* .acpmux-dock:has(x) */ .a { color: red }")).toEqual([]);
   expect(wideHas(".acpmux-queue-row:has(+ .acpmux-queue-row) { color: red }")).toEqual([]);
+  // A mixed argument (any of several children) still needs `:has()`; the strip on New Tab is not streamed.
+  expect(
+    wideHas(".a + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip)) { color: red }"),
+  ).toEqual([]);
+  expect(wideHas(".nt-composer:has(.acpmux-composer-strip) .nt-box { color: red }")).toEqual([]);
 });
