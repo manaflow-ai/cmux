@@ -82,6 +82,8 @@ public final class AgentChatSurface {
     public var showArtifacts = false
     /// `/status`'s sheet while it is up.
     var showStatus = false
+    /// `/help`'s sheet while it is up.
+    var showHelp = false
     /// The Copy rows' sheet (the Mac's AgentChatCopyActionCatalog).
     public var showCopyChoices = false
     /// Text and Width's sheet.
@@ -108,13 +110,22 @@ public final class AgentChatSurface {
         editingEarlier = EarlierPromptEdit(turnID: turn.id, throughSeq: seq, original: turn.prompt)
     }
 
-    /// A cmux command typed in the composer (`/status`, `/fork`, `/continue [harness]`): run
+    /// The cmux commands this chat's composer offers (`/fork` only in a workspace tab).
+    var cmuxCommands: [CmuxSlashCommand] {
+        CmuxSlashCommand.allCases.filter { $0 != .fork || tabActions != nil }
+    }
+
+    /// A cmux command typed in the composer (`/status`, `/fork`, `/continue [harness]`, `/help`): run
     /// here; nil when it ran (or opened its screen), else the refusal to show (the draft stays).
     func run(_ command: CmuxSlashCommand, args: String, store: AgentChatStore) async -> String? {
         let canFork = tabActions != nil
         switch command {
         case .status:
             showStatus = true
+            return nil
+        case .help:
+            composerFocused = false
+            showHelp = true
             return nil
         case .fork:
             if let refusal = command.refusal(args: args, canFork: canFork, isRunning: store.isRunning, targets: nil) { return refusal }
@@ -596,6 +607,13 @@ public struct AgentChatTranscript: View {
         .sheet(isPresented: $surface.showStatus) {
             SessionStatusSheet(store: store)
         }
+        .sheet(isPresented: $surface.showHelp) {
+            ComposerHelpSheet(commands: CmuxSlashCommand.merged(surface.cmuxCommands, agent: store.availableCommands)) { command in
+                surface.showHelp = false
+                surface.text = "/\(command.name) "
+                surface.composerFocused = true
+            }
+        }
         .sheet(isPresented: $surface.showCopyChoices) {
             ChatCopyChoicesSheet(store: store)
         }
@@ -867,7 +885,7 @@ public struct AgentChatBottomStack: View {
                                  placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
                                  denyingPermission: replying,
                                  suggestionsCeiling: surface.stackCeiling.map { $0 + composerOffset },
-                                 cmuxCommands: CmuxSlashCommand.allCases.filter { $0 != .fork || surface.tabActions != nil },
+                                 cmuxCommands: surface.cmuxCommands,
                                  runCmuxCommand: { [surface, store] command, args in
                                      await surface.run(command, args: args, store: store)
                                  })
