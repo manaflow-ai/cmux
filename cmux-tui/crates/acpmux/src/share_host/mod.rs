@@ -24,6 +24,8 @@
 pub(crate) mod cli;
 
 #[cfg(unix)]
+pub(crate) mod approval;
+#[cfg(unix)]
 mod channel;
 #[cfg(unix)]
 mod helper;
