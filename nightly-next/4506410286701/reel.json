@@ -1,0 +1,291 @@
+{
+  "version": 1,
+  "build": "4506410286701",
+  "notes": "notes/4506410286701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 47421,
+      "title": "acpmux keeps up when 20 coordinators stream at once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50496,
+      "title": "acpmux register --renew: a registered Claude Code chat stays reachable after it restarts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50723,
+      "title": "lint: a changed-files conventions run keeps each scan to its own iOS scope",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50552,
+      "title": "cmux-rd-host: move cu_host's grant tests to the end of the file (macOS clippy red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50727,
+      "title": "cmux-next: resolve-acpmux uses the acpmux fetch-acpmux just brought, for universal builds too",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50738,
+      "title": "bench(terminal-throughput): ^C under a flood, key to SIGINT and SIGINT to the PTY drained (reading note)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45668,
+      "title": "Screen sharing: a follow camera's cut settle is a setting, so a recording's cut snaps to the new scene",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50418,
+      "title": "device-hub: a share's host end gets the relay its paid viewer's billing grants",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50754,
+      "title": "CmuxNextMobileTests: drop three package dependencies nothing imports",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50608,
+      "title": "cmux-vm image: record the base snapshot's new package fingerprint",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49882,
+      "title": "Cloud start-chat: send the first prompt over the machine's link, not a cloud exec",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44557,
+      "title": "Agent chat: a turn's end fold reads every height before it animates and watches only the rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49013,
+      "title": "cmux remote connect: an invitation waiting on approval names the host's commands",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50629,
+      "title": "acpmux: a daemon from before the owner record also reads dead after a reboot; reboot test",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50523,
+      "title": "cmux NEXT Chief: paying the plan checkout lifts the free job limit and Chief confirms (pick-forward of #25608)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50601,
+      "title": "app FFI: the files lister client and the system calendar rules in Rust",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50627,
+      "title": "cloud-journey: the scheduled run waits for a ready warm spare before create (--spare-wait 180)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50138,
+      "title": "customize demo: every look one at a time, deeper sidebar, tabs, top right buttons and Session Info",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49224,
+      "title": "ci: clear the actionlint, label-event and Python determinism reds at the feat-cmux-next tip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47403,
+      "title": "acpmux: a Codex chat's newest page skips raw app-server lines by kind",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47626,
+      "title": "carrier: a circuit the new machine's daemon never joins is redialed after 4 s, not 15 s",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50524,
+      "title": "cmux CLI: focused selector, a terminal's no-place tab in its own pane, Chief turns placed by the owning app (#25590, #25663 picked forward)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50524/hv-7045488b54d7-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 50286,
+      "title": "React Doctor: skip on a signed input-keyed receipt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50381,
+      "title": "looks: Instrument look 0.2.0, a drop-in look for Instrument v0.1",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50070,
+      "title": "computer-use: record a display to an MP4 (record tool, cmux computer-use record)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50049,
+      "title": "acpmux: an agent's send carried over ssh is never recorded as the person's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50755,
+      "title": "scripts: delete 71 scripts nothing references",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49839,
+      "title": "Agent chat: older history draws as it lands while you scroll up, never a blank screen",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50108,
+      "title": "carrier serve: a quiet socket so a projection redial never wakes a paused machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50707,
+      "title": "acpmux: vault egress CA outlives the daemon",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49929,
+      "title": "health: a page the host reloads is loading, not hung; a stall's renderer restarts are counted (no more blank chats on a web source change)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50635,
+      "title": "ci: react-apps-check shard 1 runs only its touched tests on a pull request",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50185,
+      "title": "iOS: a new chat's greeting and composer settle in on a spring; the shell arrives at startup",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50185/side-by-side-slow4x.mp4",
+      "source": "manual",
+      "note": "5 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 50589,
+      "title": "cmux-rd: a WAN pair harness for Linux to Mac and Mac to Linux (screen share P9)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50741,
+      "title": "Delete dogfood/: scenario files whose runner is gone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47936,
+      "title": "cmux app try: carry the signed Screen Sharing helper live, so cmux-rd host changes read back before a NIGHTLY",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50149,
+      "title": "Screen sharing, Linux host: pick one monitor, and the quality menu's sizes apply",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50545,
+      "title": "cmux-next-ios: a paired device of the same account answers a waiting pairing request",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 45745,
+      "title": "fix(agent chat): the needs-input row never blanks the transcript behind it; a clicked answer folds its card",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/45745/hv-7fd9f61b25c1-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 47358,
+      "title": "ci: warnings never fail a pull request's compile; nightly and release keep them errors",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50688,
+      "title": "ios-review-gate: drop the five iPhone walk blockers the fleet walk now passes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50730,
+      "title": "Area cards for the Mac app Swift, Cloud, and CI and scripts: where things live, test in five minutes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50000,
+      "title": "App Store: Install installs, a widget shows up, and a listing that shows nothing fails CI",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49120,
+      "title": "Customize: 15 looks with public-domain art and living wallpapers, type recipes, more app looks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50439,
+      "title": "ci: prod deploy for the mobile Worker (cmux-mobile-api-prod), on request",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47509,
+      "title": "rd host: ScreenCaptureKit display time ahead of the callback stays ahead",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
