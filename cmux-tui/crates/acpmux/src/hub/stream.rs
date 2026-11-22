@@ -129,8 +129,8 @@ pub(super) fn stamp_reply_segment(value: &mut Value, segment: &str) {
 
 impl StreamState {
     /// The reply segment of an `agent_message_chunk` of message `id` in turn `turn` (None: no
-    /// turn, the agent's own text between turns), starting a new one when the message or the turn
-    /// changed or the last one was cut. Numbered within the turn, a turn's ids are unique by its
+    /// turn, the agent's own text between turns). An open message keeps its segment across turns.
+    /// A new message, a cut, or an anonymous chunk in a new turn starts a segment. Numbered within the turn, a turn's ids are unique by its
     /// id. Text with no turn is numbered on its own count, which no turn resets: numbered from 1
     /// again after every turn, a later reply took an earlier one's id (`-.<boot>.1` named "The
     /// reviewer returned FIX" and, an hour later, "The review is FIX"), so a page of the log that
@@ -143,10 +143,10 @@ impl StreamState {
         boot: &str,
     ) -> String {
         let key = turn.unwrap_or("-");
-        // A turn the agent started on its own has no prompt to end the last one's.
+        // A turn change separates anonymous chunks. A named message can keep streaming across it.
         if let Some(open) = &self.reply_segment
             && id == self.segment_message.as_deref()
-            && self.segment_turn.as_deref() == Some(key)
+            && (id.is_some() || self.segment_turn.as_deref() == Some(key))
         {
             return open.clone();
         }

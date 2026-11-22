@@ -491,6 +491,8 @@ mod goal_tools;
 pub mod plan_build;
 #[cfg(test)]
 mod refused_append_tests;
+#[cfg(test)]
+mod reply_segment_tests;
 #[cfg(feature = "sim")]
 mod sim_startup;
 #[cfg(all(test, unix))]
