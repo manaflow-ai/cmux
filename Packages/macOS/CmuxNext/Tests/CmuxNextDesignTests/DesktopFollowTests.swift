@@ -4,16 +4,21 @@ import CmuxNextDesignTokens
 import Foundation
 import ImageIO
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// The Desktop Wallpaper follows what macOS shows: the screen's Fill, Fit, Stretch or Center, the
 /// wallpaper store's choice (an aerial, a rotation's current file, how a dynamic picture moves),
 /// and a dynamic picture's frame of the time.
-struct DesktopFollowTests {
+@MainActor @Suite final class DesktopFollowTests {
     private let folder: URL
 
     init() throws {
         folder = FileManager.default.temporaryDirectory.appendingPathComponent("desktop-follow-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    }
+
+    deinit {
+        try? FileManager.default.removeItem(at: folder)
     }
 
     private func writePNG(_ name: String, in directory: URL) throws -> URL {
@@ -109,11 +114,11 @@ struct DesktopFollowTests {
         try FileManager.default.createDirectory(at: rotation, withIntermediateDirectories: true)
         let first = try writePNG("a.png", in: rotation), second = try writePNG("b.png", in: rotation)
         let outside = try writePNG("c.png", in: folder)
-        let files = [second, first]
-        #expect(DesktopStoreChoice.shownFile(in: rotation, pictures: files, named: [outside, second])?.lastPathComponent == "b.png")
-        #expect(DesktopStoreChoice.shownFile(in: rotation, pictures: files, named: [outside])?.lastPathComponent == "a.png",
-                "a file outside the folder is not the rotation's: first by name")
-        #expect(DesktopStoreChoice.shownFile(in: rotation, pictures: [], named: []) == nil)
+        #expect(DesktopStoreChoice.shownFiles(in: rotation, named: [outside, second]).map(\.lastPathComponent) == ["b.png"],
+                "a file outside the folder is not the rotation's")
+        #expect(DesktopStoreChoice.shownFiles(in: rotation, named: []).isEmpty)
+        #expect(DesktopPicture(reportedURL: rotation, fillColor: nil, fallbackFolder: folder, named: [outside]).resolvedURL()?
+            .resolvingSymlinksInPath().lastPathComponent == "a.png", "none of the folder's own named: the first by name")
 
         let picture = DesktopPicture(reportedURL: rotation, fillColor: nil, fallbackFolder: folder, named: [second])
         #expect(picture.resolvedURL()?.resolvingSymlinksInPath().lastPathComponent == "b.png")
@@ -127,10 +132,12 @@ struct DesktopFollowTests {
     @Test func theFitIsPartOfTheReading() throws {
         let file = try writePNG("fit.png", in: folder)
         let filled = DesktopWallpaperWatch.Reading(picture: DesktopPicture(reportedURL: file, fillColor: nil, fallbackFolder: folder), dark: false)
-        let fitted = DesktopWallpaperWatch.Reading(picture: DesktopPicture(reportedURL: file, fillColor: .red, fallbackFolder: folder, fit: .fit), dark: false)
-        #expect(filled != fitted)
-        #expect(fitted.shown?.fit == .fit && fitted.shown?.fill.first == 1)
+        let fitted = DesktopWallpaperWatch.Reading(picture: DesktopPicture(reportedURL: file, fillColor: nil, fallbackFolder: folder, fit: .fit), dark: false)
+        #expect(filled != fitted, "only the fit changed")
+        #expect(fitted.shown?.fit == .fit)
         #expect(fitted.shown?.selection(dark: false) == .system(path: file.path))
+        let red = DesktopWallpaperWatch.Reading(picture: DesktopPicture(reportedURL: file, fillColor: .red, fallbackFolder: folder, fit: .fit), dark: false)
+        #expect(red != fitted && red.shown?.fill.first == 1, "the fill color is part of it too")
     }
 
     // MARK: Time of day
@@ -158,5 +165,109 @@ struct DesktopFollowTests {
         #expect(shown.selection(dark: true) == .moment(path: "/tmp/Dynamic.heic", frame: 3, dark: true))
         #expect(DesktopShown(path: "/tmp/aerial.mov").isVideo)
         #expect(DesktopShown(path: "/tmp/a.heic", nextChange: Date()) == DesktopShown(path: "/tmp/a.heic"), "the next turn is not part of equality")
+    }
+
+    // MARK: The watch
+
+    /// What a fake desktop watch sees: whether a window shows the desktop, whether the app is
+    /// hidden, and how many reads ran.
+    private final class Flags {
+        var visible = false
+        var hidden = false
+        var reads = 0
+    }
+
+    private func until(_ condition: () -> Bool) async throws {
+        for _ in 0..<400 where !condition() { try await Task.sleep(for: .milliseconds(5)) }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func theFollowReReadRunsOnlyWhileADesktopWindowShows() async throws {
+        let file = try writePNG("follow.png", in: folder)
+        let picture = DesktopPicture(reportedURL: file, fillColor: nil, fallbackFolder: folder)
+        let flags = Flags(), clock = ManualClock()
+        let watch = DesktopWallpaperWatch(readScreens: {
+            flags.reads += 1
+            return .init(main: .init(picture: picture, dark: false))
+        }, sample: { _ in nil }, isHidden: { flags.hidden }, showsDesktop: { _ in flags.visible }, clock: clock)
+        let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 64, height: 40), images: BackdropImageStore(desktop: watch),
+                                      videos: BackdropVideoPlayers())
+        watch.register(view)
+        watch.start()
+        await watch.refreshed()
+        #expect(!watch.followPending, "no window shows the desktop: nothing is re-read")
+
+        flags.visible = true
+        watch.desktopIsShown()
+        #expect(watch.followPending)
+        let before = flags.reads
+        try await clock.waitForSleeper()
+        clock.advance(by: DesktopWallpaperWatch.followInterval)
+        try await until { flags.reads > before && watch.followPending }
+        #expect(flags.reads == before + 1, "one re-read per interval")
+        #expect(watch.followPending, "the next one is set while the window shows")
+
+        flags.hidden = true
+        try await clock.waitForSleeper()
+        clock.advance(by: DesktopWallpaperWatch.followInterval)
+        try await until { !watch.followPending }
+        #expect(!watch.followPending, "hidden: the re-reads stop")
+        #expect(flags.reads == before + 1)
+        #expect(!watch.frameTurnPending, "a still has no frame to turn")
+    }
+
+    @Test func eachScreenShowsItsOwnDesktop() async throws {
+        let main = try writePNG("main.png", in: folder), own = try writePNG("own.png", in: folder)
+        let screen = NSScreen.screens.first
+        let id = screen.flatMap(DesktopWallpaperWatch.displayID) ?? 1
+        let reading = { (url: URL) in DesktopWallpaperWatch.Reading(picture: DesktopPicture(reportedURL: url, fillColor: nil, fallbackFolder: self.folder), dark: false) }
+        let mainReading = reading(main), ownReading = reading(own)
+        let watch = DesktopWallpaperWatch(readScreens: { .init(main: mainReading, screens: [id: ownReading, id &+ 1: mainReading]) },
+                                          sample: { _ in nil })
+        #expect(watch.shown(on: nil) == nil, "nothing before the first reading")
+        await watch.refreshed()
+        #expect(watch.shown(on: nil) == mainReading.shown, "no screen: the main screen's")
+        if let screen { #expect(watch.shown(on: screen) == ownReading.shown, "a screen shows its own picture") }
+    }
+
+    @Test func aDesktopEntryGoesWithTheDesktopButAWindowsOwnPickStays() async throws {
+        let file = try writePNG("same.png", in: folder), next = try writePNG("next.png", in: folder)
+        let store = BackdropImageStore(maxPixelSize: 64, desktop: DesktopWallpaperWatch(read: { nil }, sample: { _ in nil }))
+        let picked = BackdropSelection.system(path: file.path)
+        #expect(await store.image(picked) != nil)
+        #expect(await store.image(picked, desktop: true) != nil)
+        store.forgetDesktopPicture(olderThan: 1)
+        #expect(store.cached(picked, desktop: true) == nil, "the desktop moved on: its picture goes")
+        #expect(store.cached(picked) != nil, "a window that picked the same file keeps it")
+
+        // A rotation landing while the old picture decodes: the cancelled decode keeps nothing.
+        let load = Task { await store.image(.system(path: next.path), desktop: true) }
+        // Yields, not sleeps: this turn runs again before the decode's own resumption can.
+        for _ in 0..<100 where store.desktopEntries().loads == 0 { await Task.yield() }
+        #expect(store.desktopEntries().loads == 1)
+        store.forgetDesktopPicture(olderThan: 2)
+        load.cancel()
+        _ = await load.value
+        #expect(store.desktopEntries().images == 0, "no stale desktop picture is left behind")
+        #expect(store.cached(picked) != nil)
+    }
+
+    @Test func theArtIsPlacedAsTheDesktopSays() throws {
+        let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 64, height: 40),
+                                      images: BackdropImageStore(desktop: DesktopWallpaperWatch(read: { nil }, sample: { _ in nil })),
+                                      videos: BackdropVideoPlayers())
+        view.applyArtFit(DesktopShown(path: "/tmp/fit.png", fit: .fit, fill: [1, 0, 0]))
+        #expect(view.artView.layer?.contentsGravity == .resizeAspect)
+        #expect(view.artView.layerContentsPlacement == .scaleProportionallyToFit)
+        #expect(view.videoView.playerLayer.videoGravity == .resizeAspect)
+        let fill = try #require(view.artView.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB))
+        #expect(fill.redComponent > 0.99 && fill.greenComponent < 0.01, "the fill color letterboxes it")
+
+        view.applyArtFit(DesktopShown(path: "/tmp/stretch.png", fit: .stretch))
+        #expect(view.artView.layer?.contentsGravity == .resize)
+        #expect(view.artView.layer?.backgroundColor == nil, "a stretched picture shows no fill")
+
+        view.applyArtFit(nil)
+        #expect(view.artView.layer?.contentsGravity == .resizeAspectFill, "every other background fills")
+        #expect(view.videoView.playerLayer.videoGravity == .resizeAspectFill)
     }
 }

@@ -320,18 +320,15 @@ public final class WindowMaterialView: NSView {
             loadedDark = dark
             loadedDesktopGeneration = wallpaper.generation
             loadedDesktop = followsDesktop ? shown : nil
-            if followsDesktop {
-                images.forgetDesktopPicture(olderThan: wallpaper.generation)
-                if let shown { images.noteDesktopPicture(shown) }
-            }
+            if followsDesktop { images.forgetDesktopPicture(olderThan: wallpaper.generation) }
             artLoad?.cancel()
             artLoad = nil
-            let texture = backdrop.texture
+            let texture = backdrop.texture, desktopEntry = followsDesktop
             // A picture already shown stays until the new one decodes, then crossfades into it. With
             // none shown, decoded art shows at once, else an earlier launch's snapshot shows in this
             // first frame and the full image replaces it; without one the theme's colors until the
             // art, decoded off the main actor, fades in.
-            let ready = shown.flatMap { images.cached($0, texture: texture, dark: dark) }
+            let ready = shown.flatMap { images.cached($0, texture: texture, dark: dark, desktop: desktopEntry) }
             let keeps = shown != nil && artImage != nil && !hidesArt
             if keeps { if let ready { crossfadeArt(to: ready) } } else {
                 showArt(ready ?? (hidesArt ? nil : shown.flatMap { images.preview($0, texture: texture, dark: dark) }))
@@ -339,7 +336,7 @@ public final class WindowMaterialView: NSView {
             if let shown, ready == nil {
                 let fades = artImage == nil
                 artLoad = Task { [weak self, images] in
-                    let image = await images.image(shown, texture: texture, dark: dark)
+                    let image = await images.image(shown, texture: texture, dark: dark, desktop: desktopEntry)
                     guard !Task.isCancelled, let self else { return }
                     guard let image else { if keeps { self.showArt(nil) }; return }
                     self.crossfadeArt(to: image)

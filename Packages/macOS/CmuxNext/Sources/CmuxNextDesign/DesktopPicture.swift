@@ -77,19 +77,16 @@ public nonisolated struct DesktopPicture: Sendable {
     }
 
     /// `url` when it is a picture or video that decodes; for a folder macOS rotates through, the
-    /// one it shows now (``DesktopStoreChoice/shownFile(in:pictures:named:)``); or the still a
+    /// one it shows now (``DesktopStoreChoice/shownFiles(in:named:)``); or the still a
     /// macOS wallpaper description names.
     private static func picture(at url: URL, dark: Bool, named: [URL]) -> URL? {
         guard url.isFileURL else { return nil }
         var isFolder: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) else { return nil }
         if isFolder.boolValue {
+            // The file the store names comes first: the folder is listed only when it names none.
+            if let file = DesktopStoreChoice.shownFiles(in: url, named: named).lazy.compactMap({ decodable($0) }).first { return file }
             let files = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
-            // A named file is checked first, so a big folder is not decoded file by file.
-            if let shown = DesktopStoreChoice.shownFile(in: url, pictures: files, named: named), !named.isEmpty,
-               named.contains(where: { $0.lastPathComponent == shown.lastPathComponent }), let file = decodable(shown) {
-                return file
-            }
             return files.sorted { $0.lastPathComponent < $1.lastPathComponent }.lazy.compactMap { decodable($0) }.first
         }
         if url.pathExtension.lowercased() == "madesktop" || url.path.contains("/Desktop Pictures/") {

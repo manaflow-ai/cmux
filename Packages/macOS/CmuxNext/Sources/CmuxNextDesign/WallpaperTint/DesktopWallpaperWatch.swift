@@ -158,9 +158,12 @@ public final class DesktopWallpaperWatch {
     /// folder's own events miss.
     private var indexSource: WallpaperStoreSource?
     /// Re-reads while a window shows the Desktop Wallpaper (``followInterval``).
-    private let follow = DemandTimer(owner: "desktop-wallpaper-follow")
+    private let follow: DemandTimer
     /// Re-reads when a dynamic desktop's frame of the time changes.
-    private let frameTurn = DemandTimer(owner: "desktop-wallpaper-frame")
+    private let frameTurn: DemandTimer
+    private var frameTurnAt: Date?
+    /// Whether a registered view shows the Desktop Wallpaper where it can be seen.
+    private let viewShowsDesktop: @MainActor (WindowMaterialView) -> Bool
     private let views = NSHashTable<WindowMaterialView>.weakObjects()
     private let followers = NSHashTable<AnyObject>.weakObjects()
 
@@ -179,9 +182,16 @@ public final class DesktopWallpaperWatch {
     ///   - sample: The color of a reading, off the main actor.
     ///   - defaults: Where the last color is kept between launches; nil keeps none.
     ///   - isHidden: Whether nothing of the app shows: no reading then.
+    ///   - showsDesktop: Whether a view shows the Desktop Wallpaper in a visible, uncovered window.
+    ///   - clock: The follow and frame-of-the-time re-reads' clock (tests pass a manual one).
     init(readScreens: @escaping @MainActor () async -> Readings, sample: @escaping @Sendable (Reading) async -> WallpaperTint?,
-         defaults: UserDefaults? = nil, isHidden: @escaping @MainActor () -> Bool = { false }) {
+         defaults: UserDefaults? = nil, isHidden: @escaping @MainActor () -> Bool = { false },
+         showsDesktop: @escaping @MainActor (WindowMaterialView) -> Bool = { $0.followsDesktopVisibly },
+         clock: any Clock<Duration> = ContinuousClock()) {
         self.read = readScreens
+        viewShowsDesktop = showsDesktop
+        follow = DemandTimer(owner: "desktop-wallpaper-follow", clock: clock)
+        frameTurn = DemandTimer(owner: "desktop-wallpaper-frame", clock: clock)
         self.sample = sample
         self.defaults = defaults
         self.isHidden = isHidden
@@ -250,8 +260,13 @@ public final class DesktopWallpaperWatch {
     /// A view began showing the Desktop Wallpaper: it is re-read every ``followInterval`` while
     /// one shows (after ``start()``).
     func desktopIsShown() {
-        followIfShown()
+        scheduleFollowUps()
     }
+
+    /// Whether the follow re-read is pending (tests).
+    var followPending: Bool { follow.isScheduled }
+    /// Whether the frame-of-the-time re-read is pending (tests).
+    var frameTurnPending: Bool { frameTurn.isScheduled }
 
     /// The display id of `screen` (`NSScreenNumber`).
     static func displayID(_ screen: NSScreen) -> UInt32? {
@@ -313,12 +328,18 @@ public final class DesktopWallpaperWatch {
     /// the follow re-read while a window shows the Desktop Wallpaper. Inert before ``start()``.
     private func scheduleFollowUps() {
         guard !observers.isEmpty else { return }
+        // Only something that shows the frame (a window, the tint, the groups' colors) needs it.
         let turns = ([current] + screens.values.map(Optional.some)).compactMap { $0?.shown?.nextChange }
-        if let next = turns.min() {
-            // A second past the boundary, so the read lands on the new frame.
-            let seconds = max(1, next.timeIntervalSinceNow + 1)
-            frameTurn.schedule(after: .milliseconds(Int64(seconds * 1000))) { @MainActor [weak self] in self?.refresh() }
-        } else {
+        if showsDesktop || tintEnabled || samplesForGroups, let next = turns.min() {
+            // Set once per boundary: a view applies on every frame of a resize.
+            if frameTurnAt != next || !frameTurn.isScheduled {
+                frameTurnAt = next
+                // A second past the boundary, so the read lands on the new frame.
+                let seconds = max(1, next.timeIntervalSinceNow + 1)
+                frameTurn.schedule(after: .milliseconds(Int64(seconds * 1000))) { @MainActor [weak self] in self?.refresh() }
+            }
+        } else if frameTurn.isScheduled {
+            frameTurnAt = nil
             frameTurn.cancel()
         }
         followIfShown()
@@ -335,7 +356,7 @@ public final class DesktopWallpaperWatch {
     }
 
     /// Whether a registered view in a visible, uncovered window shows the Desktop Wallpaper.
-    private var showsDesktop: Bool { views.allObjects.contains { $0.followsDesktopVisibly } }
+    private var showsDesktop: Bool { views.allObjects.contains { viewShowsDesktop($0) } }
 
     /// Takes the current reading's color while the tint is on: a known one at once (returns
     /// true: the views re-applied), else one sample off the main actor, when none is under way.
@@ -428,10 +449,9 @@ public final class DesktopWallpaperWatch {
         let mainHandle = ScreenHandle(screen: main, id: mainID ?? 0)
         return await withCheckedContinuation { continuation in
             queue.async {
-                let index = cache.indexData()
                 let date = Date()
                 func reading(_ handle: ScreenHandle) -> Reading {
-                    let choice = index.flatMap { DesktopStoreChoice.read($0, display: displayUUID(handle.id)) }
+                    let choice = cache.choice(display: displayUUID(handle.id))
                     return Reading(picture: DesktopPicture(screen: handle.screen, named: choice?.files ?? []), dark: dark, choice: choice, at: date, cache: cache)
                 }
                 var readings = Readings()

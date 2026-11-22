@@ -93,23 +93,18 @@ nonisolated struct DesktopStoreChoice: Equatable, Sendable {
         return nil
     }
 
-    /// The file a rotating folder shows now: the first file the store names inside it, else the
-    /// first picture by name (macOS names the current file itself on current releases, so this
-    /// is the fallback for a folder report).
+    /// The files the store names inside a rotating folder, in order: the first that decodes is
+    /// the one macOS shows now. Only the folder and the named files are resolved; the folder is
+    /// not listed (a folder report with none named falls back to the first picture by name).
     /// - Parameters:
     ///   - folder: The folder macOS reports.
-    ///   - pictures: The folder's pictures that decode.
     ///   - named: The files the store's choice names (``files``).
-    static func shownFile(in folder: URL, pictures: [URL], named: [URL]) -> URL? {
+    static func shownFiles(in folder: URL, named: [URL]) -> [URL] {
+        guard !named.isEmpty else { return [] }
         let folderPath = folder.standardizedFileURL.resolvingSymlinksInPath().path
-        let listed = Set(pictures.map { $0.standardizedFileURL.resolvingSymlinksInPath().path })
-        for file in named {
-            let path = file.standardizedFileURL.resolvingSymlinksInPath().path
-            if listed.contains(path), (path as NSString).deletingLastPathComponent == folderPath {
-                return pictures.first { $0.standardizedFileURL.resolvingSymlinksInPath().path == path }
-            }
+        return named.filter { file in
+            (file.standardizedFileURL.resolvingSymlinksInPath().path as NSString).deletingLastPathComponent == folderPath
         }
-        return pictures.min { $0.lastPathComponent < $1.lastPathComponent }
     }
 
     /// The frame of a dynamic picture the desktop shows at `date`, and when it next changes.
@@ -142,8 +137,10 @@ nonisolated final class DesktopStoreCache: Sendable {
 
     private nonisolated struct State: Sendable {
         var index: (modified: Date?, data: Data?)?
+        var choicesModified: Date?
+        var choices: [String: DesktopStoreChoice?] = [:]
         var frames: [String: (modified: Date?, frames: BackdropDynamicFrames?)] = [:]
-        var aerials: [String: String] = [:]
+        var aerials: [String: (path: String?, retry: Date)] = [:]
         var moments: [String: (motion: DesktopStoreChoice.Motion?, index: Int?, next: Date?, until: Date)] = [:]
     }
 
@@ -156,6 +153,19 @@ nonisolated final class DesktopStoreCache: Sendable {
         let data = try? Data(blockingContentsOf: url)
         state.withLock { $0.index = (modified, data) }
         return data
+    }
+
+    /// The store's desktop choice for `display` (``DesktopStoreChoice/read(_:display:)``), parsed
+    /// again only when the index's modification date moved.
+    func choice(display: String?, index url: URL = AppleWallpapers.storeIndex) -> DesktopStoreChoice? {
+        let modified = Self.modified(url), key = display?.uppercased() ?? ""
+        if let known = state.withLock({ $0.choicesModified == modified ? $0.choices[key] : nil }) { return known }
+        let choice = indexData(at: url).flatMap { DesktopStoreChoice.read($0, display: display) }
+        state.withLock { state in
+            if state.choicesModified != modified { state.choices = [:]; state.choicesModified = modified }
+            state.choices[key] = .some(choice)
+        }
+        return choice
     }
 
     /// The dynamic metadata of the picture at `url`, read again only when the file changed.
@@ -183,25 +193,29 @@ nonisolated final class DesktopStoreCache: Sendable {
         return moment
     }
 
-    /// The downloaded aerial movie one of `ids` names; looked up once per id list.
-    func aerial(_ ids: [String]) -> String? {
+    /// The downloaded aerial movie one of `ids` names. A hit is kept while the movie stays
+    /// readable; a miss is looked up again at most once a minute (idleassetsd may still be
+    /// downloading it), so the 5-second re-read does not list the aerial folders each time.
+    func aerial(_ ids: [String], at date: Date = Date(), wallpapers: AppleWallpapers = .system) -> String? {
         let key = ids.joined(separator: "|")
-        if let known = state.withLock({ $0.aerials[key] }) { return known }
-        let videos = AppleWallpapers.system.videos()
+        if let known = state.withLock({ $0.aerials[key] }) {
+            if let path = known.path, FileManager.checked.isReadableFile(atPath: path) { return path }
+            if known.path == nil, date < known.retry { return nil }
+        }
+        // Only the movies on disk: their names (entries.json) are not needed to match an id.
+        let videos = wallpapers.videos(names: [:])
         var found: String?
-        for id in ids {
+        search: for id in ids {
             for case .system(let path) in videos where URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent == id
                 && FileManager.checked.isReadableFile(atPath: path) {
                 found = path
-                break
+                break search
             }
-            if found != nil { break }
         }
-        // A missing movie is looked up again on a later read (idleassetsd may still be downloading it).
-        if let found { state.withLock { state in
+        state.withLock { state in
             if state.aerials.count >= 8 { state.aerials.removeAll() }
-            state.aerials[key] = found
-        } }
+            state.aerials[key] = (found, date.addingTimeInterval(60))
+        }
         return found
     }
 
