@@ -476,6 +476,8 @@
 {"file":"pages/apps/AppDetailView.tsx","kind":"title-attribute","count":1}
 {"file":"pages/apps/AppsPage.tsx","kind":"raw-button","count":2}
 {"file":"pages/apps/CloudFeature.tsx","kind":"raw-button","count":1}
+{"file":"pages/apps/CustomizeFeature.tsx","kind":"raw-button","count":3}
+{"file":"pages/apps/CustomizeFeature.tsx","kind":"title-attribute","count":1}
 {"file":"pages/apps/InstalledView.tsx","kind":"raw-button","count":5}
 {"file":"pages/apps/items.tsx","kind":"raw-button","count":10}
 {"file":"pages/apps/items.tsx","kind":"title-attribute","count":2}
@@ -618,6 +620,8 @@
 {"file":"pages/settings/components/ChiefsCard.tsx","kind":"raw-button","count":2}
 {"file":"pages/settings/components/ContextMenusCard.tsx","kind":"raw-button","count":3}
 {"file":"pages/settings/components/ContextMenusCard.tsx","kind":"title-attribute","count":1}
+{"file":"pages/settings/components/CustomizeChecklist.tsx","kind":"raw-button","count":3}
+{"file":"pages/settings/components/CustomizeChecklist.tsx","kind":"title-attribute","count":2}
 {"file":"pages/settings/components/DensityCard.tsx","kind":"raw-button","count":1}
 {"file":"pages/settings/components/FontPreview.tsx","kind":"raw-button","count":1}
 {"file":"pages/settings/components/HostCards.tsx","kind":"raw-button","count":5}
