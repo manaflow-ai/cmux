@@ -172,7 +172,18 @@ impl Daemon {
             reader: BufReader::new(stream),
             next: 0,
         };
-        (Self { child, dir, socket, history: Vec::new(), ticker: 0, pane: Value::Null, serial: AtomicU64::new(0x800) }, client)
+        (
+            Self {
+                child,
+                dir,
+                socket,
+                history: Vec::new(),
+                ticker: 0,
+                pane: Value::Null,
+                serial: AtomicU64::new(0x800),
+            },
+            client,
+        )
     }
 
     /// The pane that holds `surface`.
