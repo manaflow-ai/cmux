@@ -100,6 +100,12 @@ cmux NIGHTLY.app/Contents/Library/cmux NIGHTLY Screen Sharing.app
     prompt names the helper.
   Leo, 2026-11-22: "who's gonna walk over and click allow on a headless mac mini, or a remote
   macbook??? stop having that shit."
+- The bare `cmux` refuses `cmux rd host|serve|permissions|request-permission` on a Mac
+  (`mac_helper_only_refusal`). Only the helper build (feature `computer-use`) runs them.
+- Detector: `scripts/cmux-next/check-app-asks-no-grant.py` (test
+  `tests/test_check_app_asks_no_grant.py`, CI step "The NEXT app asks macOS for no privacy grant").
+  It fails on any TCC call in the NEXT app's non-DEBUG Swift or in a Rust crate a bundled non-helper
+  binary links.
 
 ## Permission state, read from the helper
 
