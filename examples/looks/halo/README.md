@@ -4,8 +4,8 @@ A minimal look for agent chats in cmux, after a minimal chat assistant desktop a
 (white or near-black), airy spacing in a centered column, prompts in soft gray bubbles, a pill
 message box, a header that shows its tools only on hover, and a sidebar of plain titles.
 
-![Halo's chat](screenshots/halo-chat.png)
-![Halo Dark's chat](screenshots/halo-dark-chat.png)
+![Halo v1, dark](screenshots/halo-dark.png)
+![Halo v1, light](screenshots/halo-light.png)
 
 ## Design intent
 
@@ -21,7 +21,24 @@ Aziz: he has been shaping the sidebar and tab hierarchy and moving work toward p
 
 ## Screenshots
 
-See [screenshots/](screenshots) and the table under "Screenshots, light and dark" below.
+Drawn by the `golden:looks` harness (`webviews/scripts/gallery/golden-looks.ts`, run 45026447442 on
+the fleet), one mock app window per scheme: sidebar, tab strip, agent pane and composer, on the same
+worked turn. The default look is beside each for comparison.
+
+| Scheme | Halo v1 | Default look |
+| --- | --- | --- |
+| Light | ![Halo v1, light](screenshots/halo-light.png) | ![Default, light](screenshots/default-light.png) |
+| Dark | ![Halo v1, dark](screenshots/halo-dark.png) | ![Default, dark](screenshots/default-dark.png) |
+
+Per surface:
+
+- Agent pane and composer: shown above, light and dark, drawn by the webviews the app uses.
+- Sidebar and tabs: shown above only as the harness's mock, which draws the row text, timestamps and
+  palette but not sidebar density, grouping, the session tree or the native tab bar's metrics. The
+  native Swift sidebar and tab bar need a Mac (`golden:looks --native`); missing from this VM.
+- Settings: missing. No harness on this VM draws the Settings window.
+- Agent pane close-ups (`compare.mjs worked-turn --open --look`): missing; the script needs the
+  reference prototype checkout (`--reference`), which the fleet runner does not have.
 
 ## What this look could not set
 

@@ -7,7 +7,7 @@
   "version": "1.0.0",
   "license": "MIT",
   "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/looks/workbench",
-  "screenshots": ["screenshots/workbench-chat.png"],
+  "screenshots": ["screenshots/workbench-dark.png", "screenshots/workbench-light.png"],
 
   "cmuxProfile": 1,
   "settings": {

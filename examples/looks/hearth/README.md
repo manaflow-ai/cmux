@@ -4,8 +4,8 @@ A warm reading look for agent chats in cmux, after a warm chat assistant desktop
 on cream paper (or a warm brown dark), your prompts as soft outlined cards on the leading edge with
 the reply flowing under them, a rounded message box and a header that shows its tools only on hover.
 
-![Hearth's chat](screenshots/hearth-chat.png)
-![Hearth Dark's chat](screenshots/hearth-dark-chat.png)
+![Hearth v1, dark](screenshots/hearth-dark.png)
+![Hearth v1, light](screenshots/hearth-light.png)
 
 ## Design intent
 
@@ -21,7 +21,24 @@ Leo: he reads more agent output than anyone (briefs, reports, long replies acros
 
 ## Screenshots
 
-See [screenshots/](screenshots) and the table under "Screenshots, light and dark" below.
+Drawn by the `golden:looks` harness (`webviews/scripts/gallery/golden-looks.ts`, run 45026447442 on
+the fleet), one mock app window per scheme: sidebar, tab strip, agent pane and composer, on the same
+worked turn. The default look is beside each for comparison.
+
+| Scheme | Hearth v1 | Default look |
+| --- | --- | --- |
+| Light | ![Hearth v1, light](screenshots/hearth-light.png) | ![Default, light](screenshots/default-light.png) |
+| Dark | ![Hearth v1, dark](screenshots/hearth-dark.png) | ![Default, dark](screenshots/default-dark.png) |
+
+Per surface:
+
+- Agent pane and composer: shown above, light and dark, drawn by the webviews the app uses.
+- Sidebar and tabs: shown above only as the harness's mock, which draws the row text, timestamps and
+  palette but not sidebar density, grouping, the session tree or the native tab bar's metrics. The
+  native Swift sidebar and tab bar need a Mac (`golden:looks --native`); missing from this VM.
+- Settings: missing. No harness on this VM draws the Settings window.
+- Agent pane close-ups (`compare.mjs worked-turn --open --look`): missing; the script needs the
+  reference prototype checkout (`--reference`), which the fleet runner does not have.
 
 ## What this look could not set
 
