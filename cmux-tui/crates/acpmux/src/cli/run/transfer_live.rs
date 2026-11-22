@@ -23,7 +23,6 @@
 use super::*;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use cmux_json::JsonSet as _;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 

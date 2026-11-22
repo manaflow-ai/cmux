@@ -181,7 +181,7 @@ pub(super) async fn whole_freeze_refusal(src: &Daemon<'_>, id: &str) -> Result<(
     let info = src.request(method::MUX_INFO, json!({"sessionId": id, "waitLogs": false})).await?;
     let Some(bytes) = info.get("historyBytes").and_then(Value::as_u64) else { return Ok(()) };
     if bytes > live::WHOLE_FREEZE_LIMIT {
-        bail!(
+        anyhow::bail!(
             "transfer.whole_freeze: its history is {:.2} GB and could not be pre-copied, so the \
              move would freeze the chat for the whole copy; not moved (both daemons need \
              transfer-precopy-v1: update the target's acpmux)",

@@ -463,7 +463,7 @@ async fn move_from_reads_placement_from_the_initiating_daemon() {
     targets.observer = Some(observer);
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(3),
-        targets.pick(&source, Path::new("/project"), 0, "claude"),
+        targets.pick(&source, Path::new("/project"), 0, "claude", 0),
     )
     .await
     .expect("local placement answered");
