@@ -239,15 +239,26 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // The daemon connection is the liveness boundary: a live peer may
             // take as long as it needs to page a large transcript, while EOF
             // still fails the request promptly.
-            let id = resolve_id(&client, &session).await?;
+            let (id, info) = crate::cli::run::resolve_info(&client, &session).await?;
             let replies = crate::cli::slow_notice::noted(
                 "the last replies",
                 last_replies(&client, &id, count),
             )
             .await?;
+            // A closed chat's replies are its last: say when and why it closed
+            // (`hub/close_record.rs`), on stderr so the replies stay the output.
+            let closed = info.get("closed").filter(|c| c.is_object());
             if json_out {
-                print_json(&json!({"sessionId": id, "replies": replies}));
+                let mut out = json!({"sessionId": id, "replies": replies});
+                if let Some(closed) = closed {
+                    cmux_json::JsonSet::set(&mut out, "closed", closed.clone());
+                }
+                print_json(&out);
             } else {
+                if let Some(closed) = closed {
+                    let now = crate::store::now_ms();
+                    eprintln!("(closed: {})", crate::hub::close_record::describe(closed, now));
+                }
                 for (i, r) in replies.iter().enumerate() {
                     if i > 0 {
                         println!("\n---\n");
@@ -1250,6 +1261,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .map(|why| format!("  (respawn pending: {why})"))
                 .unwrap_or_default();
             println!("status:    {}{respawn}", g("status"));
+            // Why and when it closed (`hub/close_record.rs`); --json has the whole record.
+            if let Some(closed) = v.get("closed").filter(|c| c.is_object()) {
+                let now = crate::store::now_ms();
+                println!("closed:    {}", crate::hub::close_record::describe(closed, now));
+            }
             if let Some(line) = crate::hub::views::other_build_host_line(&v) {
                 println!("{line}");
             }

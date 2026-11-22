@@ -42,6 +42,11 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
 }
 
 pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
+    resolve_info(client, key).await.map(|(id, _)| id)
+}
+
+/// [`resolve_id`], with the session's details the lookup read (`_acpmux/info`).
+pub(crate) async fn resolve_info(client: &Client, key: &str) -> Result<(String, Value)> {
     let key = orchestrate::expand_session_key(key)?;
     let v = client.request(method::MUX_INFO, json!({"sessionId": key})).await.map_err(|e| {
         if e.downcast_ref::<crate::client::DaemonError>()
@@ -64,7 +69,8 @@ pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
         }
         Err(e) => return Err(e),
     };
-    crate::cli::resolve::routed_id(&v)
+    let id = crate::cli::resolve::routed_id(&v)?;
+    Ok((id, v))
 }
 
 #[cfg(all(test, unix))]

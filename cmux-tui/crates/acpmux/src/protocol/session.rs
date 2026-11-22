@@ -254,6 +254,15 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub moved_to: Option<Value>,
+    /// Why and when it closed (`hub/close_record.rs`): `{at, reason, by?, detail?, exit?,
+    /// origin?}`. `reason` is `stopped`, `deleted`, `client_closed` or `moved`; `by` names who
+    /// asked (`method`, `client`, `pid`, `session`, `sessionName`, `command`); `exit` is the
+    /// agent process's last exit (`code` or `signal`); `origin` whether the process that
+    /// registered the chat still ran. Absent while open, for a chat closed before acpmux kept
+    /// it, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub closed: Option<Value>,
     /// The family of a conversation another app runs that this chat only shows; null otherwise.
     pub watching: Option<String>,
     /// The agent takes a prompt mid-turn.

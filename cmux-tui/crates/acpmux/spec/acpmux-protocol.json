@@ -2498,6 +2498,7 @@
         "cancelToken": true,
         "class": true,
         "cliHost": true,
+        "command": true,
         "compression": true,
         "context": true,
         "createdBy": true,
@@ -6218,6 +6219,9 @@
           "minimum": 0,
           "type": "integer"
         },
+        "closed": {
+          "description": "Why and when it closed (`hub/close_record.rs`): `{at, reason, by?, detail?, exit?,\norigin?}`. `reason` is `stopped`, `deleted`, `client_closed` or `moved`; `by` names who\nasked (`method`, `client`, `pid`, `session`, `sessionName`, `command`); `exit` is the\nagent process's last exit (`code` or `signal`); `origin` whether the process that\nregistered the chat still ran. Absent while open, for a chat closed before acpmux kept\nit, and from a peer on an older acpmux."
+        },
         "configOptions": true,
         "createdAt": {
           "format": "uint64",
@@ -6997,6 +7001,9 @@
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "closed": {
+          "description": "Why and when it closed (`hub/close_record.rs`): `{at, reason, by?, detail?, exit?,\norigin?}`. `reason` is `stopped`, `deleted`, `client_closed` or `moved`; `by` names who\nasked (`method`, `client`, `pid`, `session`, `sessionName`, `command`); `exit` is the\nagent process's last exit (`code` or `signal`); `origin` whether the process that\nregistered the chat still ran. Absent while open, for a chat closed before acpmux kept\nit, and from a peer on an older acpmux."
         },
         "createdAt": {
           "format": "uint64",

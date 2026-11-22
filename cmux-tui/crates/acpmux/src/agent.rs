@@ -871,6 +871,9 @@ pub struct ChildAgent {
     /// Set once acpmux ends the agent on purpose (MDM's off, `end_managed_full_access`): its
     /// turn's end leaves the chat idle and no failover runs its prompt again (review 3 of #26034).
     ended_on_purpose: std::sync::atomic::AtomicBool,
+    /// The signal that ended a direct child, once reaped (0: none, or not seen): what
+    /// `Inbound::Exited`'s code cannot say (`hub/close_record.rs`).
+    exit_signal: std::sync::atomic::AtomicI32,
     /// The question preview format its command was pinned to, for a direct
     /// start (a host's is recorded where the host starts, `hub/hosts.rs`).
     pub preview_format: Option<crate::questions::PreviewFormat>,
@@ -1133,6 +1136,7 @@ impl ChildAgent {
             launch: std::sync::Mutex::new(launch),
             retired: std::sync::Mutex::new(false),
             ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
+            exit_signal: std::sync::atomic::AtomicI32::new(0),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
             preview_format,
             run_class,
@@ -1455,6 +1459,7 @@ impl ChildAgent {
                 .and_then(|r| r.ok());
             if let Some(s) = status {
                 *guard = None;
+                self.exit_signal.store(exit_signal_of(&s).unwrap_or(0), Ordering::SeqCst);
                 return s.code();
             }
             let _ = child.kill().await;
@@ -1526,14 +1531,23 @@ impl ChildAgent {
         (!*retired).then(log)
     }
 
-    pub async fn kill(&self) {
+    /// The signal that ended this agent's process, when it was a direct child acpmux reaped.
+    pub fn exit_signal(&self) -> Option<i32> {
+        Some(self.exit_signal.load(Ordering::SeqCst)).filter(|s| *s != 0)
+    }
+
+    /// Ends the agent. A direct child's exit status, when this kill reaped it: its code, or the
+    /// signal that ended it (`hub/close_record.rs`). None for a hosted agent, whose host
+    /// reports its exit itself.
+    pub async fn kill(&self) -> Option<(Option<i32>, Option<i32>)> {
         self.retire();
         #[cfg(feature = "sim")]
         self.end_sim();
         if self.hosted.is_some() {
             self.terminate(KILL_GRACE).await;
-            return;
+            return None;
         }
+        let mut ended: Option<std::process::ExitStatus> = None;
         let mut guard = self.child.lock().await;
         #[cfg(unix)]
         let under = under_unreaped(guard.as_ref()).await;
@@ -1551,7 +1565,8 @@ impl ChildAgent {
             #[cfg(windows)]
             crate::job::ctrl_break(pid);
             if let Some(child) = guard.as_mut() {
-                let _ = tokio::time::timeout(KILL_GRACE, child.wait()).await;
+                ended =
+                    tokio::time::timeout(KILL_GRACE, child.wait()).await.ok().and_then(Result::ok);
             }
             // Then the job ends, stragglers included (SIGKILL on Unix).
             #[cfg(windows)]
@@ -1563,10 +1578,14 @@ impl ChildAgent {
         }
         if let Some(child) = guard.as_mut() {
             let _ = child.kill().await;
+            if ended.is_none() {
+                ended = child.try_wait().ok().flatten();
+            }
         }
         *guard = None;
         #[cfg(unix)]
         end_still_running(under).await;
+        ended.map(|status| (status.code(), exit_signal_of(&status)))
     }
 
     /// Stop the agent within a bound: SIGTERM to its process group, wait up
@@ -2519,6 +2538,7 @@ impl ChildAgent {
             launch: std::sync::Mutex::new(None),
             retired: std::sync::Mutex::new(false),
             ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
+            exit_signal: std::sync::atomic::AtomicI32::new(0),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
             preview_format: None,
             run_class: std::sync::OnceLock::new(),
@@ -3581,5 +3601,18 @@ mod cancel_tests {
         assert_eq!(cancels.len(), 1, "{cancels:?}");
         agent.kill().await;
         let _ = std::fs::remove_dir_all(&hold);
+    }
+}
+
+/// The signal that ended a process, from its exit status (None on Windows, or an exit by code).
+fn exit_signal_of(status: &std::process::ExitStatus) -> Option<i32> {
+    #[cfg(unix)]
+    {
+        std::os::unix::process::ExitStatusExt::signal(status)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = status;
+        None
     }
 }

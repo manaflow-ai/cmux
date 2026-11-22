@@ -69,7 +69,7 @@ pub const HELP: &str = "Examples:
 ls lists every machine's sessions, and says so on stderr when its rows span machines; a script
 after this machine's own sessions passes --machine local.
 STUCK is why a lane needs someone: permission, capacity, harness down, failed turn, stalled 12m,
-harness sandbox (its harness refuses every command).
+harness sandbox (its harness refuses every command); on a closed row (--all), why it closed.
 A peer that cannot be reached reads UNKNOWN, or PAUSED when fleet-registry.json means it to be
 down (retired, idle-stopped, on demand); its sessions are last known. ls never starts a daemon.
 Usage (--wide): LAUNCHER, CAP (autocompact cap, or none), CTX (context now), CMP (compactions),
@@ -188,6 +188,14 @@ fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
         }
         return format!("peer {}", row.get("peerState").and_then(Value::as_str).unwrap_or("down"));
     }
+    // A closed row (`ls --all`) says why it closed and who closed it (`hub/close_record.rs`);
+    // AGE is when.
+    if row.get_str("status") == Some("closed") {
+        return match row.get("closed").filter(|c| c.is_object()) {
+            Some(closed) => short(&closed_why(closed), 60),
+            None => String::new(),
+        };
+    }
     match pending(row) {
         0 => {}
         1 => return "permission".into(),
@@ -227,6 +235,16 @@ fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
         _ if harness_sandbox_failing(row) => "harness sandbox".into(),
         _ => String::new(),
     }
+}
+
+/// A close record in a few words: its reason, what asked, the agent's exit and the registered
+/// process's state (`close_record::describe` without the time, which AGE shows).
+fn closed_why(closed: &Value) -> String {
+    let mut undated = closed.clone();
+    if let Some(o) = undated.as_object_mut() {
+        o.remove("at");
+    }
+    crate::hub::close_record::describe(&undated, 0)
 }
 
 /// Whether the row's harness refuses commands now: `harnessSandboxFailing`, or, from an older
@@ -313,7 +331,7 @@ fn usage(row: &Value) -> [String; 7] {
 }
 
 /// How long ago `at` was, from `now` (both in ms): `12s`, `4m`, `3h`, `2d`.
-fn ago(now: u64, at: u64) -> String {
+pub(crate) fn ago(now: u64, at: u64) -> String {
     let s = now.saturating_sub(at) / 1000;
     match s {
         0..60 => format!("{s}s"),

@@ -24,6 +24,15 @@ pub(crate) fn original_args() -> Option<&'static [String]> {
     ORIGINAL_ARGS.get().map(Vec::as_slice)
 }
 
+/// This run's command line as its caller typed it (`acpmux session stop lane`), each word quoted
+/// as a shell would need: what a close records as its command (`hub/close_record.rs`).
+pub(crate) fn command_line() -> Option<String> {
+    let args = original_args()?;
+    let words = std::iter::once(program().to_owned())
+        .chain(args.iter().map(|w| crate::harness_health::channel::quote(w)));
+    Some(words.collect::<Vec<_>>().join(" "))
+}
+
 pub struct Invocation {
     /// The standalone binary or the invoking cmux scope.
     pub display_name: String,
@@ -239,13 +248,43 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 e
             };
             let refusal = crate::cli::unknown_flag::explain(&e, &grammar, &argv, at, name)
-                .or_else(|| crate::cli::unknown_command::explain(&e, &grammar, &argv, at, name))
-                .or_else(|| {
-                    json_out.then(|| crate::cli::unknown_command::envelope(&e, name)).flatten()
-                });
-            match refusal {
-                Some(refusal) => errors::exit_with(&refusal.into(), json_out),
-                None => e.exit(),
+                .or_else(|| crate::cli::unknown_command::explain(&e, &grammar, &argv, at, name));
+            // A read-only word agents reach for (`show NAME`) runs the command it means, saying
+            // which on stderr (`agent_verbs.rs`).
+            let rewritten = match refusal {
+                Some(_) => None,
+                None => crate::cli::agent_verbs::rewrite(&e, &argv, at, name),
+            };
+            let rerun = rewritten.map(|(words, note)| {
+                let parsed = grammar.try_get_matches_from_mut(words.clone());
+                eprintln!("{note}");
+                (words, parsed)
+            });
+            match rerun {
+                Some((words, Ok(matches))) => {
+                    argv = words;
+                    matches
+                }
+                Some((_, Err(e))) => match json_out
+                    .then(|| crate::cli::unknown_command::envelope(&e, name))
+                    .flatten()
+                {
+                    Some(refusal) => errors::exit_with(&refusal.into(), json_out),
+                    None => e.exit(),
+                },
+                None => {
+                    let refusal = refusal
+                        .or_else(|| crate::cli::agent_verbs::refusal(&e, &grammar, &argv, at, name))
+                        .or_else(|| {
+                            json_out
+                                .then(|| crate::cli::unknown_command::envelope(&e, name))
+                                .flatten()
+                        });
+                    match refusal {
+                        Some(refusal) => errors::exit_with(&refusal.into(), json_out),
+                        None => e.exit(),
+                    }
+                }
             }
         }
     };

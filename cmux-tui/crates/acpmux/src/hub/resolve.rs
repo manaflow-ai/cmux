@@ -396,6 +396,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         idle_launch: None,
         start_level: None,
         moved_to: None,
+        closed: None,
         claude_profile: None,
         last_turn: None,
         auth_change: None,

@@ -514,6 +514,11 @@ pub struct SessionMeta {
     /// and `resolve` follows it there (`hub/locate.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved_to: Option<Value>,
+    /// Why and when it closed (`hub/close_record.rs`): `{at, reason, by?, detail?, exit?,
+    /// origin?}`, written by its close and cleared by a reopen. None while open, and for a chat
+    /// closed before it was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed: Option<Value>,
     /// The profile whose Claude store (its CLAUDE_CONFIG_DIR) holds the current Claude
     /// conversation: the one that started or forked it. A respawn on another profile (a failover)
     /// resumes only when that profile's store has the conversation, else starts fresh (E1).
