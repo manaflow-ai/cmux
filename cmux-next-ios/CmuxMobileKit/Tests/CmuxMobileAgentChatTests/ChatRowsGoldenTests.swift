@@ -38,12 +38,50 @@ import UIKit
         return list.layout.items.map(\.id)
     }
 
-    @Test func anAgentChatShowsTheRowsItShowedBefore() {
-        let ids = Self.shown(ChatTranscriptList(store: Self.chat(), surface: AgentChatSurface()))
-        print("CMUX_CHAT_ROWS \(ids.joined(separator: ","))")
-        #expect(ids == Self.golden, "\(ids)")
+    /// FNV-1a: stable across runs (Swift's `hashValue` is seeded per process).
+    static func fnv(_ text: String) -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in text.utf8 { hash = (hash ^ UInt64(byte)) &* 0x100_0000_01b3 }
+        return String(hash, radix: 16)
     }
 
-    static let golden: [String] = []
+    /// Each row the list shows: its id, its kind and a hash of everything it draws (its text,
+    /// a tool's name and state, a fold's state, its gap).
+    static func rows(_ list: ChatTranscriptList) -> String {
+        shown(list).map { id in
+            guard let row = list.row(id) else { return "\(id)|missing" }
+            return "\(id)|\(row.hostedReuseKey)|\(fnv(String(reflecting: row.kind) + " gap \(row.gap)"))"
+        }.joined(separator: ";")
+    }
+
+    /// The chat as it opens: finished, edited, failed and running turns.
+    @Test func anAgentChatShowsTheRowsItShowedBefore() {
+        let shown = Self.rows(ChatTranscriptList(store: Self.chat(), surface: AgentChatSurface()))
+        #expect(shown == Self.golden["open"], "CMUX_CHAT_ROWS open=\(shown)")
+    }
+
+    /// A chat opened on its newest page: older history waits above (the session line says so).
+    @Test func aChatWithOlderHistoryShowsTheRowsItShowedBefore() {
+        let store = Self.chat()
+        store.apply(.earlierHistory(true))
+        let shown = Self.rows(ChatTranscriptList(store: store, surface: AgentChatSurface()))
+        #expect(shown == Self.golden["older"], "CMUX_CHAT_ROWS older=\(shown)")
+    }
+
+    /// A chat past its window, the reader resting on its end: the oldest turns go to disk.
+    @Test func aWindowedChatShowsTheRowsItShowedBefore() {
+        let store = AgentChatStore(source: SmoothChatTests.Silent())
+        store.nextFrame = nil
+        store.apply(.batch((0..<(AgentChatStore.windowTrigger + 6)).flatMap { SmoothChatTests.turn($0) }))
+        let list = ChatTranscriptList(store: store, surface: AgentChatSurface())
+        _ = Self.shown(list)
+        list.spillIfResting()
+        list.reload()
+        let shown = Self.rows(list)
+        #expect(shown == Self.golden["window"], "CMUX_CHAT_ROWS window=\(store.turns.count) turns \(shown)")
+    }
+
+    /// Read from the list at the base (the pre-seam head), by these same tests.
+    static let golden: [String: String] = [:]
 }
 #endif
