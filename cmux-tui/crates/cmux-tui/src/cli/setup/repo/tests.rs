@@ -12,9 +12,20 @@ use serde_json::{Value, json};
 
 use super::super::super::OutputMode;
 use super::{
-    Apps, Checkout, Failure, Request, card_text, fetch_from, inert, install, install_as, order,
-    parse, remove, set_on, update,
+    Apps, Checkout, Failure, Request, card_text, fetch_from, inert, install_as, order, parse,
+    remove, set_on, update,
 };
+
+/// Installs `text` under its own id, as `cmux setup install TEXT` does.
+fn install(
+    customize: &Customize,
+    apps: &dyn Apps,
+    output: OutputMode,
+    text: &str,
+    yes: bool,
+) -> Result<Value, Failure> {
+    install_as(customize, apps, output, text, yes, None)
+}
 
 fn words(text: &[&str]) -> Vec<String> {
     text.iter().map(|word| (*word).to_owned()).collect()
