@@ -66,6 +66,26 @@ real_rm="$(command -v rm)"
   printf 'exec "%s" "$@"\n' "$real_rm"
 } >"$shims/rm"
 chmod 755 "$shims/rm"
+# install and mv of cmux-rd's temp file fail when ~/rd-install-fail or ~/rd-mv-fail
+# exists: a ~/.local/bin that cannot be written (read-only, or a full disk).
+for tool in install mv; do
+  real="$(command -v "$tool")"
+  {
+    printf '#!/bin/sh\n'
+    printf '. "%s/record.sh"\n' "$fakes"
+    printf 'case "$*" in *.cmux-rd.new*) [ ! -f "$HOME/rd-%s-fail" ] || { echo "%s: Read-only file system" >&2; exit 1; } ;; esac\n' "$tool" "$tool"
+    # With ~/rd-install-changes, the copy in bin is not the file that was checked (another
+    # writer of ~/.local/bin, a disk that flipped a byte): it must not be moved into place.
+    if [ "$tool" = install ]; then
+      printf 'case "$*" in *.cmux-rd.new*) if [ -f "$HOME/rd-install-changes" ]; then "%s" "$@" || exit; eval "last=\\${$#}"; echo changed >>"$last"; exit 0; fi ;; esac\n' "$real"
+      # With ~/rd-dir-appears, a directory appears where cmux-rd goes after the script
+      # looked (another writer of ~/.local/bin): nothing may be moved inside it.
+      printf 'case "$*" in *.cmux-rd.new*) if [ -f "$HOME/rd-dir-appears" ]; then "%s" "$@" || exit; eval "last=\\${$#}"; mkdir -p "${last%%/*}/cmux-rd"; exit 0; fi ;; esac\n' "$real"
+    fi
+    printf 'exec "%s" "$@"\n' "$real"
+  } >"$shims/$tool"
+  chmod 755 "$shims/$tool"
+done
 # A printf on PATH would only run if the script exec'd one: it must not.
 cp "$shims/cat" "$shims/printf"
 real_env="$(command -v env)"
@@ -807,6 +827,83 @@ suite() {
   check "rd symlink: exit 0 (got $rc)" rc_is 0
   check "rd symlink: kept" test -L "$d/home/.local/bin/cmux-rd"
   check "rd symlink: nothing fetched" eval '! fetched_rd'
+
+  # The channel's cmux-rd in place but not executable (the daemon refuses it): made
+  # executable, not downloaded again.
+  new_case linux-cmux-rd-not-executable
+  mkdir -p "$d/home/.local/bin"
+  cp "$d/serve/cmux-rd" "$d/home/.local/bin/cmux-rd"
+  chmod 644 "$d/home/.local/bin/cmux-rd"
+  run_join env
+  check "rd not executable: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "rd not executable: now mode 755, the channel's" rd_is_channels
+  check "rd not executable: nothing fetched" eval '! fetched_rd'
+  check "rd not executable: no failure state" test ! -e "$(rd_state)"
+
+  # A symlink to nothing, or to a directory, is no cmux-rd: replaced by the channel's.
+  for to in nothing dir; do
+    new_case "linux-cmux-rd-symlink-to-$to"
+    mkdir -p "$d/home/.local/bin"
+    [ "$to" = dir ] && mkdir -p "$d/own"
+    ln -s "$d/own" "$d/home/.local/bin/cmux-rd"
+    run_join env
+    check "rd symlink to $to: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+    check "rd symlink to $to: replaced by the channel's" rd_is_channels
+    check "rd symlink to $to: nothing put inside its target" test ! -e "$d/own/cmux-rd"
+  done
+
+  # ~/.local/bin cannot be written: one line and the state file, the join goes on, the
+  # old cmux-rd kept and no temp file left.
+  for step in install mv; do
+    new_case "linux-cmux-rd-$step-fails"
+    old_rd
+    : >"$d/home/rd-$step-fail"
+    run_join env
+    check "rd $step fails: the join still exits 0 (got $rc): $(cat "$d/out")" rc_is 0
+    check "rd $step fails: joined" token_on_stdin_once
+    check "rd $step fails: one line" eval '[ "$(rd_lines)" = 1 ]'
+    check "rd $step fails: says so" out_has "cmux-rd did not install (cannot write it to $d/home/.local/bin)"
+    check "rd $step fails: the state file holds the reason" grep -qx "cannot write it to $d/home/.local/bin" "$(rd_state)"
+    check "rd $step fails: the old cmux-rd untouched" old_rd_kept
+    check "rd $step fails: no temp file left in bin" test ! -e "$d/home/.local/bin/.cmux-rd.new"
+    check "rd $step fails: the join's last step ran" grep -q "^acpmux daemon restart" "$d/log/argv"
+  done
+
+  # The file in bin is checked, not only the download: a copy that differs from the
+  # channel's sha256 is never moved into place, and the old cmux-rd stays.
+  new_case linux-cmux-rd-copy-changed
+  old_rd
+  : >"$d/home/rd-install-changes"
+  run_join env
+  check "rd copy changed: the join still exits 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "rd copy changed: one line" eval '[ "$(rd_lines)" = 1 ]'
+  check "rd copy changed: says so" out_has "cmux-rd did not install (checksum verification failed for the copy in $d/home/.local/bin"
+  check "rd copy changed: the old cmux-rd untouched" old_rd_kept
+  check "rd copy changed: no temp file left in bin" test ! -e "$d/home/.local/bin/.cmux-rd.new"
+
+  # A directory that appears where cmux-rd goes after the script looked: nothing is moved
+  # inside it, the join says cmux-rd did not install, and never that the screen is shared.
+  new_case linux-cmux-rd-directory-appears
+  : >"$d/home/rd-dir-appears"
+  run_join env
+  check "rd dir appears: the join still exits 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "rd dir appears: one line" eval '[ "$(rd_lines)" = 1 ]'
+  check "rd dir appears: says so" out_has "cmux-rd did not install ($d/home/.local/bin/cmux-rd is not a file: remove it, then run the line again)"
+  check "rd dir appears: nothing moved inside it" eval '[ -d "$d/home/.local/bin/cmux-rd" ] && [ -z "$(ls -A "$d/home/.local/bin/cmux-rd")" ]'
+  check "rd dir appears: no temp file left in bin" test ! -e "$d/home/.local/bin/.cmux-rd.new"
+  check "rd dir appears: never says the screen is shared" eval '! grep -q "can view this machine" "$d/out"'
+  check "rd dir appears: says it is not shared" out_has "This machine's screen is not shared: cmux-rd is not installed at $d/home/.local/bin/cmux-rd"
+
+  # A directory where cmux-rd goes: one clear line, left as it is, nothing fetched.
+  new_case linux-cmux-rd-directory
+  mkdir -p "$d/home/.local/bin/cmux-rd"
+  run_join env
+  check "rd directory: the join still exits 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "rd directory: one line" eval '[ "$(rd_lines)" = 1 ]'
+  check "rd directory: says so" out_has "cmux-rd did not install ($d/home/.local/bin/cmux-rd is not a file: remove it, then run the line again)"
+  check "rd directory: left as it is, nothing inside" eval '[ -d "$d/home/.local/bin/cmux-rd" ] && [ -z "$(ls -A "$d/home/.local/bin/cmux-rd")" ]'
+  check "rd directory: nothing fetched" eval '! fetched_rd'
+  check "rd directory: the state file holds the reason" grep -q "is not a file" "$(rd_state)"
 
   # No cmux-rd before the join finished, nor on a machine that is not joined.
   new_case linux-cmux-rd-not-joined
