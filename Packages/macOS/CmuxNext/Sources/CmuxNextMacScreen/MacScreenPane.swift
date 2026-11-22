@@ -178,6 +178,14 @@ public final class MacScreenPane {
             session.applyQuality()
         }
         actions.toggleStats = { session.preferences.showStats.toggle() }
+        actions.setMaxKbps = { kbps in
+            session.preferences.maxKbps = kbps
+            session.applyQuality()
+        }
+        actions.toggleStreamCursor = {
+            session.preferences.showCursorInStream.toggle()
+            session.applyQuality()
+        }
         actions.refresh = { session.refresh() }
         actions.fullScreen = { [weak self] in self?.view.window?.toggleFullScreen(nil) }
         actions.sendKeys = { [weak self] shortcut in
@@ -266,13 +274,14 @@ public final class MacScreenPane {
         guard !visible else { return }
         visible = true
         // A device's tab asks the hub when shown with a scope waiting
-        // (opened by a person with View or Control, or hidden past its grace mid-session).
-        requestWaitingScope()
+        // (hidden past its grace mid-session, or opened unseen and not started yet).
+        start()
     }
 
-    /// A device's tab with a scope waiting asks the hub now, shown or not: a tab
-    /// opened in the background with `--autoconnect` connects before it is selected.
-    public func requestWaitingScope() {
+    /// A device tab with a scope waiting asks the hub now, shown or not: a person's open (or
+    /// `macScreen.open --autoconnect`) starts its session even when its tab is not on screen.
+    /// Only the picture waits for the tab to show; the hidden grace starts once it was shown and hidden.
+    public func start() {
         guard let hub = model.hub, hub.phase == .idle, let scope = hub.resumeScope else { return }
         hub.resumeScope = nil
         hub.request(scope)

@@ -456,17 +456,30 @@ jobs:
       # The generator check needs the merge base, not historical blobs: with every
       # blob this fetch put 5.3 GiB of all-branch history into the mini's reused
       # workspace, which every later job on that runner kept (cmux14, 2026-10-21).
+      # Depth 1, then only the base's and the head's commits (next step): fetch-depth 0 fetched every
+      # branch's commits and trees (about 33,000 refs, 0.6 GB) into a workspace the last step wipes, so each
+      # run paid 2.3 to 15 min of checkout (median 4.8 of 40 runs, 2026-11-22 00:15-02:15Z) inside its 40-minute limit.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
-          filter: blob:none # the commit graph without historical blobs, as action-areas
+          fetch-depth: 1
+          filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
           persist-credentials: false
           submodules: false
+
+      # The generator check needs the merge base of the base and the head: their commit graphs, no trees
+      # or blobs (tree:0). The few trees and blobs the check, the base scripts and the exporters read are
+      # fetched on use, as blob:none already fetched blobs. 6 s and 66 MB against 79 s and 595 MB for
+      # the all-branch fetch, from one host on cmux#49695's merge commit.
+      - name: Fetch the base and head commit graphs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git fetch --no-tags --no-recurse-submodules --filter=tree:0 --unshallow origin "$BASE_SHA" "$HEAD_SHA"
 
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
@@ -860,6 +873,7 @@ jobs:
           CLOUD: ${{ steps.areas.outputs.cloud }}
           GHOSTTY: ${{ steps.areas.outputs.ghostty }}
           FMT: ${{ steps.areas.outputs.fmt }}
+          JOB_INPUTS: ${{ steps.areas.outputs.jobinputs }}
         run: |
           set -euo pipefail
           args=()
@@ -887,6 +901,8 @@ jobs:
           [[ "$SETTINGS" == true && "$SETTINGS_VERIFIED" != true ]] && grep -q -- '--unverified-settings-exports)' "$AUTOFIX/base-autofix.sh" && args+=(--unverified-settings-exports)
           [[ "$RATCHETS" == true ]] && args+=(--ratchets)
           [[ "$CLOUD" == true ]] && args+=(--cloud-clients)
+          # A workflow job no router declares is recorded as runs-always (scripts/ci/job_inputs.py fix), never refused.
+          [[ "$JOB_INPUTS" == true ]] && grep -q -- '--job-inputs)' "$AUTOFIX/base-autofix.sh" && args+=(--job-inputs)
           [[ -s "$RUNNER_TEMP/webviews-fmt.patch" ]] && args+=(--webviews-fmt-patch "$RUNNER_TEMP/webviews-fmt.patch")
           [[ "$FMT" == true ]] || args+=(--no-fmt)
           cat "$RUNNER_TEMP/clippy.txt" 2>/dev/null > "$RUNNER_TEMP/autofix.txt" || true

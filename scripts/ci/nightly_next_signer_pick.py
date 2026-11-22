@@ -63,6 +63,12 @@ WAITING = ("queued", "pending", "waiting", "requested")
 RUNNER_PIN = re.compile(r"^glaeda-runner-[a-z0-9._-]+$")
 READ_TIMEOUT = 10.0
 MAX_RUNS = 6
+# The census's age the pick accepts. vars are read when the run starts, and the pick runs after resolve (~13 min):
+# runs 44990363506, 44992267457 and 44993740115 (2026-11-22) read censuses 30, 36 and 23 min old against the pool's
+# 5 min, so every pick fell back and every build queued in nightly-next-one-push-cmux15, one at a time. The pick
+# reads which signer runners are online and busy from the census, and the nightly-next-one builds holding or
+# waiting for each host from the live jobs listing; an older census can pin a runner that went offline since.
+CENSUS_MAX_AGE_SECONDS = 50 * 60
 
 
 def loop_run(run: Mapping[str, Any]) -> bool:
@@ -183,7 +189,8 @@ def evaluate(env: Mapping[str, str], get: Callable[[str], Any] | None = None,
     """(host, pin, why); any failure is the fallback (cmux15, the label alone)."""
     try:
         repo = env.get("GITHUB_REPOSITORY", "")
-        document = pool.runner_state(repo, raw=env.get("CI_RUNNER_STATE", ""), now=now)
+        document = pool.runner_state(repo, raw=env.get("CI_RUNNER_STATE", ""), now=now,
+                                     max_age_seconds=CENSUS_MAX_AGE_SECONDS)
         if document is None:
             raise LookupError("vars.CI_RUNNER_STATE is missing, stale or not a complete census")
         runners = pool.census_runners(document)
