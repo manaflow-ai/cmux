@@ -34,6 +34,7 @@ import {
   type LogLine,
   type WireAsset,
   type WireLogs,
+  CUSTOMIZE_ACTION,
 } from "./types";
 
 export type Connection = "connecting" | "connected" | "disconnected";
@@ -685,6 +686,15 @@ export class AppsStore {
     return this.intent(
       OPEN_ACTION.op,
       { action: OPEN_ACTION.action, args: { app } },
+      { reread: false, mutation: false },
+    );
+  }
+
+  /** Opens Settings > Customize, every customization one click each (the Customize cmux… card). */
+  openCustomize(): Promise<void> {
+    return this.intent(
+      CUSTOMIZE_ACTION.op,
+      { action: CUSTOMIZE_ACTION.action, args: CUSTOMIZE_ACTION.args },
       { reread: false, mutation: false },
     );
   }

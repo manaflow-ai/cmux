@@ -2043,6 +2043,7 @@ dependencies = [
 name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
+ "cmux-action-catalog",
  "cmux-motion",
  "proptest",
  "serde",
@@ -2205,10 +2206,14 @@ dependencies = [
  "anyhow",
  "bincode",
  "cmux-process",
+ "flate2",
  "fuser",
  "libc",
+ "reqwest",
+ "rustls",
  "serde",
  "sha1",
+ "sha2 0.10.9",
  "tempfile",
  "zstd",
 ]
@@ -2241,7 +2246,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "cc",
  "cmux-encode",

@@ -27,6 +27,12 @@ nonisolated extension AcpmuxPaneMethods {
     /// tell a chat on a machine that is not connected (with when it was last seen) from a deleted
     /// one, and from one whose machine is still connecting (chatUnavailable.ts).
     public static let replyShapes: [String: ReplyShape] = [
+        // The Labs live-tree preview reads only `liveTree` (direct.ts liveTreeStatus): numeric lane
+        // facts acpmux projects from its status file. The rest of the chat's detail stays out.
+        "_acpmux/info": .object(["liveTree": .object([
+            "available": .bool, "updated": .number, "seq": .number, "stale": .bool,
+            "lanes": .list(.object(["name": .string, "verdict": .string])),
+        ])]),
         // The local/app connection's peer state snapshot; never transport URLs or credentials.
         "_acpmux/peers": .object(["peers": .list(.object([
             "name": .string, "state": .string, "lastSeen": .number, "error": .string,
