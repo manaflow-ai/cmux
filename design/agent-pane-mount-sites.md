@@ -70,15 +70,6 @@ Two gaps. Under load a rebuilt page is live 5 to 12 times later than a warm page
 first content, more than doubles the time to live under load (5249 ms against 2219 ms; its socket opens 629 ms
 later and its attach answers 1677 ms later). Cause not traced yet.
 
-What the app does today (read, `AgentTabs.swift` `makeView`, `AgentPaneSpareAdoption`): a released chat shown again
-already takes the warm spare, when all of these hold: the chat is this Mac's, the pool's one spare is loaded and
-connected, and the page's kept wake state holds nothing but its scroll place (no attachments, shell text, held
-prompts, subagent drafts or folds). Otherwise it is built cold, the 2219 to 5249 ms row. The pool holds one spare
-(`NewTabSparePool`, capacity 1, set for Home's idle memory on 2026-11-14) and refills 250 ms after a take, so the
-second chat shown in a row is cold. A Release build records none of this: `AgentPaneSpareOutcome.trace` exists
-only in debug and bench builds, so how often his NIGHTLY builds cold is not known. Counting it in Release is in
-progress.
-
 ## Restart under duress, live content and offline
 
 Same bench, `MODE=down`, the daemon down 3 s across the restart (so `live` cannot come before about 3.2 s).
