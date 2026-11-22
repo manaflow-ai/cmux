@@ -28,6 +28,10 @@ cd "$root"
 command -v cargo >/dev/null || ./scripts/install-rust-ci.sh
 command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang libclang-dev pkg-config; }
 export PATH="$HOME/.cargo/bin:$PATH"
+# A sparse checkout (a lane VM's `wt new` has only cmux-tui/ and a few folders) cannot build: the
+# crates read files across the repository (include_str!) and cmux-vm's crate. Check out the whole tree.
+full_tree() { [[ "$(git -C "$1" config --bool core.sparseCheckout)" != true ]] || git -C "$1" sparse-checkout disable; }
+full_tree "$root"
 out="$(mktemp -d)"
 trap 'git -C "$root" worktree remove --force "$out/base-src" >/dev/null 2>&1 || true; rm -rf "$out"' EXIT
 git fetch -q --depth=50 origin "${base#origin/}" 2>/dev/null || true
@@ -45,6 +49,7 @@ cp "$target/release/acpmux" "$out/acpmux-B"
 cp "$test_bin" "$out/god_daemon"
 # BASE: the daemon alone, in the same target folder (registry crates are reused), then HEAD's daemon put back.
 git -C "$root" worktree add -q --detach "$out/base-src" "$base_sha"
+full_tree "$out/base-src"
 (cd "$out/base-src/cmux-tui" && CARGO_TARGET_DIR="$target" cargo build --locked --release -p acpmux --bin acpmux 2>&1 | tail -n 1)
 cp "$target/release/acpmux" "$out/acpmux-A"
 cp "$out/acpmux-A" "$out/acpmux-A2"
