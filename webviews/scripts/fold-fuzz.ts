@@ -299,14 +299,14 @@ async function playSeed(page: Page, look: string, seed: number): Promise<FuzzRun
 const RUN_BOUND_MS = 180_000;
 
 function played(page: Page, look: string, seed: number, width: number, height: number) {
-  return (page.evaluate(
+  return page.evaluate(
     ([look, name, width, height]) => {
       const fold = (window as unknown as FoldWindow).__fold;
       fold.size(width, height);
       return fold.run(look, name);
     },
     [look, `fuzz:${seed}`, width, height] as const,
-  ) as Promise<FuzzRun>);
+  ) as Promise<FuzzRun>;
 }
 
 /** One seed with one look; `control` is the same seed's drift with no fold, when `none` ran too. */

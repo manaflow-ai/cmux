@@ -1384,6 +1384,12 @@ export function playTurnEnd(
       const height = node.offsetHeight;
       let clip = shown === undefined ? 0 : Math.max(0, from + height - shown);
       for (const copyTop of copyStarts) if (copyTop > from) clip = Math.max(clip, from + height - copyTop);
+      // A row the swap's render grew (the reply's last lines, shown as the turn ends: revealedMarkdownModel.ts
+      // `TurnEndCut`) starts as tall as it drew and opens to its full height on the fold's clock. Grown
+      // at once in the swap's frame, the lines showed a frame of motion of their own before the fold
+      // began, a second motion (cmux#50299).
+      if (!starts.has(node) && !before.replacesHeader && before.height !== undefined)
+        clip = Math.max(clip, height - before.height);
       if (path) Object.assign(path, { from, clip: clip >= 0.5 ? clip : undefined });
       // Work stays below the header as it moves into the closed turn's place. Both share this
       // clock, so keeping their start and end ordered keeps every frame ordered too.
