@@ -50,19 +50,19 @@ fn publish(f: &Fixture, count: Value) -> Value {
 fn a_published_value_reaches_only_readers_holding_the_sources_scope() {
     let f = sources_fixture(1);
     let listed = f.call("cmux-reader", "signal.sources.list", json!({}), false);
-    assert_eq!(listed["body"]["value"]["sources"][0]["name"], NAME, "{listed}");
-    assert_eq!(listed["body"]["value"]["sources"][0]["readable"], true);
+    assert_eq!(listed["body"]["sources"][0]["name"], NAME, "{listed}");
+    assert_eq!(listed["body"]["sources"][0]["readable"], true);
     let before = f.call("cmux-reader", "signal.read", json!({ "name": NAME }), false);
-    assert_eq!(before["body"]["value"]["value"], Value::Null, "{before}");
+    assert_eq!(before["body"]["value"], Value::Null, "{before}");
 
     let told = publish(&f, json!(3));
     assert_eq!(told["ok"], true, "{told}");
-    assert_eq!(told["body"]["value"]["told"], true);
+    assert_eq!(told["body"]["told"], true);
     f.wait("the reader's change event", |e| {
         e["event"] == "apps-log" && e["app"] == "cmux/reader" && e["message"] == "event-body 1 {}"
     });
     let read = f.call("cmux-reader", "signal.read", json!({ "name": NAME }), false);
-    assert_eq!(read["body"]["value"]["value"], json!({ "count": 3 }), "{read}");
+    assert_eq!(read["body"]["value"], json!({ "count": 3 }), "{read}");
 
     let refused = f.call("cmux-nosy", "signal.read", json!({ "name": NAME }), false);
     assert_eq!(refused["ok"], false);
@@ -94,14 +94,14 @@ fn a_published_value_reaches_only_readers_holding_the_sources_scope() {
 #[test]
 fn publishes_inside_the_floor_reach_readers_once_with_the_newest_value() {
     let f = sources_fixture(1);
-    assert_eq!(publish(&f, json!(1))["body"]["value"]["told"], true);
+    assert_eq!(publish(&f, json!(1))["body"]["told"], true);
     f.wait("the first change", |e| e["app"] == "cmux/reader" && e["message"] == "event 1");
     for n in 2..=20 {
-        assert_eq!(publish(&f, json!(n))["body"]["value"]["told"], false, "inside the floor");
+        assert_eq!(publish(&f, json!(n))["body"]["told"], false, "inside the floor");
     }
     f.wait("the floored change", |e| e["app"] == "cmux/reader" && e["message"] == "event 1");
     let read = f.call("cmux-reader", "signal.read", json!({ "name": NAME }), false);
-    assert_eq!(read["body"]["value"]["value"], json!({ "count": 20 }));
+    assert_eq!(read["body"]["value"], json!({ "count": 20 }));
     // Only one floored tell: nothing more arrives within the next floor.
     let deadline = Instant::now() + Duration::from_millis(1500);
     while let Ok(e) = f.events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
@@ -110,10 +110,10 @@ fn publishes_inside_the_floor_reach_readers_once_with_the_newest_value() {
 }
 
 #[test]
-fn an_uninstalled_source_is_gone_for_its_readers() {
+fn a_disabled_source_is_gone_for_its_readers() {
     let f = sources_fixture(1);
     publish(&f, json!(5));
-    f.set("uninstall-src", SOURCE, Origin::User, |o| o.installed = Some(false)).unwrap();
+    f.set("disable-src", SOURCE, Origin::User, |o| o.enabled = Some(false)).unwrap();
     let read = f.call("cmux-reader", "signal.read", json!({ "name": NAME }), false);
     assert_eq!(read["body"]["code"], "signal.unknown", "{read}");
 }
