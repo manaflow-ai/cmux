@@ -1,115 +1,30 @@
-import { CloudEnvironmentsCard } from "./CloudEnvironmentsCard";
-import { CloudModelsCard } from "./CloudModelsCard";
-import { WorktreeSetupCard } from "./WorktreeSetupCard";
-import type { ReactNode } from "react";
-import { useRouterState } from "@tanstack/react-router";
 import { categoryById, type CategoryCard } from "../categories";
-import { useSettingsRouter } from "../context";
-import { sections } from "../schema";
 import { text } from "../strings";
-import { AccountsSection } from "./AccountsSection";
-import { AgentHarnesses } from "./AgentHarnesses";
-import { AgentIntegrations } from "./AgentIntegrations";
-import { AgentCustomizationCard } from "./AgentCustomizationCard";
-import { AgentToolsCard } from "./AgentToolsCard";
-import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
-import { ChannelsCard } from "./ChannelsCard";
-import { CHIEFS_ROWS, ChiefsCard } from "./ChiefsCard";
-import { COMPUTER_USE_ROWS, ComputerUseCard } from "./ComputerUseCard";
-import { DevicesCard } from "./DevicesCard";
-import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
-import { HarnessesCard } from "./HarnessesCard";
 import { APPEARANCE_CATEGORIES } from "../appearanceUndo";
 import { AppearanceBar } from "./AppearanceBar";
-import { MobileCard } from "./MobileCard";
-import { NoticesCard } from "./NoticesCard";
-import { ImportSuggestionsCard } from "./ImportSuggestionsCard";
-import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown } from "./HostCards";
 import { DENSITY_CARD_ROWS } from "../density";
-import { DensityCard } from "./DensityCard";
-import { TextSizeCard } from "./TextSizeCard";
-import {
-  BrowserProfiles,
-  MACHINE_COLORS_KEY,
-  MachinesSection,
-  SPACE_ROWS,
-  SpacesSection,
-  useSeveralSpaces,
-} from "./HostSections";
-import { PlaceholderSection } from "./PlaceholderSection";
-import { AppUpdateCard } from "./AppUpdateCard";
-import { WebUpdatesCard } from "./WebUpdatesCard";
-import { VoiceInputCard } from "./VoiceInputCard";
-import { ContextMenusCard } from "./ContextMenusCard";
-import { ServerCard } from "./ServerCard";
-import { SharedLinksCard } from "./SharedLinksCard";
-import { CustomizeLibraryCard } from "./CustomizeLibraryCard";
-import { KeysCard } from "./KeysCard";
-import { McpServersCard } from "./McpServersCard";
-import { AgentSkillsCard } from "./AgentSkillsCard";
-import { TailnetCard } from "./TailnetCard";
-import { ModelsCard } from "./ModelsCard";
 import { SectionActions } from "./SectionActions";
 import {
   ACCENT_KEY,
   APP_THEME_KEY,
+  BACKDROP_ROWS,
+  CHIEF_PET_ROWS,
+  CHIEFS_ROWS,
+  COMPUTER_USE_ROWS,
+  FAVORITE_THEMES_KEY,
   HIGHLIGHT_COLOR_KEY,
+  MACHINE_COLORS_KEY,
   ROTATE_FAVORITES_KEY,
+  SPACE_ROWS,
   THEME_EDITS_KEY,
   THEME_FILE_KEY,
   THEME_KEY,
-  ThemeStudio,
-} from "./ThemeStudio";
+  useBackdropsShown,
+  useSeveralSpaces,
+} from "../cardRows";
 import { arrangeGroups } from "../rowLevels";
-import { FAVORITE_THEMES_KEY } from "./ThemePicker";
-
-const machinesTitle = () => text(sections.find((section) => section.id === "machines")?.title);
-
-/** Each card; `focus` is the route's focused key (a card may open a panel it names), `workspace`
- * the workspace the page was opened for, `reveal` whether the route opens the page on this card. */
-const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | null, reveal: boolean) => ReactNode> = {
-  themeStudio: (focus) => <ThemeStudio focus={focus} />,
-  terminalInfo: () => <TerminalInfo />,
-  ghosttyDiagnostics: () => <GhosttyDiagnostics />,
-  computerUse: (focus) => <ComputerUseCard focus={focus} />,
-  harnesses: () => <HarnessesCard />,
-  spaces: () => <SpacesSection />,
-  browserProfiles: () => <BrowserProfiles />,
-  machines: (_focus, _workspace, reveal) => <MachinesSection title={machinesTitle()} reveal={reveal} />,
-  accounts: () => <AccountsSection />,
-  agentHarnesses: (focus) => <AgentHarnesses focus={focus} />,
-  agentIntegrations: (focus) => <AgentIntegrations focus={focus} />,
-  agentCustomization: () => <AgentCustomizationCard />,
-  agentTools: () => <AgentToolsCard />,
-  agentSkills: () => <AgentSkillsCard />,
-  chiefs: (focus) => <ChiefsCard focus={focus} />,
-  advancedInfo: () => <AdvancedInfo />,
-  advancedActions: () => <PlaceholderSection section="advanced" />,
-  backdrops: (focus, workspace) => <BackdropsSlot focus={focus} workspace={workspace} />,
-  mobile: () => <MobileCard />,
-  devices: () => <DevicesCard />,
-  chiefPet: (focus) => <ChiefPetCard focus={focus} />,
-  density: (focus) => <DensityCard focus={focus} />,
-  textSize: () => <TextSizeCard />,
-  importSuggestions: () => <ImportSuggestionsCard />,
-  channels: (focus) => <ChannelsCard focus={focus} />,
-  appUpdate: () => <AppUpdateCard />,
-  webUpdates: () => <WebUpdatesCard />,
-  voiceInput: () => <VoiceInputCard />,
-  notices: () => <NoticesCard />,
-  server: () => <ServerCard />,
-  cloudEnvironments: () => <CloudEnvironmentsCard />,
-  cloudModels: (focus) => <CloudModelsCard focus={focus} />,
-  sharedLinks: (_focus, _workspace, reveal) => <SharedLinksCard reveal={reveal} />,
-  customizeLibrary: (_focus, _workspace, reveal) => <CustomizeLibraryCard reveal={reveal} />,
-  keys: (_focus, _workspace, reveal) => <KeysCard reveal={reveal} />,
-  mcpServers: () => <McpServersCard />,
-  tailnet: () => <TailnetCard />,
-  models: (focus) => <ModelsCard focus={focus} />,
-  worktreeSetup: () => <WorktreeSetupCard />,
-  contextMenus: (focus) => <ContextMenusCard focus={focus} />,
-};
+import { Card } from "./cardModules";
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
 export function SectionView({
@@ -186,25 +101,7 @@ export function SectionView({
   );
 }
 
-function CardSlot({
-  card,
-  focus,
-  workspace,
-  reveal,
-}: {
-  card: CategoryCard;
-  focus: string | null;
-  workspace: string | null;
-  reveal: boolean;
-}) {
-  return CARDS[card](focus, workspace, reveal);
-}
-
-/** The background picker. The host adds a fresh `open` token to each Change Background… request:
- * the picker mounts again and reveals the saved tile, even when Appearance already shows. */
-function BackdropsSlot({ focus, workspace }: { focus: string | null; workspace: string | null }) {
-  const router = useSettingsRouter();
-  const search = useRouterState({ router, select: (state) => state.location.searchStr });
-  const open = new URLSearchParams(search).get("open");
-  return <Backdrops key={JSON.stringify([workspace, open])} focus={focus} workspace={workspace} />;
+/** One card, loaded with its section (cardModules.tsx). */
+function CardSlot(props: { card: CategoryCard; focus: string | null; workspace: string | null; reveal: boolean }) {
+  return <Card {...props} />;
 }

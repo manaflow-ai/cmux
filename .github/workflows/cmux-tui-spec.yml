@@ -55,6 +55,7 @@ on:
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
       - "schemas/theme/theme-ink-vectors.json"
+      - "schemas/transcript-look/transcript-look.json"
       - "scripts/measure/screen-stream-eval/wifi-away-holds.json"
       - "skills/cmux-acpmux/SKILL.md"
       - "skills/cmux-browser/**"
@@ -429,6 +430,8 @@ jobs:
   # shows its red on its own pull request (Leo, 2026-11-17: "we need to test out more of these
   # permission related combinations in ci"). The job and
   # step keep their names: the scope step finds earlier runs by them.
+  # tests/daemon_list_order_start.rs (the start task sorts the list order before any chat log
+  # is read) runs here too: no pull request check ran it.
   acpmux-tests:
     name: acpmux tests (lib, hub_integration)
     needs: changes
@@ -504,15 +507,14 @@ jobs:
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
-          # Keyed on the pinned toolchain and the lockfile, not on rust-cache's environment hash: that
-          # hashes every toolchain `rustup toolchain list` shows, and the pool hosts keep different
-          # leftover ones (1.88, 1.98.1, 1.100 beside the pinned 1.95), so each host saved and looked
-          # under its own key: 117 of 133 runs in 18-23Z on 2026-11-21 found no cache and built cold.
-          add-rust-environment-hash-key: "false"
           shared-key: cmux-tui-acpmux-tests-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
+          # Keyed on the pinned toolchain and the lockfile, not on rust-cache's environment hash: that
+          # hashes every toolchain `rustup toolchain list` shows, and the pool hosts keep different
+          # leftover ones (1.88, 1.98.1, 1.100 beside the pinned 1.95), so each host saved and looked
+          # under its own key: 117 of 133 runs in 18-23Z on 2026-11-21 found no cache and built cold.
           # Key on the toolchain file and lockfiles only, not the runner's CARGO_*/RUST* env: those hold
           # HOME paths that differ per runner (/home/runner vs /home/runner2), so a pull request missed the
           # base save unless it drew the same runner layout. Cargo's fingerprints check every reused crate.
@@ -552,7 +554,8 @@ jobs:
           head_log="$RUNNER_TEMP/acpmux-tests-head.log"
           suites=(--locked -p acpmux -p acpmux-book -p acpmux-build-id -p acpmux-client -p acpmux-core
             -p acpmux-list-types --lib --test hub_integration --test ffi --test v2_client
-            --test v2_gate_home --test v2_chat_recorded_stream --test permission_matrix --no-fail-fast)
+            --test v2_gate_home --test v2_chat_recorded_stream --test permission_matrix
+            --test daemon_list_order_start --no-fail-fast)
           # The two concurrent runs below: every package with the libraries, every package with the
           # integration test targets (tests/test_cargo_test_verdict.py reads `suites` itself).
           pkgs=() targets=()
