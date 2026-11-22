@@ -251,7 +251,7 @@ pub fn facts() -> impl Iterator<Item = &'static str> {
 }
 
 /// What the checklist reads, gathered by the caller.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Inputs<'a> {
     /// The settings file's object (absent keys mean their defaults).
     pub settings: &'a Value,
