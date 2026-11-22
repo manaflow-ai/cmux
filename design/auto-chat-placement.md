@@ -49,10 +49,27 @@ only after it held for `holdSecs` (120 s). It brings a chat back to where it sta
 trigger has cleared (lid open, on AC or battery ≥ 30 %, this Mac has room for 2 lanes) and the
 chat's turn has ended. A chat the person moved or pinned is never moved by Auto.
 
-Moves reuse Move to Cloud / Bring Back (`cmux cloud move`, `cloud bring-back`, `link agent move`)
-and the peer move (`acpmux session move --host`). The daemon emits `chatPlace/move {session, to,
-peer, why}`; the app runs the existing action for it. On sleep the app delays sleep (up to the
-system's 30 s) while the hand-off finishes.
+**Off by default.** Nothing moves a chat on its own unless the person sets
+`agentPane.autoPlacement.moveChats` to `true` in `cmux-next.json`. The daemon reads it at each
+pass; with it missing or false the rejudge task asks for no move, and `place_chat_event` answers
+with nothing moving.
+
+With it on, the daemon's rejudge task (`server/place_auto.rs`) weighs every live chat tagged
+`placement=auto` on each sleep word, each peer link change and every 30 s. It runs on macOS only:
+Auto weighs "This Mac", and a daemon on a Linux machine a chat was moved to must not rejudge that
+chat as if it started there.
+
+Moves reuse Move to Cloud / Bring Back (`cmux link seed push`, `link agent move --sync pull`) and
+the peer move (`acpmux session move --host`). For Cloud the daemon emits `chatPlace/move
+{session, to, peer, why, back, folderTravel}` to this machine's own clients
+(`hub/chat_place_bus.rs`); the app's thin mover runs the existing action for it. A move to or
+from a joined machine the daemon runs itself. On sleep the app delays sleep (up to the system's
+30 s) while the hand-off finishes (`_acpmux/place_chat_settled`).
+
+`folderTravel` is `project` when the app's pane said folders go by projection (`cmux link project
+moves on`): Move to Cloud's seed push projects the folder instead of copying it, and Bring Back
+takes the chat's edits from its own upper layer (`cmux link project back`, cmux#45832). Otherwise
+it is `copy`: the seed and its three-way pull.
 
 ## Copy-on-write over the projection
 
@@ -64,7 +81,8 @@ That layer is projected folders (cmux#45782, cmuxterm-hq RFD 0007): a FUSE mount
 folder on the machine, with writes copied up into `upper/` and deletes kept as whiteouts, per
 projection name. Auto gives each chat its own projection name, so two chats on one folder get
 separate layers. Bring Back over that layer (a three-way pull of `upper/` and the whiteouts) is
-the projection lane's next slice; until it lands, a moved chat's folder goes by today's seed copy.
+cmux#45832; the app's Bring Back takes it for a projected folder, so Auto's return trip needs no
+code of its own. Until it lands, a moved chat's folder comes back by today's seed pull.
 
 ## Pinning
 
