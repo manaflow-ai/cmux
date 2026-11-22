@@ -30,7 +30,7 @@ export default componentEntry<Props>({
   title: "Composer hat under a burst of calls: what a running subagent says it does",
   area: "Agent pane",
   covers: [
-    "agent-session/acpmux/subagents/HatStep.tsx",
+    "agent-session/acpmux/subagents/HatStepSlot.tsx",
     "agent-session/acpmux/subagents/hatStep.ts",
     "agent-session/acpmux/subagents/SubagentTray.tsx",
   ],
@@ -39,7 +39,7 @@ export default componentEntry<Props>({
   height: 300,
   experiment: { definition: hatStepLook, script },
   variants: {
-    phase: { note: "Default: one word for the kind of call, fixed width, held 1.5 s.", props: lone("phase") },
+    phase: { note: "Default: one word for the kind of call, fixed width, held 1.6 s.", props: lone("phase") },
     quiet: { note: "Nothing per call: the task and its time.", props: lone("quiet") },
     sampled: { note: "The exact call at most every 2.5 s, cut to a fixed width.", props: lone("sampled") },
     exact: { note: "Before: every call's exact title slides in as it comes.", props: lone("exact") },

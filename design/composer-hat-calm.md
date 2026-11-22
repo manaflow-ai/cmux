@@ -58,8 +58,8 @@ and width change under each arm.
 | Thinking, no call yet | Its last words, or nothing | "Thinking" | nothing | its last words |
 | One call | 1 change, new width | 1 word change, same width | none | 1 change, same width |
 | Burst of 5 reads | 5 changes, 5 widths | 1 change ("Reading"). Read and Grep are both "read" | none | 1–2 changes |
-| Burst of 50 mixed | about 50 changes, constant width churn | One change per 1.5 s at most, among 2–3 words | none | One change per 2.5 s at most |
-| Parallel subagents | Every line churns on its own | Each line changes at most once per 1.5 s, and its width never changes | none | Every 2.5 s, per line |
+| Burst of 50 mixed | about 50 changes, constant width churn | One change per 1.6 s at most, among 2–3 words | none | One change per 2.5 s at most |
+| Parallel subagents | Every line churns on its own | Each line changes at most once per 1.6 s, and its width never changes | none | Every 2.5 s, per line |
 | Subagent spawning subagents | "Agent" or its prompt title | "Delegating" | none | sampled |
 | Long-running command | The command, constant | "Running", constant | none | The command, constant |
 | Compaction | Not a subagent step. The live line says it | Same | Same | Same |
@@ -71,6 +71,10 @@ These numbers in the hat remain, and each one is bounded:
 
 - **Kind counts** ("3 subagents running · 2 commands") change only when an item starts or ends. Only their changed
   digits roll (`steadyCounts`).
+- **The header's words and "+N more"** (the newest names, each kind's count) are held 1.6 s, as the step is
+  (`Dwelt`/`useDwell`). Twenty subagents joining in a burst used to be twenty changes in 1.3 s; now it is one.
+  `feel-composer-hat.test.ts` holds this on `agent-pane.composer-hat-head`'s `calm` variant: a line stays up at
+  least 1500 ms, at most 0.67 swaps a second, no width changes.
 - **Workflow agent counts** ("2/5 agents") change once per agent, not per call.
 - **Elapsed time** ticks once a second in tabular figures (`Elapsed`). Its width changes only where the format grows
   (59s -> 1m 0s), at most once a minute.
@@ -83,7 +87,7 @@ These numbers in the hat remain, and each one is bounded:
   - The words: Thinking, Reading, Searching, Editing, Running, Fetching, Delegating, Working.
   - All the words are stacked in one grid cell, so the slot is always as wide as the widest word in the pane's
     language.
-  - A word stays at least 1.5 s; a change during that time waits, and only the newest one shows.
+  - A word stays at least 1.6 s; a change during that time waits, and only the newest one shows.
   - A change cross-fades in place: no roll and no slide.
   - The kind comes from acpmux: the ACP kind of the subagent's own call, or `actionKind` (`tool_kind`) on Claude's
     task progress. React only turns it into a word.
@@ -97,7 +101,7 @@ The phase arm wins on all three of Leo's points:
 
 - He knows what can appear, because the vocabulary is fixed.
 - The width never swings.
-- The churn is bounded at one change per 1.5 s per line.
+- The churn is bounded at one change per 1.6 s per line.
 
 It is also the closest to the reference: Claude Code keeps the status line still and leaves the calls themselves to
 the transcript.

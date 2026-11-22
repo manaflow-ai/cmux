@@ -142,7 +142,7 @@ export function AgentLine({
   /// line so a change never moves the line (`below`), or dim after the title (`inline`). Leo,
   /// 2026-11-03: "Tray only, richer" (trayLatest.experiment.ts).
   latest?: string;
-  /// In place of `latest`, what the composer hat says it does now (HatStep.tsx): a slot of fixed
+  /// In place of `latest`, what the composer hat says it does now (HatStepSlot.tsx): a slot of fixed
   /// width that changes at most once per dwell (hatStep.experiment.ts).
   step?: ReactNode;
   latestAt?: "below" | "inline";

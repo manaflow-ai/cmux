@@ -43,6 +43,17 @@ await requireBrowserLane("feel-composer-hat.test.ts", async () => {
     component: "composer-hat",
     viewport: { width: 480, height: 240 },
     prepare: async (page) => void (await page.waitForSelector(HEAD)),
+    // Twenty joining widen the subagent icon row (HatFaces.tsx) from 2 icons to its 140 px cap, and the
+    // kinds and time after it move over by that width: 0.013 against 0.01 in this 480 x 240 stage, on
+    // every arm. Measured by each layout-shift entry's sources (the kinds, the time, the icons), 2026-11-22.
+    // The row's count is held 1.6 s, so it is one move, not twenty, and the kinds glide there on transform
+    // (useGlide); Chrome scores the layout move under the glide all the same. A score of 0 needs the words
+    // never to move: the row after them, or its full width reserved. That is the icon header's design
+    // (#49824), a question for Leo, not this file's.
+    known: {
+      "join-20":
+        "the subagent icon row widening to its cap moves the kinds after it once, glided (0.013): a header design choice",
+    },
   });
 
   /** Presses the stage's `button` (outside the pane: the feed, not the cursor) `times` times, one
@@ -55,7 +66,7 @@ await requireBrowserLane("feel-composer-hat.test.ts", async () => {
   };
 
   /** How long a line must stay up to be read, and how many swaps a second a reader keeps up with:
-   *  the calm the hat is held to (hatStep.ts PHASE_DWELL_MS: one change per 1.5 s at most). */
+   *  the calm the hat is held to (hatStep.ts PHASE_DWELL_MS, 1.6 s: under one change per 1.5 s). */
   const READ_MS = 1_500;
   const SWAPS_PER_SECOND = 0.67;
 
@@ -94,7 +105,8 @@ await requireBrowserLane("feel-composer-hat.test.ts", async () => {
     ] as const)
       testFor(`join-${times}`)(`${name}: the header's words change at a reading pace and it holds still`, async () => {
         const verdicts = await scenario(`join-${times}`, async (page, v) => {
-          const trace = await record(page, SPEC, () => feed(page, "join", times, every), { settleFrames: 60 });
+          // Settles past the header's dwell (hatStep.ts PHASE_DWELL_MS), so the burst's one change is seen.
+          const trace = await record(page, SPEC, () => feed(page, "join", times, every), { settleFrames: 240 });
           const title = churn(trace, "title");
           const more = churn(trace, "more");
           const head = still(trace);

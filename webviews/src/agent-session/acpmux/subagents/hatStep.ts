@@ -21,7 +21,7 @@ export type HatPhase = (typeof HAT_PHASES)[number];
 
 /// The least time a word stays before the next replaces it, so a burst of fifty calls reads as a few
 /// calm changes of word, not fifty (design/composer-hat-calm.md).
-export const PHASE_DWELL_MS = 1_500;
+export const PHASE_DWELL_MS = 1_600;
 /// The sampled arm's least time between two exact calls.
 export const SAMPLE_DWELL_MS = 2_500;
 
