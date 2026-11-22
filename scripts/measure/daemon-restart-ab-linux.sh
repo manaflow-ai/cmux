@@ -68,7 +68,8 @@ for ((r = 0; r < rounds; r++)); do
       break 2
     fi
     began=$SECONDS
-    mkdir -p "$out/tmp"
+    # 0700 whatever the umask: the daemon refuses a group-writable ancestor of its home (a lane VM's umask is 0002).
+    mkdir -p -m 700 "$out/tmp"
     code=0
     (cd "$root/cmux-tui/crates/acpmux" && TMPDIR="$out/tmp" ACPMUX_GOD_SHAPES="$shapes" \
       ACPMUX_GOD_DAEMON_BIN="$out/acpmux-$arm" timeout --kill-after=30 900 "$out/god_daemon" \
