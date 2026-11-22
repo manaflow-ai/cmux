@@ -164,7 +164,10 @@ impl HomeOrder {
             HomeWindow::Ids(asked) => {
                 let mut found: Vec<(usize, &str)> = asked
                     .iter()
-                    .filter_map(|id| self.index.get(id).map(|at| (*at, self.ids[*at].as_str())))
+                    .filter_map(|id| {
+                        let at = *self.index.get(id)?;
+                        Some((at, self.ids.get(at)?.as_str()))
+                    })
                     .collect();
                 found.sort_unstable();
                 found.dedup();

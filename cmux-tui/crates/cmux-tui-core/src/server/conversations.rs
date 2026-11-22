@@ -575,13 +575,12 @@ fn home_inbox_window(
     let mut reply = json!({
         "me": principal, "rows": rows, "cloud": "not_asked", "total": total, "window": true,
     });
-    match window {
-        cmux_conversation::HomeWindow::Range { offset, .. } => {
-            reply["offset"] = Value::from(*offset);
-        }
-        cmux_conversation::HomeWindow::Ids(_) => {
-            reply["order"] = Value::from(read.order.digest());
-        }
+    let (key, extra) = match window {
+        cmux_conversation::HomeWindow::Range { offset, .. } => ("offset", Value::from(*offset)),
+        cmux_conversation::HomeWindow::Ids(_) => ("order", Value::from(read.order.digest())),
+    };
+    if let Value::Object(fields) = &mut reply {
+        fields.insert(key.into(), extra);
     }
     Ok(reply)
 }

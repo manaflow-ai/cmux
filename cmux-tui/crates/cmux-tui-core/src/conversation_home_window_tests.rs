@@ -280,7 +280,9 @@ fn home_open_cost_by_list_length() {
         assert_eq!(warm_rows, FIRST_SCREEN.min(before_rows));
         warm_after.push(warm_ms);
     }
-    let (first, last) = (warm_after[0], warm_after[warm_after.len() - 1]);
+    let (Some(&first), Some(&last)) = (warm_after.first(), warm_after.last()) else {
+        panic!("no warm open was measured");
+    };
     println!("warm home open 1x {first} ms, 1000x {last} ms, ratio {:.3}", last / first.max(1e-9));
 }
 
