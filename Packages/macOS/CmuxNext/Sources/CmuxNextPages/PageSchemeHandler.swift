@@ -168,11 +168,15 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// A Chromium page's file while the live web loop runs: ``reply(to:range:webView:)`` for a
     /// handler of `page` at `root`, as Chromium takes it, with that reply's CSP. A 404 when there is
     /// no root or no reply.
+    /// `pinnedIn`: the host view of the Chromium page asking, whose requests read the update its
+    /// document loaded with (``WebBundleServedViews/chromiumDocument(_:)``); nil reads the active one.
     static func liveChromiumResponse(to url: URL, range: String?, page: PageDescriptor, root: URL?,
-                                     dynamicSource: (any PageDynamicResourceSource)?) async -> PageChromiumResponse {
+                                     dynamicSource: (any PageDynamicResourceSource)?,
+                                     pinnedIn webView: WKWebView? = nil) async -> PageChromiumResponse {
         guard let root else { return .notFound }
         let handler = PageSchemeHandler(page: page, root: root, dynamicSource: dynamicSource)
-        guard let reply = await handler.reply(to: url, range: range) else { return .notFound }
+        if let webView, PageDevServer.isDocument(url, page: page) { WebBundleServedViews.shared.chromiumDocument(webView) }
+        guard let reply = await handler.reply(to: url, range: range, webView: webView) else { return .notFound }
         return chromiumResponse(reply)
     }
 
@@ -319,7 +323,9 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
         let file = components.reduce(base) { $0.appendingPathComponent($1) }.standardizedFileURL.resolvingSymlinksInPath()
         guard file.path.hasPrefix(base.path + "/") else { return nil }
-        return file
+        // A NIGHTLY ships a page's string table in English only; the person's language comes in
+        // the downloaded language pack (CMUX-570).
+        return Bundle.languagePackFile(for: file) ?? file
     }
 
     /// `type` when it is a plain `type/subtype` with an optional `charset` (no header injection),

@@ -13,7 +13,7 @@ import AppKit
 
 /// NSTextView's own `annotatedSubstringForProposedRange:actualRange:`, for the cases the field leaves to it.
 private typealias AnnotatedCopy = @convention(c) (AnyObject, Selector, NSRange, UnsafeMutablePointer<NSRange>?) -> Unmanaged<NSAttributedString>?
-private let annotatedCopySelector = NSSelectorFromString("annotatedSubstringForProposedRange:actualRange:")
+private let annotatedCopySelector = #selector(NSTextCheckingClient.annotatedSubstring(forProposedRange:actualRange:))
 private let appKitAnnotatedCopy = unsafeBitCast(class_getMethodImplementation(NSTextView.self, annotatedCopySelector), to: AnnotatedCopy.self)
 
 /// The span of a long paragraph that text checking reads around a range.
@@ -25,7 +25,7 @@ struct FieldCheckingSpan {
     /// The furthest the span widens to reach a word boundary.
     let wordSlack: Int
 
-    init(longParagraph: Int = 1024, radius: Int = 256, wordSlack: Int = 64) {
+    init(longParagraph: Int = 1024, radius: Int = 128, wordSlack: Int = 64) {
         self.longParagraph = longParagraph
         self.radius = radius
         self.wordSlack = wordSlack

@@ -41,6 +41,9 @@
 #   copy=fresh   each measured launch is the first exec of a new copy: just before it, the side's copy is deleted and
 #                copied again from the DMG's (new files at the same path, the same code signature), as an update in
 #                place leaves it. The home stays. Default copy=same: every launch runs the one copy.
+#   labs=KEY     every side's home gets its own settings file, cmux-next.json with labs.KEY=true (the app reads it
+#                through CMUX_NEXT_CONFIG_FILE): labs=launchShellFirst with base= measures a Labs toggle's launch against a
+#                base without it (a base ignores a key it lacks). The priming launch applies it, so measured ones see it.
 #   engines=E[,E2]  with a DMG (not dmg=build): one side per engine (chromium or webkit), named for it, each a copy of the
 #                one DMG whose home has its own settings file, cmux-next.json with browser.defaultEngine=E (the app reads
 #                it through CMUX_NEXT_CONFIG_FILE). engines=chromium,webkit interleaves Chromium as launch has it now with
@@ -116,7 +119,7 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-ready" dmg=nightly nightly="" base="" headsha="" runs=5 profile=0 session=small workspaces="" windows=3 prerun=0 copy=same machines=0 late=0 engines="" config=release arg rc=0 i side
+  local out="$PWD/.build/launch-ready" dmg=nightly nightly="" base="" headsha="" runs=5 profile=0 session=small workspaces="" windows=3 prerun=0 copy=same machines=0 late=0 engines="" labs="" config=release arg rc=0 i side
 
   local preflight=1 preflight_cpu=30 preflight_wait=900 waited=0
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
@@ -149,6 +152,7 @@ main() {
       workspaces=*) workspaces="${arg#workspaces=}" ;;
       windows=*) windows="${arg#windows=}" ;;
       engines=*) engines="${arg#engines=}" ;;
+      labs=*) labs="${arg#labs=}" ;;
       preflight_wait=*) preflight_wait="${arg#preflight_wait=}" ;;
       preflight=0|preflight=1) preflight="${arg#preflight=}" ;;
       preflight_cpu=*) preflight_cpu="${arg#preflight_cpu=}" ;;
@@ -177,6 +181,8 @@ main() {
   [[ -z "$base" || ( "$dmg" =~ ^(build|swap)$ && "$base" =~ ^[0-9a-f]{40}$ ) || "$dmg:$base" == swap:nightly ]] \
     || { echo "base= takes a 40-hex commit, with dmg=build or dmg=swap (or nightly, with dmg=swap)" >&2; exit 2; }
   [[ -z "$headsha" || ( "$dmg" =~ ^(build|swap)$ && "$headsha" =~ ^[0-9a-f]{40}$ ) ]] || { echo "head= takes a 40-hex commit, with dmg=build or dmg=swap" >&2; exit 2; }
+  [[ -z "$labs" || ( -z "$engines" && "$labs" =~ ^[A-Za-z][A-Za-z0-9]{0,63}$ ) ]] \
+    || { echo "labs= takes one Labs setting key (letters and digits), without engines=" >&2; exit 2; }
   [[ -z "$engines" || "$late" == 0 ]] || { echo "engines= takes no late= (the late side would have no engine of its own)" >&2; exit 2; }
   [[ -z "$engines" || ( ! "$dmg" =~ ^(build|swap)$ && "$engines" =~ ^(chromium|webkit)(,(chromium|webkit))?$ && "$engines" != chromium,chromium && "$engines" != webkit,webkit ) ]] \
     || { echo "engines= takes chromium, webkit or both (comma), with a DMG (not dmg=build or dmg=swap)" >&2; exit 2; }
@@ -207,6 +213,7 @@ main() {
       printf '{"browser": {"defaultEngine": "%s"}}\n' "$side" >"$out/home-$side/cmux-next.json" && chmod 0666 "$out/home-$side/cmux-next.json" || exit 3
     done
   fi
+  if [[ -n "$labs" ]]; then echo "LR labs $labs=true"; fi
   if [[ "$dmg" == swap ]]; then
     source scripts/measure/swap-nightly.sh
     swap_nightly "$out" "$nightly" ${base:+base="$base"} head="${headsha:-$(git rev-parse HEAD)}" || exit 3
@@ -267,6 +274,10 @@ main() {
     local mount="$out/mnt-$side" image="$side"
     [[ "$side" != late && -z "$engines" ]] || image=head # the late side, and every engines= side, runs the head's DMG
     mkdir -p "$mount" "$out/$side"
+    if [[ -n "$labs" ]]; then
+      mkdir -p "$out/home-$side" && chmod 0777 "$out/home-$side"
+      printf '{"labs": {"%s": true}}\n' "$labs" >"$out/home-$side/cmux-next.json" && chmod 0666 "$out/home-$side/cmux-next.json" || exit 3
+    fi
     local found
     if [[ "$dmg" == swap ]]; then
       found="$(find "$out/swap-$image" -maxdepth 1 -name '*.app' | head -1)" # swap_nightly's sealed copy
@@ -397,7 +408,7 @@ probe() {
   fi
   [[ -n "$line" ]] || { echo "LR-RUN $side $label no result"; return 1; }
   # engines=: Chromium's start, from the app's log, added to the row's marks (launch-ready-cef.py).
-  if [[ -f "$out/home-$side/cmux-next.json" ]]; then
+  if [[ -n "$engines" && -f "$out/home-$side/cmux-next.json" ]]; then
     local withcef
     withcef="$(echo "${line#LR-RUN }" | python3 -I "$out/cef.py" 2>>"$out/cef.log")" && [[ -n "$withcef" ]] && line="LR-RUN $withcef"
   fi
