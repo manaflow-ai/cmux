@@ -1,4 +1,5 @@
 public import AppKit
+import CMUXAuthCore
 public import CmuxNextAgentPane
 public import CmuxNextCompat
 public import CmuxNextDesign
@@ -44,6 +45,9 @@ public final class IPhoneHostService {
         /// The mobile service.
         var baseURL: URL
         var stackProjectID: String
+        /// The build's cloud data space (``CloudConfiguration/buildSpace``): a tagged dev build's goes to hostd; a
+        /// misconfigured dev build starts no hostd and lists no phones (``CMUXBuildSpaceError``).
+        var buildSpace: CMUXBuildSpaceState
         /// Per-bundle state (device id, hostd log).
         var stateDirectory: URL
         /// The name this Mac's identity key is kept under in the Keychain
@@ -79,6 +83,12 @@ public final class IPhoneHostService {
         var cloudLinks: @Sendable () async -> MobileHostCloudLinks = { MobileHostCloudLinks() }
         /// Test-only (DEBUG): phones this tagged test instance trusts without the prompt.
         var pairingSeed: IPhonePairingSeed?
+        /// DEBUG tagged dev builds only: this tag's own iPhone app pairs without the prompt
+        /// (``IPhoneDevAutoApprove``); nil in Release, other builds and `--approve-first` launches.
+        var devAutoApprove: IPhoneDevAutoApprove?
+        /// This build's dev tag (any configuration; nil unless a tagged dev build): another tag's
+        /// dev iPhone app asks quietly (``IPhoneDevAutoApprove/asksQuietly(_:macDevTag:)``).
+        var macDevTag: String?
         /// This app's own Chief owner: its session (from the app's `ChiefHome`, always known)
         /// and its socket once connected. hostd's `chief` service dials it; without it hostd
         /// guesses `~/.cmux/chief/default`, which is not a DEV or tagged build's Chief.
@@ -114,6 +124,7 @@ public final class IPhoneHostService {
         launch.simulatorSurfaces = dependencies.surfaceHosts?.streamsSimulators ?? false
         launch.chiefSession = chief?.session
         launch.chiefSocket = chief?.socket
+        launch.buildSpace = dependencies.buildSpace.space
         return launch
     }
 
@@ -193,6 +204,7 @@ public final class IPhoneHostService {
     /// The folders acpmux gets (``followWorkspaceFolders()``).
     @ObservationIgnored private let folders = MobileHostWorkspaceFolders()
     @ObservationIgnored private var followingPicks: Task<Void, Never>?
+    @ObservationIgnored private var followingBrowserWorkspaceSource: Task<Void, Never>?
     /// This Mac's theme and wallpaper for the phones (`followAppearance(of:)`).
     @ObservationIgnored var followingAppearance: Task<Void, Never>?
     @ObservationIgnored private var pairingWatch: Task<Void, Never>?
@@ -321,7 +333,7 @@ public final class IPhoneHostService {
             phonesError = nil
             return pushListedPhones()
         }
-        let directory = MobileHostDeviceDirectory(baseURL: dependencies.baseURL)
+        let directory = MobileHostDeviceDirectory(baseURL: dependencies.baseURL, buildSpace: dependencies.buildSpace)
         // task-owner: stored in `listing`; a newer read cancels it
         listing = Task { [weak self] in
             do {
@@ -349,7 +361,7 @@ public final class IPhoneHostService {
         }
         guard let dependencies, let phone = knownPhones.first(where: { $0.id == id || $0.owns(id) }) else { return }
         do {
-            try await MobileHostDeviceDirectory(baseURL: dependencies.baseURL).remove(phone, token: dependencies.accessToken(false))
+            try await MobileHostDeviceDirectory(baseURL: dependencies.baseURL, buildSpace: dependencies.buildSpace).remove(phone, token: dependencies.accessToken(false))
             await supervisor.drop(phoneDeviceIDs: phone.deviceIDs)
             // Its pairing goes too: its links and Face ID approvals stop at once.
             for deviceID in phone.deviceIDs { revokePhone(id: deviceID) }
@@ -406,6 +418,34 @@ public final class IPhoneHostService {
             }
             approverSync?.updateWorkspaceRoots(folders)
         })
+    }
+
+    /// Registers this build's daemon while its existing remote-connection setting permits it.
+    /// Projection and authorization stay in Rust; this passes only the captured app endpoint.
+    func followBrowserWorkspaceSource() {
+        followingBrowserWorkspaceSource?.cancel()
+        // task-owner: follows the host's account and existing remote-connection setting.
+        followingBrowserWorkspaceSource = Task { [weak self] in
+            for await enabled in ObservationStream({ [weak self] in
+                guard let self else { return false }
+                return allowed && account != nil
+            }) {
+                guard let self else { return }
+                guard enabled, let dependencies else {
+                    approverSync?.updateBrowserWorkspaceSource(socket: nil, host: nil)
+                    continue
+                }
+                let socket = try? await dependencies.daemonSocket()
+                guard !Task.isCancelled, allowed, account != nil else {
+                    approverSync?.updateBrowserWorkspaceSource(socket: nil, host: nil)
+                    continue
+                }
+                if approverSync == nil, let environment = dependencies.acpmuxEnvironment {
+                    approverSync = makeApproverSync(environment)
+                }
+                approverSync?.updateBrowserWorkspaceSource(socket: socket, host: dependencies.agentTabHost())
+            }
+        }
     }
 
     /// Hands acpmux the agent and model this Mac's New Tab page picked last while iPhone
@@ -503,6 +543,7 @@ public final class IPhoneHostService {
         pairingWatch?.cancel()
         folders.stop()
         followingPicks?.cancel()
+        followingBrowserWorkspaceSource?.cancel()
         followingAppearance?.cancel()
         approverSync?.stop()
         quietAttention()
@@ -630,6 +671,8 @@ public final class IPhoneHostService {
                 return
             }
             do {
+                // A dev build with no usable tag would run hostd in nightly's space: it starts none.
+                try dependencies.buildSpace.check()
                 let deviceID = try MobileHostDeviceIdentity(directory: dependencies.stateDirectory).deviceID()
                 // The key phones pin for this Mac (Keychain; created on first use), read off the
                 // main actor: a Keychain call must never hold launch (a re-signed rig app's access
@@ -658,6 +701,14 @@ public final class IPhoneHostService {
                     log: dependencies.stateDirectory.appendingPathComponent("cmux-mobile-host.log", isDirectory: false),
                     browserHosts: dependencies.browserHosts, macIdentity: identity,
                     surfaceHosts: dependencies.surfaceHosts, cloudLinks: dependencies.cloudLinks))
+            } catch let refusal as CMUXBuildSpaceError {
+                // Does not pass by itself (a rebuild with a tag does): no retry, as for a blocked daemon socket.
+                guard !Task.isCancelled, self?.running == key else { return }
+                let reason = refusal.localizedDescription
+                logger.fault("iPhone host not started: \(reason, privacy: .public)")
+                await supervisor.stop(phase: .unavailable(reason))
+                guard !Task.isCancelled, self?.running == key, self?.reconcileGeneration == generation else { return }
+                self?.setKeepAwake(false)
             } catch MobileHostMacIdentityError.keychainRefused(let status) {
                 // The Keychain holds this Mac's identity but refused the read (locked at login or wake):
                 // try again shortly rather than prove a second key the phones would refuse. A stop() or a
