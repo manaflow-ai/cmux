@@ -109,21 +109,37 @@ final class SubagentTranscriptEdgeUITests: XCTestCase {
         }
         var largest: CGFloat = 0
         var holds = 0
-        for _ in 0..<60 where !onScreen(app, done) {
+        // A downward read never goes back: the tall answer's top only moves up, and the pill at the
+        // transcript's top, once scrolled off, never comes back on screen.
+        let pill = app.staticTexts["Subagent of Rig chat"].firstMatch
+        var pillGone = false
+        var lastTop: CGFloat?
+        var backward: CGFloat = 0
+        var backwardNote = ""
+        for swipe in 0..<60 where !onScreen(app, done) {
             app.swipeUp()
             pause(1)
+            if pillGone, onScreen(app, pill) {
+                backwardNote += "swipe \(swipe): the transcript went back to its top. "
+                backward = .infinity
+            }
+            if !onScreen(app, pill) { pillGone = true }
+            let top: CGFloat? = tall.exists && !tall.frame.isEmpty ? tall.frame.minY : nil
+            if let top, let lastTop, top - lastTop > backward { backward = top - lastTop }
+            lastTop = top ?? lastTop
             guard let before = held() else { continue }
             pause(1)
             guard let after = held() else { continue }
             holds += 1
             largest = max(largest, abs(after - before))
         }
-        let line = "tall row: largest move of a still reader's row \(largest) pt over \(holds) holds"
+        let line = "tall row: largest move of a still reader's row \(largest) pt over \(holds) holds; largest backward move in a swipe \(backward) pt. \(backwardNote)"
         print("CMUX_TALL_ROW_SHIFT \(line)")
         let probe = app.staticTexts["chat.subagent.tallprobe"].firstMatch
         let measures = probe.exists ? probe.label : "no tall probe"
         print("CMUX_TALL_ROW_MEASURE \(measures)")
         edgeNote(line + "\n" + measures, "sub11-tall-shift")
+        XCTAssertLessThanOrEqual(backward, 4, "a downward swipe never moves the transcript back: \(line)")
         XCTAssertTrue(onScreen(app, done), "scrolled past the tall row to the footer\n\(app.debugDescription)")
         XCTAssertGreaterThan(holds, 3, "the reader held still on the way: \(line)")
         XCTAssertLessThanOrEqual(largest, 0.5, line)
