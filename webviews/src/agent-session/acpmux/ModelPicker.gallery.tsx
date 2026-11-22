@@ -6,9 +6,11 @@ import type { UsedLook } from "./quickModelMenuModel";
 import type { Play } from "../../gallery/play";
 import { BUNDLED_MODEL_CATALOG } from "./modelCatalogData";
 import { topModelsFor } from "./topModels";
+import { setModelMenuWidth } from "./modelMenuWidth";
 import { mergeModelCatalog } from "./modelCatalog";
 import { type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
 import { SOL_SEARCH_CATALOG, SOL_SEARCH_QUERY } from "../../gallery/fixtures/modelSearch";
+import { MODEL_PICKER } from "./composerSelectors";
 
 /// The chat's agent CLI update on offer (hq#2569 #12), which the pane hands the chip by context.
 type GalleryProps = ModelPickerProps & { update?: UpdateOffer };
@@ -376,13 +378,23 @@ const manyProfiles: ModelPickerProps = {
 
 /// The compact list menu: a menu with no rail (a started chat that cannot fork).
 const openQuick: Play = async (ctx) => {
-  await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+  await ctx.click({ selector: MODEL_PICKER });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu") !== null);
 };
 
 /// The columns menu: a menu with a harness rail.
-const openColumns: Play = async (ctx) => {
-  await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+const openColumns = async (ctx: Parameters<Play>[0], width?: number) => {
+  // The menu's width is kept for every composer (modelMenuWidth.ts): each state opens at the
+  // default unless it names a dragged width, so one state's drag never carries into the next.
+  setModelMenuWidth(width);
+  await ctx.click({ selector: MODEL_PICKER });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols [role=listbox] [role=option]") !== null);
+};
+
+/// Opens the columns at a dragged width on OpenCode's tab, whose provider-prefixed names are the longest.
+const openOpenCodeAt = async (ctx: Parameters<Play>[0], width: number) => {
+  await openColumns(ctx, width);
+  await ctx.click({ selector: '.acpmux-cols-tab[aria-label="OpenCode"]' });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols [role=listbox] [role=option]") !== null);
 };
 
@@ -701,6 +713,20 @@ export default componentEntry<GalleryProps>({
     "started-chat-accounts": { props: startedFork, play: openAccountCard("Anthropic API key") },
     // The columns as the model button opens them, and the same on a short harness list.
     "quick-menu": { props: quick, play: openColumns },
+    // Lawrence 2026-11-19 (clip 3.37.01 PM): "why does the model disappear briefly". "opus 5.5 m" is
+    // "medium" half typed: the list keeps Opus 5.5 instead of flashing No matching models.
+    "search-half-typed-effort": {
+      props: quick,
+      play: async (ctx) => {
+        await openColumns(ctx);
+        await ctx.type("opus 5.5 m", { selector: ".acpmux-cols-search input[type=search]" });
+        await ctx.waitFor(() => {
+          const list = ctx.document.querySelector(".acpmux-cols [role=listbox]");
+          if (list?.querySelector(".acpmux-cols-note")) throw new Error("a half-typed effort word emptied the list");
+          return list?.querySelector("[role=option]");
+        });
+      },
+    },
     "relevant-few": { props: relevantFew, play: openColumns },
     "relevant-many": { props: relevantMany, play: openColumns },
     "reported-claude-menu": { props: reportedClaude, play: openColumns },
@@ -726,6 +752,23 @@ export default componentEntry<GalleryProps>({
     "quick-menu-widest-name": {
       props: { ...quick, catalog: [...quick.catalog, ...openCode] },
       play: openColumns,
+      note: "Fit width (ships): as wide as the longest name of every tab, up to 40em; each name on one line. At the narrow width the window caps it and a longer name wraps.",
+    },
+    // A width the person dragged to, narrower than OpenCode's longest names: they wrap onto a second
+    // line instead of ending in an ellipsis (Lawrence 2026-11-05: "cant see full model name").
+    "quick-menu-dragged-narrow": {
+      props: { ...quick, catalog: [...quick.catalog, ...openCode] },
+      play: (ctx) => openOpenCodeAt(ctx, 300),
+      note: "Dragged narrower (300px, ships): a name longer than the column wraps; nothing is clipped.",
+    },
+    "quick-menu-dragged-narrow-ellipsis": {
+      props: { ...quick, catalog: [...quick.catalog, ...openCode] },
+      play: async (ctx) => {
+        await openOpenCodeAt(ctx, 300);
+        for (const name of ctx.document.querySelectorAll<HTMLElement>(".acpmux-cols-body .acpmux-cols-name"))
+          Object.assign(name.style, { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" });
+      },
+      note: "Not shipped: the same width with #40103's ellipsis, where a long name's end is cut.",
     },
     // A short window with many accounts (Lawrence: "model picker too tall"): the account card
     // stays inside the window and its list scrolls to the final row.

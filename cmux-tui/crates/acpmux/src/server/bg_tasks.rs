@@ -1,6 +1,8 @@
 //! The background-task methods (`hub/bg_tasks.rs`, docs/hibernation.md):
 //! `_acpmux/bg/start {sessionId, command, cwd?, description?, notify?}`, `_acpmux/bg/list {sessionId}`,
 //! `_acpmux/bg/output {sessionId, id, fromByte?, maxBytes?}` and `_acpmux/bg/stop {sessionId, id}`.
+//! The agent's list and stop also take `callerSubagent` (set by its MCP server), and `all` or
+//! `force_other_owner`: see `handle`.
 //!
 //! Like the process methods (`processes.rs`) they are local: a task's command line, output and
 //! stop never leave the machine, so a remote WebSocket device and a peer are refused. Only the
@@ -8,7 +10,7 @@
 //! `acpmux` MCP server) and the person reach a chat's tasks.
 
 use super::{Conn, str_param};
-use crate::hub::Hub;
+use crate::hub::{BgScope, Hub};
 use crate::rpc::{RpcError, method};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -50,6 +52,21 @@ async fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<
             .ok_or_else(|| RpcError::invalid_params(format!("{k} must be a byte count"))),
     };
     let id = || str_param(params, "id").ok_or_else(|| RpcError::invalid_params("id is required"));
+    let subagent = caller_subagent(params);
+    // A list or stop by the chat's own agent (its caller-token connection, the `acpmux` MCP
+    // server) acts on the tasks its caller started: that subagent's, or with none the lead's
+    // (`hub::BgScope`). `wide` (`all` for a list, `force_other_owner` for a stop) widens it to
+    // every task. The person, on its own connection, always reaches every task.
+    let own_agent = conn.caller() == Some(session.id.as_str());
+    let scope = |wide: &str| -> Result<BgScope, RpcError> {
+        let widened = match params.get(wide).filter(|v| !v.is_null()) {
+            None => false,
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| RpcError::invalid_params(format!("{wide} must be true or false")))?,
+        };
+        Ok(if own_agent && !widened { BgScope::Caller(subagent.clone()) } else { BgScope::Every })
+    };
     match m {
         method::MUX_BG_START => {
             let command = str_param(params, "command")
@@ -67,20 +84,25 @@ async fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<
             let result_line = params.get("resultLine").and_then(Value::as_bool).unwrap_or(false);
             // The Claude Code subagent whose MCP call starts it (`subagent_call.rs`), `{id, type}`:
             // a label its commands carry, as its Bash calls do; the session's token is the proof.
-            let subagent = params.get("callerSubagent").and_then(|sub| {
-                let word = |key: &str| {
-                    sub.get(key)
-                        .and_then(Value::as_str)
-                        .filter(|w| crate::cli::sender::subagent_word(w))
-                };
-                Some(json!({"id": word("id")?, "type": word("type")?}))
-            });
             hub.bg_start(&session, command, cwd, description, notify, result_line, subagent).await
         }
-        method::MUX_BG_LIST => Ok(hub.bg_list(&session)),
+        method::MUX_BG_LIST => Ok(hub.bg_list_as(&session, &scope("all")?)),
+        // The chat's own agent reading a task's end (`bg_output`, or `run_wait` given a task)
+        // is told it (`hub::Hub::bg_output_as`); `all` reads no wider, so it takes no part.
         method::MUX_BG_OUTPUT => {
-            hub.bg_output(&session, id()?, byte("fromByte")?, byte("maxBytes")?)
+            let scope = if own_agent { BgScope::Caller(subagent.clone()) } else { BgScope::Every };
+            hub.bg_output_as(&session, id()?, byte("fromByte")?, byte("maxBytes")?, &scope)
         }
-        _ => hub.bg_stop(&session, id()?).await,
+        _ => hub.bg_stop_as(&session, id()?, &scope("force_other_owner")?).await,
     }
+}
+
+/// The Claude Code subagent a call names (`callerSubagent`, `{id, type}`, plain words), which
+/// the `acpmux` MCP server sets from the call's tool use id and never takes from the agent.
+fn caller_subagent(params: &Value) -> Option<Value> {
+    let sub = params.get("callerSubagent")?;
+    let word = |key: &str| {
+        sub.get(key).and_then(Value::as_str).filter(|w| crate::cli::sender::subagent_word(w))
+    };
+    Some(json!({"id": word("id")?, "type": word("type")?}))
 }

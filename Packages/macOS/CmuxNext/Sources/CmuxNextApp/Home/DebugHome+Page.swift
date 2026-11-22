@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextHome
 import CmuxNextHomeModel
 import CmuxNextSettings
 
@@ -87,7 +88,7 @@ extension DebugHome {
             // Every native Home tab (`home.tab`): its key, window, shown conversation and the
             // newest texts its own transcript view holds.
             "tabs": .array(((services.pages.provider(.homeTab) as? HomePageTab)?.tabs ?? []).map { tab -> JSONValue in
-                let transcript = tab.view.host.flatMap(HomePageTab.transcript(in:))
+                let transcript = tab.view.host.flatMap(HomeNativeTranscriptView.first(in:))
                 return .object([
                     "key": .string(tab.key),
                     "window": tab.view.window.flatMap { window in services.windows.controllers.first { $0.window === window }?.state.id }

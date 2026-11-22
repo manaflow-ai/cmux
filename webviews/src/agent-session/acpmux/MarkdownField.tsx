@@ -25,19 +25,22 @@ import {
   wholeSelected,
   withTextMarksEscaped,
 } from "./composer/inlineNode";
+import { inlineCaretPlugin } from "./composer/inlineCaret";
 import { followActionsWidth } from "./composerScrollLane";
 import { caretInView } from "./composer/caretInView";
 import { fieldGrowth } from "./composer/fieldGrowth";
 import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from "./composer/slashTokens";
 import { deeplinkTokensPlugin } from "./composer/deeplinkTokens";
+import { spacedAfterDeeplink } from "./composer/deeplinks";
 import { deeplinkTitlesPlugin, type DeeplinkTitles } from "./composer/deeplinkTitles";
+import { mentionChipsPlugin } from "./composer/mentionChips";
 import { CMUX_LINK_ICONS, knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
 import { iconMaskUrl } from "./icons/iconMask";
 import { subscribeIconFamily } from "./icons/iconPack";
 import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import type { SlashNames, SlashTrigger } from "./slashCommands";
-import { MINIMAL_SCROLLER_ATTRIBUTE } from "../../scrollers";
+import { MINIMAL_SCROLLER_ATTRIBUTE, SETTLING_SCROLLER_ATTRIBUTE } from "../../scrollers";
 import {
   Editor,
   defaultValueCtx,
@@ -63,6 +66,7 @@ import type { EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
 import { $prose, replaceAll } from "@milkdown/kit/utils";
 import { FADE_BAND_PX } from "./markdownFieldModel";
+import { focusRoute } from "../../ui/focusRoute";
 
 /// How the draft names its known cmux links (composer/deeplinkTitles.ts), in the sent message's
 /// look (chips/cmuxLinkLook.experiment.ts); none in its `link` arm.
@@ -162,9 +166,10 @@ export type MarkdownFieldHandle = {
   /// The ids of the attachments placed in the text, from its nodes alone (text shaped like a token
   /// is text), in order, each once; undefined before the editor is made.
   inlineIds(): string[] | undefined;
-  /// Writes `/name ` over the `/word` the caret ends (composer/slashTokens.ts), the text around it
+  /// Writes `/name ` (or an extension command's `insert`) over the `/word` the caret ends
+  /// (composer/slashTokens.ts), the text around it
   /// kept, as one undoable edit; false when there is no such word or no editor yet.
-  insertCommand(name: string): boolean;
+  insertCommand(name: string, insert?: string): boolean;
 };
 
 export type PlainPrompt = { value: string; selectionStart: number; selectionEnd: number };
@@ -373,6 +378,30 @@ function insertPlain(view: EditorView, text: string) {
   const tr = view.state.tr.replaceWith(from, to, fragment);
   tr.setSelection(TextSelection.near(tr.doc.resolve(tr.mapping.map(to))));
   view.dispatch(tr.scrollIntoView());
+}
+
+/** After a paste that began at `from`, a space at the caret when the pasted text ends in a cmux
+ * deeplink (`spacedAfterDeeplink`), so the next key typed does not run into the link's chip. Read
+ * from the draft, not the paste, so a paste read as Markdown gets it too; a link begun before the
+ * paste (a paste into its middle) is left whole. Not in code, where a link draws as text; an
+ * attachment after the caret is no space, a line break is. The space carries no mark, so a pasted
+ * link's mark does not take it in. */
+function spaceAfterPastedLink(view: EditorView, from: number) {
+  const { empty, $head } = view.state.selection;
+  if (!empty || $head.parent.type.spec.code) return;
+  const leaf = (node: ProseNode) => (node.type.name === "hardbreak" ? "\n" : "\uFFFC");
+  const before = $head.parent.textBetween(0, $head.parentOffset, undefined, leaf);
+  const after = $head.nodeAfter;
+  const next = after?.isText ? after.text!.charAt(0) : after?.type.name === "hardbreak" ? "\n" : "";
+  if (spacedAfterDeeplink(before, next, Math.max(0, from - $head.start())) === before) return;
+  view.dispatch(view.state.tr.insert($head.pos, view.state.schema.text(" ")).scrollIntoView());
+}
+
+/** A paste's plain text inserted as `insertPlain` does, then `spaceAfterPastedLink`. */
+function insertPasted(view: EditorView, text: string) {
+  const { from } = view.state.selection;
+  insertPlain(view, text);
+  spaceAfterPastedLink(view, from);
 }
 
 /** Each newline in `fragment`'s text, outside code, as a line break: a pasted paragraph keeps its
@@ -840,8 +869,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       if (attribute === undefined) dom.removeAttribute(name);
       else dom.setAttribute(name, attribute);
   };
+  // Written only when it changes: each write is an attribute mutation, and this runs on every edit.
   const showPlaceholder = (markdown: string) => {
-    if (empty.current) empty.current.hidden = markdown !== "";
+    const hide = markdown !== "";
+    if (empty.current && empty.current.hidden !== hide) empty.current.hidden = hide;
   };
 
   /// Asks the surface about typed or pasted text first; true when it consumed it.
@@ -1110,15 +1141,19 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 copy: (editorView, event) => copied(editorView, event, false),
                 cut: (editorView, event) => copied(editorView, event, true),
                 paste: (editorView, event) => {
+                  // A copy made in a composer goes back in by the surface's own plan; a link it ends
+                  // in gets the space every pasted link gets.
+                  const pasteFrom = editorView.state.selection.from;
                   if (latest.current.onPasteFirst?.(event)) {
                     event.preventDefault();
+                    spaceAfterPastedLink(editorView, pasteFrom);
                     return true;
                   }
                   const data = event.clipboardData;
                   if (!data) return false;
                   if (literalNow.current) {
                     const text = data.getData("text/plain") || htmlText(data.getData("text/html"));
-                    if (text) insertPlain(editorView, text);
+                    if (text) insertPasted(editorView, text);
                     event.preventDefault();
                     showPastedEnd(editorView.state);
                     return true;
@@ -1147,7 +1182,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                       ? withoutMarkdownImages(lifted.text)
                       : lifted.text;
                   if (!plain.trim() || beforeInput(editorView, plain, true)) return true;
-                  insertPlain(editorView, plain);
+                  insertPasted(editorView, plain);
                   showPastedEnd(editorView.state);
                   return true;
                 },
@@ -1157,7 +1192,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 if (literalNow.current) {
                   const data = event.clipboardData;
                   const text = data?.getData("text/plain") || htmlText(data?.getData("text/html") ?? "");
-                  if (text) insertPlain(editorView, text);
+                  if (text) insertPasted(editorView, text);
                   showPastedEnd(editorView.state);
                   return true;
                 }
@@ -1186,7 +1221,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 if (markdown !== undefined) {
                   // The surface sees the text as copied first (a huge paste is the composer's chip).
                   if (beforeInput(editorView, data?.getData("text/plain") || markdown, true)) return true;
+                  const pastedFrom = editorView.state.selection.from;
                   if (insertMarkdown(editorView, markdown)) {
+                    spaceAfterPastedLink(editorView, pastedFrom);
                     showPastedEnd(editorView.state);
                     return true;
                   }
@@ -1197,7 +1234,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   const plain = text ? withoutBreakPlaceholders(text) : html ? htmlText(html) : "";
                   if (plain) {
                     if (beforeInput(editorView, plain, true)) return true;
-                    insertPlain(editorView, plain);
+                    insertPasted(editorView, plain);
                     showPastedEnd(editorView.state);
                     return true;
                   }
@@ -1402,12 +1439,16 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         .use(gfm)
         .use(history)
         .use(clipboard)
-        .use(placesInline ? [inlineAttachmentNode, inlinePlugin(inline.current)] : [])
+        .use(
+          placesInline ? [inlineAttachmentNode, inlinePlugin(inline.current), $prose(() => inlineCaretPlugin())] : [],
+        )
         .use($prose(() => slashTokensPlugin(() => slashNamesNow.current ?? NO_SLASH_NAMES)))
         // Finds each cmux deeplink, drawn as plain text (composer/deeplinkTokens.ts).
         .use($prose(() => deeplinkTokensPlugin()))
         // One it knows draws as what it names, its text still the link (composer/deeplinkTitles.ts).
         .use($prose(() => deeplinkTitlesPlugin(draftLinkTitles())))
+        // `@` mentions as inline chips while the composer refresh is on (composer/mentionChips.ts).
+        .use($prose(() => mentionChipsPlugin()))
         .create()
         .then((made) => {
           if (disposed) {
@@ -1424,7 +1465,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           applyAttributes();
           for (const quote of pendingQuotes.current.splice(0)) insertReplyQuote(made, view.current, quote);
           tellSlash(view.current.state);
-          if (pendingFocus.current) view.current.focus();
+          if (pendingFocus.current) focusRoute(view.current, "system", "the editor is ready: its pending focus");
           latest.current.onReady?.();
           window.dispatchEvent(new window.Event(COMPOSER_READY_EVENT));
         });
@@ -1506,7 +1547,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   useEffect(
     () =>
       wrapper.current && typeof ResizeObserver === "function" && typeof MutationObserver === "function"
-        ? followScrollEdges(wrapper.current)
+        ? // No mark while the field settles to a height its draft fits (composer/fieldGrowth.ts).
+          followScrollEdges(wrapper.current, "y", { quietWhile: SETTLING_SCROLLER_ATTRIBUTE })
         : undefined,
     [],
   );
@@ -1668,9 +1710,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         plainPaste: () => {
           plainPasteAt.current = performance.now();
         },
-        insertCommand: (name) => {
+        insertCommand: (name, insert) => {
           const current = view.current;
-          const tr = current && commandEdit(current.state, name);
+          const tr = current && commandEdit(current.state, name, insert);
           if (!current || !tr) return false;
           refocus.current = null;
           current.dispatch(tr);

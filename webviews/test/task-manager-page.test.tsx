@@ -6,6 +6,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createElement } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 let saved: Array<readonly [string, boolean, unknown]> = [];
@@ -32,12 +33,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 async function mount(snapshot?: unknown, selected?: string) {
@@ -131,18 +129,19 @@ test("arrowing past the visible rows reveals each newly selected row", async () 
   }
 });
 
-test("every cell carries its full text as a tooltip, and a remote id keeps its pid out of the ellipsis", async () => {
+test("a cell whose text shows has no tooltip; a remote id's cut host does, and keeps its pid out of the ellipsis", async () => {
   const { longNamesSnapshot } = await import("../src/pages/task-manager/mockProvider");
   await mount(longNamesSnapshot());
   const rows = [...host.querySelectorAll(".tm-row")];
   expect(rows.length).toBeGreaterThan(0);
   for (const row of rows) {
-    for (const cell of row.querySelectorAll("td")) expect(cell.getAttribute("title")).toBe(cell.textContent);
+    const [task, name, , cpu, memory] = row.querySelectorAll("td");
+    for (const cell of [task, name, cpu, memory]) expect(cell!.getAttribute("title")).toBeNull();
   }
   const remote = host.querySelector('.tm-row[data-row-id="devbox-eu-west-build-07:918273"]')!;
   const [task, name, pid] = remote.querySelectorAll("td");
-  expect(task.getAttribute("title")).toBe("cmux daemon");
-  expect(name.getAttribute("title")).toBe("cmux-tui");
+  expect(task.getAttribute("title")).toBeNull();
+  expect(name.getAttribute("title")).toBeNull();
   expect(pid.getAttribute("title")).toBe("devbox-eu-west-build-07:918273");
   // Only the host may ellipsize; the pid sits in its own element beside it.
   expect(pid.querySelector(".tm-remote-host")?.textContent).toBe("devbox-eu-west-build-07");

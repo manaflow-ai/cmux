@@ -6,6 +6,8 @@ public import CmuxNextDesignTokens
 /// optional fields, and the buttons with their roles. `CmuxDialogCenter`
 /// shows it in a scope and reports one `CmuxDialogAnswer`.
 public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
+    /// Non-chat callers opt into the shared material; held chat dialogs retain their current look.
+    public var usesTransientMaterial: Bool
     public var title: String
     /// One short sentence per line.
     public var lines: [String]
@@ -22,6 +24,9 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
     public var identifier: String?
     /// Where the buttons and check boxes go.
     public var layout: Layout
+    /// Why the last answer did not go through, drawn in the danger ink above the buttons (the request ended,
+    /// the network); nil draws none.
+    public var error: String?
 
     /// How a dialog places its buttons and check boxes.
     public enum Layout: Equatable, Sendable {
@@ -32,6 +37,11 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
         /// and the check boxes last, where NSAlert puts its suppression button. No key glyphs: Return and
         /// Escape still answer (Leo, 2026-11-03: "aren't these all kinda awkward looking").
         case safeDefault
+        /// A request with several ways to say yes (a device asking to see or control this Mac): every button
+        /// the card's width, one under another, so none reads wider or more urgent than its place says. The
+        /// default goes first, the other answers next in the spec's order, and the cancel answer last, as quiet
+        /// text in the danger ink (Deny): the safe answer, never a filled red block (Lawrence 2026-11-17).
+        case stacked
 
         /// ``safeDefault`` when one of `buttons` is destructive, else ``standard``: the end choices of a
         /// dialog then sit as quiet red text under Cancel and the default (Quit cmux?, Leo 2026-11-03).
@@ -40,8 +50,10 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
         }
     }
 
-    public init(title: String, lines: [String] = [], origin: String? = nil, fields: [CmuxDialogField] = [],
-                buttons: [CmuxDialogButton], icon: Data? = nil, identifier: String? = nil, layout: Layout = .standard) {
+    public init(usesTransientMaterial: Bool = false, title: String, lines: [String] = [], origin: String? = nil, fields: [CmuxDialogField] = [],
+                buttons: [CmuxDialogButton], icon: Data? = nil, identifier: String? = nil, layout: Layout = .standard,
+                error: String? = nil) {
+        self.usesTransientMaterial = usesTransientMaterial
         self.title = title
         self.lines = lines
         self.origin = origin
@@ -50,12 +62,13 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
         self.icon = icon
         self.identifier = identifier
         self.layout = layout
+        self.error = error
     }
 
-    /// The button Return presses: the first `.default`, else none.
-    public var defaultButton: CmuxDialogButton? { buttons.first { $0.role == .default } }
-    /// The button Escape presses: the first `.cancel`, else the only button.
+    /// The button Return presses: the first `.default`, else none. A person-only button is never pressed by a key.
+    public var defaultButton: CmuxDialogButton? { buttons.first { $0.role == .default && !$0.personOnly && $0.isEnabled } }
+    /// The button Escape presses: the first `.cancel`, else the only button (never a person-only one).
     public var cancelButton: CmuxDialogButton? {
-        buttons.first { $0.role == .cancel } ?? (buttons.count == 1 ? buttons[0] : nil)
+        (buttons.first { $0.role == .cancel } ?? (buttons.count == 1 ? buttons[0] : nil)).flatMap { $0.personOnly || !$0.isEnabled ? nil : $0 }
     }
 }

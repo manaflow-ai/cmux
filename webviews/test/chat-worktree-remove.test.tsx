@@ -3,6 +3,7 @@
 // nowhere else stops it inline, and only "Remove anyway" discards that work, never a single click.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -36,12 +37,8 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const WORKTREE = "/Users/me/.cmux/worktrees/app/fix-login";

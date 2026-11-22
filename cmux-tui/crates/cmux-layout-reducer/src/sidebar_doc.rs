@@ -8,10 +8,13 @@
 //! its pending intents with the same function, so the row the app shows is
 //! the row the daemon will store.
 //!
-//! - [`model`]: sections, items, bodies, the wire ops and the refusal codes.
+//! - [`model`]: sections, items, bodies, the wire ops, the refusal codes and
+//!   their text (`Refusal::text`, `change_failure_text`).
 //! - [`doc`]: the document and its indexes (id, sibling lists, refs).
 //! - [`order_key`]: fractional order keys.
 //! - [`reduce`]: the reducer, in place, with the inverse ops for undo.
+//! - `stale`: each op rebased onto the document as it is now (a gone item drops
+//!   out, a gone target falls back), so a stale op is never refused.
 //! - [`check`]: the invariants (the touched rows per op; all at open).
 //! - [`view`]: the flat rows one window draws.
 //! - [`project`]: those rows as the sections the app's list draws.
@@ -40,7 +43,14 @@ pub mod project;
 #[cfg(test)]
 mod project_tests;
 pub mod reduce;
+#[cfg(test)]
+mod refusal_text_tests;
 pub mod reset;
+#[cfg(test)]
+mod scale_tests;
+mod stale;
+#[cfg(test)]
+mod stale_tests;
 pub mod view;
 
 #[cfg(test)]

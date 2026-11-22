@@ -172,26 +172,6 @@ struct TabZoomState: Equatable, Sendable {
         curveWarmup = 2
     }
 
-    /// A swipe up on the bar began: the page goes to the grid along Safari's
-    /// swipe-up curve in time (Safari's page moves on its own clock while the
-    /// finger travels; a swipe that turns back down takes over interactively).
-    mutating func startSwipeUp() {
-        guard phase == .page else { return }
-        animate(to: 1, spring: .release, keepVelocity: 0)
-        play(.swipeUp)
-    }
-
-    /// Whether the swipe-up curve is running.
-    var playingSwipeUp: Bool { phase == .animating && curve == .swipeUp }
-
-    /// A swipe up on the bar ended: the grid follows Safari's swipe-up curve
-    /// on from where the finger left the page (its progress on that curve).
-    mutating func releaseOnSwipeUpCurve() {
-        guard phase == .interactive else { return }
-        animate(to: 1, spring: .release, keepVelocity: 0)
-        play(.swipeUp, from: max(1.0 / 600, SafariCurve.swipeUp.time(reaching: progress)))
-    }
-
     mutating func animate(to target: Double, spring: ZoomSpring, keepVelocity: Double) {
         curve = nil
         self.target = target

@@ -8,6 +8,9 @@
 // last frame is the closed layout: no jump and nothing popping in or out. A section's own fold is
 // Base UI's (sessionInfo.css `.ui-disclosure-panel`), on the same duration and curve.
 //
+// A close of a list scrolled down takes the scroll back over the same motion (`scrollBack`), so its
+// last frame does not jump by the scroll when the rows leave.
+//
 // Cost: one height read before the change and one after, per toggle; one Web Animation on the box,
 // which ends by itself (180 ms, the motion scale's settle). No observer, no frame loop. Under
 // Reduce Motion, the pane's animations off, or a hidden page (ui/motion/motionMode.ts), it is instant.
@@ -39,6 +42,41 @@ function foldDuration(box: HTMLElement): number {
   return Number(match[1]) * (match[2] === "s" ? 1000 : 1);
 }
 
+/// The list a close scrolls back to its top: the box, or one of its own children (Outputs' list in its
+/// edge box), scrolled down now. O(the box's children).
+function scrolledList(box: HTMLElement): HTMLElement | undefined {
+  if (box.scrollTop > 0) return box;
+  for (const child of box.children) if (child instanceof HTMLElement && child.scrollTop > 0) return child;
+  return undefined;
+}
+
+/// A close of a list scrolled down: the rows the box keeps are its first, at the list's top, but they
+/// are drawn at the scroll offset, and the scroll clamps to 0 only when the closing rows leave, on the
+/// fold's last frame, which moved the rows left by it at once. Instead the list scrolls to its top
+/// now and its first row starts drawn up by that much (a negative margin, the same pixels on this
+/// frame) and moves down to its place on the fold's own clock and curve. The motion, or undefined.
+type ScrollBack = { animation: Animation; list: HTMLElement; lead: HTMLElement; margin: number };
+function scrollBack(box: HTMLElement, timing: KeyframeAnimationOptions): ScrollBack | undefined {
+  const list = scrolledList(box);
+  const lead = list?.firstElementChild;
+  if (!list || !(lead instanceof HTMLElement)) return undefined;
+  const scrolled = list.scrollTop;
+  list.scrollTop = 0;
+  const margin = Number.parseFloat(lead.ownerDocument.defaultView?.getComputedStyle(lead).marginTop ?? "") || 0;
+  const animation = lead.animate([{ marginTop: `${margin - scrolled}px` }, { marginTop: `${margin}px` }], timing);
+  return { animation, list, lead, margin };
+}
+
+/// Ends a scroll back: what its margin still holds goes back into the list's scroll, so a close turned
+/// back midway (a reopen, a reveal) leaves the rows where they are drawn. Done, it holds nothing.
+function endScrollBack(back: ScrollBack | undefined): void {
+  if (!back) return;
+  const drawn = Number.parseFloat(back.lead.ownerDocument.defaultView?.getComputedStyle(back.lead).marginTop ?? "");
+  back.animation.cancel();
+  const left = Number.isFinite(drawn) ? back.margin - drawn : 0;
+  if (left > 0.5) back.list.scrollTop += left;
+}
+
 export interface FoldMotion<E extends HTMLElement> {
   /// The box that holds the rows: its height moves.
   ref: RefObject<E | null>;
@@ -68,6 +106,8 @@ export function useFoldMotion<E extends HTMLElement>(
   const ref = boxRef ?? ownRef;
   const from = useRef<number | undefined>(undefined);
   const run = useRef<Animation | undefined>(undefined);
+  /// A close's scroll back to the list's top (`scrollBack`), which ends with the fold.
+  const back = useRef<ScrollBack | undefined>(undefined);
   const [held, setHeld] = useState(false);
   const measureClosed = useRef(closedHeight);
   measureClosed.current = closedHeight;
@@ -93,6 +133,8 @@ export function useFoldMotion<E extends HTMLElement>(
     const before = run.current;
     run.current = undefined;
     before?.cancel();
+    endScrollBack(back.current);
+    back.current = undefined;
     if (!box) return;
     if (start === undefined) {
       // Opened or closed from outside (a reveal that sets the owner's state, not toggle): no motion,
@@ -109,13 +151,14 @@ export function useFoldMotion<E extends HTMLElement>(
       return;
     }
     box.dataset.folding = "";
+    const timing = { duration: foldDuration(box), easing: foldEase(box) };
     const fold = box.animate([{ height: `${start}px` }, { height: `${end}px` }], {
-      duration: foldDuration(box),
-      easing: foldEase(box),
+      ...timing,
       // Closing holds the end height until the rows that go have left (the effect below).
       fill: open ? "none" : "forwards",
     });
     run.current = fold;
+    if (!open) back.current = scrollBack(box, timing);
     // Finished, or cancelled from outside (the pane's animations turned off cancel every animation in
     // the page): either way the fold lands on its end state, the closing rows gone and the box unclipped.
     // A fold this hook replaced or stopped itself is no longer `run.current` and settles nothing.
@@ -139,6 +182,8 @@ export function useFoldMotion<E extends HTMLElement>(
     const fold = run.current;
     run.current = undefined;
     fold?.cancel();
+    endScrollBack(back.current);
+    back.current = undefined;
     const box = ref.current;
     if (box) delete box.dataset.folding;
   }, [held, open, ref]);
@@ -148,6 +193,7 @@ export function useFoldMotion<E extends HTMLElement>(
       const fold = run.current;
       run.current = undefined;
       fold?.cancel();
+      back.current?.animation.cancel();
     },
     [],
   );

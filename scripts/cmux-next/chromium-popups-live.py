@@ -26,6 +26,7 @@ import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -368,25 +369,25 @@ try:
 
     # A launch can open on Home with no workspace: make one, so openBrowser has a pane.
     if not quiet_wait(focused_pane, 15):
-        print("run newTab", rpc("action.run", {"action": "newTab", "origin": "script", "focus": True}), flush=True)
+        safe_print("run newTab", rpc("action.run", {"action": "newTab", "origin": "script", "focus": True}), flush=True)
     wait_for(focused_pane, "a focused pane", 60)
     url = serve()
     if opts.idle_cpu:
         measure_idle_cpu(url, opts.idle_cpu)
         raise SystemExit(0)
     reply = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True})
-    print("openBrowser.chromium", json.dumps(reply)[:200], flush=True)
+    safe_print("openBrowser.chromium", json.dumps(reply)[:200], flush=True)
     wait_for(lambda: js("document.title") == "popups", "the local page loads in a Chromium tab", 90)
     found = [w for w in (cua("list_windows", {"pid": app.pid}).get("windows") or []) if w.get("title") == "cmux"]
     MAIN_WINDOW = found[0]["window_id"] if found else None
     WINDOW_ID = (((rpc("debug.focus") or {}).get("windows") or [{}])[0]).get("id")
     pages = [w for w in ((rpc("debug.window_list") or {}).get("windows") or []) if w.get("class") == "CefNSWindow" and w.get("visible")]
     PAGE_WINDOW = max(pages, key=lambda w: w["frame"]["width"] * w["frame"]["height"])["id"] if pages else None
-    print("windows: main", MAIN_WINDOW, "page", PAGE_WINDOW, "state id", WINDOW_ID, flush=True)
+    safe_print("windows: main", MAIN_WINDOW, "page", PAGE_WINDOW, "state id", WINDOW_ID, flush=True)
     raise_app()
     time.sleep(1.0)
-    print("snapshot", rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "0-page.png")}), flush=True)
-    print("page origin", page_origin(), "datalist input at", element_center("list"), flush=True)
+    safe_print("snapshot", rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "0-page.png")}), flush=True)
+    safe_print("page origin", page_origin(), "datalist input at", element_center("list"), flush=True)
 
     # 1. <datalist>: a real click on the first suggestion.
     def open_datalist():
@@ -449,7 +450,7 @@ try:
     for character in SAVED:
         page_key(character)
     typed = value("auto")
-    print("typed into the autofill field:", repr(typed), flush=True)
+    safe_print("typed into the autofill field:", repr(typed), flush=True)
     page_key("return")
     wait_for(lambda: js("document.title") == "done", "the form submits", 20)
     rpc("browser.page.navigate", {"url": url})

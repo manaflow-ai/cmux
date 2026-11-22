@@ -2895,43 +2895,43 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "جرّبه"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Isprobaj"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Prøv det"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Ausprobieren"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Pruébalo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Essayer"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Prova"
           }
         },
         "ja": {
@@ -2943,73 +2943,73 @@
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "សាកល្បង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "사용해 보기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Prøv det"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Wypróbuj"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Experimentar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Попробовать"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "ลองใช้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Dene"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Спробувати"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Dùng thử"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "试一试"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "試試看"
           }
         }
       }
@@ -3151,389 +3151,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "value": "cmux can't tell whether the previous version reads your data, so it didn't roll back."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "value": "لا يستطيع cmux معرفة ما إذا كان الإصدار السابق يقرأ بياناتك، لذا لم يرجع إليه."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "value": "cmux ne može znati čita li prethodna verzija vaše podatke, pa nije vratio verziju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "value": "cmux kan ikke se, om den forrige version kan læse dine data, så den rullede ikke tilbage."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "value": "cmux kann nicht erkennen, ob die vorherige Version deine Daten lesen kann. Daher wurde nicht zurückgesetzt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "value": "cmux no puede saber si la versión anterior lee tus datos, así que no volvió a ella."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "value": "cmux ne peut pas savoir si la version précédente lit vos données ; il n’est donc pas revenu en arrière."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "value": "cmux non può sapere se la versione precedente legge i tuoi dati, quindi non è tornato indietro."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "実行中の cmux-tui がデータ形式を報告できないため、ロールバックを確認できません。"
+            "state": "needs_review",
+            "value": "以前のバージョンがデータを読めるか cmux には判断できないため、ロールバックしませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "value": "cmux មិនអាចដឹងថាកំណែមុនអានទិន្នន័យរបស់អ្នកបានឬអត់ ដូច្នេះវាមិនបានត្រឡប់ទៅវិញទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "value": "이전 버전이 데이터를 읽을 수 있는지 cmux가 알 수 없어 롤백하지 않았습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "value": "cmux kan ikke se om den forrige versjonen kan lese dataene dine, så den rullet ikke tilbake."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "value": "cmux nie może sprawdzić, czy poprzednia wersja odczyta Twoje dane, więc jej nie przywrócił."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "value": "O cmux não consegue saber se a versão anterior lê seus dados, então não voltou para ela."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "value": "cmux не может понять, прочитает ли предыдущая версия ваши данные, поэтому не откатился."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "value": "cmux บอกไม่ได้ว่าเวอร์ชันก่อนหน้าอ่านข้อมูลของคุณได้หรือไม่ จึงไม่ได้ย้อนกลับ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "value": "cmux, önceki sürümün verilerinizi okuyup okumadığını anlayamıyor; bu yüzden geri dönmedi."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "value": "cmux не може зрозуміти, чи прочитає попередня версія ваші дані, тож не відкотився."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "value": "cmux không biết phiên bản trước có đọc được dữ liệu của bạn không, nên đã không quay lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
+            "value": "cmux 无法判断上一个版本能否读取你的数据，因此没有回滚。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "The running cmux-tui cannot report its data formats, so cmux cannot check a rollback."
-          }
-        }
-      }
-    },
-    "updater.rollback.confirm.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Roll Back to the Previous Version?"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الرجوع إلى الإصدار السابق؟"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vratiti na prethodnu verziju?"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gå tilbage til den forrige version?"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Auf die vorherige Version zurücksetzen?"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "¿Volver a la versión anterior?"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Revenir à la version précédente ?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tornare alla versione precedente?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "以前のバージョンに戻しますか？"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ត្រឡប់ទៅកំណែមុនវិញឬ?"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이전 버전으로 되돌릴까요?"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gå tilbake til forrige versjon?"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przywrócić poprzednią wersję?"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Voltar para a versão anterior?"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вернуться к предыдущей версии?"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ย้อนกลับไปเวอร์ชันก่อนหน้าไหม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Önceki sürüme geri dönülsün mü?"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Повернутися до попередньої версії?"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quay lại phiên bản trước?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "回退到上一个版本？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "回復到上一個版本？"
-          }
-        }
-      }
-    },
-    "updater.rollback.confirm.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux quits and reopens the build this Mac kept. Your terminals and agents keep running."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "سيُغلق cmux ويُعيد فتح الإصدار الذي احتفظ به جهاز Mac هذا. تستمر الطرفيات والوكلاء في العمل."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux se zatvara i ponovo otvara verziju koju je ovaj Mac sačuvao. Vaši terminali i agenti nastavljaju raditi."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux lukker og åbner den version, denne Mac har gemt. Dine terminaler og agenter kører videre."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux wird beendet und öffnet den Build, den dieser Mac aufbewahrt hat. Deine Terminals und Agenten laufen weiter."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux se cierra y abre la compilación que este Mac guardó. Tus terminales y agentes siguen funcionando."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux se ferme et rouvre la version conservée sur ce Mac. Vos terminaux et agents continuent de tourner."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux si chiude e riapre la build conservata su questo Mac. I terminali e gli agenti continuano a funzionare."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux を終了し、この Mac に保管されているビルドを開き直します。ターミナルとエージェントは実行を続けます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux នឹងបិទ ហើយបើកកំណែដែល Mac នេះបានរក្សាទុកឡើងវិញ។ ទែមីណល់ និងភ្នាក់ងាររបស់អ្នកនៅតែដំណើរការ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux를 종료하고 이 Mac에 보관된 빌드를 다시 엽니다. 터미널과 에이전트는 계속 실행됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux avslutter og åpner versjonen denne Macen har tatt vare på. Terminalene og agentene dine fortsetter å kjøre."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux zamknie się i otworzy wersję zachowaną na tym Macu. Terminale i agenci nadal działają."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O cmux fecha e reabre a versão que este Mac guardou. Seus terminais e agentes continuam rodando."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux закроется и откроет сборку, сохранённую на этом Mac. Терминалы и агенты продолжат работу."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux จะปิดและเปิดบิลด์ที่ Mac เครื่องนี้เก็บไว้ เทอร์มินัลและเอเจนต์ของคุณยังทำงานต่อ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux kapanır ve bu Mac'in sakladığı derlemeyi yeniden açar. Terminalleriniz ve ajanlarınız çalışmaya devam eder."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux закриється й відкриє збірку, збережену на цьому Mac. Термінали й агенти продовжать працювати."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux sẽ thoát và mở lại bản dựng mà máy Mac này đã giữ. Terminal và agent của bạn vẫn tiếp tục chạy."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 将退出并重新打开这台 Mac 保留的版本。你的终端和代理会继续运行。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 將結束並重新開啟這台 Mac 保留的版本。你的終端機和代理會繼續執行。"
+            "value": "cmux 無法判斷上一個版本能否讀取你的資料，因此沒有回復。"
           }
         }
       }
@@ -3675,127 +3413,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "cmux %@ is too old to tell whether it reads your data, so cmux didn't roll back."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "إصدار cmux %@ أقدم من أن يُعرف ما إذا كان يقرأ بياناتك، لذا لم يرجع cmux إليه."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "cmux %@ je prestar da bi se znalo čita li vaše podatke, pa cmux nije vratio verziju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "cmux %@ er for gammel til at vide, om den kan læse dine data, så cmux rullede ikke tilbage."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "cmux %@ ist zu alt, um zu erkennen, ob es deine Daten lesen kann. Daher hat cmux nicht zurückgesetzt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "cmux %@ es demasiado antiguo para saber si lee tus datos, así que cmux no volvió a esa versión."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "cmux %@ est trop ancien pour savoir s’il lit vos données ; cmux n’est donc pas revenu en arrière."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "cmux %@ è troppo vecchio per sapere se legge i tuoi dati, quindi cmux non è tornato indietro."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux %@ はロールバック対応より前のバージョンのため、データを読めるか確認できません。"
+            "state": "needs_review",
+            "value": "cmux %@ は古すぎて、データを読めるか判断できません。そのためロールバックしませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "cmux %@ ចាស់ពេកដើម្បីដឹងថាវាអានទិន្នន័យរបស់អ្នកបានឬអត់ ដូច្នេះ cmux មិនបានត្រឡប់ទៅវិញទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "cmux %@은(는) 너무 오래되어 데이터를 읽을 수 있는지 알 수 없으므로 롤백하지 않았습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "cmux %@ er for gammel til å vite om den kan lese dataene dine, så cmux rullet ikke tilbake."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "cmux %@ jest zbyt stary, by sprawdzić, czy odczyta Twoje dane, więc cmux nie przywrócił tej wersji."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "O cmux %@ é antigo demais para saber se lê seus dados, então o cmux não voltou para ele."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "cmux %@ слишком старый, чтобы понять, прочитает ли он ваши данные, поэтому cmux не откатился."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "cmux %@ เก่าเกินกว่าจะรู้ว่าอ่านข้อมูลของคุณได้หรือไม่ cmux จึงไม่ได้ย้อนกลับ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "cmux %@, verilerinizi okuyup okumadığını anlamak için çok eski; bu yüzden cmux geri dönmedi."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "cmux %@ надто старий, щоб зрозуміти, чи прочитає він ваші дані, тож cmux не відкотився."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "cmux %@ quá cũ để biết nó có đọc được dữ liệu của bạn không, nên cmux đã không quay lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "cmux %@ 太旧，无法判断它能否读取你的数据，因此 cmux 没有回滚。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %@ is from before rollback support, so cmux cannot check that it reads your data."
+            "value": "cmux %@ 太舊，無法判斷它能否讀取你的資料，因此 cmux 沒有回復。"
           }
         }
       }
@@ -3806,127 +3544,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "cmux %1$@ can't read your %2$@ data, so rolling back would lose it."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "لا يستطيع cmux %1$@ قراءة بيانات %2$@ لديك، لذا سيؤدي الرجوع إليه إلى فقدانها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "cmux %1$@ ne može čitati vaše podatke %2$@, pa bi ih vraćanje izgubilo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "cmux %1$@ kan ikke læse dine %2$@-data, så en tilbagerulning ville miste dem."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "cmux %1$@ kann deine %2$@-Daten nicht lesen. Ein Zurücksetzen würde sie verlieren."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "cmux %1$@ no puede leer tus datos de %2$@, así que volver a esa versión los perdería."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "cmux %1$@ ne peut pas lire vos données %2$@ : revenir en arrière les ferait perdre."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "cmux %1$@ non può leggere i tuoi dati di %2$@, quindi tornare indietro li perderebbe."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux %1$@ は %2$@ のデータを読めません。データの形式は %3$ld で、そのバージョンは %4$ld までしか読めません。ロールバックするとデータが失われます。"
+            "state": "needs_review",
+            "value": "cmux %1$@ は %2$@ のデータを読めないため、ロールバックするとデータが失われます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "cmux %1$@ មិនអាចអានទិន្នន័យ %2$@ របស់អ្នកបានទេ ដូច្នេះការត្រឡប់ទៅវិញនឹងបាត់បង់វា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "cmux %1$@은(는) %2$@ 데이터를 읽을 수 없으므로 롤백하면 데이터가 사라집니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "cmux %1$@ kan ikke lese %2$@-dataene dine, så en tilbakerulling ville miste dem."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "cmux %1$@ nie odczyta Twoich danych %2$@, więc przywrócenie tej wersji by je utraciło."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "O cmux %1$@ não consegue ler seus dados de %2$@, então voltar para ele os perderia."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "cmux %1$@ не может прочитать ваши данные %2$@, поэтому откат их потеряет."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "cmux %1$@ อ่านข้อมูล %2$@ ของคุณไม่ได้ การย้อนกลับจึงจะทำให้ข้อมูลหาย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "cmux %1$@, %2$@ verilerinizi okuyamaz; geri dönmek onları kaybettirir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "cmux %1$@ не може прочитати ваші дані %2$@, тож відкат їх втратить."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "cmux %1$@ không đọc được dữ liệu %2$@ của bạn, nên quay lại sẽ làm mất dữ liệu đó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "cmux %1$@ 无法读取你的 %2$@ 数据，回滚会丢失这些数据。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it."
+            "value": "cmux %1$@ 無法讀取你的 %2$@ 資料，回復會遺失這些資料。"
           }
         }
       }
@@ -6426,127 +6164,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The feed offers %@. This development build never installs updates; the check only read the feed."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィードには %@ があります。この開発ビルドはアップデートをインストールしません。確認ではフィードを読み取っただけです。"
+            "value": "%@ is available. Development builds don't install updates."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يعرض الموجز %@. لا يثبّت بناء التطوير هذا التحديثات أبدًا؛ اقتصر الفحص على قراءة الموجز."
+            "value": "%@ متاح. إصدارات التطوير لا تثبّت التحديثات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Izvor nudi %@. Ova razvojna verzija nikad ne instalira ažuriranja; provjera je samo pročitala izvor."
+            "value": "%@ je dostupna. Razvojne verzije ne instaliraju ažuriranja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feedet tilbyder %@. Denne udviklingsbuild installerer aldrig opdateringer; tjekket læste kun feedet."
+            "value": "%@ er tilgængelig. Udviklingsbuilds installerer ikke opdateringer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der Feed bietet %@ an. Dieser Entwicklungsbuild installiert nie Updates; die Prüfung hat nur den Feed gelesen."
+            "value": "%@ ist verfügbar. Entwicklungs-Builds installieren keine Updates."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El feed ofrece %@. Esta compilación de desarrollo nunca instala actualizaciones; la comprobación solo leyó el feed."
+            "value": "%@ está disponible. Las compilaciones de desarrollo no instalan actualizaciones."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le flux propose %@. Cette version de développement n’installe jamais de mises à jour ; la vérification a seulement lu le flux."
+            "value": "%@ est disponible. Les versions de développement n’installent pas de mises à jour."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il feed offre %@. Questa build di sviluppo non installa mai aggiornamenti; il controllo ha solo letto il feed."
+            "value": "%@ è disponibile. Le build di sviluppo non installano aggiornamenti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ を利用できます。開発ビルドはアップデートをインストールしません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feed ផ្ដល់ %@។ កំណែអភិវឌ្ឍនេះមិនដែលដំឡើងបច្ចុប្បន្នភាពទេ; ការពិនិត្យគ្រាន់តែអាន Feed ប៉ុណ្ណោះ។"
+            "value": "%@ មានហើយ។ កំណែអភិវឌ្ឍន៍មិនដំឡើងបច្ចុប្បន្នភាពទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "피드에 %@이(가) 있습니다. 이 개발 빌드는 업데이트를 설치하지 않으며, 확인 과정에서는 피드만 읽었습니다."
+            "value": "%@을(를) 사용할 수 있습니다. 개발 빌드는 업데이트를 설치하지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feeden tilbyr %@. Denne utviklingsversjonen installerer aldri oppdateringer; sjekken leste bare feeden."
+            "value": "%@ er tilgjengelig. Utviklingsbygg installerer ikke oppdateringer."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kanał oferuje %@. Ta kompilacja deweloperska nigdy nie instaluje aktualizacji; sprawdzenie tylko odczytało kanał."
+            "value": "%@ jest dostępna. Kompilacje deweloperskie nie instalują aktualizacji."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O feed oferece %@. Este build de desenvolvimento nunca instala atualizações; a verificação só leu o feed."
+            "value": "%@ está disponível. Builds de desenvolvimento não instalam atualizações."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "В ленте доступна версия %@. Сборка для разработки никогда не устанавливает обновления; проверка только прочитала ленту."
+            "value": "Доступна версия %@. Сборки для разработки не устанавливают обновления."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ฟีดมี %@ บิลด์สำหรับพัฒนานี้ไม่ติดตั้งอัปเดต การตรวจสอบจึงอ่านฟีดเท่านั้น"
+            "value": "มี %@ แล้ว บิลด์สำหรับพัฒนาไม่ติดตั้งอัปเดต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Akış %@ sürümünü sunuyor. Bu geliştirme derlemesi hiçbir zaman güncelleme yüklemez; denetim yalnızca akışı okudu."
+            "value": "%@ kullanılabilir. Geliştirme derlemeleri güncelleme yüklemez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "У стрічці є %@. Ця розробницька збірка ніколи не встановлює оновлень; перевірка лише прочитала стрічку."
+            "value": "Доступна версія %@. Збірки для розробки не встановлюють оновлення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nguồn cấp đang cung cấp %@. Bản dựng phát triển này không bao giờ cài đặt bản cập nhật; lần kiểm tra chỉ đọc nguồn cấp."
+            "value": "Đã có %@. Bản dựng phát triển không cài đặt bản cập nhật."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "更新源提供 %@。此开发构建从不安装更新；本次检查仅读取了更新源。"
+            "value": "%@ 可用。开发版本不安装更新。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "更新來源提供 %@。此開發版本不會安裝更新；檢查僅讀取了更新來源。"
+            "value": "%@ 可用。開發版本不安裝更新。"
           }
         }
       }
@@ -16245,137 +15983,6 @@
         }
       }
     },
-    "updater.pulled.rollBack": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Roll Back"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الرجوع"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vrati"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gå tilbage"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zurücksetzen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Volver atrás"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Revenir en arrière"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Torna indietro"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "元に戻す"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ត្រឡប់ក្រោយ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "되돌리기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gå tilbake"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Przywróć"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Voltar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Откатить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ย้อนกลับ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Geri Dön"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Відкотити"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quay lại"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "回退"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "回復"
-          }
-        }
-      }
-    },
     "updater.pulled.nothingKept": {
       "extractionState": "manual",
       "localizations": {
@@ -22801,127 +22408,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't restart %1$@: %2$@"
+            "value": "Couldn't restart %@. Try again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّرت إعادة تشغيل %1$@: %2$@"
+            "value": "تعذّرت إعادة تشغيل %@. حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nije moguće ponovo pokrenuti %1$@: %2$@"
+            "value": "Nije moguće ponovo pokrenuti %@. Pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ kunne ikke genstartes: %2$@"
+            "value": "%@ kunne ikke genstartes. Prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ konnte nicht neu gestartet werden: %2$@"
+            "value": "%@ konnte nicht neu gestartet werden. Versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo reiniciar %1$@: %2$@"
+            "value": "No se pudo reiniciar %@. Inténtalo de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de redémarrer %1$@ : %2$@"
+            "value": "Impossible de redémarrer %@. Réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile riavviare %1$@: %2$@"
+            "value": "Impossibile riavviare %@. Riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ を再起動できませんでした：%2$@"
+            "value": "%@ を再起動できませんでした。もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចចាប់ផ្ដើម %1$@ ឡើងវិញបានទេ៖ %2$@"
+            "value": "មិនអាចចាប់ផ្ដើម %@ ឡើងវិញបានទេ។ សូមព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@을(를) 재시작할 수 없습니다: %2$@"
+            "value": "%@을(를) 재시작할 수 없습니다. 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke starte %1$@ på nytt: %2$@"
+            "value": "Kunne ikke starte %@ på nytt. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie można ponownie uruchomić %1$@: %2$@"
+            "value": "Nie można ponownie uruchomić %@. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível reiniciar o %1$@: %2$@"
+            "value": "Não foi possível reiniciar o %@. Tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось перезапустить %1$@: %2$@"
+            "value": "Не удалось перезапустить %@. Повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เริ่ม %1$@ ใหม่ไม่ได้: %2$@"
+            "value": "เริ่ม %@ ใหม่ไม่ได้ ลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ yeniden başlatılamadı: %2$@"
+            "value": "%@ yeniden başlatılamadı. Yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося перезапустити %1$@: %2$@"
+            "value": "Не вдалося перезапустити %@. Спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không thể khởi động lại %1$@: %2$@"
+            "value": "Không thể khởi động lại %@. Hãy thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法重新启动 %1$@：%2$@"
+            "value": "无法重新启动 %@。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法重新啟動 %1$@：%2$@"
+            "value": "無法重新啟動 %@。請再試一次。"
           }
         }
       }
@@ -23718,127 +23325,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux relaunches in a moment. Your terminals and agents keep running."
+            "value": "cmux relaunches in a moment."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux はまもなく再起動します。ターミナルとエージェントは実行を続けます。"
+            "state": "needs_review",
+            "value": "cmux はまもなく再起動します。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ستتم إعادة تشغيل cmux بعد لحظات. تستمر الطرفيات والوكلاء في العمل."
+            "state": "needs_review",
+            "value": "ستتم إعادة تشغيل cmux بعد لحظات."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux se uskoro ponovo pokreće. Vaši terminali i agenti nastavljaju raditi."
+            "state": "needs_review",
+            "value": "cmux se uskoro ponovo pokreće."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux genstarter om et øjeblik. Dine terminaler og agenter kører videre."
+            "state": "needs_review",
+            "value": "cmux genstarter om et øjeblik."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux startet gleich neu. Deine Terminals und Agenten laufen weiter."
+            "state": "needs_review",
+            "value": "cmux startet gleich neu."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux se reiniciará en un momento. Tus terminales y agentes siguen funcionando."
+            "state": "needs_review",
+            "value": "cmux se reiniciará en un momento."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux redémarre dans un instant. Vos terminaux et agents continuent de tourner."
+            "state": "needs_review",
+            "value": "cmux redémarre dans un instant."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux si riavvia tra un momento. I terminali e gli agenti continuano a funzionare."
+            "state": "needs_review",
+            "value": "cmux si riavvia tra un momento."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux នឹងបើកឡើងវិញក្នុងពេលបន្តិចទៀត។ ទែមីណល់ និងភ្នាក់ងាររបស់អ្នកនៅតែដំណើរការ។"
+            "state": "needs_review",
+            "value": "cmux នឹងបើកឡើងវិញក្នុងពេលបន្តិចទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux가 곧 다시 시작됩니다. 터미널과 에이전트는 계속 실행됩니다."
+            "state": "needs_review",
+            "value": "cmux가 곧 다시 시작됩니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux starter på nytt om et øyeblikk. Terminalene og agentene dine fortsetter å kjøre."
+            "state": "needs_review",
+            "value": "cmux starter på nytt om et øyeblikk."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux za chwilę uruchomi się ponownie. Terminale i agenci nadal działają."
+            "state": "needs_review",
+            "value": "cmux za chwilę uruchomi się ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "O cmux será reiniciado em instantes. Seus terminais e agentes continuam rodando."
+            "state": "needs_review",
+            "value": "O cmux será reiniciado em instantes."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux сейчас перезапустится. Терминалы и агенты продолжат работу."
+            "state": "needs_review",
+            "value": "cmux сейчас перезапустится."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "cmux จะเปิดใหม่ในอีกสักครู่ เทอร์มินัลและเอเจนต์ของคุณยังทำงานต่อ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux birazdan yeniden başlıyor. Terminalleriniz ve ajanlarınız çalışmaya devam eder."
+            "state": "needs_review",
+            "value": "cmux birazdan yeniden başlıyor."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux зараз перезапуститься. Термінали й агенти продовжать працювати."
+            "state": "needs_review",
+            "value": "cmux зараз перезапуститься."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux sẽ khởi động lại trong giây lát. Terminal và agent của bạn vẫn tiếp tục chạy."
+            "state": "needs_review",
+            "value": "cmux sẽ khởi động lại trong giây lát."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux 即将重新启动。你的终端和代理会继续运行。"
+            "state": "needs_review",
+            "value": "cmux 即将重新启动。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux 即將重新啟動。你的終端機和代理會繼續執行。"
+            "state": "needs_review",
+            "value": "cmux 即將重新啟動。"
           }
         }
       }
@@ -23849,127 +23456,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The installer checks the new version (%lld s). cmux relaunches when it is done. Your terminals and agents keep running."
+            "value": "The installer checks the new version (%lld s)."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "インストーラが新しいバージョンを確認しています（%lld 秒）。完了すると cmux が再起動します。ターミナルとエージェントは実行を続けます。"
+            "state": "needs_review",
+            "value": "インストーラが新しいバージョンを確認しています（%lld 秒）。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "يتحقق المثبّت من الإصدار الجديد (%lld ث). ستتم إعادة تشغيل cmux عند الانتهاء. تستمر الطرفيات والوكلاء في العمل."
+            "state": "needs_review",
+            "value": "يتحقق المثبّت من الإصدار الجديد (%lld ث)."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Instaler provjerava novu verziju (%lld s). cmux se ponovo pokreće kada završi. Vaši terminali i agenti nastavljaju raditi."
+            "state": "needs_review",
+            "value": "Instaler provjerava novu verziju (%lld s)."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Installationsprogrammet tjekker den nye version (%lld s). cmux genstarter, når det er færdigt. Dine terminaler og agenter kører videre."
+            "state": "needs_review",
+            "value": "Installationsprogrammet tjekker den nye version (%lld s)."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Das Installationsprogramm prüft die neue Version (%lld s). cmux startet neu, sobald es fertig ist. Deine Terminals und Agenten laufen weiter."
+            "state": "needs_review",
+            "value": "Das Installationsprogramm prüft die neue Version (%lld s)."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "El instalador comprueba la nueva versión (%lld s). cmux se reinicia cuando termina. Tus terminales y agentes siguen funcionando."
+            "state": "needs_review",
+            "value": "El instalador comprueba la nueva versión (%lld s)."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Le programme d’installation vérifie la nouvelle version (%lld s). cmux se relance une fois terminé. Vos terminaux et agents continuent de tourner."
+            "state": "needs_review",
+            "value": "Le programme d’installation vérifie la nouvelle version (%lld s)."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Il programma di installazione controlla la nuova versione (%lld s). cmux si riavvia al termine. Terminali e agenti continuano a funzionare."
+            "state": "needs_review",
+            "value": "Il programma di installazione controlla la nuova versione (%lld s)."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "កម្មវិធីដំឡើងកំពុងពិនិត្យកំណែថ្មី (%lld វិនាទី)។ cmux នឹងបើកឡើងវិញពេលរួចរាល់។ ទែមីណាល់ និងភ្នាក់ងាររបស់អ្នកនៅតែដំណើរការ។"
+            "state": "needs_review",
+            "value": "កម្មវិធីដំឡើងកំពុងពិនិត្យកំណែថ្មី (%lld វិនាទី)។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "설치 프로그램이 새 버전을 확인하는 중입니다(%lld초). 완료되면 cmux가 다시 실행됩니다. 터미널과 에이전트는 계속 실행됩니다."
+            "state": "needs_review",
+            "value": "설치 프로그램이 새 버전을 확인하는 중입니다(%lld초)."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Installasjonsprogrammet sjekker den nye versjonen (%lld s). cmux starter på nytt når det er ferdig. Terminalene og agentene dine fortsetter å kjøre."
+            "state": "needs_review",
+            "value": "Installasjonsprogrammet sjekker den nye versjonen (%lld s)."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Instalator sprawdza nową wersję (%lld s). cmux uruchomi się ponownie po zakończeniu. Terminale i agenci nadal działają."
+            "state": "needs_review",
+            "value": "Instalator sprawdza nową wersję (%lld s)."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "O instalador verifica a nova versão (%lld s). O cmux reabre quando terminar. Seus terminais e agentes continuam em execução."
+            "state": "needs_review",
+            "value": "O instalador verifica a nova versão (%lld s)."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Установщик проверяет новую версию (%lld с). cmux перезапустится, когда проверка завершится. Терминалы и агенты продолжают работать."
+            "state": "needs_review",
+            "value": "Установщик проверяет новую версию (%lld с)."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ตัวติดตั้งกำลังตรวจสอบเวอร์ชันใหม่ (%lld วินาที) cmux จะเปิดใหม่เมื่อเสร็จ เทอร์มินัลและเอเจนต์ของคุณยังทำงานต่อ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Yükleyici yeni sürümü denetliyor (%lld sn). Bittiğinde cmux yeniden başlar. Terminalleriniz ve ajanlarınız çalışmaya devam eder."
+            "state": "needs_review",
+            "value": "Yükleyici yeni sürümü denetliyor (%lld sn)."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Інсталятор перевіряє нову версію (%lld с). cmux перезапуститься, коли перевірку завершено. Термінали й агенти продовжують працювати."
+            "state": "needs_review",
+            "value": "Інсталятор перевіряє нову версію (%lld с)."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Trình cài đặt đang kiểm tra phiên bản mới (%lld giây). cmux khởi chạy lại khi xong. Terminal và agent của bạn vẫn tiếp tục chạy."
+            "state": "needs_review",
+            "value": "Trình cài đặt đang kiểm tra phiên bản mới (%lld giây)."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "安装器正在检查新版本（%lld 秒）。完成后 cmux 将重新启动。你的终端和代理会继续运行。"
+            "state": "needs_review",
+            "value": "安装器正在检查新版本（%lld 秒）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "安裝程式正在檢查新版本（%lld 秒）。完成後 cmux 會重新啟動。你的終端機和代理程式會繼續執行。"
+            "state": "needs_review",
+            "value": "安裝程式正在檢查新版本（%lld 秒）。"
           }
         }
       }
@@ -26469,127 +26076,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS runs this cmux from a read-only copy, so the installer couldn't replace it. Move cmux to Applications and open it from there, or download the update manually."
+            "value": "cmux can't update itself from a read-only copy. Move cmux to Applications, open it from there, and try again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يشغّل macOS نسخة cmux هذه من نسخة للقراءة فقط، لذا لم يتمكن المثبّت من استبدالها. انقل cmux إلى التطبيقات وافتحه من هناك، أو نزّل التحديث يدويًا."
+            "value": "لا يستطيع cmux تحديث نفسه من نسخة للقراءة فقط. انقل cmux إلى التطبيقات، وافتحه من هناك، ثم حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "macOS pokreće ovaj cmux iz kopije samo za čitanje, pa ga instalater nije mogao zamijeniti. Premjestite cmux u Aplikacije i otvorite ga odatle ili ručno preuzmite ažuriranje."
+            "value": "cmux se ne može ažurirati iz kopije samo za čitanje. Premjestite cmux u Applications, otvorite ga odatle i pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "macOS kører denne cmux fra en skrivebeskyttet kopi, så installationsprogrammet kunne ikke erstatte den. Flyt cmux til Programmer, og åbn den derfra, eller hent opdateringen manuelt."
+            "value": "cmux kan ikke opdatere sig selv fra en skrivebeskyttet kopi. Flyt cmux til Programmer, åbn den derfra, og prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "macOS führt dieses cmux aus einer schreibgeschützten Kopie aus, daher konnte das Installationsprogramm es nicht ersetzen. Bewege cmux in den Ordner „Programme“ und öffne es dort, oder lade das Update manuell herunter."
+            "value": "cmux kann sich aus einer schreibgeschützten Kopie nicht aktualisieren. Verschiebe cmux in den Ordner „Programme“, öffne es dort und versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "macOS ejecuta este cmux desde una copia de solo lectura, así que el instalador no pudo reemplazarlo. Mueve cmux a Aplicaciones y ábrelo desde ahí, o descarga la actualización manualmente."
+            "value": "cmux no puede actualizarse desde una copia de solo lectura. Mueve cmux a Aplicaciones, ábrelo desde allí y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "macOS exécute ce cmux depuis une copie en lecture seule, l'installateur n'a donc pas pu le remplacer. Déplacez cmux dans Applications et ouvrez-le depuis là, ou téléchargez la mise à jour manuellement."
+            "value": "cmux ne peut pas se mettre à jour depuis une copie en lecture seule. Déplacez cmux dans Applications, ouvrez-le depuis là, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "macOS esegue questo cmux da una copia di sola lettura, quindi il programma di installazione non ha potuto sostituirlo. Sposta cmux in Applicazioni e aprilo da lì, oppure scarica l'aggiornamento manualmente."
+            "value": "cmux non può aggiornarsi da una copia di sola lettura. Sposta cmux in Applicazioni, aprilo da lì e riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "macOS はこの cmux を読み取り専用のコピーから実行しているため、インストーラが置き換えられませんでした。cmux をアプリケーションに移動してそこから開くか、アップデートを手動でダウンロードしてください。"
+            "value": "読み取り専用のコピーからは cmux を更新できません。cmux をアプリケーションフォルダに移動し、そこから開いてもう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "macOS ដំណើរការ cmux នេះពីច្បាប់ចម្លងសម្រាប់តែអាន ដូច្នេះកម្មវិធីដំឡើងមិនអាចជំនួសវាបានទេ។ ផ្លាស់ទី cmux ទៅ Applications ហើយបើកវាពីទីនោះ ឬទាញយកការធ្វើបច្ចុប្បន្នភាពដោយដៃ។"
+            "value": "cmux មិនអាចធ្វើបច្ចុប្បន្នភាពខ្លួនឯងពីច្បាប់ចម្លងសម្រាប់តែអានបានទេ។ ផ្លាស់ទី cmux ទៅ Applications បើកវាពីទីនោះ ហើយព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "macOS가 이 cmux를 읽기 전용 사본에서 실행하고 있어 설치 프로그램이 교체하지 못했습니다. cmux를 응용 프로그램으로 옮긴 후 그곳에서 열거나, 업데이트를 직접 다운로드하세요."
+            "value": "읽기 전용 사본에서는 cmux를 업데이트할 수 없습니다. cmux를 응용 프로그램으로 옮겨 그곳에서 연 다음 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "macOS kjører denne cmux fra en skrivebeskyttet kopi, så installasjonsprogrammet kunne ikke erstatte den. Flytt cmux til Programmer og åpne den derfra, eller last ned oppdateringen manuelt."
+            "value": "cmux kan ikke oppdatere seg selv fra en skrivebeskyttet kopi. Flytt cmux til Programmer, åpne den derfra, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "macOS uruchamia tego cmux z kopii tylko do odczytu, więc instalator nie mógł go zastąpić. Przenieś cmux do folderu Aplikacje i otwórz go stamtąd lub pobierz aktualizację ręcznie."
+            "value": "cmux nie może zaktualizować się z kopii tylko do odczytu. Przenieś cmux do folderu Aplikacje, otwórz go stamtąd i spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O macOS executa este cmux a partir de uma cópia somente leitura, então o instalador não conseguiu substituí-lo. Mova o cmux para Aplicativos e abra-o de lá, ou baixe a atualização manualmente."
+            "value": "O cmux não consegue se atualizar a partir de uma cópia somente leitura. Mova o cmux para Aplicativos, abra-o de lá e tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "macOS запускает этот cmux из копии только для чтения, поэтому установщик не смог его заменить. Переместите cmux в «Программы» и откройте его оттуда или скачайте обновление вручную."
+            "value": "cmux не может обновиться из копии только для чтения. Переместите cmux в папку «Программы», откройте его оттуда и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "macOS เรียกใช้ cmux นี้จากสำเนาแบบอ่านอย่างเดียว ตัวติดตั้งจึงแทนที่ไม่ได้ ย้าย cmux ไปที่ Applications แล้วเปิดจากที่นั่น หรือดาวน์โหลดอัปเดตด้วยตนเอง"
+            "value": "cmux อัปเดตตัวเองจากสำเนาแบบอ่านอย่างเดียวไม่ได้ ย้าย cmux ไปที่แอปพลิเคชัน เปิดจากที่นั่น แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "macOS bu cmux'u salt okunur bir kopyadan çalıştırıyor, bu yüzden yükleyici onu değiştiremedi. cmux'u Uygulamalar'a taşıyıp oradan açın veya güncellemeyi elle indirin."
+            "value": "cmux salt okunur bir kopyadan kendini güncelleyemez. cmux'u Uygulamalar'a taşıyın, oradan açın ve yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "macOS запускає цей cmux з копії лише для читання, тому інсталятор не зміг його замінити. Перемістіть cmux у «Програми» й відкрийте його звідти або завантажте оновлення вручну."
+            "value": "cmux не може оновитися з копії лише для читання. Перемістіть cmux у папку «Програми», відкрийте його звідти й спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "macOS chạy cmux này từ một bản sao chỉ đọc nên trình cài đặt không thể thay thế nó. Hãy chuyển cmux vào Applications rồi mở từ đó, hoặc tải bản cập nhật thủ công."
+            "value": "cmux không thể tự cập nhật từ bản sao chỉ đọc. Hãy chuyển cmux vào Ứng dụng, mở nó từ đó và thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "macOS 正从只读副本运行此 cmux，因此安装器无法替换它。请将 cmux 移到“应用程序”并从那里打开，或手动下载更新。"
+            "value": "cmux 无法从只读副本自行更新。请将 cmux 移到“应用程序”文件夹，从那里打开，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "macOS 正從唯讀副本執行此 cmux，因此安裝程式無法取代它。請將 cmux 移到「應用程式」並從那裡開啟，或手動下載更新。"
+            "value": "cmux 無法從唯讀拷貝自行更新。請將 cmux 移到「應用程式」檔案夾，從那裡打開，然後再試一次。"
           }
         }
       }
@@ -27517,127 +27124,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This build cannot switch builds (it follows no update feed)."
+            "value": "This build doesn't get updates, so it can't switch builds."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "لا يمكن لهذا الإصدار التبديل بين الإصدارات (لا يتبع أي موجز تحديثات)."
+            "state": "needs_review",
+            "value": "هذا الإصدار لا يتلقى تحديثات، لذا لا يمكنه التبديل بين الإصدارات."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ova verzija ne može prebacivati verzije (ne prati nijedan izvor ažuriranja)."
+            "state": "needs_review",
+            "value": "Ova verzija ne dobija ažuriranja, pa ne može mijenjati verzije."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Dette build kan ikke skifte build (det følger intet opdateringsfeed)."
+            "state": "needs_review",
+            "value": "Dette build får ikke opdateringer, så det kan ikke skifte build."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Dieser Build kann nicht zu anderen Builds wechseln (er folgt keinem Update-Feed)."
+            "state": "needs_review",
+            "value": "Dieser Build erhält keine Updates und kann daher nicht zu einem anderen Build wechseln."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Esta compilación no puede cambiar de compilación (no sigue ningún canal de actualizaciones)."
+            "state": "needs_review",
+            "value": "Esta compilación no recibe actualizaciones, así que no puede cambiar de compilación."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ce build ne peut pas changer de build (il ne suit aucun flux de mises à jour)."
+            "state": "needs_review",
+            "value": "Cette version ne reçoit pas de mises à jour ; elle ne peut donc pas changer de version."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Questa build non può passare ad altre build (non segue alcun feed di aggiornamenti)."
+            "state": "needs_review",
+            "value": "Questa build non riceve aggiornamenti, quindi non può passare a un’altra build."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "このビルドはビルドを切り替えられません(アップデートフィードに従っていません)。"
+            "state": "needs_review",
+            "value": "このビルドはアップデートを受け取らないため、ビルドを切り替えられません。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "កំណែនេះមិនអាចប្ដូរកំណែបានទេ (វាមិនតាមដានប្រភពបច្ចុប្បន្នភាពណាមួយ)។"
+            "state": "needs_review",
+            "value": "កំណែនេះមិនទទួលបច្ចុប្បន្នភាពទេ ដូច្នេះវាមិនអាចប្ដូរកំណែបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "이 빌드는 빌드를 전환할 수 없습니다(업데이트 피드를 따르지 않음)."
+            "state": "needs_review",
+            "value": "이 빌드는 업데이트를 받지 않으므로 다른 빌드로 전환할 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Dette bygget kan ikke bytte bygg (det følger ingen oppdateringsstrøm)."
+            "state": "needs_review",
+            "value": "Dette bygget får ikke oppdateringer, så det kan ikke bytte bygg."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ta kompilacja nie może przełączać kompilacji (nie śledzi żadnego kanału aktualizacji)."
+            "state": "needs_review",
+            "value": "Ta kompilacja nie otrzymuje aktualizacji, więc nie może przełączyć kompilacji."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Esta build não pode trocar de build (não segue nenhum feed de atualizações)."
+            "state": "needs_review",
+            "value": "Este build não recebe atualizações, então não pode trocar de build."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Эта сборка не может переключаться между сборками (она не следует ни одному каналу обновлений)."
+            "state": "needs_review",
+            "value": "Эта сборка не получает обновлений, поэтому не может переключаться на другие сборки."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "บิลด์นี้สลับบิลด์ไม่ได้ (ไม่ได้ติดตามฟีดอัปเดตใด)"
+            "state": "needs_review",
+            "value": "บิลด์นี้ไม่ได้รับอัปเดต จึงสลับบิลด์ไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bu derleme başka derlemeye geçemez (hiçbir güncelleme akışını izlemiyor)."
+            "state": "needs_review",
+            "value": "Bu derleme güncelleme almadığı için derleme değiştiremez."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ця збірка не може перемикатися між збірками (вона не стежить за жодним каналом оновлень)."
+            "state": "needs_review",
+            "value": "Ця збірка не отримує оновлень, тож не може перемикатися на інші збірки."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bản dựng này không thể chuyển bản dựng (nó không theo nguồn cập nhật nào)."
+            "state": "needs_review",
+            "value": "Bản dựng này không nhận bản cập nhật nên không thể chuyển bản dựng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "此版本无法切换版本(它不跟随任何更新源)。"
+            "state": "needs_review",
+            "value": "此版本不接收更新，因此无法切换版本。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "此版本無法切換版本(它不跟隨任何更新來源)。"
+            "state": "needs_review",
+            "value": "此版本不接收更新，因此無法切換版本。"
           }
         }
       }
@@ -27779,127 +27386,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "That build was published before downloads carried a signature to check, so it can only be installed if this Mac kept it."
+            "value": "That build is too old to download. It installs only if this Mac kept a copy."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "نُشر ذلك الإصدار قبل أن تحمل التنزيلات توقيعًا يمكن التحقق منه، لذا لا يمكن تثبيته إلا إذا احتفظ به هذا الـ Mac."
+            "state": "needs_review",
+            "value": "هذا الإصدار أقدم من أن يُنزَّل. لا يُثبَّت إلا إذا احتفظ هذا الـ Mac بنسخة منه."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ta verzija je objavljena prije nego što su preuzimanja imala potpis za provjeru, pa se može instalirati samo ako ju je ovaj Mac zadržao."
+            "state": "needs_review",
+            "value": "Ta verzija je prestara za preuzimanje. Instalira se samo ako je ovaj Mac sačuvao kopiju."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Det build blev udgivet, før downloads havde en signatur at kontrollere, så det kan kun installeres, hvis denne Mac har gemt det."
+            "state": "needs_review",
+            "value": "Det build er for gammelt til at blive hentet. Det kan kun installeres, hvis denne Mac har gemt en kopi."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Dieser Build wurde veröffentlicht, bevor Downloads eine prüfbare Signatur hatten. Er lässt sich nur installieren, wenn dieser Mac ihn aufbewahrt hat."
+            "state": "needs_review",
+            "value": "Dieser Build ist zu alt zum Herunterladen. Er lässt sich nur installieren, wenn dieser Mac eine Kopie behalten hat."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Esa compilación se publicó antes de que las descargas llevaran una firma que comprobar, así que solo se puede instalar si este Mac la conservó."
+            "state": "needs_review",
+            "value": "Esa compilación es demasiado antigua para descargarla. Solo se instala si este Mac guardó una copia."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ce build a été publié avant que les téléchargements portent une signature à vérifier ; il ne peut être installé que si ce Mac l’a conservé."
+            "state": "needs_review",
+            "value": "Cette version est trop ancienne pour être téléchargée. Elle ne s’installe que si ce Mac en a gardé une copie."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Quella build è stata pubblicata prima che i download avessero una firma da verificare, quindi si può installare solo se questo Mac l’ha conservata."
+            "state": "needs_review",
+            "value": "Quella build è troppo vecchia per essere scaricata. Si installa solo se questo Mac ne ha conservato una copia."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "このビルドはダウンロードに検証用の署名が付く前に公開されたため、この Mac に保存されている場合のみインストールできます。"
+            "state": "needs_review",
+            "value": "そのビルドは古すぎてダウンロードできません。この Mac にコピーが残っている場合のみインストールできます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "កំណែនោះត្រូវបានចេញផ្សាយមុនពេលការទាញយកមានហត្ថលេខាសម្រាប់ពិនិត្យ ដូច្នេះវាអាចដំឡើងបានតែប្រសិនបើ Mac នេះបានរក្សាទុកវា។"
+            "state": "needs_review",
+            "value": "កំណែនោះចាស់ពេកដើម្បីទាញយក។ វាអាចដំឡើងបានតែនៅពេល Mac នេះរក្សាច្បាប់ចម្លងទុកប៉ុណ្ណោះ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "이 빌드는 다운로드에 확인할 서명이 붙기 전에 게시되어, 이 Mac에 보관된 경우에만 설치할 수 있습니다."
+            "state": "needs_review",
+            "value": "해당 빌드는 너무 오래되어 다운로드할 수 없습니다. 이 Mac에 사본이 있을 때만 설치됩니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Det bygget ble publisert før nedlastinger hadde en signatur å kontrollere, så det kan bare installeres hvis denne Macen har tatt vare på det."
+            "state": "needs_review",
+            "value": "Det bygget er for gammelt til å lastes ned. Det kan bare installeres hvis denne Macen har tatt vare på en kopi."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ta kompilacja została opublikowana, zanim pobrania miały podpis do sprawdzenia, więc można ją zainstalować tylko wtedy, gdy ten Mac ją zachował."
+            "state": "needs_review",
+            "value": "Ta kompilacja jest zbyt stara, by ją pobrać. Zainstaluje się tylko, jeśli ten Mac zachował kopię."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Essa build foi publicada antes de os downloads terem uma assinatura para verificar, então só pode ser instalada se este Mac a guardou."
+            "state": "needs_review",
+            "value": "Esse build é antigo demais para ser baixado. Ele só é instalado se este Mac guardou uma cópia."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Эта сборка опубликована до того, как у загрузок появилась проверяемая подпись, поэтому её можно установить, только если этот Mac её сохранил."
+            "state": "needs_review",
+            "value": "Эта сборка слишком старая для загрузки. Её можно установить, только если на этом Mac сохранилась копия."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "บิลด์นั้นเผยแพร่ก่อนที่การดาวน์โหลดจะมีลายเซ็นให้ตรวจสอบ จึงติดตั้งได้เฉพาะเมื่อ Mac เครื่องนี้เก็บไว้เท่านั้น"
+            "state": "needs_review",
+            "value": "บิลด์นั้นเก่าเกินกว่าจะดาวน์โหลดได้ จะติดตั้งได้ก็ต่อเมื่อ Mac เครื่องนี้เก็บสำเนาไว้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bu derleme, indirmeler doğrulanacak bir imza taşımadan önce yayımlandı; yalnızca bu Mac onu sakladıysa yüklenebilir."
+            "state": "needs_review",
+            "value": "Bu derleme indirilemeyecek kadar eski. Yalnızca bu Mac bir kopyasını sakladıysa yüklenir."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Цю збірку опубліковано до того, як завантаження отримали підпис для перевірки, тому її можна встановити, лише якщо цей Mac її зберіг."
+            "state": "needs_review",
+            "value": "Ця збірка надто стара для завантаження. Її можна встановити, лише якщо на цьому Mac збереглася копія."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bản dựng đó được phát hành trước khi bản tải xuống có chữ ký để kiểm tra, nên chỉ cài được nếu máy Mac này đã giữ lại nó."
+            "state": "needs_review",
+            "value": "Bản dựng đó quá cũ để tải xuống. Chỉ cài được nếu máy Mac này còn giữ một bản sao."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "该版本发布时下载内容尚未附带可校验的签名，因此只有在这台 Mac 保留了它时才能安装。"
+            "state": "needs_review",
+            "value": "该版本太旧，无法下载。只有这台 Mac 保留了副本时才能安装。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "該版本發布時下載內容尚未附帶可驗證的簽章，因此只有在這台 Mac 保留了它時才能安裝。"
+            "state": "needs_review",
+            "value": "該版本太舊，無法下載。只有這台 Mac 保留了拷貝時才能安裝。"
           }
         }
       }
@@ -28821,133 +28428,788 @@
         }
       }
     },
-    "updater.channels.switchFailed": {
+    "updater.channels.switchFailedPlain": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not switch: %@"
+            "value": "Couldn't switch: that build didn't download or didn't pass its checks. Try again."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر التبديل: %@"
+            "state": "needs_review",
+            "value": "تعذّر التبديل: لم يتم تنزيل هذا الإصدار أو لم يجتز فحوصه. حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Prebacivanje nije uspjelo: %@"
+            "state": "needs_review",
+            "value": "Prebacivanje nije uspjelo: taj build se nije preuzeo ili nije prošao provjere. Pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke skifte: %@"
+            "state": "needs_review",
+            "value": "Kunne ikke skifte: den build blev ikke hentet eller bestod ikke sine tjek. Prøv igen."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Wechsel nicht möglich: %@"
+            "state": "needs_review",
+            "value": "Wechsel fehlgeschlagen: Dieser Build wurde nicht geladen oder hat die Prüfungen nicht bestanden. Versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo cambiar: %@"
+            "state": "needs_review",
+            "value": "No se pudo cambiar: esa compilación no se descargó o no pasó sus comprobaciones. Inténtalo de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de basculer : %@"
+            "state": "needs_review",
+            "value": "Changement impossible : ce build n'a pas été téléchargé ou n'a pas passé ses vérifications. Réessayez."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile passare: %@"
+            "state": "needs_review",
+            "value": "Impossibile cambiare: quella build non è stata scaricata o non ha superato i controlli. Riprova."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "切り替えられませんでした: %@"
+            "state": "needs_review",
+            "value": "切り替えられませんでした。そのビルドはダウンロードされなかったか、チェックに通りませんでした。もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "មិនអាចប្ដូរបានទេ៖ %@"
+            "state": "needs_review",
+            "value": "មិនអាចប្ដូរបានទេ៖ build នោះមិនបានទាញយក ឬមិនបានឆ្លងការពិនិត្យ។ សូមព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "전환할 수 없음: %@"
+            "state": "needs_review",
+            "value": "전환하지 못했습니다. 그 빌드가 다운로드되지 않았거나 검사를 통과하지 못했습니다. 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke bytte: %@"
+            "state": "needs_review",
+            "value": "Kunne ikke bytte: det bygget ble ikke lastet ned eller besto ikke kontrollene. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nie udało się przełączyć: %@"
+            "state": "needs_review",
+            "value": "Nie można przełączyć: ta kompilacja nie pobrała się lub nie przeszła kontroli. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Não foi possível trocar: %@"
+            "state": "needs_review",
+            "value": "Não foi possível trocar: essa build não foi baixada ou não passou nas verificações. Tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось переключиться: %@"
+            "state": "needs_review",
+            "value": "Не удалось переключиться: эта сборка не загрузилась или не прошла проверки. Попробуйте снова."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "สลับไม่ได้: %@"
+            "state": "needs_review",
+            "value": "สลับไม่ได้: บิลด์นั้นดาวน์โหลดไม่สำเร็จหรือไม่ผ่านการตรวจสอบ ลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Geçilemedi: %@"
+            "state": "needs_review",
+            "value": "Geçiş yapılamadı: bu derleme indirilmedi veya denetimlerden geçmedi. Tekrar deneyin."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося перемкнути: %@"
+            "state": "needs_review",
+            "value": "Не вдалося перемкнутися: цю збірку не завантажено або вона не пройшла перевірки. Спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Không thể chuyển: %@"
+            "state": "needs_review",
+            "value": "Không thể chuyển: bản dựng đó không tải xuống được hoặc không vượt qua kiểm tra. Hãy thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "无法切换:%@"
+            "state": "needs_review",
+            "value": "无法切换：该版本未下载或未通过检查。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
+            "state": "needs_review",
+            "value": "無法切換：該版本未下載或未通過檢查。請再試一次。"
+          }
+        }
+      }
+    },
+    "updater.failure.feed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
             "state": "translated",
-            "value": "無法切換:%@"
+            "value": "cmux couldn't read the update list. Try again later."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر على cmux قراءة قائمة التحديثات. حاول مرة أخرى لاحقًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nije mogao pročitati listu ažuriranja. Pokušajte ponovo kasnije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke læse listen over opdateringer. Prøv igen senere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux konnte die Update-Liste nicht lesen. Versuche es später erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no pudo leer la lista de actualizaciones. Inténtalo de nuevo más tarde."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux n'a pas pu lire la liste des mises à jour. Réessayez plus tard."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non è riuscito a leggere l'elenco degli aggiornamenti. Riprova più tardi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux はアップデート一覧を読み込めませんでした。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនអាចអានបញ្ជីបច្ចុប្បន្នភាពបានទេ។ សូមព្យាយាមម្ដងទៀតនៅពេលក្រោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 업데이트 목록을 읽지 못했습니다. 나중에 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke lese oppdateringslisten. Prøv igjen senere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie mógł odczytać listy aktualizacji. Spróbuj ponownie później."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux não conseguiu ler a lista de atualizações. Tente novamente mais tarde."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не удалось прочитать список обновлений. Попробуйте позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux อ่านรายการอัปเดตไม่ได้ ลองอีกครั้งในภายหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux güncelleme listesini okuyamadı. Daha sonra tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не вдалося прочитати список оновлень. Спробуйте пізніше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux không đọc được danh sách bản cập nhật. Hãy thử lại sau."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 无法读取更新列表。请稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 無法讀取更新清單。請稍後再試。"
+          }
+        }
+      }
+    },
+    "updater.failure.download": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update didn't download. Check your network, then try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يتم تنزيل التحديث. تحقق من الشبكة، ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje se nije preuzelo. Provjerite mrežu, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen blev ikke hentet. Tjek dit netværk, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wurde nicht geladen. Prüfe dein Netzwerk und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización no se descargó. Revisa tu red e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour n'a pas été téléchargée. Vérifiez votre réseau, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'aggiornamento non è stato scaricato. Controlla la rete, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アップデートをダウンロードできませんでした。ネットワークを確認してから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពមិនបានទាញយកទេ។ ពិនិត្យបណ្ដាញរបស់អ្នក រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "업데이트를 다운로드하지 못했습니다. 네트워크를 확인한 뒤 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen ble ikke lastet ned. Sjekk nettverket, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja się nie pobrała. Sprawdź sieć i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização não foi baixada. Verifique sua rede e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление не загрузилось. Проверьте сеть и попробуйте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดาวน์โหลดอัปเดตไม่สำเร็จ ตรวจสอบเครือข่าย แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme indirilemedi. Ağınızı kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення не завантажилося. Перевірте мережу й спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không tải được bản cập nhật. Hãy kiểm tra mạng rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新未能下载。请检查网络，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新未能下載。請檢查網路，然後再試一次。"
+          }
+        }
+      }
+    },
+    "updater.failure.verify": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The downloaded update didn't pass its safety check. Try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يجتز التحديث الذي تم تنزيله فحص الأمان. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preuzeto ažuriranje nije prošlo sigurnosnu provjeru. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den hentede opdatering bestod ikke sikkerhedstjekket. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das geladene Update hat die Sicherheitsprüfung nicht bestanden. Versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización descargada no pasó la comprobación de seguridad. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour téléchargée n'a pas passé le contrôle de sécurité. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'aggiornamento scaricato non ha superato il controllo di sicurezza. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ダウンロードしたアップデートが安全チェックに通りませんでした。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពដែលបានទាញយកមិនបានឆ្លងការពិនិត្យសុវត្ថិភាពទេ។ សូមព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다운로드한 업데이트가 안전 검사를 통과하지 못했습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den nedlastede oppdateringen besto ikke sikkerhetskontrollen. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pobrana aktualizacja nie przeszła kontroli bezpieczeństwa. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização baixada não passou na verificação de segurança. Tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Загруженное обновление не прошло проверку безопасности. Попробуйте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตที่ดาวน์โหลดไม่ผ่านการตรวจสอบความปลอดภัย ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İndirilen güncelleme güvenlik denetiminden geçmedi. Tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завантажене оновлення не пройшло перевірку безпеки. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật đã tải không vượt qua kiểm tra an toàn. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下载的更新未通过安全检查。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下載的更新未通過安全檢查。請再試一次。"
+          }
+        }
+      }
+    },
+    "updater.failure.install": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update didn't install. Try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يتم تثبيت التحديث. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje se nije instaliralo. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen blev ikke installeret. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wurde nicht installiert. Versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización no se instaló. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour ne s'est pas installée. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'aggiornamento non è stato installato. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アップデートをインストールできませんでした。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពមិនបានដំឡើងទេ។ សូមព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "업데이트를 설치하지 못했습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen ble ikke installert. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja się nie zainstalowała. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização não foi instalada. Tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление не установилось. Попробуйте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ติดตั้งอัปเดตไม่สำเร็จ ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme yüklenemedi. Tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення не встановилося. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không cài được bản cập nhật. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新未能安装。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新未能安裝。請再試一次。"
+          }
+        }
+      }
+    },
+    "updater.failure.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Something went wrong with the update. Try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حدث خطأ ما في التحديث. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nešto nije u redu s ažuriranjem. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Noget gik galt med opdateringen. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beim Update ist etwas schiefgelaufen. Versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Algo salió mal con la actualización. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un problème est survenu avec la mise à jour. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Qualcosa è andato storto con l'aggiornamento. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アップデートで問題が発生しました。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានបញ្ហាជាមួយបច្ចុប្បន្នភាព។ សូមព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "업데이트 중 문제가 발생했습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Noe gikk galt med oppdateringen. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Coś poszło nie tak z aktualizacją. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Algo deu errado com a atualização. Tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "С обновлением что-то пошло не так. Попробуйте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เกิดข้อผิดพลาดกับการอัปเดต ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncellemede bir sorun oluştu. Tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "З оновленням щось пішло не так. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã xảy ra lỗi với bản cập nhật. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新出了点问题。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新發生問題。請再試一次。"
           }
         }
       }
@@ -31961,6 +32223,1447 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法移動 cmux"
+          }
+        }
+      }
+    },
+    "updater.star.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A star helps other developers find it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スターは他の開発者がcmuxを見つける助けになります。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تساعد النجمة مطورين آخرين في العثور عليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zvjezdica pomaže drugim programerima da ga pronađu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En stjerne hjælper andre udviklere med at finde det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Stern hilft anderen Entwicklern, es zu finden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una estrella ayuda a otros desarrolladores a encontrarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une étoile aide d’autres développeurs à le découvrir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una stella aiuta altri sviluppatori a trovarlo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្កាយជួយអ្នកអភិវឌ្ឍន៍ផ្សេងទៀតឱ្យរកឃើញវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "별은 다른 개발자가 cmux를 찾는 데 도움이 됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En stjerne hjelper andre utviklere med å finne det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gwiazdka pomaga innym programistom go znaleźć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma estrela ajuda outros desenvolvedores a encontrá-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звезда помогает другим разработчикам его найти."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดาวช่วยให้นักพัฒนาคนอื่นค้นพบมัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir yıldız, diğer geliştiricilerin onu bulmasına yardımcı olur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зірка допомагає іншим розробникам його знайти."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một ngôi sao giúp các nhà phát triển khác tìm thấy nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "点星能帮助其他开发者发现它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "加星能幫助其他開發者發現它。"
+          }
+        }
+      }
+    },
+    "updater.star.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open GitHub"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHubを開く"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح GitHub"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori GitHub"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn GitHub"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHub öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir GitHub"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir GitHub"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri GitHub"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើក GitHub"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHub 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne GitHub"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz GitHub"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir o GitHub"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыть GitHub"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิด GitHub"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHub'ı aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити GitHub"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở GitHub"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开 GitHub"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打開 GitHub"
+          }
+        }
+      }
+    },
+    "updater.star.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Star cmux on GitHub"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHubでcmuxにスターを付ける"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ضع نجمة لـ cmux على GitHub"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodijelite zvjezdicu cmuxu na GitHubu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giv cmux en stjerne på GitHub"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux auf GitHub einen Stern geben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dale una estrella a cmux en GitHub"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mettez une étoile à cmux sur GitHub"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiungi una stella a cmux su GitHub"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ផ្កាយឱ្យ cmux នៅលើ GitHub"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHub에서 cmux에 별 주기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gi cmux en stjerne på GitHub"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daj cmux gwiazdkę na GitHubie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dê uma estrela ao cmux no GitHub"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поставьте cmux звезду на GitHub"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กดดาวให้ cmux บน GitHub"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHub'da cmux'a yıldız verin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поставте cmux зірку на GitHub"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gắn sao cho cmux trên GitHub"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 GitHub 上为 cmux 点星"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 GitHub 上為 cmux 加星"
+          }
+        }
+      }
+    },
+    "updater.held.modal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits to restart while a dialog is open. Restart to Update installs it now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダイアログが開いているため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينتظر التحديث إعادة التشغيل ما دامت نافذة حوار مفتوحة. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje čeka s ponovnim pokretanjem dok je dijalog otvoren. „Ponovo pokreni za ažuriranje“ ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen venter med genstart, mens en dialogboks er åben. „Genstart for at opdatere“ installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wartet mit dem Neustart, solange ein Dialog geöffnet ist. „Zum Aktualisieren neu starten“ installiert es jetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización espera para reiniciar mientras un cuadro de diálogo está abierto. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour attend pour redémarrer tant qu’une boîte de dialogue est ouverte. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento attende il riavvio finché una finestra di dialogo è aperta. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពរង់ចាំចាប់ផ្ដើមឡើងវិញ ពេលប្រអប់សន្ទនាកំពុងបើក។«ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대화상자가 열려 있는 동안 업데이트는 다시 시작을 기다립니다. '다시 시작하여 업데이트'를 누르면 지금 설치됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen venter med omstart mens en dialogboks er åpen. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja czeka z ponownym uruchomieniem, dopóki okno dialogowe jest otwarte. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização aguarda para reiniciar enquanto uma caixa de diálogo está aberta. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление ждёт перезапуска, пока открыт диалог. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตจะรอรีสตาร์ทขณะที่กล่องโต้ตอบเปิดอยู่ «รีสตาร์ทเพื่ออัปเดต» จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, bir iletişim kutusu açıkken yeniden başlatmayı bekler. “Güncellemek için Yeniden Başlat” onu şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення чекає на перезапуск, поки відкрито діалог. «Перезапустити для оновлення» встановить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật chờ khởi động lại khi một hộp thoại đang mở. “Khởi động lại để cập nhật” cài nó ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "对话框打开时，更新会等待重新启动。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "對話框開啟時，更新會等待重新啟動。「重新啟動以更新」會立即安裝。"
+          }
+        }
+      }
+    },
+    "updater.held.sheet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits to restart while a sheet is open. Restart to Update installs it now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シートが開いているため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينتظر التحديث إعادة التشغيل ما دامت ورقة مفتوحة. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje čeka s ponovnim pokretanjem dok je list otvoren. „Ponovo pokreni za ažuriranje“ ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen venter med genstart, mens et ark er åbent. „Genstart for at opdatere“ installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wartet mit dem Neustart, solange ein Sheet geöffnet ist. „Zum Aktualisieren neu starten“ installiert es jetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización espera para reiniciar mientras una hoja está abierta. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour attend pour redémarrer tant qu’une feuille est ouverte. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento attende il riavvio finché un pannello è aperto. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពរង់ចាំចាប់ផ្ដើមឡើងវិញ ពេលសន្លឹកកំពុងបើក។«ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시트가 열려 있는 동안 업데이트는 다시 시작을 기다립니다. '다시 시작하여 업데이트'를 누르면 지금 설치됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen venter med omstart mens et ark er åpent. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja czeka z ponownym uruchomieniem, dopóki arkusz jest otwarty. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização aguarda para reiniciar enquanto uma folha está aberta. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление ждёт перезапуска, пока открыт лист. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตจะรอรีสตาร์ทขณะที่แผ่นงานเปิดอยู่ «รีสตาร์ทเพื่ออัปเดต» จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, bir sayfa açıkken yeniden başlatmayı bekler. “Güncellemek için Yeniden Başlat” onu şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення чекає на перезапуск, поки відкрито аркуш. «Перезапустити для оновлення» встановить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật chờ khởi động lại khi một trang đang mở. “Khởi động lại để cập nhật” cài nó ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "表单打开时，更新会等待重新启动。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "表單開啟時，更新會等待重新啟動。「重新啟動以更新」會立即安裝。"
+          }
+        }
+      }
+    },
+    "updater.held.menu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits to restart while a menu is open. Restart to Update installs it now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューが開いているため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينتظر التحديث إعادة التشغيل ما دامت قائمة مفتوحة. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje čeka s ponovnim pokretanjem dok je meni otvoren. „Ponovo pokreni za ažuriranje“ ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen venter med genstart, mens en menu er åben. „Genstart for at opdatere“ installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wartet mit dem Neustart, solange ein Menü geöffnet ist. „Zum Aktualisieren neu starten“ installiert es jetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización espera para reiniciar mientras un menú está abierto. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour attend pour redémarrer tant que un menu est ouvert. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento attende il riavvio finché un menu è aperto. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពរង់ចាំចាប់ផ្ដើមឡើងវិញ ពេលម៉ឺនុយកំពុងបើក។«ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "메뉴가 열려 있는 동안 업데이트는 다시 시작을 기다립니다. '다시 시작하여 업데이트'를 누르면 지금 설치됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen venter med omstart mens en meny er åpen. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja czeka z ponownym uruchomieniem, dopóki menu jest otwarte. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização aguarda para reiniciar enquanto um menu está aberto. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление ждёт перезапуска, пока открыто меню. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตจะรอรีสตาร์ทขณะที่เมนูเปิดอยู่ «รีสตาร์ทเพื่ออัปเดต» จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, bir menü açıkken yeniden başlatmayı bekler. “Güncellemek için Yeniden Başlat” onu şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення чекає на перезапуск, поки відкрито меню. «Перезапустити для оновлення» встановить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật chờ khởi động lại khi một menu đang mở. “Khởi động lại để cập nhật” cài nó ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "菜单打开时，更新会等待重新启动。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "選單開啟時，更新會等待重新啟動。「重新啟動以更新」會立即安裝。"
+          }
+        }
+      }
+    },
+    "updater.held.composing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits to restart while you compose text. Restart to Update installs it now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字を入力中のため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينتظر التحديث إعادة التشغيل أثناء كتابتك للنص. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje čeka s ponovnim pokretanjem dok pišete tekst. „Ponovo pokreni za ažuriranje“ ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen venter med genstart, mens du skriver tekst. „Genstart for at opdatere“ installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wartet mit dem Neustart, während du Text eingibst. „Zum Aktualisieren neu starten“ installiert es jetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización espera para reiniciar mientras escribes texto. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour attend pour redémarrer pendant que vous saisissez du texte. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento attende il riavvio mentre scrivi del testo. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពរង់ចាំចាប់ផ្ដើមឡើងវិញ ពេលអ្នកកំពុងវាយអត្ថបទ។ «ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "텍스트를 입력하는 동안 업데이트는 다시 시작을 기다립니다. '다시 시작하여 업데이트'를 누르면 지금 설치됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen venter med omstart mens du skriver tekst. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja czeka z ponownym uruchomieniem, gdy piszesz tekst. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização aguarda para reiniciar enquanto você digita texto. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление ждёт перезапуска, пока вы вводите текст. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตจะรอรีสตาร์ทขณะที่คุณกำลังพิมพ์ข้อความ «รีสตาร์ทเพื่ออัปเดต» จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, siz metin yazarken yeniden başlatmayı bekler. “Güncellemek için Yeniden Başlat” onu şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення чекає на перезапуск, поки ви вводите текст. «Перезапустити для оновлення» встановить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật chờ khởi động lại khi bạn đang nhập văn bản. “Khởi động lại để cập nhật” cài nó ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你输入文字时，更新会等待重新启动。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你輸入文字時，更新會等待重新啟動。「重新啟動以更新」會立即安裝。"
+          }
+        }
+      }
+    },
+    "updater.held.notIdle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits until cmux is idle. Restart to Update installs now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が操作されていない状態になると、アップデートをインストールします。「再起動してアップデート」で今すぐインストールします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يُثبَّت التحديث عندما يكون cmux خاملًا. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje se instalira kada cmux miruje. „Ponovo pokreni za ažuriranje“ ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen installeres, når cmux er inaktiv. „Genstart for at opdatere“ installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wird installiert, sobald cmux nicht benutzt wird. „Zum Aktualisieren neu starten“ installiert es jetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización se instala cuando cmux está inactivo. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour s’installe dès que cmux est inactif. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento si installa quando cmux è inattivo. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពនឹងដំឡើង នៅពេល cmux ទំនេរ។ «ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 사용되지 않을 때 업데이트가 설치됩니다. '다시 시작하여 업데이트'를 누르면 지금 설치됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen installeres når cmux er inaktiv. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja zainstaluje się, gdy cmux będzie bezczynny. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização é instalada quando o cmux fica ocioso. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление установится, когда cmux будет бездействовать. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตจะติดตั้งเมื่อ cmux ไม่ได้ใช้งาน «รีสตาร์ทเพื่ออัปเดต» จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, cmux boşta olduğunda yüklenir. “Güncellemek için Yeniden Başlat” onu şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення встановиться, коли cmux буде без дії. «Перезапустити для оновлення» встановить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật sẽ được cài khi cmux không hoạt động. “Khởi động lại để cập nhật” cài nó ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 闲置时，更新就会安装。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 閒置時，更新就會安裝。「重新啟動以更新」會立即安裝。"
+          }
+        }
+      }
+    },
+    "updater.held.agentWorking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits to restart while an agent is working. Restart to Update installs it now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが作業中のため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينتظر التحديث إعادة التشغيل ما دام وكيل يعمل. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje čeka s ponovnim pokretanjem dok agent radi. „Ponovo pokreni za ažuriranje“ ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen venter med at genstarte, mens en agent arbejder. „Genstart for at opdatere“ installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wartet mit dem Neustart, solange ein Agent arbeitet. „Zum Aktualisieren neu starten“ installiert es jetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización espera para reiniciar mientras un agente trabaja. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour attend pour redémarrer tant qu’un agent travaille. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento attende il riavvio finché un agente è al lavoro. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពរង់ចាំចាប់ផ្ដើមឡើងវិញ ខណៈភ្នាក់ងារកំពុងធ្វើការ។ «ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트가 작업 중이라 업데이트가 다시 시작을 기다리고 있습니다. '다시 시작하여 업데이트'를 누르면 지금 설치됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen venter med å starte på nytt mens en agent arbeider. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja czeka z ponownym uruchomieniem, dopóki agent pracuje. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização espera para reiniciar enquanto um agente trabalha. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление ждёт перезапуска, пока работает агент. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตรอรีสตาร์ทขณะที่เอเจนต์กำลังทำงาน «รีสตาร์ทเพื่ออัปเดต» จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, bir ajan çalışırken yeniden başlatmayı bekler. “Güncellemek için Yeniden Başlat” onu şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення чекає перезапуску, поки працює агент. «Перезапустити для оновлення» встановить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật chờ khởi động lại trong khi một tác tử đang làm việc. “Khởi động lại để cập nhật” cài nó ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "有智能体正在工作，更新等待重新启动。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "有代理程式正在工作，更新等待重新啟動。「重新啟動以更新」會立即安裝。"
+          }
+        }
+      }
+    },
+    "updater.held.unsentDraft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits to restart while a message is unsent. Restart to Update installs it now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未送信のメッセージがあるため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينتظر التحديث إعادة التشغيل ما دامت هناك رسالة لم تُرسل. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje čeka s ponovnim pokretanjem dok postoji neposlana poruka. „Ponovo pokreni za ažuriranje“ ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen venter med at genstarte, mens en besked ikke er sendt. „Genstart for at opdatere“ installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wartet mit dem Neustart, solange eine Nachricht nicht gesendet ist. „Zum Aktualisieren neu starten“ installiert es jetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización espera para reiniciar mientras hay un mensaje sin enviar. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour attend pour redémarrer tant qu’un message n’est pas envoyé. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento attende il riavvio finché c’è un messaggio non inviato. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពរង់ចាំចាប់ផ្ដើមឡើងវិញ ខណៈមានសារមិនទាន់ផ្ញើ។ «ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보내지 않은 메시지가 있어 업데이트가 다시 시작을 기다리고 있습니다. '다시 시작하여 업데이트'를 누르면 지금 설치됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen venter med å starte på nytt mens en melding ikke er sendt. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja czeka z ponownym uruchomieniem, dopóki wiadomość nie zostanie wysłana. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização espera para reiniciar enquanto houver uma mensagem não enviada. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление ждёт перезапуска, пока есть неотправленное сообщение. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตรอรีสตาร์ทขณะที่มีข้อความที่ยังไม่ได้ส่ง «รีสตาร์ทเพื่ออัปเดต» จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, gönderilmemiş bir mesaj varken yeniden başlatmayı bekler. “Güncellemek için Yeniden Başlat” onu şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення чекає перезапуску, поки є ненадіслане повідомлення. «Перезапустити для оновлення» встановить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật chờ khởi động lại trong khi còn tin nhắn chưa gửi. “Khởi động lại để cập nhật” cài nó ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "有消息尚未发送，更新等待重新启动。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "有訊息尚未傳送，更新等待重新啟動。「重新啟動以更新」會立即安裝。"
+          }
+        }
+      }
+    },
+    "updater.held.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits until cmux can tell no agent is working. Restart to Update installs it now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業中のエージェントがないことを cmux が確認できるまで、アップデートは待機しています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينتظر التحديث حتى يتأكد cmux من أن أي وكيل لا يعمل. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje čeka dok cmux ne utvrdi da nijedan agent ne radi. „Ponovo pokreni za ažuriranje“ ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen venter, indtil cmux kan se, at ingen agent arbejder. „Genstart for at opdatere“ installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wartet, bis cmux feststellen kann, dass kein Agent arbeitet. „Zum Aktualisieren neu starten“ installiert es jetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización espera hasta que cmux pueda confirmar que ningún agente está trabajando. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour attend que cmux puisse vérifier qu’aucun agent ne travaille. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento attende finché cmux non verifica che nessun agente è al lavoro. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពរង់ចាំរហូតដល់ cmux អាចដឹងថាគ្មានភ្នាក់ងារណាកំពុងធ្វើការ។ «ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작업 중인 에이전트가 없는지 cmux가 확인할 때까지 업데이트가 기다립니다. '다시 시작하여 업데이트'를 누르면 지금 설치됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen venter til cmux kan se at ingen agent arbeider. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja czeka, aż cmux ustali, że żaden agent nie pracuje. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização espera até o cmux confirmar que nenhum agente está trabalhando. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление ждёт, пока cmux не убедится, что ни один агент не работает. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตรอจนกว่า cmux จะยืนยันได้ว่าไม่มีเอเจนต์ใดกำลังทำงาน «รีสตาร์ทเพื่ออัปเดต» จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, cmux hiçbir ajanın çalışmadığından emin olana kadar bekler. “Güncellemek için Yeniden Başlat” onu şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення чекає, доки cmux не переконається, що жоден агент не працює. «Перезапустити для оновлення» встановить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật chờ đến khi cmux xác định được không có tác tử nào đang làm việc. “Khởi động lại để cập nhật” cài nó ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新会等到 cmux 能确认没有智能体在工作。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新會等到 cmux 能確認沒有代理程式在工作。「重新啟動以更新」會立即安裝。"
           }
         }
       }

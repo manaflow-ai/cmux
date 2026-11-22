@@ -20,7 +20,7 @@ struct NewTabStyleSwitchTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data(#"{"tabs":{"newTabTemplate":"terminal"}}"#.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         return (settings, directory)
@@ -40,26 +40,29 @@ struct NewTabStyleSwitchTests {
         var saves: [Task<Void, Never>] = []
         model.onEditNewTab = { edit in if case .template(let template) = edit { saves.append(Task { await settings.saveNewTabTemplate(template) }) } }
 
-        let reply = await Self.pick(model, "threads")
+        let reply = await Self.pick(model, "classic")
         #expect(reply["ok"] as? Bool == true)
         #expect(saves.count == 1)
         for save in saves { await save.value }
-        #expect(settings.snapshot.newTabTemplate == .threads)
+        #expect(settings.snapshot.newTabTemplate == .classic)
         let saved = try String(contentsOf: directory.appending(path: "cmux.json"), encoding: .utf8)
-        #expect(saved.contains("\"threads\""))
+        #expect(saved.contains("\"classic\""))
 
-        // Terminal and unknown values are not page styles: the setting stays. A stale Composer
-        // pick is normalized to Minimal before it reaches the saved config. Minimal is the default,
-        // so that write removes the key (#38119): the snapshot reads unset, which shows Minimal.
+        // Terminal and unknown values are not page styles: the setting stays. A stale pick of a
+        // retired page (Composer, Threads: templates a person builds now) is normalized to Minimal
+        // before it reaches the saved config. Minimal is the default, so that write removes the key
+        // (#38119): the snapshot reads unset, which shows Minimal.
         _ = await Self.pick(model, "terminal")
         _ = await Self.pick(model, "sparkles")
+        _ = await Self.pick(model, "threads")
         _ = await Self.pick(model, "composer")
-        #expect(saves.count == 4)
+        #expect(saves.count == 5)
         for save in saves { await save.value }
         #expect(settings.snapshot.newTabTemplate == nil, "Minimal is the default: tabs.newTabTemplate leaves cmux.json")
         let migrated = try String(contentsOf: directory.appending(path: "cmux.json"), encoding: .utf8)
         let root = try #require(try JSONSerialization.jsonObject(with: Data(migrated.utf8)) as? [String: Any], "cmux.json does not parse")
         #expect((root["tabs"] as? [String: Any])?["newTabTemplate"] == nil, "\(migrated)")
+        #expect(!migrated.contains("\"classic\""))
         #expect(!migrated.contains("\"threads\""))
         #expect(!migrated.contains("\"composer\""))
     }

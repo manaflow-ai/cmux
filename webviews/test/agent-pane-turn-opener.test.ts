@@ -235,6 +235,31 @@ test("loading older history after the opener keeps the records between and draws
   expect(new Set(toolIds).size).toBe(30);
 });
 
+// Leo, 2026-11-12: "the working for whatever seconds, it just still doesn't load properly". A
+// finished turn whose prompt is above the open page never reads a time counted from the first row
+// the page held; once the older page brings the prompt, "Worked for" is the whole turn's.
+test("a finished turn cut by the open page reads its whole time once its prompt is in", async () => {
+  const sessionId = `${CHAT}-worked-for`;
+  const history = record([
+    ...longTurn({ text: "Time the whole turn", promptId: "worked-prompt" }).map(
+      (event) => [event.dir, event.kind, event.msg] as Step,
+    ),
+    ["mux", "turn_result", { status: "completed" }],
+  ]).map((event) => ({ ...event, sessionId }));
+  const daemon = fakeDaemon(history, 10, sessionId);
+  const { client, rows } = await connect(daemon);
+  const ended = history.at(-1)!.at;
+  const prompt = history[0]!.at;
+  const summary = () => rows().find((row) => row.kind === "turnSummary");
+  const early = summary()?.durationMs;
+  // Never a time counted from a row inside the turn.
+  if (early !== undefined) expect(early).toBe(ended - prompt);
+  await client.loadOlder();
+  for (let i = 0; i < 3; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(summary()?.durationMs).toBe(ended - prompt);
+  expect(summary()?.toolCount).toBe(30);
+});
+
 test("a warm capped tail has its final completed-turn structure before the unchanged attach answers", async () => {
   const sessionId = `${CHAT}-warm-completed`;
   const history = longTurn({ text: "Keep the completed turn folded", promptId: "warm-prompt" }, 420);

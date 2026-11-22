@@ -211,6 +211,83 @@ async fn a_chat_being_moved_takes_no_prompt_and_an_aborted_move_gives_it_back() 
     assert_eq!(edits[0]["_meta"]["provenance"]["reason"], "moved", "{edits:?}");
 }
 
+/// A move that waits for the running turn (`afterTurn`) stops nothing and freezes nothing while
+/// the turn runs: a prompt sent meanwhile queues as usual (no `transfer.moving`), the turn ends
+/// on its own with no continuation, and the queued prompt moves with the chat and runs there
+/// once. Leo, 2026-11-20: "no like pausing or whatever of agents".
+#[tokio::test]
+async fn a_move_after_the_turn_lets_it_finish_and_takes_the_prompts_sent_meanwhile_along() {
+    let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let (_b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
+    let dir = tempfile::tempdir().unwrap();
+    let gate = dir.path().join("gate");
+    assert!(std::process::Command::new("mkfifo").arg(&gate).status().unwrap().success());
+    let s =
+        src.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let gated = format!("gate: {}", gate.display());
+    src.send(method::SESSION_PROMPT, prompt(&id, "p-turn", &gated)).await;
+    src.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
+
+    // The move's client asks on a connection of its own and waits there for the turn's end.
+    let mut mover = {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection(a.clone(), in_rx, out_tx));
+        let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+        c.become_person().await;
+        c
+    };
+    let begin_id = id.clone();
+    let begin = tokio::spawn(async move {
+        mover
+            .request("_acpmux/transfer_begin", json!({"sessionId": begin_id, "afterTurn": true}))
+            .await
+            .map(|begin| (begin, mover))
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!begin.is_finished(), "the move waits for the turn");
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["transferBlocked"], false, "nothing is frozen while the turn runs: {info}");
+    // Sent while the move waits: queued, never refused.
+    src.send(method::SESSION_PROMPT, prompt(&id, "p-mid", "mid")).await;
+    src.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-mid" && p["queued"] == true)
+        .await;
+
+    // The turn ends on its own; the move freezes the chat at its end, ahead of the queue.
+    std::fs::write(&gate, "go").unwrap();
+    let (begin, mut mover) = tokio::time::timeout(Duration::from_secs(20), begin)
+        .await
+        .expect("the move began once the turn ended")
+        .unwrap()
+        .unwrap();
+    assert!(begin.get("continues").is_none(), "no turn was cut: {begin}");
+    let received =
+        dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
+    let receive_id = received["receiveId"].as_str().unwrap().to_owned();
+    copy_bundle(&mut mover, &mut dst, &begin, &receive_id).await;
+    dst.request(
+        "_acpmux/transfer_finish",
+        json!({"receiveId": receive_id, "epoch": begin["epoch"]}),
+    )
+    .await
+    .unwrap();
+    let commit = json!({"sessionId": id, "transferId": begin["transferId"],
+                        "to": {"sessionId": id}, "epoch": begin["epoch"]});
+    src.request("_acpmux/transfer_commit", commit).await.unwrap();
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while !texts(&mut dst, &id, "user_message").await.contains(&"mid".to_owned()) {
+        assert!(tokio::time::Instant::now() < deadline, "the prompt sent meanwhile never ran");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let ran_there = texts(&mut dst, &id, "user_message").await;
+    assert_eq!(ran_there, [gated.as_str(), "mid"], "the whole turn, then the prompt once");
+    assert!(records(&mut dst, &id, "auto_resume_scheduled").await.is_empty());
+    assert_eq!(texts(&mut src, &id, "user_message").await, [gated.as_str()]);
+}
+
 /// The continuation of a move that did not happen: it says the chat stayed and quotes the cut
 /// prompt.
 fn assert_stayed_continuation(text: &str) {
@@ -234,8 +311,18 @@ async fn records(c: &mut TestClient, id: &str, kind: &str) -> Vec<Value> {
     page["events"].as_array().unwrap().iter().map(|e| e["msg"].clone()).collect()
 }
 
-/// `hub` on a unix socket of its own, as a sibling build's daemon listens; its path.
-async fn listen(hub: &Arc<Hub>) -> std::path::PathBuf {
+/// A test's own socket path, unlinked when the test ends (each run left one
+/// in `/tmp` before: 101 on gcp-agent-lane-2, 2026-11-12).
+struct Socket(std::path::PathBuf);
+
+impl Drop for Socket {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// `hub` on a unix socket of its own, as a sibling build's daemon listens.
+async fn listen(hub: &Arc<Hub>) -> Socket {
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     // `/tmp`, not the temp dir: a worker's can be too long for a socket path.
@@ -243,7 +330,7 @@ async fn listen(hub: &Arc<Hub>) -> std::path::PathBuf {
         .join(format!("acpmux-move-{}-{n}.sock", std::process::id()));
     let listener = acpmux::server::bind_unix(&path).await.unwrap();
     tokio::spawn(acpmux::server::serve_unix(hub.clone(), listener));
-    path
+    Socket(path)
 }
 
 /// Waits until `id`'s status on `c` is `status`.
@@ -296,7 +383,7 @@ async fn a_move_whose_client_goes_away_after_the_target_took_the_chat_commits_on
     let begin = src
         .request(
             "_acpmux/transfer_begin",
-            json!({"sessionId": id, "interrupt": true, "to": {"socket": socket}}),
+            json!({"sessionId": id, "interrupt": true, "to": {"socket": &socket.0}}),
         )
         .await
         .unwrap();
@@ -335,7 +422,7 @@ async fn a_move_whose_client_goes_away_before_the_target_finished_is_dropped_the
     let begin = src
         .request(
             "_acpmux/transfer_begin",
-            json!({"sessionId": id, "interrupt": true, "to": {"socket": socket}}),
+            json!({"sessionId": id, "interrupt": true, "to": {"socket": &socket.0}}),
         )
         .await
         .unwrap();

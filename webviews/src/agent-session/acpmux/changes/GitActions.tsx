@@ -242,16 +242,9 @@ function CommitForm({
           {t("git.commit.submit")}
         </button>
       </div>
-      {/* Keep the scope hint and Include new files below the scope and action buttons. Reserve both
-          translations and the checkbox so switching scope never moves or wraps either row. */}
+      {/* Include new files sits below the scope and action buttons. Its space stays reserved under
+          Staged so switching scope never moves the rows below. */}
       <div className="acpmux-git-form-row acpmux-git-scope-line">
-        <span className="acpmux-git-scope-hint">
-          {options.map(({ value }) => (
-            <span key={value} data-visible={scope === value} aria-hidden={scope !== value}>
-              {t(value === "staged" ? "git.commit.stagedHint" : "git.commit.allHint")}
-            </span>
-          ))}
-        </span>
         <label className="acpmux-git-include-new" data-visible={scope === "all"}>
           <input
             type="checkbox"

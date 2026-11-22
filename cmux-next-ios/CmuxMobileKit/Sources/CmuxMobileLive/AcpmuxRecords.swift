@@ -52,6 +52,28 @@ struct AcpmuxRecords {
         }
     }
 
+    /// A tool call record (`tool_call` or `tool_call_update`, the chat's or a subagent's) as the
+    /// update it makes: what a cut output's whole record (``AcpmuxSessionSource/fullToolOutput(_:)``)
+    /// puts in place. Nil for any other record.
+    func toolCallUpdate(in record: JSONValue) -> ACPToolCallUpdate? {
+        for event in map(record) {
+            let update: ACPSessionUpdate
+            switch event {
+            case .update(let u), .subagentUpdate(_, let u): update = u
+            default: continue
+            }
+            switch update {
+            case .toolCallUpdate(let u): return u
+            case .toolCall(let call):
+                return ACPToolCallUpdate(toolCallId: call.id, title: call.title, kind: call.kind, status: call.status,
+                                         content: call.content, locations: call.locations, rawInput: call.rawInput,
+                                         rawOutput: call.rawOutput, outputCut: call.outputCut)
+            default: continue
+            }
+        }
+        return nil
+    }
+
     func mux(_ kind: String, _ msg: JSONValue, at: Date) -> [AgentSessionEvent] {
         switch kind {
         case "user_message":
@@ -180,8 +202,15 @@ struct AcpmuxRecords {
                                                        plan: ACPPermissionRequest.plan(toolCall: toolCall)))
     }
 
+    /// `value` as `T`, walked straight from the parsed record (`JSONValue.decoded(as:)`), not
+    /// written out as JSON and parsed again. A value it refuses goes through `JSONDecoder` once
+    /// more, so nothing that decoded before stops decoding.
     static func decode<T: Decodable>(_ type: T.Type, _ value: JSONValue) throws -> T {
-        try JSONDecoder().decode(T.self, from: JSONEncoder().encode(value))
+        do {
+            return try value.decoded(as: T.self)
+        } catch {
+            return try JSONDecoder().decode(T.self, from: JSONEncoder().encode(value))
+        }
     }
 
     static func convert<T: Decodable, U: Encodable>(_ value: U, to type: T.Type) throws -> T {
@@ -213,6 +242,22 @@ public struct AcpmuxSession: Hashable, Sendable {
     public var lastTurnEndedAt: Date?
     /// `lastTurn.errorText`: why the last turn failed, in the agent's words.
     public var lastTurnError: String?
+    /// `agentSessionId`: the harness's own session id the chat resumes or watches; Toggle Terminal and
+    /// Chat pairs the chat with the terminal whose agent reports it.
+    public var agentSessionID: String?
+    /// `watching`: a View Only chat of a conversation another app (a terminal) runs.
+    public var watching = false
+
+    /// The name a person gave the chat, or nil when it is an id the system made: the Chief's own
+    /// sessions (optchat-chief names them `optchat-<home>-<n>`, `optchat-sub-<home>-a<n>`,
+    /// `optchat-compact-…`; the Mac reads its roles from them, `ChiefSessionRole`). Never shown.
+    public var shownName: String? {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty || name.hasPrefix("optchat-") ? nil : name
+    }
+
+    /// What a list calls the chat: its name, else the agent ("Claude", "Codex").
+    public var displayName: String { shownName ?? DaemonTree.agentName(harness) }
 
     init?(_ value: JSONValue) {
         guard let id = value["sessionId"]?.stringValue else { return nil }
@@ -232,6 +277,8 @@ public struct AcpmuxSession: Hashable, Sendable {
         lastTurnID = value["lastTurn"]?["turnId"]?.stringValue
         lastTurnEndedAt = value["lastTurn"]?["endedAt"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) }
         lastTurnError = value["lastTurn"]?["errorText"]?.stringValue
+        agentSessionID = value["agentSessionId"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        watching = value["watching"]?.stringValue.map { !$0.isEmpty } ?? false
         updatedAt = value["updatedAt"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) }
     }
 

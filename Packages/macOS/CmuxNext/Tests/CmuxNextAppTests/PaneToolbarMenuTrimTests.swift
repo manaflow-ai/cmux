@@ -13,7 +13,7 @@ struct PaneToolbarMenuTrimTests {
         registry.context = ActionContext(rawValue: .max)
         let tools: [ActionID] = ["openDiffViewer", "file.open", "agentPane.searchChats"]
         for id in tools { registry.bind(id, invoke: { _ in }) }
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil })
+        let toolbar = PaneToolbar(registry: { registry })
         toolbar.update(target: "t1", kind: .newTab, pinned: tools.map(\.rawValue))
         toolbar.view.frame = NSRect(x: 0, y: 0, width: width, height: 32)
         toolbar.view.layoutSubtreeIfNeeded()
@@ -34,9 +34,7 @@ struct PaneToolbarMenuTrimTests {
         for id: ActionID in ["splitRight", "splitDown", "toggleSplitZoom", "openDiffViewer", "file.open", "agentPane.searchChats"] {
             registry.bind(id, invoke: { _ in })
         }
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: {
-            registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: "p1"))
-        })
+        let toolbar = PaneToolbar(registry: { registry }, paneTarget: ActionTargetRef(kind: .pane, id: "p1"))
         toolbar.update(target: "t1", kind: .newTab)
         let menu = try #require(toolbar.view.moreMenu?())
         let ids = menu.items.compactMap { ActionRegistry.menuRun(of: $0)?.id }
@@ -55,7 +53,7 @@ struct PaneToolbarMenuTrimTests {
     @Test(arguments: [PaneToolbar.Kind.newTab, .terminal, .browser, .other])
     func pinChoicesFollowTheSelectedKind(kind: PaneToolbar.Kind) throws {
         let registry = ActionRegistry.standard()
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil })
+        let toolbar = PaneToolbar(registry: { registry })
         toolbar.update(target: "t1", kind: kind)
         let menu = try #require(toolbar.view.moreMenu?())
         let pins = try #require(menu.items.last?.submenu)
@@ -69,7 +67,7 @@ struct PaneToolbarMenuTrimTests {
 
     @Test func anInapplicableExistingPinCanStillBeUnpinned() throws {
         let registry = ActionRegistry.standard()
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil })
+        let toolbar = PaneToolbar(registry: { registry })
         var written: PaneToolbarButtonsSetting?
         toolbar.writePinned = { written = $0 }
         toolbar.update(target: "browser", kind: .browser, pinned: ["file.open"])

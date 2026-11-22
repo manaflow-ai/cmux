@@ -11,7 +11,7 @@ extension SidebarListViewComponents {
     func spliceInsertion() -> (layout: SidebarLayout, row: SidebarRowKey, options: SidebarLayoutOptions)? {
         guard let insertion = model.rowInsertion, insertion.to == model.sectionsRevision, insertion.content == model.contentRevision, let base = spliceBase,
               base.revision == insertion.from, drag == nil, settling == nil, landing == nil, external == nil,
-              rowHold.isEmpty, leaving.isEmpty, let ws = insertion.workspace, workspaces[ws.id] == nil,
+              leaving.isEmpty, let ws = insertion.workspace, workspaces[ws.id] == nil,
               let shown = sections[insertion.section.id], shown.nodes.count + 1 == insertion.section.nodes.count else { return nil }
         // The section the list drew is the set's without the new node (one compare per node, no layout): not when
         // `listingEachWorkspaceOnce` left out a workspace an earlier section lists too, which the cache would take back.
@@ -39,7 +39,7 @@ extension SidebarListViewComponents {
     func spliceRemoval() -> (layout: SidebarLayout, row: SidebarRowKey, moved: Bool, options: SidebarLayoutOptions)? {
         guard let removal = model.rowRemoval, removal.to == model.sectionsRevision, removal.content == model.contentRevision,
               let base = spliceBase, base.revision == removal.from, drag == nil, settling == nil, landing == nil, external == nil,
-              rowHold.isEmpty, leaving.isEmpty else { return nil }
+              leaving.isEmpty else { return nil }
         let id = removal.workspace.id
         // The section the list drew is the removal's with the row at its node (one compare per node, no layout).
         guard workspaces[id] != nil, let shown = sections[removal.section.id], removal.node < shown.nodes.count,
@@ -83,7 +83,7 @@ extension SidebarListViewComponents {
     /// drawn row that no fold, no collapsed group and no Archive keeps for the selection.
     private func keepsRows(selecting id: WorkspaceID?, inserted: WorkspaceID, _ o: SidebarLayoutOptions) -> Bool {
         guard let id, id != inserted, let ws = workspaces[id] else { return true }
-        guard !ws.isArchived, !(o.foldsDone && ws.taskStatus == .done) else { return false }
+        guard !ws.isArchived, !(o.foldsDone && ws.taskStatus == .done), !o.settled.contains(id) else { return false }
         // Listed but not drawn: a collapsed group or a fold hides it, and its selection would draw it.
         guard let row = displayed.row(for: .workspace(id)) else { return false }
         // A group that leaves for the Archive stays in its list while it holds the selection (`splittingArchive`),

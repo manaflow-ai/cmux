@@ -5,6 +5,7 @@
 use super::MessageWriter;
 use super::OutboundStream;
 use super::ResourceWorkerPermit;
+use super::message_writer::long_connection::stream_start_error;
 use super::register_resource_outbound;
 use super::resource_session_snapshot;
 use super::resource_stream_end;
@@ -295,7 +296,7 @@ pub(super) fn prepare_session_event_stream(
     );
     let outbound = writer
         .start_stream(&overflow)
-        .map_err(|_| ResourceError::transport_closed("could not allocate an outbound stream"))?;
+        .map_err(|error| stream_start_error("session.events", &error))?;
     let (canceled, worker_permit) =
         register_resource_outbound(mux, client, &stream_id, &outbound, "session.events")?;
     Ok((

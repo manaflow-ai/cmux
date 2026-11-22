@@ -1,0 +1,47 @@
+{
+  "caption": "Share a screenshot from Preview or Finder to the chat item in the Share menu, and it waits in a chat's composer.",
+  "frameInterval": 0.25,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "Another app shares a picture",
+      "cmux": [
+        "action",
+        "run",
+        "newTab",
+        "--arg",
+        "name=Preview",
+        "--arg",
+        "command=printf '\\033]0;Preview\\007'; clear; python3 -I -c \"import struct, zlib; w = h = 160; row = b'\\x00' + b'\\x3c\\x8c\\xe6' * w; c = lambda t, d: struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d)); open('/tmp/share-demo.png', 'wb').write(b'\\x89PNG\\r\\n\\x1a\\n' + c(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + c(b'IDAT', zlib.compress(row * h)) + c(b'IEND', b''))\"; printf 'import AppKit\\nlet u = URL(fileURLWithPath: \\\"/tmp/share-demo.png\\\")\\nif let s = NSSharingService.sharingServices(forItems: [u]).first(where: { $0.title.hasSuffix(\\\" Chat\\\") }) { s.perform(withItems: [u]) }\\nRunLoop.main.run(until: Date().addingTimeInterval(5))\\n' > /tmp/share-demo.swift; printf '\\n  Share > Chat\\n'; sleep 3; xcrun swift /tmp/share-demo.swift; sleep 900",
+        "--arg",
+        "focus=true"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Share > Chat",
+      "wait": 6,
+      "clip": true
+    },
+    {
+      "title": "The picture waits in the chat's composer",
+      "wait": 2,
+      "clip": true
+    },
+    {
+      "title": "End",
+      "wait": 0.3
+    }
+  ],
+  "crop": [
+    0.17,
+    0.3,
+    0.83,
+    0.7
+  ],
+  "lead": 0.6,
+  "hold": 1.6
+}

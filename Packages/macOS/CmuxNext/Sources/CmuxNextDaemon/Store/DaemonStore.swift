@@ -196,6 +196,10 @@ public final class DaemonStore: StateResourceQueries {
     /// The layout as the last allowed writer left it (debug builds).
     @ObservationIgnored var mirrorFingerprint: Int?
     @ObservationIgnored var mirrorFingerprintTakenAt: ContinuousClock.Instant?
+    #if DEBUG
+    /// Open ``withMirrorCheckSuspended(_:)`` scopes (tests that time applies; debug builds only).
+    @ObservationIgnored var mirrorCheckSuspensions = 0
+    #endif
     /// Events at or below this sequence are superseded by the last snapshot.
     @ObservationIgnored var snapshotBarrier: UInt64 = 0
     /// The last live snapshot per workspace and what changed since (``SnapshotMemo``): the next
@@ -263,6 +267,9 @@ public final class DaemonStore: StateResourceQueries {
     public func screen(_ handle: ScreenID) -> ScreenModel? { index.screensByHandle[handle] }
     public func pane(_ handle: PaneID) -> PaneModel? { index.panesByHandle[handle] }
     public func tab(surface: SurfaceID) -> TabModel? { index.tabsBySurface[surface] }
+    /// The tabs that show acpmux session `session` (agent chat tabs), from the index in O(those tabs):
+    /// a turn end reads them, never every tab. Reads no observed state (a hot path, like `tab(surface:)`).
+    public func tabs(agentSession session: String) -> [TabModel] { index.tabs(agentSession: session) }
     /// The current tab records, invalidated only when the tab/pane topology
     /// changes. Callers that need to inspect every tab without observing row
     /// status should use this instead of walking ``workspaces``.
@@ -361,6 +368,11 @@ public final class DaemonStore: StateResourceQueries {
         tab(id: id).flatMap { pane(containing: $0.surface) }.flatMap { workspace(containing: $0.handle) }
     }
 
+    /// Every tab of the workspace that holds tab `id`, in screen and pane order; nil when no workspace lists it.
+    public func tabs(inWorkspaceHolding id: String) -> [TabModel]? {
+        workspace(holdingTab: id)?.allTabs
+    }
+
     // MARK: Snapshot
 
     /// Replaces the confirmed tree, reusing records by durable identity,
@@ -397,7 +409,7 @@ public final class DaemonStore: StateResourceQueries {
                 restoredEpoch = connectionEpoch
                 restoredTabIDs = currentTabIDs
             }
-            ProvisionalSplit.noteDaemonPanes(in: self)
+            SnapshotCreations.note(in: self)
         }
         workspaceListMayHaveChanged()
         runAppliedWaiters(nil, snapshot: true)
@@ -457,7 +469,7 @@ public final class DaemonStore: StateResourceQueries {
     /// Seeds agent state (`list-agents`), e.g. after connect.
     public func apply(agents: [AgentStatus]) {
         self.agents.seed(agents)
-        for (surface, tab) in tabsBySurface { tab.setAgent(self.agents.bySurface[surface]) }
+        for tab in tabsBySurface.values { tab.setAgent(self.agents.status(for: tab)) }
     }
 
     /// Records a completed handshake before its `.connected` event drains, so capability checks right after connect see this daemon.
@@ -569,7 +581,8 @@ public final class DaemonStore: StateResourceQueries {
     /// What a tab learns when it is indexed: its agent, its observed folder and this Mac's former hosts.
     private func prime(_ tab: TabModel) {
         if tab.formerLocalHosts != formerLocalHosts { tab.formerLocalHosts = formerLocalHosts }
-        if tab.agent == nil, let agent = agents.bySurface[tab.surface] { tab.setAgent(agent) }
+        // By its terminal first: a tab a restore or reopen gave a new surface finds its agent (cmux#49392).
+        if let agent = agents.status(for: tab) { tab.setAgent(agent) }
         if let presence = heldPresence.removeValue(forKey: tab.surface) { tab.setPresence(presence) }
         tab.setObservedCwd(directories.directory(for: tab.surface))
     }

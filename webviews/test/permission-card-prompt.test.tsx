@@ -8,6 +8,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxPermission } from "../src/agent-session/acpmux/model";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div><textarea id=elsewhere></textarea>", {
   url: "http://localhost/",
@@ -29,7 +30,8 @@ const domClasses = Object.getOwnPropertyNames(dom.window).filter(
   (key) => /^(HTML|SVG|CSS|Document|Event|KeyboardEvent)/.test(key) && !(key in globals),
 );
 for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) globals[key] = value;
     else delete globals[key];
@@ -284,7 +286,9 @@ test("a long rule shows once, on the scope line, never in a button, and describe
   const lines = card.host.querySelectorAll(".acpmux-permission-scope");
   expect(lines.length).toBe(1);
   expect(lines[0]!.textContent).toBe(`In /Users/you/media/reel · ${RULE}`);
-  expect(lines[0]!.getAttribute("title")).toBe(`In /Users/you/media/reel · ${RULE}`);
+  // The line shows its words, so it has no tooltip; screen readers still hear the whole line.
+  expect(lines[0]!.getAttribute("title")).toBeNull();
+  expect(lines[0]!.getAttribute("aria-description")).toBe(`In /Users/you/media/reel · ${RULE}`);
   // The rule is drawn exactly once in the whole card.
   expect(card.host.textContent!.split(RULE).length - 1).toBe(1);
   const [target, rule] = [...lines[0]!.querySelectorAll("span")];
