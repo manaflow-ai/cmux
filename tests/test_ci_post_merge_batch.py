@@ -8,6 +8,10 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
+from argparse import Namespace
+from unittest import mock
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -48,6 +52,24 @@ class TickTest(unittest.TestCase):
         self.assertEqual(pmb.window_minutes(""), 120)
         self.assertEqual(pmb.window_minutes("bad"), 120)
         self.assertEqual(pmb.window_minutes("45"), 45)
+
+
+class WebTickTest(unittest.TestCase):
+    """The batch's `web` suite replaced cmux-next-web.yml's coalescing tick: a tick dispatches no web run."""
+
+    def test_a_tick_dispatches_no_web_workflow(self) -> None:
+        calls = []
+
+        def api(path, method="GET", fields=None, **_):
+            calls.append((method, path, fields))
+            return {"sha": "a" * 40} if path.endswith("/commits/feat-cmux-next") else None
+
+        args = Namespace(repo="o/r", branch="feat-cmux-next", window_minutes="120", dry_run=True)
+        with unittest.mock.patch.object(pmb, "gh_api", api), \
+                unittest.mock.patch.object(pmb, "list_runs", lambda repo, branch: [run(1, "a" * 40, "2026-11-21T11:00:00Z")]), \
+                unittest.mock.patch("sys.stdout"):
+            self.assertEqual(pmb.cmd_tick(args), 0)
+        self.assertFalse([call for call in calls if "cmux-next-web.yml" in call[1]])
 
 
 class PlanAndJudgeTest(unittest.TestCase):
@@ -317,6 +339,48 @@ class PushTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             pmb.push_branch("u", "r", run=run, sleep=lambda s: None)
         self.assertEqual(len(calls), 4)
+
+
+class StartBranchTest(unittest.TestCase):
+    """The revert branch is created by API at the tip; one left by an earlier try is reused."""
+
+    def test_creates_the_ref_at_the_tip(self) -> None:
+        calls = []
+        pmb.start_branch("o/r", "revert/x", "abc", api=lambda path, **kw: calls.append((path, kw)))
+        with mock.patch.dict(os.environ, {"PUSH_TOKEN": "push", "GH_TOKEN": "job"}):
+            pmb.start_branch("o/r", "revert/y", "abc", api=lambda path, **kw: calls.append((path, kw)))
+        self.assertEqual(calls[0][0], "repos/o/r/git/refs")
+        self.assertEqual(calls[0][1]["fields"], {"ref": "refs/heads/revert/x", "sha": "abc"})
+        self.assertEqual(calls[1][1]["tokens"], ["push"])
+
+    def test_an_existing_branch_is_reused_and_other_errors_raise(self) -> None:
+        def exists(path, **kw):
+            raise RuntimeError("gh api POST repos/o/r/git/refs: Reference already exists (HTTP 422)")
+
+        pmb.start_branch("o/r", "revert/x", "abc", api=exists)
+
+        def denied(path, **kw):
+            raise RuntimeError("gh api POST repos/o/r/git/refs: Resource not accessible by integration (HTTP 403)")
+
+        with self.assertRaises(RuntimeError):
+            pmb.start_branch("o/r", "revert/x", "abc", api=denied, sleep=lambda s: None)
+
+    def test_a_github_5xx_is_retried_then_raises(self) -> None:
+        tries, waits = [], []
+
+        def flaky(path, **kw):
+            tries.append(1)
+            if len(tries) < 2:
+                raise RuntimeError("gh api POST repos/o/r/git/refs: gh: Server Error (HTTP 502)")
+
+        pmb.start_branch("o/r", "revert/x", "abc", api=flaky, sleep=waits.append)
+        self.assertEqual((len(tries), waits), (2, [15]))
+
+        def down(path, **kw):
+            raise RuntimeError("gh: Server Error (HTTP 502)")
+
+        with self.assertRaises(RuntimeError):
+            pmb.start_branch("o/r", "revert/x", "abc", api=down, sleep=lambda s: None)
 
 
 if __name__ == "__main__":
