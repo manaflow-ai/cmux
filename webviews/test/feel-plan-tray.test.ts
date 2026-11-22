@@ -69,14 +69,10 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
   });
 
   /** Where a hand grabs the rim: its middle band, a third of the way in (the tuck chevron sits over
-   *  its centre and keeps its own clicks; `rimMiddle` is that point). */
+   *  its centre and keeps its own clicks). */
   const rimCentre = async (page: Page) => {
     const box = (await page.locator(RIM).boundingBox())!;
     return { x: box.x + box.width / 3, y: box.y + box.height / 2, box };
-  };
-  const rimMiddle = async (page: Page) => {
-    const box = (await page.locator(RIM).boundingBox())!;
-    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   };
 
   /** The list's line pitch: the distance between its first two lines' tops. */
