@@ -54,8 +54,9 @@ async fn page(
             if budget.is_some_and(|b| sent.raw >= b) {
                 return sent;
             }
+            let limit = budget.map_or(4u64 << 20, |b| (b - sent.raw).min(4 << 20));
             let mut read = json!({"transferId": transfer_id, "path": path, "offset": offset,
-                                  "limit": 4u64 << 20});
+                                  "limit": limit});
             if let Some(epoch) = epoch {
                 read["epoch"] = json!(epoch);
             }
@@ -167,11 +168,16 @@ async fn a_stopped_precopy_resumes_where_the_target_stopped_and_later_rounds_sen
     // The chat runs on; the move is begun again.
     src.request(method::SESSION_PROMPT, prompt(&id, "p-mid", "mid")).await.unwrap();
     let (second, stage_id, from, sent2) = round(&mut src, &mut dst, &id, link, None).await;
+    // What the stage held of the log is taken up; a small file the chat rewrote in place since
+    // (its digest differs) is sent again whole.
     let resumed_at: u64 = from.values().sum();
-    assert_eq!(resumed_at, sent.raw, "the stage resumed at what it held: {from:?}");
+    assert!(
+        resumed_at <= sent.raw && resumed_at * 10 > sent.raw * 9,
+        "the stage resumed at what it held: {from:?} of {sent:?}"
+    );
     let total2: u64 =
         second["files"].as_array().unwrap().iter().map(|f| f["size"].as_u64().unwrap()).sum();
-    assert_eq!(sent2.raw, total2 - sent.raw, "the second round sent only the rest");
+    assert_eq!(sent2.raw, total2 - resumed_at, "the second round sent only the rest: {from:?}");
     assert_eq!(prepares_of(&id), 1, "a new prepare drops the chat's earlier ones");
 
     // Another round: only what the chat logged since its last prepare.
@@ -299,13 +305,16 @@ async fn a_live_move_freezes_for_the_tail_only_over_a_slow_link() {
             begin["afterSeq"] = prepared["afterSeq"].clone();
         }
         let begun = src.request("_acpmux/transfer_begin", begin).await.unwrap();
+        let mut phases = vec![("begin", started.elapsed())];
         let mut receive = json!({"manifest": begun});
         if let Some((_, stage_id)) = &staged {
             receive["stageId"] = json!(stage_id);
         }
         let received = dst.request("_acpmux/transfer_receive", receive).await.unwrap();
         let receive_id = received["receiveId"].as_str().unwrap().to_owned();
+        phases.push(("receive", started.elapsed()));
         let from = held(&mut src, &begun["transferId"], &received).await;
+        phases.push(("digest", started.elapsed()));
         let epoch = begun["epoch"].as_u64();
         let froze = page(
             &mut src,
@@ -319,12 +328,14 @@ async fn a_live_move_freezes_for_the_tail_only_over_a_slow_link() {
             None,
         )
         .await;
+        phases.push(("pages", started.elapsed()));
         dst.request(
             "_acpmux/transfer_finish",
             json!({"receiveId": receive_id, "epoch": begun["epoch"]}),
         )
         .await
         .unwrap();
+        phases.push(("finish", started.elapsed()));
         src.request(
             "_acpmux/transfer_commit",
             json!({"sessionId": id, "transferId": begun["transferId"], "to": {"sessionId": id},
@@ -333,6 +344,17 @@ async fn a_live_move_freezes_for_the_tail_only_over_a_slow_link() {
         .await
         .unwrap();
         let freeze = started.elapsed();
+        phases.push(("commit", freeze));
+        let mut at = Duration::ZERO;
+        let steps: Vec<String> = phases
+            .iter()
+            .map(|(name, end)| {
+                let took = *end - at;
+                at = *end;
+                format!("{name} {} ms", took.as_millis())
+            })
+            .collect();
+        eprintln!("{mode} freeze: {}", steps.join(", "));
         let (_, ran) = whole_log(&mut dst, &id).await;
         assert_eq!(ran.last().map(String::as_str), Some("last"), "{mode}");
         freezes.insert(mode, freeze);

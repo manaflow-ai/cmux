@@ -634,13 +634,14 @@ impl Hub {
             anyhow::ensure!(!segment.exists(), "chat {id} has a segment 000000 already");
             // The receive keeps its own name for the file until it goes: a finish tried again
             // after a failed import finds it.
-            if crate::home_fs::hard_link(file, &segment).is_err() {
+            let linked = crate::home_fs::hard_link(file, &segment).is_ok();
+            if !linked {
                 let tmp = events.join("000000.ndjson.history");
                 crate::home_fs::copy(file, &tmp)?;
                 std::fs::File::open(&tmp)?.sync_all()?;
                 crate::home_fs::rename(&tmp, &segment)?;
             }
-            adopt_index(file, &dir);
+            adopt_index(file, &dir, &segment, linked);
             for synced in [&events, &dir] {
                 crate::home_fs::sync_dir(synced)?;
             }
@@ -741,8 +742,12 @@ fn private_stage(stage: &Path, events: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Links the kind index made beside the staged segment `file` into the chat's folder `dir`.
-fn adopt_index(file: &Path, dir: &Path) {
+/// Links the kind index made beside the staged segment `file` into the chat's folder `dir`, as
+/// the copy of `segment` (the chat's segment `000000`). A segment that was copied, not linked
+/// (the stage on another file system than the store), is another file: the index is written
+/// again for it (`store/kind_index.rs` `carry_copy`), or the first scan reads the whole log
+/// inside the freeze.
+fn adopt_index(file: &Path, dir: &Path, segment: &Path, linked: bool) {
     let Some(staged) = file.parent().and_then(Path::parent) else { return };
     let index = crate::store::KIND_INDEX_DIR;
     let (copy, to) = (staged.join(index).join("000000.ndjson"), dir.join(index));
@@ -751,7 +756,12 @@ fn adopt_index(file: &Path, dir: &Path) {
     }
     let target = to.join("000000.ndjson");
     let _ = crate::home_fs::remove_file(&target);
-    let _ = crate::home_fs::hard_link(&copy, &target);
+    if linked && crate::home_fs::hard_link(&copy, &target).is_ok() {
+        return;
+    }
+    if let Err(error) = crate::store::carry_kind_index(&copy, segment, &target) {
+        tracing::debug!(segment = %segment.display(), "staged kind index not carried: {error:#}");
+    }
 }
 
 /// `v[k]` without the indexing lint: Null when absent.
