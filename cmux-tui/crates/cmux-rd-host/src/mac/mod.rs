@@ -28,6 +28,8 @@ use cmux_encode::videotoolbox::{
 use cmux_rd_core::flow::Rect;
 use cmux_rd_core::profile::EncodeProfile;
 use cmux_rd_proto::InputEvent;
+#[cfg(feature = "computer-use")]
+pub(crate) use input::post_key_press;
 use input::Injector;
 use std::os::fd::RawFd;
 

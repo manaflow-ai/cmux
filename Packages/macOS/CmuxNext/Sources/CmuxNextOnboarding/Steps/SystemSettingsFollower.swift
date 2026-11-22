@@ -1,6 +1,16 @@
 import AppKit
 import CmuxNextWakeups
 
+/// Reads where the first app list of the System Settings pane ends (a fake in tests). The app has
+/// no live reader: reading System Settings' elements needs Accessibility, and this app never holds
+/// or asks for a privacy grant (the Screen Sharing helper holds them all, `GrantHolding`), so the
+/// panel docks at the window's bottom instead (``SystemSettingsWindow``).
+protocol SettingsListReading: AnyObject {
+    /// The bottom of the pane's first list, in points from the top edge of `window`,
+    /// or nil when it cannot be read.
+    func firstListBottom(in window: SettingsWindowMatch) async -> CGFloat?
+}
+
 /// Reads of the System Settings window list (the window list itself; a fake in tests).
 protocol SettingsWindowReading: AnyObject {
     /// The frontmost System Settings window on screen, or nil when there is none.

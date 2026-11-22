@@ -67,6 +67,8 @@ mod encoder;
 mod eval;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod fdwait;
+#[cfg(all(target_os = "macos", feature = "computer-use"))]
+mod grant_requests;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod host;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -256,6 +258,11 @@ pub fn run_cli(args: &[String]) -> i32 {
     #[cfg(all(target_os = "macos", feature = "computer-use"))]
     if cmd == computer_use_worker::MODE {
         return computer_use_worker::run(&args[1..]);
+    }
+    // The NEXT app's one-shot asks (a dictation key press, a Voice Room still): one JSON line.
+    #[cfg(all(target_os = "macos", feature = "computer-use"))]
+    if matches!(cmd.as_str(), grant_requests::POST_KEY | grant_requests::SCREEN_STILL) {
+        return grant_requests::run(cmd, &args[1..]);
     }
     if matches!(cmd.as_str(), "-h" | "--help" | "help") {
         println!("{USAGE}");

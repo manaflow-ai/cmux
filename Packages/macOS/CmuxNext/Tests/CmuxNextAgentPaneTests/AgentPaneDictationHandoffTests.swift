@@ -1,3 +1,4 @@
+import CmuxNextComputerUse
 import CmuxNextDictation
 import CmuxNextSettings
 import CmuxNextTestSupport
@@ -14,13 +15,32 @@ import Testing
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
-    private final class Posted { var presses: [(CGKeyCode, CGEventFlags)] = []; var system = 0; var stops = 0 }
+    private final class Posted { var presses: [(CGKeyCode, CGEventFlags)] = []; var system = 0; var stops = 0; var requests = 0 }
+
+    /// The Screen Sharing helper's stand-in: it posts (or lacks the grant) and counts prompts.
+    private final class FakeHolder: GrantHolding {
+        let posted: Posted
+        let mayPost: Bool
+
+        init(posted: Posted, mayPost: Bool) {
+            self.posted = posted
+            self.mayPost = mayPost
+        }
+
+        func postKey(_ keyCode: CGKeyCode, flags: CGEventFlags) async -> GrantHolderAnswer {
+            guard mayPost else { return .notGranted }
+            posted.presses.append((keyCode, flags))
+            return .done
+        }
+        func screenStill(maxWidth: Int, excluding pid: pid_t) async -> GrantHolderStill { .unavailable }
+        func requestAccessibility() async { posted.requests += 1 }
+        func requestScreenRecording() async {}
+    }
 
     private func handoff(installed: Set<String> = ["com.openai.codex"], mayPost: Bool = true, posted: Posted) -> AgentPaneDictationHandoff {
         var handoff = AgentPaneDictationHandoff()
         handoff.installedURL = { installed.contains($0) ? URL(fileURLWithPath: "/Applications/\($0).app") : nil }
-        handoff.mayPost = { mayPost }
-        handoff.post = { posted.presses.append(($0, $1)); return true }
+        handoff.holder = FakeHolder(posted: posted, mayPost: mayPost)
         handoff.systemDictation = { posted.system += 1 }
         handoff.stopOwnDictation = { posted.stops += 1 }
         return handoff
@@ -33,43 +53,45 @@ import Testing
         return setting
     }
 
-    @Test func cmuxKeepsItsOwnDictation() {
+    @Test func cmuxKeepsItsOwnDictation() async {
         let posted = Posted()
-        #expect(handoff(posted: posted).handOff(setting(.cmux)) == .ownDictation)
+        #expect(await handoff(posted: posted).handOff(setting(.cmux)) == .ownDictation)
         #expect(posted.presses.isEmpty && posted.system == 0)
     }
 
-    @Test func chatGPTGetsOptionSpace() {
+    @Test func chatGPTGetsOptionSpace() async {
         let posted = Posted()
-        #expect(handoff(posted: posted).handOff(setting(.chatgpt)) == nil)
+        #expect(await handoff(posted: posted).handOff(setting(.chatgpt)) == nil)
         #expect(posted.presses.count == 1)
         #expect(posted.presses.first?.0 == 49)  // kVK_Space
         #expect(posted.presses.first?.1 == .maskAlternate)
     }
 
-    @Test func thePersonsChordWins() {
+    @Test func thePersonsChordWins() async {
         let posted = Posted()
-        #expect(handoff(posted: posted).handOff(setting(.chatgpt, shortcut: "ctrl+opt+d")) == nil)
+        #expect(await handoff(posted: posted).handOff(setting(.chatgpt, shortcut: "ctrl+opt+d")) == nil)
         #expect(posted.presses.first?.0 == 2)  // kVK_ANSI_D
         #expect(posted.presses.first?.1 == [.maskControl, .maskAlternate])
     }
 
-    @Test func macOSStartsSystemDictation() {
+    @Test func macOSStartsSystemDictation() async {
         let posted = Posted()
-        #expect(handoff(installed: [], posted: posted).handOff(setting(.macos)) == nil)
+        #expect(await handoff(installed: [], posted: posted).handOff(setting(.macos)) == nil)
         #expect(posted.system == 1 && posted.presses.isEmpty)
     }
 
-    @Test func anAppThisMacLacksIsRefused() {
+    @Test func anAppThisMacLacksIsRefused() async {
         let posted = Posted()
-        #expect(handoff(posted: posted).handOff(setting(.wisprFlow)) == .notInstalled)
+        #expect(await handoff(posted: posted).handOff(setting(.wisprFlow)) == .notInstalled)
         #expect(posted.presses.isEmpty)
     }
 
-    @Test func withoutAccessibilityNothingIsPosted() {
+    @Test func withoutAccessibilityNothingIsPosted() async {
         let posted = Posted()
-        #expect(handoff(mayPost: false, posted: posted).handOff(setting(.chatgpt)) == .noAccessibility)
+        #expect(await handoff(mayPost: false, posted: posted).handOff(setting(.chatgpt)) == .noAccessibility)
         #expect(posted.presses.isEmpty)
+        // macOS asks for the grant once, naming the Screen Sharing helper (it posts, never cmux).
+        #expect(posted.requests == 1)
     }
 
     @Test func sourcesListOnlyInstalledApps() {
@@ -152,15 +174,15 @@ import Testing
     }
 
     /// A hand-off ends cmux's own dictation first (in any pane): one listener at a time.
-    @Test func aHandoffEndsCmuxsOwnDictationFirst() {
+    @Test func aHandoffEndsCmuxsOwnDictationFirst() async {
         let posted = Posted()
         let handoff = handoff(posted: posted)
-        #expect(handoff.handOff(setting(.chatgpt)) == nil)
-        #expect(handoff.handOff(setting(.macos)) == nil)
+        #expect(await handoff.handOff(setting(.chatgpt)) == nil)
+        #expect(await handoff.handOff(setting(.macos)) == nil)
         #expect(posted.stops == 2)
         // Nothing to hand off to: cmux's own session is left alone.
-        #expect(handoff.handOff(setting(.cmux)) == .ownDictation)
-        #expect(handoff.handOff(setting(.wisprFlow)) == .notInstalled)
+        #expect(await handoff.handOff(setting(.cmux)) == .ownDictation)
+        #expect(await handoff.handOff(setting(.wisprFlow)) == .notInstalled)
         #expect(posted.stops == 2)
     }
 
@@ -179,9 +201,27 @@ import Testing
     }
 
     /// A chord the person set that does not parse is refused, never swapped for the app's default.
-    @Test func aBadChordIsRefusedNotReplaced() {
+    @Test func aBadChordIsRefusedNotReplaced() async {
         let posted = Posted()
-        #expect(handoff(posted: posted).handOff(setting(.chatgpt, shortcut: "ctrl+")) == .badShortcut)
+        #expect(await handoff(posted: posted).handOff(setting(.chatgpt, shortcut: "ctrl+")) == .badShortcut)
         #expect(posted.presses.isEmpty)
+    }
+
+    /// The mic's press is decided at once; only the chord waits for the Screen Sharing helper.
+    @Test func aChordIsPlannedWithoutWaiting() {
+        let posted = Posted()
+        #expect(handoff(posted: posted).plan(setting(.chatgpt)) == .post(.init(keyCode: 49, flags: .maskAlternate)))
+        #expect(handoff(posted: posted).plan(setting(.cmux)) == .done(.ownDictation))
+        #expect(posted.presses.isEmpty)
+    }
+
+    /// The app never posts a key itself: with no grant holder (a build without the Screen Sharing
+    /// helper, as in tests) nothing goes out and nothing asks macOS for a grant.
+    @Test func withoutTheHelperNothingIsPosted() async {
+        var handoff = AgentPaneDictationHandoff()
+        handoff.installedURL = { _ in URL(fileURLWithPath: "/Applications/ChatGPT.app") }
+        handoff.stopOwnDictation = {}
+        handoff.holder = nil
+        #expect(await handoff.handOff(setting(.chatgpt)) == .postFailed)
     }
 }

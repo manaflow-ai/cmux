@@ -1,5 +1,4 @@
 import AVFoundation
-import CoreGraphics
 
 /// Asks macOS for an upstream kind's permission. The pane calls it only from
 /// the user's explicit per-kind action, never at launch.
@@ -9,8 +8,10 @@ public protocol RemoteUpstreamPermissions {
     func request(_ kind: RemoteUpstreamKind) async -> Bool
 }
 
-/// The system prompts: microphone and camera through AVFoundation, screen
-/// share through the screen recording permission.
+/// The system prompts: microphone and camera through AVFoundation. Screen share is refused here:
+/// this app never asks macOS for Screen Recording (the Screen Sharing helper holds every screen
+/// grant, `GrantHolding`), and nothing in the app captures the screen to send upstream, so asking
+/// would only list "cmux" in Privacy & Security for nothing.
 public struct SystemUpstreamPermissions: RemoteUpstreamPermissions {
     public init() {}
 
@@ -18,8 +19,7 @@ public struct SystemUpstreamPermissions: RemoteUpstreamPermissions {
         switch kind {
         case .microphone: await AVCaptureDevice.requestAccess(for: .audio)
         case .camera: await AVCaptureDevice.requestAccess(for: .video)
-        // Shows the system prompt once; the grant takes effect after a relaunch.
-        case .screen: CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess()
+        case .screen: false
         }
     }
 }

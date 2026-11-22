@@ -1,6 +1,5 @@
 import CmuxNextCompat
 import CmuxNextComputerUse
-import CmuxNextWakeups
 import Darwin
 public import Foundation
 import os
@@ -120,59 +119,13 @@ public nonisolated final class MacScreenHelper: Sendable {
     /// not answer within 10 s is ended and reads as no answer.
     @concurrent private func answer(_ arguments: [String]) async -> Permissions? {
         guard let executable = await executable() else { return nil }
-        // Its stdin and stderr are /dev/null: nothing to send, and nothing of its diagnostics to keep.
-        let null = FileHandle(forUpdatingAtPath: "/dev/null")
-        guard let null else { return nil }
-        defer { try? null.close() }
-        let stdout = Pipe()
-        let pid: pid_t
-        do {
-            pid = try SignedHelperLaunch.spawn(executable: executable, arguments: arguments, stdin: null.fileDescriptor,
-                                               stdout: stdout.fileHandleForWriting.fileDescriptor, stderr: null.fileDescriptor)
-        } catch {
-            logger.error("the Screen Sharing helper did not start: \(String(describing: error), privacy: .public)")
-            return nil
-        }
-        try? stdout.fileHandleForWriting.close()
-        let reader = stdout.fileHandleForReading
-        // The kill and the reap take turns on `gate`, so the kill never reaches a reused pid.
-        let gate = ReapGate(pid: pid)
-        let deadline = DemandTimer(owner: "mac-screen-helper.answer-deadline", clock: clock)
-        deadline.schedule(after: .seconds(10)) {
-            gate.kill()
-        }
-        // @concurrent, never the main actor: one short JSON line, then EOF.
-        let data = (try? reader.blockingReadToEnd()) ?? nil
-        deadline.cancel()
-        gate.close()
-        try? reader.close()
-        var status: Int32 = 0
-        // concurrency-allow: @concurrent; the helper closed its stdout, so it is exiting now.
-        while waitpid(pid, &status, 0) < 0, errno == EINTR {}
-        guard let line = data?.split(separator: UInt8(ascii: "\n")).first,
-              let permissions = try? JSONDecoder().decode(Permissions.self, from: Data(line)) else {
+        switch await SignedHelperLaunch.answer(executable: executable, arguments: arguments, as: Permissions.self, clock: clock) {
+        case let .success(permissions): return permissions
+        case let .failure(.notStarted(reason)):
+            logger.error("the Screen Sharing helper did not start: \(reason, privacy: .public)")
+        case .failure(.noAnswer):
             logger.error("the Screen Sharing helper gave no answer to \(arguments.first ?? "", privacy: .public)")
-            return nil
         }
-        return permissions
-    }
-}
-
-/// A deadline's SIGKILL for a helper that is not reaped yet: ``kill()`` does nothing once
-/// ``close()`` ran (before the reap), so it never reaches a pid the system has handed on.
-private nonisolated final class ReapGate: Sendable {
-    private let pid: pid_t
-    private let reaped = Mutex(false)
-
-    init(pid: pid_t) {
-        self.pid = pid
-    }
-
-    func kill() {
-        reaped.withLock { if !$0 { _ = Darwin.kill(pid, SIGKILL) } }
-    }
-
-    func close() {
-        reaped.withLock { $0 = true }
+        return nil
     }
 }

@@ -90,6 +90,16 @@ cmux NIGHTLY.app/Contents/Library/cmux NIGHTLY Screen Sharing.app
   `MacScreenRdHost` already speaks), and diagnostics on stderr.
 - The secure link, its keys and its framing stay inside the Rust host, as before.
 - The permission probes are one JSON line on stdout.
+- The app's other grant-needing features ask the helper too, through `GrantHolding`
+  (CmuxNextComputerUse; `ScreenSharingHelperGrants` is the helper's side). Each ask is a fresh helper with
+  one JSON line back (cmux-rd-host `src/grant_requests.rs`), and none of them prompts:
+  - `__post-key CODE FLAGS` posts the dictation hand-off's chord (PostEvent).
+  - `__screen-still MAX_WIDTH PID FILE` takes the Voice Room's still of the main display without
+    the app's windows (Screen Recording).
+  - A missing grant answers `{"granted":false}`. The app then runs `request-permission`, so the
+    prompt names the helper.
+  Leo, 2026-11-22: "who's gonna walk over and click allow on a headless mac mini, or a remote
+  macbook??? stop having that shit."
 
 ## Permission state, read from the helper
 

@@ -73,12 +73,12 @@ impl HostServices for ScreenCaptureKitHost {
                         window,
                     )
                 });
-                shoot(&filter, frame, true)
+                shoot(&filter, frame, true, None)
             }
             CaptureTarget::Display(display) => {
                 let (display, bounds) = content.display(display.as_deref())?;
                 let filter = Owned(display_filter(display, None));
-                shoot(&filter, bounds, false)
+                shoot(&filter, bounds, false, None)
             }
         }
     }
@@ -98,7 +98,7 @@ impl HostServices for ScreenCaptureKitHost {
             .filter(|&app| u32::try_from(app_pid(app)).is_ok_and(|pid| exclude_pids.contains(&pid)))
             .collect();
         let filter = Owned(display_filter(display, Some(&apps)));
-        shoot(&filter, bounds, false)
+        shoot(&filter, bounds, false, None)
     }
 
     fn capture_apps(&self) -> DResult<Vec<App>> {
@@ -299,10 +299,48 @@ extern "C" fn screenshot_done(block: *mut Block<SyncSender<ShotAnswer>>, image: 
     }
 }
 
+/// `__screen-still` (crate::grant_requests): the main display without `exclude_pid`'s windows,
+/// at most `max_width` pixels wide, for the NEXT app's Voice Room (the app never captures).
+pub(crate) fn display_still(max_width: usize, exclude_pid: u32) -> DResult<RawFrame> {
+    sys::load().map_err(DesktopError::Failed)?;
+    cgi::available().map_err(|e| DesktopError::Failed(e.to_string()))?;
+    if sys::class(c"SCScreenshotManager").is_null() {
+        return Err(DesktopError::Unsupported("screen stills need macOS 14".into()));
+    }
+    require_grant()?;
+    let content = Content::fetch()?;
+    let _pool = AutoreleasePool::new();
+    let (display, bounds) = content.display(None)?;
+    let apps: Vec<Id> = content
+        .applications()
+        .into_iter()
+        .filter(|&app| u32::try_from(app_pid(app)).is_ok_and(|pid| pid == exclude_pid))
+        .collect();
+    let filter = Owned(display_filter(display, Some(&apps)));
+    shoot(&filter, bounds, false, Some(max_width))
+}
+
+/// The picture's pixel size: `frame` at `scale`, then shrunk to at most `max_width` wide
+/// (keeping its shape), each side within 1..=MAX_SIDE.
+fn shot_size(frame: CGRect, scale: f64, max_width: Option<usize>) -> (usize, usize) {
+    let mut width = frame.size.width * scale;
+    let mut height = frame.size.height * scale;
+    if let Some(max) = max_width.map(|m| m as f64).filter(|&m| m >= 1.0 && width > m) {
+        height *= max / width;
+        width = max;
+    }
+    (width.round().clamp(1.0, MAX_SIDE) as usize, height.round().clamp(1.0, MAX_SIDE) as usize)
+}
+
 /// One picture of `filter` covering `frame` (global points), at the content's full pixel
-/// density, without the cursor; `window`: leave the window's shadow out (the picture is its
-/// frame, as the engine's CoreGraphics capture took it).
-fn shoot(filter: &Owned, frame: CGRect, window: bool) -> DResult<RawFrame> {
+/// density (or at most `max_width` pixels wide), without the cursor; `window`: leave the
+/// window's shadow out (the picture is its frame, as the engine's CoreGraphics capture took it).
+fn shoot(
+    filter: &Owned,
+    frame: CGRect,
+    window: bool,
+    max_width: Option<usize>,
+) -> DResult<RawFrame> {
     if filter.0.is_null() {
         return Err(DesktopError::Failed("ScreenCaptureKit gave no content filter".into()));
     }
@@ -314,8 +352,7 @@ fn shoot(filter: &Owned, frame: CGRect, window: bool) -> DResult<RawFrame> {
         msg::<unsafe extern "C" fn(Id, Sel) -> f32>()(filter.0, sel(c"pointPixelScale"))
     });
     let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
-    let width = (frame.size.width * scale).round().clamp(1.0, MAX_SIDE) as usize;
-    let height = (frame.size.height * scale).round().clamp(1.0, MAX_SIDE) as usize;
+    let (width, height) = shot_size(frame, scale, max_width);
 
     let config = Owned(sys::send_id(sys::class(c"SCStreamConfiguration"), c"new"));
     // SAFETY: SCStreamConfiguration setters with their argument types (size_t, BOOL, NSInteger).
@@ -409,4 +446,25 @@ fn rgba_of(image: sys::CGImageRef) -> DResult<(u32, u32, Vec<u8>)> {
         cg::CGContextRelease(context);
     }
     Ok((width, height, rgba))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect(width: f64, height: f64) -> CGRect {
+        CGRect { origin: sys::CGPoint::new(0.0, 0.0), size: sys::CGSize { width, height } }
+    }
+
+    #[test]
+    fn a_still_shrinks_to_its_width_and_keeps_its_shape() {
+        // A 5K display (2560 x 1440 points at 2x) asked for 1440 wide.
+        assert_eq!(shot_size(rect(2560.0, 1440.0), 2.0, Some(1440)), (1440, 810));
+    }
+
+    #[test]
+    fn a_still_never_grows_and_no_cap_is_full_density() {
+        assert_eq!(shot_size(rect(1280.0, 800.0), 1.0, Some(1440)), (1280, 800));
+        assert_eq!(shot_size(rect(1280.0, 800.0), 2.0, None), (2560, 1600));
+    }
 }

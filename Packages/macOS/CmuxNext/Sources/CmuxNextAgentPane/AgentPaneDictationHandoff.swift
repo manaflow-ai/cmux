@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CmuxNextComputerUse
 import CmuxNextDictation
 import CmuxNextSettings
 
@@ -35,23 +36,9 @@ struct AgentPaneDictationHandoff {
 
     /// Where an app is installed (tests pass their own).
     var installedURL: (String) -> URL? = { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
-    /// Whether this app may post key events (Accessibility), asking once when it may not.
-    var mayPost: () -> Bool = {
-        if CGPreflightPostEventAccess() { return true }
-        _ = CGRequestPostEventAccess()
-        return false
-    }
-    /// Posts one key press with its modifiers held.
-    var post: (_ keyCode: CGKeyCode, _ flags: CGEventFlags) -> Bool = { keyCode, flags in
-        let source = CGEventSource(stateID: .hidSystemState)
-        guard let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
-              let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else { return false }
-        down.flags = flags
-        up.flags = flags
-        down.post(tap: .cghidEventTap)
-        up.post(tap: .cghidEventTap)
-        return true
-    }
+    /// Who posts the chord and holds its Accessibility grant: the Screen Sharing helper, never this
+    /// app, so macOS never lists cmux (``GrantHolding``). Nil posts nothing (tests pass a fake).
+    var holder: (any GrantHolding)? = ScreenSharingHelperGrants()
     /// Ends cmux's own dictation wherever it runs (another pane's, Home's or a terminal's), keeping
     /// its words: the microphone goes to the app the mic hands off to, never to two listeners at once.
     var stopOwnDictation: () -> Void = {
@@ -86,23 +73,57 @@ struct AgentPaneDictationHandoff {
         case postFailed
     }
 
-    /// Sends the mic press to `setting`'s source: nil when it went, else why not.
-    func handOff(_ setting: AgentPaneComposerSetting) -> Failure? {
+    /// What a mic press does, decided at once (no wait): it is done (nil, or why not), or the
+    /// app's chord goes out through ``send(_:)``.
+    enum Plan: Equatable {
+        case done(Failure?)
+        case post(Chord)
+    }
+
+    /// One chord a hand-off posts.
+    struct Chord: Equatable {
+        let keyCode: CGKeyCode
+        let flags: CGEventFlags
+    }
+
+    /// Decides the mic press for `setting`'s source and does what needs no grant (ends cmux's own
+    /// dictation, starts macOS Dictation); a chord to post is left to ``send(_:)``.
+    func plan(_ setting: AgentPaneComposerSetting) -> Plan {
         switch setting.dictationSource {
-        case .cmux: return .ownDictation
+        case .cmux: return .done(.ownDictation)
         case .macos:
             stopOwnDictation()
             systemDictation()
-            return nil
+            return .done(nil)
         default: break
         }
-        guard let app = Self.app(setting.dictationSource) else { return .ownDictation }
-        guard installed(app) != nil else { return .notInstalled }
+        guard let app = Self.app(setting.dictationSource) else { return .done(.ownDictation) }
+        guard installed(app) != nil else { return .done(.notInstalled) }
         stopOwnDictation()
         let text = setting.dictationShortcut.isEmpty ? app.shortcut : setting.dictationShortcut
-        guard let chord = AgentPaneDictationShortcut(text), let keyCode = Self.keyCode(chord.key) else { return .badShortcut }
-        guard mayPost() else { return .noAccessibility }
-        return post(keyCode, Self.flags(chord.modifiers)) ? nil : .postFailed
+        guard let chord = AgentPaneDictationShortcut(text), let keyCode = Self.keyCode(chord.key) else { return .done(.badShortcut) }
+        return .post(Chord(keyCode: keyCode, flags: Self.flags(chord.modifiers)))
+    }
+
+    /// Posts `chord` through the grant holder: nil when it went. Without the holder's
+    /// Accessibility grant nothing is posted and macOS asks for it, naming the holder.
+    func send(_ chord: Chord) async -> Failure? {
+        guard let holder else { return .postFailed }
+        switch await holder.postKey(chord.keyCode, flags: chord.flags) {
+        case .done: return nil
+        case .notGranted:
+            await holder.requestAccessibility()
+            return .noAccessibility
+        case .unavailable: return .postFailed
+        }
+    }
+
+    /// Sends the mic press to `setting`'s source: nil when it went, else why not.
+    func handOff(_ setting: AgentPaneComposerSetting) async -> Failure? {
+        switch plan(setting) {
+        case let .done(failure): failure
+        case let .post(chord): await send(chord)
+        }
     }
 
     static func flags(_ modifiers: AgentPaneDictationShortcut.Modifiers) -> CGEventFlags {
@@ -133,8 +154,8 @@ struct AgentPaneDictationHandoff {
     }
 
     /// The page's reply to `dictation.handoff`: success, or the failure's code (the page words it).
-    func reply(_ setting: AgentPaneComposerSetting) -> [String: Any] {
-        guard let failure = handOff(setting) else { return AgentPaneReply.success() }
+    func reply(_ setting: AgentPaneComposerSetting) async -> [String: Any] {
+        guard let failure = await handOff(setting) else { return AgentPaneReply.success() }
         let code = Self.code(failure)
         return AgentPaneReply.failure(code: code, message: code)
     }

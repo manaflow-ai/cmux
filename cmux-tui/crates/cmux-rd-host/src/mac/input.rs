@@ -7,6 +7,8 @@ use super::capture::Bounds;
 use super::keys::{key_code, modifier_flag};
 use super::sys::{self, cf, cg, event_type, CGEventFlags, CGEventRef, CGKeyCode, CGPoint};
 use crate::Res;
+#[cfg(feature = "computer-use")]
+use cmux_encode::framework;
 use cmux_rd_proto::InputEvent;
 use std::collections::BTreeSet;
 
@@ -305,3 +307,43 @@ impl Drop for Injector {
 
 // SAFETY: the event source is only used from the session's thread that owns the injector.
 unsafe impl Send for Injector {}
+
+#[cfg(feature = "computer-use")]
+framework! {
+    mod post_access = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics" {
+        fn CGPreflightPostEventAccess() -> bool;
+    }
+}
+
+#[cfg(feature = "computer-use")]
+/// `__post-key` (crate::grant_requests): one press of `code` with modifier `flags` at the HID
+/// level, for the app's dictation hand-off. False, with nothing posted and no prompt, when this
+/// process may not post events.
+pub(crate) fn post_key_press(code: CGKeyCode, flags: u64) -> Res<bool> {
+    sys::load()?;
+    post_access::available()?;
+    // SAFETY: resolved above; no arguments, returns a plain bool and never prompts.
+    if !unsafe { post_access::CGPreflightPostEventAccess() } {
+        return Ok(false);
+    }
+    // SAFETY: an event source released below.
+    let source = unsafe { cg::CGEventSourceCreate(sys::SOURCE_STATE_HID_SYSTEM) };
+    if source.is_null() {
+        return Err("no CGEvent source".into());
+    }
+    let mut posted = true;
+    for down in [true, false] {
+        // SAFETY: a live source; the event is released by `Event`.
+        match Event::new(unsafe { cg::CGEventCreateKeyboardEvent(source, code, down) }) {
+            Some(event) => event.post(CGEventFlags(flags)),
+            None => posted = false,
+        }
+    }
+    // SAFETY: the source CGEventSourceCreate returned.
+    unsafe { cf::CFRelease(source.cast_const()) };
+    if posted {
+        Ok(true)
+    } else {
+        Err("CGEvent made no key event".into())
+    }
+}
