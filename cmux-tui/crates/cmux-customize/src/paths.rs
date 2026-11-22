@@ -15,6 +15,10 @@ pub struct Roots {
     pub settings_file: PathBuf,
     /// The person's own views app (`local/customize`).
     pub customize_dir: PathBuf,
+    /// The person's own apps (`apps/NAME/...`): one `local/NAME` package per
+    /// folder, which the daemon reads like its local directory (cmux-tui-core
+    /// `apps::catalog::user_apps_dir`).
+    pub apps_dir: PathBuf,
     /// Generations, the draft and the lock. Never inside what it snapshots.
     pub state_dir: PathBuf,
 }
@@ -42,6 +46,12 @@ impl Roots {
             .or_else(|| env("XDG_CONFIG_HOME").map(|xdg| PathBuf::from(xdg).join("cmux/customize")))
             .or_else(|| home.as_ref().map(|home| home.join(".config/cmux/customize")))
             .unwrap_or_else(|| config_dir.join("customize"));
+        // The daemon's order too (`apps::catalog::user_apps_dir`).
+        let apps_dir = env("CMUX_USER_APPS_DIR")
+            .map(PathBuf::from)
+            .or_else(|| env("XDG_CONFIG_HOME").map(|xdg| PathBuf::from(xdg).join("cmux/apps")))
+            .or_else(|| home.as_ref().map(|home| home.join(".config/cmux/apps")))
+            .unwrap_or_else(|| config_dir.join("apps"));
         let state_dir = if let Some(dir) = env(STATE_OVERRIDE) {
             PathBuf::from(dir)
         } else if overridden {
@@ -51,7 +61,7 @@ impl Roots {
         } else {
             default_state_dir(&env, home.as_deref()?)
         };
-        Some(Roots { config_dir, settings_file, customize_dir, state_dir })
+        Some(Roots { config_dir, settings_file, customize_dir, apps_dir, state_dir })
     }
 
     /// Roots under one folder, for tests and benches: `<root>/config` and
@@ -61,6 +71,7 @@ impl Roots {
         Roots {
             settings_file: config_dir.join("cmux-next.json"),
             customize_dir: config_dir.join("customize"),
+            apps_dir: config_dir.join("apps"),
             state_dir: root.join("state"),
             config_dir,
         }
@@ -123,5 +134,20 @@ mod tests {
         assert_eq!(roots.customize_dir, PathBuf::from("/mine"));
         let roots = Roots::from(env(&[("HOME", "/home/pat"), ("XDG_CONFIG_HOME", "/x")])).unwrap();
         assert_eq!(roots.customize_dir, PathBuf::from("/x/cmux/customize"));
+    }
+
+    #[test]
+    fn the_apps_folder_follows_the_daemons_order() {
+        let roots = Roots::from(env(&[("HOME", "/home/pat")])).unwrap();
+        assert_eq!(roots.apps_dir, PathBuf::from("/home/pat/.config/cmux/apps"));
+        let roots = Roots::from(env(&[("HOME", "/home/pat"), ("XDG_CONFIG_HOME", "/x")])).unwrap();
+        assert_eq!(roots.apps_dir, PathBuf::from("/x/cmux/apps"));
+        let roots = Roots::from(env(&[
+            ("HOME", "/home/pat"),
+            ("XDG_CONFIG_HOME", "/x"),
+            ("CMUX_USER_APPS_DIR", "/apps"),
+        ]))
+        .unwrap();
+        assert_eq!(roots.apps_dir, PathBuf::from("/apps"));
     }
 }

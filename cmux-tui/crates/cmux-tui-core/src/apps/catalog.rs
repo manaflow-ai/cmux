@@ -271,6 +271,13 @@ pub struct Sources {
     pub extra: Vec<PathBuf>,
     /// The local development directory (`<state>/apps/local`).
     pub local: Option<PathBuf>,
+    /// The person's own apps ([`user_apps_dir`]): one `local/NAME` package
+    /// per folder, written by `cmux customize` (a library entry that carries
+    /// an app). Read like the local directory (publisher `local`, reloaded on
+    /// save, installed only from its card, as `cmux ext dev` leaves one), and
+    /// shared by every build and session, as the customize folder is. A local
+    /// directory app with the same id wins.
+    pub apps: Option<PathBuf>,
     /// The user's own customization app (cx-swovq.1): one package folder,
     /// `$CMUX_CUSTOMIZE_DIR`, else `$XDG_CONFIG_HOME/cmux/customize`, else
     /// `~/.config/cmux/customize`. Its id is `local/customize`; it installs
@@ -304,6 +311,7 @@ impl Sources {
             bundled,
             extra,
             local: state_dir.map(|d| d.join("apps").join("local")),
+            apps: user_apps_dir(),
             customize: customize_dir(),
             defaults,
         }
@@ -320,6 +328,20 @@ pub fn customize_dir() -> Option<PathBuf> {
     let config =
         non_empty("XDG_CONFIG_HOME").or_else(|| non_empty("HOME").map(|h| h.join(".config")))?;
     Some(config.join("cmux").join("customize"))
+}
+
+/// The person's own apps folder (`Sources::apps`): `$CMUX_USER_APPS_DIR`,
+/// else `$XDG_CONFIG_HOME/cmux/apps`, else `~/.config/cmux/apps`, the order
+/// cmux-customize's `Roots::apps_dir` reads it in.
+pub fn user_apps_dir() -> Option<PathBuf> {
+    let non_empty =
+        |name: &str| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if let Some(dir) = non_empty("CMUX_USER_APPS_DIR") {
+        return Some(dir);
+    }
+    let config =
+        non_empty("XDG_CONFIG_HOME").or_else(|| non_empty("HOME").map(|h| h.join(".config")))?;
+    Some(config.join("cmux").join("apps"))
 }
 
 /// The customization app's id: its manifest must use it.
@@ -357,6 +379,7 @@ pub fn load_reusing(sources: &Sources, reuse: &Reuse<'_>, listed: &Listed<'_>) -
     dirs.extend(sources.bundled.iter().map(|d| (d.clone(), DirKind::Bundled)));
     dirs.extend(sources.extra.iter().map(|d| (d.clone(), DirKind::Extra)));
     dirs.extend(sources.local.iter().map(|d| (d.clone(), DirKind::Local)));
+    dirs.extend(sources.apps.iter().map(|d| (d.clone(), DirKind::Local)));
     let mut shipped_first_party = Vec::new();
     for (root, kind) in dirs {
         let paths = match listed(&root) {
