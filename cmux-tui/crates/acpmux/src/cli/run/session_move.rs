@@ -999,6 +999,8 @@ fn parse_about(stdout: &str) -> Result<RemoteDaemon> {
 /// The fixed script that makes a chat's folder on the target and prints its real path. Its
 /// values come on stdin, one per line, never in the script.
 const PLAIN_SCRIPT: &str = r#"read -r d || exit 2; mkdir -p -- "$d" && cd -- "$d" && pwd -P"#;
+/// What the folder scripts write on stderr for the person to read: shown even when they succeed.
+pub(crate) const FOLDER_NOTE: &str = "acpmux move: ";
 /// With a `ref` and `at` line (a snapshot of a shared branch), a detached checkout of the commit
 /// `at`, fetched from origin's `ref`; never a checkout of the branch itself.
 pub(crate) const WORKTREE_SCRIPT: &str = r#"read -r repo; read -r branch; read -r url; read -r sub
@@ -1006,10 +1008,17 @@ read -r ref || true; read -r at || true
 PATH="$HOME/.local/bin:$PATH"
 dir=
 if [ -n "$at" ]; then
+  short=$(printf '%.12s' "$at")
   if command -v wt >/dev/null 2>&1; then
-    out=$(wt new "$repo" --at "$at" --name "move-$(printf '%.12s' "$at")") && dir=$(printf '%s\n' "$out" | tail -n 1)
+    out=$(wt new "$repo" --at "$at" --name "move-$short" 2>/dev/null) && dir=$(printf '%s\n' "$out" | tail -n 1)
+    if [ -z "$dir" ] || [ ! -d "$dir" ]; then
+      dir=
+      echo "acpmux move: wt new --at $short failed (wt's mirror has no commit that is on no branch); cloning $url and fetching $ref instead" >&2
+    fi
+  else
+    echo "acpmux move: no wt on PATH; cloning $url and fetching $ref instead" >&2
   fi
-  if [ -z "$dir" ] || [ ! -d "$dir" ]; then
+  if [ -z "$dir" ]; then
     base="$HOME/Projects/checkouts/$(printf '%s' "$repo" | tr / -)"
     mkdir -p -- "$base" || exit 1
     dir=$(mktemp -d "$base/move-$(printf '%.12s' "$at").XXXXXX") || exit 1
@@ -1055,6 +1064,9 @@ fn prepare_folder(host: &str, folder: &Folder, at: Option<(&str, &str)>) -> Resu
     let host = if host.is_empty() { "this machine" } else { host };
     if !out.ok {
         return Err(folder_failure(host, &out));
+    }
+    for note in out.stderr.lines().filter_map(|l| l.strip_prefix(FOLDER_NOTE)) {
+        eprintln!("move: {host}: {}", note.trim());
     }
     let path = out.stdout.lines().last().unwrap_or_default().trim().to_owned();
     if !(path.starts_with('/') && crate::cli::hosts::plain_path(&path)) {

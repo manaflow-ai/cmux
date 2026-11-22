@@ -636,36 +636,76 @@ fn a_move_from_main_pushes_a_snapshot_ref_never_main_and_lands_detached() {
     assert_eq!(git(&origin, &["rev-parse", "refs/heads/main"]), main_before, "main never pushed");
     assert_eq!(git(&origin, &["rev-parse", &dest]), head);
 
-    // The target's side, with no `wt` on PATH: a clone of its own, at the commit, detached.
-    let target_home = base.path().join("target-home");
-    std::fs::create_dir(&target_home).unwrap();
-    let mut child = StdCommand::new("/bin/sh")
-        .arg("-c")
-        .arg(WORKTREE_SCRIPT)
-        .env("HOME", &target_home)
-        .env("PATH", "/usr/bin:/bin")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    {
-        use std::io::Write as _;
-        let input = format!("o/r\nmain\n{url}\n\n{dest}\n{head}\n");
-        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
-    }
-    let out = child.wait_with_output().unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    let there = PathBuf::from(String::from_utf8_lossy(&out.stdout).lines().last().unwrap().trim());
-    assert_eq!(git(&there, &["rev-parse", "HEAD"]), head);
-    let symbolic = StdCommand::new("git")
-        .arg("-C")
-        .arg(&there)
-        .args(["symbolic-ref", "-q", "HEAD"])
-        .status()
-        .unwrap();
-    assert!(!symbolic.success(), "the target's checkout is detached");
-    assert!(there.join("b.txt").exists());
+    // The target's side: WORKTREE_SCRIPT with PATH holding `bin` (a stand-in `wt`, or none).
+    let target = |case: &str, wt: Option<&str>| {
+        let target_home = base.path().join(format!("target-home-{case}"));
+        let bin = target_home.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        if let Some(body) = wt {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::write(bin.join("wt"), body).unwrap();
+            std::fs::set_permissions(bin.join("wt"), std::fs::Permissions::from_mode(0o755))
+                .unwrap();
+        }
+        let mut child = StdCommand::new("/bin/sh")
+            .arg("-c")
+            .arg(WORKTREE_SCRIPT)
+            .env("HOME", &target_home)
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .env("WT_STANDIN_URL", &url)
+            .env("WT_STANDIN_REF", &dest)
+            .env("WT_STANDIN_LOG", target_home.join("wt.log"))
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        {
+            use std::io::Write as _;
+            let input = format!("o/r\nmain\n{url}\n\n{dest}\n{head}\n");
+            child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+        }
+        let out = child.wait_with_output().unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert!(out.status.success(), "{case}: {stderr}");
+        let there =
+            PathBuf::from(String::from_utf8_lossy(&out.stdout).lines().last().unwrap().trim());
+        assert_eq!(git(&there, &["rev-parse", "HEAD"]), head, "{case}");
+        let symbolic = StdCommand::new("git")
+            .arg("-C")
+            .arg(&there)
+            .args(["symbolic-ref", "-q", "HEAD"])
+            .status()
+            .unwrap();
+        assert!(!symbolic.success(), "{case}: the target's checkout is detached");
+        assert!(there.join("b.txt").exists(), "{case}");
+        let notes: Vec<String> =
+            stderr.lines().filter_map(|l| l.strip_prefix(FOLDER_NOTE).map(str::to_owned)).collect();
+        let log = std::fs::read_to_string(target_home.join("wt.log")).unwrap_or_default();
+        (notes, log)
+    };
+    let short = &head[..12];
+    // No `wt`: a clone of its own, and the move says so.
+    let (notes, _) = target("no-wt", None);
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert!(notes[0].starts_with("no wt on PATH; cloning"), "{notes:?}");
+    // A `wt` that refuses the commit as the real one does (a commit on no branch is not in its
+    // partial-clone mirror): the clone, and a line naming why, never a silent fallback.
+    let refusing = "#!/bin/sh\necho \"$*\" >> \"$WT_STANDIN_LOG\"\n\
+        echo \"wt: refused: $4 is not in this partial clone\" >&2\nexit 1\n";
+    let (notes, log) = target("wt-refuses", Some(refusing));
+    assert_eq!(log.trim(), format!("new o/r --at {head} --name move-{short}"));
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert!(notes[0].starts_with(&format!("wt new --at {short} failed")), "{notes:?}");
+    // A `wt` that makes the checkout: used as it is, with nothing to say.
+    let making = "#!/bin/sh\necho \"$*\" >> \"$WT_STANDIN_LOG\"\n\
+        d=\"$HOME/wt-made\"; git clone -q --no-checkout -- \"$WT_STANDIN_URL\" \"$d\" >&2 || exit 1\n\
+        git -C \"$d\" fetch -q origin \"$WT_STANDIN_REF\" >&2 || exit 1\n\
+        git -C \"$d\" -c advice.detachedHead=false checkout -q --detach \"$4\" >&2 || exit 1\n\
+        echo \"wt: made $d\"\necho \"$d\"\n";
+    let (notes, log) = target("wt-makes", Some(making));
+    assert_eq!(log.trim(), format!("new o/r --at {head} --name move-{short}"));
+    assert!(notes.is_empty(), "{notes:?}");
 
     drop_ref(&src, &dest);
     assert!(git(&origin, &["for-each-ref", "refs/acpmux"]).is_empty(), "the move's ref is gone");
