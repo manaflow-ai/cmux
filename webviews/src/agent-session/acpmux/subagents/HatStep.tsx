@@ -1,6 +1,6 @@
 // The composer hat's step slot (hatStep.experiment.ts): what a running subagent does now, in a slot
 // whose width never changes, at most one change per dwell (hatStep.ts).
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { HAT_PHASES, hatPhaseWord, PHASE_DWELL_MS, SAMPLE_DWELL_MS, type HatPhase } from "./hatStep";
 
@@ -24,6 +24,20 @@ export function useDwell<T>(value: T, dwellMs: number): T {
     return () => clearTimeout(timer);
   }, [value, shown, dwellMs]);
   return shown;
+}
+
+/// Draws `children(value)` with `value` held as `useDwell` holds it: for a part that renders after an
+/// early return, where the hook itself can't go (the hat's header words and count, SubagentTray.tsx).
+export function Dwelt<T>({
+  value,
+  dwellMs,
+  children,
+}: {
+  value: T;
+  dwellMs: number;
+  children: (shown: T) => ReactNode;
+}) {
+  return <>{children(useDwell(value, dwellMs))}</>;
 }
 
 /// One word from a fixed list, stacked over every other word of the list (hidden), so the slot is

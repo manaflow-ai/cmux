@@ -117,8 +117,8 @@ import { longestRunningFirst, runSince } from "./trayHeadOrder";
 import { attentionFirst, type TrayCard } from "./trayAttention";
 import { actionDetail, latestLine, namedAction } from "./trayDetail";
 import { hatStepLook, type HatStepArm } from "./hatStep.experiment";
-import { hatPhase } from "./hatStep";
-import { HatPhaseSlot, HatSampledSlot } from "./HatStep";
+import { hatPhase, PHASE_DWELL_MS } from "./hatStep";
+import { Dwelt, HatPhaseSlot, HatSampledSlot, useDwell } from "./HatStep";
 import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
 import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
@@ -870,7 +870,13 @@ export const SubagentTray = memo(function SubagentTray({
           {/* Its words slide as a status line hands over: a new name joining, the lone item's task (Leo,
               2026-11-07); its counts roll in place (trayMotion.tsx `Tick`). */}
           {!kindsHead && (
-            <Tick className="acpmux-summary-text acpmux-running-tray__title" text={headText} steadyCounts slide />
+            // Held at least PHASE_DWELL_MS, as the step is: twenty subagents joining in a burst is one
+            // change of words, not twenty (Leo, 2026-11-22: "huge churn in numbers"; feel-composer-hat.test.ts).
+            <Dwelt value={headText} dwellMs={PHASE_DWELL_MS}>
+              {(text) => (
+                <Tick className="acpmux-summary-text acpmux-running-tray__title" text={text} steadyCounts slide />
+              )}
+            </Dwelt>
           )}
           {/* Kept while the hat is open, faded out in place (subagents.css), so it never leaves or comes
               back at once; it gives way to the counts first, so its room costs them nothing. */}
@@ -905,11 +911,15 @@ export const SubagentTray = memo(function SubagentTray({
           {/* The rest of the names, one word space after them (subagents.css); its count rolls in place
               and its "+" sits on the figures' centre (Typography.tsx `Sign`). */}
           {named && moreCount > 0 && (
-            <Tick
-              className="acpmux-summary-meta acpmux-running-tray__more"
-              text={t("tools.more", { n: moreCount })}
-              steadyCounts
-            />
+            <Dwelt value={moreCount} dwellMs={PHASE_DWELL_MS}>
+              {(n) => (
+                <Tick
+                  className="acpmux-summary-meta acpmux-running-tray__more"
+                  text={t("tools.more", { n })}
+                  steadyCounts
+                />
+              )}
+            </Dwelt>
           )}
           {/* Quiet meta right after the counts, never a column of its own far from them. */}
           {loneEnd ? (
@@ -1529,6 +1539,8 @@ function HeadKind({
   faced: boolean;
 }) {
   const [names, setNames] = useState<string | undefined>(undefined);
+  // Its count changes at most once per dwell, as the step does: a burst of joins is one roll.
+  const kindText = useDwell(part.text, PHASE_DWELL_MS);
   // A subagent kind draws its first subagent's harness mark, in its tone, as its line does.
   const lead = part.items[0];
   const agent = part.key === "agents" && lead?.kind === "agent" ? lead.agent : undefined;
@@ -1559,7 +1571,7 @@ function HeadKind({
       ) : (
         <Icon name={part.icon} size={ROW_ICON} row />
       )}
-      <Tick className="acpmux-running-tray__kind-text" text={part.text} steadyCounts />
+      <Tick className="acpmux-running-tray__kind-text" text={kindText} steadyCounts />
     </span>
   );
 }
