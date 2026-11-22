@@ -52,6 +52,8 @@ mod history_agent_fold;
 mod history_agent_save_stride;
 #[cfg(unix)]
 mod holder_late_start;
+#[cfg(unix)]
+mod idle_stop_fence;
 mod input_queue_backstop;
 mod journal_lane_full;
 mod journal_roster;
