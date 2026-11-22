@@ -437,6 +437,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let base = theme.backgroundColor
         view.backgroundColor = base
         overrideUserInterfaceStyle = theme.interfaceStyle
+        composerHost?.overrideUserInterfaceStyle = theme.interfaceStyle
         bottomBacking.backgroundColor = base
         tuiBelowCover.backgroundColor = base
         bottomFade.gradient.colors = [base.withAlphaComponent(0).cgColor, base.cgColor]
@@ -521,7 +522,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // composer (in light mode inside a workspace they drew light glass
         // over the black grid).
         keyBar.overrideUserInterfaceStyle = .dark
-        composer.overrideUserInterfaceStyle = .dark
+        // The composer fills with the terminal theme's background (Leo,
+        // 2026-11-22: "dont draw unnecessary attention by making it light"),
+        // so its text and hairline take the theme's look, light or dark.
+        composer.overrideUserInterfaceStyle = terminalInterfaceStyle
         jumpRow.overrideUserInterfaceStyle = .dark
         composer.sizingOptions = [.intrinsicContentSize]
         jumpRow.sizingOptions = [.intrinsicContentSize]
