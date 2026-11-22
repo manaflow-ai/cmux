@@ -16,7 +16,6 @@ export const thoughtChoices = pageSpace("thought", (key) => {
   return at < 0 ? undefined : id.slice(0, at);
 });
 
-
 /// Forgets every open choice on thoughts whose id `match` names (in every view), so they draw closed
 /// again; a closed choice already is.
 export function forgetThoughtChoices(match: (id: string) => boolean): void {

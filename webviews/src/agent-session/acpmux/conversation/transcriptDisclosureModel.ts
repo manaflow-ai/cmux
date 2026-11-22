@@ -154,6 +154,11 @@ export const DisclosureSession = createContext<string>(DEFAULT_SESSION);
 /// credited to that row in the store (disclosureStore.ts `rowRevision`), which the list's state
 /// signature reads. Undefined outside the transcript (a gallery, a card elsewhere).
 export const DisclosureRow = createContext<string | undefined>(undefined);
+/// What the transcript gives its rows to run a disclosure's change as one transition of its motion
+/// owner (VirtualTranscript.tsx; motionOwner.ts `transition({ cause: "disclosure", anchorRow, apply })`).
+/// Every setter here runs through it, so each toggle is one transition and one `layoutWatch.expect`.
+export type RunDisclosure = (anchorRow: string, apply: () => void) => void;
+export const DisclosureMotion = createContext<RunDisclosure | undefined>(undefined);
 /** The chat's transcript view (transcriptView.ts), read once here for every row under it. */
 export const ViewContext = createContext<TranscriptView>("normal");
 
@@ -270,6 +275,44 @@ function readOpen(session: string, key: string, opens: boolean, from: string, he
   );
 }
 
+/// The reader set line `key` of `sessionId` to `next` (`useTranscriptDisclosure`'s setter): `down`,
+/// `held`, `by` and `thoughts` are its links joined with "\n"; `rowId` the row it is drawn in, which
+/// the change is credited to (disclosureStore.ts `rowRevision`).
+function applyChoice(
+  sessionId: string,
+  key: string,
+  next: boolean,
+  rowId: string | undefined,
+  down: string,
+  held: string,
+  by: string,
+  thoughts: string,
+): void {
+  // Closed, the fold forgets what the reader opened inside it: its calls and the lines among them
+  // (an edits group in a run), never itself, the run around it or the lines that take its place.
+  if (!next && thoughts !== "") {
+    const inside = new Set(thoughts.split("\n"));
+    forgetThoughtChoices((id) => inside.has(id));
+  }
+  if (!next && held !== "")
+    forgetInside(
+      sessionId,
+      new Set(held.split("\n").map((member) => member.slice(CALL_PREFIX.length))),
+      level(key),
+      // The group lines this one splits back into are its other form, never its children; an
+      // edits group drawn inside a run is a child (it is not in `passesDown`), so it is forgotten.
+      new Set([key, ...(down ? down.split("\n") : []), ...(by ? by.split("\n") : [])]),
+    );
+  // A run's line the reader set takes the place of the group lines it hands down to: one they had
+  // set takes the same choice, so a run line they closed never reopens as its group's line when the
+  // run splits back into groups. A line they never set keeps its own default, and a group's line
+  // passes nothing up, so closing one group never closes its sibling through the run's key.
+  const rows = rowId === undefined ? undefined : [rowId];
+  if (down !== "")
+    for (const other of down.split("\n")) if (read(sessionId, other) !== undefined) save(sessionId, other, next, rows);
+  save(sessionId, key, next, rows);
+}
+
 /**
  * Returns a persisted disclosure value and a React-compatible setter. `verboseOpen` opens it by
  * default in the Verbose view (a tool's output). The reader's toggles are kept per view, so each
@@ -287,6 +330,7 @@ export function useTranscriptDisclosure(
   const view = useContext(ViewContext);
   const sessionId = useDisclosureSessionId();
   const rowId = useContext(DisclosureRow);
+  const motion = useContext(DisclosureMotion);
   const opens = defaultOpen || (verboseOpen && view === "verbose");
   const from = (links.inherits ?? NONE).join("\n");
   const down = (links.passesDown ?? NONE).join("\n");
@@ -301,32 +345,12 @@ export function useTranscriptDisclosure(
   const setOpen = useCallback<DisclosureSetter>(
     (value) => {
       const next = typeof value === "function" ? value(current()) : value;
-      // Closed, the fold forgets what the reader opened inside it: its calls and the lines among them
-      // (an edits group in a run), never itself, the run around it or the lines that take its place.
-      if (!next && thoughts !== "") {
-        const inside = new Set(thoughts.split("\n"));
-        forgetThoughtChoices((id) => inside.has(id));
-      }
-      if (!next && held !== "")
-        forgetInside(
-          sessionId,
-          new Set(held.split("\n").map((member) => member.slice(CALL_PREFIX.length))),
-          level(key),
-          // The group lines this one splits back into are its other form, never its children; an
-          // edits group drawn inside a run is a child (it is not in `passesDown`), so it is forgotten.
-          new Set([key, ...(down ? down.split("\n") : []), ...(by ? by.split("\n") : [])]),
-        );
-      // A run's line the reader set takes the place of the group lines it hands down to: one they had
-      // set takes the same choice, so a run line they closed never reopens as its group's line when the
-      // run splits back into groups. A line they never set keeps its own default, and a group's line
-      // passes nothing up, so closing one group never closes its sibling through the run's key.
-      const rows = rowId === undefined ? undefined : [rowId];
-      if (down !== "")
-        for (const other of down.split("\n"))
-          if (read(sessionId, other) !== undefined) save(sessionId, other, next, rows);
-      save(sessionId, key, next, rows);
+      const apply = () => applyChoice(sessionId, key, next, rowId, down, held, by, thoughts);
+      // One transition of the transcript's motion owner, anchored on the row this line is drawn in.
+      if (motion && rowId !== undefined) motion(rowId, apply);
+      else apply();
     },
-    [sessionId, key, current, down, held, by, thoughts, rowId],
+    [motion, rowId, current, sessionId, key, down, held, by, thoughts],
   );
   return [open, setOpen];
 }

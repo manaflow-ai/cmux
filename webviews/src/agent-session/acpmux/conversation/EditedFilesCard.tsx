@@ -22,7 +22,7 @@ import { turnChanges, type EditedFile, type UndoStatus } from "../turnChanges/mo
 import { SessionCwdContext, SessionEditsContext } from "../turnChanges/sessionRows";
 import { useEditedFilesSettings } from "../turnChanges/settings";
 import { applyUndo, cancelUndo, checkUndo, useUndoState, type UndoState } from "../turnChanges/undoStore";
-import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
+import { useDisclosure } from "./useDisclosure";
 import { TurnShots } from "../turnChanges/TurnShotsPair";
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
 import { DiffFile, Undo } from "./icons";
@@ -71,9 +71,9 @@ function Card({
   const settings = useEditedFilesSettings();
   const [showAll, setShowAll] = useState(false);
   // Derived on every render: the host's setting can arrive after the card mounts.
-  const userOpened = useCardOpen(row.id);
+  // One open-state store (useDisclosure.ts): a click is one transition of the transcript's owner.
+  const { open: userOpened, set: setOpen } = useDisclosure({ card: row.id });
   const open = settings.show !== "collapsed" || userOpened;
-  const setOpen = (value: boolean) => setCardOpen(row.id, value);
   const edits = rows.flatMap((one) =>
     (one.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange"),
   );
