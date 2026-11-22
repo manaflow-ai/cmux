@@ -35,6 +35,11 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--modes", default="own,page,chromium")
 parser.add_argument("--chats", type=int, default=10)
 parser.add_argument("--keys", type=int, default=40)
+# A long draft is where per-key work that scales with the draft shows (the 2015 editor-latency study measured
+# 2x to 10x between an empty file and a large one; hq docs/reading/2026-11-19-fatin-typing-with-pleasure.md).
+# The env default lets scripts/measure/chat-typing-ab.sh set it through split-spring.sh and perf-budgets.py.
+parser.add_argument("--draft-chars", type=int, default=int(os.environ.get("CMUX_BENCH_TYPING_DRAFT_CHARS") or 0),
+                    help="paste a draft of about this many characters into the composer before the timed keys (0: none)")
 parser.add_argument("--flings", type=int, default=3)
 parser.add_argument("--rows", type=int, default=5000, help="seeded transcript rows")
 parser.add_argument("--fling-seconds", type=float, default=3, help="duration of each measured bottom-to-top fling")
@@ -51,6 +56,9 @@ parser.add_argument("--shots", help="a folder: light and dark screen captures of
 opts = parser.parse_args()
 if opts.activate:
     require_no_person_mac("agent-engine-bench")  # --open --activate takes focus without BenchApp's check
+# Past about 3,500 words or 20,000 characters a paste becomes a Pasted text chip, not draft text (pastedText.ts).
+if not 0 <= opts.draft_chars <= 15000:
+    parser.error("--draft-chars must be 0 to 15000 (a longer paste is a chip, not draft text)")
 if (opts.rows < 1 or opts.flings < 1 or not math.isfinite(opts.fling_seconds) or opts.fling_seconds <= 0
         or opts.target_hz is not None and (not math.isfinite(opts.target_hz) or opts.target_hz <= 0)):
     parser.error("--rows, --flings, --fling-seconds and --target-hz must be positive and finite")
@@ -255,11 +263,40 @@ def open_session():
             "transcript_rows": (ready or {}).get("transcript_rows")}
 
 
+def draft_text(chars):
+    """Prose lines of about 80 characters, so the draft wraps and has paragraphs as a long prompt does."""
+    line = "the quick brown fox jumps over the lazy dog while the build runs on the fleet mini "
+    text, n = [], 0
+    while n < chars:
+        text.append(line if (len(text) + 1) % 6 else line + "\n")
+        n += len(text[-1])
+    return "".join(text)[:chars]
+
+
+def prefill_draft(target):
+    """Pastes an `--draft-chars` draft with Cmd-V (the composer's own paste path) and waits until the composer
+    holds it. The pasteboard's text is put back afterwards."""
+    if opts.draft_chars <= 0:
+        return None
+    reply = got = None
+    saved = subprocess.run(["/usr/bin/pbpaste"], capture_output=True, timeout=10).stdout
+    try:
+        subprocess.run(["/usr/bin/pbcopy"], input=draft_text(opts.draft_chars).encode(), timeout=10, check=True)
+        reply = rpc("debug.key", dict(target, key="v", modifiers=["cmd"]))
+        want = int(opts.draft_chars * 0.9)  # the composer's length trims and folds newlines
+        got = wait(lambda: (lambda n: n if n >= want else None)(pane("readiness").get("composer_text_length") or 0), 30)
+    finally:
+        subprocess.run(["/usr/bin/pbcopy"], input=saved, timeout=10)
+    time.sleep(1)  # test harness: the paste's own layout and draft write settle before the timed keys
+    return {"chars": opts.draft_chars, "composer_text_length": got, "paste_error": (reply or {}).get("error")}
+
+
 def typing():
-    pane("reset_typing")
     focused = pane("focus_composer").get("focused")
     # The chat's pane, not the focused one: keys for a Chromium page go to that pane's page window.
     target = {"target": "page", "pane": pane("engine").get("pane")} if pane("engine").get("engine") == "cef" else {}
+    draft = prefill_draft(target)
+    pane("reset_typing")  # after the paste, so only the timed keys count
     letters = "abcdefghijklmnopqrstuvwxyz"
     replies = []
     for index in range(opts.keys):
@@ -267,7 +304,7 @@ def typing():
         time.sleep(0.08)  # test harness: about a fast typist's pace
     time.sleep(0.5)  # test harness: the last key's frame lands
     errors = [r.get("error") for r in replies if isinstance(r, dict) and r.get("error")]
-    return {"composer_focused": focused, "first_key_reply": replies[0] if replies else None, "key_errors": len(errors),
+    return {"composer_focused": focused, "draft": draft, "first_key_reply": replies[0] if replies else None, "key_errors": len(errors),
             "composer_text_length": pane("readiness").get("composer_text_length"), **pane("typing_stats")}
 
 
@@ -394,7 +431,7 @@ def run_mode(mode):
     result["focus"] = focus_probe()
     result["shots"] = screen_shots(mode)
     result["typing"] = typing()
-    print(mode, "typing", json.dumps({k: result["typing"].get(k) for k in ("keys", "to_listener", "to_work", "to_frame", "to_paint", "native_posts")}), flush=True)
+    print(mode, "typing", json.dumps({k: result["typing"].get(k) for k in ("keys", "draft", "to_listener", "to_work", "to_frame", "to_paint", "native_posts")}), flush=True)
     result["seed"] = pane("seed_rows", count=opts.rows, timeout=60)
     time.sleep(3)  # test harness: the seeded transcript lays out
     pane("fling", seconds=3, wait=True, timeout=60)  # warms the transcript's layout, not reported
@@ -419,7 +456,7 @@ def run_mode(mode):
         "typing_to_frame": result["typing"].get("to_frame"), "typing_to_paint": result["typing"].get("to_paint"),
         "typing_to_listener": result["typing"].get("to_listener"), "typing_to_work": result["typing"].get("to_work"),
         "session_composer_ms": result["session"].get("composer_ms"),
-        "typing_keys": result["typing"].get("keys"), "focus": result["focus"],
+        "typing_keys": result["typing"].get("keys"), "typing_draft": result["typing"].get("draft"), "focus": result["focus"],
         "fling_dropped_frames": [f.get("dropped_frames") for f in result["flings"]],
         "fling_p95_ms": [f.get("p95_ms") for f in result["flings"]],
         "ticks": [{"rows": t["rows"], **{kind: {key: (t.get(kind) or {}).get(key) for key in
