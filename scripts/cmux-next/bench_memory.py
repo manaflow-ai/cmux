@@ -428,6 +428,7 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
         if SAMPLE_GPU:
             gpu = GpuSampler(GPU_INTERVAL_S)
             gpu.start()
+            files_before = store_files()
         time.sleep(measure)  # test script: the measured idle window
     rows = []
     for pid, (kind, cmd) in owned(app_pid, bundle).items():
@@ -480,7 +481,49 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
               "processes": rows}
     if gpu is not None:
         result["gpu"] = gpu.finish()
+        result["files_written"] = files_written(files_before, store_files())
     return result
+
+
+def store_roots() -> list[str]:
+    """Where the app and its acpmux keep state: what an idle window's disk writes land in."""
+    home = os.path.expanduser("~")
+    roots = [os.path.join(home, ".acpmux"), os.path.join(home, ".cmux")]
+    for parent in ("Library/Application Support", "Library/Caches"):
+        try:
+            roots += [os.path.join(home, parent, name) for name in os.listdir(os.path.join(home, parent))
+                      if "cmux" in name.lower()]
+        except OSError:
+            pass
+    return roots
+
+
+def store_files(limit: int = 200_000) -> dict[str, tuple[int, int]]:
+    """Path -> (size, mtime ns) under store_roots(), at most `limit` files (a busy fleet home has many)."""
+    files = {}
+    for root in store_roots():
+        for top, _, names in os.walk(root):
+            for name in names:
+                path = os.path.join(top, name)
+                try:
+                    st = os.lstat(path)
+                except OSError:
+                    continue
+                files[path] = (st.st_size, st.st_mtime_ns)
+                if len(files) >= limit:
+                    return files
+    return files
+
+
+def files_written(before: dict, after: dict, top: int = 20) -> dict:
+    """Files the window created or modified (mtime moved), largest first: which store the idle writes go to.
+    Size is the file's size now, not bytes written (a rewrite of a 100 KB file reads 100 KB)."""
+    home = os.path.expanduser("~")
+    changed = [(path, size) for path, (size, mtime) in after.items()
+               if path not in before or before[path][1] != mtime]
+    changed.sort(key=lambda item: -item[1])
+    return {"count": len(changed), "bytes": sum(size for _, size in changed), "scanned": len(after),
+            "top": [{"path": path.replace(home, "~", 1), "bytes": size} for path, size in changed[:top]]}
 
 
 IO_KEYS = ("disk_read_mb_per_h", "disk_write_mb_per_h", "logical_write_mb_per_h")

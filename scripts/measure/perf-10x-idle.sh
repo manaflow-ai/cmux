@@ -220,6 +220,8 @@ for s in data.get("samples", []):
               f"disk_write_mb_per_h={e.get('disk_write_mb_per_h')} logical_write_mb_per_h={e.get('logical_write_mb_per_h')}")
     if s.get("gpu"):
         print(f"PERF-IDLE-GPU app-agents {s['label']} {json.dumps(s['gpu'])}")
+    if s.get("files_written"):
+        print(f"PERF-IDLE-FILES app-agents {s['label']} {json.dumps(s['files_written'])}")
     if "chat_renderers" in s:
         print(f"CHAT-RENDERERS {s['label']} agents={s['workspaces']} {json.dumps(s['chat_renderers'])}")
     if "cef_pages" in s:
