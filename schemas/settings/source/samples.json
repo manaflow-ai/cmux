@@ -255,8 +255,8 @@
         "thinking-glyph.json",
         {},
         {"$schema": "cmux.particles/2", "particle": {"size": 3}, "phases": {"lone": {"duration": 400, "frames": [{"at": 0, "dots": []}]}}},
-        {"$schema": "cmux.particles/1", "particle": {"size": 3}, "phases": {"lone": {"duration": 400, "frames": [{"at": 0, "dots": [[0, 0, 9]]}]}}},
-        {"$schema": "cmux.particles/1", "particle": {"size": 3}, "phases": {"lone": {"duration": 400, "frames": [{"at": 0, "dots": []}]}}, "triggers": {"read": ["orbit"]}}
+        {"$schema": "cmux.particles/1", "phases": {"lone": {"duration": 400, "frames": [{"at": 0, "dots": []}]}}},
+        {"$schema": "cmux.particles/1", "particle": {"size": 3}, "phases": {}}
       ]
     },
     "domain:command_labels": {

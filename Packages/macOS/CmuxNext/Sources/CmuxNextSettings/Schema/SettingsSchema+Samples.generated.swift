@@ -198,8 +198,8 @@ extension SettingsSchemaSamples {
             refuse: [
                 .string("thinking-glyph.json"), .object([:]),
                 .object(["$schema": .string("cmux.particles/2"), "particle": .object(["size": .number(3)]), "phases": .object(["lone": .object(["duration": .number(400), "frames": .array([.object(["at": .number(0), "dots": .array([])])])])])]),
-                .object(["$schema": .string("cmux.particles/1"), "particle": .object(["size": .number(3)]), "phases": .object(["lone": .object(["duration": .number(400), "frames": .array([.object(["at": .number(0), "dots": .array([.array([.number(0), .number(0), .number(9)])])])])])])]),
-                .object(["$schema": .string("cmux.particles/1"), "particle": .object(["size": .number(3)]), "phases": .object(["lone": .object(["duration": .number(400), "frames": .array([.object(["at": .number(0), "dots": .array([])])])])]), "triggers": .object(["read": .array([.string("orbit")])])]),
+                .object(["$schema": .string("cmux.particles/1"), "phases": .object(["lone": .object(["duration": .number(400), "frames": .array([.object(["at": .number(0), "dots": .array([])])])])])]),
+                .object(["$schema": .string("cmux.particles/1"), "particle": .object(["size": .number(3)]), "phases": .object([:])]),
             ]
         ),
         "domain:command_labels": SampleSet(
