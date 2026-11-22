@@ -86,6 +86,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ShellReadRequest, "after");
     try expectExplicitNullRejected(protocol.ShutdownDaemonRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.ShutdownDaemonRequest, "force");
+    try expectExplicitNullRejected(protocol.ShutdownDaemonRequest, "if_idle");
     try expectExplicitNullRejected(protocol.ShutdownDaemonRequest, "keep_layout");
     try expectExplicitNullRejected(protocol.SidebarPluginRequest, "relaunch");
     try expectExplicitNullRejected(protocol.SplitRequest, "before");
@@ -94,6 +95,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.TerminalEventsRequest, "after_revision");
     try expectExplicitNullRejected(protocol.UndoLayoutRequest, "confirm_close");
     try expectExplicitNullRejected(protocol.AgentChangedEvent, "since_ms");
+    try expectExplicitNullRejected(protocol.AgentChangedEvent, "terminal_id");
     try expectExplicitNullRejected(protocol.CloudConversationChangedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudConversationLiveEvent, "account");
     try expectExplicitNullRejected(protocol.CloudConversationPresenceEvent, "account");
@@ -163,6 +165,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.WorkspaceRenamedEvent, "mutation_id");
     try expectExplicitNullRejected(protocol.WorkspaceRenamedEvent, "origin");
     try expectExplicitNullRejected(protocol.AgentRecord, "since_ms");
+    try expectExplicitNullRejected(protocol.AgentRecord, "terminal_id");
     try expectExplicitNullRejected(protocol.AttachedViewResizeResult, "participant");
     try expectExplicitNullRejected(protocol.Bookmark, "favicon_key");
     try expectExplicitNullRejected(protocol.Bookmark, "icon");

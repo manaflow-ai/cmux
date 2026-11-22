@@ -1,0 +1,43 @@
+{
+  "cmuxProfile": 1,
+  "name": "glass-liquid",
+  "description": "Clear Liquid Glass over Hokusai's wave: the painting bends through the sidebar, the tab bar and the panes, with the glass lab's dim levels keeping text readable.",
+  "created_ms": 0,
+  "settings": {
+    "appearance.themeFile": "glass-liquid",
+    "layout.paneCornerRadius": 14,
+    "sidebar.groupHeader.background": "glass",
+    "sidebar.groupPalette": "glass",
+    "agentPane.display.font.preset": "system",
+    "sidebar.side": "left",
+    "sidebar.showProfileControl": true,
+    "sidebar.showSearchButton": true,
+    "sidebar.showNewWorkspaceChooser": true,
+    "sidebar.workspacesAsTabs": false,
+    "sidebar.chromeGroups": true,
+    "sidebar.sideBySide": false,
+    "sidebar.noFade": false,
+    "sidebar.groupHeader.memberCount": true,
+    "sidebar.groupHeader.unreadCount": true,
+    "sidebar.workspaceRow.directory": true,
+    "sidebar.workspaceRow.branch": true,
+    "sidebar.workspaceRow.agentStatus": true,
+    "sidebar.workspaceRow.tabCount": true,
+    "sidebar.workspaceRow.lastActivity": true,
+    "sidebar.workspaceRow.secondLineOrder": [
+      "notification",
+      "directory",
+      "branch",
+      "agentStatus",
+      "lastActivity"
+    ],
+    "sidebar.style": "standard",
+    "sidebar.workspaceRow.icon": true,
+    "sidebar.workspaceRow.notification": true,
+    "workspaceColors.indicatorStyle": "fill"
+  },
+  "files": {
+    "agent-pane/theme.css": "/* Glass: liquid, in the agent pane. Over clear glass and a bright painting the chat's own glass (the\n   composer, popovers, menus, hover cards) needs a tint floor to keep text at 4.5:1: the glass lab\n   measured 3.9:1 on a selected row at a 60% tint and 5.0:1 at 70% (the tint floor skin).\n   This raises each text-bearing level to 70% or more and leaves the blur alone, so Reduce\n   Transparency still turns the glass off. The material keeps its colors vivid behind the frost. */\n:root {\n  --ds-glass-chrome-tint: 70%;\n  --ds-glass-popover-tint: 74%;\n  --ds-glass-popover-art-tint: 70%;\n  --ds-glass-chip-tint: 72%;\n  --glass-material-saturate: 2;\n}\n",
+    "themes/glass-liquid.json": "// Glass: liquid. The most see-through glass cmux draws: Liquid Glass in its clear style over\n// Hokusai's wave, so the painting (and a little of the desktop) bends through the sidebar, the tab\n// bar and the panes. Readability comes from a dark dim under each surface, at the levels the glass\n// lab measured: 55% under chrome reads 5.2:1 over a bright\n// painting, where the 35% dim usually paired with clear glass reads 2.8:1.\n{\n  \"name\": \"Glass: liquid\",\n  \"description\": \"Clear Liquid Glass over Hokusai's wave: the painting bends through every surface.\",\n\n  \"appearance.theme\": \"Apple System Colors\",\n  \"colors\": { \"background\": \"#05080d\", \"foreground\": \"#eef3f8\", \"selection\": \"#1d3550\", \"accent\": \"#7cc4ff\" },\n  \"appearance.accent\": \"theme\",\n\n  // The window: clear Liquid Glass over the painting (Window Glass: the art leads, the desktop\n  // shows a little), a light tint, and a third of that tint taken off again.\n  \"appearance.background\": \"hokusai-great-wave\",\n  \"appearance.backgroundBlur\": \"glass-clear\",\n  \"appearance.backgroundOpacity\": 0.55,\n  \"appearance.glassTransparency\": 0.25,\n  \"appearance.wallpaperTint\": true,\n\n  // The chrome: a separate sidebar and tab bar, each a 55% black dim over the glass.\n  \"appearance.sidebarSurface\": \"separate\",\n  \"appearance.surfaces.sidebar.color\": \"#000000\",\n  \"appearance.surfaces.sidebar.opacity\": 0.55,\n  \"appearance.surfaces.tabBar.color\": \"#000000\",\n  \"appearance.surfaces.tabBar.opacity\": 0.55,\n\n  // The panes: a deeper dim where you read, the New Tab page and Home almost bare glass.\n  \"appearance.surfaces.terminal.color\": \"#000000\",\n  \"appearance.surfaces.terminal.opacity\": 0.65,\n  \"appearance.surfaces.agentPane.color\": \"#000000\",\n  \"appearance.surfaces.agentPane.opacity\": 0.65,\n  \"appearance.surfaces.newTabPage.color\": \"#000000\",\n  \"appearance.surfaces.newTabPage.opacity\": 0.3,\n  \"appearance.surfaces.home.color\": \"#000000\",\n  \"appearance.surfaces.home.opacity\": 0.35,\n\n  // The address bar is clear glass too, tinted from the background.\n  \"browser.omnibar.glass\": \"clear\",\n  \"browser.omnibar.glassTint\": \"background\",\n  \"browser.omnibar.glassTintStrength\": 0.35,\n\n  // Floating panes with no lines, so only glass separates them.\n  \"appearance.chromeStyle\": \"floating\",\n  \"appearance.borders\": \"none\",\n  \"sidebar.sectionLook\": \"card\",\n  \"appearance.statusIndicator.style\": \"arc\",\n  \"appearance.statusIndicator.color\": \"#7cc4ff\"\n}\n"
+  }
+}
