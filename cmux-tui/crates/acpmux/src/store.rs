@@ -467,6 +467,13 @@ pub struct SessionMeta {
     /// with "No conversation found with session ID".
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub claude_unstored: bool,
+    /// The agent of the unstored conversation (`claude_unstored`) did work in a turn that did
+    /// not end Ok: it said something, thought or called a tool (`Hub::unstored_turn_worked`). Only
+    /// such a conversation is kept awake (`idle.rs`) and refused by `stop --if-idle`; one whose
+    /// turns only ever got agent errors (a 503, an exhausted account) wakes as the same fresh
+    /// conversation with its transcript restored either way (cmux#48917).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub claude_unstored_work: bool,
     /// Its creator asked every start of its agent to wait on the harness rather than a wall
     /// clock (`_meta.acpmux.waitStart`, `Session::wait_start`; the Chief's own sessions). Kept on
     /// disk, so a wake after hibernation or a daemon restart waits as its first start did: on
@@ -479,6 +486,13 @@ pub struct SessionMeta {
     /// such a prompt again. Kept on disk with the rest of its meta.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub throwaway: bool,
+    /// The journal seq the agent's own session ends at, when the journal went past it without
+    /// the agent: records its owner kept went back in (`hub/journal_restore.rs`, a session moved
+    /// to a fresh machine from an older disk). The agent resumes its own older session, so its
+    /// next prompt carries the turns after this seq (`hub/transcript.rs` `missed_turns`), and the
+    /// mark goes. Saved with the meta: the agent's file and this mark are on one disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_behind_seq: Option<u64>,
     /// When (Unix ms) the idle exit hibernated its agent, 0 when no start woke it since
     /// (`hub/idle.rs`): after a restart, opening it wakes it and its wake draws no row, as
     /// before the restart, and the wake's log says how long it slept.
@@ -1018,6 +1032,13 @@ impl SessionMeta {
 
     /// The Claude store this session's harness reads when it spawns on a
     /// profile with `env`.
+    /// A Claude chat whose conversation is not stored (`claude_unstored`) and whose agent did
+    /// work in it (`claude_unstored_work`): hibernating or stopping it would lose that work's
+    /// context, so `idle.rs` keeps it awake and `stop --if-idle` refuses it (`unstored`).
+    pub fn keeps_unstored_awake(&self) -> bool {
+        self.claude_unstored && self.claude_unstored_work && self.turn_count > 0
+    }
+
     pub fn claude_store(&self, env: &BTreeMap<String, String>) -> PathBuf {
         let mut env = env.clone();
         self.apply_chat_store(&mut env);
@@ -2399,6 +2420,7 @@ impl Store for LocalStore {
     /// for, or a line whose head does not read.
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         let mut line = Vec::new();
+        let mut pass = crate::perf_watch::LogPass::start(id, true);
         for (_, path) in self.segments(id)? {
             let mut reader =
                 BufReader::with_capacity(256 * 1024, crate::config::private_state_file(&path)?);
@@ -2407,6 +2429,7 @@ impl Store for LocalStore {
                 if reader.read_until(b'\n', &mut line)? == 0 {
                     break;
                 }
+                crate::perf_watch::LogPass::line(&mut pass, line.len());
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }
@@ -2871,6 +2894,7 @@ impl LocalStore {
         }
         let segments = self.segments(id)?;
         let mut line = Vec::new();
+        let mut pass = crate::perf_watch::LogPass::start(id, after == 0);
         // The segment that holds `after + 1`, found from the segments' kept first seqs: the read
         // opens only the segments it reads (`store/segment_starts.rs`).
         let start = self.segment_starts.start(id, &segments, after)?;
@@ -2882,6 +2906,7 @@ impl LocalStore {
                 if reader.read_until(b'\n', &mut line)? == 0 {
                     break;
                 }
+                crate::perf_watch::LogPass::line(&mut pass, line.len());
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }

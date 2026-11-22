@@ -10,6 +10,9 @@ on:
       - main
       - feat-cmux-next
     paths:
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "schemas/settings/source/general.json"
+      - "webviews/src/apps/scene/extTemplateScenes.json"
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -40,6 +43,8 @@ on:
       - "tests/test_tui_publish_workflow_security.py"
       - "tests/workflow_jobs.py"
       - "scripts/ci/gh_expressions.py"
+      # The link profiles the ignored terminal_restart_settled test reads (cmux-tui tests).
+      - "webviews/bench/link-profiles.json"
       - "scripts/ci/adopt_cmux_tui_commit.py"
       - "scripts/ci/cmux_tui_manifest_sweep.py"
       - "scripts/ci/cmux_tui_tree_handoff.py"
@@ -91,6 +96,9 @@ on:
       - "Resources/theme-files/classic-desktop.json"
       - "Resources/theme-files/claude-desktop.json"
       - "Resources/theme-files/harbor.json"
+      - "Resources/theme-files/lily-pond.json"
+      - "Resources/theme-files/meadow.json"
+      - "Resources/theme-files/moss.json"
       - "Resources/theme-files/phosphor.json"
       - "Resources/theme-files/teal.json"
       - "Resources/sidebar-looks/claude.json"
@@ -182,6 +190,9 @@ on:
       - "skills/cmux-customization/templates/my-prs/main.js"
   pull_request:
     paths:
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "schemas/settings/source/general.json"
+      - "webviews/src/apps/scene/extTemplateScenes.json"
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -212,6 +223,8 @@ on:
       - "tests/test_tui_publish_workflow_security.py"
       - "tests/workflow_jobs.py"
       - "scripts/ci/gh_expressions.py"
+      # The link profiles the ignored terminal_restart_settled test reads (cmux-tui tests).
+      - "webviews/bench/link-profiles.json"
       - "scripts/ci/adopt_cmux_tui_commit.py"
       - "scripts/ci/cmux_tui_manifest_sweep.py"
       - "scripts/ci/cmux_tui_tree_handoff.py"
@@ -263,6 +276,9 @@ on:
       - "Resources/theme-files/classic-desktop.json"
       - "Resources/theme-files/claude-desktop.json"
       - "Resources/theme-files/harbor.json"
+      - "Resources/theme-files/lily-pond.json"
+      - "Resources/theme-files/meadow.json"
+      - "Resources/theme-files/moss.json"
       - "Resources/theme-files/phosphor.json"
       - "Resources/theme-files/teal.json"
       - "Resources/sidebar-looks/claude.json"
