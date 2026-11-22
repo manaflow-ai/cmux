@@ -199,6 +199,13 @@ public final class StreamedBrowserModel: BrowserTabState {
     static var reconnectingText: String { String(localized: "Reconnecting browser…") }
     /// The page waits for the Mac's link to come back (drawn as a chip, ``linkChip(for:)``).
     static var linkReconnectingText: String { String(localized: "Reconnecting to the Mac…") }
+    /// The page is reopening on its own (after a stall, or once the link is
+    /// back): the page keeps its last frame and says nothing until this has
+    /// lasted the shared quiet bound (``QuietStatusGate`` in the page).
+    public var healsQuietly: Bool {
+        guard case let .waiting(reason) = phase else { return false }
+        return reason == Self.reconnectingText || reason == Self.linkReconnectingText
+    }
     /// A Back or Forward sent and not yet committed on the Mac (finding 5 of
     /// verify/parity-mac.md): the browser reports the old history while the page loads, so
     /// until the history moved the buttons follow the step, and a second step waits for it.

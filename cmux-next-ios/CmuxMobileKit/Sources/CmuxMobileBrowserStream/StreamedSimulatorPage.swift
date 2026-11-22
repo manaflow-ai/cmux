@@ -12,6 +12,8 @@ import UIKit
 public struct StreamedSimulatorPage: View {
     let model: StreamedBrowserModel
     var insets: EdgeInsets
+    /// A reopen the page does on its own shows its line only past the shared quiet bound.
+    @State private var quiet = QuietStatusGate()
 
     public static let unavailableText = String(localized: "Simulators aren't available from this Mac.")
 
@@ -35,12 +37,15 @@ public struct StreamedSimulatorPage: View {
                     .padding(.horizontal, 16).padding(.vertical, 12)
                     .glassEffect(.regular, in: .rect(cornerRadius: 18))
                 } else if let chip = StreamedBrowserModel.linkChip(for: reason) {
-                    // The link is coming back: a chip over the last frame, not a sentence (Leo,
-                    // 2026-11-21: "a symbol or short thing, not a sentence. stop layout shifting").
-                    ConnectionChip(chip)
-                        .padding(.top, 8)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .accessibilityIdentifier("simulator.reconnecting")
+                    // The link is coming back: nothing over the last frame until the quiet bound,
+                    // then a symbol, never a sentence (Leo, 2026-11-23: "i dont wanna see
+                    // reconnecting to the Mac in a toast, i want it to just connect").
+                    if quiet.isShown {
+                        ConnectionChip.SymbolOnly(chip)
+                            .padding(.top, 8)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                            .accessibilityIdentifier("simulator.reconnecting")
+                    }
                 } else {
                     retryStatus(reason)
                 }
@@ -59,6 +64,7 @@ public struct StreamedSimulatorPage: View {
         .background(Color.black)
         // The simulator page is black in both appearances: its status and Retry draw dark.
         .environment(\.colorScheme, .dark)
+        .onChange(of: model.healsQuietly, initial: true) { _, down in quiet.update(down: down) }
         .onAppear {
             model.setVisible(true)
             model.reconnect()

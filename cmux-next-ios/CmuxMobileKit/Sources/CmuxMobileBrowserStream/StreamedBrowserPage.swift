@@ -16,6 +16,8 @@ public struct StreamedBrowserPage: View {
     @State private var raisedForField = false
     /// A JavaScript prompt's answer while its alert shows.
     @State private var promptText = ""
+    /// A reopen the page does on its own shows its line only past the shared quiet bound.
+    @State private var quiet = QuietStatusGate()
     @Environment(\.openURL) private var openURL
 
     /// What the page says when the Mac cannot stream browser tabs.
@@ -37,9 +39,10 @@ public struct StreamedBrowserPage: View {
                 if model.canReopen {
                     reopen(reason)
                 } else if let chip = StreamedBrowserModel.linkChip(for: reason) {
-                    // The link is coming back: a chip over the last frame, not a sentence (Leo,
-                    // 2026-11-21: "a symbol or short thing, not a sentence. stop layout shifting").
-                    linkChip(chip)
+                    // The link is coming back: nothing over the last frame until the quiet bound,
+                    // then a symbol, never a sentence (Leo, 2026-11-23: "i dont wanna see
+                    // reconnecting to the Mac in a toast, i want it to just connect").
+                    if quiet.isShown { linkChip(chip) }
                 } else {
                     status(reason)
                 }
@@ -74,6 +77,7 @@ public struct StreamedBrowserPage: View {
         .padding(.top, insets.top)
         .padding(.bottom, insets.bottom)
         .background(Color.black)
+        .onChange(of: model.healsQuietly, initial: true) { _, down in quiet.update(down: down) }
         .onAppear {
             model.setVisible(true)
             model.reconnect()
@@ -186,7 +190,7 @@ public struct StreamedBrowserPage: View {
     }
 
     private func linkChip(_ chip: ConnectionChip.Content) -> some View {
-        ConnectionChip(chip)
+        ConnectionChip.SymbolOnly(chip)
             .padding(.top, 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .accessibilityIdentifier("browser.reconnecting")

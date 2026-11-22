@@ -100,6 +100,7 @@ import Testing
         #expect(first.isClosed)
         #expect(opener.tabs == ["s7", "s7"])
         #expect(model.phase == .waiting(StreamedBrowserModel.reconnectingText))
+        #expect(model.healsQuietly, "the page reopens on its own: its line waits out the shared quiet bound")
     }
 
     @Test func aStreamTheLibraryEndedAsStalledReconnects() async throws {
