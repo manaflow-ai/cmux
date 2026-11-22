@@ -1,0 +1,246 @@
+{
+  "version": 1,
+  "build": "4495894547301",
+  "notes": "notes/4495894547301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 48938,
+      "title": "cmux-next-ios: the tab on screen stays through a disconnect, resync and reconnect",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48950,
+      "title": "cmux remote: a first connect that times out says why and what to do; the wait says how to stop",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48249,
+      "title": "acpmux: hub reads retry transient hub failures and name the direct route",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49026,
+      "title": "Mac Screen: a screen link opens a run's display, view only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47453,
+      "title": "ghostty-vt: read a history page with one lookup per row, not per cell",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47317,
+      "title": "Draw extension status items (cmux.status/1) in the titlebar and menu bar menu",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44874,
+      "title": "Home: failed-send badge is system red, not the theme's pink ANSI red",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49104,
+      "title": "ci receipts: a green cmux-ci fast-gates run counts with no CI-Receipt line (discover)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49275,
+      "title": "Cloud start: a compose reservation goes with one Send, so a new start after a refused one is not 409 reservation.bound",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49144,
+      "title": "acpmux: a joined machine's Claude launch fails with its reason, not a model error",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49112,
+      "title": "hot-verify look: the copy's acpmux daemons take a Rust change, and the receipt says which did not",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47288,
+      "title": "acpmux: a kind scan past a restore point reads the copies past it, not every copy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48877,
+      "title": "pr-checks: split-plan advisory fetches refs without submodule commits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49103,
+      "title": "Agent chat: a slow agent service is never read as a dead one (pane liveness, daemon-wide queue bound)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48521,
+      "title": "feat(web): default-off outcome-shaped ask experiment",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/48521/hv-b8048e39a80c-video.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 48991,
+      "title": "cmux-next-ios: try.sh puts any PR on your phone as cmux Dev",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49299,
+      "title": "macos-stubs: CoreGraphics, ApplicationServices, AppKit, Foundation and libobjc stubs for the cross-built daemons",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48910,
+      "title": "acpmux machine status/doctor: say a hub-carried machine is connected, not unreachable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48961,
+      "title": "iOS: UI state survives a reconnect",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49148,
+      "title": "agent pane: the relay takes the page's initialize _meta.acpmux.peerRowBatches; every chat reconnected every few seconds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44398,
+      "title": "Agent chat: a long chat's prompt index costs the rail no object per prompt (renderer heap flat in length)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/44398/hv-bbae4bf75a6f-video.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 44776,
+      "title": "Agent chat: older history is no longer re-read while you sit at the bottom of a streaming chat",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/44776/hv-b8125f32467b-video.mp4",
+      "source": "manual",
+      "note": "5 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 48945,
+      "title": "cmux remote: a bad route and an unknown daemon name the next command",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49118,
+      "title": "react-apps-check shard 1: fix its only PR gate red, and skip tests once a gate failed",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49118/hv-a650c5f93412-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 48758,
+      "title": "acpmux: the owner's phone keeps the session's mode (remote.mode_not_asking)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49230,
+      "title": "test(webviews): activityTone's hover-rule regex follows #48711's .cv-thought",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48762,
+      "title": "bench: --engine webkit types in WebKit (it measured Chromium)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47765,
+      "title": "App Store: listings that say what you get, with a real listing page and browse page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41626,
+      "title": "Agent chat: a subagent the harness refused is one quiet line; each row offers a control once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46678,
+      "title": "base_red_excuse: read a ws-check the build fleet ran for its cancelled Actions run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48866,
+      "title": "perf(tasks): board cards keep their measured height by task id (TanStack Virtual getItemKey)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48862,
+      "title": "perf(messages): fold a search's typed text once, and each contact's name once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49233,
+      "title": "Rust policy for the opt-in pane + creation menu (tabs.plusMenu)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49252,
+      "title": "cmux-rd-ffi: record the viewed screen to a fragmented MP4 as it plays (ABI 7; Mac Screen recording step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44950,
+      "title": "Prototype: agent-made widgets as json-render specs, drawn with the extension kit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49248,
+      "title": "CI: owned family slots come from the runners online, not CI_OWNED_POOL_SLOTS",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49141,
+      "title": "NEXT: Move chats through CLI and command palette",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49119,
+      "title": "ci(cloud-chat-proof): the resolve job keeps the pinned NEXT DEV zip, so a republish never 404s the proof",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
