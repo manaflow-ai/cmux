@@ -3014,8 +3014,8 @@ body {
 /* The live line rolls its words when they change (Thinking.tsx `useRoll`; Leo, 2026-11-05: "this is
    quite good too how it animates the changing text!!! we need to have that!!! for changing tool
    calls at the bottom"): the old words (`cv-roll-out`, in the line's one tone as it drew them) roll
-   up and out of the line as the new roll up into it from below, each fading as it travels, over the
-   roll (--agent-motion-roll: Claude desktop's 200 ms, 70% of the line, its curve; Leo, 2026-11-22:
+   up and out of the line as the new roll up into it from below, over the roll (--agent-motion-roll:
+   Claude desktop's 200 ms and its curve, the keyframes below; Leo, 2026-11-22:
    "i think ours is too jarring/jagged compared to claude right now", on two opaque texts a few
    pixels apart for the arrival step's two or three frames). The
    line's row clips them to its own height while a roll is on it, so the old words never draw over
@@ -3052,7 +3052,7 @@ body {
     user-select: none;
     -webkit-user-select: none;
     color: var(--cv-text-dim);
-    animation: cv-roll-out var(--agent-motion-arrive, 80ms) var(--agent-ease-roll) both;
+    animation: cv-roll-out var(--agent-motion-roll) var(--agent-ease-roll) both;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out::before {
     content: attr(data-lead);
@@ -3078,7 +3078,7 @@ body {
     user-select: none;
     -webkit-user-select: none;
     color: var(--cv-text-dim);
-    animation: cv-roll-out var(--agent-motion-arrive, 80ms) var(--agent-ease-roll) both;
+    animation: cv-roll-out var(--agent-motion-roll) var(--agent-ease-roll) both;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out__tail::after {
     content: attr(data-tail);
@@ -3164,9 +3164,9 @@ body {
 /* The roll's other timings, for the gallery's side by side with Claude desktop's strip
    (TurnTransitions.gallery.tsx `arrive-tool-swap-*`): `opaque`, the roll before Leo's 2026-11-22
    ask (both texts opaque, 100% of the line, the arrival step: two texts a few pixels apart for two or
-   three frames); `claude`, Claude desktop's values on both sides (the old words too take 200 ms, so
-   the call's name is still faintly on the line when its row lands); `brisk`, the shipped shape on the
-   entry step (120 ms). */
+   three frames); `claude`, Claude desktop's roll as it ships there (70% of the line, both texts fading
+   across it: a faint middle, and the call's name still faintly on the line when its row lands);
+   `brisk`, the shipped roll on the entry step (120 ms). */
 @media (prefers-reduced-motion: no-preference) {
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="opaque"] {
     --agent-roll-travel: 100%;
@@ -3187,7 +3187,17 @@ body {
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="claude"] .cv-roll-out,
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="claude"] .cv-roll-out__tail {
-    animation-duration: var(--agent-motion-roll);
+    animation-name: cv-roll-claude-out;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="claude"] .cv-thinking[data-roll="odd"],
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="claude"] .cv-worked--live[data-roll="odd"] > .cv-worked__count,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="claude"] .cv-worked--live[data-roll="odd"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
+    animation-name: cv-roll-claude-in-odd;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="claude"] .cv-thinking[data-roll="even"],
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="claude"] .cv-worked--live[data-roll="even"] > .cv-worked__count,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="claude"] .cv-worked--live[data-roll="even"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
+    animation-name: cv-roll-claude-in-even;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="brisk"] {
     --agent-motion-roll: var(--cmux-motion-micro, 120ms);
@@ -3263,39 +3273,57 @@ body {
     translate: 0 0;
   }
 }
-/* Claude desktop's roll (cds-pill-roll-out / cds-pill-roll-in-up): each side travels
-   --agent-roll-travel of the line and fades on its curve, so mid-change the old words are nearly
-   gone where the new are nearly whole, and neither reads over the other. The new words take the
-   roll's 200 ms; the old leave on the arrival step, so a call's name is gone from the line before
-   its row lands (thinking-tool-swap-frames.test.ts: never drawn twice). */
+/* The roll on Claude desktop's curve and time (cds-pill-roll-out / cds-pill-roll-in-up: 200 ms,
+   cubic-bezier(0.165, 0.84, 0.44, 1)), the two texts tiling the line as they travel a whole line
+   (--agent-roll-travel), so every frame shows a line of words and never two over each other (Leo,
+   2026-11-11: "brief moments where it just looks like a blank tear"; status-swap-frames.test.ts).
+   Claude's own roll travels 70% and fades both texts across it, which draws that faint middle (the
+   gallery's `claude` look). The old words stay whole until a tenth of them is left on the line (half
+   the roll on this curve), then go in a twentieth of it, so a call's name is gone before its row
+   fades in on the entry step (thinking-tool-swap-frames.test.ts: never drawn twice). */
 @keyframes cv-roll-out {
-  from {
+  0% {
     translate: 0 0;
     opacity: 1;
   }
-  to {
-    translate: 0 calc(-1 * var(--agent-roll-travel));
+  50% {
+    opacity: 1;
+  }
+  55%,
+  100% {
     opacity: 0;
+  }
+  100% {
+    translate: 0 calc(-1 * var(--agent-roll-travel));
   }
 }
 @keyframes cv-roll-in-odd {
   from {
     translate: 0 var(--agent-roll-travel);
-    opacity: 0;
-  }
-  to {
-    translate: 0 0;
-    opacity: 1;
   }
 }
 @keyframes cv-roll-in-even {
   from {
     translate: 0 var(--agent-roll-travel);
+  }
+}
+/* Claude desktop's roll as it ships there, for the gallery's `claude` look. */
+@keyframes cv-roll-claude-out {
+  to {
+    translate: 0 -70%;
     opacity: 0;
   }
-  to {
-    translate: 0 0;
-    opacity: 1;
+}
+@keyframes cv-roll-claude-in-odd {
+  from {
+    translate: 0 70%;
+    opacity: 0;
+  }
+}
+@keyframes cv-roll-claude-in-even {
+  from {
+    translate: 0 70%;
+    opacity: 0;
   }
 }
 
@@ -6490,14 +6518,15 @@ a.cv-sha:focus-visible {
   }
   /* A call's row arriving while the live line hands its words over (Thinking.tsx `useRoll`) waits
      the roll out, so the call's name leaves the line before it lands in its row, never drawn twice
-     (thinking-tool-swap-frames.test.ts), and fades in on the exit lead, so the hand-over rests about
+     (thinking-tool-swap-frames.test.ts; the entry step, past the roll's 55% where they go), and fades in on the exit lead, so the hand-over rests about
      as soon as a row arriving alone would (`wait`: on the full arrival step, 50 ms later). The
      gallery's other looks (the hand-over above). */
   .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
-    animation-delay: var(--agent-motion-arrive, 80ms);
+    animation-delay: var(--agent-motion-in, 120ms);
     animation-duration: var(--cv-exit-lead);
   }
   [data-live-swap="wait"] .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+    animation-delay: var(--agent-motion-arrive, 80ms);
     animation-duration: var(--agent-motion-arrive, 80ms);
   }
   :is([data-live-swap="exit"], [data-live-swap="quick"], [data-live-swap="slide"]) .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
@@ -6506,6 +6535,9 @@ a.cv-sha:focus-visible {
   }
   [data-live-swap="quick"] .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
     animation-duration: var(--cv-exit-lead);
+  }
+  :is([data-live-swap="opaque"], [data-live-swap="claude"]) .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+    animation-delay: var(--agent-motion-arrive, 80ms);
   }
   :is([data-live-swap="before"], [data-live-swap="cross"]) .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
     animation-delay: 0s;

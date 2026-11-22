@@ -25,8 +25,8 @@
   "roll": {
     "ms": 200,
     "ease": [0.165, 0.84, 0.44, 1],
-    "travel": 70,
-    "for": "a line whose words change in place (the running turn's live line: Thinking, a call, Writing, back to Thinking): the old words rise out and fade as the new rise in from below and fade up, both clipped to the line, and what follows the words moves with them on the same curve. Claude desktop's own values, read from its app bundle (cds-pill-roll-in-up / cds-pill-roll-out over --cds-dur-base 0.2s and --cds-ease-out cubic-bezier(.165, .84, .44, 1), translateY 70% with opacity; Leo 2026-11-22: \"likewise the thinking and how it switches between things i think we ought to be able to get better too. the switching to and from things... i think ours is too jarring/jagged compared to claude right now\"). travel is the rise as a percent of the line's height"
+    "travel": 100,
+    "for": "a line whose words change in place (the running turn's live line: Thinking, a call, Writing, back to Thinking): the old words rise out as the new rise in from below, the two tiling the line (a whole line of travel, so every frame shows a line of words, Leo 2026-11-11: \"brief moments where it just looks like a blank tear\"), and what follows the words moves with them on the same curve. Claude desktop's own values, read from its app bundle (cds-pill-roll-in-up / cds-pill-roll-out over --cds-dur-base 0.2s and --cds-ease-out cubic-bezier(.165, .84, .44, 1), there translateY 70% with both texts fading, which draws that faint middle; Leo 2026-11-22: \"likewise the thinking and how it switches between things i think we ought to be able to get better too. the switching to and from things... i think ours is too jarring/jagged compared to claude right now\"). travel is the rise as a percent of the line's height"
   },
   "easeOut": [0, 0, 0.58, 1],
   "spring": {

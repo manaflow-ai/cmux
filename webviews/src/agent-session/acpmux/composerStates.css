@@ -29,7 +29,7 @@
      lands on the arrival step: by then the old words are four-fifths gone (the roll's curve). */
   --agent-motion-roll: var(--cmux-motion-roll, 200ms);
   --agent-ease-roll: var(--cmux-ease-roll, cubic-bezier(0.165, 0.84, 0.44, 1));
-  --agent-roll-travel: var(--cmux-roll-travel, 70%);
+  --agent-roll-travel: var(--cmux-roll-travel, 100%);
   /* The native move spring's timed equivalent (MotionSpring.move: visibly at rest by 180 ms). */
   --agent-motion-move: var(--cmux-motion-standard, 180ms);
   /* Something that has done its job leaving calmly in place, never a move: the read "New" line's

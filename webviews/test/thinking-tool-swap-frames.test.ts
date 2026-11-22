@@ -83,8 +83,8 @@ await requireBrowserLane("thinking-tool-swap-frames.test.ts", async () => {
       }
       expect({ twice, overlap }).toEqual({ twice: [], overlap: 0 });
       expect(moved).toBeLessThanOrEqual(MAX_FRAME_PX);
-      // The roll starts on the frame after the call lands; its last frame is the slot that holds its end.
-      expect(rest).toBeLessThanOrEqual((Math.ceil(MOTION_ROLL_MS / FRAME_MS) + 1) * FRAME_MS + 0.001);
+      // The roll starts two frames after the call lands (the commit, then its first frame); its last frame is the slot that holds its end.
+      expect(rest).toBeLessThanOrEqual((Math.ceil(MOTION_ROLL_MS / FRAME_MS) + 2) * FRAME_MS + 0.001);
     } finally {
       await browser.close();
     }

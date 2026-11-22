@@ -143,10 +143,10 @@ const SWAP_LOOKS: LiveSwapLook[] = [
   "slide",
 ];
 const SWAP_NOTE: Record<LiveSwapLook, string> = {
-  shipped: `Shipped: Claude desktop's roll (Leo, 2026-11-22: "ours is too jarring/jagged compared to claude"). The new words rise ${MOTION_ROLL_TRAVEL}% of the line and fade up over ${MOTION_ROLL_MS} ms on its curve; the old rise out and fade on the arrival step, so the call's row, fading in on the exit lead, never meets its name on the line.`,
+  shipped: `Shipped: Claude desktop's time and curve (Leo, 2026-11-22: "ours is too jarring/jagged compared to claude"). Over ${MOTION_ROLL_MS} ms the old words rise out as the new rise in, the two tiling the line across ${MOTION_ROLL_TRAVEL}% of it, so every frame shows one line of words; the old go once a tenth of them is left, before the call's row fades in.`,
   opaque: `Before: both texts opaque, a whole line of travel, on the arrival step (${MOTION_MS.quick} ms): mid-change the two read over each other a few pixels apart, for the two or three frames a busy pane draws.`,
-  claude: `Claude desktop's values on both sides: the old words too take ${MOTION_ROLL_MS} ms, so the call's name is still faintly on the line when its row lands.`,
-  brisk: `The shipped shape on the entry step (${MOTION_MS.micro} ms): calmer than the old roll, quicker than Claude's.`,
+  claude: `Claude desktop's roll as it ships there: 70% of the line, both texts fading across ${MOTION_ROLL_MS} ms, so mid-change both are faint (the blank tear of Leo's 2026-11-11 ask) and the call's name is still faintly on the line when its row lands.`,
+  brisk: `The shipped roll on the entry step (${MOTION_MS.micro} ms): calmer than the old roll, quicker than Claude's.`,
   wait: "The roll, then the call's row fading in on the full arrival step: drawn once, but at rest 50 ms later.",
   before:
     "Before: the call's row fades in a line over the roll while the call's name rolls out at full ink, drawn twice for 8 frames.",

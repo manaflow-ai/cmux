@@ -814,10 +814,10 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   /* A sent prompt's pop: past its size and back (its start: conversation.css cv-send-pop). */
   --cmux-motion-send-pop: 450ms;
   --cmux-ease-send-pop: cubic-bezier(0.34, 1.3, 0.64, 1);
-  /* A line whose words change in place: the old rise out and fade, the new rise in, over --cmux-roll-travel of the line. */
+  /* A line whose words change in place: the old rise out as the new rise in, over --cmux-roll-travel of the line. */
   --cmux-motion-roll: 200ms;
   --cmux-ease-roll: cubic-bezier(0.165, 0.84, 0.44, 1);
-  --cmux-roll-travel: 70%;
+  --cmux-roll-travel: 100%;
   /* A fold or Show more that grows or shrinks decelerates into its new height, never past it. */
   --cmux-motion-settle: 180ms;
   --cmux-ease-settle: cubic-bezier(0.16, 1, 0.3, 1);

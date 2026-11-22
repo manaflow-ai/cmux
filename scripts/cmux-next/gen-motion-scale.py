@@ -112,7 +112,7 @@ def css_block(data):
     lines.append("  /* A sent prompt's pop: past its size and back (its start: conversation.css cv-send-pop). */")
     lines.append("  --cmux-motion-send-pop: %sms;" % pop["ms"])
     lines.append("  --cmux-ease-send-pop: %s;" % bezier(data, pop["ease"]))
-    lines.append("  /* A line whose words change in place: the old rise out and fade, the new rise in, over --cmux-roll-travel of the line. */")
+    lines.append("  /* A line whose words change in place: the old rise out as the new rise in, over --cmux-roll-travel of the line. */")
     lines.append("  --cmux-motion-roll: %sms;" % data["roll"]["ms"])
     lines.append("  --cmux-ease-roll: %s;" % bezier(data, data["roll"]["ease"]))
     lines.append("  --cmux-roll-travel: %s%%;" % data["roll"]["travel"])
