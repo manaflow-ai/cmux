@@ -5,8 +5,12 @@
   "name": { "en": "Chief", "ja": "Chief" },
   "version": "1.0.0",
   "description": {
-    "en": "Your Chief, its subagents and your conversations, next to your workspaces.",
-    "ja": "Chief とそのサブエージェント、会話を、ワークスペースの隣に。"
+    "en": "Your Chief, its subagents and your conversations, right next to your workspaces. Open it from the top of the sidebar or in its own tab.",
+    "ja": "Chief とそのサブエージェント、会話を、ワークスペースのすぐ隣に置いておけます。サイドバーの一番上から、または専用のタブで開けます。"
+  },
+  "tagline": {
+    "en": "Your Chief and all your conversations in one place",
+    "ja": "Chief とすべての会話をひとつの場所に"
   },
   "publisher": { "name": "cmux", "url": "https://cmux.dev" },
   "repository": "https://github.com/manaflow-ai/cmux",

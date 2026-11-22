@@ -230,7 +230,7 @@ Reviewers #1 and #2 (PR 46/47 at 7d5fa1573 and the cmux side), finding by findin
 | Release test polls with sleep/yield | Fixed: `TerminalOutputLane.queued(atLeast:)` and `ScriptedTerminalIO.streamEnded()` signals (a999f0d2ccd, 00ffc8fe13e) |
 | bash funsub/`@a` change has no test or NEXT.md row | NEXT.md row added (8ffdf01); behavior test is PL-shell-integration's `fork_count_tests.rs` |
 | ghostty-next red runs on PR heads, not main commits | Open: rerun on the main commits after PR 49 merges |
-| ghostty-next CI test filter added | Removed (8ffdf01); tests run on the fleet by the agent (Lawrence 2026-10-23) |
+| ghostty-next CI test filter added | Removed (8ffdf01); tests run on the fleet by the agent (Lawrence 2026-10-23; the no-new-CI rule was lifted 2026-11-18) |
 
 G1 result (2026-10-23, aws-m4pro-9, 60 Hz, bench-terminal-resize light drag: 2 terminals with 20k lines,
 240 moves): the pre-commit presenter (branch plghx-g1-full, `TerminalHostFramePresenter` +

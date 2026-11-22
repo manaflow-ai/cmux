@@ -31,6 +31,8 @@ import yaml
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from nightly_workflow_text import nightly_text  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NIGHTLY = os.path.join(ROOT, ".github", "workflows", "nightly.yml")
@@ -117,17 +119,15 @@ def main():
     if shutil.which("jq") is None:
         print("FAIL: jq is required (the fake gh applies --jq with it)")
         return 1
-    workflow = yaml.safe_load(open(NIGHTLY, encoding="utf-8"))
+    # The step runs scripts/ci/nightly-steps/republish-deltas-and-appcasts.sh; nightly_text() puts it back inline.
+    workflow = yaml.safe_load(nightly_text())
     step = next(s for s in workflow["jobs"]["republish-nightly-deltas"]["steps"] if s.get("id") == "republish")
-    # The resolved build commit, as published-build carries it to the dispatched post-publish run.
-    # The step runs scripts/ci/nightly-steps/republish-deltas.sh (moved out to keep nightly.yml
-    # under its size cap) from the tooling checkout, with the resolved commit in its env.
-    _check("scripts/ci/nightly-steps/republish-deltas.sh" in render(step["run"], {}),
-           "the republish step runs scripts/ci/nightly-steps/republish-deltas.sh")
-    _check(step.get("env", {}).get("RESOLVE_BUILD_SHA") == "${{ needs.published-build.outputs.resolve_build_sha }}",
-           "the republish step passes published-build's resolved commit as RESOLVE_BUILD_SHA")
-    script = 'export RESOLVE_BUILD_SHA="%s"\n' % BUILD + open(
-        os.path.join(ROOT, "scripts", "ci", "nightly-steps", "republish-deltas.sh"), encoding="utf-8").read()
+    # The resolved build commit, as published-build carries it to the dispatched post-publish run: the step's
+    # env: passes it to the script as RESOLVE_BUILD_SHA.
+    context = {"needs.published-build.outputs.resolve_build_sha": BUILD}
+    _check(render(step["env"]["RESOLVE_BUILD_SHA"], context) == BUILD, "the step passes the resolved build commit")
+    os.environ["RESOLVE_BUILD_SHA"] = render(step["env"]["RESOLVE_BUILD_SHA"], context)
+    script = render(step["run"], context)
 
     for label, tag_object in (
         ("a lightweight tag", {"sha": BUILD, "type": "commit"}),

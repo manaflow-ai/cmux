@@ -48,6 +48,6 @@ enum RoomMenuHandlers {
 nonisolated enum RoomMenuStrings {
     static var spaceNotShown: String {
         String(localized: "rooms.refusal.spaceNotShown", defaultValue: "the space is not shown in the active window; switch to it first",
-               table: "Rooms", bundle: .module)
+               table: "Rooms", bundle: .module.inAppLanguage)
     }
 }

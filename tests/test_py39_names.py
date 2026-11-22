@@ -31,7 +31,7 @@ A file a hook never runs that needs a newer Python goes in EXCLUDED with its rea
 
 The 3.9 is $PY39, else python3.9 or /usr/bin/python3 when either is 3.9, else uv's managed 3.9 (installed when
 missing; uv itself from pip into a cache venv when the machine has none). With none to be had the test fails rather
-than pass unchecked. Run it on the fleet: `python3 tests/test_py39_names.py` (CLAUDE.md: no new CI tests).
+than pass unchecked. Run it on the fleet: `python3 tests/test_py39_names.py` (the 2026-10-23 no-new-CI rule, since lifted).
 """
 
 import ast

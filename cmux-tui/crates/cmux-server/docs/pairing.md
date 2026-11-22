@@ -126,6 +126,22 @@ before link export. Saving schema 3 is one-way; older binaries cannot read it. U
 uses private file permissions; it does not add encryption. The collection secret travels only in the WebSocket subprotocol
 header, which is marked sensitive.
 
+## Unpair
+
+`cmux server unpair` (or `cmux unpair`) makes this machine leave cmux Cloud.
+A paired machine first signs its own install out (`install.sign_out`, with a
+short-lived token minted by its install key, as backend confirmation does).
+The backend then removes its host from the team's servers and spends the
+pairing code and the invite that made it, so the same key cannot be approved,
+collect its result or begin again with that invite. After the backend agrees,
+or when it already refuses this key (the server was revoked in the app), the
+local `pairing/identity.json` (keys, paired IDs and any pending attempt) is
+removed. When the backend cannot be reached nothing is removed; retry, or run
+`cmux server unpair --local`, which only forgets the machine here and leaves
+the server for someone to remove in the app (`server.revoke`). `--json` prints
+`{"state":"unpaired","cloud":"signed_out|already_revoked|skipped|none","removed":true|false}`
+plus the `host` and `install` it was.
+
 ## Protocol ownership
 
 General servers and Chief hosts use

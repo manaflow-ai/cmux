@@ -34,6 +34,14 @@ public final class MacScreenSession {
         public var framesReceived: Double = 0
         public var framesDecoded: Double = 0
         public var framesDropped: Double = 0
+        /// The host's own once-a-second counters (cmux.rd/1 `stats`), nil until the first one or from a host that
+        /// sends none: the rate it streams at, the share of packets it resent or lost, its median encode time.
+        public var hostKbps: Double?
+        public var lossPercent: Double?
+        public var encodeMsP50: Double?
+        /// The profile the host says it encodes with (`standard`, `ultra`); nil from a host too old to say. The view
+        /// labels Ultra only from this, never from the quality it asked for.
+        public var encodeProfile: String?
     }
 
     /// Why the last session failed, in the words of the side that knew. The failed card says
@@ -70,6 +78,9 @@ public final class MacScreenSession {
     /// The pane's screen area in pixels, for Auto's stream width (read when a session offers).
     @ObservationIgnored public var paneWidthPixels: Int?
     @ObservationIgnored public var relayOnly = false
+    /// Settings > cmux Remote > Screen Sharing Profile (`remote.screenSharingProfile`): `ultra`
+    /// asks the host for its ultra encode profile in the next offer; nil (Balanced) asks for nothing.
+    @ObservationIgnored public var encodeProfile: String?
     @ObservationIgnored public var reconnectLimit = 0
     /// Relay errors for the failed card (relays are a link carrier, not reported apart).
     public var relayErrors: [ICECandidateError] { [] }
@@ -87,6 +98,12 @@ public final class MacScreenSession {
 
     /// The display to show in the next session (nil: the host's main display).
     @ObservationIgnored var wantedDisplay: Int?
+    /// The display a run's screen link names (a CGDirectDisplayID): every session asks for it
+    /// until the person picks a display.
+    @ObservationIgnored public var linkedDisplay: UInt32?
+    /// Set when the host's answer lists its display ids and `linkedDisplay` is not one (the run is over): the host
+    /// shows its main display. An older host lists no ids, so nothing is said.
+    public private(set) var linkedDisplayGone = false
     /// This session's connect start, first frame and recent round trips (`mac_screen.state`;
     /// not observed: nothing on screen follows them).
     @ObservationIgnored var timings = MacScreenConnectTimings()
@@ -208,6 +225,10 @@ public final class MacScreenSession {
                     logger.info("cmux rd: answer received (\(answer.candidates.count, privacy: .public) candidates)")
                     reach(.link)
                     if !answer.displays.isEmpty { onStreamDisplays?(answer.displays, answer.currentDisplay ?? 0) }
+                    if let linked = linkedDisplay {
+                        let gone = answer.lacksDisplay(linked)
+                        if linkedDisplayGone != gone { linkedDisplayGone = gone }
+                    }
                     answered(answer)
                 case let .candidate(candidate) where candidate.sdpMid == "cmux-rd":
                     process.send(["candidate": candidate.candidate])
@@ -260,6 +281,9 @@ public final class MacScreenSession {
                 offer.maxWidth = wish.maxWidth
                 offer.maxFps = wish.maxFps
                 offer.display = wantedDisplay
+                offer.customize(preferences)
+                offer.encodeProfile = encodeProfile
+                offer.displayID = wantedDisplay == nil ? linkedDisplay : nil
                 stats.targetFps = wish.maxFps
                 pendingAnswer = { [weak self] answer in self?.sendAnswer(answer, sessionID: sessionID, servers: servers, to: process) }
                 // The signaling socket opens on its own task: the offer waits for its `hello`.
@@ -370,6 +394,17 @@ public final class MacScreenSession {
                 case .connecting, .waitingForConsent:
                     continue
                 }
+            }
+        })
+        let hostStats = transport.hostStatsUpdates()
+        tasks.append(Task { [weak self] in
+            for await report in hostStats {
+                guard let self, self.transport === transport, !Task.isCancelled else { return }
+                stats.hostKbps = Double(report.kbps)
+                stats.kilobytesPerSecond = Double(report.kbps) / 8
+                stats.lossPercent = report.lossPercent
+                stats.encodeMsP50 = report.encodeMsP50
+                stats.encodeProfile = report.encodeProfile
             }
         })
         transport.connect()
@@ -493,6 +528,8 @@ public final class MacScreenSession {
 
     public func selectDisplay(_ index: Int) {
         wantedDisplay = index
+        linkedDisplay = nil
+        linkedDisplayGone = false
         guard phase == .connected || phase == .connecting else { return }
         restart()
     }
@@ -561,8 +598,10 @@ extension MacScreenSession {
     /// A fixture state for the viewer gallery (`AAMacScreenViewerGalleryTests`): the session reads as `phase` with
     /// no process or network, so the pane draws the card or the picture that state shows.
     func showPreviewState(phase: Phase, failureCause: FailureCause? = nil, linkConnected: Bool = false,
-                          frameSize: CGSize = .zero, stalled: Bool = false) {
+                          frameSize: CGSize = .zero, stalled: Bool = false, stats: LiveStats? = nil, path: String? = nil) {
         self.phase = phase
+        if let stats { self.stats = stats }
+        if let path { streamPath = path }
         self.failureCause = failureCause
         self.linkConnected = linkConnected
         self.frameSize = frameSize

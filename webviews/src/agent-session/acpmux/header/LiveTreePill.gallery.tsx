@@ -33,7 +33,7 @@ function LiveTreeGallery({ cwd, unavailable, failed }: Props) {
           />
         </div>
       </header>
-      <main style={{ padding: 20, color: "var(--agent-muted)" }}>
+      <main style={{ padding: "calc(var(--ds-space-4) + var(--ds-space-1))", color: "var(--agent-muted)" }}>
         The default pane is unchanged until Labs enables this marker.
       </main>
     </div>
