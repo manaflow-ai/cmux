@@ -31,7 +31,10 @@ depth=()
 if ! git -C "$root" cat-file -e "$before^{commit}" 2>/dev/null; then
   # A fetch by id takes only a full one (a CI checkout is shallow, so an abbreviation resolves to nothing here).
   [[ "$before" =~ ^[0-9a-f]{40}$ ]] || { echo "BEFORE_SHA $before is not in this checkout: give its full 40-character id" >&2; exit 2; }
-  git -C "$root" fetch -q --no-tags --no-recurse-submodules ${depth[@]+"${depth[@]}"} origin "$before" || exit 1
+  # A fleet Linux-pool checkout is packed from a bundle and has no origin remote: fetch from GitHub then.
+  remote=origin
+  git -C "$root" remote get-url origin >/dev/null 2>&1 || remote=https://github.com/manaflow-ai/cmux.git
+  git -C "$root" fetch -q --no-tags --no-recurse-submodules ${depth[@]+"${depth[@]}"} "$remote" "$before" || exit 1
 fi
 before="$(git -C "$root" rev-parse "$before^{commit}")"
 after="$(git -C "$root" rev-parse HEAD)"
