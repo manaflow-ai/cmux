@@ -1142,7 +1142,7 @@ jobs:
     # and static checks, so macOS admission can depend on its real result
     # without a second runner polling another workflow.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 5
+    timeout-minutes: 10 # stopgap: the guard step ran 273 s plus ~32 s setup on 2026-11-22 (job 137065773591), past 5
     permissions:
       contents: read
     steps:

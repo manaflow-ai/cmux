@@ -601,7 +601,9 @@ def main(argv: list[str]) -> int:
                 if result.ok is False:
                     print(f"  FAIL {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
                     print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
-                elif args.verbose and result.ok:
+                elif result.ok and (args.verbose or os.environ.get("GITHUB_ACTIONS") == "true"):
+                    # In Actions every step prints its time as it ends, so a run cut off at the job timeout
+                    # still shows which steps held the workers.
                     print(f"  ok   {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
     except KeyboardInterrupt:
         pool.shutdown(wait=False, cancel_futures=True)

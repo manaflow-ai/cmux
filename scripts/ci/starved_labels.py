@@ -90,8 +90,12 @@ RESCUE_REPEAT = dt.timedelta(minutes=210)
 # dispatch for one of their runs would cancel that watch (perhaps between its cancel and its re-run, leaving a nightly
 # cancelled), so the alert never starts one for them. cmux-next.yml is listed there for `completed` only, whose group
 # has its own suffix. A test keeps this equal to the workflow's SOURCE_WORKFLOW_PATHS less cmux-next.yml.
-REQUEST_WATCHED_PATHS = frozenset({".github/workflows/ios-screenshots.yml", ".github/workflows/nightly.yml",
+REQUEST_WATCHED_PATHS = frozenset({".github/workflows/ios-screenshots.yml",
                                    ".github/workflows/cmux-next-dev-daily.yml"})
+# Sources the sweeper itself watches on a thread (owned_pool_rescue.GitHub.nightly_runs(), #49606): their attempt-1
+# runs no longer wake a per-run `requested` watch, but a dispatch would start a second watcher on a nightly, so the
+# alert never starts one for them either.
+SWEEPER_WATCHED_PATHS = frozenset({".github/workflows/nightly.yml"})
 RESCUE_RUNS_PER_SWEEP = 6
 RESCUE_WORKFLOW = "ci-owned-pool-rescue.yml"
 # The runs whose rescue this alert started, and when, in the issue body: <!-- starved-rescue: RUN@ISO ... -->.
@@ -233,12 +237,13 @@ def starved(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequenc
         age = now - since
         # The runs stuck past RESCUE_AFTER, oldest wait first, that rescue_plan() may start a rescue for: attempt 1 only
         # (a dispatch watches any attempt, owned_pool_rescue.dispatch_target(), but this alert stays the loop guard),
-        # and no workflow whose own workflow_run watch holds that run's group (REQUEST_WATCHED_PATHS).
+        # and no workflow whose own workflow_run watch holds that run's group (REQUEST_WATCHED_PATHS) or that the
+        # sweeper watches (SWEEPER_WATCHED_PATHS).
         rescuable: list[list[int]] = []
         for job, at in sorted(ready, key=lambda entry: entry[1]):
             got = run_of(job)
             if (got and got[1] == 1 and list(got) not in rescuable and now - at >= RESCUE_AFTER
-                    and path_of.get(got[0]) not in REQUEST_WATCHED_PATHS):
+                    and path_of.get(got[0]) not in REQUEST_WATCHED_PATHS | SWEEPER_WATCHED_PATHS):
                 rescuable.append(list(got))
         found.append({"label": key, "oldest_queued_minutes": int(age.total_seconds() // 60), "queued": len(entries),
                       "job": str(oldest.get("name") or ""), "job_url": str(oldest.get("html_url") or ""),
