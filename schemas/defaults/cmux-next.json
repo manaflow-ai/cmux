@@ -474,7 +474,7 @@
     "setting.browser.omnibar.glassTintStrength": 0.35,
     "setting.browser.omnibar.height": "density",
     "setting.browser.omnibar.inlineAutocomplete": true,
-    "setting.browser.omnibar.maxRows": 8,
+    "setting.browser.omnibar.maxRows": 6,
     "setting.browser.omnibar.remoteSuggestions": true,
     "setting.browser.omnibar.shadow": false,
     "setting.browser.omnibar.showFullURLs": false,
