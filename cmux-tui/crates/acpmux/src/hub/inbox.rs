@@ -102,8 +102,9 @@
 //! (an `inbox_noticed` record). The next notice goes no sooner than that, and behind a steer only
 //! once the agent took it at its tool step (its answer). One that does not go in (a
 //! steer refused or withdrawn, a turn of its own stopped or failed before its prompt was written)
-//! leaves its messages new, so none is lost; it is tried again no sooner than
-//! [`REFUSED_RETRY_MS`], or when a turn starts or ends. A notice that went in logs its answer (an
+//! leaves its messages new, so none is lost (a steer logged but never written leaves
+//! `steer_withdrawn`, so neither the chat nor the log shows it went in); it is tried again no
+//! sooner than [`REFUSED_RETRY_MS`], or when a turn starts or ends. A notice that went in logs its answer (an
 //! `inbox_answered` record, an error too): a resend of one of its messages, before or after a
 //! restart, and after [`trim`] let go of it ([`Inbox::trimmed`]), answers with it; a resend of
 //! one withdrawn before any notice carried it answers withdrawn ([`Inbox::removed`]). A withdraw
