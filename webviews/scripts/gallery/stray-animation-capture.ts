@@ -71,6 +71,23 @@ try {
       await page.waitForTimeout(600);
       await page.screenshot({ path: path.join(dir, "frame-000-before-end.png") });
 
+      // Every painted frame of the fold, from the engine itself: a page.screenshot takes longer
+      // than a frame, so the strip of what the reader actually sees comes from Chromium's
+      // screencast instead.
+      const cdp = await context.newCDPSession(page);
+      await cdp.send("Page.enable");
+      const painted: { ms: number; data: string }[] = [];
+      let firstFrame = 0;
+      cdp.on("Page.screencastFrame", (frame) => {
+        const stamp = (frame.metadata as { timestamp?: number }).timestamp ?? 0;
+        if (!firstFrame) firstFrame = stamp;
+        painted.push({ ms: Math.round((stamp - firstFrame) * 1000), data: frame.data });
+        void cdp.send("Page.screencastFrameAck", { sessionId: frame.sessionId }).catch(() => {});
+      });
+      await cdp.send("Page.startScreencast", { format: "jpeg", quality: 92, everyNthFrame: 1 });
+      await page.waitForTimeout(150);
+      const paintedBeforeEnd = painted.length;
+
       // End the turn and watch every frame for WATCH_MS: the running animations, where they sit
       // against the scroller's view, and the view's own offset.
       const watched = await page.evaluate(
@@ -115,7 +132,18 @@ try {
         },
         { watchMs: WATCH_MS, wheel: variant === "reader-scrolling" },
       );
+      await cdp.send("Page.stopScreencast").catch(() => {});
       await page.screenshot({ path: path.join(dir, "frame-999-end.png") });
+      // The painted frames from the end on, numbered in order: the strip of the fold.
+      const strip = path.join(dir, "painted");
+      fs.mkdirSync(strip, { recursive: true });
+      const fromEnd = painted.slice(Math.max(0, paintedBeforeEnd - 1));
+      const zero = fromEnd[0]?.ms ?? 0;
+      for (const [index, frame] of fromEnd.entries())
+        fs.writeFileSync(
+          path.join(strip, `${String(index).padStart(3, "0")}-${String(frame.ms - zero).padStart(4, "0")}ms.jpg`),
+          Buffer.from(frame.data, "base64"),
+        );
 
       const offscreen = watched.frames.flatMap((frame) =>
         frame.animations.filter((each) => !each.inView).map((each) => ({ ms: frame.ms, ...each })),
@@ -141,6 +169,7 @@ try {
         scrollMin: Math.min(...scrolls),
         scrollMax: Math.max(...scrolls),
         scrollSteps: [...new Set(scrolls)].length,
+        paintedFrames: fromEnd.length,
         errors,
       };
       (report.variants as Record<string, unknown>)[variant] = seen;
