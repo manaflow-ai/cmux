@@ -1,0 +1,206 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "today-narrow",
+      "entry": "agent-pane.chat-summary-placements",
+      "variant": "today",
+      "width": 420,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "today-normal",
+      "entry": "agent-pane.chat-summary-placements",
+      "variant": "today",
+      "width": 760,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "today-wide",
+      "entry": "agent-pane.chat-summary-placements",
+      "variant": "today",
+      "width": 1040,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "sidebar-only-narrow",
+      "entry": "agent-pane.chat-summary-placements",
+      "variant": "sidebar-only",
+      "width": 420,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "sidebar-only-normal",
+      "entry": "agent-pane.chat-summary-placements",
+      "variant": "sidebar-only",
+      "width": 760,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "sidebar-only-wide",
+      "entry": "agent-pane.chat-summary-placements",
+      "variant": "sidebar-only",
+      "width": 1040,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "chip-narrow",
+      "entry": "agent-pane.chat-summary-placements",
+      "variant": "chip",
+      "width": 420,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "chip-normal",
+      "entry": "agent-pane.chat-summary-placements",
+      "variant": "chip",
+      "width": 760,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "chip-wide",
+      "entry": "agent-pane.chat-summary-placements",
+      "variant": "chip",
+      "width": 1040,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "chip-open-narrow",
+      "entry": "agent-pane.chat-summary-placements",
+      "variant": "chip-open",
+      "width": 420,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "chip-open-normal",
+      "entry": "agent-pane.chat-summary-placements",
+      "variant": "chip-open",
+      "width": 760,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "chip-open-wide",
+      "entry": "agent-pane.chat-summary-placements",
+      "variant": "chip-open",
+      "width": 1040,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "short-line-narrow",
+      "entry": "agent-pane.chat-summary-placements",
+      "variant": "short-line",
+      "width": 420,
+      "height": 170,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "short-line-normal",
+      "entry": "agent-pane.chat-summary-placements",
+      "variant": "short-line",
+      "width": 760,
+      "height": 170,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "short-line-wide",
+      "entry": "agent-pane.chat-summary-placements",
+      "variant": "short-line",
+      "width": 1040,
+      "height": 170,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "tab-hover-narrow",
+      "entry": "agent-pane.chat-summary-placements",
+      "variant": "tab-hover",
+      "width": 420,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "tab-hover-normal",
+      "entry": "agent-pane.chat-summary-placements",
+      "variant": "tab-hover",
+      "width": 760,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "tab-hover-wide",
+      "entry": "agent-pane.chat-summary-placements",
+      "variant": "tab-hover",
+      "width": 1040,
+      "height": 300,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    }
+  ]
+}

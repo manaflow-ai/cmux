@@ -6,9 +6,15 @@
 //! The summary rolls: each one is made from the one before it and the turn that just ended, never
 //! from the transcript, so its cost stays flat however long the chat gets.
 //!
-//! - A turn that ends on a `wrap_up` call (`crate::wrap_up_suggestion`) is summarized from its
-//!   recap and its question: the agent already said where it stands, so no model is asked. Any
-//!   completed turn's wrap-up counts, an agent's or a trigger's too: it costs nothing.
+//! - The line is a state and a next action, not a sentence of the reply: at most [`WORDS`] words
+//!   each ("CI green, PR open" / "Merge the PR"). Leo, 2026-11-22, of a header line that read
+//!   "I posted <host>'s 14-day permission-stall history on <issue> (htt…": "im not sure if this
+//!   is useful"; it was the wrap-up recap's first sentence, cut mid-link, its question hidden.
+//! - A turn that ends on a `wrap_up` call (`crate::wrap_up_suggestion`) gets a line from its
+//!   recap and its question at once, with no model ([`condense_state`], [`condense_ask`]): any
+//!   completed turn's wrap-up counts, an agent's or a trigger's too: it costs nothing. When a
+//!   person started that turn and the recap is longer than the line kept, the summary model is
+//!   asked once too, with the recap as the reply, and its answer replaces the line.
 //! - A turn a person's own prompt started (`prompt_sender::person_turn`) that ended with no wrap-up
 //!   asks the summary model once (`summaries.command`, else one `_acpmux/complete` on the chat's
 //!   harness, whose small model it picks: haiku on Claude). The request carries the last summary,
@@ -30,7 +36,12 @@ use std::time::Duration;
 
 /// The env that names a summary command (one program), over `summaries.command`.
 const COMMAND_ENV: &str = "ACPMUX_SUMMARY_COMMAND";
-const SYSTEM: &str = "You keep a one-line status of a chat between a person and a coding agent. Reply in the person's language with exactly two lines and nothing else:\nSummary: where the work stands now, at most 20 words.\nNext: the single next action, at most 10 words, starting with a verb; write \"Next: none\" when nothing is left.";
+const SYSTEM: &str = "You keep a glanceable status of a chat between a person and a coding agent, shown beside the chat's name. Reply in the person's language with exactly two lines and nothing else:\nSummary: the state of the work now, at most 6 words, a noun phrase or terse clause, no \"I\" or \"we\", no links, never the reply's first sentence (good: \"CI green, PR #412 open\", \"Reconnect race found, fix drafted\"; bad: \"I posted the history on the issue\").\nNext: the person's single next action, at most 6 words, an imperative starting with a verb (good: \"Merge PR #412\", \"Pick a dessert\", \"Answer: keep the old API?\"); write \"Next: none\" when nothing is left.";
+/// The most words a state or next action keeps: the prompt asks for 6, a model's answer may run
+/// a word or two over, and the line still reads at a glance.
+const WORDS: usize = 8;
+/// The words a state made without a model keeps (a wrap-up's recap, [`condense_state`]).
+const RECAP_WORDS: usize = 6;
 /// The completion's answer cap: the two lines fit in about 50 tokens.
 const MAX_TOKENS: u64 = 80;
 /// How much of the person's prompt goes in the request.
@@ -51,6 +62,8 @@ pub(crate) struct Rolling {
     asking: bool,
     /// A person's turn ended while one ran: ask once more after it.
     again: bool,
+    /// The wrap-up recap the next request reads as the agent's reply, over the row's preview.
+    recap: Option<String>,
 }
 
 impl Hub {
@@ -73,14 +86,24 @@ impl Hub {
             return;
         }
         if let Some(recap) = recap {
+            let text = condense_state(&recap.text);
             let summary = RollingSummary {
-                text: cut(&recap.text, TEXT_CHARS),
-                next: recap.ask.as_deref().map(|a| cut(a, NEXT_CHARS)),
+                next: recap.ask.as_deref().and_then(condense_ask),
                 source: WRAP_UP.to_owned(),
                 turn: session.read_meta(|m| m.turn_count),
                 at: crate::store::now_ms(),
+                text: text.clone(),
             };
             self.apply_summary(session, summary);
+            // A long recap cut to a few words loses its point: a person's turn asks the model too.
+            if by_person && one_line(&recap.text) != text {
+                let reply = match &recap.ask {
+                    Some(ask) => format!("{}\n{ask}", recap.text),
+                    None => recap.text.clone(),
+                };
+                session.rolling.lock().unwrap_or_else(|e| e.into_inner()).recap = Some(reply);
+                self.ask_summary(session);
+            }
             return;
         }
         if by_person {
@@ -103,12 +126,13 @@ impl Hub {
         // A shutdown may drop it: the next person's turn after a restart asks again.
         self.scope.spawn_until_cancelled("chat-summary", async move {
             loop {
+                let recap = session.rolling.lock().unwrap_or_else(|e| e.into_inner()).recap.take();
                 let (request, harness, turn) = session.read_meta(|m| {
                     (
                         request(
                             m.rolling_summary.as_ref(),
                             m.last_prompt.as_deref(),
-                            m.preview.as_deref(),
+                            recap.as_deref().or(m.preview.as_deref()),
                         ),
                         m.harness.clone(),
                         m.turn_count,
@@ -251,11 +275,127 @@ fn parse(answer: &str) -> Option<(String, Option<String>)> {
             summary = Some(line.to_owned());
         }
     }
-    let summary = clean(&summary?, TEXT_CHARS)?;
+    let summary = clean(&summary?, TEXT_CHARS).map(|s| glance(&s, WORDS))?;
     let next = next
         .and_then(|n| clean(&n, NEXT_CHARS))
-        .filter(|n| !matches!(n.to_lowercase().trim_end_matches('.'), "none" | "nothing" | "n/a"));
+        .filter(|n| !matches!(n.to_lowercase().trim_end_matches('.'), "none" | "nothing" | "n/a"))
+        .map(|n| glance(&n, WORDS));
     Some((summary, next))
+}
+
+/// A wrap-up recap as a state of a few words: its first sentence with no links, no
+/// parentheses and no leading "I", cut to [`RECAP_WORDS`] words.
+fn condense_state(recap: &str) -> String {
+    let line = one_line(&strip_asides(recap));
+    let first = first_sentence(&line);
+    let first = drop_first_person(first);
+    let state = glance(first.trim_end_matches(['.', ',', ';', ':', ' ']), RECAP_WORDS);
+    if state.is_empty() { cut(recap, TEXT_CHARS) } else { cut(&state, TEXT_CHARS) }
+}
+
+/// A wrap-up's question as the person's next action: "Should I open the PR?" reads "OK to open
+/// the PR?", any other question stays a question, a few words long. None when it is empty.
+fn condense_ask(ask: &str) -> Option<String> {
+    let line = one_line(&strip_asides(ask));
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+    const OFFERS: [&str; 9] = [
+        "do you want me to ",
+        "would you like me to ",
+        "want me to ",
+        "should i go ahead and ",
+        "should i ",
+        "shall i ",
+        "can i ",
+        "may i ",
+        "should we ",
+    ];
+    let lower = line.to_lowercase();
+    let question = line.ends_with('?');
+    let offer = OFFERS
+        .iter()
+        .find(|o| lower.starts_with(*o))
+        .and_then(|o| line.get(o.len()..))
+        .map(|rest| format!("OK to {rest}"));
+    // "OK to" is the affordance, not the action: it does not count against the words.
+    let words = if offer.is_some() { RECAP_WORDS + 2 } else { RECAP_WORDS };
+    let body = offer.unwrap_or_else(|| line.to_owned());
+    let body = body.trim_end_matches(['?', '.', ' ']);
+    let mut next = glance(body, words);
+    if question && !next.ends_with('…') {
+        next.push('?');
+    }
+    Some(cut(&next, NEXT_CHARS))
+}
+
+/// `text` with its links and parenthesized asides taken out.
+fn strip_asides(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut depth = 0usize;
+    for c in text.chars() {
+        match c {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    out.split_whitespace()
+        .filter(|w| !w.contains("://") && !w.starts_with("www."))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The first sentence or clause of `line`: up to ". ", "; ", " - ", " — " or ": ".
+fn first_sentence(line: &str) -> &str {
+    let mut end = line.len();
+    for stop in [". ", "; ", " — ", " - ", ": ", "! ", "? "] {
+        if let Some(i) = line.find(stop) {
+            end = end.min(i);
+        }
+    }
+    line.get(..end).unwrap_or(line)
+}
+
+/// `text` without a leading "I", "I've", "We" or "I'm", its next word capitalized.
+fn drop_first_person(text: &str) -> String {
+    let text = text.trim();
+    let lower = text.to_lowercase();
+    for lead in ["i've ", "i have ", "i'm ", "i am ", "i ", "we've ", "we have ", "we "] {
+        if lower.starts_with(lead)
+            && let Some(rest) = text.get(lead.len()..).filter(|r| !r.is_empty())
+        {
+            let mut chars = rest.chars();
+            return match chars.next() {
+                Some(c) => c.to_uppercase().chain(chars).collect(),
+                None => String::new(),
+            };
+        }
+    }
+    text.to_owned()
+}
+
+/// `text` cut to `words` words, with no dangling "on", "the" or "to" before its ellipsis.
+fn glance(text: &str, words: usize) -> String {
+    let all: Vec<&str> = text.split_whitespace().collect();
+    if all.len() <= words {
+        return all.join(" ");
+    }
+    let mut kept = all.get(..words).unwrap_or(&all);
+    const DANGLING: [&str; 14] =
+        ["a", "an", "the", "on", "to", "of", "for", "in", "and", "with", "at", "by", "or", "from"];
+    while let Some((last, rest)) = kept.split_last()
+        && !rest.is_empty()
+        && DANGLING.contains(&last.to_lowercase().as_str())
+    {
+        kept = rest;
+    }
+    let mut out = kept.join(" ");
+    out = out.trim_end_matches([',', ';', ':', '.']).to_owned();
+    out.push('…');
+    out
 }
 
 /// The value of `Label: value` (any case, markdown bold or not), if `line` is one.
@@ -318,12 +458,69 @@ mod tests {
         let long = format!("Summary: {}\nNext: {}", "word ".repeat(80), "go ".repeat(80));
         let (text, next) = parse(&long).unwrap();
         assert!(text.chars().count() <= TEXT_CHARS, "{text}");
-        assert!(next.unwrap().chars().count() <= NEXT_CHARS);
+        let next = next.unwrap();
+        assert!(next.chars().count() <= NEXT_CHARS);
         assert!(!text.contains('\n'));
         assert!(text.ends_with('…'));
+        // A model that runs long still reads at a glance: a few words, not a sentence.
+        assert!(text.split_whitespace().count() <= WORDS, "{text}");
+        assert!(next.split_whitespace().count() <= WORDS, "{next}");
         // A summary at the limit stays whole.
         let whole = "a".repeat(TEXT_CHARS);
         assert_eq!(cut(&whole, TEXT_CHARS), whole);
+    }
+
+    #[test]
+    fn leos_header_example_condenses_to_a_state_not_the_replys_first_sentence() {
+        // Leo, 2026-11-22: the header read the recap's first sentence, cut mid-link.
+        let recap = "I posted build-mac's 14-day permission-stall history on #7645 \
+                     (https://github.com/manaflow-ai/cmux/issues/7645). The stalls cluster \
+                     around auto-mode refusals; three were mine.";
+        let state = condense_state(recap);
+        assert_eq!(state, "Posted build-mac's 14-day permission-stall history…");
+        assert!(!state.contains("http"));
+        assert!(!state.starts_with("I "));
+        assert!(state.split_whitespace().count() <= RECAP_WORDS);
+    }
+
+    #[test]
+    fn a_short_recap_stays_whole_and_loses_only_its_i() {
+        assert_eq!(condense_state("I merged the PR."), "Merged the PR");
+        assert_eq!(condense_state("CI green, PR open"), "CI green, PR open");
+        assert_eq!(condense_state("We've shipped it; tests pass."), "Shipped it");
+        // A recap that is all aside still says something.
+        assert_eq!(condense_state("(https://x.test)"), "(https://x.test)");
+    }
+
+    #[test]
+    fn a_wrap_up_question_reads_as_the_persons_next_action() {
+        assert_eq!(condense_ask("Should I open the PR?").as_deref(), Some("OK to open the PR?"));
+        assert_eq!(
+            condense_ask("Want me to merge it once CI is green?").as_deref(),
+            Some("OK to merge it once CI is green?")
+        );
+        assert_eq!(
+            condense_ask("Keep the old API or not?").as_deref(),
+            Some("Keep the old API or not?")
+        );
+        assert_eq!(
+            condense_ask("Which of the three reconnect fixes should land first?").as_deref(),
+            Some("Which of the three reconnect fixes…")
+        );
+        assert_eq!(condense_ask("  ").as_deref(), None);
+    }
+
+    #[test]
+    fn a_cut_never_ends_on_a_dangling_word() {
+        assert_eq!(glance("Wrote the fix for the race in the link", 5), "Wrote the fix…");
+        assert_eq!(glance("Three words only", 5), "Three words only");
+    }
+
+    #[test]
+    fn the_prompt_asks_for_a_state_and_an_imperative_of_a_few_words() {
+        assert!(SYSTEM.contains("at most 6 words"));
+        assert!(SYSTEM.contains("imperative"));
+        assert!(SYSTEM.contains("never the reply's first sentence"));
     }
 
     #[test]

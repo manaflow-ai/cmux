@@ -1,0 +1,351 @@
+/* Gallery-only: the chat state + next action placement board (ChatSummaryPlacements.gallery.tsx).
+ * Mocks the tab row, sidebar and cards with the pane's own tokens; no app selector changes here. */
+[data-chs-gallery] {
+  box-sizing: border-box;
+  height: 100vh;
+  padding: var(--ds-space-3);
+  overflow: hidden;
+  background: var(--agent-page-bg);
+  color: var(--agent-text);
+  font-family: var(--font-ui);
+  font-size: var(--text-control);
+  line-height: 1.4;
+}
+[data-chs-gallery] *,
+[data-chs-gallery] *::before,
+[data-chs-gallery] *::after {
+  box-sizing: border-box;
+}
+.chs-pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  border: 1px solid var(--agent-border);
+  border-radius: var(--ds-radius-lg);
+  background: var(--agent-page-bg);
+}
+.chs-tabrow,
+.chs-ownrow {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  min-height: var(--ds-control-row);
+  padding: 0 var(--ds-space-2);
+  border-bottom: 1px solid var(--agent-border);
+  white-space: nowrap;
+}
+.chs-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+.chs-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  max-width: 220px;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+  color: var(--agent-muted);
+}
+.chs-tab[data-active] {
+  background: var(--acpmux-pill-fill, var(--ds-surface-inset));
+  color: var(--agent-text);
+}
+.chs-tab__title,
+.chs-row__title,
+.chs-ownrow__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chs-tabrow__end {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+.chs-tools {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+.chs-tool {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-control);
+  color: var(--agent-muted);
+}
+.chs-tool--pill {
+  padding: 0 var(--ds-space-2);
+  border: 1px solid var(--agent-border);
+  font-size: var(--text-detail);
+}
+.chs-live {
+  display: flex;
+  height: auto;
+  min-width: 0;
+  overflow: visible;
+  background: transparent;
+}
+.chs-dot {
+  flex: none;
+  width: var(--ds-space-2);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--agent-muted);
+}
+.chs-dot[data-status="running"] {
+  background: var(--agent-accent);
+}
+.chs-dot[data-status="needs-you"] {
+  background: var(--acpmux-needs-you-mark, var(--agent-status-warning));
+}
+.chs-transcript {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  min-height: 0;
+  padding: var(--ds-space-3) var(--ds-space-4);
+  overflow: hidden;
+}
+.chs-user {
+  align-self: flex-end;
+  max-width: 78%;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--ds-radius-composer);
+  background: color-mix(in srgb, var(--agent-accent) 20%, transparent);
+}
+.chs-reply {
+  color: var(--agent-text);
+  line-height: 20px;
+}
+.chs-composer {
+  margin-top: auto;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border: 1px solid var(--acpmux-composer-edge, var(--agent-border));
+  border-radius: var(--ds-radius-composer);
+  color: var(--agent-muted);
+}
+/* Next: a quiet label, then the action in full ink. */
+.chs-next {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+.chs-next__label {
+  flex: none;
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-sm);
+  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
+  color: var(--agent-accent);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.chs-next__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Cards: the sidebar's hover card, the chip's popover and the tab's hover card. */
+.chs-card {
+  position: absolute;
+  z-index: var(--layer-dropdown);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  width: min(280px, calc(100% - 16px));
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border: 1px solid var(--acpmux-composer-edge, var(--agent-border));
+  border-radius: var(--ds-radius-lg);
+  background: var(--agent-surface-elevated, var(--agent-page-bg));
+  box-shadow: var(--elevation-2);
+  white-space: normal;
+}
+.chs-card__title {
+  font-weight: 600;
+}
+.chs-card__eyebrow,
+.chs-card__meta {
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.chs-card__state {
+  color: var(--agent-text);
+}
+.chs-card--tab {
+  top: calc(var(--ds-control-row) + var(--ds-space-1));
+  left: var(--ds-space-2);
+}
+.chs-card--sidebar {
+  top: 8px;
+  left: calc(100% + var(--ds-space-2));
+  width: min(260px, calc(100vw - 100% - var(--ds-space-6)));
+}
+.chs-chip-anchor {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+.chs-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  max-width: 200px;
+  height: 24px;
+  padding: 0 var(--ds-space-2);
+  border: 1px solid var(--agent-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-detail);
+}
+.chs-chip[aria-expanded="true"] {
+  background: var(--acpmux-pill-open, var(--ds-surface-inset));
+}
+.chs-chip__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chs-card--chip {
+  top: calc(100% + var(--ds-space-1));
+  right: 0;
+}
+/* (a) The sidebar beside the pane. */
+.chs-split {
+  display: grid;
+  grid-template-columns: minmax(150px, 34%) minmax(0, 1fr);
+  gap: var(--ds-space-2);
+  height: 100%;
+}
+.chs-sidebar {
+  position: relative;
+  z-index: var(--layer-raised);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  padding: var(--ds-space-2);
+  border-radius: var(--ds-radius-lg);
+  background: var(--acpmux-composer-tray, var(--ds-surface-inset));
+}
+.chs-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+  min-width: 0;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+}
+.chs-row[data-hovered] {
+  background: var(--acpmux-menu-highlight);
+}
+.chs-row__head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  white-space: nowrap;
+}
+.chs-row__title {
+  flex: 1;
+  font-weight: 600;
+}
+.chs-row__time {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.chs-row__line {
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chs-row__next {
+  color: var(--agent-text);
+}
+/* (c) Three own-row headers stacked. */
+.chs-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+}
+.chs-pane--own-row {
+  height: auto;
+}
+.chs-ownrow {
+  border-bottom: 0;
+}
+.chs-ownrow__title {
+  flex: 0 1 auto;
+  max-width: 34%;
+  font-weight: 600;
+}
+.chs-short {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.chs-short__state {
+  flex: 0 1 auto;
+  min-width: 4ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chs-short .chs-next {
+  flex: 0 2 auto;
+  color: var(--agent-text);
+}
+.chs-ownrow .chs-tools {
+  margin-left: auto;
+}
+/* Cards wrap; only one-line rows cut. */
+.chs-card .chs-next {
+  align-items: flex-start;
+}
+.chs-card .chs-next__text {
+  white-space: normal;
+}
+.chs-card--chip {
+  width: 260px;
+}
+/* (b) A narrow row folds the chip to its dot and "Next": the tabs and tools keep their room. */
+.chs-tabrow {
+  container-type: inline-size;
+}
+.chs-chip {
+  flex: none;
+  margin-inline-end: var(--ds-space-1);
+}
+.chs-chip__short {
+  display: none;
+}
+@container (max-width: 520px) {
+  .chs-chip__text {
+    display: none;
+  }
+  .chs-chip__short {
+    display: inline;
+  }
+}
