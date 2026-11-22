@@ -113,6 +113,8 @@ nonisolated extension AcpmuxPaneMethods {
         // `localOnly`: this machine's lists only, without waiting on the peers (the picker's own read).
         "_acpmux/models": (["refresh", "localOnly"], []),
         "_acpmux/status": ([], []),
+        "catalog.get": ([], []),
+        "catalog.refresh": ([], []),
         "_acpmux/peers": ([], []),
         // Placement names are local display labels; the optional source lets the page filter
         // targets for a chat without exposing a host URL or session identity.
