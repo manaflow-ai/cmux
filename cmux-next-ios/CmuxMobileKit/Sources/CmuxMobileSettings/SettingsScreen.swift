@@ -293,7 +293,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .terminalSizingMac(let macID): TerminalSizingMacPage(macID: macID, store: store, service: sizing)
         case .composer: ComposerPage(settings: settings)
         case .accentColor: AccentColorPage(accents: accentTheme)
-        case .notifications: NotificationsPage(settings: settings, macs: store.notificationMacs)
+        case .notifications: NotificationsPage(settings: settings, macs: store.notificationMacs,
+                                                       permission: notificationPermission)
         case .acknowledgements: AcknowledgementsPage()
         case .chiefCalls: ChiefCallsPage(keys: callKeys, preferences: callPreferences, callChief: callChief)
         case .screenSharing:
@@ -591,6 +592,12 @@ private struct DeveloperSection: View {
     @AppStorage(DeveloperOptions.launchDemoKey) private var launchDemo = ""
     @AppStorage(DeveloperOptions.slowApprovalKey) private var slowApproval = false
     @State private var launchedWithMock = DeveloperOptions.mockData
+    /// The Cloud service this launch uses and where it came from (the tag's `CMUX_NEXT_CLOUD_BACKEND`,
+    /// kept from an earlier launch, a rig's variable, or the build's own).
+    @State private var cloudBackend = CloudBackendOverride.cloudService(
+        environment: ProcessInfo.processInfo.environment,
+        infoValue: Bundle.main.object(forInfoDictionaryKey: "CmuxMobileCloudAPIBase") as? String,
+        defaults: .standard, debug: true)
 
     var body: some View {
         let mock = DeveloperOptions.mockSwitch(stored: mockData)
@@ -622,6 +629,15 @@ private struct DeveloperSection: View {
                     .foregroundStyle(theme.colors.label3)
                     .lineLimit(1)
             }
+            HStack {
+                SettingsLabel("Cloud backend", symbol: "cloud")
+                Spacer()
+                Text(verbatim: cloudBackend?.label ?? "None")
+                    .foregroundStyle(theme.colors.label3)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .accessibilityIdentifier("settings.developer.cloudBackend")
             if mockData != launchedWithMock || !launchDemo.isEmpty {
                 Button(role: .destructive) {
                     exit(0)
