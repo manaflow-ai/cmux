@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Which agent chat opened each file, so a quote from the file's viewer goes back to that chat.
 /// In memory only: a relaunch forgets it and quotes go to Chief (viewer-comments-DESIGN.md).
