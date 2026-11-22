@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import ObjectiveC
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// tell the page's click tracker before they press, which records the press as the page's gesture.
 /// The stand-in class is a fresh `NSAccessibilityElement` subclass with its own press, as
 /// `BrowserAccessibilityCocoa` is one.
-@MainActor @Suite struct ChromiumAccessibilityPressTests {
+@MainActor @Suite(.closesItsWindows) struct ChromiumAccessibilityPressTests {
     private typealias Press = @convention(c) (AnyObject, Selector) -> Bool
     private typealias Action = @convention(c) (AnyObject, Selector, AnyObject?) -> Void
 
@@ -43,6 +44,7 @@ import Testing
         let cls = try Self.elementClass { own += 1 }
         ChromiumAccessibilityPress.install(on: cls) { window, frame in told.append((window, frame)) }
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 200, height: 100), styleMask: [], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         let element = cls.init()
         element.setAccessibilityWindow(window)
         element.setAccessibilityFrame(CGRect(x: 10, y: 20, width: 30, height: 40))
@@ -85,7 +87,11 @@ import Testing
         let host = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600), styleMask: [], backing: .buffered, defer: true)
         let page = NSWindow(contentRect: CGRect(x: 100, y: 100, width: 400, height: 300), styleMask: [], backing: .buffered, defer: true)
         host.addChildWindow(page, ordered: .above)
-        defer { host.removeChildWindow(page) }
+        defer {
+            host.removeChildWindow(page)
+            page.closeAfterTest()
+            host.closeAfterTest()
+        }
         let tracker = CEFLinkClickTracker()
         var gestures: [Int32] = []
         tracker.onGesture = { gestures.append($0) }

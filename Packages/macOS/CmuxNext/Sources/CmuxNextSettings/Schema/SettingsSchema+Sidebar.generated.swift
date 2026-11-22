@@ -47,15 +47,18 @@ extension SidebarSectionsSetting {
     /// `sidebar.groupBy`.
     public nonisolated static let groupByPath = ["sidebar", "groupBy"]
     public nonisolated static let groupByDefault: SidebarGroupBy = .none
+    /// `sidebar.nav`: The nav block a look puts at the top of the sidebar: plain icon and label rows that run cmux actions. Rust validates it (cmux-layout-reducer sidebar_nav.rs); empty draws no block.
+    public nonisolated static let navPath = ["sidebar", "nav"]
+    public nonisolated static let navDefault: [String] = []
     /// `sidebar.showSpaces`.
     public nonisolated static let showSpacesPath = ["sidebar", "showSpaces"]
-    public nonisolated static let showSpacesDefault = true
+    public nonisolated static let showSpacesDefault = false
     /// `sidebar.showProfileControl`.
     public nonisolated static let showProfileControlPath = ["sidebar", "showProfileControl"]
     public nonisolated static let showProfileControlDefault = true
     /// `sidebar.showSearchButton`.
     public nonisolated static let showSearchButtonPath = ["sidebar", "showSearchButton"]
-    public nonisolated static let showSearchButtonDefault = true
+    public nonisolated static let showSearchButtonDefault = false
     /// `sidebar.showNewWorkspaceChooser`.
     public nonisolated static let showNewWorkspaceChooserPath = ["sidebar", "showNewWorkspaceChooser"]
     public nonisolated static let showNewWorkspaceChooserDefault = false
@@ -74,6 +77,9 @@ extension SidebarSectionsSetting {
     /// `sidebar.controlsOnHover`.
     public nonisolated static let controlsOnHoverPath = ["sidebar", "controlsOnHover"]
     public nonisolated static let controlsOnHoverDefault = false
+    /// `sidebar.floatOnHover`.
+    public nonisolated static let floatOnHoverPath = ["sidebar", "floatOnHover"]
+    public nonisolated static let floatOnHoverDefault = true
     /// `sidebar.minimal`.
     public nonisolated static let minimalPath = ["sidebar", "minimal"]
     public nonisolated static let minimalDefault = false
@@ -92,6 +98,12 @@ extension SidebarSectionsSetting {
     /// `sidebar.showTimestamps`.
     public nonisolated static let showTimestampsPath = ["sidebar", "showTimestamps"]
     public nonisolated static let showTimestampsDefault = false
+    /// `sidebar.settleFinished`: Seen, finished agent chats fold behind a Settled (N) row at the end of their list (SidebarLayout+DoneFold); the rule is Rust's (cmux-layout-reducer settle). Off by default; the Studio look turns it on.
+    public nonisolated static let settleFinishedPath = ["sidebar", "settleFinished"]
+    public nonisolated static let settleFinishedDefault = false
+    /// `sidebar.showAutomaticSessions`: Sessions no person started and no chat's subagent (the daemon recorded created_by kind script at the create: a script, an automation, a launcher) fold behind an Automatic (N) row at the end of their list (SidebarLayout+DoneFold); the rule is Rust's (cmux-layout-reducer automatic). Off by default: they fold; on draws them in place.
+    public nonisolated static let showAutomaticSessionsPath = ["sidebar", "showAutomaticSessions"]
+    public nonisolated static let showAutomaticSessionsDefault = false
     /// `sidebar.showColors`.
     public nonisolated static let showColorsPath = ["sidebar", "showColors"]
     public nonisolated static let showColorsDefault = true
@@ -106,7 +118,7 @@ extension SidebarSectionsSetting {
     public nonisolated static let groupHeaderUnreadCountDefault = false
     /// `sidebar.groupHeader.background`.
     public nonisolated static let groupHeaderBackgroundPath = ["sidebar", "groupHeader", "background"]
-    public nonisolated static let groupHeaderBackgroundDefault: SidebarGroupBackgroundStyle = .auto
+    public nonisolated static let groupHeaderBackgroundDefault: SidebarGroupBackgroundStyle = .folder
     /// `sidebar.groupPalette`.
     public nonisolated static let groupPalettePath = ["sidebar", "groupPalette"]
     public nonisolated static let groupPaletteDefault: GroupPalette = .glass
@@ -118,13 +130,20 @@ extension SidebarSectionsSetting {
     public nonisolated static let minimalModeDefault: SidebarMinimalMode = .off
     /// `sidebar.cards.tips`.
     public nonisolated static let tipsPath = ["sidebar", "cards", "tips"]
-    public nonisolated static let tipsDefault = true
+    public nonisolated static let tipsDefault = false
+}
+
+extension SidebarLookPreset {
+    /// `sidebar.look`.
+    public nonisolated static let configPath = ["sidebar", "look"]
+    public nonisolated static let fallback = "cmux"
+    public nonisolated static let values = ["cmux", "claude", "codex", "studio"]
 }
 
 extension WorkspaceColorsSetting {
     /// `workspaceColors.indicatorStyle`.
     public nonisolated static let indicatorStylePath = ["workspaceColors", "indicatorStyle"]
-    public nonisolated static let indicatorStyleDefault: WorkspaceColorIndicatorStyle = .dot
+    public nonisolated static let indicatorStyleDefault: WorkspaceColorIndicatorStyle = .leftRail
 }
 
 extension SidebarPriorityViewSetting {

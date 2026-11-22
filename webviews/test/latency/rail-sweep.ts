@@ -7,6 +7,7 @@
 // Performance metrics, Chromium only) divided by the moves. Production selectors only.
 import type { CDPSession, Page } from "playwright";
 import type { AdapterContext, AdapterRun } from "./measure";
+import { SESSION_INFO } from "../../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 declare global {
   interface Window {
@@ -47,9 +48,9 @@ async function metrics(cdp: CDPSession | undefined): Promise<Record<string, numb
 
 /** The ticks the sweep crosses: those drawn in the rail's view, clear of its fades, top to bottom. */
 async function sweepTicks(page: Page, most: number) {
-  if (await page.$("aside.acpmux-session-info")) {
+  if (await page.$(SESSION_INFO)) {
     await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
-    await page.waitForSelector("aside.acpmux-session-info", { state: "detached", timeout: 5_000 });
+    await page.waitForSelector(SESSION_INFO, { state: "detached", timeout: 5_000 });
   }
   await page.waitForSelector(LIST, { state: "attached", timeout: 10_000 });
   await page.evaluate((selector) => {

@@ -52,6 +52,14 @@ impl PendingSidecars {
         }
     }
 
+    /// The link's socket is bound and answers.
+    pub(super) fn answers(&self) -> bool {
+        #[cfg(unix)]
+        return self.admin.is_some();
+        #[cfg(not(unix))]
+        false
+    }
+
     /// The link's state, which the first dial publishes.
     pub(super) fn cell(&self) -> &Arc<LinkCell> {
         &self.cell

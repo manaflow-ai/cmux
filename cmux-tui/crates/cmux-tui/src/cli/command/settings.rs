@@ -39,6 +39,20 @@ pub(super) fn parse(
         ("reset" | "unset", [key]) => {
             request(ResourceOperation::SettingsReset, &selectors, flags, key_params(key))
         }
+        // `edit EDITS`: several keys in one atomic write (`settings.edit`). EDITS is a JSON
+        // array of `{"op": "set"|"set_unset"|"reset"|"reset_unchanged", "key", "value"?}`;
+        // `cmux wallpaper` switches modes through it.
+        ("edit", [edits]) => {
+            let edits: Value = serde_json::from_str(edits).ok().filter(Value::is_array).ok_or_else(
+                || {
+                    UsageError::new(
+                        "cmux settings edit takes a JSON array of edits: [{\"op\":\"set\",\"key\":KEY,\"value\":VALUE}, {\"op\":\"reset\",\"key\":KEY}]",
+                    )
+                },
+            )?;
+            let params = Map::from_iter([(String::from("edits"), edits)]);
+            request(ResourceOperation::SettingsEdit, &selectors, flags, params)
+        }
         _ => Err(UsageError::new(
             "unknown or incomplete settings action; run `cmux settings --help` for its actions",
         )),
@@ -132,16 +146,5 @@ pub(in crate::cli) fn human_rows(rows: &Value) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn settings_list_human_table_keeps_values_and_defaults() {
-        let rows =
-            json!([{"key":"sidebar.side", "value":"right", "default":"left", "customized":true}]);
-        assert_eq!(
-            human_rows(&rows),
-            json!([{"key":"sidebar.side", "value":"right", "default":"left"}])
-        );
-    }
-}
+#[path = "settings_tests.rs"]
+mod tests;

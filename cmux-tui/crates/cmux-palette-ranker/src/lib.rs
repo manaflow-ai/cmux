@@ -18,6 +18,7 @@
 //! indexes and fractional integers gave NaN or JavaScript-only results there.
 
 pub mod ffi;
+pub mod filter;
 mod rank;
 mod shortcut;
 mod text;
@@ -25,6 +26,8 @@ mod tier;
 
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, PoisonError};
 
 fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 where
@@ -73,6 +76,11 @@ pub struct Entry {
     /// of them, or its digits (`612`), ranks the row first, above every text match.
     #[serde(default, deserialize_with = "null_as_default")]
     pub handles: Vec<String>,
+    /// Phrases that name this row (the catalog's built-in aliases, `palette::ALIASES`): a query
+    /// that is one of them, ignoring case and spacing, ranks the row like the user's own
+    /// `palette.aliases` match does, first among enabled rows after a handle.
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub aliases: Vec<String>,
 }
 
 /// One frecency record.
@@ -146,6 +154,10 @@ pub struct RankRequest {
     /// true when that sum is below the threshold, so they decide the pass as one request would.
     /// (Rust only: the TypeScript ranker has no such field.)
     pub typo_pass: Option<bool>,
+    /// The page's section names, one list (title, id) per section index. With them, filter
+    /// tokens in the query (`in:tabs`, `-in:history`, [`filter`]) keep or drop sections' rows.
+    /// (Rust only.)
+    pub section_names: Option<Vec<Vec<String>>>,
 }
 
 /// The typo pass runs only when the strict pass found fewer rows than this at the substring tier
@@ -208,6 +220,9 @@ struct Installed {
     version: i64,
     entries: Vec<Entry>,
     prepared: rank::Prepared,
+    /// The candidate rows of the latest queries, so a keystroke that extends the query scores
+    /// only the rows the shorter query could still lead to.
+    narrowing: Mutex<rank::Narrowing>,
 }
 
 /// A ranker that holds one snapshot of entries and one usage history, so a keystroke sends
@@ -216,6 +231,8 @@ struct Installed {
 pub struct Ranker {
     installed: Option<Installed>,
     history: Option<(i64, Frecency)>,
+    /// Rows scored since the ranker was made ([`Ranker::rows_scored`]).
+    rows_scored: AtomicUsize,
 }
 
 impl Ranker {
@@ -226,7 +243,8 @@ impl Ranker {
     /// Holds `entries` for `version`; later requests for that version carry no entries.
     pub fn install(&mut self, version: i64, entries: Vec<Entry>) {
         let prepared = rank::Prepared::new(&entries);
-        self.installed = Some(Installed { version, entries, prepared });
+        self.installed =
+            Some(Installed { version, entries, prepared, narrowing: Mutex::default() });
     }
 
     /// Holds `history` for `revision`; later requests name the revision and carry no history.
@@ -236,7 +254,42 @@ impl Ranker {
 
     /// Ranks one request: its own entries, or the installed ones of its version, with its own
     /// history, or the installed one of its history revision.
+    ///
+    /// A keystroke that extends the installed entries' previous query scores only the rows that
+    /// query could still lead to ([`rank::Narrowing`]); the answer is the same.
     pub fn rank(&self, request: &RankRequest) -> Result<Vec<RankedSection>, RankError> {
+        self.rank_with(request, true)
+    }
+
+    /// [`Ranker::rank`] with every row scored again: the reference a keystroke's answer must
+    /// equal.
+    pub fn rank_full(&self, request: &RankRequest) -> Result<Vec<RankedSection>, RankError> {
+        self.rank_with(request, false)
+    }
+
+    /// The rows this ranker has scored (matched against a query) since it was made: the work a
+    /// keystroke costs, counted rather than timed.
+    pub fn rows_scored(&self) -> usize {
+        self.rows_scored.load(Ordering::Relaxed)
+    }
+
+    fn rank_with(
+        &self,
+        request: &RankRequest,
+        narrows: bool,
+    ) -> Result<Vec<RankedSection>, RankError> {
+        let mut work = 0;
+        let answer = self.answer(request, narrows, &mut work);
+        self.rows_scored.fetch_add(work, Ordering::Relaxed);
+        answer
+    }
+
+    fn answer(
+        &self,
+        request: &RankRequest,
+        narrows: bool,
+        work: &mut usize,
+    ) -> Result<Vec<RankedSection>, RankError> {
         let store = match (request.frecency.as_ref(), request.history_revision) {
             (Some(frecency), _) => Some(frecency),
             (None, Some(revision)) => match &self.history {
@@ -246,12 +299,23 @@ impl Ranker {
             (None, None) => None,
         };
         if let Some(entries) = request.entries.as_deref() {
-            return Ok(rank_entries(request, entries, None, store).sections);
+            return Ok(rank_entries(request, entries, None, store, None, work).sections);
         }
         match &self.installed {
             Some(installed) if Some(installed.version) == request.version => {
-                Ok(rank_entries(request, &installed.entries, Some(&installed.prepared), store)
-                    .sections)
+                // A panic mid-keystroke leaves every kept step whole (a step is kept only once
+                // complete), so a poisoned lock is still sound.
+                let mut narrowing = narrows
+                    .then(|| installed.narrowing.lock().unwrap_or_else(PoisonError::into_inner));
+                Ok(rank_entries(
+                    request,
+                    &installed.entries,
+                    Some(&installed.prepared),
+                    store,
+                    narrowing.as_deref_mut(),
+                    work,
+                )
+                .sections)
             }
             _ => Err(RankError::NotInstalled(request.version)),
         }
@@ -263,7 +327,17 @@ fn rank_entries(
     entries: &[Entry],
     prepared: Option<&rank::Prepared>,
     store: Option<&Frecency>,
+    narrowing: Option<&mut rank::Narrowing>,
+    work: &mut usize,
 ) -> RankAnswer {
+    if request.operation != "rankEmpty"
+        && let Some(names) = request.section_names.as_deref()
+    {
+        let parsed = filter::parse(request.query.as_deref().unwrap_or(""), names);
+        if parsed.applied {
+            return rank_filtered(request, &parsed, entries, prepared, store, narrowing, work);
+        }
+    }
     if request.operation == "rankEmpty" {
         return RankAnswer {
             sections: rank::rank_empty(request, entries, store),
@@ -271,9 +345,87 @@ fn rank_entries(
         };
     }
     match prepared {
-        Some(prepared) => rank::rank(request, entries, prepared, store),
-        None => rank::rank(request, entries, &rank::Prepared::new(entries), store),
+        Some(prepared) => rank::rank(request, entries, prepared, store, narrowing, work),
+        None => rank::rank(request, entries, &rank::Prepared::new(entries), store, None, work),
     }
+}
+
+/// A request without its entries and history (passed beside it), its query `query`.
+fn narrowed_request(request: &RankRequest, query: String, row_limit: Option<i64>) -> RankRequest {
+    RankRequest {
+        operation: request.operation.clone(),
+        entries: None,
+        version: request.version,
+        query: Some(query),
+        section_orders: request.section_orders.clone(),
+        frecency: None,
+        history_revision: request.history_revision,
+        now: request.now,
+        shows_recent: request.shows_recent,
+        keeps_section_order: request.keeps_section_order,
+        ranks_prefix_first: request.ranks_prefix_first,
+        recent_limit: request.recent_limit,
+        aliases: request.aliases.clone(),
+        pins: request.pins.clone(),
+        pinned_section_index: request.pinned_section_index,
+        row_limit,
+        highlight_limit: request.highlight_limit,
+        typo_pass: request.typo_pass,
+        section_names: None,
+    }
+}
+
+/// Keeps at most `limit` rows across `sections`, in order, and drops the emptied sections.
+fn keep_rows(
+    sections: Vec<RankedSection>,
+    limit: usize,
+    keeps: impl Fn(&RankedRow) -> bool,
+) -> Vec<RankedSection> {
+    let mut left = limit;
+    sections
+        .into_iter()
+        .filter_map(|mut section| {
+            section.rows.retain(&keeps);
+            section.rows.truncate(left);
+            left -= section.rows.len();
+            (!section.rows.is_empty()).then_some(section)
+        })
+        .collect()
+}
+
+/// Ranks a query with filter tokens ([`filter`]): the rest of the query over the rows the
+/// filter keeps. With no rest (`in:tabs` alone), every kept row, most used first, so a filter
+/// alone lists its kind.
+fn rank_filtered(
+    request: &RankRequest,
+    parsed: &filter::QueryFilter,
+    entries: &[Entry],
+    prepared: Option<&rank::Prepared>,
+    store: Option<&Frecency>,
+    narrowing: Option<&mut rank::Narrowing>,
+    work: &mut usize,
+) -> RankAnswer {
+    let row_limit = usize::try_from(request.row_limit.unwrap_or(400)).unwrap_or(0);
+    if parsed.rest.trim().is_empty() {
+        let sections = if parsed.restricts() {
+            rank::rank_kept(request, entries, store, |entry| parsed.allows_entry(entry), row_limit)
+        } else {
+            rank::rank_empty(request, entries, store)
+        };
+        return RankAnswer { sections, strict_matches: 0 };
+    }
+    // Every match, so the filter keeps up to `row_limit` rows of the kept sections.
+    let every =
+        i64::try_from(entries.len()).unwrap_or(i64::MAX).max(request.row_limit.unwrap_or(400));
+    let inner = narrowed_request(request, parsed.rest.clone(), Some(every));
+    let answer = match prepared {
+        Some(prepared) => rank::rank(&inner, entries, prepared, store, narrowing, work),
+        None => rank::rank(&inner, entries, &rank::Prepared::new(entries), store, None, work),
+    };
+    let sections = keep_rows(answer.sections, row_limit, |row| {
+        entries.get(row.index).is_some_and(|entry| parsed.allows_entry(entry))
+    });
+    RankAnswer { sections, strict_matches: answer.strict_matches }
 }
 
 /// Ranks a request that carries its own entries and history.
@@ -288,5 +440,7 @@ pub fn rank_request_answer(request: &RankRequest) -> RankAnswer {
         request.entries.as_deref().unwrap_or_default(),
         None,
         request.frecency.as_ref(),
+        None,
+        &mut 0,
     )
 }

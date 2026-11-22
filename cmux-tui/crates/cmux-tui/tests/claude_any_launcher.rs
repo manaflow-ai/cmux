@@ -409,7 +409,9 @@ fn any_launcher_claude_reports_to_the_pane_session() {
     fs::create_dir_all(&build).unwrap();
     let daemon_exe = build.join("cmux-tui");
     if fs::hard_link(exe, &daemon_exe).is_err() {
-        fs::copy(exe, &daemon_exe).unwrap();
+        // The daemon is copied by `cp`, not `fs::copy`: a write descriptor held here would pass to the child of any test thread that starts a process meanwhile, and exec of the copy then fails with ETXTBSY.
+        let copied = Command::new("cp").arg(exe).arg(&daemon_exe).status().unwrap();
+        assert!(copied.success(), "cp {exe} {}", daemon_exe.display());
     }
     let install = Command::new(&daemon_exe)
         .args(["agent", "hook", "install", "claude"])
@@ -486,9 +488,10 @@ fn any_launcher_claude_reports_to_the_pane_session() {
     let cli_env = [("HOME", home.as_path()), ("XDG_DATA_HOME", data.as_path())];
     for (tag, terminal, n) in &terminals {
         let record = launch_record(&root, &daemon, tag);
-        // The session's place in the model's context, exactly once.
+        // The session's place in the model's context, exactly once. Its guide line names the
+        // pane's own cmux (`"$CMUX_TUI_CLI" skill show`, W5-Q #39040), so match its opening.
         assert_eq!(
-            session_start_outputs_with(&record, "cmux skill show"),
+            session_start_outputs_with(&record, "cmux: you run in a cmux terminal"),
             1,
             "{tag}: SessionStart must add the cmux session context once: {record}"
         );
@@ -586,7 +589,13 @@ fn any_launcher_nested_claude_leaves_the_pane_session_and_its_messages_to_the_ou
     write_executable(&claude, FAKE_CLAUDE);
     let daemon_exe = build.join("cmux-tui");
     if fs::hard_link(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).is_err() {
-        fs::copy(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).unwrap();
+        // The daemon is copied by `cp`, not `fs::copy`: a write descriptor held here would pass to the child of any test thread that starts a process meanwhile, and exec of the copy then fails with ETXTBSY.
+        let copied = Command::new("cp")
+            .arg(env!("CARGO_BIN_EXE_cmux-tui"))
+            .arg(&daemon_exe)
+            .status()
+            .unwrap();
+        assert!(copied.success(), "cp cmux-tui {}", daemon_exe.display());
     }
     // `agent hook install claude` in one config directory: its copy of the
     // hooks, not the plugin's, then reports for the Claude and the nested one.

@@ -107,22 +107,26 @@ impl ChatSettings {
     pub fn save(&self, path: &Path) -> io::Result<()> {
         static SAVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         crate::config::refuse_lost_home(path).map_err(io::Error::other)?;
+        // Through the folder this daemon holds (`home_fs`): a home replaced after the check
+        // never gets the file.
         let dir = path.parent().ok_or_else(|| io::Error::other("no parent folder"))?;
-        fs::create_dir_all(dir)?;
+        crate::home_fs::create_dir_all(dir, 0o777)?;
         let bytes = serde_json::to_vec_pretty(self).map_err(io::Error::other)?;
         let n = SAVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let tmp = path.with_extension(format!("json.{}.{n}.tmp", std::process::id()));
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let written = options.open(&tmp).and_then(|mut file| {
-            file.write_all(&bytes)?;
-            file.sync_all()?;
-            fs::rename(&tmp, path)
-        });
+        let written = crate::home_fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)
+            .and_then(|mut file| {
+                file.write_all(&bytes)?;
+                file.sync_all()?;
+                crate::home_fs::rename(&tmp, path)
+            });
         if written.is_err() {
-            let _ = fs::remove_file(&tmp);
+            let _ = crate::home_fs::remove_file(&tmp);
         }
         written
     }

@@ -8,11 +8,65 @@ extension SidebarSettingsSchema {
         let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         return [
             SettingDescriptor(
+                SidebarSectionsSetting.groupHeaderMemberCountPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupHeader.memberCount", "Show Group Member Count"),
+                help: SettingsText.keyed("settings.sidebar.groupHeader.memberCount.help", "A collapsed group shows how many workspaces it holds."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.groupHeaderMemberCountDefault),
+                keywords: ["sidebar", "group", "groups", "count", "members", "workspaces", "number", "header"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.groupHeaderUnreadCountPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount", "Show Group Unread Count"),
+                help: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount.help", "A collapsed group shows its unread notification count."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.groupHeaderUnreadCountDefault),
+                keywords: ["sidebar", "group", "groups", "unread", "badge", "notifications", "count", "header"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.groupHeaderBackgroundPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupHeader.background", "Group Background"),
+                help: SettingsText.keyed("settings.sidebar.groupHeader.background.help", "How a group draws. Folders shows plain folders; Sections shows plain headings."),
+                kind: .choice([
+                    SettingChoice(SidebarGroupBackgroundStyle.folder.rawValue, SettingsText.keyed("settings.choice.groupBackgroundFolder", "Folders")),
+                    SettingChoice(SidebarGroupBackgroundStyle.auto.rawValue, SettingsText.keyed("settings.choice.groupBackgroundAuto", "Automatic")),
+                    SettingChoice(SidebarGroupBackgroundStyle.glass.rawValue, SettingsText.keyed("settings.choice.groupBackgroundGlass", "Glass")),
+                    SettingChoice(SidebarGroupBackgroundStyle.solid.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSolid", "Solid")),
+                    SettingChoice(SidebarGroupBackgroundStyle.sections.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSections", "Sections")),
+                ]),
+                default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
+                keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header", "sections", "section", "heading", "plain"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.groupPalettePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
+                help: SettingsText.keyed("settings.sidebar.groupPalette.help", "Where group colors come from. A color you pick for a group stays."),
+                kind: .choice([
+                    SettingChoice(GroupPalette.glass.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass")),
+                    SettingChoice(GroupPalette.theme.rawValue, SettingsText.keyed("settings.choice.groupPaletteTheme", "App Theme")),
+                    SettingChoice(GroupPalette.wallpaper.rawValue, SettingsText.keyed("settings.choice.groupPaletteWallpaper", "Wallpaper")),
+                    SettingChoice(GroupPalette.grayscale.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale")),
+                    SettingChoice(GroupPalette.vibrant.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant")),
+                    SettingChoice(GroupPalette.gradient.rawValue, SettingsText.keyed("settings.choice.groupPaletteGradient", "Gradient")),
+                    SettingChoice(GroupPalette.pictorial.rawValue, SettingsText.keyed("settings.choice.groupPalettePictorial", "Pictorial")),
+                ]),
+                default: .string(SidebarSectionsSetting.groupPaletteDefault.rawValue),
+                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient", "pictorial", "picture"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.groupGradientPath,
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.groupGradient", "Group Gradient"),
-                help: SettingsText.keyed("settings.sidebar.groupGradient.help", "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors."),
+                help: SettingsText.keyed("settings.sidebar.groupGradient.help", "The gradient Group Colors uses when set to Gradient."),
                 kind: .choice([
                     SettingChoice(GroupGradient.sunset.rawValue, SettingsText.keyed("settings.choice.groupGradientSunset", "Sunset")),
                     SettingChoice(GroupGradient.aurora.rawValue, SettingsText.keyed("settings.choice.groupGradientAurora", "Aurora")),
@@ -42,7 +96,7 @@ extension SidebarSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.cards.tips", "Show Tips"),
-                help: SettingsText.keyed("settings.sidebar.cards.tips.help", "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once."),
+                help: SettingsText.keyed("settings.sidebar.cards.tips.help", "A daily card shows one cmux feature you have not used yet."),
                 summary: SettingsText.keyed("settings.sidebar.cards.tips.summary", "A daily tip about a feature you haven't used"),
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.tipsDefault),
@@ -53,7 +107,7 @@ extension SidebarSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.priorityView.enabled", "Priority View"),
-                help: SettingsText.keyed("settings.sidebar.priorityView.enabled.help", "A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle."),
+                help: SettingsText.keyed("settings.sidebar.priorityView.enabled.help", "A bell listing every agent chat, the ones waiting on you first."),
                 summary: SettingsText.keyed("settings.sidebar.priorityView.enabled.summary", "Agent chats that need you, at the top of the sidebar"),
                 kind: .toggle,
                 default: .bool(SidebarPriorityViewSetting.enabledDefault),
@@ -74,7 +128,7 @@ extension SidebarSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.side", "Sidebar Side"),
-                help: SettingsText.keyed("settings.sidebar.side.help", "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar."),
+                help: SettingsText.keyed("settings.sidebar.side.help", "On the right, the window buttons sit over the tab bar."),
                 kind: .choice([
                     SettingChoice(SidebarSide.left.rawValue, SettingsText.keyed("settings.choice.left", "Left")),
                     SettingChoice(SidebarSide.right.rawValue, SettingsText.keyed("settings.choice.right", "Right")),
@@ -87,7 +141,7 @@ extension SidebarSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.spacesPosition", "Spaces Position"),
-                help: SettingsText.keyed("settings.sidebar.spacesPosition.help", "Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row."),
+                help: SettingsText.keyed("settings.sidebar.spacesPosition.help", "Under the window buttons or above the Settings row."),
                 kind: .choice([
                     SettingChoice(SpacesPosition.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
                     SettingChoice(SpacesPosition.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
@@ -100,7 +154,7 @@ extension SidebarSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.spacesVisibility", "Show Spaces"),
-                help: SettingsText.keyed("settings.sidebar.spacesVisibility.help", "Always keeps the spaces shown, also when the sidebar's controls show only on hover. On Hover lets them hide with the other controls then."),
+                help: SettingsText.keyed("settings.sidebar.spacesVisibility.help", "On Hover hides the spaces with the other sidebar controls."),
                 kind: .choice([
                     SettingChoice(SpacesVisibilityMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
                     SettingChoice(SpacesVisibilityMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
@@ -113,7 +167,7 @@ extension SidebarSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.tabs.commandDigits", "Command-1 to 9 Select"),
-                help: SettingsText.keyed("settings.tabs.commandDigits.help", "Workspaces: Command-1 to 9 go to sidebar items and Control-1 to 9 to tabs. Tabs: Command-1 to 9 go to the focused pane's tabs and Control-1 to 9 to workspaces."),
+                help: SettingsText.keyed("settings.tabs.commandDigits.help", "Control-1 to 9 selects the other one."),
                 summary: SettingsText.keyed("settings.tabs.commandDigits.summary", "Workspaces or tabs on Command-1 to 9"),
                 kind: .choice([
                     SettingChoice(CommandDigitsSetting.workspaces.rawValue, SettingsText.keyed("settings.tabs.commandDigits.workspaces", "Workspaces")),
@@ -127,7 +181,7 @@ extension SidebarSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.numbering", "Command-Number Shortcuts"),
-                help: SettingsText.keyed("settings.sidebar.numbering.help", "Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1."),
+                help: SettingsText.keyed("settings.sidebar.numbering.help", "Every Item: Home is Command-1. Workspaces Only: the first workspace is Command-1."),
                 summary: SettingsText.keyed("settings.sidebar.numbering.summary", "What Command-1 to Command-9 go to"),
                 kind: .choice([
                     SettingChoice(SidebarNavigationSettings.Scope.allItems.rawValue, SettingsText.keyed("settings.sidebar.scope.allItems", "Every Item")),

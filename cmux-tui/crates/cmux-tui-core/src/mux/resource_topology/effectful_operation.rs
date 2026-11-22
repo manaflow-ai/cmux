@@ -109,6 +109,15 @@ impl Mux {
                     drop(_creation_handoff);
                     return Ok(self.finish_resource_close(committed));
                 }
+                #[cfg(test)]
+                if let Some(hook) = self
+                    .topology_effect_before_execute
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .clone()
+                {
+                    hook();
+                }
                 let result = match self.execute_resource_topology_effect(
                     &mutation.actor,
                     operation,
@@ -151,12 +160,15 @@ impl Mux {
                                 error,
                             ));
                         };
-                        let actual = match self
+                        // The read is its own statement: its registry guard ends here,
+                        // before an Err arm that marks the effect indeterminate (and so
+                        // locks the registry again).
+                        let snapshot = self
                             .workspace_registry
                             .lock()
-                            .unwrap()
-                            .resource_topology_snapshot()
-                        {
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .resource_topology_snapshot();
+                        let actual = match snapshot {
                             Ok(snapshot) => snapshot.revision,
                             Err(error) => {
                                 return Err(self.indeterminate_topology_effect(

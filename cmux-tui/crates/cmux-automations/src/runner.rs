@@ -2,7 +2,10 @@
 
 use crate::catch_up::{CatchUp, plan_fires};
 use crate::gate::{Gate, Verdict, clip_event, verdict};
-use crate::run::{Run, RunState, event_run_id, manual_run_id, run_id};
+use crate::run::{
+    MAX_RETRIES, RETRY_BACKOFF_SECONDS, RETRY_WINDOW_SECONDS, Run, RunState, event_run_id,
+    is_retryable, manual_run_id, retry_run_id, run_id,
+};
 use crate::store::{Store, StoreError};
 use crate::trigger::Trigger;
 
@@ -129,6 +132,8 @@ pub fn tick(store: &Store, now: i64, exec: &mut dyn Executor) -> Result<TickRepo
             runner: None,
             exit_code: None,
             version: a.version,
+            attempt: 0,
+            retry_of: None,
         };
         for (t, why) in &plan.skipped {
             if store.insert_run(&row(*t, RunState::Skipped, Some(why.clone())))? {
@@ -164,6 +169,7 @@ pub fn tick(store: &Store, now: i64, exec: &mut dyn Executor) -> Result<TickRepo
             store.note_slot(&a.id, newest)?;
         }
         store.set_handled_through(&a.id, plan.handled_through)?;
+        queue_retries(store, &a.id, now)?;
         // Start the oldest queued run when none is running.
         let history = store.runs(&a.id)?;
         let running = history
@@ -197,6 +203,47 @@ pub fn tick(store: &Store, now: i64, exec: &mut dyn Executor) -> Result<TickRepo
         }
     }
     Ok(report)
+}
+
+/// Queue the retries that came due: a recent run whose process could not
+/// start ([`is_retryable`]) gets one more try after its backoff, at most
+/// [`MAX_RETRIES`] in a chain. The retry's id is derived from the run it
+/// retries, so a tick that sees it twice makes one run.
+fn queue_retries(store: &Store, automation: &str, now: i64) -> Result<(), StoreError> {
+    let history = store.runs(automation)?;
+    for r in &history {
+        let Some(reason) = r.reason.as_deref() else { continue };
+        if r.state != RunState::Failed || !is_retryable(reason) || r.attempt >= MAX_RETRIES {
+            continue;
+        }
+        let finished = r.finished_at.unwrap_or(r.created_at);
+        let wait = RETRY_BACKOFF_SECONDS.get(r.attempt as usize).copied().unwrap_or(0);
+        if now < finished.saturating_add(wait) || now - finished > RETRY_WINDOW_SECONDS + wait {
+            continue;
+        }
+        let attempt = r.attempt + 1;
+        let id = retry_run_id(&r.id, attempt);
+        if history.iter().any(|h| h.id == id) {
+            continue;
+        }
+        let retry = Run {
+            id,
+            state: RunState::Queued,
+            reason: None,
+            created_at: now,
+            started_at: None,
+            finished_at: None,
+            late_seconds: r.scheduled_at.map_or(0, |t| (now - t).max(0)),
+            pid: None,
+            runner: None,
+            exit_code: None,
+            attempt,
+            retry_of: Some(r.id.clone()),
+            ..r.clone()
+        };
+        store.insert_run(&retry)?;
+    }
+    Ok(())
 }
 
 /// Start a manual run. The same `key` names the same run, so a retried
@@ -244,6 +291,8 @@ pub fn start_manual_with_event(
         runner: None,
         exit_code: None,
         version: a.version,
+        attempt: 0,
+        retry_of: None,
     };
     let id = run.id.clone();
     let history = store.runs(&a.id)?;
@@ -304,7 +353,8 @@ pub fn start_event(
     let run = Run {
         id: event_run_id(&a.id, key),
         automation: a.id.clone(),
-        trigger: "watch".into(),
+        // `CMUX_AUTOMATION_TRIGGER`: `event` for `--when NAME`, `watch` for `--watch CMD`.
+        trigger: if matches!(a.trigger, Trigger::Event { .. }) { "event" } else { "watch" }.into(),
         event: Some(clip_event(event)),
         dropped: store.take_dropped(&a.id)?,
         scheduled_at: None,
@@ -318,6 +368,8 @@ pub fn start_event(
         runner: None,
         exit_code: None,
         version: a.version,
+        attempt: 0,
+        retry_of: None,
     };
     let id = run.id.clone();
     if store.insert_run(&run)? {

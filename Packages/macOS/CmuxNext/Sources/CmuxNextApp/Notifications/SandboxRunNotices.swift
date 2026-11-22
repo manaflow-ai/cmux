@@ -27,7 +27,7 @@ final class SandboxRunNotices {
     init(services: AppServices, follower: SandboxRunFollower? = nil, user: (@MainActor () -> String?)? = nil) {
         self.services = services
         self.currentUser = user ?? { [weak services] in services?.cloud.auth.user?.id }
-        self.follower = follower ?? SandboxRunFollower(wait: { [api = services.cloud.api] id, team in
+        self.follower = follower ?? SandboxRunFollower(wait: { [api = services.cloud.machineAPI.drainingClassic(services.cloud.api)] id, team in
             try await api.pinningTeam(team).waitRun(id, timeoutMs: 10_000)
         })
         self.follower.onEnd = { [weak self] end in self?.ended(end) }
@@ -51,12 +51,12 @@ final class SandboxRunNotices {
     }
 
     /// A send's Run `id`, followed here for the account signed in now; answers its terminal snapshot.
-    /// The server decides who may read it: if the create went out under another account (a switch
-    /// during the send), this account's wait is refused (403, 404) and the follow ends, untold.
+    /// The daemon decides who may read it: while the app is on another account or team it refuses the wait
+    /// (409, never 404), and the follow waits that out, so a switch back finds the Run again.
     /// `incognito` is the send's own, read as it was issued (``sendIsIncognito(_:)``): by the time the
     /// create answers, its tab may be gone (#31040).
     func follow(id: String, task: String, key: String, team: String?, incognito: Bool) async throws -> Data {
-        guard let user = currentUser() else { throw CloudAPIError.timedOut("/api/runs/\(id)") }
+        guard let user = currentUser() else { throw CloudAPIError.timedOut("cloud.runs/\(id)") }
         var record = SandboxRunRecord(id: id, task: task, key: key, user: user, team: team, started: Date())
         record.incognito = incognito ? true : nil
         return try await follower.follow(record)
@@ -118,12 +118,12 @@ final class SandboxRunNotices {
             .map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
         let title = line.count > 120 ? String(line.prefix(119)) + "…" : line
         let body = switch end.outcome {
-        case .succeeded: String(localized: "runs.notification.succeeded", defaultValue: "Run finished", table: "Runs", bundle: .module)
-        case .failed: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module)
-        case .timedOut: String(localized: "runs.notification.timedOut", defaultValue: "Run timed out", table: "Runs", bundle: .module)
-        case .cancelled: String(localized: "runs.notification.cancelled", defaultValue: "Run cancelled", table: "Runs", bundle: .module)
+        case .succeeded: String(localized: "runs.notification.succeeded", defaultValue: "Run finished", table: "Runs", bundle: .module.inAppLanguage)
+        case .failed: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module.inAppLanguage)
+        case .timedOut: String(localized: "runs.notification.timedOut", defaultValue: "Run timed out", table: "Runs", bundle: .module.inAppLanguage)
+        case .cancelled: String(localized: "runs.notification.cancelled", defaultValue: "Run cancelled", table: "Runs", bundle: .module.inAppLanguage)
         // A Run never stops for the person (only a hand-off does, HandoffNotices).
-        case .needsYou: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module)
+        case .needsYou: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module.inAppLanguage)
         }
         return (title, body)
     }

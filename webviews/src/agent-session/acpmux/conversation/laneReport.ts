@@ -37,6 +37,8 @@ export type LaneNoticeThread = {
   /// The newest sender's key (`LaneNoticeDelivery.lookup`).
   readonly lookup?: string;
   readonly preview?: string;
+  /// The newest message whole, for a thread with no messages (inboxNotice.ts `newest`).
+  readonly newest?: string;
   readonly messages?: readonly LaneNoticeDelivery[];
   readonly label?: string;
   readonly promptIds?: readonly string[];
@@ -79,7 +81,8 @@ const REVIEW = /Review\s*\([^)]*\):\s*(SHIP|BLOCK|FIX|HOLD)\s+at\s+([0-9a-f]{40}
 const NEW_VERDICT = /^\s*(SHIP|BLOCK|FIX|HOLD)\s+at\s+([0-9a-f]{12,40})(?![0-9a-f])/i;
 const FINDING = /^\s*\[P([123])\]\s+(.+)$/i;
 const INBOX_HEAD = /^(?:\[inbox\]\s+)?New messages from other agents(?:\s+in\s+\d+\s+threads?)?\.?/i;
-const THREAD = /\(thread\s+([^\s)]+)\)/gi;
+/// A thread named in the text, `(thread ID)`: an id may hold spaces (`topic:picker plan`).
+const THREAD = /\(thread\s+([^)\n]*[^)\s])\s*\)/gi;
 const FOOTER = /^\s*\(?acpmux sends this[^\n]*\)?\s*$/i;
 
 function firstSentence(text: string): string {
@@ -157,7 +160,7 @@ function inboxNotice(message: LaneNoticePayload): LaneNotice {
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]!.trim();
     const match =
-      /^-\s+(?:\[blocker\]\s+)?(\d+)\s+new\s+in\s+(.+?)\s+from\s+(.+?)(?:\s*:\s*(.*?))?\s*\(thread\s+([^\s)]+)\)/i.exec(
+      /^-\s+(?:\[blocker\]\s+)?(\d+)\s+new\s+in\s+(.+?)\s+from\s+(.+?)(?:\s*:\s*(.*?))?\s*\(thread\s+([^)\n]*[^)\s])\s*\)/i.exec(
         line,
       );
     if (!match) continue;

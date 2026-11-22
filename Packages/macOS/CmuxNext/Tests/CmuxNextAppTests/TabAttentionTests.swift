@@ -144,11 +144,22 @@ import Testing
         #expect(hidden.unread == UnreadState.none, "showOnSidebar off hides it like any unread")
     }
 
+    /// https://github.com/manaflow-ai/cmux/issues/42210: a Claude Code terminal still running background work
+    /// kept its needs-you ring however often the pane was focused. Under the default `focus` dismissal,
+    /// focusing the pane hides the ring as a click does; the mark itself stays.
+    @Test func focusingTheMarkedPaneHidesItsRingUnderTheDefaultSettings() throws {
+        let (service, workspace, tab) = try Self.marked()
+        service.interacted(.focus, tab: tab)
+        #expect(service.attentionMarks(for: workspace).isEmpty, "focusing the marked pane left its ring")
+        #expect(tab.showsUnread, "focus keeps the mark: only the agent, a navigation or a close clears it")
+    }
+
     @Test func thePaneRingsUntilThePersonGoesInAndANewRequestRingsAgain() throws {
         let (service, workspace, tab) = try Self.marked()
         #expect(service.attentionMarks(for: workspace).count == 1, "the marked tab's pane has no ring")
+        service.preferences.dismissal = .click
         service.interacted(.focus, tab: tab)
-        #expect(service.attentionMarks(for: workspace).count == 1, "focus alone hid the ring")
+        #expect(service.attentionMarks(for: workspace).count == 1, "focus alone hid the ring under the click dismissal")
         // The pane's ring redraws from an observation of attentionMarks: hiding the ring must wake it.
         let woke = Woke()
         withObservationTracking { _ = service.attentionMarks(for: workspace) } onChange: { woke.value = true }
@@ -165,6 +176,58 @@ import Testing
         #expect(service.attentionMarks(for: workspace).count == 1)
         service.interacted(.open, tab: tab)
         #expect(service.attentionMarks(for: workspace).isEmpty, "opening the marked tab left its ring")
+    }
+
+    /// Going in hides the agent's request, not one tab model (live: attention-ring-clear-live.py
+    /// `attention-click-then-pane-move` came back STUCK). A pane moved to another workspace gets a new
+    /// tab model there, and a resync lays the same record again: neither is a new request, so the ring
+    /// stays hidden. A new request rings again.
+    @Test func aHiddenRingStaysHiddenWhenItsTabIsRebuilt() throws {
+        _ = NSApplication.shared
+        let store = DaemonStore()
+        let request = Self.attention("Approve the deploy", at: 1_000)
+        let marked = TabSnapshot(surface: 1, tabResourceID: "tab_marked", title: "deploy")
+        let other = TabSnapshot(surface: 2, tabResourceID: "tab_other", title: "~")
+        let kept = TabSnapshot(surface: 3, tabResourceID: "tab_kept", title: "~")
+        func tree(moved: Bool) -> DaemonTree {
+            let first = PaneSnapshot(id: 1, tabs: [moved ? kept : marked])
+            let second = PaneSnapshot(id: 2, tabs: [other])
+            let arrived = PaneSnapshot(id: 3, tabs: [marked])
+            let firstScreen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [first])
+            let secondScreen = moved
+                ? ScreenSnapshot(id: 2, layout: .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(2), b: .leaf(3)),
+                                 panes: [second, arrived])
+                : ScreenSnapshot(id: 2, layout: .leaf(2), panes: [second])
+            return DaemonTree(workspaces: [
+                WorkspaceSnapshot(id: 1, key: WorkspaceKey(rawValue: "first"), name: "first", screens: [firstScreen]),
+                WorkspaceSnapshot(id: 2, key: WorkspaceKey(rawValue: "second"), name: "second", screens: [secondScreen]),
+            ])
+        }
+        store.apply(snapshot: tree(moved: false))
+        let service = NotificationCenterService()
+        let firstWorkspace = try #require(store.workspaces.first { $0.name == "first" })
+        let tab = try #require(firstWorkspace.screens.first?.panes.first?.tabs.first)
+        tab.applyState(SessionStateMirror.TabRecord(attention: request), progress: nil)
+        #expect(service.attentionMarks(for: firstWorkspace).count == 1)
+        service.interacted(.click, tab: tab)
+        #expect(service.attentionMarks(for: firstWorkspace).isEmpty, "going in left the ring")
+
+        // A resync lays the same record again, with a gap where the tab had none.
+        tab.applyState(SessionStateMirror.TabRecord(), progress: nil)
+        tab.applyState(SessionStateMirror.TabRecord(attention: request), progress: nil)
+        #expect(service.attentionMarks(for: firstWorkspace).isEmpty, "a resync of the same request brought its hidden ring back")
+
+        // The pane moves to the second workspace: its tab model is made anew there.
+        store.apply(snapshot: tree(moved: true))
+        let secondWorkspace = try #require(store.workspaces.first { $0.name == "second" })
+        let moved = try #require(secondWorkspace.screens.flatMap(\.panes).flatMap(\.tabs).first { $0.id == tab.id })
+        moved.applyState(SessionStateMirror.TabRecord(attention: request), progress: nil)
+        #expect(moved.attention == request)
+        #expect(service.attentionMarks(for: secondWorkspace).isEmpty, "moving the pane brought the hidden ring back")
+
+        let next = Self.attention("Approve the rollback", at: 2_000)
+        moved.applyState(SessionStateMirror.TabRecord(attention: next), progress: nil)
+        #expect(service.attentionMarks(for: secondWorkspace).count == 1, "a new request did not ring again")
     }
 
     /// An older daemon's mark has no request id. Its owner clear stays refused, but going in and
@@ -261,17 +324,15 @@ import Testing
         invocation.targetMachineID = "disconnected-machine"
         #expect(ActionScope(services: services, invocation: invocation).workspace == nil)
         #expect(notifications.attentionMarks(for: remoteWorkspace).count == 1, "the remote marked tab has no ring")
+        notifications.preferences.dismissal = .click
         notifications.interacted(.focus, tabID: remoteTab.id, in: remoteWorkspace, local: false)
-        #expect(notifications.attentionMarks(for: remoteWorkspace).count == 1, "focus alone hid the ring")
+        #expect(notifications.attentionMarks(for: remoteWorkspace).count == 1, "focus alone hid the ring under the click dismissal")
         notifications.interacted(.click, tabID: remoteTab.id, in: remoteWorkspace, local: false)
         #expect(notifications.attentionMarks(for: remoteWorkspace).isEmpty, "a click into the remote tab left its ring")
         #expect(remoteTab.attention != nil, "going in keeps the mark")
         #expect(localTab.markedUnread, "a click on the remote tab read this Mac's tab that shares its id")
         #expect(notifications.attentionMarks(for: localWorkspace).count == 1, "a click on the remote tab hid this Mac's ring")
         remoteTab.applyState(SessionStateMirror.TabRecord(attention: Self.attention("Log in again", at: 2_000)), progress: nil)
-        notifications.dismissHighlight(localWorkspace)
-        #expect(notifications.attentionMarks(for: localWorkspace).isEmpty, "Dismiss Highlight left the ring")
-        #expect(notifications.attentionMarks(for: remoteWorkspace).count == 1, "Dismiss Highlight here hid the remote ring")
 
         // A strip click is delayed until mouse-up. A titlebar tracking loop can consume that
         // mouse-up, so it reaches the service in screen coordinates with no window. The click
@@ -318,6 +379,13 @@ import Testing
         #expect(notifications.attentionMarks(for: remoteWorkspace).isEmpty, "workspace replacement lost the pressed remote tab")
         #expect(localTab.attentionRingHiddenThrough != localTab.attentionGeneration, "workspace replacement redirected the press into the local tab")
         #expect(localTab.markedUnread)
+
+        // Dismiss Highlight on this Mac's workspace leaves the remote ring. It reads this Mac's manual mark too
+        // (5a54e86a27e, #42231), so it runs last: the strip checks above need the local mark still set.
+        remoteTab.applyState(SessionStateMirror.TabRecord(attention: Self.attention("Log in again", at: 5_000)), progress: nil)
+        notifications.dismissHighlight(localWorkspace)
+        #expect(notifications.attentionMarks(for: localWorkspace).isEmpty, "Dismiss Highlight left the ring")
+        #expect(notifications.attentionMarks(for: remoteWorkspace).count == 1, "Dismiss Highlight here hid the remote ring")
 
         // Mark Tab Unread is a palette/CLI action and is intentionally omitted from the compact
         // pointer menu. The click and owner-request checks above cover the menu's visible ring

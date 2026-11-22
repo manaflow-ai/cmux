@@ -55,10 +55,11 @@ enum WorkspaceBulkClose {
         switch WindowRules().bulkClose(id.rawValue)?.plan {
         case "windowWorkspaces":
             // A row's menu closes the rows of the window that lists it.
-            let owner = invocation.target.flatMap { $0.kind == .workspace ? windows.registry.value.owner(of: $0.id) : nil }
+            let owner = invocation.target.flatMap { $0.kind == .workspace ? windows.actingWindow(for: $0.id) : nil }
             closing = try windows.registry.members(of: owner ?? context.window(invocation).state.id)
         case "allWindows":
-            closing = windows.controllers.flatMap { windows.registry.members(of: $0.state.id) }
+            var seen = Set<String>() // two windows on one space list a workspace each: it closes once
+            closing = windows.controllers.flatMap { windows.registry.members(of: $0.state.id) }.filter { seen.insert($0).inserted }
         case "section":
             closing = try sectionWorkspaces(invocation, context)
         case "otherGroups":
@@ -70,7 +71,7 @@ enum WorkspaceBulkClose {
         case "aroundSelection":
             // Sidebar order of the window that lists the target, every machine's rows.
             let target = try context.workspace(invocation).model
-            let owner = windows.registry.value.owner(of: target.id).flatMap(windows.controller(for:)) ?? context.activeWindow
+            let owner = windows.actingWindow(for: target.id).flatMap(windows.controller(for:)) ?? context.activeWindow
             let order = owner?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? context.sidebarOrder.map(\.id)
             if order.contains(target.id) {
                 // A person's run on one of several selected rows keeps the whole selection, as Chrome's
@@ -137,7 +138,7 @@ enum WorkspaceBulkClose {
     /// The one window that lists every row of `members`, or nil when they span windows.
     static func rowsWindow(_ members: [Member], _ context: AppActionContext) -> WindowState? {
         let windows = context.services.windows, registry = windows.registry.value
-        let (spans, owner) = WindowRules().rowsWindow(members.map { registry.owner(of: $0.0.id) })
+        let (spans, owner) = WindowRules().rowsWindow(members.map { windows.actingWindow(for: $0.0.id) })
         if spans { return nil }
         let controller = owner.flatMap(windows.controller(for:)) ?? context.activeWindow
         return controller?.state
@@ -204,24 +205,24 @@ enum WorkspaceBulkClose {
         let heading = switch prompt.title {
         case .given: title ?? ""
         case .one: ConfirmationStrings.closeWorkspaceTitle(first.0.displayName)
-        case .count(let count): String(localized: "confirm.closeWorkspaces.title", defaultValue: "Close \(count) workspaces?", table: "Handlers", bundle: .module)
+        case .count(let count): String(localized: "confirm.closeWorkspaces.title", defaultValue: "Close \(count) workspaces?", table: "Handlers", bundle: .module.inAppLanguage)
         }
         let body = switch prompt.body {
         case .running(let running): ConfirmationStrings.stillRunning(running.joined(separator: ", "))
         // Incognito workspaces are never saved: nothing brings them back (WindowRegistry).
         case .noUndo(incognito: true):
             String(localized: "confirm.closeWorkspaces.noUndoIncognito",
-                   defaultValue: "No window stays open to undo this. Incognito workspaces cannot be reopened.", table: "Handlers", bundle: .module)
+                   defaultValue: "Incognito workspaces can’t be reopened.", table: "Handlers", bundle: .module.inAppLanguage)
         case .noUndo(incognito: false):
             String(localized: "confirm.closeWorkspaces.noUndo",
                    defaultValue: "No window stays open to undo this. Reopen Closed Workspace and History bring them back.",
-                   table: "Handlers", bundle: .module)
+                   table: "Handlers", bundle: .module.inAppLanguage)
         }
         return DestructiveConfirmation.Prompt(title: heading, body: body, button: ConfirmationStrings.close,
                                               suppresses: prompt.suppressesWarning ? CmuxConfigSnapshot.warnBeforeClosingTabPath : nil)
     }
 
     static func closedToast(_ count: Int) -> String {
-        String(localized: "workspaces.closedToast", defaultValue: "Closed \(count) workspaces", table: "Handlers", bundle: .module)
+        String(localized: "workspaces.closedToast", defaultValue: "Closed \(count) workspaces", table: "Handlers", bundle: .module.inAppLanguage)
     }
 }

@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
+import { playResize } from "./conversation/fold";
 import { ChevronDown } from "./conversation/icons";
 import { Markdown } from "./conversation/Markdown";
 import { toolIcon } from "./conversation/toolRowModel";
@@ -8,6 +9,7 @@ import { Keycap } from "./Keycap";
 import type { AcpmuxPermission } from "./model";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
+import { knownRefusalText } from "./transportErrors";
 import "./permissions/externalAccess.css";
 import { takePermissionFocus } from "./permissions/focusRequest";
 import { compareHarnesses, harnessName, type PlanBuildElsewhere } from "./permissions/planBuild";
@@ -26,6 +28,7 @@ import {
   type PermissionKeyAction,
 } from "./permissions/prompt";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
+import { focusRoute } from "../../ui/focusRoute";
 
 type PermissionOption = AcpmuxPermission["options"][number];
 
@@ -297,6 +300,17 @@ export function PermissionCard({
   const [expanded, setExpanded] = useState<string>();
   const showFull = expanded === permission.permissionId;
   const fullId = React.useId();
+  // The command's box grows to the full command (and back) on the fold's clock (fold.ts `playResize`)
+  // from the height it was drawn at before the toggle, so the stack's top and the transcript's rows
+  // over it travel together instead of the card growing in one frame.
+  const commandRef = useRef<HTMLDivElement>(null);
+  const commandFrom = useRef<number | undefined>(undefined);
+  useLayoutEffect(() => {
+    const node = commandRef.current;
+    const from = commandFrom.current;
+    commandFrom.current = undefined;
+    if (node && from !== undefined) playResize(node, from);
+  }, [showFull]);
   // A one-line command longer than the two lines the preview holds is cut off: measured, so "Show
   // full command" is offered whenever the preview does not show all of it.
   const previewRef = useRef<HTMLElement>(null);
@@ -358,7 +372,7 @@ export function PermissionCard({
   shown.current = permission.permissionId;
   /// The ask whose last answer acpmux refused: the card says so until the next answer.
   const [refused, setRefused] = useState<string>();
-  /// Why acpmux refused a plan build (its error's message), shown with the refusal.
+  /// A refused plan build's line, in plain words, shown in place of the answer's refusal.
   const [refusedWhy, setRefusedWhy] = useState<string>();
   type Sent = { permissionId: string; attempt: number };
   /// Starts one answer for the ask shown now; undefined while one is out or taken for it.
@@ -432,8 +446,12 @@ export function PermissionCard({
     // says why: no build card exists to say it.
     Promise.resolve(reply).then(
       () => taken(sent),
-      (failure: unknown) =>
-        refuse(sent, failure instanceof Error ? failure.message : typeof failure === "string" ? failure : undefined),
+      (failure: unknown) => {
+        // In plain words, with the pane's reason when it words one; acpmux's text goes to the log.
+        const known = knownRefusalText(failure);
+        if (!known) console.warn("agent pane: the plan was not built", failure);
+        refuse(sent, known ? t("permission.plan.buildRefused", { error: known }) : t("permission.plan.buildFailed"));
+      },
     );
   };
   /// Deny: the field for what to do instead when the pane can send it, else the deny itself.
@@ -489,10 +507,10 @@ export function PermissionCard({
     if (!active) return;
     const focus = () => {
       takePermissionFocus();
-      group.current?.focus();
+      focusRoute(group.current, "system", "a permission request");
     };
     // Asked just before this card mounted: the chat opened first.
-    if (takePermissionFocus()) group.current?.focus();
+    if (takePermissionFocus()) focusRoute(group.current, "system", "a permission request");
     window.addEventListener("cmux-acpmux-permissionFocus", focus);
     return () => window.removeEventListener("cmux-acpmux-permissionFocus", focus);
   }, [active]);
@@ -541,7 +559,7 @@ export function PermissionCard({
   };
 
   const commandBlock = command && (
-    <div className="acpmux-permission-command" data-expanded={showFull || undefined}>
+    <div ref={commandRef} className="acpmux-permission-command" data-expanded={showFull || undefined}>
       {showFull ? (
         <pre id={fullId} className="acpmux-permission-command-full">
           <code>{command}</code>
@@ -557,7 +575,10 @@ export function PermissionCard({
           className="acpmux-permission-command-toggle"
           aria-expanded={showFull}
           aria-controls={showFull ? fullId : undefined}
-          onClick={() => setExpanded(showFull ? undefined : permission.permissionId)}
+          onClick={() => {
+            commandFrom.current = commandRef.current?.getBoundingClientRect().height;
+            setExpanded(showFull ? undefined : permission.permissionId);
+          }}
         >
           {showFull ? t("permission.hideFullCommand") : t("permission.showFullCommand")}
         </button>
@@ -565,7 +586,7 @@ export function PermissionCard({
     </div>
   );
   const scopeBlock = !writing && scopeLine && (
-    <p className="acpmux-permission-scope" data-scope-kind={permission.scope?.kind} title={scopeLine}>
+    <p className="acpmux-permission-scope" data-scope-kind={permission.scope?.kind}>
       {scopeText && <span id={targetId}>{scopeText}</span>}
       {scopeText && alwaysScope && " · "}
       {alwaysScope && <span id={ruleId}>{alwaysScope}</span>}
@@ -573,7 +594,12 @@ export function PermissionCard({
   );
 
   return (
-    <PermissionCardFrame ref={group} className="acpmux-permission-ask ui-glass" ariaLabel={title} focusable>
+    <PermissionCardFrame
+      ref={group}
+      className="acpmux-permission-ask ui-glass ui-glass-content"
+      ariaLabel={title}
+      focusable
+    >
       <div className="acpmux-permission-request" data-harness={harness || undefined}>
         <div className="acpmux-permission-request-head">
           <span className="acpmux-permission-request-icon" aria-hidden="true">
@@ -608,7 +634,7 @@ export function PermissionCard({
       <ProposedEdits permissionId={permission.permissionId} diffs={permission.diffs} />
       {!writing && refused === permission.permissionId && (
         <p className="acpmux-permission-refused" role="alert">
-          {refusedWhy ? t("permission.plan.buildRefused", { error: refusedWhy }) : t("permission.error.refused")}
+          {refusedWhy ?? t("permission.error.refused")}
         </p>
       )}
       {!writing && (
@@ -655,15 +681,12 @@ export function PermissionCard({
                 const id = permission.permissionId;
                 setSettingsError(undefined);
                 void postNative("externalAccess.openSettings", { kind: external.kind }).catch((error: unknown) => {
+                  const remote = error instanceof NativeError && error.code === "remote.unsupported";
+                  if (!remote) console.warn("agent pane: Open Settings failed", error);
                   if (shown.current === id)
                     setSettingsError({
                       id,
-                      message:
-                        error instanceof NativeError && error.code === "remote.unsupported"
-                          ? t("permission.external.remote")
-                          : error instanceof Error
-                            ? error.message
-                            : t("error.nativeUnavailable"),
+                      message: remote ? t("permission.external.remote") : t("permission.external.settingsFailed"),
                     });
                 });
               }}

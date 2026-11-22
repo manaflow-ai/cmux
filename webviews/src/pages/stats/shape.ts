@@ -1,18 +1,19 @@
 // Pure shaping for the Stats page: durations and counts in the person's language (Intl, so no
 // plural strings), the heatmap grid and the hour bars. The page and its tests share these.
 import type { DayStats, StatsSummary } from "./types";
+import { intl } from "../../ui/intl";
 
 const DAY_MS = 86_400_000;
 
 export function formatCount(value: number, language: string): string {
-  return new Intl.NumberFormat(language).format(value);
+  return intl.NumberFormat(language).format(value);
 }
 
 /** `3h 20m`, `45m`, `0m` in the person's language. */
 export function formatDuration(ms: number, language: string): string {
   const minutes = Math.round(ms / 60_000);
   const unit = (value: number, name: "hour" | "minute") =>
-    new Intl.NumberFormat(language, { style: "unit", unit: name, unitDisplay: "narrow" }).format(value);
+    intl.NumberFormat(language, { style: "unit", unit: name, unitDisplay: "narrow" }).format(value);
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   if (hours === 0) return unit(rest, "minute");
@@ -24,7 +25,7 @@ export function formatWait(ms: number, language: string): string {
   const total = Math.round(ms / 1000);
   if (total >= 600) return formatDuration(ms, language);
   const unit = (value: number, name: "minute" | "second") =>
-    new Intl.NumberFormat(language, { style: "unit", unit: name, unitDisplay: "narrow" }).format(value);
+    intl.NumberFormat(language, { style: "unit", unit: name, unitDisplay: "narrow" }).format(value);
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;
   if (minutes === 0) return unit(seconds, "second");
@@ -63,17 +64,19 @@ export function attentionRows(summary: StatsSummary): AttentionRow[] {
 
 /** `5 days` in the person's language. */
 export function formatDays(days: number, language: string): string {
-  return new Intl.NumberFormat(language, { style: "unit", unit: "day", unitDisplay: "long" }).format(days);
+  return intl.NumberFormat(language, { style: "unit", unit: "day", unitDisplay: "long" }).format(days);
 }
 
 /** `Mon, Oct 12` for a `YYYY-MM-DD` day, in the person's language. */
 export function formatDay(day: string, language: string): string {
-  return new Intl.DateTimeFormat(language, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${day}T00:00:00Z`));
+  return intl
+    .DateTimeFormat(language, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    })
+    .format(new Date(`${day}T00:00:00Z`));
 }
 
 /**
@@ -82,15 +85,17 @@ export function formatDay(day: string, language: string): string {
  */
 export function stripLabel(day: string, fromEnd: number, rangeDays: number, language: string): string {
   if (rangeDays > 7 && fromEnd % 7 !== 0) return "";
-  return new Intl.DateTimeFormat(language, {
-    ...(rangeDays > 7 ? { day: "numeric" } : { weekday: "short" }),
-    timeZone: "UTC",
-  }).format(new Date(`${day}T00:00:00Z`));
+  return intl
+    .DateTimeFormat(language, {
+      ...(rangeDays > 7 ? { day: "numeric" } : { weekday: "short" }),
+      timeZone: "UTC",
+    })
+    .format(new Date(`${day}T00:00:00Z`));
 }
 
 /** `1 PM` or `13 Uhr` for an hour of the day, in the person's language. */
 export function formatHour(hour: number, language: string): string {
-  return new Intl.DateTimeFormat(language, { hour: "numeric", timeZone: "UTC" }).format(Date.UTC(2026, 0, 1, hour));
+  return intl.DateTimeFormat(language, { hour: "numeric", timeZone: "UTC" }).format(Date.UTC(2026, 0, 1, hour));
 }
 
 export interface HeatCell {
@@ -135,4 +140,47 @@ export function heatmap(days: DayStats[], until: number, offsetMinutes: number, 
 export function hourShares(hours: number[]): number[] {
   const max = Math.max(0, ...hours);
   return Array.from({ length: 24 }, (_, hour) => (max > 0 ? (hours[hour] ?? 0) / max : 0));
+}
+
+/** The usage-pattern families the page shows, in order, with their title keys. */
+export const USAGE_FAMILIES = [
+  ["agent-chat", "stats.usage.family.agentChats"],
+  ["agent-prompt", "stats.usage.family.agentPrompts"],
+  ["tokens", "stats.usage.family.tokens"],
+  ["layout", "stats.usage.family.layouts"],
+  ["command", "stats.usage.family.commands"],
+  ["operation", "stats.usage.family.operations"],
+  ["connection", "stats.usage.family.connections"],
+  ["acpmux-connection", "stats.usage.family.agentConnections"],
+  ["machine", "stats.usage.family.machines"],
+  ["client", "stats.usage.family.clients"],
+] as const;
+
+export interface UsageGroup {
+  family: string;
+  titleKey: string;
+  total: number;
+  distinct: number;
+  /** The top rows, highest first; a paired machine shows no key (it is an opaque stand-in). */
+  rows: { key: string; count: number }[];
+}
+
+/** The families with counts, each with its `limit` highest keys (ties by name). */
+export function usageGroups(counts: Record<string, Record<string, number>>, limit = 8): UsageGroup[] {
+  const groups: UsageGroup[] = [];
+  for (const [family, titleKey] of USAGE_FAMILIES) {
+    const keys = counts[family];
+    if (!keys) continue;
+    const entries = Object.entries(keys).filter(([, count]) => count > 0);
+    if (entries.length === 0) continue;
+    entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    groups.push({
+      family,
+      titleKey,
+      total: entries.reduce((sum, [, count]) => sum + count, 0),
+      distinct: entries.length,
+      rows: family === "machine" ? [] : entries.slice(0, limit).map(([key, count]) => ({ key, count })),
+    });
+  }
+  return groups;
 }

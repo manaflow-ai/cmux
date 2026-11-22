@@ -8,9 +8,11 @@
 //   the composer box never changes under the pointer.
 // - Keyboard focus: the same pill and no outline (#23745, Leo 2026-10-21: "I HATE THE APPEARANCE OF
 //   THIS FOCUS RING"; the pill alone marks it).
-// - Focus adds no ring (Leo 2026-10-19: the glass focus ring flashed): focused, the box keeps its
-//   resting layers and only its one-device-pixel ring takes a step brighter tone (#23745), over art
-//   too, where the glass's top-lit rim rests. A field that holds DOM focus while the page is not the
+// - Focus adds no ring (Leo 2026-10-19: the glass focus ring flashed): focused from the keyboard, the
+//   box keeps its resting layers and only its one-device-pixel ring takes a step brighter tone
+//   (#23745), over art too, where the glass's top-lit rim rests. A click, a shortcut or the page's own
+//   focus leaves the box at rest (FOCUS-RING, src/ui/focusModality.ts; Leo 2026-11-06: "STOP FIRING SO
+//   OFTEN"). A field that holds DOM focus while the page is not the
 //   key one (the window or pane is in the background, the New Tab page focused itself before the user
 //   came to it) hides its caret and the box rests; once the page is key both are back.
 //
@@ -22,7 +24,9 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { focusByKey } from "./support/focusByKey";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { COMPOSER_MD, MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-caret-focus.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -85,7 +89,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       name: "chat composer",
       entry: "agent-pane.composer",
       variant: "quiet-chips",
-      field: ".acpmux-composer-box .acpmux-md",
+      field: COMPOSER_MD,
       box: ".acpmux-composer-box",
       row: ".acpmux-composer-bar",
       foot: ".acpmux-composer .acpmux-composer-foot",
@@ -94,24 +98,12 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
     {
       name: "New Tab composer",
       entry: "agent-pane.new-tab",
-      // Cards (composer-mic pins it), the first dot, whose box and quiet row these checks read.
+      // Minimal, the page cmux ships, whose box and quiet row these checks read.
       variant: "composer-mic",
       field: ".nt-field .acpmux-md",
       box: ".nt-box",
       row: ":is(.nt-pickers, .acpmux-composer-foot)",
       foot: ".nt-composer .acpmux-composer-foot",
-    },
-    // Default, the second dot: its own composer placed at the foot of the stage layout's page; the
-    // mic and Send in the box, the chips in the quiet row under it (#24519, 2026-10-27: Claude's New
-    // Tab controls in one quiet row).
-    {
-      name: "New Tab stage composer",
-      entry: "agent-pane.new-tab",
-      variant: "reasoning-chip-stage",
-      field: ".nt-field .acpmux-md",
-      box: ".nt-box",
-      row: ":is(.nt-box .nt-pickers, .nt-foot .acpmux-composer-foot)",
-      foot: ".nt-foot .acpmux-composer-foot",
     },
   ];
   // A chip still waiting on the session (PendingMode, .acpmux-chip-pending) is an inert, aria-hidden
@@ -270,10 +262,10 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       test(`${engine}: ${stage.name}: the button row is the plain footer, its model chip a muted label`, async () => {
         const page = await open(engine, stage);
         const row = await page.evaluate(
-          ({ foot }) => {
+          ({ foot, MODEL_PICKER }) => {
             const bar = document.querySelector<HTMLElement>(foot)!;
             const mark = bar.querySelector<HTMLElement>(".acpmux-model .acpmux-picker-button .agent-mark");
-            const model = bar.querySelector<HTMLElement>(".acpmux-model .acpmux-picker-button")!;
+            const model = bar.querySelector<HTMLElement>(MODEL_PICKER)!;
             // The model button names its effort after the model (Leo 2026-10-20): the name is as
             // muted as that effort label, except in the quiet row under the box, where the name is in
             // the button's muted ink and the effort one step back of it (#24151: secondary ink).
@@ -297,7 +289,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
                   : nameColor === getComputedStyle(effort).color,
             };
           },
-          { foot: stage.foot },
+          { foot: stage.foot, MODEL_PICKER },
         );
         await page.close();
         expect(row).toEqual({ look: "plain", mark: "brand", muted: true });
@@ -346,9 +338,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
         const tone = await pillTone(page, stage);
         const wrong: string[] = [];
         for (const button of await controls(page, stage)) {
-          // A key first, so a script focus counts as keyboard focus (:focus-visible) in both engines.
-          await page.keyboard.press("Shift");
-          await page.locator(`${stage.row} ${CONTROLS} >> visible=true`).nth(button.index).focus();
+          await focusByKey(page, page.locator(`${stage.row} ${CONTROLS} >> visible=true`).nth(button.index));
           await settled(page);
           const focused = await look(page, stage, button.index);
           if (focused.background !== tone) wrong.push(`${button.label}: focus ${focused.background}, not ${tone}`);
@@ -375,7 +365,11 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
         const engaged = await state(page, stage);
         expect(engaged.focused, "a click focuses the field").toBe(true);
         expect(engaged.caret, "the focused field shows its caret").toBe(true);
-        expect(focusDrift(rest.ring, engaged.ring), "the focused box steps its ring's tone only").toEqual([]);
+        expect(engaged.ring, "a click's focus leaves the box at rest").toBe(rest.ring);
+        await focusByKey(page, stage.field);
+        await settled(page);
+        const keyed = await state(page, stage);
+        expect(focusDrift(rest.ring, keyed.ring), "keyboard focus steps the box's ring tone only").toEqual([]);
 
         await setKey(page, false);
         await settled(page);
@@ -395,7 +389,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
         await settled(page);
         const back = await state(page, stage);
         expect(back.caret, "key again, the caret is back").toBe(true);
-        expect(focusDrift(rest.ring, back.ring), "key again, the focused ring's tone").toEqual([]);
+        expect(back.ring, "key again, the box rests: the window coming back earns no ring").toBe(rest.ring);
         await page.close();
       });
 
@@ -416,7 +410,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
         await settled(page);
         const typed = await state(page, stage);
         expect(typed.caret, "a key brings the caret back").toBe(true);
-        expect(focusDrift(rest, typed.ring), "a key brings the focused ring's tone, no ring").toEqual([]);
+        expect(typed.ring, "a key that moves no focus earns no ring").toBe(rest);
         if (stage.releasesOnWindowBlur) {
           // A window blur releases the chat's field (#24896): the box rests.
           await setKey(page, false);
@@ -431,12 +425,12 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
         await settled(page);
         const key = await state(page, stage);
         expect(key.caret, "key: the caret").toBe(true);
-        expect(focusDrift(rest, key.ring), "key: the focused ring's tone").toEqual([]);
+        expect(key.ring, "key: the box rests").toBe(rest);
         await page.close();
       });
 
     // Opened as the key page, the composer's own focus (the New Tab page focuses its field) shows the
-    // caret and adds no ring: the box only steps its ring's tone, as any focus does.
+    // caret and leaves the box at rest: code focus earns no ring.
     for (const stage of COMPOSERS)
       test(`${engine}: ${stage.name}: as it opens, a focused field shows its caret and adds no ring`, async () => {
         const page = await open(engine, stage, { rest: false });
@@ -446,8 +440,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
         const rest = (await state(page, stage)).ring;
         await page.close();
         expect(opened.focused && opened.caret, "a focused field shows its caret").toBe(opened.focused);
-        if (opened.focused) expect(focusDrift(rest, opened.ring), "the opened box's focused ring").toEqual([]);
-        else expect(opened.ring, "an unfocused box rests").toBe(rest);
+        expect(opened.ring, "the opened box rests, focused or not").toBe(rest);
       });
 
     // Over art the card is glass: its top-lit rim rests whether the field is focused or not, and
@@ -461,7 +454,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
         const rim = () =>
           page.evaluate((box) => `${getComputedStyle(document.querySelector(box)!).boxShadow} | none`, stage.box);
         const rest = await rim();
-        await page.locator(stage.field).first().click();
+        await focusByKey(page, stage.field);
         await settled(page);
         const focused = await rim();
         await setKey(page, false);

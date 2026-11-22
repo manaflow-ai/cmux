@@ -1,6 +1,7 @@
 import type { AcpmuxRow, PromptContentPart } from "../model";
 import { type FileAttachmentInfo } from "../FileAttachment";
 import { attachmentPath } from "../fileAttachmentModel";
+import { videoRatio } from "../composer/videoShape";
 
 /// The files a recorded prompt sent (its `inlineParts`: documents, audio, resource links), drawn
 /// as a sent prompt draws them; a file that is an image's companion, a video, or an image's
@@ -21,21 +22,22 @@ export function isImageOriginal(part: PromptContentPart, originals: ReadonlySet<
   return part.kind === "file" && (part.companionOf !== undefined || originals.has(attachmentPath(part.uri) ?? ""));
 }
 
-/// The sent thumbnail's height (conversation.css), and the narrowest and
-/// widest a video's tile draws as a share of that: a tall phone recording or a wide screen
-/// recording is cropped to fill past those bounds rather than drawn as a sliver.
-export const SENT_IMAGE_HEIGHT = 120;
-const SENT_IMAGE_RATIO = { min: 0.75, max: 1.6 };
-/// The widest a sent image draws: a wider one shrinks to it, whole.
-const SENT_IMAGE_MAX_WIDTH = 320;
+/// The sent thumbnail's height (conversation.css): the tallest a sent image draws, and a sent video's
+/// tile. Was 120 with a 320 cap on width, which drew a wide screenshot as a strip of unreadable text
+/// above its bubble (Leo, 2026-11-21: "you guys or we kinda messed up the rendering ... if you sent it
+/// iinline you prob shouldn't have such odd stuff").
+export const SENT_IMAGE_HEIGHT = 160;
+/// The widest a sent image draws: a wider one shrinks to it, whole. The bubble's column (70% of the
+/// chat, conversation.css) scales it down further in a narrow chat.
+export const SENT_IMAGE_MAX_WIDTH = 480;
 
-/// A video tile's width at SENT_IMAGE_HEIGHT for a video of `size`: square only while no size is known.
-export function sentImageWidth(size: { width?: number; height?: number }): number {
-  const ratio =
-    size.width && size.height
-      ? Math.min(SENT_IMAGE_RATIO.max, Math.max(SENT_IMAGE_RATIO.min, size.width / size.height))
-      : 1;
-  return Math.round(SENT_IMAGE_HEIGHT * ratio);
+/// A video tile's width at SENT_IMAGE_HEIGHT: the shape its composer chip had (`shape`,
+/// composer/videoShape.ts), else its size's within the same bounds; square only while neither is known.
+/// The composer's tile and the sent one are one box at two heights (Leo, 2026-11-10: "the preview
+/// placeholder boxes are incongruent between the initial load, then the second load, and the chat
+/// attachment itself").
+export function sentImageWidth(size: { width?: number; height?: number; shape?: number }): number {
+  return Math.round(SENT_IMAGE_HEIGHT * (size.shape ?? videoRatio(size)));
 }
 
 /// A sent image's thumbnail box for an image of `size`: the whole image in its own shape, at most

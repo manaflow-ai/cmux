@@ -1,0 +1,351 @@
+//! Menus through the fake desktop: the setting decides, items match by
+//! title, a missing item cancels with the list, the focus guard reports the
+//! menu's owner, and the deny list holds inside menus.
+
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use super::*;
+use crate::desktop::FocusSnapshot;
+use crate::desktop::fake::{Event, FakeDesktop, FakePopup};
+use crate::menus::MenuMode;
+
+/// A detector that watches and never sees the person.
+struct Quiet;
+impl PersonActivity for Quiet {
+    fn wait_idle(&self, _limit: Duration) -> bool {
+        true
+    }
+    fn input_count(&self) -> Option<u64> {
+        Some(0)
+    }
+}
+
+fn person() -> FocusSnapshot {
+    FocusSnapshot {
+        pid: 30,
+        app_id: "com.apple.TextEdit".into(),
+        window_id: Some("30".into()),
+        top_pid: Some(30),
+        pointer: None,
+    }
+}
+
+fn ctx(call: &str) -> CallContext {
+    CallContext {
+        session: "s1".into(),
+        label: "Claude".into(),
+        call_id: Some(call.into()),
+        origin: OriginKind::Local,
+        tag: None,
+    }
+}
+
+/// Safari's window 1 holds pop-up "p1" (Show previews), set to "When Unlocked".
+fn rig(menus: MenuMode) -> (Arc<FakeDesktop>, Engine) {
+    let d = FakeDesktop::standard();
+    *d.popups.lock().unwrap() = vec![FakePopup {
+        window: "1".into(),
+        element: "p1".into(),
+        items: ["Always", "When Unlocked", "Never", "Open in Terminal"].map(String::from).to_vec(),
+        value: "When Unlocked".into(),
+        open: false,
+        ..Default::default()
+    }];
+    *d.focus.lock().unwrap() = Some(person());
+    let d = Arc::new(d);
+    let mut parts = EngineParts::new(d.clone());
+    let now = Arc::new(AtomicU64::new(0));
+    let (a, b) = (now.clone(), now);
+    parts.sleep = Arc::new(move |t| {
+        a.fetch_add(t.as_millis() as u64, Ordering::SeqCst);
+    });
+    parts.clock = Arc::new(move || Duration::from_millis(b.load(Ordering::SeqCst)));
+    parts.takeover = Arc::new(Quiet);
+    parts.config = PolicyConfig { menus, ..PolicyConfig::default() };
+    (d, Engine::new(parts))
+}
+
+fn set_value(e: &Engine, call: &str, value: &str) -> ToolOutput {
+    e.call(&ctx(call), "set_value", &json!({"window_id": "1", "element_id": "p1", "value": value}))
+}
+
+#[test]
+fn open_picks_the_item_and_closes_the_menu_in_one_call() {
+    let (d, e) = rig(MenuMode::Open);
+    let out = set_value(&e, "v1", "always");
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(out.body["evidence"], "confirmed");
+    assert_eq!(out.body["menu"]["state"], "picked");
+    assert_eq!(out.body["menu"]["picked"], "Always");
+    assert!(out.body["menu"]["open_ms"].is_u64());
+    let p = &d.popups()[0];
+    assert_eq!((p.value.as_str(), p.open), ("Always", false));
+    assert_eq!(out.body["focus"], json!({"kept": true}));
+}
+
+#[test]
+fn a_unique_prefix_picks_and_an_ambiguous_one_lists_the_matches() {
+    let (d, e) = rig(MenuMode::Open);
+    assert_eq!(set_value(&e, "v1", "Nev").body["menu"]["picked"], "Never");
+    assert_eq!(d.popups()[0].value, "Never");
+    d.popups.lock().unwrap()[0].items.push("Never Again".into());
+    let out = set_value(&e, "v2", "Nev");
+    assert!(out.is_error);
+    let msg = out.body["error"].as_str().unwrap();
+    assert!(msg.contains("Never, Never Again"), "{msg}");
+}
+
+#[test]
+fn a_missing_item_cancels_the_menu_and_names_the_items() {
+    let (d, e) = rig(MenuMode::Open);
+    let out = set_value(&e, "v1", "Sometimes");
+    assert!(out.is_error);
+    assert_eq!(out.code.as_deref(), Some("unsupported"));
+    let msg = out.body["error"].as_str().unwrap();
+    assert!(msg.contains("Always, When Unlocked, Never"), "{msg}");
+    // The denied item is not listed.
+    assert!(!msg.contains("Terminal"), "{msg}");
+    let p = &d.popups()[0];
+    assert_eq!((p.value.as_str(), p.open), ("When Unlocked", false));
+    assert!(d.events().is_empty());
+}
+
+#[test]
+fn refuse_keeps_every_menu_closed() {
+    let (d, e) = rig(MenuMode::Refuse);
+    let out = set_value(&e, "v1", "Always");
+    assert!(out.is_error);
+    assert!(out.body["error"].as_str().unwrap().contains("computerUse.menus"));
+    let out = e.call(&ctx("c1"), "click", &json!({"window_id": "1", "element_id": "p1"}));
+    assert!(out.is_error);
+    let out = e.call(
+        &ctx("a1"),
+        "perform_action",
+        &json!({"window_id": "1", "element_id": "p1", "action": "press"}),
+    );
+    assert!(out.is_error);
+    let out = e.call(
+        &ctx("r1"),
+        "click",
+        &json!({"window_id": "1", "element_id": "e1", "button": "right"}),
+    );
+    assert!(out.is_error, "{:?}", out.body);
+    assert!(d.events().is_empty());
+    assert_eq!(d.popups()[0].value, "When Unlocked");
+    assert_eq!(e.call(&ctx("s"), "status", &json!({})).body["menus"], "refuse");
+}
+
+#[test]
+fn a_click_opens_the_menu_and_lists_its_items_for_the_next_call() {
+    let (d, e) = rig(MenuMode::Open);
+    let out = e.call(&ctx("c1"), "click", &json!({"window_id": "1", "element_id": "p1"}));
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(out.body["menu"]["state"], "open");
+    assert_eq!(out.body["menu"]["hidden"], 1);
+    assert!(d.popups()[0].open);
+    // The state shows only the open menu: its items with ids, without the
+    // denied item (and the result lists them once, there).
+    let tree = out.body["state"]["tree"].as_str().unwrap();
+    assert!(tree.starts_with("The menu is open; only it is shown."), "{tree}");
+    let items: Vec<&str> = tree.lines().skip(1).collect();
+    assert_eq!(items.len(), 3, "{tree}");
+    for (line, title) in items.iter().zip(["Always", "When Unlocked", "Never"]) {
+        assert!(
+            line.starts_with('[') && line.ends_with(&format!("menu item \"{title}\"")),
+            "{line}"
+        );
+    }
+    assert!(!tree.contains("Terminal") && !tree.contains("OK"), "{tree}");
+    assert!(out.body["menu"].get("items").is_none());
+    let tree = e.call(&ctx("t1"), "get_ui_tree", &json!({"window_id": "1", "full": true}));
+    assert!(!tree.body["tree"].as_str().unwrap().contains("Terminal"));
+}
+
+/// As JSON (a script), the open menu's result keeps its item list and the tree.
+#[test]
+fn a_click_that_opens_a_menu_keeps_the_items_as_json_for_scripts() {
+    let (d, e) = rig(MenuMode::Open);
+    let out = e.call(
+        &ctx("j1"),
+        "click",
+        &json!({"window_id": "1", "element_id": "p1", "format": "json"}),
+    );
+    assert!(!out.is_error, "{:?}", out.body);
+    assert!(d.popups()[0].open);
+    let titles: Vec<&str> = out.body["menu"]["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .map(|i| i["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(titles, ["Always", "When Unlocked", "Never"]);
+    let root = out.body["state"]["root"].to_string();
+    assert!(root.contains("When Unlocked") && !root.contains("Open in Terminal"), "{root}");
+    assert!(out.body["state"].get("tree").is_none());
+}
+
+#[test]
+fn an_item_leading_to_a_denied_app_is_refused() {
+    let (d, e) = rig(MenuMode::Open);
+    let out = set_value(&e, "v1", "Open in Terminal");
+    assert!(out.is_error);
+    let msg = out.body["error"].as_str().unwrap();
+    assert!(msg.contains("Terminal") && msg.contains("deny list"), "{msg}");
+    assert_eq!(d.popups()[0].value, "When Unlocked");
+    // With Terminal off the deny list, the same item is fine.
+    let mut config = e.config();
+    config.denied_apps.retain(|a| a != "com.apple.Terminal");
+    e.set_config(config);
+    assert!(!set_value(&e, "v2", "Open in Terminal").is_error);
+}
+
+#[test]
+fn the_focus_guard_puts_the_persons_app_back_after_the_pick() {
+    let (d, e) = rig(MenuMode::Open);
+    // Picking the item activates the target app (as a menu's owner can).
+    *d.steal_on_input.lock().unwrap() = Some(FocusSnapshot {
+        pid: 10,
+        app_id: "com.apple.Safari".into(),
+        window_id: Some("1".into()),
+        top_pid: Some(10),
+        pointer: None,
+    });
+    let out = set_value(&e, "v1", "Never");
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(out.body["focus"], json!({"kept": true, "restored_from": "com.apple.Safari"}));
+    assert_eq!(d.restores(), vec![person()]);
+}
+
+#[test]
+fn the_desktop_gets_the_policy_before_each_acting_call() {
+    let (d, e) = rig(MenuMode::Open);
+    assert!(d.menu_policy.lock().unwrap().is_none());
+    e.call(&ctx("c1"), "click", &json!({"window_id": "1", "element_id": "e1"}));
+    let policy = d.menu_policy.lock().unwrap().clone().unwrap();
+    assert_eq!(policy.mode, MenuMode::Open);
+    e.set_config(PolicyConfig { menus: MenuMode::Refuse, ..PolicyConfig::default() });
+    e.call(&ctx("c2"), "click", &json!({"window_id": "1", "element_id": "e1"}));
+    assert_eq!(d.menu_policy.lock().unwrap().clone().unwrap().mode, MenuMode::Refuse);
+    assert!(matches!(d.events()[0], Event::Click { .. }));
+}
+
+#[test]
+fn the_deny_list_in_menus_is_the_menu_guard_the_engine_set() {
+    // One rule: the guard the engine handed the desktop (the deny list and
+    // the protected apps), not a list of names of its own.
+    let (d, e) = rig(MenuMode::Open);
+    let guard = d.menu_guard.lock().unwrap().clone().expect("the engine sets a menu guard");
+    assert!(guard.app_blocked("com.apple.Terminal", "Terminal"));
+    assert!(guard.app_blocked("com.1password.1password", "1Password"));
+    assert!(!guard.app_blocked("com.apple.Safari", "Safari"));
+    // A running denied app is hidden by name in a menu, as an installed one is.
+    *d.popups.lock().unwrap() = vec![FakePopup {
+        window: "1".into(),
+        element: "p2".into(),
+        items: ["Fill with 1Password", "Keep"].map(String::from).to_vec(),
+        value: "Keep".into(),
+        open: false,
+        ..Default::default()
+    }];
+    let out = e.call(&ctx("g1"), "click", &json!({"window_id": "1", "element_id": "p2"}));
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(out.body["menu"]["hidden"], 1);
+}
+
+#[test]
+fn a_click_with_menu_item_picks_and_closes_in_one_call() {
+    let (d, e) = rig(MenuMode::Open);
+    let click = |call: &str, item: &str| {
+        e.call(
+            &ctx(call),
+            "click",
+            &json!({"window_id": "1", "element_id": "p1", "menu_item": item}),
+        )
+    };
+    let out = click("m1", "Never");
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(out.body["menu"]["state"], "picked");
+    assert_eq!(d.popups()[0].value, "Never");
+    assert!(!d.popups()[0].open, "the menu is not left open");
+    // A hidden item is refused, named only by the agent's text.
+    let out = click("m2", "Open in Terminal");
+    assert!(out.is_error);
+    // Under refuse, nothing that opens a menu runs.
+    e.set_config(PolicyConfig { menus: MenuMode::Refuse, ..PolicyConfig::default() });
+    assert!(click("m3", "Always").is_error);
+}
+
+#[test]
+fn a_path_pick_opens_each_submenu_and_holds_every_level_to_the_deny_list() {
+    let (d, e) = rig(MenuMode::Open);
+    // A context menu whose Open With fills only when it opens.
+    *d.popups.lock().unwrap() = vec![FakePopup {
+        window: "1".into(),
+        element: "c1".into(),
+        items: ["Open", "Open With", "Get Info"].map(String::from).to_vec(),
+        submenus: vec![("Open With".into(), ["TextEdit", "Terminal"].map(String::from).to_vec())],
+        ..Default::default()
+    }];
+    let click = |call: &str, item: &str| {
+        e.call(
+            &ctx(call),
+            "click",
+            &json!({"window_id": "1", "element_id": "c1", "menu_item": item}),
+        )
+    };
+    let out = click("p1", "Open With > TextEdit");
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(out.body["menu"]["picked"], "TextEdit");
+    // Terminal is denied: refused at its level, named by the agent's text.
+    let out = click("p2", "Open With > Terminal");
+    assert!(out.is_error);
+    // The parent alone opens a submenu: a path is needed.
+    assert!(click("p3", "Open With").is_error);
+}
+
+#[test]
+fn a_protected_item_is_hidden_from_a_menu_listing_with_nothing_denied() {
+    // An empty deny list still protects the security UI: a menu item that
+    // names a protected app never sits open under the person's keys.
+    let (d, e) = rig(MenuMode::Open);
+    e.set_config(PolicyConfig { denied_apps: vec![], ..PolicyConfig::default() });
+    *d.popups.lock().unwrap() = vec![FakePopup {
+        window: "1".into(),
+        element: "p3".into(),
+        items: ["Keep", "Open in cmux Remote"].map(String::from).to_vec(),
+        value: "Keep".into(),
+        ..Default::default()
+    }];
+    *d.installed.lock().unwrap() = vec![("cmux Remote".into(), "com.cmuxterm.remote".into())];
+    let out = e.call(&ctx("x1"), "click", &json!({"window_id": "1", "element_id": "p3"}));
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(out.body["menu"]["hidden"], 1);
+    assert!(!out.body["menu"].to_string().contains("cmux Remote"));
+}
+
+/// Menu mode: a click opens the pop-up's menu, the state lists only its
+/// items with ids, and a click on an item's id picks it.
+#[test]
+fn an_item_listed_by_an_open_menu_is_picked_by_its_id() {
+    let (d, e) = rig(MenuMode::Open);
+    e.call(&ctx("t0"), "get_ui_tree", &json!({"window_id": "1"}));
+    let out = e.call(&ctx("c1"), "click", &json!({"window_id": "1", "element_id": "p1"}));
+    let tree =
+        out.body["state"]["tree"].as_str().unwrap_or_else(|| panic!("{}", out.body)).to_string();
+    let never = tree
+        .lines()
+        .find(|l| l.contains("menu item \"Never\""))
+        .and_then(|l| l.split('[').nth(1))
+        .and_then(|l| l.split(']').next())
+        .unwrap_or_else(|| panic!("{tree}"))
+        .to_string();
+    let pick = e.call(&ctx("c2"), "click", &json!({"window_id": "1", "element_id": never}));
+    assert!(!pick.is_error, "{:?}", pick.body);
+    assert!(
+        d.events()
+            .iter()
+            .any(|ev| matches!(ev, Event::Click { element: Some(id), .. } if id == "p1.2")),
+        "{:?}",
+        d.events()
+    );
+}

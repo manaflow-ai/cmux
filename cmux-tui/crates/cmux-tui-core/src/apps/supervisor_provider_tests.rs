@@ -181,6 +181,73 @@ fn a_toast_routes_to_the_provider_for_an_app_with_no_scopes() {
     assert_eq!(request["params"], params);
 }
 
+/// Reader mode and link hints reach the Mac app's browser tabs, which the
+/// daemon cannot script (`browser_rendered_by_app`): `page` is a provider
+/// family. `page.read` needs only `page:read`; `page.hints` and
+/// `page.follow` need `page:write` (grants.rs) and a gesture, and carry a
+/// mutation key.
+#[test]
+fn page_ops_route_to_the_provider_with_their_scopes_and_hints_need_a_gesture() {
+    let root = temp_dir();
+    write_app(
+        &root.0.join("bundled"),
+        "demo",
+        "cmux/demo",
+        json!({"page:read":"read the page","page:write":"draw link hints"}),
+    );
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    let rx = provider(&f, &["toast", "page"]);
+
+    // A read: no gesture, no mutation key.
+    f.supervisor
+        .dispatch(CLIENT, "m1", "n1", "tap", json!({"op":"page.read", "params":{}}), false)
+        .unwrap();
+    let request = next_request(&rx);
+    assert_eq!(
+        (request["op"].clone(), request["origin"].clone()),
+        (json!("page.read"), json!("script"))
+    );
+    assert!(request["idempotency_key"].is_null(), "a read must not get a mutation key");
+    let value = json!({"tab":"tab_1","url":"https://example.com/","title":"Example",
+        "article":{"title":"Example","byline":null,"site":null,"blocks":[]},"links":[]});
+    f.supervisor
+        .provider_result(
+            PROVIDER,
+            request["request_id"].as_u64().unwrap(),
+            true,
+            json!({"value":value}),
+        )
+        .unwrap();
+    let update =
+        f.wait("read result", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
+    assert_eq!(update["ops"][0]["props"]["result"], json!({"ok":true,"body":{"value":value}}));
+
+    // Hints without a gesture never reach the provider.
+    let refused = f.call("m1", "page.hints", json!({"action":"show"}), false);
+    assert_eq!(refused["body"]["code"], "gesture.required", "{refused}");
+    let refused = f.call("m1", "page.follow", json!({"label":"sa"}), false);
+    assert_eq!(refused["body"]["code"], "gesture.required", "{refused}");
+
+    // With a gesture they route as the user's mutation.
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({"op":"page.hints", "params":{"action":"show"}}),
+            true,
+        )
+        .unwrap();
+    let request = next_request(&rx);
+    assert_eq!(request["op"], "page.hints");
+    assert_eq!(request["origin"], "user");
+    assert_eq!(request["params"], json!({"action":"show"}));
+    assert!(request["idempotency_key"].as_str().is_some_and(|k| k.starts_with("app:cmux/demo:")));
+}
+
 #[test]
 fn no_provider_fails_at_once_and_a_provider_leaving_fails_its_pending_calls() {
     let f = fixture();
@@ -328,4 +395,113 @@ fn only_the_cmux_app_and_never_an_agent_may_provide() {
         f.call("m1", "action.run", json!({ "id": "newWindow" }), true)["body"]["code"],
         "provider.unavailable"
     );
+}
+
+/// The Mac's calendars (`system_calendar`, EventKit on the Mac): the daemon
+/// bounds and normalizes the read before the Mac app sees it, answers repeat
+/// reads from its cache only once access is granted, and lets the permission
+/// prompt open only from a tap.
+#[test]
+fn system_calendar_reads_are_bounded_cached_once_granted_and_the_prompt_needs_a_tap() {
+    let root = temp_dir();
+    write_app(
+        &root.0.join("bundled"),
+        "demo",
+        "cmux/demo",
+        json!({"system_calendar:read":"show your next events"}),
+    );
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    let rx = provider(&f, &["system_calendar"]);
+    let hour = 3_600_000_i64;
+    let answer = |rx: &Receiver<Value>, value: Value| {
+        let request = next_request(rx);
+        f.supervisor
+            .provider_result(
+                PROVIDER,
+                request["request_id"].as_u64().unwrap(),
+                true,
+                json!({ "value": value }),
+            )
+            .unwrap();
+        request
+    };
+
+    // A read of more than 31 days never reaches the Mac app.
+    let refused = f.call("m1", "system_calendar.events", json!({"days":40}), false);
+    assert_eq!(refused["body"]["code"], "validation.invalid", "{refused}");
+
+    // Before the person answers macOS, the answer is not cached: the next read asks again.
+    let range = json!({"days":2});
+    let waiting = json!({"access":"notDetermined","events":[]});
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({"op":"system_calendar.events","params":range}),
+            false,
+        )
+        .unwrap();
+    let request = answer(&rx, waiting);
+    assert_eq!(request["params"], json!({"days":2,"limit":20}), "defaults filled in");
+    f.wait("first read", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
+
+    // The prompt needs a gesture; with one it routes as the user.
+    let refused = f.call("m1", "system_calendar.request_access", json!({}), false);
+    assert_eq!(refused["body"]["code"], "gesture.required", "{refused}");
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({"op":"system_calendar.request_access","params":{}}),
+            true,
+        )
+        .unwrap();
+    let request = answer(&rx, json!({"access":"granted"}));
+    assert_eq!(request["origin"], "user");
+    f.wait("access result", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
+
+    // Granted: the first read goes to the Mac, the same read again is answered from the cache.
+    let events = json!({"access":"granted","events":[{"id":"e@1","title":"Standup","start":hour,
+        "end":2 * hour,"allDay":false,"calendar":"Work","color":"#1badf8"}]});
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({"op":"system_calendar.events","params":range}),
+            false,
+        )
+        .unwrap();
+    answer(&rx, events.clone());
+    let first =
+        f.wait("granted read", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
+    assert_eq!(first["ops"][0]["props"]["result"], json!({"ok":true,"body":{"value":events}}));
+    let cached = f.call("m1", "system_calendar.events", range.clone(), false);
+    assert_eq!(cached, json!({"ok":true,"body":{"value":events}}));
+    assert!(
+        rx.try_iter().all(|e| e["event"] != "apps-provider-request"),
+        "a cached read never reaches the Mac app"
+    );
+
+    // EventKit says a calendar changed: the cache is dropped, so the next read reaches the Mac.
+    assert_eq!(f.supervisor.provider_changed(PROVIDER, APP, "system_calendar").unwrap(), json!({}));
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({"op":"system_calendar.events","params":range}),
+            false,
+        )
+        .unwrap();
+    let request = answer(&rx, events);
+    assert_eq!(request["op"], "system_calendar.events", "a change makes the next read fresh");
 }

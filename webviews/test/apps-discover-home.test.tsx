@@ -10,6 +10,7 @@ import { AppsPage } from "../src/pages/apps/AppsPage";
 import type { AppsSnapshot, AppsStore } from "../src/pages/apps/store";
 import type { CatalogApp } from "../src/pages/apps/types";
 import { languageDirection, UiProvider } from "../src/ui/UiProvider";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -29,12 +30,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const strings: Strings = { language: "en", t: (key) => key, format: (key) => key };
@@ -70,6 +68,8 @@ const snapshot = (overrides: Partial<AppsSnapshot>): AppsSnapshot =>
     ],
     installed: [],
     updates: [],
+    previews: {},
+    browse: "hero",
     ...overrides,
   }) as unknown as AppsSnapshot;
 
@@ -88,7 +88,7 @@ const render = (snap: AppsSnapshot, dir: "ltr" | "rtl" = "ltr") => {
 
 test("Discover leads with the first-party apps and names each publisher, verified", () => {
   const page = render(snapshot({}));
-  expect(page.querySelectorAll(".apps-featured-grid > *").length).toBe(2);
+  expect(page.querySelectorAll(".apps-heroes > .apps-hero").length).toBe(2);
   expect(page.querySelector(".apps-verified")).not.toBeNull();
   expect(page.textContent).toContain("Manaflow");
 });
@@ -98,12 +98,19 @@ test("Discover shows a skeleton grid while the catalog loads", () => {
   expect(page.querySelector(".apps-grid-loading")).not.toBeNull();
 });
 
-test("a card keeps Preview and Install together when its footer wraps", () => {
+test("a card keeps its one action in the footer when the footer wraps", () => {
   const page = render(snapshot({}));
+  expect(page.querySelectorAll(".apps-card").length).toBeGreaterThan(0);
   for (const card of page.querySelectorAll(".apps-card")) {
     const actions = card.querySelector(".apps-card-actions");
-    expect(actions?.querySelectorAll("button").length).toBe(2);
+    expect(actions?.querySelectorAll("button").length).toBe(1);
   }
+});
+
+test("the pair style leads with two featured cards, then the rest", () => {
+  const page = render(snapshot({ browse: "pair" }));
+  expect(page.querySelectorAll(".apps-featured-grid > *").length).toBe(2);
+  expect([...page.querySelectorAll(".apps-grid .apps-name")].map((name) => name.textContent)).toEqual(["acme.tool"]);
 });
 
 test("the featured apps leave the catalog grid, and a search drops the featured row", () => {
@@ -115,8 +122,9 @@ test("the featured apps leave the catalog grid, and a search drops the featured 
 
 test("no empty All section when every app is featured", () => {
   const page = render(snapshot({ visible: [app("cmux.github-prs", "first-party", 30)] }));
-  expect(page.querySelectorAll(".apps-featured-grid > *").length).toBe(1);
-  expect(page.querySelector("#apps-catalog-title")).toBeNull();
+  expect(page.querySelectorAll(".apps-heroes > .apps-hero").length).toBe(1);
+  expect(page.querySelector(".apps-grid")).toBeNull();
+  expect(page.querySelector(".apps-section-heading")).toBeNull();
 });
 
 test("tabs are a roving keyboard stop and arrow keys move with focus", () => {

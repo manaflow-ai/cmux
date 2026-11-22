@@ -10,14 +10,17 @@ import {
   type AttachmentError,
   type ComposerAttachment,
   type DroppedKind,
+  type KnownPaths,
   type LinkItem,
 } from "../attachments";
+import { isVideoName } from "./videoAttachments";
+import { videoShapeOf } from "./videoShape";
 import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 
 export type IntakeOptions = {
   allowImages: boolean;
   /// The host knows a local drop's paths, matched by position. Never used for another machine.
-  localPaths?(files: File[]): Promise<LinkItem[] | undefined>;
+  localPaths?(files: File[]): Promise<KnownPaths | undefined>;
   /// Session storage owns transport limits and chunking; intake imposes no file or batch cap.
   upload?(files: File[], cancelled?: UploadCancelled, progress?: UploadProgressReport): Promise<UploadResult>;
   /// Whether the person cancelled file `index` (its tile's ×): it is left out of the upload.
@@ -75,7 +78,7 @@ export async function intakeFiles(
   // never answers holds nothing up past LOCAL_PATHS_DEADLINE_MS.
   const known = options.localPaths
     ? settleWithin(options.localPaths(files), LOCAL_PATHS_DEADLINE_MS).then((items) =>
-        items?.length === files.length ? items : undefined,
+        items && items.length !== files.length ? alignPaths(files, items) : items,
       )
     : Promise.resolve(undefined);
   const images: (ComposerAttachment | undefined)[] = [];
@@ -91,7 +94,10 @@ export async function intakeFiles(
   };
   // Each image's preview, made beside the batch's transport: no file's upload waits for a sibling
   // image to be decoded, and a send waits only for the image itself.
+  // A video's tile shape, from its header (a few small reads, at most VIDEO_HEADER_WAIT_MS): its chip
+  // keeps the box its loading tile showed, square when the header gave none.
   const prepared = files.map(async (file, index) => {
+    const videoShape = isVideoName(file.name) ? ((await videoShapeOf(file)) ?? 1) : undefined;
     const result = isImageFile(file)
       ? await readAttachment(file, options.allowImages).catch(() => undefined)
       : undefined;
@@ -105,7 +111,7 @@ export async function intakeFiles(
       images[index] = image;
       events.ready?.(index, image);
     }
-    return { result, image };
+    return { result, image, ...(videoShape ? { videoShape } : {}) };
   });
   /// What each file becomes once its own preview is made (a link, or its failure): never awaited
   /// before the batch's upload starts.
@@ -116,12 +122,13 @@ export async function intakeFiles(
     files.map(async (file, index) => {
       const path = (await known)?.[index];
       if (path) {
-        once(index, ({ image }) => {
+        once(index, ({ image, videoShape }) => {
           if (!image)
             link(index, {
               ...linkAttachment(path.path, path.folder),
               mimeType: file.type || "application/octet-stream",
               size: file.size,
+              ...(videoShape ? { videoShape } : {}),
             });
         });
       } else if (options.upload) {
@@ -178,7 +185,7 @@ export async function intakeFiles(
     // Each file is its chip (or its image's original) on its own, never after a sibling's preview.
     await Promise.all(
       waiting.map(async ({ index, file }, at) => {
-        const { image } = await prepared[index]!;
+        const { image, videoShape } = await prepared[index]!;
         // A later file may fail after earlier files finished. Keep every returned path, even when
         // the batch also carries an error, so completed uploads remain attachable and only the
         // failed/unattempted chips offer Retry.
@@ -192,6 +199,7 @@ export async function intakeFiles(
             ...savedAttachment(path, file.name),
             mimeType: file.type || "application/octet-stream",
             size: file.size,
+            ...(videoShape ? { videoShape } : {}),
           });
         else if (!options.cancelled?.(index)) {
           const reason: IntakeError =
@@ -216,11 +224,43 @@ export async function droppedPaths(
   kind: DroppedKind,
   files: File[],
   call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
-): Promise<LinkItem[] | undefined> {
+  /// When the page took the gesture (`Date.now()`): the host answers from that gesture's own record,
+  /// never a later one's with the same names (two fast pastes of screenshots).
+  gestureAt?: number,
+): Promise<KnownPaths | undefined> {
   try {
-    const items = linkItems(await call("chat.attach.dropped", { kind, names: files.map((file) => file.name) }));
-    return items.length === files.length ? items : undefined;
+    const names = files.map((file) => file.name);
+    const items = linkItems(
+      await call("chat.attach.dropped", { kind, names, ...(gestureAt === undefined ? {} : { gestureAt }) }),
+    );
+    if (items.length === 0) return undefined;
+    return alignPaths(files, items);
   } catch {
     return undefined;
   }
+}
+
+/// The host's `items` for `files`, by index. The host answers in the order of their names, so an
+/// answer with one item per file is used as it is. Any other answer keeps each path whose last
+/// component names one of the files (a folder's too, which WebKit names `<name>.zip`), and only the
+/// rest go without one: a mismatch never drops the paths the host did give. It is logged, with
+/// counts only (the names are the person's files).
+export function alignPaths(files: readonly File[], items: readonly (LinkItem | undefined)[]): KnownPaths {
+  if (items.length === files.length) return items;
+  const left = items.filter((item): item is LinkItem => Boolean(item));
+  const aligned = files.map((file) => {
+    const at = left.findIndex((item) => namesFile(item.path, file.name));
+    return at < 0 ? undefined : left.splice(at, 1)[0];
+  });
+  console.warn(
+    `agent pane: the host gave ${items.length} paths for ${files.length} files; kept ${aligned.filter(Boolean).length} by name`,
+  );
+  return aligned;
+}
+
+/// Whether the page's file `name` is the file or folder at `path` (as AgentPaneDroppedPaths.named).
+export function namesFile(path: string, name: string): boolean {
+  const last = path.replace(/\/+$/, "").split("/").pop()?.normalize("NFC") ?? "";
+  const asked = name.normalize("NFC");
+  return asked === last || asked === `${last}.zip`;
 }

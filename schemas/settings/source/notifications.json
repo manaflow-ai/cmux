@@ -554,7 +554,7 @@
           },
           "help": {
             "key": "settings.feed.mirrorAgents.help",
-            "text": "Notifications from agents and cmux notify go to your cmux account's feed and can reach your iPhone."
+            "text": "Agent and cmux notify notifications go to your feed and can reach your iPhone."
           },
           "kind": "toggle",
           "default": true,
@@ -576,7 +576,7 @@
           },
           "help": {
             "key": "settings.feed.mirrorTerminal.help",
-            "text": "Notifications that programs send through the terminal can contain secrets. Off sends nothing to your cmux account."
+            "text": "Terminal notifications can contain secrets. Off sends nothing."
           },
           "summary": {
             "key": "settings.feed.mirrorTerminal.summary",
@@ -655,7 +655,7 @@
           },
           "help": {
             "key": "settings.feed.needsYouInChief.help",
-            "text": "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them."
+            "text": "Pins open requests and questions at the top of the Chief's chat."
           },
           "kind": "toggle",
           "default": false,
@@ -967,6 +967,49 @@
           "keywords": []
         },
         {
+          "key": "notifications.attention.mark",
+          "note": "Leo 2026-11-19: \"needs you\" as motion, a look customization, off by default (the badge stays the default).",
+          "title": {
+            "key": "settings.attention.mark",
+            "text": "Needs You Look"
+          },
+          "help": {
+            "key": "settings.attention.mark.help",
+            "text": "How a tab and a sidebar row that wait for you show it: the badge, or a gentle glow until you look at them."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "badge",
+              "title": {
+                "key": "settings.choice.badge",
+                "text": "Badge"
+              }
+            },
+            {
+              "value": "glow",
+              "title": {
+                "key": "settings.choice.glow",
+                "text": "Glow"
+              }
+            }
+          ],
+          "default": "badge",
+          "keywords": [
+            "needs you",
+            "glow",
+            "badge",
+            "unread",
+            "waiting",
+            "motion"
+          ],
+          "swift_enum": {
+            "name": "AttentionMarkLook",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          }
+        },
+        {
           "key": "notifications.attention.moveToTop",
           "title": {
             "key": "settings.attention.moveToTop",
@@ -974,10 +1017,10 @@
           },
           "help": {
             "key": "settings.attention.moveToTop.help",
-            "text": "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane."
+            "text": "A notification moves its workspace to the top, unless you are looking at it."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "reorder",
             "sort",
@@ -992,7 +1035,7 @@
           },
           "help": {
             "key": "settings.attention.moveToTopOnAgentFinish.help",
-            "text": "An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane."
+            "text": "Unless you are looking at its pane."
           },
           "kind": "toggle",
           "default": false,
@@ -1217,7 +1260,7 @@
           },
           "help": {
             "key": "settings.notifications.sounds.cooldown.help",
-            "text": "Many notifications at once sound once. An agent asking for input still sounds. 0 turns it off."
+            "text": "Many notifications at once sound once. 0 turns it off."
           },
           "kind": "number",
           "range": {
@@ -1287,6 +1330,135 @@
             "mute"
           ],
           "page_hidden": "ids and per-level rules; set from the sidebar row and group menus, the palette and the CLI"
+        }
+      ]
+    },
+    {
+      "name": "delivery",
+      "section": "notifications",
+      "group": {
+        "key": "settings.group.notificationDelivery",
+        "text": "Delivery by Event"
+      },
+      "rows": [
+        {
+          "key": "notifications.delivery.permissionRequest",
+          "name": "permissionRequestDelivery",
+          "title": {
+            "key": "settings.notifications.delivery.permissionRequest",
+            "text": "Permission Request"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "badge",
+              "title": {
+                "key": "settings.choice.badge",
+                "text": "Badge"
+              }
+            },
+            {
+              "value": "banner",
+              "title": {
+                "key": "settings.notifications.delivery.banner",
+                "text": "Banner"
+              }
+            }
+          ],
+          "default": "banner",
+          "keywords": [
+            "banner",
+            "delivery",
+            "permissionRequest"
+          ],
+          "swift_enum": {
+            "name": "NotificationDeliveryLevel",
+            "generated": true
+          }
+        },
+        {
+          "key": "notifications.delivery.question",
+          "name": "questionDelivery",
+          "title": {
+            "key": "settings.notifications.delivery.question",
+            "text": "Question"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "badge",
+              "title": {
+                "key": "settings.choice.badge",
+                "text": "Badge"
+              }
+            },
+            {
+              "value": "banner",
+              "title": {
+                "key": "settings.notifications.delivery.banner",
+                "text": "Banner"
+              }
+            }
+          ],
+          "default": "banner",
+          "keywords": [
+            "banner",
+            "delivery",
+            "question"
+          ],
+          "swift_enum": {
+            "name": "NotificationDeliveryLevel",
+            "generated": false
+          }
+        },
+        {
+          "key": "notifications.delivery.taskComplete",
+          "name": "taskCompleteDelivery",
+          "title": {
+            "key": "settings.notifications.delivery.taskComplete",
+            "text": "Task Complete"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "banner",
+              "title": {
+                "key": "settings.notifications.delivery.banner",
+                "text": "Banner"
+              }
+            }
+          ],
+          "default": "banner",
+          "keywords": [
+            "banner",
+            "delivery",
+            "taskComplete"
+          ],
+          "swift_enum": {
+            "name": "NotificationDeliveryLevel",
+            "generated": false
+          }
         }
       ]
     }

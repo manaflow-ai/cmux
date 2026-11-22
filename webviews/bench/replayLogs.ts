@@ -36,7 +36,7 @@ export type ReplayLog = {
   bursts: Burst[];
 };
 
-type Step =
+export type Step =
   | { update: Record<string, unknown>; meta?: Record<string, unknown> }
   | { mux: string; msg?: Record<string, unknown> };
 
@@ -134,6 +134,99 @@ export function tokens(turn: number, count: number): string[] {
   return Array.from({ length: count }, (_, index) => words[index % words.length]!);
 }
 
+/// What a streamed turn streams: reply tokens, thought tokens, a shell call's output updates (40 lines each), reads.
+export type StreamSizes = { tokenCount: number; outputUpdates: number; thoughtCount: number; toolCalls: number };
+const STREAM_SIZES: StreamSizes = { tokenCount: 80, outputUpdates: 30, thoughtCount: 40, toolCalls: 12 };
+
+/// One streamed turn at `at`, appended to `events` (seq following on), its four measured bursts to `bursts`: a thought
+/// a token at a time, a reply token by token, a shell call whose output streams in (acpmux sends a call's whole content
+/// each time, so each update is longer), then reads that start and end. About 8 s of wall clock.
+export function streamedTurn(
+  events: EventRecord[],
+  bursts: Burst[],
+  sessionId: string,
+  turn: number,
+  at: number,
+  sizes: Partial<StreamSizes> = {},
+): void {
+  const { tokenCount, outputUpdates, thoughtCount, toolCalls } = { ...STREAM_SIZES, ...sizes };
+  const push = (at: number, step: Step) => events.push(toRecord(sessionId, events.length + 1, at, step));
+  push(at, { mux: "user_message", msg: { text: `Turn ${turn}: stream the fix and rerun the suite` } });
+  push(at, { mux: "turn_started" });
+  // The turn thinks first, a thought token at a time, as Claude streams its thinking.
+  const thoughtRows = rowsIn(events);
+  const fromThought = events.length + 1;
+  tokens(turn, thoughtCount).forEach((token, index) =>
+    push(at + 200 + index * 10, {
+      update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: token } },
+    }),
+  );
+  bursts.push({ kind: "thought", fromSeq: fromThought, toSeq: events.length, rows: thoughtRows });
+  const rows = rowsIn(events);
+  const fromToken = events.length + 1;
+  tokens(turn, tokenCount).forEach((token, index) => push(at + 1000 + index * 25, { update: text(token) }));
+  bursts.push({ kind: "token", fromSeq: fromToken, toSeq: events.length, rows });
+  const toolCallId = `replay-stream-${turn}`;
+  const command = `bun test src/feature${turn % 40}`;
+  push(at + 3000, {
+    update: {
+      sessionUpdate: "tool_call",
+      toolCallId,
+      kind: "execute",
+      title: `Run ${command}`,
+      status: "in_progress",
+      rawInput: { command },
+    },
+  });
+  const outputRows = rowsIn(events);
+  const fromOutput = events.length + 1;
+  let log = "";
+  for (let update = 0; update < outputUpdates; update += 1) {
+    for (let line = 0; line < 40; line += 1)
+      log += `✓ turn ${turn} case ${update * 40 + line} keeps the ${["cache", "queue", "layout", "parser"][line % 4]} stable [${(line % 9) / 10}ms]\n`;
+    push(at + 3000 + update * 100, {
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId,
+        status: "in_progress",
+        content: [{ type: "content", content: { type: "text", text: log } }],
+      },
+    });
+  }
+  bursts.push({ kind: "tool_output", fromSeq: fromOutput, toSeq: events.length, rows: outputRows });
+  push(at + 7000, {
+    update: { sessionUpdate: "tool_call_update", toolCallId, status: "completed", rawOutput: { exit_code: 0 } },
+  });
+  // Then reads, each one a call that starts and ends: a new row for the pane, the bulk of an agent's turn.
+  const callRows = rowsIn(events);
+  const fromCall = events.length + 1;
+  for (let call = 0; call < toolCalls; call += 1) {
+    const readId = `replay-read-${turn}-${call}`;
+    const file = `src/feature${(turn + call) % 40}/step${turn}-${call}.ts`;
+    push(at + 7100 + call * 20, {
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: readId,
+        kind: "read",
+        title: `Read ${file}`,
+        status: "in_progress",
+        locations: [{ path: `/mock/project/${file}` }],
+      },
+    });
+    push(at + 7110 + call * 20, {
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: readId,
+        status: "completed",
+        content: [{ type: "content", content: { type: "text", text: sourceFile(turn + call, 12) } }],
+      },
+    });
+  }
+  bursts.push({ kind: "tool_call", fromSeq: fromCall, toSeq: events.length, rows: callRows });
+  push(at + 7500, { update: text("\n\nThe suite passes.") });
+  push(at + 8000, { mux: "turn_result", msg: { status: "completed" } });
+}
+
 /// A real-shaped long session: `turns` heavy finished turns (loadFixture.ts), and at each of `checkpoints` (turn
 /// indices) a streamed turn: a reply of `tokenCount` tokens, then a shell call whose output streams in
 /// `outputUpdates` updates of 40 lines each (acpmux sends a call's whole content each time, so each update is
@@ -167,80 +260,7 @@ export function longLog(
       for (const step of loadTurn(turn)) push(at, step as Step);
       continue;
     }
-    push(at, { mux: "user_message", msg: { text: `Turn ${turn}: stream the fix and rerun the suite` } });
-    push(at, { mux: "turn_started" });
-    // The turn thinks first, a thought token at a time, as Claude streams its thinking.
-    const thoughtRows = rowsIn(events);
-    const fromThought = events.length + 1;
-    tokens(turn, thoughtCount).forEach((token, index) =>
-      push(at + 200 + index * 10, {
-        update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: token } },
-      }),
-    );
-    bursts.push({ kind: "thought", fromSeq: fromThought, toSeq: events.length, rows: thoughtRows });
-    const rows = rowsIn(events);
-    const fromToken = events.length + 1;
-    tokens(turn, tokenCount).forEach((token, index) => push(at + 1000 + index * 25, { update: text(token) }));
-    bursts.push({ kind: "token", fromSeq: fromToken, toSeq: events.length, rows });
-    const toolCallId = `replay-stream-${turn}`;
-    const command = `bun test src/feature${turn % 40}`;
-    push(at + 3000, {
-      update: {
-        sessionUpdate: "tool_call",
-        toolCallId,
-        kind: "execute",
-        title: `Run ${command}`,
-        status: "in_progress",
-        rawInput: { command },
-      },
-    });
-    const outputRows = rowsIn(events);
-    const fromOutput = events.length + 1;
-    let log = "";
-    for (let update = 0; update < outputUpdates; update += 1) {
-      for (let line = 0; line < 40; line += 1)
-        log += `✓ turn ${turn} case ${update * 40 + line} keeps the ${["cache", "queue", "layout", "parser"][line % 4]} stable [${(line % 9) / 10}ms]\n`;
-      push(at + 3000 + update * 100, {
-        update: {
-          sessionUpdate: "tool_call_update",
-          toolCallId,
-          status: "in_progress",
-          content: [{ type: "content", content: { type: "text", text: log } }],
-        },
-      });
-    }
-    bursts.push({ kind: "tool_output", fromSeq: fromOutput, toSeq: events.length, rows: outputRows });
-    push(at + 7000, {
-      update: { sessionUpdate: "tool_call_update", toolCallId, status: "completed", rawOutput: { exit_code: 0 } },
-    });
-    // Then reads, each one a call that starts and ends: a new row for the pane, the bulk of an agent's turn.
-    const callRows = rowsIn(events);
-    const fromCall = events.length + 1;
-    for (let call = 0; call < toolCalls; call += 1) {
-      const readId = `replay-read-${turn}-${call}`;
-      const file = `src/feature${(turn + call) % 40}/step${turn}-${call}.ts`;
-      push(at + 7100 + call * 20, {
-        update: {
-          sessionUpdate: "tool_call",
-          toolCallId: readId,
-          kind: "read",
-          title: `Read ${file}`,
-          status: "in_progress",
-          locations: [{ path: `/mock/project/${file}` }],
-        },
-      });
-      push(at + 7110 + call * 20, {
-        update: {
-          sessionUpdate: "tool_call_update",
-          toolCallId: readId,
-          status: "completed",
-          content: [{ type: "content", content: { type: "text", text: sourceFile(turn + call, 12) } }],
-        },
-      });
-    }
-    bursts.push({ kind: "tool_call", fromSeq: fromCall, toSeq: events.length, rows: callRows });
-    push(at + 7500, { update: text("\n\nThe suite passes.") });
-    push(at + 8000, { mux: "turn_result", msg: { status: "completed" } });
+    streamedTurn(events, bursts, sessionId, turn, at, { tokenCount, outputUpdates, thoughtCount, toolCalls });
   }
   return {
     name: "long",

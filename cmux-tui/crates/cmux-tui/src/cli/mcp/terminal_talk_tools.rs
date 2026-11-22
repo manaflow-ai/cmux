@@ -25,8 +25,8 @@ const LIST_DESCRIPTION: &str = "The terminals in cmux that run a coding agent (C
     {items: [{terminal, name, harness, status, state, title, workspace_id, workspace, cwd, \
     updated_at_ms, age_ms, source, tab_id, tab_name, pane_id, last_reply}]}. status is blocked \
     (a permission dialog, a question or an error waits), done (a turn finished and nobody has \
-    viewed the terminal yet), working, idle or unknown, and null for an ended session. state \
-    is a deprecated alias of status (ended for an ended session). Blocked first, then done, \
+    viewed the terminal yet), working, idle or unknown, and ended for an ended session. state \
+    is a deprecated alias of status. Blocked first, then done, \
     working, idle, unknown, ended; \
     newest first. A shell without an agent is not listed. Changes nothing: reading does not \
     clear done.";
@@ -34,10 +34,12 @@ const LIST_DESCRIPTION: &str = "The terminals in cmux that run a coding agent (C
 const SEND_DESCRIPTION: &str = "Send a message to the agent (or shell) in a cmux terminal and \
     get its answer, as `cmux terminal <t> send`: types text as one bracketed paste (a \
     multi-line message stays one message), presses Enter, waits, and answers {terminal, \
-    harness, status, state, timed_out, waited_ms, anchored, output}. status is the word \
+    harness, status, state, timed_out, waited_ms, anchored, reply, reply_source, output}. \
+    reply is the agent's own last message from its hooks (reply_source hook) when they gave \
+    it after the send, else the output (reply_source screen). status is the word \
     agents_terminal_list says for the same turn (idle, done when the finished turn is not \
-    viewed yet, blocked, working, ended); state is the wait's own word. output is only what the terminal \
-    printed after the message, less the harness's input box. wait idle (default): until no \
+    viewed yet, blocked, working, ended); state is the wait's own word. output is only what \
+    the terminal printed after the message, less the harness's input box. wait idle (default): until no \
     fresh hook or status says working and the screen has been still for settle_seconds \
     (default 3); state is idle, or blocked when the agent stopped on a dialog (working when \
     the wait timed out). wait \
@@ -209,62 +211,5 @@ pub(super) fn call_send<B: Backend>(
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::{Map, Value, json};
-
-    use super::super::super::terminal_talk::send::Wait;
-    use super::{LIST, SEND, descriptors, send_request};
-
-    fn arguments(value: Value) -> Map<String, Value> {
-        value.as_object().cloned().expect("an object")
-    }
-
-    #[test]
-    fn descriptors_name_both_tools_and_send_requires_target_and_text() {
-        let [list, send] = descriptors();
-        assert_eq!((list["name"].as_str(), send["name"].as_str()), (Some(LIST), Some(SEND)));
-        assert_eq!(send["inputSchema"]["required"], json!(["target", "text"]));
-        assert_eq!(list["annotations"]["readOnlyHint"], true);
-        assert_eq!(send["annotations"]["readOnlyHint"], false);
-        assert_eq!(
-            send["inputSchema"]["properties"]["idempotency_key"]["maxLength"], 128,
-            "a composed send needs a stable retry identity: {send}"
-        );
-    }
-
-    #[test]
-    fn send_arguments_become_the_cli_request() {
-        let (request, session) = send_request(&arguments(json!({
-            "target": "term_a", "text": "hi\nthere", "wait": "prompt",
-            "timeout_seconds": 20, "settle_seconds": 0.5, "force": true, "session": "work",
-            "idempotency_key": "repeatable-send",
-        })))
-        .expect("valid");
-        assert_eq!(request.target, "term_a");
-        assert_eq!(request.text, "hi\nthere");
-        assert_eq!(request.wait, Wait::Prompt);
-        assert_eq!(request.timeout.as_secs(), 20);
-        assert_eq!(request.settle.as_millis(), 500);
-        assert!(request.force);
-        assert_eq!(request.idempotency_key.as_deref(), Some("repeatable-send"));
-        assert_eq!(session.as_deref(), Some("work"));
-        let (defaults, _) =
-            send_request(&arguments(json!({"target": "t", "text": "x"}))).expect("valid");
-        assert_eq!((defaults.wait, defaults.timeout.as_secs()), (Wait::Idle, 300));
-    }
-
-    #[test]
-    fn send_arguments_refuse_unknown_names_and_bad_values() {
-        for bad in [
-            json!({"target": "t"}),
-            json!({"target": "t", "text": "x", "colour": "red"}),
-            json!({"target": "t", "text": "x", "wait": "later"}),
-            json!({"target": "t", "text": "x", "timeout_seconds": 5000}),
-            json!({"target": "t", "text": "x", "force": "yes"}),
-            json!({"target": "t", "text": "x", "idempotency_key": ""}),
-            json!({"target": "t", "text": "x", "idempotency_key": "x".repeat(129)}),
-        ] {
-            assert!(send_request(&arguments(bad.clone())).is_err(), "{bad}");
-        }
-    }
-}
+#[path = "terminal_talk_tools_tests.rs"]
+mod tests;

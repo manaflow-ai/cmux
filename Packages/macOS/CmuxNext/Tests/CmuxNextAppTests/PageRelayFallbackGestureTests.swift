@@ -27,9 +27,10 @@ import Testing
         return PageRelayChannel(service: services.machines.local, page: PageRelayChannel.relayPageID(page))
     }
 
-    private static func outcome(_ channel: PageRelayChannel, _ operation: String, _ context: PageCallContext) async -> Outcome {
+    private static func outcome(_ channel: PageRelayChannel, _ operation: String, _ context: PageCallContext,
+                                params: [String: CmuxNextDaemon.JSONValue] = [:]) async -> Outcome {
         do {
-            _ = try await channel.send(operation: operation, params: [:], idempotencyKey: "k", context: context)
+            _ = try await channel.send(operation: operation, params: params, idempotencyKey: "k", context: context)
             return .other
         } catch DaemonError.missingCapabilities(let missing) where missing == [DaemonClientRole.originClaimCapability] {
             return .refused
@@ -68,6 +69,18 @@ import Testing
         #expect(await Self.outcome(channel, "history.entries.remove", sheet) == .forwarded)
     }
 
+    /// cmux#37378 review: the Feed's Mark All Read is one `feed.intent` of every shown id, so one
+    /// click backs it however long the Inbox is; a second intent off the same click (a page-side
+    /// batch loop) would be refused, which is why the daemon, not the page, splits it per owner.
+    @Test func oneClickBacksOneReadIntentOfEveryShownItem() async throws {
+        let feed = try Self.channel("cmux.feed")
+        let ids = (0..<300).map { CmuxNextDaemon.JSONValue.string("fi_\($0)") }
+        let read: [String: CmuxNextDaemon.JSONValue] = ["kind": .string("read"), "items": .array(ids)]
+        let click = PageCallContext(page: "cmux.feed", userGesture: true, gestureEvent: 300)
+        #expect(await Self.outcome(feed, "feed.intent", click, params: read) == .forwarded)
+        #expect(await Self.outcome(feed, "feed.intent", click, params: read) == .refused)
+    }
+
     @Test func anOpThePagesSpecDoesNotListIsRefusedEvenOnAGestureOrSheet() async throws {
         let channel = try Self.channel()
         let click = PageCallContext(page: "cmux.history", userGesture: true, gestureEvent: 7)
@@ -78,8 +91,12 @@ import Testing
         }
         // A `confirm` op of a page that has one needs the sheet; a click is not enough.
         let apps = try Self.channel("cmux.apps")
-        #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps", userGesture: true, gestureEvent: 8)) == .refused)
-        #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps", origin: "user", confirmed: true)) == .forwarded)
+        #expect(await Self.outcome(apps, "apps.uninstall", PageCallContext(page: "cmux.apps", userGesture: true, gestureEvent: 8)) == .refused)
+        #expect(await Self.outcome(apps, "apps.uninstall", PageCallContext(page: "cmux.apps", origin: "user", confirmed: true)) == .forwarded)
+        // An install is a `gesture` op (Leo, 2026-11-16: "if i click install it means it works"):
+        // the Install click carries it, and a call with no click is still refused.
+        #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps", userGesture: true, gestureEvent: 9)) == .forwarded)
+        #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps")) == .refused)
     }
 
     /// A change subscription never needs a gesture: on this daemon the page has no live events

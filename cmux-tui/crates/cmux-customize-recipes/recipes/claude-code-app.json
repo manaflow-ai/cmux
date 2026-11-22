@@ -1,0 +1,28 @@
+{
+  "cmuxProfile": 1,
+  "name": "claude-code-app",
+  "description": "Looks and works like the Claude desktop app's Code tab: a #191919 page, a warm sidebar of sessions by project with sub-sessions nested under them, title-only rows, a one-line #303030 composer and your prompt in a #252525 pill.",
+  "settings": {
+    "appearance.themeFile": "claude-code-app",
+    "sidebar.groupBy": "folder",
+    "sidebar.sessionTree": true,
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.groupHeader.memberCount": false,
+    "sidebar.groupHeader.unreadCount": false,
+    "sidebar.workspaceRow.icon": false,
+    "sidebar.showColors": false,
+    "sidebar.showTimestamps": false,
+    "sidebar.detailedStatusIcons": false,
+    "sidebar.showSpaces": false,
+    "sidebar.cards.tips": false,
+    "tabs.hideLoneChatTab": true,
+    "agentPane.display.presentation": "transcript",
+    "agentPane.display.transcriptView": "normal",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.width": 800,
+    "agentPane.display.minimap": "off",
+    "agentPane.display.harnessPlacement": "compact",
+    "agentPane.showContextUsage": true,
+    "agentPane.composerRing": "context"
+  }
+}

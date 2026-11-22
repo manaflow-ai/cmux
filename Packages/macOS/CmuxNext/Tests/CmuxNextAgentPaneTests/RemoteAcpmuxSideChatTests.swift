@@ -85,6 +85,10 @@ import Testing
         let client = FakeClient()
         let host = "side-\(UUID().uuidString)"
         let (wire, frames) = try await Self.wire(client, host: host)
+        // The page attaches before it can open a side chat: the attach names acpmux's id of the chat
+        // ("acp_1"), which the tab records under another name ("sub").
+        wire.send(#"{"jsonrpc":"2.0","id":1,"method":"_acpmux/attach","params":{"sessionId":"sub"}}"#) { _ in }
+        try await Self.waitUntil { frames.reply(1) != nil }
         wire.send(#"{"jsonrpc":"2.0","id":2,"method":"_acpmux/side_chat","params":{"sessionId":"sub","throughSeq":4}}"#) { _ in }
         try await Self.waitUntil { frames.reply(2) != nil }
         wire.send(#"{"jsonrpc":"2.0","id":3,"method":"_acpmux/side_chat","params":{"sessionId":"sub","live":true,"prompt":"try a queue"}}"#) { _ in }

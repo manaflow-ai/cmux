@@ -11,12 +11,19 @@ changes, it checks every tracked package. Vendored crates (cmux-tui/vendor/)
 keep their upstream formatting and are never checked. rustfmt reads metadata only
 (`--no-deps`), so nothing builds and no dependency downloads. Every touched
 package is checked even after one fails, and each red one is named.
+
+Each file rustfmt would change gets a workflow annotation on its first changed
+line: `::warning file=` when CMUX_NEXT_STYLE_GUARDS=warn (pull requests into
+feat-cmux-next, where the job only warns), else `::error file=`. A red package
+whose output names no file is annotated on its Cargo.toml.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path, PurePosixPath
+import re
 import subprocess
 import sys
 
@@ -24,6 +31,30 @@ import sys
 ROOT = "cmux-tui"
 VENDOR = f"{ROOT}/vendor/"
 EVERYTHING = frozenset({"rustfmt.toml", ".rustfmt.toml", "rust-toolchain.toml"})
+# `cargo fmt --check`'s header for each hunk: `Diff in /abs/file.rs:12:` (rustfmt 1.6+) or `... at line 12:`.
+DIFF = re.compile(r"^Diff in (?P<path>.+?\.rs)(?::| at line )(?P<line>\d+):?\s*$")
+
+
+def diff_files(output: str, repo: Path) -> list[tuple[str, int]]:
+    """(repository path, first changed line) of each file `cargo fmt --check` OUTPUT shows a diff for, in order."""
+    found: dict[str, int] = {}
+    for line in output.splitlines():
+        match = DIFF.match(line.strip())
+        if not match:
+            continue
+        path = Path(match.group("path"))
+        try:
+            rel = str(path.resolve().relative_to(repo)) if path.is_absolute() else str(PurePosixPath(ROOT) / path)
+        except ValueError:
+            rel = str(path)
+        found.setdefault(rel, int(match.group("line")))
+    return list(found.items())
+
+
+def annotation(level: str, path: str, line: int | None, message: str) -> str:
+    where = f"file={path}" + (f",line={line}" if line else "")
+    title = "cmux-tui rustfmt" + (" (warn-only)" if level == "warning" else "")
+    return f"::{level} {where},title={title}::{message}"
 
 
 def git(repo: Path, *args: str) -> str:
@@ -88,16 +119,24 @@ def main(argv: list[str] | None = None) -> int:
     if not selected:
         print("cmux-tui-fmt-changed: no cmux-tui package changed")
         return 0
-    red = []
+    level = "warning" if os.environ.get("CMUX_NEXT_STYLE_GUARDS") == "warn" else "error"
+    red: list[tuple[str, list[tuple[str, int]]]] = []
     for package in sorted(selected):
         manifest = repo / package / "Cargo.toml"
         print(f"cargo fmt --check --manifest-path {package}/Cargo.toml", flush=True)
-        # From cmux-tui/ so rustup uses its rust-toolchain.toml pin.
-        if subprocess.run(["cargo", "fmt", "--check", "--manifest-path", str(manifest)], cwd=repo / ROOT).returncode:
-            red.append(package)
-    for package in red:
-        print(f"::error title=cmux-tui rustfmt::{package} is not rustfmt-clean; "
-              f"run `cargo fmt --manifest-path {package}/Cargo.toml` from the repository root and commit the result")
+        # From cmux-tui/ so rustup uses its rust-toolchain.toml pin. Its diff is read for the files it names.
+        result = subprocess.run(["cargo", "fmt", "--check", "--manifest-path", str(manifest)], cwd=repo / ROOT,
+                                stdout=subprocess.PIPE, text=True)
+        sys.stdout.write(result.stdout)
+        sys.stdout.flush()
+        if result.returncode:
+            red.append((package, diff_files(result.stdout, repo)))
+    for package, files in red:
+        fix = f"run `cargo fmt --manifest-path {package}/Cargo.toml` from the repository root and commit the result"
+        for path, line in files:
+            print(annotation(level, path, line, f"{path} is not rustfmt-clean; {fix}"))
+        if not files:
+            print(annotation(level, f"{package}/Cargo.toml", None, f"{package} is not rustfmt-clean; {fix}"))
     print(f"cmux-tui-fmt-changed: {len(selected) - len(red)}/{len(selected)} packages rustfmt-clean")
     return 1 if red else 0
 

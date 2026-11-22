@@ -59,12 +59,26 @@ final class HoverCardPanel: NSPanel {
     /// The window's clear band around the card: the shadow band plus the slide's room.
     static var windowMargin: CGFloat { PopupStyle.standard.shadowMargin + travel }
     private(set) weak var body: NSView?
+    /// Hears the pointer in the window's clear band (``HoverCardPanel/pointerMovedInBand()``).
+    let bandTracker = HoverCardBandTracker()
     /// The body's edges pinned to the card (the card fits its body), and its fitted size, held
     /// while a morph lays the card out larger (`HoverCardPanel+Morph.swift`).
     var edgeConstraints: [NSLayoutConstraint] = []
     var sizeConstraints: [NSLayoutConstraint] = []
     /// A resize in flight between two cards of different sizes.
     var activeMorph: HoverCardMorph?
+    /// The last card's content fading out at its own size, pinned to the fixed corner, while the
+    /// next card's fades in over it (a tab card's glide, `HoverCardPanel+Glide.swift`).
+    var leavingBody: NSView?
+    /// The last glide's content after its fade: hidden in the card, not taken out of the window, so the
+    /// tab card's next swap (which shows it again, `TabHoverCardController`'s two views) lays out no
+    /// view new to the window (msg 34360's cost check: 2 ms a show when it left the window).
+    var parkedBody: NSView?
+    /// How the last show moved (`debug.hover_cards` `last_present`): flags only, formatted when read.
+    private(set) var lastPresent = HoverCardPresentNote()
+    /// A refit asked for while a morph runs (nil: none; true: it animates): it runs when the morph
+    /// ends, so a resources sample landing mid-glide never cuts the glide's window (msg 34360).
+    var pendingRefit: Bool?
     /// The card takes clicks and scrolls (the update highlights' "See all changes").
     private(set) var isInteractive = false
     /// The current press began in the clear band around the card: it and its drags and release
@@ -95,18 +109,22 @@ final class HoverCardPanel: NSPanel {
     /// `HoverCardTiming.sweepInterval` is part of a sweep.
     private var lastPresentAt: CFTimeInterval?
 
-    init() {
+    /// `deferred` false makes the window-server window now (``HoverCardCoordinator/warm()``), not on the first show.
+    init(deferred: Bool = true) {
         // `PopupHostView` resets an overlay card to the popup radius; the host's radius below sets it back.
         // Bare themed glass, no solid card fill (`Glass.makeOverlayPanel`'s `cardFill`).
-        glass = Glass.makeOverlayPanel(cornerRadius: Self.cornerRadius, cardFill: false)
+        glass = Glass.makeOverlayPanel(cornerRadius: Self.cornerRadius, tone: .neutralGlass(.transient))
         // The card is its clear window's whole content: before macOS 26 its blur samples what is
         // behind the window (the sidebar, a terminal), as its Liquid Glass refracts it.
         glass.samplesBehindWindow = true
-        super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: deferred)
         Self.liveInstances += 1
         let host = adoptPopupStyle(card: glass)
         host.travelMargin = Self.travel
         host.cornerRadius = Self.cornerRadius
+        bandTracker.panel = self
+        host.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+                                            owner: bandTracker))
         ignoresMouseEvents = true
         isReleasedWhenClosed = false
         // A no-activate test run is never active; its cards must still show.
@@ -158,7 +176,8 @@ final class HoverCardPanel: NSPanel {
     /// and at rest in this frame; the coordinator has already waited for the dwell.
     func present(body newBody: NSView, anchor: CGRect, placement: HoverCardPlacement, parent: NSWindow,
                  themeAnchor: NSView?, sliding: Bool, interactive: Bool = false, cornerRadius: CGFloat? = nil,
-                 entrance: HoverCardEntrance = .slide, applyTheme: @escaping () -> Void) {
+                 entrance: HoverCardEntrance = .slide, retarget: HoverCardRetarget = .jump,
+                 applyTheme: @escaping () -> Void) {
         let wasDismissing = isDismissing
         let wasOnScreen = isVisible && parentWindowRef === parent
         // Where the card is on screen before this show: a visible card (shown, or fading out
@@ -168,9 +187,20 @@ final class HoverCardPanel: NSPanel {
         // row with its new content in this frame. Restarting the slide and the crossfade on
         // every row made it trail the pointer with doubled text (msg 15501).
         let time = now()
-        let sweeping = previous != nil && !wasDismissing
-            && lastPresentAt.map { time - $0 < HoverCardTiming.sweepInterval.hoverCardSeconds } == true
+        // A card that hangs from its target (a tab's, a chip's) switches in place by default: under the
+        // next target with its content in this frame, never a slide from the last one (Leo 2026-11-18:
+        // "the hover preview bounces for some reason"). `.glide` keeps the glide (`glidesWholeWay`).
+        let hangs = previous != nil && Self.glidesWholeWay(placement)
+        let inPlace = hangs && retarget != .glide
+        let glides = hangs && retarget == .glide
+        let sweeping = inPlace || (previous != nil && !wasDismissing && !glides
+            && lastPresentAt.map { time - $0 < HoverCardTiming.sweepInterval.hoverCardSeconds } == true)
+        // The last card's content fades out at its own size while the next one's fades in, instead of a
+        // snapshot of the card stretched over the next card's size (msg 34360).
+        let fadesBodies = glides && body != nil && body !== newBody && Motion.hoverCards.animatesMovement(in: self)
         lastPresentAt = time
+        let sameBody = body === newBody
+        pendingRefit = nil
         isDismissing = false
         dismissCompletion = nil
         // A morph still running lays its card out at rest first: the next one starts from what
@@ -178,17 +208,87 @@ final class HoverCardPanel: NSPanel {
         finishMorph()
         if sweeping {
             glass.contentView.layer?.removeAnimation(forKey: Self.crossfadeKey)
-        } else if previous != nil, sliding || body !== newBody {
+            // `.crossfade`: the card is at the next target at once; only its content fades over the last.
+            if inPlace, retarget == .crossfade, body !== newBody { crossfadeContent() }
+        } else if previous != nil, !fadesBodies, sliding || body !== newBody {
             // A return to the card fading out (not sliding, the same body) keeps its content as drawn: a
             // crossfade of a card over itself flickered its spinners (Leo 2026-11-02, "IT RE-RENDERS THE
             // SPINNER VIEW"). Another target's content (`sliding`) still fades over the last.
             crossfadeContent()
         }
-        if body !== newBody {
-            body?.removeFromSuperview()
-            newBody.translatesAutoresizingMaskIntoConstraints = false
+        install(newBody, fades: fadesBodies)
+        isInteractive = interactive
+        ignoresMouseEvents = !interactive
+        acceptsMouseMovedEvents = interactive
+        // The card draws in the theme scope of the view it describes and
+        // follows that scope's changes while it shows, at full strength even
+        // over an unfocused pane's subtle strip.
+        adoptTheme(of: themeAnchor, parent: parent, applyTheme: applyTheme)
+        if parentWindowRef !== parent {
+            parentWindowRef?.removeChildWindow(self)
+            parent.addChildWindow(self, ordered: .above)
+            parentWindowRef = parent
+        }
+        self.anchor = anchor
+        self.placement = placement
+        // This card's shape (a tab's card has the tab's), read on every show: the density setting
+        // may have changed the radius since the last card.
+        host?.cornerRadius = cornerRadius ?? Self.cornerRadius
+        // A glide sets the window's frame once, to the frame that holds both places (`morph`): placed at
+        // rest first, the window was resized and drawn twice in one show (msg 34360: 3 ms a show).
+        let morphs = glides && !sweeping && Motion.hoverCards.animatesMovement(in: self)
+        MotionTrace.measure("hoverCard.place") { place(appliesFrame: !morphs) }
+        lastPresent = HoverCardPresentNote(onScreen: previous != nil, glides: glides, sweeping: sweeping, fadesBodies: fadesBodies,
+                                           sameBody: sameBody, moves: Motion.hoverCards.animatesMovement(in: self),
+                                           liveResize: Motion.isLiveResizing(self), inPlace: inPlace)
+        if sweeping {
+            snapToRest()
+            // The next tab reached while the last tab's card fades out: it fades back in from the alpha it
+            // reached, at the next tab, with no second entrance.
+            if inPlace, wasDismissing || alphaValue < 1 { Self.motion.resume(self) }
+        } else if let previous {
+            // A visible card: it slides from where it is drawn to its new place, and resizes
+            // there when the next card is another size (a quick return during the fade-out
+            // fades back in from the alpha it reached).
+            lastPresent.morphed = MotionTrace.measure("hoverCard.morph") { morph(from: previous, always: glides) }
+            if !lastPresent.morphed {
+                if morphs { applyRestFrame() }
+                slide(from: offset(of: previous, to: cardFrame))
+            }
+            if wasDismissing || alphaValue < 1 { Self.motion.resume(self) }
+        } else if placement == .besideRow {
+            // Leo: "We can just have it instantly come in on the first load; the delay
+            // that we have is fine, maybe." Clear any slide left from the previous card.
+            Motion.hoverCards.transaction(nil) {
+                slideLayer?.removeAnimation(forKey: "sublayerTransform")
+                slideLayer?.sublayerTransform = CATransform3DIdentity
+            }
+            Motion.hoverCards.withoutAnimation { animator().alphaValue = 1 }
+            orderFront(nil)
+        } else {
+            // A first show: from clear, the card fades in while it moves the last few points
+            // away from its target (`HoverCardMotion`, shared with the update card), fades in
+            // where it rests, or grows out of its target (`grow()`; a plain fade when motion is off).
+            Self.motion.enter(self, placement: restingPlacement, leading: isLeading, slides: entrance == .slide)
+            if entrance == .morph { grow() }
+        }
+    }
+
+    /// Puts `newBody` in the card, its edges pinned to the card's (no-op when it already is there).
+    /// Puts `newBody` in the card in place of the last body: the last fades out at its own size while
+    /// `newBody` fades in when `fades`, else the swap is at once (a first show, ``warm(_:parent:)``).
+    private func install(_ newBody: NSView, fades: Bool = false) {
+        guard body !== newBody else { return }
+        MotionTrace.measure("hoverCard.swap") {
+            if newBody === leavingBody { endLeaving() }
+            if fades, let body { leave(body) } else { body?.removeFromSuperview() }
             let container = glass.contentView
-            container.addSubview(newBody)
+            if newBody === parkedBody {
+                parkedBody = nil
+                newBody.isHidden = false
+            }
+            newBody.translatesAutoresizingMaskIntoConstraints = false
+            if newBody.superview !== container { container.addSubview(newBody) }
             // Bottom and trailing just below required: `place()` lays the glass out at the last
             // card's size before it measures and resizes, and a required pair there conflicted
             // with the new body's fixed rows and width limits on every hover retarget (about 650
@@ -208,13 +308,13 @@ final class HoverCardPanel: NSPanel {
             sizeConstraints = [newBody.widthAnchor.constraint(equalToConstant: 0), newBody.heightAnchor.constraint(equalToConstant: 0)]
             NSLayoutConstraint.activate(edgeConstraints)
             body = newBody
+            // A view that left a glide stays clear (`endLeaving`); it shows whole unless it fades in.
+            if fades { fadeIn(newBody) } else if let layer = newBody.layer { Motion.setModel(layer, "opacity", Float(1)) }
         }
-        isInteractive = interactive
-        ignoresMouseEvents = !interactive
-        acceptsMouseMovedEvents = interactive
-        // The card draws in the theme scope of the view it describes and
-        // follows that scope's changes while it shows, at full strength even
-        // over an unfocused pane's subtle strip.
+    }
+
+    /// The card draws in the theme scope of `themeAnchor` (else `parent`'s), at full strength, and follows its changes.
+    private func adoptTheme(of themeAnchor: NSView?, parent: NSWindow, applyTheme: @escaping () -> Void) {
         let scope = (themeAnchor?.themeScope ?? parent.themeScope).fullStrength
         self.applyTheme = applyTheme
         if adoptedScope !== scope {
@@ -225,40 +325,24 @@ final class HoverCardPanel: NSPanel {
         } else {
             applyTheme()
         }
-        if parentWindowRef !== parent {
-            parentWindowRef?.removeChildWindow(self)
-            parent.addChildWindow(self, ordered: .above)
-            parentWindowRef = parent
-        }
-        self.anchor = anchor
-        self.placement = placement
-        // This card's shape (a tab's card has the tab's), read on every show: the density setting
-        // may have changed the radius since the last card.
-        host?.cornerRadius = cornerRadius ?? Self.cornerRadius
-        place()
-        if sweeping {
-            snapToRest()
-        } else if let previous {
-            // A visible card: it slides from where it is drawn to its new place, and resizes
-            // there when the next card is another size (a quick return during the fade-out
-            // fades back in from the alpha it reached).
-            if !morph(from: previous) { slide(from: offset(of: previous, to: cardFrame)) }
-            if wasDismissing || alphaValue < 1 { Self.motion.resume(self) }
-        } else if placement == .besideRow {
-            // Leo: "We can just have it instantly come in on the first load; the delay
-            // that we have is fine, maybe." Clear any slide left from the previous card.
-            Motion.hoverCards.transaction(nil) {
-                slideLayer?.removeAnimation(forKey: "sublayerTransform")
-                slideLayer?.sublayerTransform = CATransform3DIdentity
-            }
-            Motion.hoverCards.withoutAnimation { animator().alphaValue = 1 }
-            orderFront(nil)
-        } else {
-            // A first show: from clear, the card fades in while it moves the last few points
-            // away from its target (`HoverCardMotion`, shared with the update card), fades in
-            // where it rests, or grows out of its target (`grow()`; a plain fade when motion is off).
-            Self.motion.enter(self, placement: restingPlacement, leading: isLeading, slides: entrance == .slide)
-            if entrance == .morph { grow() }
+    }
+
+    /// Does a first show's one-time work with nothing on screen (``HoverCardCoordinator/warm()``): puts `card`'s
+    /// body in the card, adopts its theme, lays the card out at its size and draws it once off screen (text layout,
+    /// glyph and image caches). The first `present` of that body then only configures, places and orders it in.
+    func warm(_ card: HoverCardBody, parent: NSWindow) {
+        guard !isVisible else { return }
+        install(card.view)
+        adoptTheme(of: card.themeAnchor, parent: parent, applyTheme: card.applyTheme)
+        host?.cornerRadius = card.cornerRadius ?? Self.cornerRadius
+        glass.layoutSubtreeIfNeeded()
+        let size = glass.fittingSize
+        guard size.width > 0, size.height > 0 else { return }
+        setFrame(CGRect(origin: frame.origin, size: size).insetBy(dx: -Self.windowMargin, dy: -Self.windowMargin), display: false)
+        guard let content = contentView else { return }
+        content.layoutSubtreeIfNeeded()
+        if let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
+            content.cacheDisplay(in: content.bounds, to: bitmap)
         }
     }
 
@@ -293,8 +377,10 @@ final class HoverCardPanel: NSPanel {
         motion.entryVector(for: placement)
     }
 
-    /// The key the content crossfade runs under.
-    static let crossfadeKey = "hoverCard.crossfade"
+    /// The key the content crossfade runs under: `kCATransition`, where Core Animation files every
+    /// transition whatever key it is added with. Under its own key ("hoverCard.crossfade") a sweep's
+    /// `removeAnimation(forKey:)` found nothing and the last move's crossfade ran on under the next card.
+    static let crossfadeKey = kCATransition
 
     /// The card's next content fades over its last frame (the body is reused, so its text,
     /// thumbnail and size change in place this turn). Only the content crossfades: the glass,
@@ -329,17 +415,38 @@ final class HoverCardPanel: NSPanel {
     }
 
     /// The body's size changed (a resources row appeared).
-    func refit() {
+    func refit(animated: Bool = false) {
         guard isShowingCard else { return }
+        // A morph in flight (a glide or a growth) lays the card out at rest when it ends: the refit
+        // runs then, from the size it reached. Ended now, its window lost the room the card glides in.
+        if activeMorph != nil {
+            pendingRefit = (pendingRefit ?? false) || animated
+            return
+        }
+        // What is drawn now, read before a morph in flight lays its card out at rest (as `present` does).
+        let previous = animated ? presentedCardFrame : nil
         finishMorph()
-        place()
+        // An animated refit leaves the window where it is: the morph sets the one frame its first frame shows. A
+        // window set to the rest frame first laid the card and its glass out at a size never shown, then the morph
+        // set it back (the press of Show or Hide details was a late frame, Lawrence 2026-11-18).
+        place(appliesFrame: previous == nil)
+        // The same morph a retarget to another size runs: the card grows or folds about the fixed corner.
+        if let previous, !morph(from: previous, folds: true) { applyRestFrame() }
     }
 
-    func place() {
-        glass.layoutSubtreeIfNeeded()
+    /// Lays the card out for its anchor and size. `appliesFrame` false: the rest frame is worked out
+    /// (`restCardFrame`) and the window stays where it is, for a morph that sets it next.
+    func place(appliesFrame: Bool = true) {
+        // A morph lays the card out once, at the size its first frame shows (`morph`): a layout here would be at the
+        // size the window has now, never shown. The measure updates the content's constraints itself.
+        if appliesFrame { glass.layoutSubtreeIfNeeded() }
         let scale = max(parentWindowRef?.backingScaleFactor ?? 2, 1)
-        // Whole device pixels, so the edge `origin(for:)` puts on the target stays there.
-        let fitting = glass.fittingSize
+        // Whole device pixels, so the edge `origin(for:)` puts on the target stays there. The content's own size: the
+        // glass adds nothing around it, and its panel's views in the measure's temporary layout engine cost a fresh
+        // solve of their constraints on every refit (a Show details press, Lawrence 2026-11-18).
+        // The body's own size when it reports one and is the content's only view (a glide's leaving view sizes it too).
+        let reported = leavingBody == nil ? (body as? HoverCardSizeReporting)?.reportedFittingSize : nil
+        let fitting = reported ?? measuredContentSize()
         let size = CGSize(width: (fitting.width * scale).rounded(.up) / scale, height: (fitting.height * scale).rounded(.up) / scale)
         let screen = parentWindowRef?.screen ?? NSScreen.main
         let rest = Self.rest(for: placement, anchor: anchor, size: size, screen: screen?.frame,
@@ -357,8 +464,24 @@ final class HoverCardPanel: NSPanel {
             : nil
         // R131: the window moves in the same frame (a window-frame slide restarted on every tab
         // trailed the pointer); a retarget's slide runs inside it (`slide(from:)`).
-        let margin = Self.windowMargin
         restCardFrame = CGRect(origin: origin, size: size)
+        if appliesFrame {
+            applyRestFrame()
+            bodyRests()
+        }
+    }
+
+    /// Content measures the panel ran (`fittingSize`, a temporary layout engine each): tests count them.
+    private(set) var contentMeasures = 0
+
+    private func measuredContentSize() -> CGSize {
+        contentMeasures += 1
+        return glass.contentView.fittingSize
+    }
+
+    /// The window at the card's rest frame plus its clear band.
+    func applyRestFrame() {
+        let margin = Self.windowMargin
         setFrame(restCardFrame.insetBy(dx: -margin, dy: -margin), display: true)
     }
 
@@ -380,6 +503,7 @@ final class HoverCardPanel: NSPanel {
             guard let self, self.isDismissing else { return }
             self.isDismissing = false
             self.finishMorph()
+            self.endLeaving()
             self.parentWindowRef?.removeChildWindow(self)
             self.parentWindowRef = nil
             self.orderOut(nil)

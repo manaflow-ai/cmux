@@ -27,10 +27,23 @@ public struct HomeFeedRow: Hashable, Sendable {
         (self.id, self.source, self.title, self.url, self.date) = (id, source, title, url, date)
     }
 
-    /// The row's transcript item, drawn as `author`'s read-only line (the renderer draws the words).
-    func item(author: ParticipantID) -> TranscriptItem {
-        let text = source.isEmpty ? title : "\(source) · \(title)"
-        var item = TranscriptItem(key: IdempotencyKey("feed:\(id)"), seq: nil, author: author, parts: [.text(text)],
+    /// Who a Feed row is from in the transcript: the Feed itself, never a participant of the
+    /// conversation. A row stamped with the Chief's id took the Chief's name and avatar (user
+    /// 2026-11-09: "cmux updated should not be 'sent by chief'"); its ``source`` names the poster.
+    public static let author = ParticipantID("cmux.feed")
+
+    /// The line the transcript shows: the source, then the title ("GitHub · PR 12 merged"). A title
+    /// that already starts with its source ("cmux updated to nightly 4295228") shows alone, so the
+    /// app's own notice does not read "cmux · cmux updated …".
+    public var line: String {
+        let named = title.range(of: source + " ", options: [.anchored, .caseInsensitive]) != nil
+        return source.isEmpty || named ? title : "\(source) · \(title)"
+    }
+
+    /// The row's transcript item: a read-only line from the Feed (``author``), not from any participant
+    /// (the renderer draws the words).
+    func item() -> TranscriptItem {
+        var item = TranscriptItem(key: IdempotencyKey("feed:\(id)"), seq: nil, author: Self.author, parts: [.text(line)],
                                   createdAt: date, delivery: .committed)
         item.isReadOnly = true
         item.feedRow = self
@@ -42,8 +55,7 @@ public struct HomeFeedRow: Hashable, Sendable {
     /// them; a send still on its way stays last. With `since` (the window does not reach the
     /// conversation's start), rows older than its first committed item wait until older pages load,
     /// so they never pile up above the loaded messages.
-    static func inserting(_ rows: [HomeFeedRow], into items: [TranscriptItem], author: ParticipantID,
-                          since: Date? = nil) -> [TranscriptItem] {
+    static func inserting(_ rows: [HomeFeedRow], into items: [TranscriptItem], since: Date? = nil) -> [TranscriptItem] {
         let sorted = rows.filter { row in since.map { row.date >= $0 } ?? true }.sorted { ($0.date, $0.id) < ($1.date, $1.id) }
         guard !sorted.isEmpty else { return items }
         var out: [TranscriptItem] = []
@@ -52,14 +64,14 @@ public struct HomeFeedRow: Hashable, Sendable {
         for item in items {
             if item.delivery == .committed {
                 while next < sorted.count, sorted[next].date < item.createdAt {
-                    out.append(sorted[next].item(author: author))
+                    out.append(sorted[next].item())
                     next += 1
                 }
             }
             out.append(item)
         }
         // Rows after the last committed item go before any pending sends at the end.
-        let tail = sorted[next...].map { $0.item(author: author) }
+        let tail = sorted[next...].map { $0.item() }
         guard !tail.isEmpty else { return out }
         let pending = out.lastIndex { $0.delivery == .committed }.map { out.index(after: $0) } ?? 0
         out.insert(contentsOf: tail, at: pending)

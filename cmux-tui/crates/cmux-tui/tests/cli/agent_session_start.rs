@@ -31,6 +31,8 @@ mod agents_cli_receipt;
 mod agents_events_cli;
 #[path = "agents_wait_cli.rs"]
 mod agents_wait_cli;
+#[path = "cloud_harness_start.rs"]
+mod cloud_harness_start;
 #[path = "events_until.rs"]
 mod events_until;
 
@@ -612,6 +614,8 @@ fn agent_session_start_starts_codex_on_the_callers_own_cloud_vm_only() {
     let identity = owner.rpc(json!({"id": 1, "cmd": "identify"}));
     let capabilities = identity["data"]["capabilities"].to_string();
     assert!(capabilities.contains("agent-session-start-owner-cloud-v1"), "{identity}");
+    // A Codex credential's provider reaches app-server here (cmux#45774): the app updates a machine without it.
+    assert!(capabilities.contains("agent-session-start-codex-credentials-v1"), "{identity}");
     let surface = owner.own_agent_tab();
     let refused = start(&owner, surface, "fcx", None);
     assert_eq!(refused["error_code"], "agent_session.host_unverified", "{refused}");
@@ -632,6 +636,7 @@ fn agent_session_start_starts_codex_on_the_callers_own_cloud_vm_only() {
     let identity = ssh.rpc(json!({"id": 2, "cmd": "identify"}));
     let capabilities = identity["data"]["capabilities"].to_string();
     assert!(!capabilities.contains("agent-session-start-owner-cloud-v1"), "{identity}");
+    assert!(!capabilities.contains("agent-session-start-codex-credentials-v1"), "{identity}");
     let surface = ssh.own_agent_tab();
     let refused = start(&ssh, surface, "fcx", Some("owner"));
     assert_eq!(refused["error_code"], "agent_session.not_asking", "{refused}");

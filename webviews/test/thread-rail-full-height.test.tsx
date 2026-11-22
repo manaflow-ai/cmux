@@ -12,6 +12,8 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { promptIndexOf } from "./support/promptIndex";
+import { teardownDom } from "./support/domTeardown";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
 const dom = new JSDOM("<!doctype html><div id=root></div><div id=dock></div>", {
@@ -89,12 +91,8 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
   delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
 });
 
@@ -146,6 +144,7 @@ test("held ticks sit centered in the view, never stacked at the box's foot, whil
         <VirtualTranscript
           rows={turnView(held, new Set())}
           {...props}
+          earlier={promptIndexOf(props.earlier)}
           sessionId="rail-full"
           dock={dock}
           onToggleActivity={() => {}}
@@ -168,9 +167,10 @@ test("held ticks sit centered in the view, never stacked at the box's foot, whil
       0,
     );
     expect(rows).toBe(45);
-    expect(open.top).toBeLessThanOrEqual(centered(480));
-    // The ticks' run is about the view's middle, nowhere near its foot.
-    expect(Math.abs(middle(open) - VIEWPORT / 2)).toBeLessThanOrEqual(100);
+    // Centered on the view (model.ts railFitTop; Lucas, 2026-11-17: "on the vertical center of the
+    // screen"): the ticks' run is the view's middle, nowhere near its foot.
+    expect(open.top).toBe(centered(450));
+    expect(Math.abs(middle(open) - VIEWPORT / 2)).toBeLessThanOrEqual(1);
     // The latest tick ends the box, clear of the bottom stack.
     expect(open.latest + 10).toBe(open.top + open.height);
     expect(open.latest + 10).toBeLessThanOrEqual(VIEWPORT - stack);
@@ -180,8 +180,8 @@ test("held ticks sit centered in the view, never stacked at the box's foot, whil
     expect(full).toEqual(open);
     expect(full.lead).toBe(0);
     expect(full.height).toBe(450);
-    expect(full.top).toBeLessThanOrEqual(centered(480));
-    expect(Math.abs(middle(full) - VIEWPORT / 2)).toBeLessThanOrEqual(100);
+    expect(full.top).toBe(centered(450));
+    expect(Math.abs(middle(full) - VIEWPORT / 2)).toBeLessThanOrEqual(1);
   } finally {
     await act(async () => root.unmount());
   }
@@ -203,9 +203,9 @@ test("without a count the rail grows as prompts arrive, as before", async () => 
         />,
       ),
     );
-    // Twelve prompts: a rail as tall as their ticks, at the top of the 480 px slot (where a full one sits).
+    // Twelve prompts: a rail as tall as their ticks, centered on the view like a full one.
     expect(rail().height).toBe(120);
-    expect(rail().top).toBeLessThanOrEqual(centered(480));
+    expect(rail().top).toBe(centered(120));
   } finally {
     await act(async () => root.unmount());
   }
@@ -224,6 +224,7 @@ test("a chat with more prompts than the rail holds keeps its latest tick at the 
         <VirtualTranscript
           rows={turnView(held, new Set())}
           {...props}
+          earlier={promptIndexOf(props.earlier)}
           sessionId="rail-over"
           dock={dock}
           onToggleActivity={() => {}}
@@ -281,6 +282,7 @@ for (const count of [45, 80])
           <VirtualTranscript
             rows={turnView(rows, new Set())}
             {...props}
+            earlier={promptIndexOf(props.earlier)}
             sessionId={`rail-pages-${count}`}
             dock={dock}
             onToggleActivity={() => {}}

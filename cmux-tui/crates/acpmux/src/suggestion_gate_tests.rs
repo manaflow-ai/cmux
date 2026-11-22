@@ -152,3 +152,83 @@ fn a_prompt_reads_its_text_and_taken_mark() {
     assert!(marked_taken(&json!({"_meta": {"acpmux": {"promptSuggestion": "taken"}}})));
     assert!(!marked_taken(&json!({"_meta": {"acpmux": {}}})));
 }
+
+fn relayed(text: Option<&str>) -> Value {
+    json!({"sessionUpdate": "prompt_suggestion", "suggestion": text})
+}
+
+#[test]
+fn a_relayed_suggestion_is_gated_by_the_persons_own_tally() {
+    let g = Mutex::new(gate());
+    lock(&g)
+        .tallies
+        .insert(key("claude", HARNESS_SOURCE), Tally { taken: 0.0, passed: 30.0, withheld: 0 });
+    let mut update = relayed(Some("Ship it"));
+    regate_relayed(&g, "box", "s1", "claude", &mut update, true);
+    assert_eq!(update["suggestion"], Value::Null);
+    assert_eq!(update["_meta"]["acpmux"]["suggestionWithheld"]["text"], "Ship it");
+}
+
+#[test]
+fn a_suggestion_the_peer_withheld_is_shown_when_the_persons_tally_takes_it() {
+    let g = Mutex::new(gate());
+    let mut peer = gate();
+    peer.tallies
+        .insert(key("claude", HARNESS_SOURCE), Tally { taken: 0.0, passed: 30.0, withheld: 0 });
+    let mut update = relayed(Some("Ship it"));
+    gate_update(&mut peer, "s1", "claude", &mut update);
+    assert_eq!(update["suggestion"], Value::Null);
+    regate_relayed(&g, "box", "s1", "claude", &mut update, true);
+    assert_eq!(update["suggestion"], "Ship it");
+    assert!(update["_meta"]["acpmux"].get("suggestionWithheld").is_none(), "{update}");
+    // A peer from before the text: its verdict stands, and nothing is counted.
+    let mut old = json!({"sessionUpdate": "prompt_suggestion", "suggestion": null,
+        "_meta": {"acpmux": {"suggestionWithheld": {"source": "harness", "estimate": 0.1}}}});
+    regate_relayed(&g, "box", "s2", "claude", &mut old, true);
+    assert_eq!(old["suggestion"], Value::Null);
+}
+
+#[test]
+fn the_persons_switch_off_withholds_a_relayed_suggestion_and_counts_nothing() {
+    let g = Mutex::new(gate());
+    let mut update = relayed(Some("Ship it"));
+    regate_relayed(&g, "box", "s1", "claude", &mut update, false);
+    assert_eq!(update["suggestion"], Value::Null);
+    assert_eq!(update["_meta"]["acpmux"]["suggestionWithheld"]["setting"], "off");
+    note_relayed_prompt(&g, "box", "s1", &json!({"prompt": [{"type": "text", "text": "x"}]}), true);
+    assert_eq!(lock(&g).tally(&key("claude", HARNESS_SOURCE)), Tally::default());
+}
+
+#[test]
+fn a_forwarded_prompt_answers_the_relayed_suggestion_in_the_persons_tally() {
+    let g = Mutex::new(gate());
+    let k = key("claude", HARNESS_SOURCE);
+    let mut update = relayed(Some("Ship it"));
+    regate_relayed(&g, "box", "s1", "claude", &mut update, true);
+    note_relayed_prompt(
+        &g,
+        "box",
+        "s1",
+        &json!({"prompt": [{"type": "text", "text": "No"}]}),
+        true,
+    );
+    assert_eq!(lock(&g).tally(&k).passed, 1.0);
+    regate_relayed(&g, "box", "s1", "claude", &mut relayed(Some("Ship it")), true);
+    let marked = json!({"prompt": [{"type": "text", "text": "Ship it now"}],
+        "_meta": {"acpmux": {"promptSuggestion": "taken"}}});
+    note_relayed_prompt(&g, "box", "s1", &marked, true);
+    assert_eq!(lock(&g).tally(&k).taken, 1.0);
+    // Another agent's message answers nothing.
+    regate_relayed(&g, "box", "s1", "claude", &mut relayed(Some("Ship it")), true);
+    note_relayed_prompt(
+        &g,
+        "box",
+        "s1",
+        &json!({"prompt": [{"type": "text", "text": "No"}]}),
+        false,
+    );
+    assert_eq!(lock(&g).tally(&k).passed, 0.97);
+    // A peer's chat and a local chat of the same id stay apart.
+    regate_relayed(&g, "box", "s1", "claude", &mut relayed(Some("Ship it")), true);
+    assert_eq!(lock(&g).prompted("s1", "Ship it", false), None);
+}

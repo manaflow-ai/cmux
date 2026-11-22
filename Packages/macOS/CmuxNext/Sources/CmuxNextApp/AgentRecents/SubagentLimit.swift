@@ -125,47 +125,47 @@ struct SubagentLimit {
 /// Handlers.xcstrings.
 enum SubagentLimitStrings {
     static var title: String {
-        String(localized: "subagentLimit.title", defaultValue: "Subagent Limit", table: "Handlers", bundle: .module)
+        String(localized: "subagentLimit.title", defaultValue: "Subagent Limit", table: "Handlers", bundle: .module.inAppLanguage)
     }
     static var chatLine: String {
         String(localized: "subagentLimit.chat.line",
                defaultValue: "The most subagents this chat runs at the same time. More wait their turn and start as running ones finish.",
-               table: "Handlers", bundle: .module)
+               table: "Handlers", bundle: .module.inAppLanguage)
     }
     static func status(running: Int, queued: Int) -> String {
         String(format: String(localized: "subagentLimit.status", defaultValue: "%1$lld running, %2$lld waiting.",
-                              table: "Handlers", bundle: .module), running, queued)
+                              table: "Handlers", bundle: .module.inAppLanguage), running, queued)
     }
     static var field: String {
-        String(localized: "subagentLimit.field", defaultValue: "Subagents at once", table: "Handlers", bundle: .module)
+        String(localized: "subagentLimit.field", defaultValue: "Subagents at once", table: "Handlers", bundle: .module.inAppLanguage)
     }
     static var useDefault: String {
-        String(localized: "subagentLimit.useDefault", defaultValue: "Use Default", table: "Handlers", bundle: .module)
+        String(localized: "subagentLimit.useDefault", defaultValue: "Use Default", table: "Handlers", bundle: .module.inAppLanguage)
     }
     static var set: String {
-        String(localized: "subagentLimit.set", defaultValue: "Set", table: "Handlers", bundle: .module)
+        String(localized: "subagentLimit.set", defaultValue: "Set", table: "Handlers", bundle: .module.inAppLanguage)
     }
     static var invalid: String {
         let range = SubagentLimit.range
         return String(format: String(localized: "subagentLimit.invalid", defaultValue: "Enter a whole number from %1$lld to %2$lld.",
-                                     table: "Handlers", bundle: .module), range.lowerBound, range.upperBound)
+                                     table: "Handlers", bundle: .module.inAppLanguage), range.lowerBound, range.upperBound)
     }
     static var failed: String {
         String(localized: "subagentLimit.failed", defaultValue: "The subagent limit could not be changed.",
-               table: "Handlers", bundle: .module)
+               table: "Handlers", bundle: .module.inAppLanguage)
     }
     /// No acpmux answered the read, it did not take the person proof, or it refused the read.
     static var unreadable: String {
         String(localized: "subagentLimit.unreadable", defaultValue: "The subagent limit could not be read.",
-               table: "Handlers", bundle: .module)
+               table: "Handlers", bundle: .module.inAppLanguage)
     }
     static var unsupported: String {
         String(localized: "subagentLimit.unsupported",
-               defaultValue: "This version of acpmux has no subagent limit. Update cmux to set one.",
-               table: "Handlers", bundle: .module)
+               defaultValue: "This version of cmux has no subagent limit. Update cmux to set one.",
+               table: "Handlers", bundle: .module.inAppLanguage)
     }
     static var notAChat: String {
         String(localized: "subagentLimit.notAChat", defaultValue: "Only an agent chat on this Mac has a subagent limit.",
-               table: "Handlers", bundle: .module)
+               table: "Handlers", bundle: .module.inAppLanguage)
     }
 }

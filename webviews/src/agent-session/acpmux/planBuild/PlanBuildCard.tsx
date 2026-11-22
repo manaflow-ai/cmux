@@ -21,6 +21,7 @@ import {
   type PlanBuildReply,
 } from "./planBuild";
 import "./planBuild.css";
+import { signed } from "../../../ui/Typography";
 
 export type PlanBuildCardProps = {
   build: PlanBuild;
@@ -208,9 +209,7 @@ function PlanBuildColumn({
               : statusText(t, child, diff)}
         </span>
       </div>
-      <div className="acpmux-plan-builds-branch" title={branch}>
-        {branch ?? " "}
-      </div>
+      <div className="acpmux-plan-builds-branch">{branch ?? " "}</div>
       <div className="acpmux-plan-builds-stats">
         {diff ? (
           <>
@@ -229,14 +228,14 @@ function PlanBuildColumn({
           <li className="acpmux-plan-builds-empty">{t("planBuild.noChanges")}</li>
         ) : (
           shown.map((file) => (
-            <li key={file.path} title={file.path}>
+            <li key={file.path}>
               <span className="acpmux-plan-builds-path">{file.path}</span>
               <span className="acpmux-plan-builds-added">+{file.added}</span>
               <span className="acpmux-plan-builds-removed">−{file.removed}</span>
             </li>
           ))
         )}
-        {more > 0 && <li className="acpmux-plan-builds-more">{t("planBuild.moreFiles", { n: more })}</li>}
+        {more > 0 && <li className="acpmux-plan-builds-more">{signed(t("planBuild.moreFiles", { n: more }))}</li>}
       </ul>
       <div className="acpmux-plan-builds-actions">
         <button

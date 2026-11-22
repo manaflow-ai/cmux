@@ -9,7 +9,11 @@ Prints one JSON plan on stdout:
 
     {"base": SHA, "head": SHA, "all": false, "reasons": [...], "files": [...],
      "units": [{"name": "rust", "kind": "rust", "argv": ["run", ...], "why": "..."}, ...],
-     "not_run": [{"what": "...", "why": "..."}]}
+     "not_run": [{"what": "...", "why": "..."}],
+     "ci_jobs": [{"workflow": "...", "job": "...", "run": true, "why": "..."}]}
+
+`ci_jobs` are the pull-request CI jobs scripts/ci/affected_jobs.py routes by the crate graph, as the pull
+request's own CI will route them (the same map, scripts/ci/affected-jobs.json).
 
 Each unit's argv is a `cmux-ci` command line without the leading `cmux-ci`. HQ's
 `cmux-ci test --affected` runs every unit at once, each on its own free fleet machine, and
@@ -26,6 +30,8 @@ cmux-tui, which the Rust step runs where cargo is (`cmux-tui-rust-check.sh test
           CmuxNext's route marking everything) lists every test target of the package.
   web     run-webviews-tests.sh with CMUX_WEB_TEST_FILES, split over the shards; files that
           launch a browser engine run apart with CMUX_BROWSER_TESTS=1.
+  web-app web/scripts/run-tests.sh (web/'s own suite, ci-web.yml's Web tests) when a web/ path
+          changes or a web/ test names a changed path, split over the shards.
   python  run_python_test_lane.py --lane linux-guard --path ... --shard K/N through
           `cmux-ci test` (fast checks on Linux).
   native  the Native/ cargo workspace's own tests (optchat-chief's step mode on macOS, else
@@ -55,21 +61,31 @@ from pathlib import Path, PurePosixPath
 os.environ["FOCUSED_WEB_CAP"] = "100000"
 os.environ["FOCUSED_SWIFT_CAP"] = "100000"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import affected_jobs  # noqa: E402
 import cargo_affected  # noqa: E402
 import focused_tests  # noqa: E402
 
 RUST_SCRIPT = "scripts/ci/cmux-tui-rust-check.sh"
 SWIFT_SCRIPT = "scripts/ci/package-test-lane.sh"
 WEB_SCRIPT = "scripts/ci/run-webviews-tests.sh"
+# web/'s own suite (ci-web.yml's "Web tests" job): bun, every file, web/scripts/run-tests.sh.
+WEB_APP = "web/"
+WEB_APP_SCRIPT = "web/scripts/run-tests.sh"
 PYTHON_RUNNER = "scripts/ci/run_python_test_lane.py"
 GUARDS_SCRIPT = "scripts/ci/guards-local.sh"
 LINUX_PYTHON_LANE = "linux-guard"
 NATIVE_MODES = {"Native/OptChat/optchat-chief/Cargo.toml": "optchat-chief"}
+# The Cargo workspaces beside cmux-tui (optchat-chief, cmux-next-ios/rust, the cloud server, the FFI
+# crates with a workspace of their own): rust-workspaces.yml plans the ones a change reaches, by file
+# or by a package they use by path (optchat-chief uses cmux-tui's cmux-chief), and this plan runs the same.
+RUST_WORKSPACES = ".github/scripts/rust-workspaces.py"
+RUST_WORKSPACES_LIST = ".github/rust-workspaces.toml"
 # A change to what decides or runs the selection selects everything.
 SELF_INPUTS = (
     "scripts/ci/affected_tests.py", "scripts/ci/focused_tests.py", "scripts/ci/cargo_affected.py",
     "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py", "scripts/ci/focused-tests-extra.json",
-    RUST_SCRIPT, SWIFT_SCRIPT, WEB_SCRIPT, PYTHON_RUNNER, GUARDS_SCRIPT,
+    "scripts/ci/affected_jobs.py", "scripts/ci/affected-jobs.json",
+    RUST_SCRIPT, SWIFT_SCRIPT, WEB_SCRIPT, PYTHON_RUNNER, GUARDS_SCRIPT, RUST_WORKSPACES, RUST_WORKSPACES_LIST,
 )
 MAX_FILES = 400
 # The controller takes at most 64 CMUX_WEB_TEST_FILES per step, each `(src|test)/....test.<ext>`
@@ -167,6 +183,24 @@ def tests_naming(root: Path, paths: list[str]) -> tuple[dict[str, list[str]], li
     return {k: sorted(v) for k, v in swift.items()}, sorted(web), sorted(python)
 
 
+def web_app_reached(root: Path, files: list[str]) -> list[str]:
+    """Why web/'s tests run, or []: a changed web/ path, or a web/ test that names a changed path outside
+    web/ (next-docs.test.ts checks the docs against the action catalog, docs-shortcuts.test.ts against the
+    keybindings). A replay of base reds found 10 of 10 web/ reds in no plan."""
+    reasons = [f for f in files if f.startswith(WEB_APP)][:3]
+    outside = [p for p in files if not p.startswith(WEB_APP)]
+    names = {Path(p).name for p in outside if len(Path(p).name) >= 8
+             and Path(p).name not in focused_tests.COMMON and not re.fullmatch(r"[A-Z0-9_-]+\.md", Path(p).name)}
+    # A folder a test reads whole (docs-shortcuts.test.ts: Packages/macOS/CmuxNext/Sources/CmuxNextActions).
+    names |= {parent.as_posix() for p in outside for parent in PurePosixPath(p).parents if len(parent.parts) >= 3}
+    names = sorted(names)
+    if not reasons and names:
+        args = ["grep", "-l", "-F"] + [x for n in names for x in ("-e", n)]
+        reasons = subprocess.run(["git", "-C", str(root), *args, "--", WEB_APP + "tests"],
+                                 capture_output=True, text=True).stdout.split()[:3]
+    return reasons
+
+
 def unregistered_python_tests(root: Path) -> list[str]:
     """test_*.py files the lane registry does not list (scripts/tests, scripts/cmux-next/tests,
     cmux-tui/scripts, ...): their own workflows run them, so the lane runner cannot."""
@@ -247,6 +281,14 @@ class Planner:
                 self.run_step(name, "web", f"{len(picked)} webviews test files", WEB_SCRIPT, "light", [],
                               env={**env, "CMUX_WEB_TEST_FILES": "\n".join(part)})
 
+    def web_app(self, why: str) -> None:
+        """Every web/ test, split as ci-web.yml's Web tests job splits them (run-tests.sh --shard K/N)."""
+        n = max(1, min(self.shards, 4))
+        for i in range(1, n + 1):
+            cmd = f"cd web && bun install --frozen-lockfile && ./scripts/run-tests.sh" + (f" --shard {i}/{n}" if n > 1 else "")
+            self.units.append({"name": "web-app" + (f"-{i}of{n}" if n > 1 else ""), "kind": "web-app", "why": why,
+                               "argv": ["test", "--setup", "webviews", "--", "bash", "-c", cmd]})
+
     def python(self, paths: list[str] | None) -> None:
         lanes = python_lane_tests(self.root)
         if paths is None:
@@ -273,19 +315,30 @@ class Planner:
             self.units.append({"name": name, "kind": "python", "why": f"{len(chosen)} Python tests ({LINUX_PYTHON_LANE})",
                                "argv": ["test", "--setup", "none", "--", *cmd]})
 
-    def guards(self) -> None:
-        """Every guard step of ci-guards.yml (the "CI fast guards" runner). Most guards read the whole
-        tree (ratchets, "every macOS job names its class"), so any change can turn one red and no path
-        map can say which: they always run, in about a minute."""
-        self.units.append({"name": "guards", "kind": "guards", "why": "every ci-guards.yml guard (they read the whole tree)",
-                           "argv": ["test", "--setup", "none", "--", "bash", GUARDS_SCRIPT, "--all", "--keep-going", "--no-stamp"]})
+    def guards(self, everything: bool) -> None:
+        """The ci-guards.yml guard steps (the "CI fast guards" runner) the change reaches. Most guards read
+        the whole tree (ratchets, "every macOS job names its class") and always run; a step whose inputs
+        guard_step_inputs.py can read runs only when the change touches one (run_ci_guards.py --affected)."""
+        argv = ["test", "--setup", "none", "--", "bash", GUARDS_SCRIPT, "--all", "--keep-going", "--no-stamp"]
+        if everything or not self.base:
+            self.units.append({"name": "guards", "kind": "guards", "why": "every ci-guards.yml guard", "argv": argv})
+            return
+        self.units.append({"name": "guards", "kind": "guards",
+                           "why": "the ci-guards.yml guards whose inputs the change reaches, and every whole-tree guard",
+                           "argv": [*argv, "--affected", self.base]})
 
-    def native(self, manifests: list[str]) -> None:
-        for manifest in manifests:
+    def native(self, manifests: list[str], workspaces: set[str] = frozenset()) -> None:
+        """Each Cargo workspace outside cmux-tui: optchat-chief's step mode, a rust-workspaces.yml
+        workspace (`workspaces`: their roots) as that workflow runs it, else `cargo test`."""
+        for manifest in sorted(set(manifests) | {f"{w}/Cargo.toml" for w in workspaces}):
             label = manifest.rsplit("/", 2)[-2]
             mode = NATIVE_MODES.get(manifest)
+            root = manifest.rsplit("/", 1)[0]
             if mode:
                 self.run_step(f"native-{label}", "native", manifest, RUST_SCRIPT, "light", [mode], extra=["--os", "macos"])
+            elif root in workspaces:
+                self.units.append({"name": "workspace-" + root.replace("/", "-"), "kind": "native", "why": manifest,
+                                   "argv": ["test", "--setup", "rust", "--", "python3", RUST_WORKSPACES, "run", root]})
             else:
                 self.units.append({"name": f"native-{label}", "kind": "native", "why": manifest,
                                    "argv": ["test", "--setup", "rust", "--", "cargo", "test", "--locked", "--manifest-path", manifest]})
@@ -340,13 +393,31 @@ def rust_may_read(root: Path, files: list[str]) -> bool:
     return bool(files) and "." in refs or any(f == ref or f.startswith(ref + "/") for f in files for ref in refs)
 
 
-def everything_reasons(files: list[str], focused: dict) -> list[str]:
+def rust_workspaces(root: Path, files: list[str] | None) -> set[str]:
+    """The roots of the rust-workspaces.yml workspaces these paths reach (None: every one), by that
+    workflow's own planner (this checkout's .github/scripts/rust-workspaces.py plan_paths, like the rest of
+    this planner) over the tree at root: its list and manifests."""
+    import importlib.util
+    script = Path(__file__).resolve().parents[2] / RUST_WORKSPACES
+    if not script.is_file() or not (root / RUST_WORKSPACES_LIST).is_file():
+        return set()
+    spec = importlib.util.spec_from_file_location("cmux_rust_workspaces", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if not hasattr(module, "plan_paths"):
+        return set()
+    return {job["root"] for job in module.plan_paths(root, files)}
+
+
+def everything_reasons(files: list[str], focused: dict, workspaces: set[str] = frozenset()) -> list[str]:
     reasons = []
     if len(files) > MAX_FILES:
         reasons.append(f"{len(files)} changed paths (over {MAX_FILES})")
     reasons += [f"{p}: decides or runs the selection" for p in files if p in SELF_INPUTS]
     # An unmapped webviews path (a fixture, a baseline, a build script) runs every webviews test instead.
-    reasons += [f"{p}: no rule maps it to tests" for p in focused.get("unmapped", []) if not p.startswith(focused_tests.WEB)]
+    # A path in a planned Cargo workspace (cmux-next-ios/rust/...) is that workspace's tests.
+    reasons += [f"{p}: no rule maps it to tests" for p in focused.get("unmapped", []) if not p.startswith(focused_tests.WEB)
+                and not any(p.startswith(w + "/") for w in workspaces)]
     return reasons
 
 
@@ -354,19 +425,24 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
     if files is None:
         files = sorted({line for line in git(root, "diff", "--name-only", "--no-renames", f"{base}...{head}").splitlines() if line})
     focused = focused_tests.plan(root, files)
-    reasons = ["--all"] if everything else everything_reasons(files, focused)
+    workspaces = rust_workspaces(root, None if everything else files)
+    reasons = ["--all"] if everything else everything_reasons(files, focused, workspaces)
+    if reasons and not everything:
+        workspaces = rust_workspaces(root, None)
     p = Planner(root, base, head, shards)
     if files or reasons:
-        p.guards()  # docs too: guards read docs (plans/*.md ratchets) as much as code
+        p.guards(bool(reasons))  # docs too: guards read docs (plans/*.md ratchets) as much as code
     if reasons:
         p.rust(everything=True)
         p.swift({pkg: swift_test_targets(root, pkg) for pkg in swift_packages(root)}, "every Swift package test target")
         p.web(None)
+        p.web_app("every web/ test")
         p.python(None)
         unregistered = unregistered_python_tests(root)
         if unregistered:
             p.not_run.append({"what": f"{len(unregistered)} Python tests outside the lane registry", "why": UNREGISTERED_WHY})
-        p.native(sorted({focused_tests.native_manifest(root, m.as_posix()) or "" for m in root.glob("Native/**/Cargo.lock")} - {""}))
+        locks = {focused_tests.native_manifest(root, m.relative_to(root).as_posix()) or "" for m in root.glob("Native/**/Cargo.lock")}
+        p.native(sorted(locks - {""}), workspaces)
     else:
         if focused["cargo"]["changed"] or rust_may_read(root, files):
             p.rust(everything=False)
@@ -388,6 +464,8 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
             web_python = web_workflow_python_tests(root)
         elif focused["web"] or named_web:
             p.web([f["path"] for f in focused["web"]] + named_web)
+        if reached := web_app_reached(root, files):
+            p.web_app("web/ tests: " + ", ".join(reached))
         lanes = python_lane_tests(root)
         lane_paths = [item["path"] for item in focused["python"]]
         if any(focused_tests.REGISTRY_FRAGMENT.fullmatch(f) for f in files):
@@ -401,13 +479,46 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
         extra += [t for t in web_python + (lane_paths or []) if t not in lanes and t not in extra]
         for test in extra:
             p.not_run.append({"what": test, "why": UNREGISTERED_WHY})
-        p.native([item["manifest"] for item in focused["native"]])
+        p.native([item["manifest"] for item in focused["native"]], workspaces)
     return {"base": base, "head": head, "all": bool(reasons), "reasons": reasons, "files": files,
-            "units": p.units, "not_run": p.not_run, "docs": focused.get("docs", [])}
+            "units": p.units, "not_run": p.not_run, "docs": focused.get("docs", []),
+            "ci_jobs": ci_jobs(root, base, head, None if everything else files)}
+
+
+def ci_jobs(root: Path, base: str, head: str, files: list[str] | None) -> list[dict]:
+    """The pull-request CI jobs the change reaches, from the same crate graph and map PR CI routes them by
+    (scripts/ci/affected_jobs.py, scripts/ci/affected-jobs.json): what the pull request's own CI will run. FILES None
+    (--all, or no merge base: nothing says what changed) routes every job, as the router does for an unlisted change
+    (cmux#45420 review P3-F2: it reported every job skipped)."""
+    try:
+        with affected_jobs.git_tree.GitTree(root, head) as tree, affected_jobs.git_tree.GitTree(root, base) as base_tree:
+            route = affected_jobs.route(tree, files, base_tree=base_tree)
+    except affected_jobs.git_tree.Unreadable as why:
+        return [{"workflow": "*", "job": "*", "run": True, "why": f"the graph could not be read: {why}"}]
+    return [{"workflow": workflow, "job": job, "run": run, "why": route.why[workflow, job]}
+            for (workflow, job), run in sorted(route.run.items())]
 
 
 def resolve(root: Path, ref: str) -> str:
     return git(root, "rev-parse", "--verify", f"{ref}^{{commit}}")
+
+
+def refresh_base(root, ref: str) -> str:
+    """Fetch REF (origin/feat-cmux-next) before this branch's own change is measured from where HEAD meets it: a clone's
+    copy older than a base the branch merged counts that base's files as the branch's own. One shared fetch
+    (scripts/cmux-next/push_range.py refresh_base, the pre-push gate's); a failed fetch is said on stderr."""
+    import importlib.util
+    push_range = Path(__file__).resolve().parents[1] / "cmux-next" / "push_range.py"
+    spec = importlib.util.spec_from_file_location("cmux_next_push_range_fresh", push_range)
+    module = sys.modules.get(spec.name)
+    if module is None:
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+    note = module.refresh_base(Path(root), ref)
+    if note:
+        print(f"affected_tests: {note.lstrip('; ')}", file=sys.stderr)
+    return note
 
 
 def main(argv: list[str]) -> int:
@@ -425,6 +536,8 @@ def main(argv: list[str]) -> int:
     root = Path(args.root).resolve()
     head = resolve(root, args.head)
     files = sorted(set(args.files)) if args.files is not None else None
+    if not args.base:
+        refresh_base(root, "origin/feat-cmux-next")
     try:
         base = resolve(root, args.base or git(root, "merge-base", head, "origin/feat-cmux-next"))
     except subprocess.CalledProcessError:

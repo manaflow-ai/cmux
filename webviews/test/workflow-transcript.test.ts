@@ -8,6 +8,7 @@ import {
 import { openSubagentPane, revealedSubagent } from "../src/agent-session/acpmux/subagents/subagentPanes";
 import { SubagentFold } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { createWorkflowAdapter } from "../src/agent-session/acpmux/summary/foldWorkflows";
+import { settleReact } from "./support/domTeardown";
 
 const request = { sessionId: "chat", runId: "wf_demo", agentId: "review" };
 const text = (text: string) => ({
@@ -222,6 +223,7 @@ test("the hook refreshes only the selected agent, survives StrictMode, and drops
     expect(dom.window.document.body.textContent).not.toContain("wrong chat");
   } finally {
     await act(async () => root.unmount());
+    await settleReact();
     for (const [key, value] of saved) {
       if (value === undefined) delete scope[key];
       else scope[key] = value;
@@ -299,6 +301,7 @@ test("usage-only workflow progress refreshes once and coalesces events during a 
     expect(calls).toBe(4);
   } finally {
     await act(async () => root.unmount());
+    await settleReact();
     for (const [key, value] of saved) {
       if (value === undefined) delete scope[key];
       else scope[key] = value;

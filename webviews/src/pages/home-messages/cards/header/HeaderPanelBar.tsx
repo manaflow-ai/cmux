@@ -22,8 +22,6 @@ export interface HeaderPanel {
   labelKey: string;
   /** Shown for this chat (Memory: a Chief's only). */
   isShown(context: HeaderPanelContext): boolean;
-  /** Shown even while the Debug toggle hides the others: a control that is also an indicator. */
-  alwaysShown?: boolean;
 }
 
 /** What a toggle reads of the conversation. */
@@ -37,15 +35,6 @@ export interface HeaderPanelContext {
 
 /** Every header toggle, left to right. */
 export const HEADER_PANELS: readonly HeaderPanel[] = [
-  {
-    // Share Screen with Chief: on this Mac's own Chief only, lit while the Chief can see the screen.
-    id: "screenShare",
-    icon: "remote.display",
-    onIcon: "status.running",
-    labelKey: "chiefScreenShare.header.label",
-    isShown: (context) => context.isChief && !context.chief && !context.server,
-    alwaysShown: true,
-  },
   { id: "memory", icon: "tool.thought", labelKey: "home.headerPanels.memory", isShown: (context) => context.isChief },
   { id: "rightSidebar", icon: "panel.right", labelKey: "home.headerPanels.rightSidebar", isShown: () => true },
 ];
@@ -68,7 +57,7 @@ export interface HeaderPanelItem {
   isOn: boolean;
 }
 
-/** The cluster's buttons for `context`: only the always-shown ones while the Debug toggle
+/** The cluster's buttons for `context`: none while the Debug toggle
  * (Debug Settings > Home > Home header panel toggles) is off. */
 export function headerPanelItems(
   context: HeaderPanelContext,
@@ -78,7 +67,7 @@ export function headerPanelItems(
   panels: readonly HeaderPanel[] = HEADER_PANELS,
 ): HeaderPanelItem[] {
   return panels
-    .filter((panel) => (enabled || panel.alwaysShown) && panel.isShown(context))
+    .filter((panel) => enabled && panel.isShown(context))
     .map((panel) => {
       const state = states.find((entry) => entry.id === panel.id);
       return {
@@ -106,7 +95,7 @@ export function HeaderPanelBar({ items, onToggle }: { items: readonly HeaderPane
             aria-pressed={item.isOn}
             onClick={() => onToggle(item.id)}
           >
-            <Icon name={item.isOn ? item.onIcon : item.icon} selected={item.isOn} size={16} />
+            <Icon name={item.isOn ? item.onIcon : item.icon} size={16} />
           </button>
         </Tooltip>
       ))}

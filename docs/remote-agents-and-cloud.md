@@ -75,9 +75,9 @@ Back on your Mac, use an SSH alias that reaches your own remote account:
 ```sh
 ssh my-linux
 # After leaving the remote shell:
-acpmux machine add my-linux ssh://my-linux
-acpmux machine ls
-acpmux machine doctor my-linux --json
+cmux agent machine add my-linux ssh://my-linux
+cmux agent machine ls
+cmux agent machine doctor my-linux --json
 ```
 
 Run the SSH probe before adding a host. If the first connection is offline,
@@ -85,12 +85,12 @@ Run the SSH probe before adding a host. If the first connection is offline,
 SSH probe and doctor commands to run next. With `--json`, the response includes
 `warning: {"reason":"peer_unreachable","try":"ssh -o BatchMode=yes HOST true",
 "detail":"the peer was saved and will keep reconnecting"}`. WebSocket URLs
-use `acpmux machine ls` as the next command. Saving failures remain errors:
+use `cmux agent machine ls` as the next command. Saving failures remain errors:
 
 ```sh
 ssh -o BatchMode=yes my-linux true
-acpmux machine add my-linux ssh://my-linux:47921
-acpmux machine doctor my-linux --json
+cmux agent machine add my-linux ssh://my-linux:47921
+cmux agent machine doctor my-linux --json
 ```
 
 When testing a second home, clear inherited daemon variables. `ACPMUX_SOCKET`
@@ -114,10 +114,10 @@ its daemon token. Peering grants access to session contents and tools, so add
 only hosts and accounts you trust.
 
 Run `host doctor` from your Mac against the SSH alias; on the host itself, use
-`acpmux daemon status` and `acpmux daemon harnesses`. `host doctor` without
+`cmux agent daemon status` and `cmux agent daemon harnesses`. `host doctor` without
 `--harness` skips harness checks; a healthy peer does not prove that an agent
 can run. Its `--harness ID` option is described below. Verify the remote
-harness with `acpmux daemon harnesses` on that host and a real session prompt.
+harness with `cmux agent daemon harnesses` on that host and a real session prompt.
 
 `machine enroll` and `machine setup` install the invoking binary. Use them only for a
 compatible remote OS and architecture. For a Linux host reached from a Mac, use
@@ -126,7 +126,7 @@ refuses a peer of another OS or architecture unless you pass `--binary-dir DIR`
 with a build named `acpmux-<target>` there (for example
 `acpmux-x86_64-unknown-linux-musl`); otherwise update that host by rebuilding
 it there. Same-target peers can use the plain
-`acpmux machine update NAME`.
+`cmux agent machine update NAME`.
 
 ## Work with a remote session
 
@@ -142,10 +142,10 @@ already treat as safe), it waits on the chat's pending-permission card in cmux
 NEXT on your Mac. Whether the host accepts an Allow from that card depends on
 how the chat reaches the host:
 
-- A session reached through your Mac's peer daemon (`acpmux new --machine`,
+- A session reached through your Mac's peer daemon (`cmux agent new --machine`,
   `cmux agent open-tab --host`, or `--group` with `--machine`) takes a one-time
-  Allow from the card once the host has enrolled this Mac: `acpmux machine enroll
-  NAME` (or `acpmux machine approvals enroll NAME`) adds the app's public key to
+  Allow from the card once the host has enrolled this Mac: `cmux agent machine enroll
+  NAME` (or `cmux agent machine approvals enroll NAME`) adds the app's public key to
   the host's `~/.acpmux/mac-approvers.json` over your ssh. The app signs each
   Allow on the Mac with a key that never leaves it (the Secure Enclave in a
   signed build; a signed build on a Mac without one cannot allow from the card)
@@ -161,8 +161,8 @@ how the chat reaches the host:
   same command, over your ssh) and then sends that answer, with the card waiting
   and the notice saying "Enrolling this Mac on NAME" meanwhile. Only when the
   enroll fails does the notice say why, with an Enroll this Mac button that runs
-  the same command; choose Allow once again after it. `acpmux machine approvals
-  unenroll NAME` from the Mac, or `acpmux machine approvals rm ID` on the host,
+  the same command; choose Allow once again after it. `cmux agent machine approvals
+  unenroll NAME` from the Mac, or `cmux agent machine approvals rm ID` on the host,
   stops this Mac's Allows there at once. A DEV build without a Team ID makes a
   new key each launch, so enroll again after a relaunch.
 - For tool approvals, connect the host in cmux NEXT with **File › Connect to
@@ -174,9 +174,9 @@ how the chat reaches the host:
 Use the CLI bundled with the app (its default home), so the app and the CLI
 share one daemon and the app shows the remote chat; open it with
 `cmux agent open-tab` (below) or by passing `--group NAME` to
-`acpmux new --machine`.
-`acpmux session allow` is refused for remote sessions; `acpmux pending` and
-`acpmux send` point to the app's card for an allow, and `session deny` and
+`cmux agent new --machine`.
+`cmux agent session allow` is refused for remote sessions; `cmux agent pending` and
+`cmux agent send` point to the app's card for an allow, and `session deny` and
 `session cancel` work from the CLI. A start mode that never asks (for example
 the codex-acp adapter's `read-only`) is refused from a bare CLI unless a person
 starts it in cmux NEXT on that host or approves a preset for it there; an agent
@@ -188,51 +188,59 @@ sets `vmHost` (see the Claude paragraph below), sessions your peer daemon starts
 with no `--policy` run without asking.
 
 `--tag` and `--machine` with `--group` need an acpmux built from feat-cmux-next on
-2026-10-31 or later (older builds take `--host`); check that `acpmux new --help` lists them.
+2026-10-31 or later (older builds take `--host`); check that `cmux agent new --help` lists them.
 
 ```sh
-acpmux new --machine my-linux -m codex --name api-work --cwd /home/me/project --tag task=api -d
-acpmux ls
-acpmux session info my-linux/api-work
-acpmux send my-linux/api-work "Summarize this project's structure."
-acpmux attach my-linux/api-work
+cmux agent new --machine my-linux -m codex --name api-work --cwd /home/me/project --tag task=api -d
+cmux agent ls
+cmux agent session info my-linux/api-work
+cmux agent send my-linux/api-work "Summarize this project's structure."
+cmux agent search "project's structure"
+cmux agent attach my-linux/api-work
 ```
 
 `host doctor --harness ID` checks a client profile that can be copied to the
 host. If the remote daemon already discovers `ID` on its PATH, the check reports
 that discovery and skips profile copying. Verify actual readiness with
-`acpmux daemon harnesses`, then create and prompt a real remote session:
+`cmux agent daemon harnesses`, then create and prompt a real remote session:
 
 ```sh
-acpmux daemon harnesses
-acpmux new --machine my-linux -m codex --name api-work --cwd /home/me/project -d
-acpmux send my-linux/api-work "Reply with exactly CODEX_REMOTE_OK. Do not use tools."
+cmux agent daemon harnesses
+cmux agent new --machine my-linux -m codex --name api-work --cwd /home/me/project -d
+cmux agent send my-linux/api-work "Reply with exactly CODEX_REMOTE_OK. Do not use tools."
 ```
 
-`acpmux harness doctor codex` speaks ACP directly. A Codex app-server that
+`cmux agent harness doctor codex` speaks ACP directly. A Codex app-server that
 answers `unknown variant session/new` is a protocol mismatch; it is not repaired
-by logging in. Use the bridge through a real `acpmux new --machine` session.
+by logging in. Use the bridge through a real `cmux agent new --machine` session.
 
 Creation labels are repeatable and are applied before the session is listed:
-`acpmux new --tag key=value` (and the same option on `run`, `exec` and `ensure`).
+`cmux agent new --tag key=value` (and the same option on `run`, `exec` and `ensure`).
 If a remote policy, mode or folder check refuses a start, the JSON error's
 `error.data.try` is a complete shell-quoted command. Copy it verbatim; it keeps
 the prompt and launcher options. A `--prompt-file` is piped through stdin so
 the file does not need to exist on the remote host.
 
-Replace `codex` with an installed harness, such as `claude`. A remote-started
-Claude session needs the host's sandbox, which acpmux has only on macOS so far:
-on a Linux host, `acpmux new --machine` refuses `-m claude`. The exception is a
-dedicated agent VM (`vmHost`): the VM is the sandbox, so Claude runs there, and
-sessions your peer daemon starts with no policy run approve-all. A Cloud VM
-cmux created for you is one by default (its `/etc/cmux/vm-kind` reads `owner`);
-a team VM, a personal machine and an SSH-added machine never are. Turn it off
-or back on per machine with `acpmux machine dedicated [NAME] off|on` (no restart;
-`on` is refused on a machine cmux did not create), or set `"vmHost": true` or
-`false` in that machine's `~/.acpmux/config.json`. A Mac ignores `vmHost`, and
-Web clients and sessions started with an explicit `--policy` keep their
-approvals. Ctrl-Q detaches
-the TUI; the agent remains on the host. You can use that TUI in a cmux terminal.
+Replace `codex` with an installed harness, such as `claude`. A remote-origin
+Claude session is sandboxed on both macOS and Linux before every cold start and
+respawn. Linux requires `/usr/bin/bwrap` 0.9 or newer, with user namespaces and
+`--bind-fd`/`--ro-bind-fd` support; when the probe or sandbox canary fails, the
+person sees `remote chain refused: bwrap unavailable: ...` (or `remote chain
+refused: the sandbox canary shows no sandbox (...)`) and the JSON-RPC error has
+`data.reason` `remote.sandbox_refused`. The join and doctor offer the exact
+package-manager command to install bubblewrap when it is missing.
+
+The exception is a dedicated agent VM (`vmHost`): the VM is the sandbox, so
+Claude runs there, and sessions your peer daemon starts with no policy run
+approve-all. A Cloud VM cmux created for you is one by default (its
+`/etc/cmux/vm-kind` reads `owner`); a team VM, a personal machine and an
+SSH-added machine never are. Turn it off or back on per machine with
+`cmux agent machine dedicated [NAME] off|on` (no restart; `on` is refused on a
+machine cmux did not create), or set `"vmHost": true` or `false` in that
+machine's `~/.acpmux/config.json`. A Mac ignores `vmHost`, and Web clients and
+sessions started with an explicit `--policy` keep their approvals. Ctrl-Q
+detaches the TUI; the agent remains on the host. You can use that TUI in a cmux
+terminal.
 To view a remote session as a native cmux NEXT chat tab, select a local pane,
 wait for the app's peer inventory to load, and run:
 
@@ -241,7 +249,7 @@ cmux agent open-tab api-work --host my-linux --focus
 ```
 
 The tab binds to the peer session mirrored by your Mac's daemon. If the name is
-ambiguous, use its session ID from `acpmux ls --json`. This does not move the
+ambiguous, use its session ID from `cmux agent ls --json`. This does not move the
 agent. For remote chat placement in local sidebar groups, see the
 [acpmux peer guide](../cmux-tui/crates/acpmux/README.md#peers-every-session-on-every-machine-from-one-mac).
 The generic action form also accepts the peer host:
@@ -254,7 +262,7 @@ To create a remote chat inside a sidebar workspace group on the Mac where you
 run the command:
 
 ```sh
-acpmux new --machine my-linux -m codex --group "Remote demo" -d "say hi"
+cmux agent new --machine my-linux -m codex --group "Remote demo" -d "say hi"
 ```
 
 `--group` runs the local `cmux agent open` using the returned session ID. The
@@ -275,9 +283,9 @@ for an ID already mirrored locally.
 To end the current turn, stop the agent, or continue a saved session:
 
 ```sh
-acpmux session cancel my-linux/api-work
-acpmux session stop my-linux/api-work
-acpmux send my-linux/api-work "Continue from the saved conversation."
+cmux agent session cancel my-linux/api-work
+cmux agent session stop my-linux/api-work
+cmux agent send my-linux/api-work "Continue from the saved conversation."
 ```
 
 Stop preserves the session log. Adding `--purge` deletes it; do not use purge
@@ -289,7 +297,7 @@ Durable one-shot wake subscriptions use the local socket methods `_acpmux/watch_
 local or `HOST/name` sessions, `until`, optional `match`, and `once: true`; it delivers batched
 messages with excerpts and inspection commands. State and undelivered messages survive restart;
 offline peers notify once, failed deliveries retry, and a one-shot watch is removed after delivery.
-Unreadable state is quarantined as `watches.json.bad-<timestamp>`; older cursors default safely; peer replay uses eight workers. The CLI and MCP tools are follow-ups; `acpmux wait` remains the
+Unreadable state is quarantined as `watches.json.bad-<timestamp>`; older cursors default safely; peer replay uses eight workers. The CLI and MCP tools are follow-ups; `cmux agent wait` remains the
 script interface.
 
 ### Read-only Codex reviews
@@ -298,13 +306,13 @@ A Codex review that only reads can start without your approval. On the host
 itself (its unix socket) start it in `read-only` or `ask`:
 
 ```sh
-acpmux new -m codex --mode read-only --policy deny-all -n review -d "Review lane/my-fix"
+cmux agent new -m codex --mode read-only --policy deny-all -n review -d "Review lane/my-fix"
 ```
 
 From your machine, start it on an enrolled peer with policy `deny-all`:
 
 ```sh
-acpmux new --machine my-linux -m codex --policy deny-all -n review -d "Review lane/my-fix"
+cmux agent new --machine my-linux -m codex --policy deny-all -n review -d "Review lane/my-fix"
 ```
 
 The peer settles that session in the Codex bridge's `read-only` mode. Commands
@@ -342,12 +350,12 @@ cmux machine new
 Use an ID from the machine list to select the machine explicitly:
 
 ```sh
-cmux cloud machine-status --target machine:MACHINE_ID
-cmux cloud ssh --target machine:MACHINE_ID
-cmux cloud setup-github --target machine:MACHINE_ID
-cmux cloud pause-machine --target machine:MACHINE_ID
-cmux cloud resume-machine --target machine:MACHINE_ID
-cmux cloud exec --target machine:MACHINE_ID --command 'uname -a'
+cmux vm status NAME
+cmux vm ssh NAME
+cmux vm setup-github --target vm:VM_ID
+cmux vm pause NAME
+cmux vm resume NAME
+cmux vm exec NAME -- uname -a
 ```
 
 `cloud ssh` opens a terminal in the app. It does not attach the invoking CLI's
@@ -359,7 +367,7 @@ require network and provider connections to be established again.
 The catalog also exposes file access, for example:
 
 ```sh
-cmux cloud file-read --target machine:MACHINE_ID --path /workspace/README.md
+cmux vm file-read --target vm:VM_ID --path /workspace/README.md
 ```
 
 `cloud exec` runs one command through the Cloud API and returns `exit_code`,
@@ -378,7 +386,7 @@ event segments under `~/.acpmux/sessions`; an app or `ACPMUX_HOME` can select a
 different home. If you deliberately run an isolated standalone daemon from
 inside an agent session, unset the inherited `ACPMUX_SOCKET` before setting
 `ACPMUX_HOME`; otherwise commands can still target the enclosing session's
-daemon. Check `acpmux daemon status` for the actual socket and home before
+daemon. Check `cmux agent daemon status` for the actual socket and home before
 starting or stopping it. The checkout, harness login and native state must also remain
 available to resume execution.
 
@@ -399,16 +407,16 @@ not a complete copy of its transcript.
 
 | Symptom | Start here |
 | --- | --- |
-| Remote sessions unreachable | `acpmux machine ls`, then `acpmux machine doctor my-linux --json`; a peer-unreachable error says the prompt was not submitted and gives `acpmux machine ls` as the retry check. Resume a paused machine before expecting live agent traffic. |
-| Daemon missing | On its host, `acpmux daemon status`, then `acpmux daemon start` for a standalone daemon. For a service-managed daemon, inspect that service and its configured home/listener. |
+| Remote sessions unreachable | `cmux agent machine ls`, then `cmux agent machine doctor my-linux --json`; a peer-unreachable error says the prompt was not submitted and gives `cmux agent machine ls` as the retry check. Resume a paused machine before expecting live agent traffic. |
+| Daemon missing | On its host, `cmux agent daemon status`, then `cmux agent daemon start` for a standalone daemon. For a service-managed daemon, inspect that service and its configured home/listener. |
 | Another service owns the socket | Use the CLI from the running app and record its socket/holder error. Do not delete a live socket or terminate an unknown process. |
-| Harness fails to start | `acpmux daemon harnesses`; verify that host's harness installation/login. `acpmux harness doctor codex` performs a handshake and a real prompt, which can consume usage. |
-| `remote chain refused: bwrap unavailable` on a Linux machine | Sessions started there from another machine run only inside the bubblewrap sandbox. `acpmux machine doctor my-linux` warns at the daemon step; `--fix` installs `bubblewrap` when sudo needs no password, else run `sudo apt-get install -y bubblewrap` there. The sandbox lets Claude reach its own `ANTHROPIC_BASE_URL` port on another host (a tailnet router such as `:4016`), plus 80 and 443. |
-| Stuck or stale chat | `acpmux session info my-linux/api-work` and `acpmux session tail my-linux/api-work`. Restore connectivity before interpreting stale state; cancel/stop only the intended session. |
+| Harness fails to start | `cmux agent daemon harnesses`; verify that host's harness installation/login. `cmux agent harness doctor codex` performs a handshake and a real prompt, which can consume usage. |
+| `remote chain refused: bwrap unavailable` on a Linux machine | Sessions started there from another machine run only inside the bubblewrap sandbox. `cmux agent machine doctor my-linux` warns at the daemon step; `--fix` installs `bubblewrap` when sudo needs no password, else run `sudo apt-get install -y bubblewrap` there. The sandbox lets Claude reach its own `ANTHROPIC_BASE_URL` port on another host (a tailnet router such as `:4016`), plus 80 and 443. |
+| Stuck or stale chat | `cmux agent session info my-linux/api-work` and `cmux agent session tail my-linux/api-work`. Restore connectivity before interpreting stale state; cancel/stop only the intended session. |
 | Cloud action unavailable | Inspect `cmux action describe cloudPauseMachine --json`, account/team access and the explicit machine target. A command being listed does not mean its current context is eligible. |
 
 Enroll preserves an existing peer URL and listener port. If the remote daemon
 already listens on a non-default port, pass that URL to `machine add` or let
 `machine enroll` find the saved peer; it will not restart the daemon on 47811 or
 change its listener. A restart can briefly show `reconnecting`; check
-`acpmux machine ls`, then re-add the same `ssh://HOST:PORT` URL if needed.
+`cmux agent machine ls`, then re-add the same `ssh://HOST:PORT` URL if needed.

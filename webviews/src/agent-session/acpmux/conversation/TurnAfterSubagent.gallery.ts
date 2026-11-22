@@ -3,9 +3,10 @@
 // happened here like the text in this situation isn't from the subagent?". A background command
 // ended, then the subagent; its interim end and its later steps (acpmux weighs them silent, each
 // with the subagent's call as origin) started three turns of the chat's own, with no prompt. Each
-// reply went onto the subagent's line (ReactionMark.tsx `ReactionReply`), joined into one muted
-// block at the row's words, under its report open or closed. Now only a short quiet note goes there;
-// a reply with more to say is the agent's own turn (direct.ts `settleReaction`, `ownTurn`): its rows
+// reply went onto the subagent's line, joined into one muted block at the row's words, under its
+// report open or closed (that look: agent-pane.subagent-done#reply-before). Now every reply is the
+// agent's own turn (direct.ts `settleReaction`, `ownTurn`; Leo, 2026-11-09, on a one-line reply
+// still folded in: "your response was weirdly folded into the rende?"): its rows
 // at the reply column, the turn gap over its first row (transcriptGrid.ts MARK_OPENS_TURN) and a
 // footer of its own (turns.ts `backgroundFooters`). The shipped variants replay acpmux's events
 // through the pane's own client (fixtures/recording.ts), so they show what the code makes.
@@ -15,9 +16,8 @@
 // test/transcript-turn-after-subagent.test.ts measures the shipped variants in Chromium.
 import { agentPaneEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
-import { assistant, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
+import { chat } from "../../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../../gallery/play";
-import type { Subagent } from "../subagents/subagentFold";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000e7";
 const TASK = "Fix nightly macOS build red";
@@ -128,31 +128,6 @@ const recording = {
   harness: "claude" as const,
 };
 
-/// Before: what the pane drew on the base, the three replies joined on the subagent's line.
-const agent: Subagent = {
-  id: AGENT,
-  parent: null,
-  name: "general-purpose",
-  task: TASK,
-  kind: "general-purpose",
-  prompt: TASK,
-  state: "completed",
-  startedAt: minutesAgo(29),
-  endedAt: minutesAgo(23),
-  lastMessage: REPORT,
-  reaction: { turn: "own-3", weight: "silent", text: OWN_REPLIES.join("\n\n") },
-};
-const before = chat([
-  user("Have a subagent fix the nightly macOS build red", 30, { id: "before-prompt" }),
-  assistant("Started a subagent on it. I'll report when it's done.", 29, { id: "before-reply" }),
-  summary(29, { id: "before-footer", status: "completed", durationMs: 5_000 }),
-  { id: `subagentDone:${AGENT}`, version: 1, kind: "subagentDone", at: agent.endedAt!, subagents: [agent] },
-  row("backgroundTask", 24, {
-    id: "before-task",
-    backgroundTask: { toolCallId: "rerun-call", command: "fleet unittest rerun for #38915", state: "completed" },
-  }),
-]);
-
 /// Opens the subagent's report, as Leo had it in his first capture.
 export const openReport = async (ctx: PlayContext) => {
   const toggle = { selector: ".cv-subagent-report-row .cv-agentmsg__toggle" };
@@ -168,11 +143,7 @@ export default agentPaneEntry({
   title: "The agent's turns after a subagent's row",
   area: "Agent pane",
   height: 900,
-  covers: [
-    "agent-session/acpmux/direct.ts#settleReaction",
-    "agent-session/acpmux/transcriptGrid.ts#transcriptGap",
-    "agent-session/acpmux/conversation/ReactionMark.tsx",
-  ],
+  covers: ["agent-session/acpmux/direct.ts#settleReaction", "agent-session/acpmux/transcriptGrid.ts#transcriptGap"],
   variants: {
     "own-turn": {
       note: "Shipped: the report stays in the subagent's row; each of the agent's three turns is its own, at the reply column, the turn gap over it and its own footer under it.",
@@ -197,16 +168,6 @@ export default agentPaneEntry({
       snapshot: chat([]),
       recording,
       documentAttributes: { "turn-boundary": "rule" },
-      play: openReport,
-      ...opening,
-    },
-    before: {
-      note: "Before (Leo's capture, closed): the three replies joined as one muted block at the subagent row's words, as if the subagent wrote them.",
-      snapshot: before,
-    },
-    "before-open": {
-      note: "Before, the report opened: the replies run on under its card.",
-      snapshot: before,
       play: openReport,
       ...opening,
     },

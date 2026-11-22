@@ -12,10 +12,9 @@ extension NSImage {
     /// icon catalog pairs with it (`airplayvideo`). Nil when neither names a symbol.
     public static func menuSymbol(_ name: String) -> NSImage? {
         if let drawn = packOverride(forSymbol: name, pointSize: NSFont.menuFont(ofSize: 0).pointSize) { return drawn }
-        let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
-            ? name : IconCatalog.bundled.entry(for: IconName(name))?.sf
+        let symbol = isSystemSymbol(name) ? name : IconCatalog.bundled.entry(for: IconName(name))?.sf
         guard let symbol,
-              let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+              let image = systemSymbol(symbol, fallback: nil)?
                   .withSymbolConfiguration(menuSymbolConfiguration)
         else { return nil }
         image.isTemplate = true

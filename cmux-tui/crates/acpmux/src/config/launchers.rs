@@ -18,7 +18,55 @@ pub fn verify_launchers(cfg: &mut Config) {
     let env_route =
         std::env::var("SUBROUTER_URL").ok().or_else(|| crate::login_env::var("SUBROUTER_URL"));
     let route = subrouter_route(env_route.as_deref(), &servers);
-    verify_launchers_with(cfg, route);
+    let cache = home().join(CHECKS_FILE);
+    verify_launchers_cached(cfg, route, &cache, &launcher_ok);
+}
+
+/// Successful checks of current launcher binaries, replaced once per verification pass.
+const CHECKS_FILE: &str = "launcher-checks.json";
+
+/// Probe changed launchers in parallel, then publish one combined cache. Each pass keeps only
+/// successful current keys: updates and removed profiles cannot grow the file indefinitely.
+/// Reading and rewriting the file inside each parallel probe lost other probes' successes.
+fn verify_launchers_cached(
+    cfg: &mut Config,
+    route: Option<String>,
+    cache: &std::path::Path,
+    probe: &(dyn Fn(&[String]) -> std::result::Result<(), String> + Sync),
+) {
+    let previous: std::collections::BTreeSet<String> = std::fs::read(cache)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default();
+    let passed = std::sync::Mutex::new(std::collections::BTreeSet::new());
+    verify_launchers_checked(cfg, route, &|argv| {
+        let key = launcher_key(argv);
+        if !key.as_ref().is_some_and(|key| previous.contains(key)) {
+            probe(argv)?;
+        }
+        if let Some(key) = key {
+            passed.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(key);
+        }
+        Ok(())
+    });
+    let passed = passed.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
+    // A warm start with the same candidates needs no durable write.
+    if passed != previous
+        && let Ok(bytes) = serde_json::to_vec(&passed)
+        && let Err(e) = write_atomic(cache, &bytes)
+    {
+        tracing::debug!("launcher checks not saved: {e:#}");
+    }
+}
+
+/// What a launcher check is of: its argv and its binary's size and modification time. None when
+/// the binary is not found: it is checked every time.
+fn launcher_key(argv: &[String]) -> Option<String> {
+    let bin = argv.first()?;
+    let path = if bin.contains('/') { bin.clone() } else { which(bin)? };
+    let meta = std::fs::metadata(&path).ok()?;
+    let modified = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
+    Some(format!("{}\0{path}\0{}\0{modified}", argv.join("\u{1f}"), meta.len()))
 }
 
 /// The subrouter server Claude traffic goes to when `sr` has no `claude proxy`:
@@ -50,6 +98,16 @@ pub fn subrouter_route(env_url: Option<&str>, servers_json: &std::path::Path) ->
 /// is one and it is acpmux's own adapter (`claude-stdio`), else it is
 /// marked unavailable.
 pub fn verify_launchers_with(cfg: &mut Config, route: Option<String>) {
+    verify_launchers_checked(cfg, route, &launcher_ok);
+}
+
+/// [`verify_launchers_with`], each launcher checked by `check`, all at once: one slow launcher
+/// holds no other.
+fn verify_launchers_checked(
+    cfg: &mut Config,
+    route: Option<String>,
+    check: &(dyn Fn(&[String]) -> std::result::Result<(), String> + Sync),
+) {
     let candidates: Vec<(String, Vec<String>)> = cfg
         .harnesses
         .iter()
@@ -60,8 +118,15 @@ pub fn verify_launchers_with(cfg: &mut Config, route: Option<String>) {
         })
         .map(|(n, p)| (n.clone(), p.argv.clone()))
         .collect();
-    for (name, argv) in candidates {
-        if let Err(reason) = launcher_ok(&argv) {
+    let checked: Vec<_> = std::thread::scope(|scope| {
+        let runs: Vec<_> =
+            candidates.iter().map(|(_, argv)| scope.spawn(move || check(argv))).collect();
+        runs.into_iter()
+            .map(|run| run.join().unwrap_or_else(|_| Err("the launcher check panicked".into())))
+            .collect()
+    });
+    for ((name, argv), result) in candidates.into_iter().zip(checked) {
+        if let Err(reason) = result {
             // Only acpmux's own adapter takes over: claude-sr never becomes
             // an ACP adapter (`claude` imported from ~/.acpx, say).
             if is_subrouter_proxy(&argv)
@@ -164,7 +229,7 @@ pub(crate) fn which(bin: &str) -> Option<String> {
 }
 
 /// `bin` in the directories of `path`, in order.
-fn which_in(path: &std::ffi::OsStr, bin: &str) -> Option<String> {
+pub(crate) fn which_in(path: &std::ffi::OsStr, bin: &str) -> Option<String> {
     for dir in std::env::split_paths(path) {
         let candidate = dir.join(bin);
         // As a shell's lookup: a file it could not run does not hide a runnable one later on PATH.
@@ -175,14 +240,21 @@ fn which_in(path: &std::ffi::OsStr, bin: &str) -> Option<String> {
     None
 }
 
-/// Claude Code's native installer puts `claude` in `~/.local/bin`, which a login PATH may not list
-/// (the installer only asks the person to add it), and a daemon read that PATH when it started: so a
-/// `claude` installed there (`acpmux harness install claude`) is found on the next reload.
+/// Claude Code's and Codex's own installers put `claude` and `codex` in `~/.local/bin`, which a login
+/// PATH may not list (the installers only ask the person to add it), and a daemon read that PATH when
+/// it started: so one installed there (`acpmux harness install`, the Harnesses page's Install on a Mac
+/// with no npm) is found on the next look. Without it a fresh Mac's Codex install ended in "cmux can't
+/// run it yet" (first-run findings row 3).
 fn native_install(bin: &str) -> Option<String> {
-    if bin != "claude" {
+    native_install_in(&dirs::home_dir()?, bin)
+}
+
+/// [`native_install`] under `home`.
+fn native_install_in(home: &std::path::Path, bin: &str) -> Option<String> {
+    if !matches!(bin, "claude" | "codex") {
         return None;
     }
-    let candidate = dirs::home_dir()?.join(".local/bin").join(bin);
+    let candidate = home.join(".local/bin").join(bin);
     // A stale or non-executable file there is no installed CLI (as `harness install` checks).
     crate::harness_install::is_executable(&candidate)
         .then(|| candidate.to_string_lossy().into_owned())
@@ -206,5 +278,71 @@ mod tests {
         let path = std::env::join_paths([first.path(), second.path()]).unwrap();
         assert_eq!(which_in(&path, "claude"), Some(runnable.to_string_lossy().into_owned()));
         assert_eq!(which_in(&path, "codex"), None);
+    }
+
+    /// Codex's own installer (`chatgpt.com/codex/install.sh`, what the Harnesses page's Install runs
+    /// on a Mac with no npm) puts `codex` in `~/.local/bin`, as Claude Code's does, and a fresh Mac's
+    /// login PATH does not list it: after Install the row said "Finished, but cmux can't run it yet"
+    /// (first-run findings row 3). Both are found there; a file that cannot run is no install.
+    #[test]
+    fn codex_and_claude_from_their_own_installers_are_found_in_local_bin() {
+        let home = tempfile::tempdir().unwrap();
+        let bin = home.path().join(".local/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        for name in ["codex", "claude"] {
+            let file = bin.join(name);
+            std::fs::write(&file, "#!/bin/sh\n").unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert_eq!(
+                super::native_install_in(home.path(), name),
+                Some(file.to_string_lossy().into_owned()),
+                "{name}"
+            );
+        }
+        std::fs::write(bin.join("opencode"), "").unwrap();
+        assert_eq!(super::native_install_in(home.path(), "opencode"), None);
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(super::native_install_in(empty.path(), "codex"), None);
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn launcher_cache_keeps_parallel_successes_and_only_current_versions() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("checks.json");
+        let mut cfg = Config::default();
+        cfg.harnesses.clear();
+        for name in ["first", "second"] {
+            let binary = dir.path().join(name);
+            std::fs::write(&binary, "version one").unwrap();
+            let profile = serde_json::from_value(serde_json::json!({
+                "argv": [binary, "claude", "proxy"]
+            }))
+            .unwrap();
+            cfg.harnesses.insert(name.into(), profile);
+        }
+        let calls = AtomicUsize::new(0);
+        let probe = |_: &[String]| {
+            calls.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        };
+        verify_launchers_cached(&mut cfg, None, &cache, &probe);
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+        verify_launchers_cached(&mut cfg, None, &cache, &probe);
+        assert_eq!(calls.load(Ordering::Relaxed), 2, "warm launch reran a successful probe");
+        std::fs::write(dir.path().join("first"), "version two is a different size").unwrap();
+        verify_launchers_cached(&mut cfg, None, &cache, &probe);
+        assert_eq!(calls.load(Ordering::Relaxed), 3, "only the changed binary is reprobed");
+        cfg.harnesses.remove("second");
+        verify_launchers_cached(&mut cfg, None, &cache, &probe);
+        let keys: std::collections::BTreeSet<String> =
+            serde_json::from_slice(&std::fs::read(cache).unwrap()).unwrap();
+        assert_eq!(keys.len(), 1, "old versions and removed launchers grew the cache");
+        assert_eq!(calls.load(Ordering::Relaxed), 3);
     }
 }

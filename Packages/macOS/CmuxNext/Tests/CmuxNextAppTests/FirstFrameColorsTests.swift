@@ -4,14 +4,13 @@ import CmuxNextAgentActivity
 @testable import CmuxNextApps
 @testable import CmuxNextBrowser
 @testable import CmuxNextDesign
-@testable import CmuxNextFeed
 @testable import CmuxNextRemoteView
 @testable import CmuxNextServer
 import SwiftUI
 import Testing
 
-/// Theme sweep 3, batch E: the color structs of the feed, the server UI, remote panes and
-/// app scenes started as macOS's grays and system orange, red and green until
+/// Theme sweep 3, batch E: the color structs of the feed, the server UI and remote panes
+/// started as macOS's grays and system orange, red and green until
 /// their host resolved its theme scope, so a first frame could draw the system's colors. Their
 /// defaults are now the app theme's current tokens (the colors every scope derives from). The
 /// workspace color row in a themed menu rings the hovered swatch in the menu's theme accent.
@@ -25,14 +24,6 @@ import Testing
 
     private static func expect(_ color: NSColor, _ rgb: ThemeRGB, _ name: String) {
         #expect(ThemedOverlayColorsTests.same(color, rgb.nsColor), "\(name): \(color) is not the theme's \(rgb.nsColor)")
-    }
-
-    @Test func theFeedStartsInTheAppTheme() {
-        let colors = FeedColors()
-        Self.expect(colors.primary, Self.app.textPrimary, "primary")
-        Self.expect(colors.tertiary, Self.app.textTertiary, "tertiary")
-        Self.expect(colors.selection, Self.app.selectionFill, "selection")
-        Self.expect(colors.danger, Self.app.danger, "danger")
     }
 
     @Test func theServerUIStartsInTheAppTheme() {
@@ -50,14 +41,6 @@ import Testing
         Self.expect(colors.hoverFill, Self.app.hoverFill, "hoverFill")
         Self.expect(colors.attention, Self.app.attention, "attention")
         Self.expect(colors.success, Self.app.success, "success")
-    }
-
-    @Test func anAppSceneStartsInTheAppTheme() {
-        let colors = AppSceneColors.fallback
-        Self.expect(colors.primary, Self.app.textPrimary, "primary")
-        Self.expect(colors.secondary, Self.app.textSecondary, "secondary")
-        Self.expect(colors.success, Self.app.success, "success")
-        Self.expect(colors.danger, Self.app.danger, "danger")
     }
 
     /// In a themed menu the workspace color row's hover ring is the menu scope's accent, and a

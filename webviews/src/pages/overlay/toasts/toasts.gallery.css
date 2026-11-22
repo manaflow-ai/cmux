@@ -1,7 +1,0 @@
-/* l10n-allow-file */
-/* The gallery's stage for the toast stack: a pane the toasts float over. */
-.cmux-toasts-gallery {
-  position: relative;
-  height: 100vh;
-  overflow: hidden;
-}

@@ -21,7 +21,7 @@ pub(super) fn restore_focus_identity(state: &mut State, focus: Option<FocusIdent
     };
     state.workspaces[workspace_index].active_screen = screen_index;
     if state.workspaces[workspace_index].screens[screen_index].root.contains(pane_id) {
-        state.workspaces[workspace_index].screens[screen_index].active_pane = pane_id;
+        state.workspaces[workspace_index].screens[screen_index].set_active_pane(pane_id);
     }
 }
 
@@ -58,19 +58,31 @@ pub(super) fn stamp_changed_active_pane(mux: &Mux, state: &mut State, previous: 
 /// Bonsplit picks it (`SplitViewController.closePane`, issue 38194): the most
 /// recently focused of `panes` (focus only, as Zellij and tmux return to the
 /// pane used last), else `sibling`, the closed pane's sibling that absorbs
-/// its space, for a tree whose remaining panes were never focused.
+/// its space, for a tree whose remaining panes were never focused. A hidden
+/// quick terminal (`quick-terminal-v1`) takes the focus only when no other
+/// pane is left: a close of another pane does not show it.
 pub(super) fn close_focus_successor(
     state: &State,
     panes: &[PaneId],
     sibling: Option<PaneId>,
 ) -> Option<PaneId> {
+    let hidden = panes
+        .first()
+        .and_then(|pane| state.screen_of(*pane))
+        .and_then(|(workspace, screen)| state.workspaces.get(workspace)?.screens.get(screen))
+        .and_then(|screen| screen.quick_terminal())
+        .filter(|(_, mark)| mark.hidden)
+        .map(|(pane, _)| pane);
+    let shows = |pane: &PaneId| Some(*pane) != hidden;
     panes
         .iter()
+        .filter(|id| shows(id))
         .filter_map(|id| state.panes.get(id).map(|pane| (*id, pane.focused_at)))
         .filter(|(_, focused_at)| *focused_at > 0)
         .max_by_key(|(_, focused_at)| *focused_at)
         .map(|(id, _)| id)
-        .or(sibling.filter(|pane| panes.contains(pane)))
+        .or(sibling.filter(|pane| panes.contains(pane) && shows(pane)))
+        .or_else(|| panes.iter().copied().find(|pane| shows(pane)))
         .or_else(|| panes.first().copied())
 }
 
@@ -142,7 +154,17 @@ pub(super) fn append_to_auto_layout(
     *auto_layout = Some(panes);
 }
 
+/// Removes `pane` from the live `screen`. False when the screen has no pane
+/// left. The floating panes follow the tree: the entry of `pane` goes, and
+/// when `pane` was the last tiled pane, the front floating pane becomes tiled
+/// (`floating-panes-v1`).
 pub(super) fn remove_pane_from_screen_layout(mux: &Mux, screen: &mut Screen, pane: PaneId) -> bool {
+    let remains = remove_pane_from_screen_tree(mux, screen, pane);
+    screen.settle_floating_panes();
+    remains
+}
+
+fn remove_pane_from_screen_tree(mux: &Mux, screen: &mut Screen, pane: PaneId) -> bool {
     screen.invalidate_layout_undo();
     if screen.layout_columns_active() {
         let Some(index) =
@@ -253,9 +275,9 @@ pub(super) fn resolve_workspace_index(
     if id.is_none() && key.is_none() {
         anyhow::bail!("workspace or key is required");
     }
-    let by_id = id.and_then(|id| state.workspaces.iter().position(|workspace| workspace.id == id));
-    let by_key =
-        key.and_then(|key| state.workspaces.iter().position(|workspace| workspace.key == key));
+    // By the state's own indexes: a scan of every workspace for each request grew with the session.
+    let by_id = id.and_then(|id| state.workspace_index(id));
+    let by_key = key.and_then(|key| state.workspace_index_by_key(key));
     match (id, key, by_id, by_key) {
         (Some(id), _, None, _) => anyhow::bail!("unknown workspace {id}"),
         (_, Some(key), _, None) => anyhow::bail!("unknown workspace key {key}"),
@@ -319,6 +341,7 @@ pub(super) fn close_surface_delta(
             entity,
             workspace_revision: None,
             transaction: None,
+            mutation: None,
         });
     }
     close_pane_delta(state, notifications, pane_id)
@@ -347,6 +370,7 @@ pub(super) fn close_pane_delta(
             entity,
             workspace_revision: None,
             transaction: None,
+            mutation: None,
         });
     }
     close_screen_delta(state, notifications, screen.id)
@@ -373,6 +397,7 @@ pub(super) fn close_screen_delta(
         entity,
         workspace_revision: None,
         transaction: None,
+        mutation: None,
     })
 }
 
@@ -398,6 +423,7 @@ pub(super) fn close_workspace_delta(
         entity,
         workspace_revision: None,
         transaction: None,
+        mutation: None,
     })
 }
 
@@ -424,6 +450,7 @@ pub(super) fn layout_undo_confirmation_details(
         )
         .into());
     }
+    layout_undo::keep_hidden_quick_terminal(screen, entry)?;
     anyhow::ensure!(!entry.created_panes.is_empty(), "layout undo does not require confirmation");
 
     let mut hasher = Sha256::new();
@@ -552,13 +579,26 @@ pub(super) fn remove_surface(
     let old_order = pane.tabs.clone();
     pane.tabs.remove(idx);
     if !pane.tabs.is_empty() {
-        // The app's rule, from the one place it lives: the tab before the
-        // closed one, else the one after it; an unselected close keeps it.
+        // The app's rule, from the one place it lives (Chrome's, positional
+        // here: the daemon keeps no opener): the tab after the closed one,
+        // else the one before it; an unselected close keeps it.
         let shown: HashSet<SurfaceId> = pane.tabs.iter().copied().collect();
-        let pick =
-            cmux_focus_core::close_focus::tab(selected.as_ref(), &old_order, &pane.tabs, &shown);
+        let pick = cmux_focus_core::close_focus::tab(
+            selected.as_ref(),
+            &old_order,
+            &pane.tabs,
+            &shown,
+            &cmux_focus_core::close_focus::TabRelations::<SurfaceId>::default(),
+        );
         pane.active_tab =
             pick.and_then(|pick| pane.tabs.iter().position(|id| *id == pick)).unwrap_or(0);
+        // A tab that still launches can have its slot next to the closed
+        // tab: the list of the creations keeps the active tab for it, while
+        // the active tab of the pane stays where this close puts it.
+        let then =
+            tab_strip::place_list::ActiveNow { tab: pane.active_surface(), at: pane.active_at };
+        let was_active = selected == Some(target);
+        state.tab_places.lock().tab_closes(pane_id, &old_order, target, was_active, then);
         fence_layout_undo_for_tab_membership(state, &[pane_id]);
         return (removed, false);
     }
@@ -587,7 +627,7 @@ pub(super) fn remove_surface(
             None
         };
         if let Some(next) = next_active {
-            state.workspaces[wi].screens[si].active_pane = next;
+            state.workspaces[wi].screens[si].set_active_pane(next);
         }
         stamp_changed_active_pane(mux, state, previous_active);
         return (removed, true);
@@ -633,13 +673,21 @@ pub(super) fn collapse_empty_pane(mux: &Mux, state: &mut State, pane_id: PaneId)
             None
         };
         if let Some(next) = next_active {
-            state.workspaces[wi].screens[si].active_pane = next;
+            state.workspaces[wi].screens[si].set_active_pane(next);
         }
     } else {
         let ws = &mut state.workspaces[wi];
         ws.screens.remove(si);
         ws.active_screen = ws.active_screen.min(ws.screens.len().saturating_sub(1));
     }
+}
+
+/// The index of a pane's active tab after the tab at `removed` left it to another pane, with
+/// `remaining` tabs left: the same tab stays active unless it is the one that left, when its
+/// left neighbor (or the new first tab) is. The live move and its durable plan
+/// (`resource_topology/pane_tab_moves.rs`) both use it, so the stored pane names the live one.
+pub(super) fn active_after_tab_left(active: usize, removed: usize, remaining: usize) -> usize {
+    if remaining > 0 && active >= removed && active > 0 { active - 1 } else { active }
 }
 
 pub(super) fn move_tab_in_state(
@@ -684,9 +732,7 @@ pub(super) fn move_tab_in_state(
             return (false, false);
         };
         source.tabs.remove(old_idx);
-        if !source.tabs.is_empty() && source.active_tab >= old_idx && source.active_tab > 0 {
-            source.active_tab -= 1;
-        }
+        source.active_tab = active_after_tab_left(source.active_tab, old_idx, source.tabs.len());
     }
 
     let topology_changed = state.panes.get(&source_pane).is_some_and(|pane| pane.tabs.is_empty());
@@ -706,7 +752,7 @@ pub(super) fn move_tab_in_state(
         let ws = &mut state.workspaces[wi];
         ws.active_screen = si;
         let screen = &mut ws.screens[si];
-        screen.active_pane = target_pane;
+        screen.set_active_pane(target_pane);
         Some((ws.id, screen.id))
     } else {
         None

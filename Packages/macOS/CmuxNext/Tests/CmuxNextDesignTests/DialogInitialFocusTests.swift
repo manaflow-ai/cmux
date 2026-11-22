@@ -7,7 +7,7 @@ import Testing
 /// lost. A dialog opening never puts the keyboard on a button the person did not choose: Space
 /// presses nothing until Tab (or a click) moves to a button, while Return still presses the
 /// default button and Escape the cancel one. The overlay page draws the card and its focus
-/// (webviews/src/pages/overlay/dialog, OverlayDialog.test.tsx); this guards the keys the dialog
+/// (``CmuxDialogView``, DialogNativeCardTests); this guards the keys the dialog
 /// itself answers (`CmuxDialogPresentation.handle`), which a missed key reaches.
 @MainActor @Suite struct DialogInitialFocusTests {
     /// The paste confirm's shape: Deny (Escape), then Allow (Return).

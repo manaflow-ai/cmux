@@ -30,8 +30,8 @@ extension ActionRegistry {
         menu.autoenablesItems = true
         let shown = entries ?? contextMenuEntries(for: context), labels = ContextMenuCatalog.shared.labels(for: context)
         menuItems(shown, target: target, context: effective, implied: runFacts, arguments: arguments, labels: labels,
-                  machineID: machineID).forEach(menu.addItem)
-        if customize ?? (entries == nil) { appendCustomizeItem(to: menu, for: context) }
+                  machineID: machineID, menu: context).forEach(menu.addItem)
+        if customize ?? (entries == nil) { appendCustomizeItem(to: menu, for: context, target: target) }
         return menu
     }
 
@@ -101,7 +101,8 @@ extension ActionRegistry {
     }
 
     private func menuItems(_ entries: [ContextMenuEntry], target: ActionTargetRef?, context: ActionContext, implied: ActionContext,
-                           arguments: [String: ActionValue], labels: [ActionID: String] = [:], machineID: String? = nil) -> [NSMenuItem] {
+                           arguments: [String: ActionValue], labels: [ActionID: String] = [:], machineID: String? = nil,
+                           menu: ActionMenuContext? = nil) -> [NSMenuItem] {
         var items: [NSMenuItem] = []
         for entry in entries {
             switch entry {
@@ -114,29 +115,31 @@ extension ActionRegistry {
                       !ActionTargetVisibility.isHidden(id, invocation: invocation, in: self), let item = makeMenuItem(for: id) else { continue }
                 let payload = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments, implied: implied)
                 payload.targetMachineID = machineID
+                payload.menu = menu
                 item.representedObject = payload
-                item.image = Self.menuIcon(descriptor.symbol)
+                item.image = rowIcon(descriptor.symbol)
                 // A menu-only short title (the palette keeps the action's title).
                 if let label = labels[id] { item.title = label }
                 // Built per click: names the target's change (Pin or Unpin, over the label), says why it is disabled.
                 ActionTargetTitles.decorate(item, id: descriptor.id, invocation: invocation, in: self)
+                if item.isEnabled { rowSubmenus.attach(to: item, id: descriptor.id, target: target, machineID: machineID) }
                 items.append(item)
             case .submenu(let id, let children):
                 let childItems = menuItems(children, target: target, context: context, implied: implied, arguments: arguments, labels: labels,
-                                           machineID: machineID)
+                                           machineID: machineID, menu: menu)
                 guard !childItems.isEmpty, let title = labels[id] ?? title(for: id) else { continue }
                 let item = NSMenuItem(title: title.droppingEllipsis, action: nil, keyEquivalent: "")
-                item.image = descriptor(for: id).flatMap { Self.menuIcon($0.symbol) }
+                item.image = descriptor(for: id).flatMap { rowIcon($0.symbol) }
                 let submenu = NSMenu(title: item.title)
                 childItems.forEach(submenu.addItem)
                 item.submenu = submenu
                 items.append(item)
             case .folder(let folder, let children):
                 let childItems = menuItems(children, target: target, context: context, implied: implied, arguments: arguments, labels: labels,
-                                           machineID: machineID)
+                                           machineID: machineID, menu: menu)
                 guard childItems.contains(where: { !$0.isSeparatorItem }) else { continue }
                 let item = NSMenuItem(title: folder.title, action: nil, keyEquivalent: "")
-                item.image = Self.menuIcon(folder.symbol)
+                item.image = rowIcon(folder.symbol)
                 let submenu = NSMenu(title: folder.title)
                 childItems.forEach(submenu.addItem)
                 item.submenu = submenu
@@ -144,7 +147,7 @@ extension ActionRegistry {
             case .group(let group, let children):
                 // The person's own submenu (Settings > Menus): their title, no icon.
                 let childItems = menuItems(children, target: target, context: context, implied: implied, arguments: arguments, labels: labels,
-                                           machineID: machineID)
+                                           machineID: machineID, menu: menu)
                 guard childItems.contains(where: { !$0.isSeparatorItem }) else { continue }
                 let item = NSMenuItem(title: group.title, action: nil, keyEquivalent: "")
                 let submenu = NSMenu(title: group.title)
@@ -153,10 +156,11 @@ extension ActionRegistry {
                 items.append(item)
             case .choices(let id):
                 guard let descriptor = descriptor(for: id), isAvailable(descriptor.id, in: context),
-                      let item = makeChoicesItem(for: descriptor, target: target, in: context)
+                      !ActionTargetVisibility.isHidden(id, invocation: ActionInvocation(target: target, arguments: arguments), in: self),
+                      let item = makeChoicesItem(for: descriptor, target: target, in: context, arguments: arguments)
                 else { continue }
                 if let machineID { scope(item, toMachine: machineID) }
-                item.image = Self.menuIcon(descriptor.symbol)
+                item.image = rowIcon(descriptor.symbol)
                 if let label = labels[id] { item.title = label.droppingEllipsis }
                 items.append(item)
             }
@@ -172,6 +176,13 @@ extension ActionRegistry {
         (item.representedObject as? ActionMenuPayload)?.targetMachineID = machineID
         if let submenu = item.submenu { choiceCoordinators.object(forKey: submenu)?.machineID = machineID }
         item.submenu?.items.forEach { self.scope($0, toMachine: machineID) }
+    }
+
+    /// A catalog row's icon: the icon pack's drawing for its symbol when the App gave one (``symbolOverride``: the
+    /// fork mark for `arrow.branch`, as the palette and hand-built menus draw it), else ``menuIcon(_:)``.
+    func rowIcon(_ symbol: String) -> NSImage? {
+        if symbol != "command", let drawn = symbolOverride?(symbol, NSFont.menuFont(ofSize: 0).pointSize) { return drawn }
+        return Self.menuIcon(symbol)
     }
 
     /// A right-click row's icon: its action's SF Symbol as a template, inked like the row's text.

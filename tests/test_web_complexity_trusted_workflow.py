@@ -20,7 +20,13 @@ import sys
 from pathlib import Path
 
 import yaml
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "web-complexity-trusted.yml"
@@ -769,7 +775,7 @@ def test_merge_step_merges_only_when_rebase_merging_is_off() -> None:
             output.touch()
             run(
                 ["bash", "-c", script],
-                env={
+                env=git_fixture_env.fixture_env({
                     "PATH": f"{stub}:/usr/bin:/bin:/usr/local/bin",
                     "HOME": str(root),
                     "GITHUB_OUTPUT": str(output),
@@ -779,7 +785,7 @@ def test_merge_step_merges_only_when_rebase_merging_is_off() -> None:
                     "CANDIDATE_SHA": head,
                     "TEST_UPSTREAM": f"file://{repo}",
                     "GH_STUB": rebase,
-                },
+                }),
             )
             return dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
 
@@ -918,7 +924,7 @@ def _stale_branch_fixture(pr_change) -> tuple[Path, dict[str, str], tempfile.Tem
     shutil.copy(SCOPER, scripts / "scope-web-complexity.py")
     output = root / "github-output.txt"
     output.write_text("", encoding="utf-8")
-    env = {
+    env = git_fixture_env.fixture_env({
         "PATH": __import__("os").environ["PATH"],
         "HOME": str(root),
         "GIT_CONFIG_NOSYSTEM": "1",
@@ -929,7 +935,7 @@ def _stale_branch_fixture(pr_change) -> tuple[Path, dict[str, str], tempfile.Tem
         "CANDIDATE_SHA": head,
         "UPSTREAM_REPOSITORY": "fixture/unused",
         "UPSTREAM_URL": upstream.as_uri(),
-    }
+    })
     return workspace, env, temp
 
 

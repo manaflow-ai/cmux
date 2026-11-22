@@ -15,6 +15,7 @@ import { mcpCall, mcpDescription, mcpOutcome } from "../src/agent-session/acpmux
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { toolLabel } from "../src/agent-session/acpmux/toolPaths";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -35,12 +36,9 @@ beforeAll(() => {
   host = window.document.querySelector<HTMLElement>("#root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;

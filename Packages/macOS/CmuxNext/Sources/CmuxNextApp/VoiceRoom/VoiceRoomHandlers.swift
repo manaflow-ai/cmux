@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextDaemon
 import CmuxNextDictation
 import Foundation
 
@@ -8,9 +9,8 @@ import Foundation
 enum VoiceRoomHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
-        // Keyframes stay on this Mac: ~/Library/Application Support/cmux/voice-room/frames.
-        let host = VoiceRoomHost(frames: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appending(path: "cmux/voice-room/frames", directoryHint: .isDirectory))
+        // Keyframes stay on this Mac: ~/Library/Application Support/cmux-next/voice-room/frames (a cache: none moved).
+        let host = VoiceRoomHost(frames: DaemonLauncher.nextSupport().appending(path: "voice-room/frames", directoryHint: .isDirectory))
         let off: @MainActor () -> String? = { [weak services] in
             services?.settings?.snapshot.voiceRoom == true ? nil : VoiceRoomStrings.off
         }
@@ -34,15 +34,15 @@ enum VoiceRoomHandlers {
 enum VoiceRoomStrings {
     static var off: String {
         String(localized: "voiceRoom.refusal.off", defaultValue: "Voice Room is a Labs feature: turn it on in Settings > Advanced > Labs.",
-               table: "VoiceRoom", bundle: .module)
+               table: "VoiceRoom", bundle: .module.inAppLanguage)
     }
 
     static var badAddress: String {
         String(localized: "voiceRoom.refusal.address", defaultValue: "The Voice Room address in Settings is not a web address.",
-               table: "VoiceRoom", bundle: .module)
+               table: "VoiceRoom", bundle: .module.inAppLanguage)
     }
 
     static var notOpen: String {
-        String(localized: "voiceRoom.refusal.notOpen", defaultValue: "No Voice Room is open.", table: "VoiceRoom", bundle: .module)
+        String(localized: "voiceRoom.refusal.notOpen", defaultValue: "No Voice Room is open.", table: "VoiceRoom", bundle: .module.inAppLanguage)
     }
 }

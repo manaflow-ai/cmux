@@ -22,12 +22,14 @@ import run_ci_guards  # noqa: E402
 
 
 class NewReds(unittest.TestCase):
-    def run_it(self, head, base):
+    def run_it(self, head, base, *, base_complete=True):
         with tempfile.TemporaryDirectory() as tmp:
             paths = []
             for name, results in (("head", head), ("base", base)):
                 path = Path(tmp) / f"{name}.json"
                 if results is not None:
+                    if name == "base" and not base_complete:
+                        results = {"_cmux_complete": False, **results}
                     path.write_text(json.dumps(results))
                 paths.append(str(path))
             return subprocess.run([sys.executable, str(SCRIPT), *paths], capture_output=True, text=True)
@@ -54,6 +56,36 @@ class NewReds(unittest.TestCase):
         self.assertIn(f"::warning title=Webview test flaky on the base::{flake}", done.stdout)
         self.assertNotIn("::error", done.stdout)
         self.assertIn("0 webview test steps red on this change, 0 red on the base too, 1 flaky on the base", done.stdout)
+
+    def test_a_file_timeout_its_base_red_tests_explain_is_red_on_the_base(self):
+        # transcript-block-sideways-scrollbar.test.ts hit its hard limit on base and head alike: four 60 s gallery
+        # waits, every one red on the base. The base side held those tests' verdicts and no file-level line, so the
+        # file's own red was charged to #41217, #41246 and #41204.
+        file = "test/transcript-block-sideways-scrollbar.test.ts"
+        slow = [f"{file} > chromium > shell-live-unwrapped-long-line", f"{file} > webkit > shell-live-unwrapped-long-cut"]
+        head = {file: False, **{name: False for name in slow}}
+        done = self.run_flaky(head, {name: False for name in slow}, [])
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn(f"webview test red step (base): {file}", done.stdout)
+        self.assertNotIn("::error", done.stdout)
+        self.assertIn("0 webview test steps red on this change, 3 red on the base too", done.stdout)
+
+    def test_a_file_timeout_stays_the_changes_when_the_base_does_not_explain_it(self):
+        file = "test/slow.test.ts"
+        base_red, new_red = f"{file} > base red", f"{file} > new red"
+        cases = {
+            # A test the head names red that the base passed: the change's, and so is the file.
+            "a new named red": ({file: False, base_red: False, new_red: False}, {base_red: False, new_red: True}),
+            # No test named: nothing on the base explains it.
+            "no named red": ({file: False}, {base_red: False}),
+            # The base ran the whole file and it passed.
+            "a base file pass": ({file: False, base_red: False}, {file: True, base_red: False}),
+        }
+        for why, (head, base) in cases.items():
+            with self.subTest(why):
+                done = self.run_flaky(head, base, [])
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                self.assertIn(f"webview test red step (new): {file}", done.stdout)
 
     def test_a_flaky_list_excuses_only_the_names_it_lists(self):
         done = self.run_flaky({"test/a.test.ts > flake": False, "test/a.test.ts > broken": False, "test/b.test.ts": False},
@@ -118,6 +150,75 @@ class NewReds(unittest.TestCase):
         self.assertIn("::warning title=Webview test passed again alone on the head::test/a.test.ts > passed", done.stdout)
         self.assertIn("::error title=Webview test red on this change::test/a.test.ts > remains", done.stdout)
 
+    def run_again(self, head, base, *again, new_files=False):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for name, results in (("head", head), ("base", base)):
+                path = Path(tmp) / f"{name}.json"
+                path.write_text(json.dumps(results))
+                paths.append(str(path))
+            extra = []
+            for i, results in enumerate(again):
+                path = Path(tmp) / f"again-{i}.json"
+                if results is not None:
+                    path.write_text(json.dumps(results))
+                extra += ["--base-again", str(path)]
+            mode = ["--new-files"] if new_files else ["--label", "Webview test"]
+            return subprocess.run([sys.executable, str(SCRIPT), *mode, *extra, *paths], capture_output=True, text=True)
+
+    def test_a_red_that_fails_on_another_base_replay_is_flaky_not_the_changes(self):
+        # cmux#41254 (run 43006460063): the head failed the webkit stream-row overlap test twice (overlapFrames 2), the
+        # one base replay of attempt 2 passed it (overlapFrames 0), and the verdict called it the change's. Attempt 3's
+        # base replay failed it (overlapFrames 1). A test the base both passed and failed is flaky there.
+        red = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
+        done = self.run_again({red: False}, {red: True}, {red: True}, {red: False})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn("::error", done.stdout)
+        self.assertIn(f"::warning title=Webview test passed and failed on the base's replays::{red}", done.stdout)
+        self.assertIn(f"webview test red step (flaky): {red}", done.stdout)
+        self.assertIn("0 webview test steps red on this change, 0 red on the base too, 1 flaky on the base", done.stdout)
+        listed = self.run_again({red: False}, {red: True}, {red: False}, new_files=True)
+        self.assertEqual((listed.returncode, listed.stdout), (0, ""))
+
+    def test_a_red_every_base_replay_passes_stays_the_changes(self):
+        red = "test/composer-history.test.ts > older page"
+        file = "test/composer-history.test.ts"
+        # Passing again, unreadable, or failing only as a whole file (a timeout names no test): still the change's.
+        for again in ({red: True}, None, {file: False}, {"test/other.test.ts > x": False}):
+            done = self.run_again({red: False}, {red: True}, again)
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+            self.assertIn(f"::error title=Webview test red on this change::{red}", done.stdout)
+            listed = self.run_again({red: False}, {red: True}, again, new_files=True)
+            self.assertEqual(listed.stdout.splitlines(), [file])
+
+    def test_no_first_base_pass_means_no_flake_verdict_from_a_later_replay(self):
+        # #41414 review F2: a later base replay that fails a test proves the base flaps on it only when the first
+        # replay passed it. A missing or unreadable first result, or a first replay whose file timed out (it names no
+        # test), followed by a replay that names the test red, turned "no base result is the change's" into a pass.
+        red = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
+        file = red.split(" > ")[0]
+        for first in ("unreadable", {file: False}, {f"{file} > other": False, file: False}):
+            done = self.run_again({red: False}, first, {red: False})
+            if first == "unreadable":
+                self.assertEqual(done.returncode, 1, f"{first}: {done.stdout}{done.stderr}")
+                self.assertIn(f"webview test red step (unknown): {red}", done.stdout)
+            else:
+                self.assertEqual(done.returncode, 1, f"{first}: {done.stdout}{done.stderr}")
+                self.assertIn(f"::error title=Webview test red on this change::{red}", done.stdout)
+                self.assertIn(f"webview test red step (new): {red}", done.stdout)
+            listed = self.run_again({red: False}, first, {red: False}, new_files=True)
+            self.assertEqual(listed.stdout.splitlines(), [] if first == "unreadable" else [file], first)
+        # A first replay whose file passed whole (it names no passing test) did pass it.
+        done = self.run_again({red: False}, {file: True}, {red: False})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn(f"webview test red step (flaky): {red}", done.stdout)
+
+    def test_a_whole_file_red_that_fails_on_another_base_replay_is_flaky(self):
+        file = "test/reasoning-own-control.test.ts"
+        done = self.run_again({file: False}, {file: True}, {file: False})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn(f"webview test red step (flaky): {file}", done.stdout)
+
     def test_a_green_head_with_reds_only_on_the_base_is_green(self):
         done = self.run_it({"test/a.test.ts": True, "test/b.test.ts": True}, {"test/a.test.ts": False})
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
@@ -148,23 +249,85 @@ class NewReds(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertIn("::warning title=Guard red on the base too::lint", done.stdout)
 
-    def test_a_new_step_that_fails_is_the_changes(self):
+    def test_a_step_that_fails_on_a_completed_base_is_the_changes(self):
         done = self.run_it({"new step": False}, {})
         self.assertEqual(done.returncode, 1)
+
+    def test_a_step_with_no_base_result_is_unknown_not_new(self):
+        # Detector for the cut-pass class: an absent base entry must never become a `new` line.
+        done = self.run_it({"cut step": False}, None)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("guard red step (unknown): cut step", done.stdout)
+        self.assertNotIn("guard red step (new): cut step", done.stdout)
+        self.assertIn("0 guard steps red on this change", done.stdout)
+
+    def test_a_partial_base_keeps_finished_green_new_and_missing_unknown(self):
+        done = self.run_it({"cut step": False, "finished green": False}, {"finished green": True}, base_complete=False)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("guard red step (new): finished green", done.stdout)
+        self.assertIn("guard red step (unknown): cut step", done.stdout)
+        self.assertNotIn("guard red step (new): cut step", done.stdout)
+
+    def test_a_file_the_cut_base_replay_never_reached_is_unknown_not_the_changes(self):
+        # react-apps-base-check's first base replay stops at the job's budget (CMUX_WEB_TEST_STOP_AT). Job
+        # 137225088381 replayed 152 files one at a time and was cancelled at the 55 minutes with no verdict; cut
+        # instead, the files it never reached have no base result, and their reds must not read as the change's.
+        reached, cut = "test/reached.test.ts", "test/cut.test.ts"
+        head = {f"{reached} > a": False, f"{cut} > b": False, cut: False}
+        with tempfile.TemporaryDirectory() as tmp:
+            files, base, head_path = Path(tmp) / "files", Path(tmp) / "base.json", Path(tmp) / "head.json"
+            files.write_text(f"{reached}\n{cut}\n")
+            base.write_text(json.dumps({f"{reached} > a": True}))
+            head_path.write_text(json.dumps(head))
+            marked = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"), "--mark-unreached",
+                                     str(files), str(base)], capture_output=True, text=True)
+            self.assertEqual(marked.returncode, 0, marked.stdout + marked.stderr)
+            self.assertIn(f"  {cut}", marked.stdout)
+            self.assertEqual(json.loads(base.read_text())["_cmux_unreached"], [cut])
+            done = subprocess.run([sys.executable, str(SCRIPT), "--label", "Webview test", str(head_path), str(base)],
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+            self.assertIn(f"webview test red step (new): {reached} > a", done.stdout)
+            self.assertIn(f"webview test red step (unknown): {cut} > b", done.stdout)
+            self.assertIn(f"webview test red step (unknown): {cut}", done.stdout)
+            self.assertNotIn(f"(new): {cut}", done.stdout)
+            listed = subprocess.run([sys.executable, str(SCRIPT), "--new-files", str(head_path), str(base)],
+                                    capture_output=True, text=True)
+            self.assertEqual(listed.stdout.splitlines(), [reached])
+            # A replay that reached every file is left as it was.
+            base.write_text(json.dumps({f"{reached} > a": True, cut: True}))
+            subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"), "--mark-unreached",
+                            str(files), str(base)], check=True, capture_output=True)
+            self.assertNotIn("_cmux_unreached", json.loads(base.read_text()))
 
     def test_a_step_the_change_fixes_is_said(self):
         done = self.run_it({"lint": True}, {"lint": False})
         self.assertEqual(done.returncode, 0)
         self.assertIn("fixed by this change: lint", done.stdout)
 
-    def test_no_base_results_means_every_red_is_the_changes(self):
+    def test_no_base_results_are_deferred_to_the_merge_gate(self):
         done = self.run_it({"lint": False}, None)
         self.assertEqual(done.returncode, 1)
         self.assertIn("no base results", done.stdout)
+        self.assertIn("guard red step (unknown): lint", done.stdout)
 
     def test_no_head_results_fails(self):
         done = self.run_it(None, {"lint": True})
         self.assertEqual(done.returncode, 1)
+
+
+class IncrementalGuardResults(unittest.TestCase):
+    def test_a_completed_step_is_written_before_the_run_finishes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "guards-base.json"
+            unit = run_ci_guards.Unit("workflow-guard-tests", "ci", [])
+            step = run_ci_guards.Step("finished", "", {}, None)
+            writer = run_ci_guards.IncrementalResults(path, root)
+            writer.add(run_ci_guards.StepResult(unit, step, True, 0.1, ""))
+            self.assertEqual(json.loads(path.read_text()), {"_cmux_complete": False, "finished": True})
+            writer.complete()
+            self.assertEqual(json.loads(path.read_text()), {"_cmux_complete": True, "finished": True})
 
 
 class RedStepsForTheBaseRerun(unittest.TestCase):
@@ -297,6 +460,175 @@ class OneCheckCannotMaskAnother(unittest.TestCase):
         done = self.compare(self.results(["hosted"]), {self.STEP: False})
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         self.assertIn(f"::error title=Guard red on this change::{self.STEP} :: check_hosted", done.stdout)
+
+
+
+class ANewItemInABaseRedStepIsTheChanges(unittest.TestCase):
+    """cmux#41458: a step red on both sides was excused by its name alone. #41351 added a test no ci-guards.yml step
+    runs; "Validate every workflow guard is wired" named it beside two the base already left unwired, so the job said
+    "0 guard steps red on this change, 14 red on the base too" and passed (job 130668132153). A step red on both sides
+    is the change's when its head failure names something the base failure does not, and when that cannot be told."""
+
+    WIRED = "Validate every workflow guard is wired"
+
+    def step_results(self, root: Path, outputs: dict[str, str]) -> dict:
+        """Run one step per output under ROOT with the real runner, then write --results as run_ci_guards.py does."""
+        steps = []
+        for name, output in outputs.items():
+            script = root / f"{len(steps)}.sh"
+            script.write_text(f"cat <<'OUT'\n{output}\nOUT\nexit 1\n", encoding="utf-8")
+            steps.append(run_ci_guards.Step(name, f"bash {script}", {}, None))
+        unit = run_ci_guards.Unit("workflow-guard-tests", "ci", steps)
+        return run_ci_guards.run_steps(unit, steps, {"PATH": os.environ["PATH"], "HOME": str(root)}, "0" * 40,
+                                       keep_going=True)
+
+    def compare(self, head_outputs, base_outputs, *, base_failures=True):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for side, outputs in (("head", head_outputs), ("base", base_outputs)):
+                root = Path(tmp) / ("w" if side == "head" else "w/.guard-base")
+                root.mkdir(parents=True, exist_ok=True)
+                results = self.step_results(root, {k: v.replace("<ROOT>", str(root)) for k, v in outputs.items()})
+                path = Path(tmp) / f"{side}.json"
+                run_ci_guards.write_step_results(path, results, root)
+                if side == "base" and not base_failures:
+                    run_ci_guards.failures_path(path).unlink()
+                paths.append(str(path))
+            return subprocess.run([sys.executable, str(SCRIPT), *paths], capture_output=True, text=True)
+
+    def outputs(self, unwired: list[str], seed: str) -> dict[str, str]:
+        found = {self.WIRED: (
+            "F\n" + "=" * 20 + "\nFAIL: test_every_guard_is_wired (__main__.Wired.test_every_guard_is_wired)\n"
+            f'  File "<ROOT>/tests/test_ci_workflow_guards_are_wired.py", line 171, in test_every_guard_is_wired\n'
+            "AssertionError: tests no workflow runs, so the invariants they assert are not enforced:\n  "
+            + "\n  ".join(unwired) + f"\nRan 4 tests in 0.{seed}s\nFAILED (failures=1)")}
+        # Thirteen more steps red on the base, whose output differs only in timings, temp paths, shas and the root.
+        for i in range(13):
+            found[f"base red step {i}"] = (
+                f"FAIL: test_lock_{i} (__main__.Locks)\n  File \"<ROOT>/tests/test_lock_{i}.py\", line {i + 3}\n"
+                f"AssertionError: /tmp/tmp{seed}x{i}k/Cargo.lock drifted at {seed * 7}{i:02x}abcdef\n"
+                f"  File \"{run_ci_guards.RUNNER_ROOT}/scripts/ci/run_ci_guards.py\", line {i}\n"
+                f"Ran 1 test in {seed}.{i}s")
+        return found
+
+    def test_a_new_unwired_test_in_a_step_already_red_on_the_base_is_the_changes(self):
+        old = ["tests/test_cargo_locks.py", "tests/test_ci_single_host_fallbacks.py"]
+        done = self.compare(self.outputs(old + ["tests/test_portable_jobs_bring_their_python.py"], "41"),
+                            self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn(f"::error title=Guard red on this change::{self.WIRED}", done.stdout)
+        self.assertIn(f"guard red step (new): {self.WIRED}", done.stdout)
+        self.assertIn("tests/test_portable_jobs_bring_their_python.py", done.stdout)
+        self.assertIn("1 guard steps red on this change, 13 red on the base too", done.stdout)
+        for i in range(13):
+            self.assertIn(f"guard red step (base): base red step {i}", done.stdout)
+
+    def test_the_same_failure_on_both_sides_stays_the_bases(self):
+        old = ["tests/test_cargo_locks.py", "tests/test_ci_single_host_fallbacks.py"]
+        done = self.compare(self.outputs(old, "41"), self.outputs(list(reversed(old)), "93"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("0 guard steps red on this change, 14 red on the base too", done.stdout)
+        # Fewer items on the head than on the base: still the base's.
+        done = self.compare(self.outputs(old[:1], "41"), self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+    def test_a_step_whose_failures_cannot_be_compared_is_not_excused(self):
+        old = ["tests/test_cargo_locks.py"]
+        done = self.compare(self.outputs(old, "41"), self.outputs(old, "93"), base_failures=False)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("14 guard steps red on this change, 0 red on the base too", done.stdout)
+
+    def test_interpreter_shutdown_noise_is_not_a_new_failure_name(self):
+        # cmux#43507 (job 132737397395): "Validate base-red excusal" failed the same way on both sides, but the head's
+        # output also held CPython's shutdown warning `sys:1: ResourceWarning: unclosed file <...>`, so `sys:0` was a
+        # name the base's failure lacked and the step was charged to the change. Shutdown noise names nothing.
+        old = ["tests/test_cargo_locks.py"]
+        head = self.outputs(old, "41")
+        head[self.WIRED] += ("\n" + "." * 40 + "sys:1: ResourceWarning: unclosed file <_io.BufferedReader name=6>"
+                             "\nResourceWarning: Enable tracemalloc to get the object allocation traceback"
+                             "\nsys:1: ResourceWarning: unclosed <socket.socket fd=7, family=2, type=1, proto=6>")
+        done = self.compare(head, self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("0 guard steps red on this change, 14 red on the base too", done.stdout)
+
+    def test_a_real_new_name_beside_shutdown_noise_is_still_the_changes(self):
+        old = ["tests/test_cargo_locks.py"]
+        head = self.outputs(old + ["tests/test_portable_jobs_bring_their_python.py"], "41")
+        head[self.WIRED] += "\nsys:1: ResourceWarning: unclosed file <_io.BufferedReader name=6>"
+        done = self.compare(head, self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("tests/test_portable_jobs_bring_their_python.py", done.stdout)
+        self.assertNotIn("sys:0", done.stdout)
+
+
+class AWarningLineIsNotAFailureName(unittest.TestCase):
+    """hq#11346, hq#11216: "Validate base-red excusal for gh-merge-green" failed the same way on the head and the base,
+    but the head's output also held CPython's `sys:1: ResourceWarning: unclosed file <...>`, so `sys:0` was a name the
+    base's failure lacked and the guard group charged the step to the change (#43287, #43307, #43573, #43445). Any
+    Python warning line (`<file>:<line>: <Category>Warning: ...`, its source echo, the bare tracemalloc hint) names
+    nothing that failed. A real new name beside one still counts, and a failure that is only warnings stays unexcused."""
+
+    WIRED = ANewItemInABaseRedStepIsTheChanges.WIRED
+    NOISE = [
+        "." * 40 + "sys:1: ResourceWarning: unclosed file <_io.BufferedReader name=6>",
+        "ResourceWarning: Enable tracemalloc to get the object allocation traceback",
+        "sys:1: ResourceWarning: unclosed <socket.socket fd=7, family=2, type=1, proto=6>",
+        "<ROOT>/scripts/ci/base_red_excuse.py:812: DeprecationWarning: datetime.datetime.utcnow() is deprecated",
+        "  now = datetime.datetime.utcnow()",
+        "<frozen importlib._bootstrap>:488: RuntimeWarning: numpy.ndarray size changed",
+        "/usr/lib/python3/dist-packages/urllib3/connectionpool.py:1100: urllib3.exceptions.InsecureRequestWarning: "
+        "Unverified HTTPS request is being made to host 'example.invalid'",
+        "  warnings.warn(",
+        "tests/test_keychain.py:41: UserWarning: keychain_probe_skipped fell back to the login keychain",
+    ]
+
+    def setUp(self):
+        self.cases = ANewItemInABaseRedStepIsTheChanges()
+
+    def compare(self, head, base):
+        return self.cases.compare(head, base)
+
+    def outputs(self, unwired, seed):
+        return self.cases.outputs(unwired, seed)
+
+    def test_warning_lines_beside_the_bases_own_failure_are_excused(self):
+        old = ["tests/test_cargo_locks.py"]
+        head = self.outputs(old, "41")
+        head[self.WIRED] += "\n" + "\n".join(self.NOISE)
+        done = self.compare(head, self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn("sys:0", done.stdout)
+        self.assertIn("0 guard steps red on this change, 14 red on the base too", done.stdout)
+
+    def test_a_real_new_name_beside_warning_lines_is_still_the_changes(self):
+        old = ["tests/test_cargo_locks.py"]
+        head = self.outputs(old + ["tests/test_portable_jobs_bring_their_python.py"], "41")
+        head[self.WIRED] += "\n" + "\n".join(self.NOISE)
+        done = self.compare(head, self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn(f"::error title=Guard red on this change::{self.WIRED}", done.stdout)
+        self.assertIn("its head failure names what the base's does not: tests/test_portable_jobs_bring_their_python.py",
+                      done.stdout)
+        self.assertNotIn("sys:0", done.stdout)
+
+    def test_a_failure_that_is_only_warnings_is_not_excused(self):
+        # Fails closed: the step is red but its output names nothing once the warnings are gone, so the head and base
+        # failures cannot be compared.
+        head = self.outputs(["tests/test_cargo_locks.py"], "41")
+        head[self.WIRED] = "\n".join(self.NOISE)
+        done = self.compare(head, self.outputs(["tests/test_cargo_locks.py"], "93"))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn(f"{self.WIRED}: red on the base too, but its failures cannot be compared", done.stdout)
+
+    def test_a_warning_category_inside_a_failure_line_keeps_the_test_name(self):
+        import guards_new_reds
+
+        names = guards_new_reds.failure_names([
+            "FAILED tests/test_keychain.py::test_probe - DeprecationWarning: probe() is deprecated",
+            "sys:1: ResourceWarning: unclosed file <_io.BufferedReader name=6>",
+        ])
+        self.assertIn("tests/test_keychain.py::test_probe", names)
+        self.assertFalse({name for name in names if name.startswith("sys")}, names)
 
 
 if __name__ == "__main__":

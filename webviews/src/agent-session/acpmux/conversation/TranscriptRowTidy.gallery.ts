@@ -66,10 +66,10 @@ const snapshot = {
   ],
 };
 
-/// The pointer on the sub-session's line: the line itself lights as the chat's button.
+/// The pointer on the sub-session's name: only its chip lights, the chat's one opener.
 const hoverStart: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-disclosure__open") !== null);
-  await ctx.hover({ selector: ".cv-disclosure__open" });
+  await ctx.hover({ selector: ".cv-disclosure__open button.cv-agent-tag.is-open" });
 };
 
 export default agentPaneEntry({

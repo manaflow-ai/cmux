@@ -370,6 +370,10 @@ pub struct Answerer<'a> {
     pub(crate) fence: Option<&'a crate::agent::Fence>,
     /// The person who answered (`author.rs`), recorded in `answeredBy`: it proves nothing.
     pub author: Option<&'a crate::author::Author>,
+    /// The paired device whose credential the answering connection presented
+    /// (`server/remote_guard.rs` `sending_device`), from the handshake only: what D13 reads
+    /// (`Hub::local_claude_refusal`).
+    pub device: Option<&'a str>,
 }
 
 impl<'a> Answerer<'a> {
@@ -388,7 +392,7 @@ impl<'a> Answerer<'a> {
             (Some(nonce), Some(signed)) => Some((nonce, signed)),
             _ => None,
         };
-        Self { person, decision, approver, ancestor: None, fence: None, author: None }
+        Self { person, decision, approver, ancestor: None, fence: None, author: None, device: None }
     }
 }
 
@@ -423,6 +427,9 @@ pub struct PersonGate {
     /// there too (`remote_guard::web_roots`, which drops `/`, home and its
     /// ancestors and resolves symlinks).
     pub workspace_roots: StdMutex<Vec<String>>,
+    /// Where the app's workspaces are read for an enrolled browser's sidebar
+    /// (`_acpmux/browser_workspace_source_set`, memory only; `server/browser_workspaces.rs`).
+    pub(crate) browser_workspaces: crate::server::browser_workspaces::Sources,
     /// The agent and model the person's app picked last for a new chat
     /// (`_acpmux/new_chat_picks_set`, memory only), shown in
     /// `_acpmux/harnesses` as `lastPicks`.
@@ -795,34 +802,7 @@ impl PersonGate {
     }
 }
 
-/// The transport a unix socket connection proves on (`transport` of [`person_proof`]).
-pub const TRANSPORT_UNIX: &str = "unix";
-/// The transport a proven LocalApp WebSocket connection proves on.
-pub const TRANSPORT_APP: &str = "app";
-
-/// The bytes a person proof covers.
-fn proof_message(transport: &str, nonce: &str, connection: &str) -> Vec<u8> {
-    let mut message = b"acpmux-person-v1\0".to_vec();
-    for part in [transport, nonce, connection] {
-        message.extend_from_slice(part.as_bytes());
-        message.push(0);
-    }
-    message.pop();
-    message
-}
-
-/// The proof for one connection's challenge, as lowercase hex; None when
-/// `key` is not a person key. `transport` is the one the CLIENT knows it
-/// uses ([`TRANSPORT_UNIX`] or [`TRANSPORT_APP`]), never a value from the
-/// challenge: a relay that hands a unix connection's challenge to the app's
-/// WebSocket gets a proof for the other transport.
-pub fn person_proof(key: &str, transport: &str, nonce: &str, connection: &str) -> Option<String> {
-    let key = cmux_local_auth::frontend_proof::unhex::<32>(key).filter(|_| valid_key(key))?;
-    Some(cmux_local_auth::frontend_proof::hex(&cmux_local_auth::frontend_proof::hmac_sha256(
-        &key,
-        &proof_message(transport, nonce, connection),
-    )))
-}
+pub use crate::person_proof::{TRANSPORT_APP, TRANSPORT_UNIX, person_proof, valid_key};
 
 mod decision_answers;
 pub mod policy_grant;
@@ -856,18 +836,7 @@ pub fn decision_proof(
     )))
 }
 
-/// A connection's nonce: 32 random bytes as lowercase hex.
-pub fn new_nonce() -> String {
-    let mut bytes = [0u8; 32];
-    // No randomness means no safe challenge: the daemon cannot serve.
-    getrandom::fill(&mut bytes).expect("the OS random generator for a connection nonce"); // crash-allow: no randomness, no safe challenge
-    cmux_local_auth::frontend_proof::hex(&bytes)
-}
-
-/// 32 bytes as lowercase hex.
-pub fn valid_key(key: &str) -> bool {
-    key.len() == 64 && key.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
+pub use crate::person_tokens::new_nonce;
 
 /// The declared refusal.
 pub fn person_required(what: &str) -> RpcError {
@@ -1133,7 +1102,10 @@ impl Hub {
                         params.get("value").and_then(Value::as_str),
                     )
                 };
-                if id.is_some_and(|i| crate::web_modes::FREE_CONFIG_IDS.contains(&i)) {
+                // A model, effort, speed (`fast-mode`), suggestion or collaboration choice
+                // (`web_modes::cli_config_id`): no approval mode, so no person. A Web
+                // connection's set is still held to its table by the remote guard.
+                if id.is_some_and(crate::web_modes::cli_config_id) {
                     return Ok(());
                 }
                 // An unknown session is the handler's not-found; a peer's
@@ -1143,7 +1115,10 @@ impl Hub {
                 else {
                     return Ok(());
                 };
-                let family = crate::web_modes::family_of(&s.meta());
+                // The family whose modes the configured harness offers: a launcher profile of
+                // Claude Code (`claude-sr2`) asks in Claude's `default` and `plan` too; an agent
+                // that only names itself Claude Code does not (`Hub::trusted_mode_family`).
+                let family = self.trusted_mode_family(&s.meta());
                 if remote_authenticated && self.any_mode_for_web(&s.meta()) {
                     return Ok(());
                 }

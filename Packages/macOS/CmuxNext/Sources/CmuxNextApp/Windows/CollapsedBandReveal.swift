@@ -53,7 +53,7 @@ final class CollapsedBandReveal {
     private let closeTimer: DemandTimer
     /// The band's share on screen now (the sidebar's or this driver's), so
     /// an open starts from it instead of from 0.
-    var shownPresence: () -> CGFloat = { 0 }
+    var shownPresence: () -> CGFloat = { 0 }, fullWidth: () -> CGFloat = { TopRowSpacing.buttonSide * 3 } // the band's open width
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
         closeTimer = DemandTimer(owner: "CollapsedBandReveal.close", clock: clock)
@@ -76,7 +76,7 @@ final class CollapsedBandReveal {
 
     /// The open share on screen: 0 closed, 1 open, in between while it animates.
     var presence: CGFloat {
-        min(1, max(0, driver.frame.width / TitlebarToolbarBand.width))
+        min(1, max(0, driver.frame.width / max(1, fullWidth())))
     }
 
     func setEngaged(_ value: Bool) {
@@ -109,7 +109,7 @@ final class CollapsedBandReveal {
             // An open always comes from engagement, so the callback inside hold() changes nothing.
             ownHold = reveal.hold()
         }
-        let full = TitlebarToolbarBand.width
+        let full = fullWidth()
         guard let width else { return }
         lastChangeAnimated = animates
         guard lastChangeAnimated else { width.constant = full; return }
@@ -136,5 +136,5 @@ final class CollapsedBandReveal {
         hold?.release()
     }
 
-    private var animates: Bool { Motion.sidebar.policy.animatesMovement && Motion.canAnimate(in: driver) }
+    private var animates: Bool { Motion.sidebar.animatesMovement(in: driver.window) && Motion.canAnimate(in: driver) }
 }

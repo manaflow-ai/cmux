@@ -4,6 +4,8 @@
 // - Layout: which views are turned on, the one in the pane and the one beside it (split or
 //   sidebar). Client view state: kept in this page's localStorage, nothing reaches the app.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { keptAgents } from "./model";
+import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
 import {
   ChiefViewsErrors,
   ChiefViewsOps,
@@ -124,9 +126,10 @@ export class ChiefViewsStore {
   async start(): Promise<void> {
     if (!this.client) return this.set({ agents: { status: "unavailable" } });
     try {
-      this.unsubscribe = await this.client.subscribe<ChiefAgentsReply>(ChiefViewsOps.agentsChanged, (reply) =>
-        this.set({ agents: { status: "ready", reply: reply.agents ?? [] } }),
-      );
+      this.unsubscribe = await this.client.subscribe<ChiefAgentsReply>(ChiefViewsOps.agentsChanged, (reply) => {
+        const previous = this.snapshot.agents.status === "ready" ? this.snapshot.agents.reply : [];
+        this.set({ agents: { status: "ready", reply: keptAgents(previous, reply.agents ?? []) } });
+      });
     } catch {
       // An app without the stream still answers the read; the rows then show as of the read.
     }
@@ -179,7 +182,8 @@ export class ChiefViewsStore {
           [kind]: {
             status: "unavailable",
             configured: configured !== false,
-            message: error.message,
+            // The owner words both for the person (ChiefViewsStrings).
+            message: userMessage(error, { [error.code]: OWNER_SENTENCE }),
             reply,
           },
         });

@@ -240,7 +240,10 @@ describe("dev server plugin", () => {
   test("serve only, the page's first script", () => {
     const plugin = perfBudgetsDevEntry();
     expect(plugin.apply).toBe("serve");
-    (plugin.configResolved as (config: { root: string }) => void)({ root: `${import.meta.dir}/..` });
+    (plugin.configResolved as (config: { root: string; base: string }) => void)({
+      root: `${import.meta.dir}/..`,
+      base: "/",
+    });
     const tags = (plugin.transformIndexHtml as unknown as () => unknown[])();
     expect(tags).toEqual([
       { tag: "script", attrs: { type: "module", src: "/src/devkit/perfBudgets.dev.ts" }, injectTo: "head-prepend" },
@@ -249,8 +252,9 @@ describe("dev server plugin", () => {
 
   test("a server whose root is elsewhere (the standalone pane's) gets an /@fs path; CMUX_PERF_BUDGETS=off injects nothing", () => {
     const plugin = perfBudgetsDevEntry();
-    (plugin.configResolved as (config: { root: string }) => void)({
+    (plugin.configResolved as (config: { root: string; base: string }) => void)({
       root: `${import.meta.dir}/../src/agent-session/acpmux`,
+      base: "/",
     });
     const [tag] = (plugin.transformIndexHtml as unknown as () => { attrs: { src: string } }[])();
     expect(tag!.attrs.src).toMatch(/^\/@fs\/.*\/webviews\/src\/devkit\/perfBudgets\.dev\.ts$/);

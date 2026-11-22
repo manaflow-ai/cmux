@@ -76,6 +76,8 @@ await requireBrowserLane("transcript-row-pitch-browser.test.ts", async () => {
           from: [sender],
           promptIds: [`${id}-prompt`],
           preview: "Ready for review.",
+          // acpmux sends the newest message whole (hub/inbox.rs `newest`): one short line, on the line.
+          newest: "Ready for review.",
         },
       ],
     });

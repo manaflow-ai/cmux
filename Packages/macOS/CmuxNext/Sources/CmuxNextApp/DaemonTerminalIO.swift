@@ -51,13 +51,14 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     var uploadsPasteboardFiles: Bool { fileTransfer.isRemote }
     private let fileTransfer: TerminalFileTransfer
     private let driver: TerminalAttachDriver<TerminalAttachment>
-    private let creatingInput: CreatingTerminalInput?
+    let creatingInput: CreatingTerminalInput? // its `close()`: the person closed the view before its terminal started
     /// The target's surface id for the typing probe (0: not resolved at init, a terminal still being made).
     private let probeSurface: UInt64
     /// The burst bench's grid echo and first-output marks (nil: none; a Release build compiles them out).
     private let burstTrace: BurstTrace?
     /// The app's grid sender (`AppServices.resizes`): a view's grid now, one in flight.
     private let resizes: ResizeCoordinator
+    let predictsEcho: Bool // the shell runs on another machine (a Cloud machine's daemon): keys show before their echo
     /// The id of the terminal still being created whose keys go to the daemon by id, nil otherwise.
     var creatingTerminalID: String? { creatingInput?.terminalID }
 
@@ -69,11 +70,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// go while the burst bench records (`debug.burst`).
     /// `resizes`: the app's grid sender (``ResizeCoordinator``), from its composition root.
     init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
-         creatingInput: CreatingTerminalInput? = nil,
+         creatingInput: CreatingTerminalInput? = nil, remoteShell: Bool = false,
          uploadsPasteboardFiles: Bool = false,
          burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         self.resizes = resizes
+        predictsEcho = remoteShell
         let fileTransfer = TerminalFileTransfer(target: target.attachment, gate: gate, isRemote: uploadsPasteboardFiles,
                                                 policyBlocked: policyBlocked, endpoint: endpoint)
         self.fileTransfer = fileTransfer
@@ -83,8 +85,10 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         let driver = TerminalAttachDriver<TerminalAttachment>(
             initialSize: target.initialSize,
             visible: visible,
-            // A view with no gate attaches to a terminal that already runs: a restore.
+            // A view with no gate attaches to a terminal that already runs: a restore. One with a
+            // gate waits for a terminal the daemon has not confirmed: it says `starting` until its first replay.
             restoring: gate == nil,
+            creating: gate != nil,
             opener: { size in
                 let attachment = try await fileTransfer.target()
                 #if DEBUG
@@ -129,7 +133,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                     }
                 }
                 switch event {
-                case .status(.disconnected), .status(.restoring):
+                case .status(.disconnected), .status(.restoring), .status(.starting):
                     guard policyBlocked() else { return event }
                     return .status(.disconnected(.turnedOffByOrganization, reconnecting: false))
                 default:
@@ -208,9 +212,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     }
 
     /// Called by `ResizeCoordinator` once the size settled.
-    @MainActor func applySettled(_ size: CellSize) {
-        driver.resize(size)
-    }
+    @MainActor func applySettled(_ size: CellSize) { driver.resize(size) }
 
     @MainActor var awaitsEcho: Bool { !driver.machine.echoesDue.isEmpty }
 
@@ -300,6 +302,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         switch status {
         case .connected: .connected
         case .restoring: .restoring
+        case .starting: .starting
         case .exited: .exited
         case .disconnected(let reason, let reconnecting): .disconnected(cause(reason), reconnecting: reconnecting)
         }

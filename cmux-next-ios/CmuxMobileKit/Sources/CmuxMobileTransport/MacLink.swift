@@ -65,6 +65,10 @@ public enum LinkState: Equatable, Sendable {
     /// The media session beside a WireGuard link changed.
     case media(VideoMediaState)
     case disconnected(reason: String)
+    /// The link heard nothing for `silentMillis` after a ping (Rust
+    /// `Link::suspect_state`). Still open; the next `connected` says it
+    /// answered again. Only `disconnected` ends it.
+    case suspect(silentMillis: UInt32)
 }
 
 /// A transport-agnostic connection to one Mac. Implementations: `FFIMacLink`
@@ -89,10 +93,23 @@ public protocol MacLink: AnyObject, Sendable {
     /// it as connected at once instead of waiting a main-actor turn for the
     /// state stream (verify/perf-latency.md).
     var connectedPath: LinkPathKind? { get }
+    /// How long ago the link last received any frame from the Mac (a pong,
+    /// channel data, a control frame), measured where frames arrive, not where
+    /// a channel's reader takes them; nil when the link cannot say. Any frame
+    /// proves the link alive as a probe would, so the heartbeat probes only a
+    /// link this long quiet.
+    var receivedAgo: Duration? { get }
+    /// How long ago the link last received a frame other than a ping or a
+    /// pong; nil when the link cannot say. A link with no traffic for a beat
+    /// is idle: with Align Keepalives on, the heartbeat probes it on the
+    /// keepalive beat (``KeepaliveBeat``).
+    var trafficAgo: Duration? { get }
 }
 
 extension MacLink {
     public var connectedPath: LinkPathKind? { nil }
+    public var receivedAgo: Duration? { nil }
+    public var trafficAgo: Duration? { nil }
 
     /// A link that only pings: the pong or nothing.
     public func probe(timeout: Duration) async throws -> UInt32? {
@@ -123,9 +140,66 @@ public struct LinkError: Error, Equatable, Sendable {
     public var code: String
     public var message: String
 
+    /// The code for the cmux service refusing the access token (a 401), as the
+    /// Rust link sends it (`cmux_mobile_link_ffi::UNAUTHORIZED`).
+    public static let unauthorized = "unauthorized"
+
     public init(code: String, message: String) {
         self.code = code
         self.message = message
+    }
+}
+
+/// What a person reads for a link error: never the code or the type.
+extension LinkError: LocalizedError {
+    /// The codes with fixed copy: a fragment for status lines ("WebRTC failed: …")
+    /// and a sentence for alerts and failure states.
+    private var known: (reason: String, sentence: String)? {
+        switch code {
+        case _ where isTimeout:
+            return (reason: LinkError.timeoutReason, sentence: LinkError.timeoutSentence)
+        case "not_admitted":
+            return (reason: "the Mac refused this phone",
+                    sentence: "Your Mac didn't allow this iPhone. Allow it on your Mac, then try again.")
+        case "offline":
+            return (reason: "the Mac is offline", sentence: "Your Mac isn't connected. Open cmux on your Mac, then try again.")
+        case LinkError.unauthorized:
+            return (reason: "the cmux service refused the request", sentence: "Your session expired. Sign in again.")
+        default:
+            return nil
+        }
+    }
+
+    /// A request or write that ran out of time (the link's, the daemon's or acpmux's deadline).
+    /// Its raw message is a diagnostic; a person reads only the fixed, calm copy below, which
+    /// says what to do (Leo 2026-11-21: no "didn't answer in time").
+    public var isTimeout: Bool { ["timeout", "reply_timeout", "write_timeout"].contains(code) }
+    /// A status line's fragment for a timeout: the connection is being re-established.
+    public static let timeoutReason = "reconnecting to the Mac"
+    /// A failure state's sentence for a timeout that outlasted the quiet retries.
+    public static let timeoutSentence = "Can't reach your Mac right now. Make sure it's awake and cmux is open, then try again."
+
+    /// The Mac's or the link's own message, when it reads as a sentence for a person (never
+    /// for a timeout: that message is a diagnostic).
+    private var proseMessage: String? {
+        guard !isTimeout else { return nil }
+        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.count <= 240, text.contains(" "), let first = text.unicodeScalars.first,
+              CharacterSet.uppercaseLetters.contains(first) else { return nil }
+        let markers = ["{", "}", "<", ">", "_", "://", "Error(", "(code:", "couldn’t be completed", "couldn't be completed"]
+        return markers.contains(where: { text.contains($0) }) ? nil : text
+    }
+
+    /// A short, display-safe fragment for a status line (lower case, no period).
+    public var displayReason: String {
+        if let known { return known.reason }
+        return proseMessage.map { String($0.prefix(80)) } ?? "the connection to the Mac failed"
+    }
+
+    /// A sentence: the Mac's own message when it is prose, else the code's copy.
+    public var errorDescription: String? {
+        if code == LinkError.unauthorized { return known?.sentence }
+        return proseMessage ?? known?.sentence ?? "Something went wrong talking to your Mac. Try again."
     }
 }
 

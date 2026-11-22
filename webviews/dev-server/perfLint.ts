@@ -7,6 +7,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Plugin, ViteDevServer } from "vite-plus";
 
+import { devBase } from "./devEntrySrc";
+
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const CONFIG = path.join(ROOT, "scripts/lint/perf-footguns.json");
 const VP = path.join(ROOT, "node_modules/.bin/vp");
@@ -18,7 +20,7 @@ const SOURCE = /\.(?:[cm]?[jt]sx?)$/;
 export type PerfLintFinding = { file: string; line: number; rule: string; message: string };
 
 type Report = {
-  diagnostics?: { filename: string; code: string; message: string; labels?: { span?: { line?: number } }[] }[];
+  diagnostics?: { filename: string; code?: string; message: string; labels?: { span?: { line?: number } }[] }[];
 };
 
 /** The findings in `vp lint --format json` output, with paths relative to webviews/. */
@@ -35,7 +37,7 @@ export function perfLintFindings(output: string): PerfLintFinding[] {
     file: path.relative(ROOT, path.resolve(ROOT, d.filename)),
     line: d.labels?.[0]?.span?.line ?? 0,
     // `cmux-perf(layout-thrash-in-loop)` is the rule `cmux-perf/layout-thrash-in-loop`.
-    rule: d.code.replace(/^([\w-]+)\(([^)]+)\)$/, "$1/$2"),
+    rule: d.code?.replace(/^([\w-]+)\(([^)]+)\)$/, "$1/$2") ?? "parse",
     message: d.message,
   }));
 }
@@ -54,9 +56,13 @@ export function perfLintOnSave(): Plugin {
   // The newest save per file wins: a slower lint of an older save never reports over it.
   const latest = new Map<string, number>();
   let server: ViteDevServer | undefined;
+  let base = "/";
   return {
     name: "cmux-perf-lint-on-save",
     apply: "serve",
+    configResolved(config) {
+      base = devBase(config.base);
+    },
     configureServer(dev) {
       server = dev;
     },
@@ -70,7 +76,7 @@ export function perfLintOnSave(): Plugin {
 });`;
     },
     transformIndexHtml: () => [
-      { tag: "script", attrs: { type: "module", src: `/@id/${CLIENT_ID}` }, injectTo: "head" },
+      { tag: "script", attrs: { type: "module", src: `${base}@id/${CLIENT_ID}` }, injectTo: "head" },
     ],
     handleHotUpdate({ file }) {
       if (!SOURCE.test(file) || !file.startsWith(path.join(ROOT, "src") + path.sep)) return;

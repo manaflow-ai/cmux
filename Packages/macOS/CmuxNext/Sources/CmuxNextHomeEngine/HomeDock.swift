@@ -1,6 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextDaemon
-import CmuxNextDesign
+public import CmuxNextDesign
 public import CmuxNextHome
 public import CmuxNextHomeModel
 public import Foundation
@@ -80,6 +80,23 @@ public final class HomeDock {
             }
         }
         return nil
+    }
+
+    /// Home's page tab is in its dock, where it stays.
+    public static func pageIsDocked(in home: WorkspaceModel) -> Bool {
+        guard let placed = pageTab(in: home) else { return false }
+        return isDocked(placed.pane, on: placed.screen)
+    }
+
+    /// Home shows from its saved state (launch-shell-first.md, piece 3): once `home`'s page is
+    /// mounted in its dock (called after an on-screen workspace's apply), `.home` is ready. The page
+    /// draws its list and last Chief from the Home cache, or its empty first frame on a first
+    /// install, and the Chief owner fills it in under it: the reveal never waits for the owner's
+    /// first page or the deadline. Classic Home keeps its first-page path. True when it marked.
+    @MainActor public static func revealWhenDocked(_ home: WorkspaceModel, reveal: LaunchReveal) -> Bool {
+        guard home.kind == "home", !classic, !reveal.isReady(.home), pageIsDocked(in: home) else { return false }
+        reveal.markReady(.home)
+        return true
     }
 
     /// Whether `pane` is in a left dock column with the agent chat role on `screen`.
@@ -279,7 +296,7 @@ public final class HomeDock {
         let folder = home.hasSuffix("/") ? String(home.dropLast()) : home
         // A shell whose folder is unknown is not known to be the placeholder.
         let atHome = tab.cwd.map { $0 == folder || $0 == folder + "/" } ?? false
-        let title = tab.title.trimmingCharacters(in: .whitespaces)
+        let title = tab.titleText.trimmingCharacters(in: .whitespaces)
         return atHome && (title.isEmpty || title == "~" || title == folder)
     }
 

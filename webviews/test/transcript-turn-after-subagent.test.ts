@@ -12,7 +12,9 @@ import { chromium, type Browser, type Page } from "playwright";
 import { AGENT, OWN_REPLIES } from "../src/agent-session/acpmux/conversation/TurnAfterSubagent.gallery";
 import { TRANSCRIPT_TURN_GAP } from "../src/agent-session/acpmux/transcriptGrid";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("transcript-turn-after-subagent.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -61,13 +63,13 @@ await requireBrowserLane("transcript-turn-after-subagent.test.ts", async () => {
   /** Where each of the agent's replies draws, against the subagent's row. */
   const measure = (page: Page) =>
     page.evaluate(
-      ({ agent, replies }) => {
+      ({ agent, replies, TRANSCRIPT_ROW }) => {
         const box = (element: Element | null | undefined) => {
           const rect = element?.getBoundingClientRect();
           return rect ? { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right } : null;
         };
         const subagent = document.querySelector(`.acpmux-row[data-row-id="subagentDone:${agent}"]`);
-        const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")].sort(
+        const rows = [...document.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)].sort(
           (a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top,
         );
         /** The first paragraph whose words start with `words` (a reply's Markdown links its refs). */
@@ -84,7 +86,7 @@ await requireBrowserLane("transcript-turn-after-subagent.test.ts", async () => {
           const range = document.createRange();
           range.selectNodeContents(node);
           const first = range.getClientRects()[0] ?? null;
-          const article = node.parentElement?.closest<HTMLElement>(".acpmux-row[data-row-id]") ?? null;
+          const article = node.parentElement?.closest<HTMLElement>(TRANSCRIPT_ROW) ?? null;
           const at = article ? rows.indexOf(article) : -1;
           let above: HTMLElement | undefined;
           for (let index = at - 1; index >= 0; index -= 1)
@@ -109,7 +111,7 @@ await requireBrowserLane("transcript-turn-after-subagent.test.ts", async () => {
           tops: rows.map((row) => `${row.dataset.rowId} ${row.getBoundingClientRect().top.toFixed(1)}`),
         };
       },
-      { agent: AGENT, replies: OWN_REPLIES },
+      { agent: AGENT, replies: OWN_REPLIES, TRANSCRIPT_ROW },
     );
 
   const check = (state: string, result: Awaited<ReturnType<typeof measure>>) => {
@@ -134,6 +136,9 @@ await requireBrowserLane("transcript-turn-after-subagent.test.ts", async () => {
 
   test("the agent's turns after a subagent row are its own, the report closed, opened and closed again", async () => {
     const page = await browser.newPage({ viewport: { width: 1000, height: 1300 }, deviceScaleFactor: 2 });
+    // The report that opens under its line is the retained disclosure look (the shipped compact line
+    // has no chevron, #42247): pinned, so the opened report's place is still checked.
+    await pinArms(page, { "subagent-done-report": "disclosure" });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "own-turn", width: 900, theme: "Catppuccin Mocha", reducedMotion: "true" })}`,

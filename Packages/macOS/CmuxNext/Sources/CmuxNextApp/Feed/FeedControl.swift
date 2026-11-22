@@ -1,9 +1,9 @@
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextControl
-import CmuxNextFeed
 import CmuxNextSettings
 import Foundation
+import CmuxNextFeedClient
 
 /// Control methods for local feed adapters (plans/cmux-next/feed.md 8.1) and
 /// verification. The app posts as the signed-in user: a hook process in a
@@ -47,10 +47,9 @@ enum FeedControl {
             .async("feed.question.reply") { call in
                 try await dialogs.replyQuestion(call.params)
             }.withDeadline(.fixed(.seconds(20))),
-            .mainActor("debug.feed") { [weak services] call in
-                guard let feed = services?.feed else { return .value(.null) }
-                return .value(debug(feed, match: call.params["match"]?.stringValue))
-            },
+            .async("debug.feed") { [weak services] call in
+                await debug(services, match: call.params["match"]?.stringValue)
+            }.withDeadline(.fixed(.seconds(20))),
         ]
     }
 
@@ -71,7 +70,6 @@ enum FeedControl {
         guard let post = params["post"]?.objectValue else { throw ControlError.invalidParams("feed.request needs `post` (feed.post params)") }
         guard let key = params["idempotency_key"]?.stringValue, !key.isEmpty else { throw ControlError.invalidParams("feed.request needs `idempotency_key`") }
         let wait = min(max(params["wait_seconds"]?.intValue ?? 0, 0), maxWait)
-        feed.startIfSignedIn()
         let posted = try await owner(feed, "v1/ops", ["op": "feed.post", "params": JSONValue.object(post).foundationObject, "idempotency_key": key, "origin": "cli"])
         guard let id = ((posted["value"] as? [String: Any])?["item"] as? [String: Any])?["id"] as? String else {
             throw ControlError(code: "feed.bad_reply", message: "the owner returned no item")
@@ -107,20 +105,18 @@ enum FeedControl {
         }
     }
 
+    /// Sign-in, the daemon feed client's connection and counts; with `match`, the items whose
+    /// title contains it (the feed handoff preflight finds its item on FeedDO this way).
     @MainActor
-    static func debug(_ feed: FeedService, match: String? = nil) -> JSONValue {
-        let connection: String = switch feed.connection {
-        case .connecting: "connecting"
-        case .connected: "connected"
-        case let .disconnected(reason): "disconnected: \(reason)"
-        }
-        let items = feed.model.visibleItems
-        // `match`: the owner's items whose title contains the text (the
-        // feed handoff preflight finds its item on FeedDO this way).
+    static func debug(_ services: AppServices?, match: String? = nil) async -> JSONValue {
+        guard let feed = services?.feed else { return .null }
+        let view = try? await feed.daemon.view(.list)
+        let items = view?.items ?? []
+        let connection = view?.connection.map { [$0.state, $0.reason].compactMap { $0 }.joined(separator: ": ") } ?? "unavailable"
         let matches: JSONValue = match.map { text in
-            .array(items.filter { $0.title.contains(text) }.map { item in
-                .object(["id": .string(item.id), "title": .string(item.title), "state": .string(String(describing: item.state)),
-                         "home": .string(String(describing: item.home)), "poster": .string(String(describing: item.poster))])
+            .array(items.filter { ($0.title ?? "").contains(text) }.map { item in
+                .object(["id": .string(item.id), "title": .string(item.title ?? ""), "state": .string(item.state ?? "open"),
+                         "home": .string(item.home ?? "cloud"), "poster": .string(item.poster?.label ?? "")])
             })
         } ?? .null
         return .object([
@@ -128,9 +124,9 @@ enum FeedControl {
             "signed_in": .bool(feed.isSignedIn),
             "api": .string(feed.apiBaseURL.absoluteString),
             "connection": .string(connection),
-            "items": .number(Double(items.count)),
-            "open_requests": .number(Double(items.filter(\.isOpenRequest).count)),
-            "unread": .number(Double(items.filter(\.isUnread).count)),
+            "items": .number(Double(view?.total ?? items.count)),
+            "open_requests": .number(Double(view?.counts?.openRequests ?? items.filter(\.isOpenRequest).count)),
+            "unread": .number(Double(view?.counts?.unread ?? 0)),
         ])
     }
 }

@@ -8,7 +8,7 @@ import { codeSpans } from "../slashCommands";
 import { ForeignFileRef, PathChip, SiblingFileChip, UrlChip } from "../chips/LinkChips";
 import { isBareFileName, ReplyFoldersContext } from "../chips/replyFolders";
 import { SoftBroken } from "./softBreaks";
-import { codePath, foreignFileId, isTemplatePath, linkPath, pathName } from "../chips/paths";
+import { codePath, foreignFileId, isTemplatePath, lineOf, linkPath, pathName } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import { StartedSessionChip } from "../started/StartedSessionCard";
 import { CmuxLinkChip } from "../chips/CmuxLinkChip";
@@ -30,10 +30,13 @@ import {
   INLINE_RE,
 } from "./markdownModel";
 import { proseText } from "./proseText";
+import type { ClaimCheck } from "../model";
 
 /* ---------------- Inline ---------------- */
 
 export type InlineOptions = {
+  /** A finished reply's checked claims: each phrase draws inside its mark (ClaimMark.tsx). */
+  claims?: readonly ClaimCheck[];
   /** Icon drawn before a link's text; default `linkIcon` below. */
   linkIcon?: (href: string) => ReactNode | null;
   /** The reply's footnotes: each id's number and the element id of its note. */
@@ -74,7 +77,7 @@ export type FootnoteNumbers = { numbers: Map<string, number>; anchor: (id: strin
 
 /// `src/app.ts:12` keeps its line in the chip's label (the chip opens the file).
 function lineLabel(path: string, written: string): string | undefined {
-  const line = /:(\d+)(?::\d+)?$/.exec(written)?.[1];
+  const line = lineOf(written);
   return line ? `${pathName(path)}:${line}` : undefined;
 }
 
@@ -148,7 +151,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
         ) : ref ? (
           <SessionRefCode key={k++} text={inner} agentRef={ref} fallback={code} />
         ) : path ? (
-          <PathChip key={k++} path={path} written={inner} label={lineLabel(path, inner)} />
+          <PathChip key={k++} path={path} line={lineOf(inner)} written={inner} label={lineLabel(path, inner)} />
         ) : isBareFileName(inner) ? (
           // A file name with no folder: its chip when it is in a folder the reply names.
           <SiblingFileChip key={k++} name={inner} fallback={code} />
@@ -166,7 +169,13 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       // A local path is a path chip; a link the pane will not open draws as its text; a web
       // link is a chip with its site's mark (chips/LinkChips.tsx).
       const path = linkPath(lm[2]);
-      const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false, started: undefined };
+      const labelOpts = {
+        ...opts,
+        githubRepository: undefined,
+        linkGithubReferences: false,
+        started: undefined,
+        claims: undefined,
+      };
       // A link to a session (`cmux://session/<id>`) the open chat started opens that chat.
       const linked = /^[a-z][\w+.-]*:\/\/session\/([\w-]+)$/i.exec(lm[2])?.[1];
       const named = linked ? opts.started?.mentions.find((mention) => mention.sessionId === linked) : undefined;
@@ -185,7 +194,8 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
         );
       else if (named)
         out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
-      else if (path) out.push(<PathChip key={k++} path={path} label={linkLabel(lm[1], labelOpts)} />);
+      else if (path)
+        out.push(<PathChip key={k++} path={path} line={lineOf(lm[2])} label={linkLabel(lm[1], labelOpts)} />);
       else if (app) {
         // A cmux app link: a plain anchor, so the click takes the host's link path (opened in the app).
         // One that names a chat or a place the page knows draws as its chip, with the author's label
@@ -324,7 +334,13 @@ export function InlineImage({ source, opts }: { source: string; opts: InlineOpti
   const foreign = foreignFileId(src);
   if (foreign) return <ForeignFileRef id={foreign} />;
   const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
-  const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false, started: undefined };
+  const labelOpts = {
+    ...opts,
+    githubRepository: undefined,
+    linkGithubReferences: false,
+    started: undefined,
+    claims: undefined,
+  };
   const href = safeHref(src);
   const fallback = !href ? (
     <span className="cv-link is-image">
@@ -352,7 +368,7 @@ function OversizedImage({ alt, opts }: { alt: string; opts: InlineOptions }) {
     >
       <ImageIcon size={16} className="cv-link__icon" />
       {alt
-        ? renderInline(alt, { ...opts, githubRepository: undefined, linkGithubReferences: false })
+        ? renderInline(alt, { ...opts, githubRepository: undefined, linkGithubReferences: false, claims: undefined })
         : t("markdown.imageTooLarge")}
     </span>
   );

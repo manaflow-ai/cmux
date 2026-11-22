@@ -43,7 +43,22 @@ struct UpdatedCardHoverPreviewTests {
 
     static let card = SidebarUpdatedCard(title: "Updated", whatsNewTitle: "What's New", dismissLabel: "Close")
 
+    /// These tests run the in-card list look (``UpdatedCardPreviewMode/above``): the list that grows up out
+    /// of the card over the rows. The shipped look opens the changes beside the sidebar instead and keeps the
+    /// card still (af041242c9c, Lawrence 2026-11-07: "i dont like how it expands upwards"); the in-card look
+    /// stays a Debug choice. Returns the call that puts the look back.
+    static func listInTheCard() throws -> () -> Void {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register([UpdatedCardPreviewMode.tunable.descriptor])
+        let key = UpdatedCardPreviewMode.tunable.key, before = TunableStore.shared.override(key)
+        let above = UpdatedCardPreviewMode.above.tunableValue
+        try #require(TunableStore.shared.set(key, above) == above, "the in-card look takes the override")
+        return { _ = TunableStore.shared.set(key, before) }
+    }
+
     @Test func theOpenPreviewGrowsTheCardUpwardOverTheListWithoutMovingIt() throws {
+        let restoreLook = try Self.listInTheCard()
+        defer { restoreLook() }
         UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightKey)
         UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightsKey)
         defer {
@@ -77,13 +92,20 @@ struct UpdatedCardHoverPreviewTests {
         #expect(host.frame.maxY == resting.maxY, "the card's bottom edge stays on its slot")
         #expect(host.frame.height == 248, "the view grows upward by the preview's room")
         #expect(sidebar.scrollView.frame.minY == listBottom, "the list keeps its room: the preview stands over it")
-        #expect(host.convert(host.closeButton.frame, to: sidebar) == closeOnScreen, "the x stays on the card's title line")
+        // The page lays the open preview's header first, so the card's title line (and its x) leads the
+        // grown view (8d5626228bc, Lawrence 2026-11-07: "a header (Updated to <version>, What's New link,
+        // close), then the items"). The x keeps its place on that line.
+        let titleLineInCard = closeOnScreen.minY - (resting.maxY - host.height)
+        let openClose = host.convert(host.closeButton.frame, to: sidebar)
+        #expect(openClose.minX == closeOnScreen.minX && openClose.size == closeOnScreen.size, "the x keeps its column and size")
+        #expect(openClose.minY == host.frame.minY + titleLineInCard, "the x is on the header's title line at the open preview's top")
 
         host.setHovered(false)
         #expect(island.pointer == [true, false])
         island.report(height: 48, overlay: 0)
         sidebar.layoutSubtreeIfNeeded()
         #expect(host.frame == resting, "a closed preview gives the room back")
+        #expect(host.convert(host.closeButton.frame, to: sidebar) == closeOnScreen, "the x is back on the resting card's title line")
         host.configure(nil)
     }
 
@@ -93,6 +115,8 @@ struct UpdatedCardHoverPreviewTests {
     /// edge; the rows under that glass light nothing and open no card, and the room the view keeps
     /// past the glass (asked for before the preview opens, or kept while it closes) passes the pointer on.
     @Test func theOpenPreviewsGlassCoversTheRowsUnderItAndOwnsThePointer() throws {
+        let restoreLook = try Self.listInTheCard()
+        defer { restoreLook() }
         UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightKey)
         UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightsKey)
         defer {
@@ -112,7 +136,10 @@ struct UpdatedCardHoverPreviewTests {
         sidebar.layoutSubtreeIfNeeded()
         host.layoutSubtreeIfNeeded()
         #expect(!host.glass.isHidden, "the resting card has its glass too: nothing swaps when the preview opens")
-        #expect(host.glass.frame == host.bounds)
+        // The glass is the card's height on its resting (bottom) edge. A slot bottom on a half point
+        // rounds the view's 48 out to 49 (see the test above), and the glass stays the card's 48.
+        let restingCard = NSRect(x: 0, y: host.bounds.height - host.height, width: host.bounds.width, height: host.height)
+        #expect(host.glass.frame == restingCard, "the resting glass is the card on its bottom edge")
         #expect(host.glass.superview === host && host.subviews.first === host.glass, "the glass is under the page")
 
         // The room first (the page waits for it), then the preview opens to 200 of rows.
@@ -174,6 +201,8 @@ struct UpdatedCardHoverPreviewTests {
     /// the pointer leave, so it closes the preview and hands the room back, and the card comes back
     /// closed when the slot is its again.
     @Test func aCardHiddenByTheSlotTellsThePageThePointerLeft() throws {
+        let restoreLook = try Self.listInTheCard()
+        defer { restoreLook() }
         UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightKey)
         UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightsKey)
         defer {
@@ -250,6 +279,8 @@ struct UpdatedCardHoverPreviewTests {
     /// room above the glass never counts. A tracking area on the whole view sent no exit when it shrank,
     /// so the page kept hearing "inside" over the rows and opened the list again.
     @Test func theHoverEndsWhenTheRoomGoesBackUnderAStillPointer() throws {
+        let restoreLook = try Self.listInTheCard()
+        defer { restoreLook() }
         UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightKey)
         UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightsKey)
         defer {

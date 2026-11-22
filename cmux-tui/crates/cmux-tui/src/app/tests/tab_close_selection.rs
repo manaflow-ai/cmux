@@ -1,8 +1,8 @@
 //! Tests: the tab a pane shows after one of its tabs closes, in this client's
-//! cached tree (the repair before the daemon's next tree): the tab before the
-//! closed one, else the one after it, as the app and the daemon pick it
-//! (cmux-focus-core `close_focus::tab`; Lawrence 2026-11-08: "it should
-//! always focus the tab before it if it exists").
+//! cached tree (the repair before the daemon's next tree): Chrome's rule, the
+//! tab after the closed one, else the one before it, as the app and the
+//! daemon pick it (cmux-focus-core `close_focus::tab`; Lawrence 2026-11-09:
+//! "ensure our cmd w behavior matches chrome").
 
 use super::*;
 use crate::app::adjust_active_tab_after_removal;
@@ -45,10 +45,10 @@ fn close(pane: &mut PaneView, index: usize) -> Option<u64> {
 }
 
 #[test]
-fn tab_close_selects_before_in_the_tui_cached_tree() {
-    // 1 2 3 4, 3 selected and closed: 2, the tab before it.
+fn tab_close_like_chrome_in_the_tui_cached_tree() {
+    // 1 2 3 4, 3 selected and closed: 4, the tab after it.
     let mut strip = pane(4, 2);
-    assert_eq!(close(&mut strip, 2), Some(2));
+    assert_eq!(close(&mut strip, 2), Some(4));
     // The last tab selected and closed: the one before it.
     let mut strip = pane(4, 3);
     assert_eq!(close(&mut strip, 3), Some(3));
@@ -58,14 +58,14 @@ fn tab_close_selects_before_in_the_tui_cached_tree() {
 }
 
 #[test]
-fn tab_close_selects_before_keeps_an_unselected_close_in_the_tui() {
+fn tab_close_like_chrome_keeps_an_unselected_close_in_the_tui() {
     let mut strip = pane(4, 1);
     assert_eq!(close(&mut strip, 3), Some(2));
     assert_eq!(close(&mut strip, 0), Some(2));
 }
 
 #[test]
-fn tab_close_selects_before_on_rapid_closes_in_the_tui() {
+fn tab_close_like_chrome_on_rapid_closes_in_the_tui() {
     // 1 2 3 4 with 3 selected, the selected tab closed four times: each close
     // starts from the selection the one before made.
     let mut strip = pane(4, 2);
@@ -74,5 +74,6 @@ fn tab_close_selects_before_on_rapid_closes_in_the_tui() {
         let index = strip.active_tab;
         shown.push(close(&mut strip, index));
     }
-    assert_eq!(shown, vec![Some(2), Some(1), Some(4), None]);
+    // 3 closes: 4; 4 (last) closes: 2; 2 closes: 1.
+    assert_eq!(shown, vec![Some(4), Some(2), Some(1), None]);
 }

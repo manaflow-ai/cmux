@@ -20,7 +20,7 @@ enum FindInDirectoryPage {
         }
         return PalettePageSpec(id: "findInDirectory.results", title: query,
                                placeholder: (root as NSString).abbreviatingWithTildeInPath,
-                               symbol: "folder.badge.magnifyingglass", providers: [provider])
+                               symbol: "doc.text.magnifyingglass", providers: [provider])
     }
 
     static func items(for outcome: RipgrepSearch.Outcome, effects: any FileExplorerEffects,
@@ -70,7 +70,7 @@ enum FindInDirectoryPage {
 
 enum FindInDirectoryStrings {
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "FindInDirectory", bundle: .module)
+        String(localized: key, defaultValue: value, table: "FindInDirectory", bundle: .module.inAppLanguage)
     }
 
     static var open: String { text("findInDirectory.open", "Open in Default Editor") }

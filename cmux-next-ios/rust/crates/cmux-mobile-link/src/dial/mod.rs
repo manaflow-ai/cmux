@@ -15,6 +15,8 @@ use crate::link::{Link, LinkConfig, Role};
 use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, SignalingEvent};
 
 pub(crate) mod turn;
+/// Measurement support (cmux-mobile-path-probe).
+pub use turn::{TimedAllocation, TurnTransport, timed_allocation};
 pub mod webrtc;
 pub mod wireguard;
 
@@ -75,6 +77,28 @@ pub enum LinkPath {
     NoPath,
 }
 
+impl LinkPath {
+    /// The path's wire name (`link_stat`, the debug probes): `direct`, `turn`, `turn-tls`, `none`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::Turn => "turn",
+            Self::TurnTls => "turn-tls",
+            Self::NoPath => "none",
+        }
+    }
+}
+
+impl TransportKind {
+    /// The transport's wire name (`link_stat`): `webrtc` or `wireguard`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::WebRtc => "webrtc",
+            Self::WireGuard => "wireguard",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DialOptions {
     /// ICE servers (from `GET /v1/ice`). STUN entries also serve WireGuard
@@ -126,10 +150,13 @@ pub struct DialOptions {
     pub restrict_inbound_udp: bool,
     /// Test and measurement support: what WireGuard does with each datagram
     /// it receives, by whether it came through this side's TURN allocation
-    /// and where from: `None` drops it (a cut path), `Some(delay)` delivers
-    /// it that much later, in order (a path's one-way latency).
+    /// and where from, and its size in bytes: `None` drops it (a cut path,
+    /// a loss), `Some(delay)` delivers it that much later, ordered by when
+    /// it is due (a path's one-way latency; jitter reorders, as on UDP).
+    /// `testing::shape_by_profile` (feature `testing`) plays a named phone
+    /// link profile.
     #[doc(hidden)]
-    pub impair_inbound: Option<fn(bool, &std::net::SocketAddr) -> Option<Duration>>,
+    pub impair_inbound: Option<fn(bool, &std::net::SocketAddr, usize) -> Option<Duration>>,
     /// Offer and accept the input lane (PROTOCOL.md "Lanes"): a second
     /// stream for keystrokes and resizes. Off only to measure or test the
     /// single-stream behavior of older peers.
@@ -160,12 +187,19 @@ pub struct DialOptions {
     /// (srflx 500 ms, prflx 1 s, relay 2 s) for before/after comparisons.
     #[doc(hidden)]
     pub stock_ice_waits: bool,
-    /// WireGuard, phone side: the person's "Ultra mode on cellular" setting.
-    /// On, a tunnel dialed while the phone's network is cellular
-    /// ([`wireguard::set_cellular_path`]) sends Reed-Solomon repair data
-    /// ([`wireguard::ultra_for_dial`]), about 2-3x the bytes, so loss costs
-    /// no time. `CMUX_WG_ULTRA` still wins over it.
-    pub ultra_on_cellular: bool,
+    /// WireGuard: the person's Settings > Transport > Ultra Mode (Off, Auto
+    /// or Always; Auto by default, the Mac's side of the link too). Auto
+    /// sends no extra data on a clean link and Reed-Solomon repair data from
+    /// the first loss, capped while the phone's network is cellular
+    /// ([`wireguard::set_cellular_path`], [`wireguard::ultra_for_dial`]);
+    /// Always sends it on every datagram, about 2-3x the bytes.
+    /// `CMUX_WG_ULTRA` still wins over it.
+    pub ultra: UltraSetting,
+    /// Settings → Transport → Align Keepalives (phone only, off by default):
+    /// the WireGuard tunnel sends no persistent keepalive, because the link
+    /// dialed with [`crate::LinkConfig::aligned`] pings on every 10 s beat
+    /// instead ([`crate::keepalive`]).
+    pub aligned_keepalives: bool,
     /// Bound on the whole dial or answer.
     pub timeout: Duration,
     /// Dial side, WebRTC: how long an offer waits for the Mac's answer. An
@@ -175,6 +209,31 @@ pub struct DialOptions {
     /// Where the dial or answer records its steps (`offer_sent`,
     /// `ice_connected`, `dtls_connected`, `channel_open`, ...).
     pub timeline: crate::Timeline,
+}
+
+/// Settings > Transport > Ultra Mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UltraSetting {
+    /// No repair data.
+    Off,
+    /// No extra data on a clean link; repair data within about one round
+    /// trip of a loss, capped on cellular.
+    #[default]
+    Auto,
+    /// Repair data on every datagram, cellular too.
+    Always,
+}
+
+impl UltraSetting {
+    /// `"off"`, `"auto"` or `"always"` (what the app stores); anything else
+    /// is the default, Auto.
+    pub fn parse(text: &str) -> Self {
+        match text.trim() {
+            "off" => Self::Off,
+            "always" => Self::Always,
+            _ => Self::Auto,
+        }
+    }
 }
 
 impl Default for DialOptions {
@@ -198,7 +257,8 @@ impl Default for DialOptions {
             video_cap_bps: 0,
             video_blackout: None,
             stock_ice_waits: false,
-            ultra_on_cellular: false,
+            ultra: UltraSetting::Auto,
+            aligned_keepalives: false,
             timeout: Duration::from_secs(25),
             answer_timeout: Duration::from_secs(8),
             timeline: crate::Timeline::new(),

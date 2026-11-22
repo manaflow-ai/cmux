@@ -13,11 +13,13 @@
 # (unpinned Sparkle versions) is covered through fake git/xcodebuild; the
 # pinned release download/checksum/extraction path through fake tools.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../scripts/cmux-next/tests/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$ROOT_DIR/scripts/sparkle_generate_appcast.sh"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-appcast-no-deltas.XXXXXX")"
-trap 'rm -rf "$TMP_DIR"' EXIT
+git_fixture_trap_exit 'rm -rf "$TMP_DIR"'
 FAKE_BIN="$TMP_DIR/bin"
 mkdir -p "$FAKE_BIN"
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -187,6 +189,7 @@ run_script() {
   SPARKLE_PRIVATE_KEY="$TEST_PRIVATE_KEY" \
   CMUX_TEST_APP_PUBLIC_KEY="${CMUX_TEST_APP_PUBLIC_KEY-$TEST_PUBLIC_KEY}" \
   SPARKLE_VERSION="0.0.0-test" \
+  SPARKLE_TOOLS_CACHE_DIR="$TMP_DIR/sparkle-cache-unset" \
   SPARKLE_MINIMUM_SYSTEM_VERSION="${CMUX_TEST_MINIMUM_SYSTEM_VERSION-26.0}" \
   "$@" \
   "$bash_bin" "$SCRIPT" "$TMP_DIR/cmux-macos.dmg" "v0.0.0-test" "$out"
@@ -238,19 +241,41 @@ for bash_bin in "${candidates[@]}"; do
     fail "bash $version: script failed with SPARKLE_TOOLS_DIR: $(tail -n 5 "$out_dir/run-tools.log")"
   fi
   grep -q 'sparkle:edSignature' "$out_dir/appcast-tools.xml" || fail "bash $version: SPARKLE_TOOLS_DIR appcast lacks sparkle:edSignature"
+  # The pinned tarball is cached on the Mac (#46099). Each case names its own cache directory, so no case
+  # reads another's cache or the real one under $HOME/Library/Caches.
   pinned_calls="$out_dir/pinned-calls"
-  : > "$pinned_calls"
-  if ! run_script "$bash_bin" "$out_dir/appcast-pinned.xml" env -u SPARKLE_TOOLS_DIR -u SPARKLE_PREVIOUS_ARCHIVES_DIR SPARKLE_VERSION=2.8.1 CMUX_TEST_PINNED_CALLS="$pinned_calls" PATH="$PINNED_BIN:$HDI_BIN:$PATH" >"$out_dir/run-pinned.log" 2>&1; then
-    fail "bash $version: pinned download path failed: $(tail -n 5 "$out_dir/run-pinned.log")"
-  fi
-  [ "$(paste -sd, "$pinned_calls")" = download,checksum,extract ] || fail "pinned tools did not download, verify, then extract"
+  cache="$out_dir/sparkle-cache"
+  cached_tarball="$cache/Sparkle-2.8.1-5cddb7695674ef77.tar.xz"
+  pinned() {  # pinned <appcast> <log> [env assignments...]
+    local appcast="$1" log="$2"
+    shift 2
+    : > "$pinned_calls"
+    run_script "$bash_bin" "$appcast" env -u SPARKLE_TOOLS_DIR -u SPARKLE_PREVIOUS_ARCHIVES_DIR SPARKLE_VERSION=2.8.1 \
+      CMUX_TEST_PINNED_CALLS="$pinned_calls" PATH="$PINNED_BIN:$HDI_BIN:$PATH" "$@" >"$log" 2>&1
+  }
+  # No cache yet: download, verify, extract, and keep the verified tarball.
+  pinned "$out_dir/appcast-pinned.xml" "$out_dir/run-pinned.log" SPARKLE_TOOLS_CACHE_DIR="$cache" \
+    || fail "bash $version: pinned download path failed: $(tail -n 5 "$out_dir/run-pinned.log")"
+  [ "$(paste -sd, "$pinned_calls")" = download,checksum,extract ] || fail "pinned tools did not download, verify, then extract: $(paste -sd, "$pinned_calls")"
   grep -q 'sparkle:edSignature' "$out_dir/appcast-pinned.xml" || fail "pinned download path produced no signed appcast"
-  : > "$pinned_calls"
-  if run_script "$bash_bin" "$out_dir/appcast-bad-checksum.xml" env -u SPARKLE_TOOLS_DIR -u SPARKLE_PREVIOUS_ARCHIVES_DIR SPARKLE_VERSION=2.8.1 CMUX_TEST_PINNED_SHA=bad CMUX_TEST_PINNED_CALLS="$pinned_calls" PATH="$PINNED_BIN:$HDI_BIN:$PATH" >"$out_dir/run-bad-checksum.log" 2>&1; then
+  [ "$(cat "$cached_tarball" 2>/dev/null)" = fixture-tarball ] || fail "the verified pinned tarball was not cached"
+  # A cache that verifies: no download, and the copy is verified again before it is extracted.
+  pinned "$out_dir/appcast-cached.xml" "$out_dir/run-cached.log" SPARKLE_TOOLS_CACHE_DIR="$cache" \
+    || fail "bash $version: cached pinned path failed: $(tail -n 5 "$out_dir/run-cached.log")"
+  [ "$(paste -sd, "$pinned_calls")" = checksum,checksum,extract ] || fail "a verified cache was not used without a download: $(paste -sd, "$pinned_calls")"
+  # A mismatched download (empty cache) is never extracted, signed or cached.
+  if pinned "$out_dir/appcast-bad-checksum.xml" "$out_dir/run-bad-checksum.log" SPARKLE_TOOLS_CACHE_DIR="$out_dir/empty-cache" CMUX_TEST_PINNED_SHA=bad; then
     fail "bash $version: mismatched pinned tarball checksum was accepted"
   fi
-  [ "$(paste -sd, "$pinned_calls")" = download,checksum ] || fail "mismatched pinned tarball was extracted"
+  [ "$(paste -sd, "$pinned_calls")" = download,checksum ] || fail "mismatched pinned tarball was extracted: $(paste -sd, "$pinned_calls")"
   [ ! -e "$out_dir/appcast-bad-checksum.xml" ] || fail "mismatched pinned tarball produced an appcast"
+  [ -z "$(ls -A "$out_dir/empty-cache" 2>/dev/null)" ] || fail "a mismatched pinned tarball was cached"
+  # A cache that no longer verifies is downloaded again, and a mismatched download is still never extracted.
+  if pinned "$out_dir/appcast-bad-cache.xml" "$out_dir/run-bad-cache.log" SPARKLE_TOOLS_CACHE_DIR="$cache" CMUX_TEST_PINNED_SHA=bad; then
+    fail "bash $version: a mismatched cache and download were accepted"
+  fi
+  [ "$(paste -sd, "$pinned_calls")" = checksum,download,checksum ] || fail "a mismatched cache was not downloaded again before failing: $(paste -sd, "$pinned_calls")"
+  [ ! -e "$out_dir/appcast-bad-cache.xml" ] || fail "a mismatched cache produced an appcast"
   [ ! -e "$TMP_DIR/binary-delta-called" ] || fail "BinaryDelta ran for unmountable fixtures"
   echo "ok: bash $version generates a signed appcast with and without previous archives"
 done

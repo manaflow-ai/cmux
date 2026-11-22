@@ -22,6 +22,8 @@ import {
   usageTokens,
 } from "../usageStats";
 import type { AcpmuxUsageLimits } from "../model";
+import type { AcpmuxTimeBreakdown } from "../model";
+import { TimeBreakdown } from "./TimeBreakdown";
 import { planLimitRows } from "../usageLimits";
 import "./UsageSection.css";
 import { USAGE_SHOWN } from "./usageSectionModel";
@@ -118,6 +120,8 @@ export const UsageSection = memo(function UsageSection({
   ownRowLayout = "flush",
   cacheLayout = "rows",
   planLimits,
+  timeBreakdown,
+  onShowTurn,
   now,
 }: {
   /// This chat's (`summary.usageStats`).
@@ -144,6 +148,8 @@ export const UsageSection = memo(function UsageSection({
   /// The account's plan usage limits this chat's harness reported (acpmux `usageLimits`): the
   /// Plan limits rows, the same the composer ring's plan usage popover shows. None: no rows.
   planLimits?: AcpmuxUsageLimits;
+  timeBreakdown?: AcpmuxTimeBreakdown;
+  onShowTurn?: (turnId: string) => void;
   /// The clock the reset times read (the gallery pins it).
   now?: () => number;
 }) {
@@ -176,19 +182,19 @@ export const UsageSection = memo(function UsageSection({
               )}
               {/* acpmux cannot restart a session with a cap yet: the step is named, not invented. */}
               {action === "cap" && (
-                <button
-                  type="button"
-                  className="acpmux-session-info-usage__action"
-                  disabled
-                  title={t("sessionInfo.usage.restartWithCapSoon")}
-                >
-                  {t("sessionInfo.usage.restartWithCap")}
-                </button>
+                <>
+                  <button type="button" className="acpmux-session-info-usage__action" disabled>
+                    {t("sessionInfo.usage.restartWithCap")}
+                  </button>
+                  {/* Why it is off, as text: a disabled button gets no hover (Chief, 2026-11-21). */}
+                  <span className="acpmux-session-info-usage__soon">{t("sessionInfo.usage.restartWithCapSoon")}</span>
+                </>
               )}
             </li>
           ))}
         </ul>
       )}
+      {timeBreakdown && <TimeBreakdown breakdown={timeBreakdown} onShowTurn={onShowTurn} />}
       {planRows.length > 0 && (
         <>
           <div className="acpmux-session-info-usage__head" data-usage-head="plan">

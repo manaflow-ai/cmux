@@ -464,7 +464,7 @@ pub(super) fn store_families(cfg: &crate::config::Config) -> StoreFamilies {
 /// The store a session's conversation lives in: its profile's, else its recorded family when
 /// that names a store, else unknown (a profile gone from this config, such as a refused user
 /// file): such a session is never the one an adopt opens.
-fn session_store(stores: &StoreFamilies, m: &SessionMeta) -> Option<String> {
+pub(super) fn session_store(stores: &StoreFamilies, m: &SessionMeta) -> Option<String> {
     stores.get(&m.harness).cloned().or_else(|| {
         m.family.clone().filter(|f| matches!(f.as_str(), "claude" | "codex" | "opencode"))
     })

@@ -1,8 +1,9 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, type CSSProperties } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { pressToOpen } from "../../../ui/pressToOpen";
 import { useT } from "../i18n";
 import { AgentMark } from "../NewTabPage";
+import { homeCardGlowArm, homeCardTint, type HomeCardGlowArm } from "./homeCardGlow.experiment";
 import { useListMotion } from "./listMotion";
 import type { ChatCard } from "./screenModel";
 import { useNt } from "./strings";
@@ -19,6 +20,8 @@ export function ChatCards({
   onOpen,
   onOpenInTerminal,
   onShowAll,
+  onColdArchive,
+  glow,
 }: {
   cards: ChatCard[];
   /** The first session-list read has not settled; populated cards stay visible. */
@@ -32,9 +35,17 @@ export function ChatCards({
   onOpenInTerminal?(sessionId: string): void;
   /// "All Chats >"; omitted when the page shows All chats itself.
   onShowAll?(): void;
+  /// The card menu's Compress Chat and Decompress Chat (acpmux `_acpmux/cold_archive`): an acpmux chat's
+  /// log goes into its cold archive, or comes back. Omitted where the page cannot ask acpmux.
+  onColdArchive?(sessionId: string, archived: boolean): void;
+  /// The home-card-glow experiment's arm (homeCardGlow.experiment.ts); unset reads the chosen arm.
+  glow?: HomeCardGlowArm;
 }) {
   const nt = useNt();
   const t = useT();
+  // The tinted glow draws on the card grid only; the one-line list keeps its plain rows.
+  const glowArm = variant === "cards" ? (glow ?? homeCardGlowArm()) : "off";
+  const glowing = glowArm !== "off";
   const list = useRef<HTMLDivElement>(null);
   /// Parents whose child list is open; each starts collapsed.
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
@@ -51,12 +62,15 @@ export function ChatCards({
       className="nt-card"
       data-state={card.state}
       data-child={child ? "" : undefined}
+      data-archived={card.archived ? "" : undefined}
+      style={glowing ? ({ "--nt-card-tint": homeCardTint(card) } as CSSProperties) : undefined}
       aria-label={nt("card.open", { title: card.title })}
       {...pressToOpen(() => onOpen(card.sessionId))}
     >
       <span className="nt-card-meta">
         <AgentMark harness={card.harness} />
         <span className="nt-card-age">{card.age}</span>
+        {card.archived && <span className="nt-card-badge">{nt("card.compressed")}</span>}
       </span>
       <span className="nt-card-title">{card.title}</span>
       {(card.state !== "idle" || card.message) && (
@@ -113,9 +127,10 @@ export function ChatCards({
       ) : cards.length === 0 ? (
         <p className="nt-chats-empty">{nt("noChats")}</p>
       ) : (
-        <div ref={list} className="nt-cards" data-variant={variant}>
+        <div ref={list} className="nt-cards" data-variant={variant} data-glow={glowing ? glowArm : undefined}>
           {cards.map((card) => (
-            // Its right-click menu: Open, and Open in Terminal (cx-2lm4).
+            // Its right-click menu: Open, Open in Terminal (cx-2lm4), and an acpmux chat's Compress
+            // Chat or Decompress Chat.
             <ContextMenu
               key={card.sessionId}
               className="nt-card-host"
@@ -127,6 +142,15 @@ export function ChatCards({
                         id: "terminal",
                         label: t("shell.openInTerminal"),
                         onSelect: () => onOpenInTerminal(card.sessionId),
+                      },
+                    ]
+                  : []),
+                ...(onColdArchive && !card.chatKey
+                  ? [
+                      {
+                        id: "cold-archive",
+                        label: nt(card.archived ? "card.decompressChat" : "card.compressChat"),
+                        onSelect: () => onColdArchive(card.sessionId, !card.archived),
                       },
                     ]
                   : []),

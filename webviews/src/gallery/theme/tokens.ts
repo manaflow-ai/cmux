@@ -217,9 +217,9 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
         )
       : null;
   const accent = app ? parseHex(app.tokens.accent) : null;
-  const hover = withAlpha(fg, isDark ? 0.06 : 0.05);
-  const selection = accent ? withAlpha(accent, isDark ? 0.26 : 0.16) : withAlpha(fg, isDark ? 0.1 : 0.08);
-  const pressed = withAlpha(fg, isDark ? 0.14 : 0.11);
+  const hover = withAlpha(fg, isDark ? 0.05 : 0.04);
+  const selection = accent ? withAlpha(accent, isDark ? 0.26 : 0.16) : withAlpha(fg, isDark ? 0.08 : 0.06);
+  const pressed = withAlpha(fg, isDark ? 0.12 : 0.1);
   // Swift's `min` keeps the first of equal elements; so does this reduce.
   const worstSurface = [composited(pressed, bg), composited(selection, bg)].reduce((worst, next) =>
     contrast(fg, next) < contrast(fg, worst) ? next : worst,
@@ -253,7 +253,7 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
     textTertiary: tertiary,
     hoverFill: hover,
     selectionFill: selection,
-    secondarySelectionFill: accent ? withAlpha(accent, isDark ? 0.18 : 0.11) : withAlpha(fg, isDark ? 0.07 : 0.055),
+    secondarySelectionFill: accent ? withAlpha(accent, isDark ? 0.18 : 0.11) : withAlpha(fg, isDark ? 0.056 : 0.042),
     pressedFill: pressed,
     badgeFill: withAlpha(fg, isDark ? 0.14 : 0.1),
     separator: withAlpha(fg, isDark ? 0.08 : 0.07),

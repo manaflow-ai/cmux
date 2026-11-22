@@ -4,8 +4,7 @@
 macOS's (Swift, `debug.motion {"action": "trajectory"}` on a tagged app).
 
 Every resolved token (response, damping fraction, visible end) and every
-frame path (200 pt move and mid-flight retarget, 60 and 120 Hz, bounce none
-and subtle) must agree: tokens within 1e-6, visible ends within one 1/480 s
+frame path (200 pt move and mid-flight retarget, 60 and 120 Hz) must agree: tokens within 1e-6, visible ends within one 1/480 s
 probe step, path samples within 0.01 pt (Rust steps in f32, Swift in
 CGFloat), and the frame a path rests on within one frame (the f32/f64 settle
 test can flip at the boundary). Prints the largest differences and exits 1
@@ -41,7 +40,7 @@ def main(argv):
         return 2
     a, b = load(args[0]), load(args[1])
     failures = []
-    key = lambda r: (r["token"], r["bounce"])
+    key = lambda r: r["token"]
     ta = {key(r): r for r in a["tokens"]}
     tb = {key(r): r for r in b["tokens"]}
     if set(ta) != set(tb):
@@ -58,7 +57,7 @@ def main(argv):
         worst_end = max(worst_end, d)
         if d > VISIBLE_END_TOL:
             failures.append(f"{k} visible_end: {ta[k]['visible_end']} vs {tb[k]['visible_end']}")
-    pkey = lambda r: (r["token"], r["bounce"], r["hz"], r["case"])
+    pkey = lambda r: (r["token"], r["hz"], r["case"])
     pa = {pkey(r): r["values"] for r in a["paths"]}
     pb = {pkey(r): r["values"] for r in b["paths"]}
     if set(pa) != set(pb):

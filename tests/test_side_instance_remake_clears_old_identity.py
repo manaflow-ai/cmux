@@ -86,6 +86,8 @@ class SideInstanceRemakeTests(unittest.TestCase):
     def state_of(self, ident: dict) -> list[Path]:
         paths = [self.home / ".acpmux/builds" / ident["key"], self.home / ".cmux/chief" / ident["key"],
                  self.home / ".cmux/chief" / f"{ident['key']}@acct",
+                 self.home / "Library/Application Support/cmux-next/builds" / ident["key"],
+                 # a build from before NEXT's own folder
                  self.home / "Library/Application Support/cmux/builds" / ident["key"],
                  self.home / "Library/Caches" / ident["bundle"]]
         for p in paths:
@@ -121,6 +123,27 @@ class SideInstanceRemakeTests(unittest.TestCase):
         self.assertEqual([p for p in state if not p.exists()], [])
         self.assertIn(f"bundle={first['bundle']}", (self.tmp / "side/pr-1/.side-instance").read_text())
 
+    def test_a_copy_shows_the_sim_icon_and_keep_icon_keeps_the_original(self):
+        """Leo, 2026-11-22: "for our 'fake shell offline simulator of the app' type things, maybe we ought to give them
+        different icons?" A copy's Dock icon was the NIGHTLY's (CFBundleIconName in Assets.car)."""
+        nightly = self.app("nightly", "com.cmuxterm.app.nightly", "cmux-next")
+        info = nightly / "Contents/Info.plist"
+        data = plistlib.load(open(info, "rb"))
+        data.update(CFBundleIconName="AppIcon-Nightly", CFBundleIconFile="AppIcon-Nightly")
+        plistlib.dump(data, open(info, "wb"))
+        app = Path(self.make(nightly)["app"])
+        plist = plistlib.load(open(app / "Contents/Info.plist", "rb"))
+        self.assertEqual(plist["CFBundleIconFile"], "AppIcon-Side")
+        self.assertNotIn("CFBundleIconName", plist)
+        icns = app / "Contents/Resources/AppIcon-Side.icns"
+        self.assertEqual(icns.read_bytes()[:4], b"icns")
+        self.assertEqual(icns.read_bytes(), (SCRIPT.parent / "side-icon/AppIcon-Side.icns").read_bytes())
+        subprocess.run(["bash", str(SCRIPT), "make", "pr-1", "--from", str(nightly), "--keep-icon"], env=self.env,
+                       check=True, capture_output=True, text=True)
+        plist = plistlib.load(open(app / "Contents/Info.plist", "rb"))
+        self.assertEqual((plist["CFBundleIconName"], plist["CFBundleIconFile"]), ("AppIcon-Nightly", "AppIcon-Nightly"))
+        self.assertFalse(icns.exists())
+
     def test_live_code_points_the_copy_at_its_own_live_folder(self):
         nightly = self.app("nightly", "com.cmuxterm.app.nightly", "cmux-next")
         subprocess.run(["bash", str(SCRIPT), "make", "pr-1", "--from", str(nightly), "--live-code"], env=self.env,
@@ -132,6 +155,35 @@ class SideInstanceRemakeTests(unittest.TestCase):
         self.assertTrue(live.is_dir())
         self.assertEqual(ident["live"], "1")
         self.assertNotIn("CMUX_LIVE_CODE_DIR", plistlib.load(open(Path(self.make(nightly)["app"]) / "Contents/Info.plist", "rb"))["LSEnvironment"])
+
+    def test_neutral_shell_gives_the_copys_terminals_a_prompt_with_no_host_name(self):
+        """hot-verify.py's look copies showed `cmux@cmux23 ~ %` in every terminal, and the privacy check withheld the
+        new-tab shot and the video for the worker's name (2026-11-16). --neutral-shell names a folder of neutral zsh
+        files in CMUX_CAPTURE_SHELL_HOME, which the app hands its terminals' zsh as ZDOTDIR."""
+        nightly = self.app("nightly", "com.cmuxterm.app.nightly", "cmux-next")
+        subprocess.run(["bash", str(SCRIPT), "make", "pr-1", "--from", str(nightly), "--neutral-shell"], env=self.env,
+                       check=True, capture_output=True, text=True)
+        ident = dict(line.split("=", 1) for line in (self.tmp / "side/pr-1/.side-instance").read_text().splitlines())
+        env = plistlib.load(open(Path(ident["app"]) / "Contents/Info.plist", "rb"))["LSEnvironment"]
+        home = Path(env["CMUX_CAPTURE_SHELL_HOME"])
+        self.assertEqual(home, (self.tmp / "side/pr-1/shell-home").resolve())
+        self.assertIn("PROMPT='$ '", (home / ".zshrc").read_text())
+        self.assertTrue((home / ".zshenv").is_file())
+        zsh = shutil.which("zsh")
+        if zsh:
+            # The account's own files would set a prompt naming the host; ZDOTDIR keeps zsh from reading them.
+            account = self.tmp / "account"
+            account.mkdir()
+            (account / ".zshrc").write_text("PROMPT='%n@%m %1~ %# '\n")
+            (account / ".zshenv").write_text("PROMPT='leak '\n")
+            shown = subprocess.run([zsh, "-i", "-c", 'print -rn -- "$PROMPT"'], capture_output=True, text=True,
+                                   env={"PATH": os.environ["PATH"], "HOME": str(account), "ZDOTDIR": str(home),
+                                        "TERM": "dumb"}, timeout=30).stdout
+            self.assertEqual(shown, "$ ")
+        # A copy made again without the flag (the copy comes fresh from the app) has none.
+        plain = plistlib.load(open(Path(self.make(nightly)["app"]) / "Contents/Info.plist", "rb"))["LSEnvironment"]
+        self.assertNotIn("CMUX_CAPTURE_SHELL_HOME", plain)
+        self.assertFalse(home.exists())
 
     def test_remove_clears_the_current_identity(self):
         ident = self.make(self.app("nightly", "com.cmuxterm.app.nightly", "cmux-next"))

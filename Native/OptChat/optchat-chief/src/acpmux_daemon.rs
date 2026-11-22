@@ -49,7 +49,7 @@ pub fn socket_path_for(
 ) -> PathBuf {
     let alias = |key: &str| PathBuf::from(format!("/tmp/acpmux-{uid}/{:016x}.sock", fnv1a64(key)));
     if let Some(socket) = configured {
-        if socket.starts_with('/') && socket.len() > MAX_SOCKET_PATH_BYTES {
+        if socket.starts_with('/') && socket.len() > cmux_unix_socket::PORTABLE_MAX_PATH_BYTES {
             return alias(socket);
         }
         return socket.into();
@@ -63,10 +63,6 @@ pub fn socket_path_for(
     }
     alias(&home.to_string_lossy())
 }
-
-/// The longest Unix socket path every host binds (cmux-agent-pane-policy
-/// `MAX_SOCKET_PATH_BYTES`): macOS's `sun_path` less its NUL.
-const MAX_SOCKET_PATH_BYTES: usize = 103;
 
 fn fnv1a64(text: &str) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
@@ -293,6 +289,12 @@ fn await_socket(socket: &Path, wait: Duration) -> Result<(), String> {
     }
 }
 
+/// The acpmux home this host's daemon uses (its socket's), where the
+/// machine's MCP connections live too (cmux-mcp-connect `shared`).
+pub fn home() -> PathBuf {
+    daemon_home(&socket_path())
+}
+
 fn daemon_home(socket: &Path) -> PathBuf {
     let user = std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -357,6 +359,18 @@ impl Started {
         let _ = child.try_wait();
         stopped
     }
+}
+
+/// The daemon this process started, while it still runs: its pid and the
+/// binary it ran. Its child, never reaped while it runs, so the pid names it
+/// alone (`acpmux_peer`: a not-dumpable daemon hides its executable on Linux).
+pub fn started_daemon() -> Option<(u32, PathBuf)> {
+    let mut starts = starts();
+    let started = starts.started.as_mut()?;
+    if started.gone() {
+        return None;
+    }
+    Some((started.child.id(), started.bin.clone()))
 }
 
 /// The starts of this process: in flight, done, and whether it stops.

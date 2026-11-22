@@ -44,7 +44,10 @@ async fn claude_lists_its_models_with_efforts_and_fast_mode() {
         .unwrap_or_else(|e| panic!("{e:#}"));
     eprintln!("live claude probe (cold): {} ms", started.elapsed().as_millis());
     // No "default" row, no disabled model, no update notice.
-    assert_eq!(ids(&models), ["opus", "sonnet[1m]", "claude-opus-5"]);
+    assert_eq!(
+        ids(&models),
+        ["claude-opus-5-5", "claude-sonnet-5-5[1m]", "claude-opus-5", "claude-fable-5-2"]
+    );
     let opus = &models[0];
     assert_eq!(opus.name, "Opus 5.5", "a description that extends the name wins");
     assert_eq!(opus.efforts, ["low", "medium", "high", "xhigh", "max"]);
@@ -53,6 +56,21 @@ async fn claude_lists_its_models_with_efforts_and_fast_mode() {
     assert_eq!(models[1].efforts, ["low", "medium", "high", "max"]);
     assert_eq!(models[1].name, "Sonnet (1M context)");
     assert_eq!(models[2].fast, Some(false));
+    // A gateway row names the vendor ("Claude Fable 5.2"); the picker's rows do not.
+    assert_eq!(models[3].name, "Fable 5.2");
+}
+
+#[test]
+fn claude_aliases_keep_the_live_resolved_release() {
+    let models = acpmux::live_models::claude::parse(&serde_json::json!({"models": [
+        {"value": "fable", "displayName": "Fable",
+         "description": "Fable 5.2 · Most capable", "resolvedModel": "claude-fable-5-2"},
+        {"value": "claude-fable-5-2", "displayName": "Fable 5.2"},
+        {"value": "sonnet[1m]", "resolvedModel": "claude-sonnet-5-5[1m]"},
+        {"value": "haiku", "displayName": "Haiku"}
+    ]}));
+    assert_eq!(ids(&models), ["claude-fable-5-2", "claude-sonnet-5-5[1m]", "haiku"]);
+    assert_eq!(models[0].name, "Fable 5.2");
 }
 
 #[tokio::test]

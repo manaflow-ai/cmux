@@ -73,4 +73,42 @@ struct CloudApprovalsPrepareTests {
         #expect(prepared)
         #expect(await starts.read() == 0)
     }
+
+    private actor Prep {
+        var ended = false, cancelled = false
+        func end(cancelled: Bool) { (ended, self.cancelled) = (true, cancelled) }
+    }
+
+    private struct LoginFailed: Error {}
+
+    /// #39069's review: a start whose login threw (an account change) left its approvals prep running past the start's
+    /// end, so the start gate was released under a restart. The start owns the prep: cancelled and awaited first.
+    @MainActor @Test func aFailedLoginCancelsAndAwaitsThePrepBeforeTheStartEnds() async {
+        let prep = Prep()
+        await #expect(throws: LoginFailed.self) {
+            try await RemoteApprovalPreparations.owned({
+                try? await Task.sleep(for: .seconds(30)) // a slow status read; the cancel ends it at once
+                await prep.end(cancelled: Task.isCancelled)
+                return false
+            }) {
+                await Task.yield()
+                throw LoginFailed()
+            }
+        }
+        #expect(await prep.ended, "the prep ended before the start did")
+        #expect(await prep.cancelled, "the prep saw the start's cancel, so it restarts nothing")
+    }
+
+    /// A login that passes waits for the prep too, uncancelled: the chat's first start carries the key.
+    @MainActor @Test func aPassedLoginAwaitsThePrepUncancelled() async throws {
+        let prep = Prep()
+        let value = try await RemoteApprovalPreparations.owned({
+            await Task.yield()
+            await prep.end(cancelled: Task.isCancelled)
+            return true
+        }) { 7 }
+        #expect(value == 7)
+        #expect(await prep.ended)
+        #expect(await !prep.cancelled)
+    }
 }

@@ -13,6 +13,7 @@ import type { AcpmuxActivity } from "../model";
 import { dispatchCall } from "./dispatchCalls";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { ToolRow } from "./ToolRow";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -80,6 +81,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   resetTranscriptDisclosure();
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -178,7 +180,6 @@ test("a shell's line keeps its one line: its Shell block shows the whole command
 for (const [name, output] of [
   ["without output", undefined],
   ["with whitespace output", " \n\t"],
-  ["with an image-only result", '{"content":[{"type":"image","mimeType":"image/png","data":"aGVsbG8="}]}'],
 ] as const) {
   test(`a short tool call ${name} has no empty disclosure`, async () => {
     const item: AcpmuxActivity = {
@@ -200,6 +201,27 @@ for (const [name, output] of [
     expect(container.querySelector(".cv-tool")?.getAttribute("aria-controls")).toBeNull();
   });
 }
+
+test("a short tool call with an image-only result opens to its image, a small one at its edge until then", async () => {
+  const item: AcpmuxActivity = {
+    kind: "tool",
+    text: "Wait 60000 ms",
+    tool: {
+      id: "wait-image",
+      title: "Wait 60000 ms",
+      kind: "execute",
+      status: "completed",
+      output: '{"content":[{"type":"image","mimeType":"image/png","data":"aGVsbG8="}]}',
+    },
+  };
+  const container = await render(<ToolRow item={item} />);
+  const line = container.querySelector<HTMLButtonElement>("button.cv-tool")!;
+  expect(container.querySelector(".cv-tool-images")).toBeNull();
+  expect(container.querySelector(".cv-tool-visual")).not.toBeNull();
+  await act(async () => line.click());
+  expect(line.getAttribute("aria-expanded")).toBe("true");
+  expect(container.querySelector(".cv-tool-images img")).not.toBeNull();
+});
 
 test("a dispatch report keeps its whole text", () => {
   const long = `${"The picker now fails over a stalled label. ".repeat(80)}END`;

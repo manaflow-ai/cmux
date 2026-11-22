@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, { had: boolean; value: unknown }>();
@@ -73,7 +74,8 @@ afterEach(async () => {
   delete paneWindow().cmuxAcpmuxActions;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [key, entry] of saved) {
     if (entry.had) scope[key] = entry.value;
@@ -231,8 +233,10 @@ test("a classic New Tab starts its deferred chat before changing model", async (
 test("a classic New Tab holds its effort and Fast mode picks on a deferred chat", async () => {
   const { chatCalls } = await mount();
   await open();
-  // The columns stay open: the level, then Fast, each land as they are clicked.
+  // The level lands and closes the menu (David Beyer 2026-11-20); Fast, in the menu opened again,
+  // lands as it is clicked.
   await pick("High");
+  await open();
   await pick("Fast");
   expect(chatCalls()).toEqual([
     { method: "chat.new", params: deferred },

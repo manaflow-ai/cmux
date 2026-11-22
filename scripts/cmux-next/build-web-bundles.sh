@@ -1,7 +1,8 @@
 #!/bin/sh
 # Builds every web bundle the cmux-next app ships, from the current sources:
 # the agent pane, the React pages, Agent Activity, the
-# webviews app (diff, markdown and editor pages) and the Chief memory inspector.
+# webviews app (diff, markdown and editor pages) and the Chief memory inspector,
+# and writes the App Store packages (sync-app-runtime.sh --store).
 # Every app build path runs it
 # before it compiles (scripts/reload.sh, scripts/cmux-next/check-release-compile.sh,
 # the macOS jobs of cmux-next.yml, the nightly-next build, nx-remote Swift test
@@ -29,6 +30,7 @@ set -eu
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 MODE=build
 OUT_ROOT=""
+REPORT_DIR="${CMUX_BUNDLE_REPORT_DIR:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --force) MODE=force ;;
@@ -37,13 +39,17 @@ while [ $# -gt 0 ]; do
       [ $# -ge 2 ] || { echo "error: --out-root needs a directory" >&2; exit 2; }
       case "$2" in /*) OUT_ROOT="$2" ;; *) OUT_ROOT="$PWD/$2" ;; esac
       shift ;;
+    --report-dir)
+      [ $# -ge 2 ] || { echo "error: --report-dir needs a directory" >&2; exit 2; }
+      case "$2" in /*) REPORT_DIR="$2" ;; *) REPORT_DIR="$PWD/$2" ;; esac
+      shift ;;
     --from)
       [ $# -ge 2 ] || { echo "error: --from needs a directory" >&2; exit 2; }
       MODE=from
       case "$2" in /*) FROM_ROOT="$2" ;; *) FROM_ROOT="$PWD/$2" ;; esac
       shift ;;
     -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
-    *) echo "usage: $0 [--force | --verify] [--out-root DIR] [--from DIR]" >&2; exit 2 ;;
+    *) echo "usage: $0 [--force | --verify] [--out-root DIR] [--report-dir DIR] [--from DIR]" >&2; exit 2 ;;
   esac
   shift
 done
@@ -71,7 +77,7 @@ missing_tool() {
 }
 
 need_bun() {
-  want="$(python3 -c 'import json, sys; m = (json.load(open(sys.argv[1])).get("devEngines") or {}).get("packageManager") or {}; print(m.get("version", "") if m.get("name") == "bun" else "")' "$ROOT/webviews/package.json" 2>/dev/null || true)"
+  want="$(python3 -I "$ROOT/scripts/webviews_bun_version.py" "$ROOT/webviews/package.json" 2>/dev/null || true)"
   if ! command -v bun >/dev/null 2>&1; then
     missing_tool "the cmux-next web bundles need bun ${want:-(see webviews/package.json devEngines)} or newer; install it: curl -fsSL https://bun.sh/install | bash -s bun-v${want:-<version>}"
   fi
@@ -100,13 +106,30 @@ verified() {
   [ "$(python3 "$KEY" "$ROOT" --verify-stamp)" = "$(cut -d' ' -f1-2 "$STAMP")" ]
 }
 
+# The App Store packages the app bundles (AppPlatform/store: samples/apps and first-party-apps with
+# a STORE marker) are build output too (Leo, 2026-10-21: "don't commit generatable files"): plain
+# copies of committed packages, no bun, so every in-tree run writes them, and --verify checks them.
+# Every checkout has the script; a scratch tree holding only the bundle scripts (the tests of
+# --from, ensure-web-bundles and the report run) has no app platform to write, so it is skipped there.
+STORE_SYNC="$ROOT/scripts/cmux-next/sync-app-runtime.sh"
+[ -f "$STORE_SYNC" ] || STORE_SYNC=""
+
 if [ "$MODE" = verify ]; then
+  if [ -n "$STORE_SYNC" ] && ! "$STORE_SYNC" --store --check; then
+    echo "error: the App Store packages are missing or stale; run scripts/cmux-next/build-web-bundles.sh" >&2
+    exit 1
+  fi
   if verified; then
     echo "web bundles are current"
     exit 0
   fi
   echo "error: the cmux-next web bundles are missing or stale; run scripts/cmux-next/build-web-bundles.sh" >&2
   exit 1
+fi
+
+# In-tree runs only: an --out-root build hands over web bundles, and --from writes the packages here.
+if [ -z "$OUT_ROOT" ] && [ -n "$STORE_SYNC" ]; then
+  "$STORE_SYNC" --store
 fi
 
 # A tree built elsewhere for this source key (cmux-next.yml's Linux web-bundles job caches
@@ -154,7 +177,7 @@ bun install --frozen-lockfile >/dev/null
 bun scripts/pages/gen-strings.mjs
 cd "$ROOT"
 
-if [ -z "$OUT_ROOT" ] && [ "$MODE" = build ] && current; then
+if [ -z "$OUT_ROOT" ] && [ -z "$REPORT_DIR" ] && [ "$MODE" = build ] && current; then
   echo "web bundles are current ($(cut -c1-12 "$STAMP"))"
   exit 0
 fi
@@ -172,8 +195,20 @@ out() {
 }
 
 rm -f "$STAMP"
+# A report run hands every builder its metafile folder through the environment (bundle-metafile.mjs).
+if [ -n "$REPORT_DIR" ]; then
+  mkdir -p "$REPORT_DIR"
+  export CMUX_BUNDLE_REPORT_DIR="$REPORT_DIR" CMUX_PAGES_METAFILE="$REPORT_DIR/pages.json"
+fi
 "$ROOT/scripts/cmux-next/build-agent-pane-web.sh" --out "$(out "$PANE")"
-"$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$(out "$PAGES")"
+# The Pages build also bundles the artifact iframe runtime; a report run records that graph too.
+# It goes to this builder alone: the webviews app names its own sidecar, so no two share a file.
+if [ -n "$REPORT_DIR" ]; then
+  CMUX_ARTIFACT_RUNTIME_METAFILE="$REPORT_DIR/pages-artifact-runtime.json" \
+    "$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$(out "$PAGES")"
+else
+  "$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$(out "$PAGES")"
+fi
 "$ROOT/scripts/cmux-next/build-agent-activity-web.sh" --out "$(out "$ACTIVITY")"
 "$ROOT/scripts/build-webviews-app.sh" --skip-checks --out "$(out "$APP")"
 # In-tree, the committed page was checked above.

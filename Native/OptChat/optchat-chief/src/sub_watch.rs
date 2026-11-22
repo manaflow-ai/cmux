@@ -716,6 +716,32 @@ pub fn unlanded(report: &str) -> bool {
         })
 }
 
+/// Whether `report` says its work landed: a commit range (`OLD..NEW`, two
+/// shas of 7 to 40 hex digits) or "landed" next to a commit sha, and no
+/// [`unlanded`] words.
+pub fn landed(report: &str) -> bool {
+    if unlanded(report) {
+        return false;
+    }
+    let sha = |w: &str| {
+        (7..=40).contains(&w.len())
+            && w.chars().all(|c| c.is_ascii_hexdigit())
+            && w.chars().any(|c| c.is_ascii_digit())
+            && w.chars().any(|c| c.is_ascii_alphabetic())
+    };
+    let range = report
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '.'))
+        .any(|w| {
+            w.split_once("..")
+                .is_some_and(|(a, b)| sha(a) && sha(b.trim_start_matches('.')))
+        });
+    if range {
+        return true;
+    }
+    let text = report.to_lowercase();
+    text.contains("landed") && text.split(|c: char| !c.is_ascii_alphanumeric()).any(sha)
+}
+
 pub fn minutes(ms: u64) -> String {
     let s = ms / 1000;
     if s < 60 {
@@ -764,5 +790,96 @@ mod unlanded_tests {
         assert!(!unlanded(
             "I made this red button bigger; landed 1a2b3c4..5d6e7f8."
         ));
+    }
+}
+
+/// A report that only says its run ended to wait on work it started (a
+/// fleet step, CI, a monitor it armed): "Red is still running; I report when
+/// it ends." With its background work still pending it reaches the Chief
+/// quietly (brain/spawns.rs `finish_sub`, tests/subagent_waiting.rs).
+/// Never a report that names a landed range, asks something, needs a person
+/// or waits on one: those are outcomes. Measured on 14 real subagents
+/// (Nov 18, 371 run ends): of the reports this matches with work pending,
+/// 177 of 178 were waits.
+pub fn waits(report: &str) -> bool {
+    use std::sync::LazyLock;
+    static WAIT: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(concat!(
+            r"(?i)still (running|compiling|queued|waiting|pending|in progress|going|following|watching|building|active)",
+            r"|\bwaiting\b|\bqueued\b",
+            r"|\b(monitor|watcher|wait|waits|loop|loops)\b[^.]{0,60}\b(armed|running|active|polls?|following|watching|watches|reports|fires)\b",
+            r"|\bwill report\b|\breport (once|when)\b|\bkeep (watching|waiting)\b",
+            r"|\bno (pass/fail )?result yet\b|\bhas no result\b|\bnot (done|finished) yet\b|\bin progress\b",
+            r"|\b(i|we) (wait|will wait) (for|on)\b|\bnotify me\b",
+            r"|\bwhen (it|they|both|those|red|green|the [a-z-]+( [a-z-]+)?) (ends?|finish(es)?|pass(es)?|fails?|come back|reports?)\b",
+            r"|\bpick (it |them )?up when\b|\b(i|we)( will)? land (when|as soon as|once)\b|\bonly thing left before\b",
+            r"|\bon the fleet (now|again)\b",
+        ))
+        .expect("wait words")
+    });
+    static ON_PERSON: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(
+            r"(?i)\b(wait|waits|waiting)\b[^.]{0,30}\b(you|your|the user|lawrence|the person|chief|a reply|an answer|approval|a decision|sign[- ]?in)\b",
+        )
+        .expect("person words")
+    });
+    let text = report.trim();
+    if text.is_empty() || text.starts_with('(') || landed(text) {
+        return false;
+    }
+    let lower = text.to_lowercase();
+    const LOUD: [&str; 13] = [
+        "?",
+        "needs you",
+        "need you",
+        "decision",
+        "blocked",
+        "reply `",
+        "approve",
+        "credential",
+        "login",
+        "password",
+        "can't",
+        "cannot",
+        "couldn't",
+    ];
+    if LOUD.iter().any(|w| lower.contains(w)) || ON_PERSON.is_match(text) {
+        return false;
+    }
+    WAIT.is_match(text)
+}
+
+#[cfg(test)]
+mod waits_tests {
+    use super::waits;
+
+    #[test]
+    fn real_waits_match() {
+        for r in [
+            "Red and green are on the fleet now. Both are still running; I report when they end.",
+            "All three are the v2 steps I cancelled on purpose. The v3 steps are running. Waiting.",
+            "The compile check passes on the full stack (job b195fa3a). I am waiting for the red and green suite runs.",
+            "The two CI loops are still following the queued runs. I report once when all of them pass.",
+            "Monitor bh132l1fu still polls f6b86781 directly, so nothing to restart.",
+            "Red, green and the Before shots all run on the fleet now. I wait for their results.",
+        ] {
+            assert!(waits(r), "{r}");
+        }
+    }
+
+    #[test]
+    fn outcomes_and_asks_do_not() {
+        for r in [
+            "Landed 1a2b3c4d..5e6f7a8b. The cleanup wait is still running.",
+            "Red is still running. Should I delete the scratch branch?",
+            "Still waiting for your reply before I push.",
+            "Waiting on the user to sign in.",
+            "**Needs you:** cmux-lawrence-2 is offline; the shots are queued.",
+            "Done: the command printed slept.",
+            "(stopped by the user) waiting",
+            "",
+        ] {
+            assert!(!waits(r), "{r}");
+        }
     }
 }

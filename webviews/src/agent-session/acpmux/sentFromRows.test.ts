@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "./model";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -8,7 +9,8 @@ const saved = (["window", "document"] as const).map((key) => [key, key in scope,
 beforeAll(() => {
   Object.assign(scope, { window: dom.window, document: dom.window.document });
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved)
     if (had) scope[key] = value;
     else delete scope[key];
@@ -224,6 +226,22 @@ test("a sender_claim after a harness-named message's row still draws on it", asy
     io.feed.emit(io.target, claim("p-named-late"));
     await settle(() => row(io.snapshot(), "p-named-late")?.sentFrom !== undefined);
     expect(row(io.snapshot(), "p-named-late")?.sentFrom?.label).toBe("Claude desktop");
+  } finally {
+    io.close();
+  }
+});
+
+test("a sender_claim on an older page draws on its prompt's row already held from a newer one", async () => {
+  // The attach holds the newest 2000 records (mock.ts `page`), so the claim lands on the page
+  // loaded next while its prompt's row is already drawn.
+  const filler = Array.from({ length: 2100 }, (_, i) => prompt(`p-filler-${i}`));
+  const io = await connect([claim("p-held"), ...filler, prompt("p-held")]);
+  try {
+    await settle(() => row(io.snapshot(), "p-held") !== undefined);
+    expect(row(io.snapshot(), "p-held")?.sentFrom).toBeUndefined();
+    for (let pages = 0; io.snapshot()?.canLoadOlder && pages < 10; pages += 1) await io.client.loadOlder();
+    expect(io.snapshot()?.canLoadOlder).toBe(false);
+    expect(row(io.snapshot(), "p-held")?.sentFrom?.label).toBe("Claude desktop");
   } finally {
     io.close();
   }

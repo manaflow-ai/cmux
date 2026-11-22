@@ -8,6 +8,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -46,11 +47,8 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 /// A few macrotask turns: the composer's measure runs on the next frame (a 0 ms timer here).

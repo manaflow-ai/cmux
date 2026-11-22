@@ -97,20 +97,17 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "harness secret",
         &[(
-            "Store an endpoint key for a harness",
-            "acpmux harness secret set acme ANTHROPIC_AUTH_TOKEN",
+            "Store an API key a harness's profile reads",
+            "acpmux harness secret set my-agent ACME_API_KEY",
         )],
     ),
     (
         "harness secret set",
         &[
-            (
-                "Store a key from a hidden prompt",
-                "acpmux harness secret set acme ANTHROPIC_AUTH_TOKEN",
-            ),
+            ("Store a key from a hidden prompt", "acpmux harness secret set my-agent ACME_API_KEY"),
             (
                 "Store a key read from stdin",
-                "printf 'sk-test' | acpmux harness secret set local CMUX_BYO_API_KEY",
+                "printf 'sk-test' | acpmux harness secret set my-agent ACME_API_KEY",
             ),
         ],
     ),

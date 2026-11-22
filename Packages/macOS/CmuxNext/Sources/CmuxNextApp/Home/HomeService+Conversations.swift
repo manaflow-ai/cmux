@@ -53,69 +53,51 @@ extension HomeService {
     }
 
     /// Creates another Chief on `backend`; its main conversation shows once the inbox lists it.
-    /// The one create path of the New Chief sheet, the palette and `cmux home new-chief`: an
-    /// engine whose Chiefs are this Mac's (UniiChat, Codex: ``ChiefBackend/createsOnThisMac``)
-    /// goes to this Mac's Chief owner, Claude to the signed-in account's cloud Chiefs.
-    func createChief(named name: String, backend: ChiefBackend = .claude) async -> HomeComposeOutcome {
-        backend.createsOnThisMac ? await createLocalChief(named: name, backend: backend) : await createCloudChief(named: name)
+    /// The one create path of the New Chief sheet, the New Chief button, the palette and `cmux home
+    /// new-chief`. The default is where the engine's Chiefs live: Claude's on the signed-in account's
+    /// cloud Chiefs (`chief.create`), UniiChat's, Codex's and Muse's on this Mac's Chief owner
+    /// (``ChiefBackend/createsOnThisMac``). `onThisMac` is the person's own choice in New Chief
+    /// ("Make it on this Mac"): the Chief is made on this Mac's Chief owner whatever the engine.
+    func createChief(named name: String, backend: ChiefBackend = .claude, onThisMac: Bool = false) async -> HomeComposeOutcome {
+        await createChiefForAction(named: name, backend: backend, onThisMac: onThisMac).outcome
     }
 
     /// Headless action path: returns the exact durable record created by this
     /// invocation, so concurrent Home actions cannot cross their result ids.
-    func createChiefForAction(named name: String, backend: ChiefBackend) async -> HomeActionChiefResult {
-        if backend.createsOnThisMac {
-            guard let connection else { return .failure(.offline) }
+    /// It makes the Chief where ``createChief(named:backend:onThisMac:)`` does.
+    func createChiefForAction(named name: String, backend: ChiefBackend, onThisMac: Bool = false) async -> HomeActionChiefResult {
+        if backend.createsOnThisMac || onThisMac {
+            guard let creator = localChiefCreator() else { return .failure(.offline) }
             do {
-                let made = try await HomeLocalChiefCreator(connection: connection, me: Self.localUser)
-                    .create(name: name, backend: backend)
+                let made = try await creator.create(name: name, backend: backend)
                 pendingSelection = made.conversation
                 refreshChiefHarnesses()
                 return .success(HomeChiefRecord(id: made.chief, name: name, isDefault: false, rev: 0,
                                                 mainConversation: made.conversation.rawValue, placed: true))
-            } catch let error as DaemonError {
-                switch error {
-                case .notConnected, .connectionClosed, .daemonShutdown: return .failure(.offline)
-                case .command(_, let message, let code, _, _): return .failure(.refused(message.isEmpty ? code ?? "" : message))
-                default: return .failure(.refused(error.description))
-                }
             } catch {
-                return .failure(.refused(String(describing: error)))
+                return .failed(error, onThisMac: true)
             }
         }
         do {
-            let record = try await directory.createChief(named: name)
-            if !record.placed { await hostedChief.enableBrain(of: record.id) }
+            let record = try await cloudChiefCreate(name)
+            if !record.placed { turnOnBrain(of: record.id) }
             pendingSelection = record.mainConversation.map { ConversationID($0) }
             return .success(record)
-        } catch FeedServiceError.signedOut {
-            return .failure(.offline)
-        } catch FeedServiceError.owner(let code, let message) {
-            return .failure(.refused(code == "policy.denied" || code == "validation.invalid" ? message : code))
         } catch {
-            return .failure(.refused(""))
+            return .failed(error, onThisMac: false)
         }
     }
 
-    /// `chief.create` on the signed-in account's cloud Chiefs (the default engine).
-    private func createCloudChief(named name: String) async -> HomeComposeOutcome {
-        do {
-            let record = try await directory.createChief(named: name)
-            // A new Chief's brain starts off: turn it on, or it never answers.
-            if !record.placed { await hostedChief.enableBrain(of: record.id) }
-            let id = record.mainConversation.map { ConversationID($0) }
-            pendingSelection = id
-            return id.map { HomeComposeOutcome.opened($0) } ?? .invited(nil)
-        } catch FeedServiceError.signedOut {
-            return .offline
-        } catch FeedServiceError.owner(let code, let message) {
-            return code == "policy.denied" || code == "validation.invalid" ? .refused(message) : .refusal(code: code)
-        } catch {
-            return .refused("")
-        }
+    /// A new Chief's brain starts off: turn it on, or it never answers. Not awaited by the create:
+    /// the Chief exists once `chief.create` answers, and the brain's two requests (up to 60 s each)
+    /// held New Chief's Create greyed with nothing said.
+    private func turnOnBrain(of chief: String) {
+        // task-owner: two bounded HTTP requests; enableBrain logs a failure and ends
+        Task { [hostedChief] in _ = await hostedChief.enableBrain(of: chief) }
     }
 
     /// The Chief record behind a conversation row, when the row is a DM
-    /// with one of my cloud Chiefs (the local Chief is never archived).
+    /// with one of my cloud Chiefs (this Mac's Chiefs are not archived here).
     func chief(of row: InboxRow) -> HomeChiefRecord? {
         guard row.kind == .chief, let me = homeStore.me?.id,
               let agent = row.summary.participants.first(where: { $0.id != me && $0.isChief }) else { return nil }

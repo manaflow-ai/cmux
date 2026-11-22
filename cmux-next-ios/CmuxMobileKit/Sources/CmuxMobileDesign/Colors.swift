@@ -78,55 +78,76 @@ private func token(_ dark: String, _ light: String, darkAlpha: Double = 1, light
 }
 
 /// The semantic palette from SPEC section 2.1. Chrome is neutral (true black /
-/// white). The accent is the user's choice (Settings > Appearance > Accent
+/// white) until a Mac sends its theme: with Match Mac theme on (the default) the surfaces, text,
+/// fills and status colors are the Mac's (`CmuxMobileMacTheme`, ask-87d30da8e5). The accent is the user's choice (Settings > Appearance > Accent
 /// color, `CmuxMobileAccentTheme`); its Default is the foreground color.
 public struct CmuxMobileColors: Sendable {
-    public var bg = token("#000000", "#FFFFFF")
-    public var bgGrouped = token("#000000", "#F2F2F7")
-    public var surface = token("#1C1C1E", "#FFFFFF")
-    public var surfaceRaised = token("#2C2C2E", "#F2F2F7")
-    public var sheet = token("#1C1C1E", "#FFFFFF")
-    public var bubble = token("#2C2C2E", "#EDEDED")
-    public var codeBg = token("#1C1C1E", "#F5F5F7")
-    public var fill = token("#FFFFFF", "#000000", darkAlpha: 0.08, lightAlpha: 0.05)
-    public var fillSelected = token("#FFFFFF", "#000000", darkAlpha: 0.16, lightAlpha: 0.09)
-    public var fillPressed = token("#FFFFFF", "#000000", darkAlpha: 0.22, lightAlpha: 0.13)
-    public var separator = token("#38383A", "#C6C6C8")
-    public var label = token("#FFFFFF", "#000000")
-    public var label2 = CmuxMobileColorToken(
+    public var bg: CmuxMobileColorToken { mac(Self.stockBg) { $0.bg } }
+    static let stockBg = token("#000000", "#FFFFFF")
+    public var bgGrouped: CmuxMobileColorToken { mac(Self.stockBgGrouped) { $0.bg } }
+    static let stockBgGrouped = token("#000000", "#F2F2F7")
+    public var surface: CmuxMobileColorToken { mac(Self.stockSurface) { $0.surface } }
+    static let stockSurface = token("#1C1C1E", "#FFFFFF")
+    public var surfaceRaised: CmuxMobileColorToken { mac(Self.stockSurfaceRaised) { $0.surfaceRaised } }
+    static let stockSurfaceRaised = token("#2C2C2E", "#F2F2F7")
+    public var sheet: CmuxMobileColorToken { mac(Self.stockSheet) { $0.surface } }
+    static let stockSheet = token("#1C1C1E", "#FFFFFF")
+    public var bubble: CmuxMobileColorToken { mac(Self.stockBubble) { $0.surfaceRaised } }
+    static let stockBubble = token("#2C2C2E", "#EDEDED")
+    public var codeBg: CmuxMobileColorToken { mac(Self.stockCodeBg) { $0.codeBg } }
+    static let stockCodeBg = token("#1C1C1E", "#F5F5F7")
+    public var fill: CmuxMobileColorToken { mac(Self.stockFill) { $0.fill } }
+    static let stockFill = token("#FFFFFF", "#000000", darkAlpha: 0.08, lightAlpha: 0.05)
+    public var fillSelected: CmuxMobileColorToken { mac(Self.stockFillSelected) { $0.fillSelected } }
+    static let stockFillSelected = token("#FFFFFF", "#000000", darkAlpha: 0.16, lightAlpha: 0.09)
+    public var fillPressed: CmuxMobileColorToken { mac(Self.stockFillPressed) { $0.fillPressed } }
+    static let stockFillPressed = token("#FFFFFF", "#000000", darkAlpha: 0.22, lightAlpha: 0.13)
+    public var separator: CmuxMobileColorToken { mac(Self.stockSeparator) { $0.separator } }
+    static let stockSeparator = token("#38383A", "#C6C6C8")
+    public var label: CmuxMobileColorToken { mac(Self.stockLabel) { $0.label } }
+    static let stockLabel = token("#FFFFFF", "#000000")
+    public var label2: CmuxMobileColorToken { mac(Self.stockLabel2) { $0.label2 } }
+    static let stockLabel2 = CmuxMobileColorToken(
         dark: CmuxMobileRGBA(hex: "#EBEBF5", alpha: 0.6), light: CmuxMobileRGBA(hex: "#3C3C43", alpha: 0.6),
         darkHighContrast: CmuxMobileRGBA(hex: "#EBEBF5", alpha: 0.7), lightHighContrast: CmuxMobileRGBA(hex: "#3C3C43", alpha: 0.75)
     )
-    public var label3 = CmuxMobileColorToken(
+    public var label3: CmuxMobileColorToken { mac(Self.stockLabel3) { $0.label3 } }
+    static let stockLabel3 = CmuxMobileColorToken(
         dark: CmuxMobileRGBA(hex: "#EBEBF5", alpha: 0.3), light: CmuxMobileRGBA(hex: "#3C3C43", alpha: 0.3),
         darkHighContrast: CmuxMobileRGBA(hex: "#EBEBF5", alpha: 0.42), lightHighContrast: CmuxMobileRGBA(hex: "#3C3C43", alpha: 0.45)
     )
     /// Small print that must still read (the welcome's legal line): `label2`
     /// in dark (6.4:1 on black); darker in light, where `label2` is 3.5:1 on
     /// white and fails WCAG AA. 5.6:1 on white.
-    public var legal = CmuxMobileColorToken(
+    public var legal: CmuxMobileColorToken { mac(Self.stockLegal) { $0.label2 } }
+    static let stockLegal = CmuxMobileColorToken(
         dark: CmuxMobileRGBA(hex: "#EBEBF5", alpha: 0.6), light: CmuxMobileRGBA(hex: "#3C3C43", alpha: 0.78),
         darkHighContrast: CmuxMobileRGBA(hex: "#EBEBF5", alpha: 0.7), lightHighContrast: CmuxMobileRGBA(hex: "#3C3C43", alpha: 0.85)
     )
     /// The user's accent (`CmuxMobileAccentTheme`); read in a body, the view
     /// redraws when the choice changes.
-    public var accent: CmuxMobileColorToken { CmuxMobileAccentTheme.shared.accent.accent }
-    public var onAccent: CmuxMobileColorToken { CmuxMobileAccentTheme.shared.accent.onAccent }
+    public var accent: CmuxMobileColorToken { CmuxMobileAccentTheme.shared.accentToken }
+    public var onAccent: CmuxMobileColorToken { CmuxMobileAccentTheme.shared.onAccentToken }
     /// Always the monochrome accent, whatever the user picked: only for marks
     /// whose colour another party prescribes (Sign in with Apple is black or
     /// white).
     public var neutralAccent: CmuxMobileColorToken { CmuxMobileAccent.neutral.accent }
     public var neutralOnAccent: CmuxMobileColorToken { CmuxMobileAccent.neutral.onAccent }
-    public var success = token("#30D158", "#34C759")
-    public var danger = token("#FF453A", "#FF3B30")
+    public var success: CmuxMobileColorToken { mac(Self.stockSuccess) { $0.success } }
+    static let stockSuccess = token("#30D158", "#34C759")
+    public var danger: CmuxMobileColorToken { mac(Self.stockDanger) { $0.danger } }
+    static let stockDanger = token("#FF453A", "#FF3B30")
     /// Small error text: `danger` is 3.55:1 on white, so light mode uses the
     /// high-contrast system red (#D70015, 5.38:1). Dark #FF453A is 6.2:1 on black.
-    public var dangerText = token("#FF453A", "#D70015")
-    public var warning = token("#FFD60A", "#FFCC00")
+    public var dangerText: CmuxMobileColorToken { mac(Self.stockDangerText) { $0.danger } }
+    static let stockDangerText = token("#FF453A", "#D70015")
+    public var warning: CmuxMobileColorToken { mac(Self.stockWarning) { $0.warning } }
+    static let stockWarning = token("#FFD60A", "#FFCC00")
     /// A mark with no text that must read on its own (Home's "needs you"
     /// gutter dot): at least 3:1 on the background. #C93400 is 4.9:1 on
     /// white (system orange is 2.2:1); #FF9F0A is 8.6:1 on black.
-    public var needsYou = token("#FF9F0A", "#C93400")
+    public var needsYou: CmuxMobileColorToken { mac(Self.stockNeedsYou) { $0.warning } }
+    static let stockNeedsYou = token("#FF9F0A", "#C93400")
     public var offline = token("#48484A", "#C7C7CC")
     public var diffAddText = token("#3FB950", "#1A7F37")
     public var diffDelText = token("#F85149", "#CF222E")
@@ -137,11 +158,18 @@ public struct CmuxMobileColors: Sendable {
     public var diffHunkBg = token("#FFFFFF", "#DDF4FF", darkAlpha: 0.04, lightAlpha: 0.5)
     public var scrim = token("#000000", "#000000", darkAlpha: 0.4, lightAlpha: 0.2)
     /// The pushed card's hairline stroke while the sidebar is open (SPEC 3.3).
-    public var cardStroke = token("#FFFFFF", "#000000", darkAlpha: 0.10, lightAlpha: 0.08)
+    public var cardStroke: CmuxMobileColorToken { mac(Self.stockCardStroke) { $0.cardStroke } }
+    static let stockCardStroke = token("#FFFFFF", "#000000", darkAlpha: 0.10, lightAlpha: 0.08)
     /// Skeleton shimmer band (SPEC 7.1).
-    public var shimmerBand = token("#FFFFFF", "#000000", darkAlpha: 0.06, lightAlpha: 0.04)
+    public var shimmerBand: CmuxMobileColorToken { mac(Self.stockShimmerBand) { $0.shimmerBand } }
+    static let stockShimmerBand = token("#FFFFFF", "#000000", darkAlpha: 0.06, lightAlpha: 0.04)
 
     public init() {}
+
+    /// `stock`, or the Mac theme's color for it while the chrome follows the Mac (`CmuxMobileMacTheme`).
+    private func mac(_ stock: CmuxMobileColorToken, _ pick: (CmuxMobileMacPalette) -> CmuxMobileRGBA) -> CmuxMobileColorToken {
+        CmuxMobileMacTheme.shared.token(stock, pick)
+    }
 
     /// The 13-color team palette (SPEC 3.4). Stored as the dark value.
     public var teamPalette: [CmuxMobileTeamColor] {

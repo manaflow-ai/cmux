@@ -11,13 +11,15 @@
 //   - connected is the dot alone; connecting, reconnecting and offline name the machine and the
 //     sidebar header's word for the state; offline offers Reconnect, which asks acpmux for the peer;
 //   - the row's element stays one element through every state, so the row's other controls stay put.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { chat, summary, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { PeerLink } from "../src/agent-session/acpmux/peerLink";
+import { LINK_DOWN_SAID_MS, setLinkDownSaidMs } from "../src/agent-session/acpmux/afterDelay";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -67,20 +69,21 @@ beforeAll(() => {
     Event: window.Event,
   });
   host = window.document.getElementById("root")!;
+  // These tests read each state as it is said; the bound has tests of its own below.
+  setLinkDownSaidMs(0);
 });
 
 afterEach(() => {
+  jest.useRealTimers();
+  setLinkDownSaidMs(0);
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  setLinkDownSaidMs(LINK_DOWN_SAID_MS);
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {
@@ -224,4 +227,71 @@ test("the model chip no longer reads Unavailable for a machine that is down", as
   expect(
     authChipText(readSessionAuth({ state: "peerUnreachable", source: "peerLink", evidenceAt: 1, host: "walk-remote" })),
   ).toBeUndefined();
+});
+
+// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up and load
+// faster/percievably load faster". A link acpmux brings back on its own is not said until it has been
+// down LINK_DOWN_SAID_MS; a step a person must take is said at once; and one cause is said in one place.
+
+/// A peer chat whose link acpmux says is `link`, since `since` (ms since the epoch).
+function linked(peer: string, link: string, since: number, extra: Partial<AcpmuxSnapshot> = {}): AcpmuxSnapshot {
+  const snapshot = started(peer, undefined, "ssh");
+  return { ...snapshot, peerLinks: { [peer]: { link, since } }, ...extra } as AcpmuxSnapshot;
+}
+
+test("a link that just dropped keeps the plain dot, with no spinner or words, until the bound, then says it once", async () => {
+  jest.useFakeTimers();
+  setLinkDownSaidMs(LINK_DOWN_SAID_MS);
+  await render(started("walk-remote", "connected"));
+  const element = link();
+  for (const state of ["degraded", "reconnecting", "connecting", "offline"]) {
+    await render(linked("walk-remote", state, Date.now()));
+    expect(link(), state).toBe(element);
+    expect(link()?.hasAttribute("data-said"), state).toBe(false);
+    expect(link()?.hasAttribute("data-quiet"), state).toBe(true);
+    expect(host.querySelector(".acpmux-machine-link-spinner"), state).toBeNull();
+    // Back before the bound: nothing was ever said.
+    await render(started("walk-remote", "connected"));
+    expect(link()?.hasAttribute("data-quiet"), state).toBe(false);
+  }
+  // A drop that goes on, through degraded and then reconnecting, counts from its start.
+  await render(linked("walk-remote", "degraded", Date.now()));
+  await act(async () => void jest.advanceTimersByTime(LINK_DOWN_SAID_MS - 4_000));
+  await render(linked("walk-remote", "reconnecting", Date.now()));
+  await act(async () => void jest.advanceTimersByTime(3_999));
+  expect(link()?.hasAttribute("data-said")).toBe(false);
+  await act(async () => void jest.advanceTimersByTime(1));
+  expect(link()?.hasAttribute("data-said")).toBe(true);
+  expect(said()).toBe("walk-remoteReconnecting…");
+});
+
+test("a link acpmux has had down past the bound is said at once", async () => {
+  setLinkDownSaidMs(LINK_DOWN_SAID_MS);
+  await render(linked("walk-remote", "offline", Date.now() - LINK_DOWN_SAID_MS - 1));
+  expect(link()?.hasAttribute("data-said")).toBe(true);
+  expect(said()).toBe("walk-remoteOffline");
+});
+
+test("a refused sign-in or an update the machine needs is said at once", async () => {
+  setLinkDownSaidMs(LINK_DOWN_SAID_MS);
+  for (const [state, words] of [
+    ["authFailed", "Sign-in needed"],
+    ["updateRequired", "Update required"],
+  ] as const) {
+    await render(linked("walk-remote", state, Date.now()));
+    expect(link()?.hasAttribute("data-said"), state).toBe(true);
+    expect(said(), state).toBe(`walk-remote${words}`);
+  }
+});
+
+test("an ssh link the peer copy banner or the missing chat's state already says is not said again here", async () => {
+  await render(started("walk-remote", "offline", "ssh", true));
+  expect(link()).toBeNull();
+  await render(
+    linked("walk-remote", "reconnecting", 0, { unavailable: { reason: "offline", machine: "walk-remote" } }),
+  );
+  expect(link()).toBeNull();
+  // A step only a person can take stays in the row.
+  await render(started("walk-remote", "authFailed", "ssh", true));
+  expect(said()).toBe("walk-remoteSign-in needed");
 });

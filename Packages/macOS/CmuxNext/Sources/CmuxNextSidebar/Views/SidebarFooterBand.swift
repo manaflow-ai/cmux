@@ -12,7 +12,9 @@ import CmuxNextDesign
 final class SidebarFooterBand {
     private weak var host: SidebarView?
     /// Opens the profile menu over its anchor (tests swap it).
-    var profileMenuPresenter: @MainActor (NSMenu, NSView?) -> Void = { SidebarFooterBand.popUpProfileMenu($0, from: $1) }
+    lazy var profileMenuPresenter: @MainActor (NSMenu, NSView?) -> Void = { [weak self] in self?.popUpProfileMenu($0, from: $1) }
+    /// The account menu open now on the glass (``GlassMenu``): a second click on the control closes it.
+    private weak var openProfileMenu: GlassMenu?
 
     init(host: SidebarView) { self.host = host }
 
@@ -81,12 +83,20 @@ final class SidebarFooterBand {
 
     /// Puts the dots in their row at `top` (`height` > 0), after the footer
     /// band's items in its first row, or in the footer when the band is empty.
-    func placeSpaces(top: CGFloat, height: CGFloat) {
+    ///
+    /// `modelChanged`: `render` marked the bands since the last layout (the spaces, the current space, the sidebar's
+    /// metrics, the switcher's own tokens or the app sections changed), so the
+    /// bar shows them (`ProfileBarView.refresh`). A layout for a new size only (a step of a window resize) passes
+    /// false: the bar moves, and it draws and builds its tooltips and accessibility elements again only when its
+    /// own size or insets change (its setters do that).
+    func placeSpaces(top: CGFloat, height: CGFloat, modelChanged: Bool) {
         guard let host else { return }
         let bar = host.profileBar, footer = host.footer, bounds = host.bounds
         // The Search button sits at the row's right end and the update button left of it: the strip ends before them.
         let searchMinX = placeSearch()
-        // Swift live mode's mark follows the avatar; the dots and the update button start after it.
+        // Swift live mode's mark follows the avatar; the dots and the update button start after it. App
+        // health's line is not in this row (``placeHealthIndicator(above:)``): its coming and going never
+        // moves the strip, the update button or Search.
         let leadMaxX = placeLiveBadge(before: searchMinX)
         let trailing = placeUpdateAvailable(before: searchMinX, after: leadMaxX ?? bandFirstRow?.itemsMaxX ?? 0) ?? searchMinX
         if host.spacesPosition == .top {
@@ -111,14 +121,14 @@ final class SidebarFooterBand {
             bar.frame = NSRect(x: 0, y: 0, width: max(0, end), height: footer.bounds.height)
             bar.centerX = footer.convert(NSPoint(x: bounds.midX, y: 0), from: host).x
         }
-        bar.refresh()
+        if modelChanged { bar.refresh() }
     }
 
     // MARK: Search button
 
-    /// The Search button's side: the footer row's height (one slim row, no extra padding; it was a
-    /// 28 pt HIG minimum that added 2 pt under the line). Lawrence 2026-10-27: footer too tall.
-    static var searchButtonSide: CGFloat { Metrics.sidebarRowHeight }
+    /// The Search button's side: the visible footer row's height, including the density's fill gain,
+    /// so its hit target matches the avatar row without adding footer padding.
+    static var searchButtonSide: CGFloat { SidebarStyle.searchHeight }
 
     /// Resolves Search's horizontal placement. An empty or fitting pinned row stays on the shared
     /// trailing column; an overfull row keeps the column on a dedicated footer line.
@@ -188,7 +198,11 @@ final class SidebarFooterBand {
                 : host.bounds.maxY - SidebarStyle.bottomInset - side / 2)
         }
         let scale = host.window?.backingScaleFactor ?? 2
-        button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded() / scale, width: side, height: side)
+        // Round the origin up the screen (the view is flipped), never down past the drop: a density's
+        // half-point footer height (every density is Default scaled, #44449) otherwise added half a
+        // pixel to the lens drop, 1.5 pt under the avatar's line at scale 1.
+        button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded(.down) / scale,
+                              width: side, height: side)
         return button.frame.minX
     }
 
@@ -220,6 +234,40 @@ final class SidebarFooterBand {
         badge.frame = WindowTitlebar.alignedFrame(NSRect(x: x, y: midY - size.height / 2, width: size.width, height: size.height),
                                                   scale: host.window?.backingScaleFactor ?? 2)
         return badge.frame.maxX
+    }
+
+    // MARK: App health
+
+    /// Places app health's line (`host.healthIndicator`) over the sidebar, never in the footer row's flow, so
+    /// its arrival and departure move nothing beside it (Leo, 2026-11-11: "slow indicator on the bottom left
+    /// is uselsss and layout shifts the space. it's bad"; it used to sit after the avatar and push the spaces
+    /// strip and the update button along the row). The shipped line floats just above the bottom stack
+    /// (`ceiling`: the top of the footer row and of any card over it), at the avatar's leading edge, on its
+    /// own opaque chip over the list's bottom; a badge (``AvatarBadgePlacing``) sits on the
+    /// avatar's top-trailing corner. The row's own frames are laid out before and without it.
+    func placeHealthIndicator(above ceiling: CGFloat) {
+        guard let host, let line = host.healthIndicator, !line.isHidden else { return }
+        let size = line.fittingSize
+        let scale = host.window?.backingScaleFactor ?? 2
+        let row = bandFirstRow
+        if (line as? any AvatarBadgePlacing)?.sitsOnAvatar == true {
+            guard let avatar = row?.frame else {
+                line.frame = .zero
+                return
+            }
+            line.frame = WindowTitlebar.alignedFrame(NSRect(x: avatar.maxX - size.width * 0.75, y: avatar.minY - size.height * 0.25,
+                                                            width: size.width, height: size.height), scale: scale)
+            return
+        }
+        let x = row?.frame.minX ?? Metrics.space4
+        let top = min(ceiling, row?.frame.minY ?? ceiling)
+        let width = min(size.width, host.bounds.width - x - Metrics.space4)
+        guard width >= Self.searchButtonSide * 2 else {
+            line.frame = .zero
+            return
+        }
+        line.frame = WindowTitlebar.alignedFrame(NSRect(x: x, y: top - Metrics.space2 - size.height, width: width, height: size.height),
+                                                 scale: scale)
     }
 
     // MARK: Update Available button
@@ -292,31 +340,40 @@ final class SidebarFooterBand {
         return true
     }
 
-    /// Pops `menu` up so it opens upward from the control's top edge (the
-    /// control sits at the window's bottom), its leading edge on the
-    /// control's. The open happens on a later pass of the main run loop, so a
-    /// caller (a socket action, a palette run) returns before the menu's
-    /// modal tracking starts. A run-loop callout, not a main-actor Task: a
-    /// menu that tracks inside a main-queue job holds the main queue until it
-    /// closes, so the click that closes it waited on everything queued
-    /// meanwhile (Leo, 2026-10-29: "clicking out of a fucking context menu is
-    /// sometimes slow").
-    static func popUpProfileMenu(_ menu: NSMenu, from anchor: NSView?) {
-        MainRunLoopBlock.perform {
+    /// Opens `menu` upward from the control's top edge (the control sits at the window's bottom),
+    /// its leading edge on the control's, on cmux's own glass (``GlassMenu``): the one floating
+    /// material the web menus are, not AppKit's menu material beside them (Leo, 2026-11-11: "The
+    /// point is, the styles mix and they don't look good. So they need to look good." and, of
+    /// drawing this menu on our own glass: "Well, that's the whole point, right? Like that's what
+    /// we wanted to do anyways. have better design (systems too)"). A click on the control while
+    /// the menu is open closes it. The control holds its selected fill until the menu closes. A press
+    /// that opened it and is still held tracks as an `NSMenu`'s does: drag onto a row, release, and the
+    /// row runs (``GlassMenu/trackPress(_:)``).
+    ///
+    /// The open happens on a later pass of the main run loop, so a caller (a socket action, a
+    /// palette run) returns first (Leo, 2026-10-29: "clicking out of a ... context menu is
+    /// sometimes slow"). Without an anchor (a hidden sidebar) the plain menu opens at the pointer.
+    func popUpProfileMenu(_ menu: NSMenu, from anchor: NSView?) {
+        if let open = openProfileMenu, open.isShown {
+            open.close()
+            return
+        }
+        MainRunLoopBlock.perform { [weak self] in
             guard let anchor, anchor.window != nil else {
                 menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
                 return
             }
-            let gap = Metrics.space1
-            // Flipped anchor: the menu's top-left goes above the control by
-            // the menu's height, so the whole menu shows over the footer.
-            let origin = NSPoint(x: 0, y: anchor.isFlipped ? -menu.size.height - gap : anchor.bounds.height + menu.size.height + gap)
-            // The control holds its selected fill while the menu is open
-            // (popUp returns when the menu closes).
+            let glass = GlassMenu(menu: menu)
             let control = anchor as? SidebarItemRowView
+            glass.onClose = {
+                control?.showsMenu = false
+                control?.pressTracker = nil
+            }
+            guard glass.show(from: anchor, preferred: .above) else { return }
             control?.showsMenu = true
-            defer { control?.showsMenu = false }
-            menu.popUp(positioning: nil, at: origin, in: anchor)
+            // Opened by a press still held: the drag and the release pick a row, as on an NSMenu.
+            if let control, control.holdsPress { control.pressTracker = { [weak glass] in glass?.trackPress($0) } }
+            self?.openProfileMenu = glass
         }
     }
 }

@@ -54,10 +54,10 @@ mod message_hooks;
 mod status_conflict;
 #[cfg(unix)]
 use codex_trust::{
-    CODEX_CONFIG_FILE, codex_event_state_label, codex_owned_entry_keys,
-    codex_present_expected_trust_entries, codex_state_key_hooks_path, codex_trust_hash,
+    CODEX_CONFIG_FILE, codex_owned_entry_keys, codex_present_expected_trust_entries,
     read_codex_config_text,
 };
+use codex_trust::{codex_event_state_label, codex_state_key_hooks_path, codex_trust_hash};
 use codex_trust::{
     codex_trust_state_verified, commit_codex_trust_state_or_rollback, prepare_codex_trust_state,
     snapshot_file,
@@ -66,6 +66,46 @@ use codex_trust::{
 use message_hooks::hook_command_with;
 use message_hooks::{delivers_messages, hook_command, journal_hook_command};
 use status_conflict::{conflict_row, ensure_replaceable_target};
+
+/// Codex's `hooks.state` event label for `event` (`PreToolUse` ->
+/// `pre_tool_use`), for tools that list and edit Codex hooks
+/// (cmux-agent-customize).
+pub fn codex_hook_state_label(event: &str) -> anyhow::Result<&'static str> {
+    codex_event_state_label(event)
+}
+
+/// Codex's trust hash for one command handler as written in hooks.json:
+/// Codex runs the handler only while its `trusted_hash` equals this.
+pub fn codex_hook_trust_hash(
+    state_label: &str,
+    matcher: Option<&str>,
+    command: &str,
+    timeout: Option<u64>,
+    asynchronous: bool,
+    status_message: Option<&str>,
+    additional_context_limit: Option<u64>,
+) -> String {
+    codex_trust::codex_identity_trust_hash(
+        state_label,
+        matcher,
+        command,
+        timeout,
+        asynchronous,
+        status_message,
+        additional_context_limit,
+    )
+}
+
+/// `hooks_path` as Codex writes it into `hooks.state` keys (canonicalized
+/// when `CODEX_HOME` came from the environment).
+pub fn codex_hook_state_key_path(hooks_path: &Path, from_env_override: bool) -> PathBuf {
+    codex_state_key_hooks_path(hooks_path, from_env_override)
+}
+
+/// Whether a hook command is one this installer wrote (a journal hook).
+pub fn is_owned_hook_command(command: &str) -> bool {
+    is_owned_command(command)
+}
 
 const COMMAND_MARKER: &str = "cmux-tui-journal-hook";
 const PLUGIN_MARKER: &str = "cmux-tui-journal-plugin";
@@ -2224,19 +2264,59 @@ fn codex_session_hook_settings_with_context(
     }
     for event in CODEX_EVENTS {
         let command = codex_contextual_hook_command(event, socket, terminal, launcher);
-        let timeout = codex_hook_timeout(event);
-        let label = codex_event_state_label(event)?;
-        let hash = codex_trust_hash(label, &command, timeout);
-        settings.push(format!(
-            "hooks.{event}=[{{hooks=[{{type=\"command\",command={},timeout={timeout}}}]}}]",
-            toml_edit::Value::from(command),
-        ));
+        let flag = codex_session_flag_hook(event, &command, codex_hook_timeout(event))?;
+        settings.push(flag.setting);
         let mut entry = toml_edit::InlineTable::new();
-        entry.insert("trusted_hash", hash.into());
-        state.insert(format!("/<session-flags>/config.toml:{label}:0:0"), entry.into());
+        entry.insert("trusted_hash", flag.trusted_hash.into());
+        state.insert(flag.state_key, entry.into());
     }
     settings.push(format!("hooks.state={state}"));
     Ok(settings)
+}
+
+/// One command hook in a Codex launch's session-flag layer (`-c` values): the hook itself, and
+/// the trust-state key and hash Codex runs it under without a review prompt.
+pub struct CodexSessionFlagHook {
+    /// `hooks.<Event>=[{hooks=[{type="command",command=...,timeout=N}]}]`.
+    pub setting: String,
+    /// `/<session-flags>/config.toml:<event label>:0:0`.
+    pub state_key: String,
+    /// Codex's hash of the hook's normalized identity (`codex_trust.rs`).
+    pub trusted_hash: String,
+}
+
+/// [`CodexSessionFlagHook`] for `command` on `event`, the only hook of that event in the
+/// session-flag layer (group 0, handler 0).
+pub fn codex_session_flag_hook(
+    event: &str,
+    command: &str,
+    timeout: u64,
+) -> anyhow::Result<CodexSessionFlagHook> {
+    let label = codex_event_state_label(event)?;
+    Ok(CodexSessionFlagHook {
+        setting: format!(
+            "hooks.{event}=[{{hooks=[{{type=\"command\",command={},timeout={timeout}}}]}}]",
+            toml_edit::Value::from(command),
+        ),
+        state_key: format!("/<session-flags>/config.toml:{label}:0:0"),
+        trusted_hash: codex_trust_hash(label, command, timeout),
+    })
+}
+
+/// The `-c` values that run `command` as Codex's only session-flag hook for `event`, trusted:
+/// the hook and a `hooks.state` holding its trust entry alone, which Codex merges with the
+/// persisted state key by key (the user's own hooks keep their trust).
+pub fn codex_session_flag_hook_settings(
+    event: &str,
+    command: &str,
+    timeout: u64,
+) -> anyhow::Result<[String; 2]> {
+    let flag = codex_session_flag_hook(event, command, timeout)?;
+    let mut entry = toml_edit::InlineTable::new();
+    entry.insert("trusted_hash", flag.trusted_hash.into());
+    let mut state = toml_edit::InlineTable::new();
+    state.insert(&flag.state_key, entry.into());
+    Ok([flag.setting, format!("hooks.state={state}")])
 }
 
 /// Returns persisted trust hashes for the current cmux-owned hook identities.
@@ -2290,8 +2370,50 @@ pub fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+/// The durable syncs [`atomic_write`] makes, counted per thread for tests.
+mod durable_syncs {
+    use std::cell::Cell;
+    use std::fs::File;
+    use std::io;
+
+    thread_local! {
+        /// Durable syncs made on this thread (a file or its folder each).
+        static SYNCS: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub(super) fn on_this_thread() -> u64 {
+        SYNCS.with(Cell::get)
+    }
+
+    pub(super) fn sync(file: &File) -> io::Result<()> {
+        SYNCS.with(|syncs| syncs.set(syncs.get() + 1));
+        file.sync_all()
+    }
+}
+
+/// The durable syncs [`atomic_write`] made on this thread so far: a test reads it around a
+/// write path to tell a durable write from a replaceable one.
+#[doc(hidden)]
+pub fn durable_syncs_on_this_thread() -> u64 {
+    durable_syncs::on_this_thread()
+}
+
 /// Replaces `path` through a synced temporary file and rename, with an optional Unix mode.
 pub fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
+    replace_file(path, bytes, mode, true)
+}
+
+/// [`atomic_write`] for a file its writer checks and rewrites when it differs (a build's
+/// launchers, shims and plugin, written at every start): replaced through a rename, so a
+/// reader sees the old or the new file, but not synced. A crash can leave it empty or old,
+/// and the next start rewrites it. A durable sync is a full fsync of the drive on macOS,
+/// which waits for every other write the drive has queued: one took 2.2 s of a 2.3 s
+/// first start on a fleet Mac (2026-11-09).
+pub fn replace_rewritable_file(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
+    replace_file(path, bytes, mode, false)
+}
+
+fn replace_file(path: &Path, bytes: &[u8], mode: Option<u32>, durable: bool) -> anyhow::Result<()> {
     ensure_replaceable_target(path)?;
     let parent = path.parent().context("installation path has no parent")?;
     fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
@@ -2311,7 +2433,9 @@ pub fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Res
         let mut file =
             options.open(&temporary).with_context(|| format!("create {}", temporary.display()))?;
         file.write_all(bytes)?;
-        file.sync_all()?;
+        if durable {
+            durable_syncs::sync(&file)?;
+        }
         drop(file);
         #[cfg(unix)]
         if let Some(mode) = mode {
@@ -2319,9 +2443,11 @@ pub fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Res
             fs::set_permissions(&temporary, fs::Permissions::from_mode(mode))?;
         }
         fs::rename(&temporary, path).with_context(|| format!("replace {}", path.display()))?;
-        fs::File::open(parent)
-            .and_then(|directory| directory.sync_all())
-            .with_context(|| format!("sync {}", parent.display()))?;
+        if durable {
+            fs::File::open(parent)
+                .and_then(|directory| durable_syncs::sync(&directory))
+                .with_context(|| format!("sync {}", parent.display()))?;
+        }
         Ok(())
     })();
     if result.is_err() {

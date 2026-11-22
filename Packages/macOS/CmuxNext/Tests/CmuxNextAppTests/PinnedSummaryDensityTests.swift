@@ -16,11 +16,15 @@ import Testing
     nonisolated struct Setting: CustomStringConvertible, Sendable {
         let density: SidebarDensity
         let textSize: SidebarTextSize
-        var description: String { "\(density.rawValue)/\(textSize.rawValue)" }
+        /// The app's density (`appearance.density`); the sidebar settings above sit on it.
+        var preset: DensityPreset = .compact
+        var description: String { "\(preset.rawValue):\(density.rawValue)/\(textSize.rawValue)" }
     }
 
-    nonisolated static let settings: [Setting] = SidebarDensity.allCases.flatMap { density in
-        SidebarTextSize.allCases.map { Setting(density: density, textSize: $0) }
+    nonisolated static let settings: [Setting] = DensityPreset.allCases.flatMap { preset in
+        SidebarDensity.allCases.flatMap { density in
+            SidebarTextSize.allCases.map { Setting(density: density, textSize: $0, preset: preset) }
+        }
     }
 
     private static let pinnedID = WorkspaceID("ws-pinned-size")
@@ -36,19 +40,28 @@ import Testing
         return SidebarFavicon(context.makeImage()!)
     }()
 
+    /// A shell with no detail line (one row tall), a page, and a Codex chat whose model is its detail line (two rows
+    /// tall, as in `WorkspaceHoverCardUnifiedStyleTests`).
     static var pinned: SidebarWorkspace {
-        SidebarWorkspace(id: pinnedID, title: "Cloud Chief rebuild with a long name that wraps in the card",
-                         tabs: [SidebarTab(id: TabID("pin-shell"), title: "shell"),
-                                SidebarTab(id: TabID("pin-docs"), title: "docs", kind: .browser)])
+        var chat = SidebarTab(id: TabID("pin-chat"), title: "chat", kind: .agentChat, brand: "codex")
+        chat.model = "gpt-6-astra"
+        return SidebarWorkspace(id: pinnedID, title: "Cloud Chief rebuild with a long name that wraps in the card",
+                                tabs: [SidebarTab(id: TabID("pin-shell"), title: "shell"),
+                                       SidebarTab(id: TabID("pin-docs"), title: "docs", kind: .browser), chat])
     }
 
-    /// Runs `body` with the sidebar at `setting`, on the compact app density.
+    /// The app densities with their own icon column (`sidebarIconColumn`), at the sidebar's default settings.
+    nonisolated static let iconColumnSettings: [Setting] = DensityPreset.allCases.map {
+        Setting(density: .compact, textSize: .standard, preset: $0)
+    }
+
+    /// Runs `body` with the sidebar at `setting`, on its app density (Compact unless it names one).
     static func at<T>(_ setting: Setting, _ body: () throws -> T) rethrows -> T {
         let saved = DesignSettings.shared.sidebarSections
         DesignSettings.shared.sidebarSections.density = setting.density
         DesignSettings.shared.sidebarSections.textSize = setting.textSize
         defer { DesignSettings.shared.sidebarSections = saved }
-        return try DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) { try body() }
+        return try DensityTokens.$scoped.withValue(setting.preset.tokens) { try body() }
     }
 
     struct Measured {
@@ -65,6 +78,11 @@ import Testing
         var cardWidth: CGFloat
         var cardMinWidth: CGFloat
         var tabRowHeight: CGFloat
+        /// Whether the measured tab row draws a detail line (a two-line row); the fixture's first tab has none.
+        var tabHasDetail: Bool
+        /// The chat tab's row, which has a detail line (its model): its height and whether the line shows.
+        var detailTabRowHeight: CGFloat
+        var detailTabHasDetail: Bool
         var tabTitle: CGFloat
         var tabIcon: CGFloat
         var disclosureHeight: CGFloat
@@ -87,8 +105,9 @@ import Testing
             let section = SidebarLayoutDocument.pinnedSection(items: [item])
             list.blocks = SidebarListBlocks(sections: [section.id.rawValue: section], infos: [item.id: info], collapsed: [],
                                             look: .quiet, metrics: .standard, drawsLines: false, appHeights: [:])
-            let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 260, height: 600), styleMask: [.borderless],
-                                  backing: .buffered, defer: false)
+            let window = PinnedRowsShareHomeColumnTests.ScaledWindow(
+                contentRect: NSRect(x: 200, y: 200, width: 260, height: 600), styleMask: [.borderless],
+                backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             defer { window.contentView = nil; window.close() }
             window.contentView = list
@@ -105,6 +124,7 @@ import Testing
             let listGlyph = icon.subviews.compactMap { ($0 as? NSImageView)?.image }.first?.size.width ?? 0
 
             let card = WorkspaceHoverCardView()
+            list.addSubview(card)
             card.configure(.make(pinned, machine: nil, now: Date()))
             card.configureTabs(title: pinnedID.rawValue, tabs: pinned.tabs, machine: nil)
             // The card's widest and narrowest: its fitting size pulled wide, then narrow, against its own required width
@@ -121,14 +141,19 @@ import Testing
             card.layoutSubtreeIfNeeded()
             let tab = try #require(card.tabList.rowViews.first, "\(setting): the card drew no tab row")
             tab.layout()
+            let chatIndex = try #require(pinned.tabs.firstIndex { $0.id == TabID("pin-chat") })
+            try #require(card.tabList.rowViews.count > chatIndex, "\(setting): the card drew no row for the chat tab")
+            let chatRow = card.tabList.rowViews[chatIndex]
+            chatRow.layout()
             let measured = Measured(
                 pinnedRowHeight: row.bounds.height, pinnedTitle: row.title.font?.pointSize ?? 0,
                 pinnedGlyph: row.glyphImage?.size.width ?? 0,
                 listRowHeight: listRow.bounds.height, listTitle: listRow.title.font.pointSize, listGlyph: listGlyph,
                 cardPadding: card.kindIconFrame.minX, cardIcon: card.kindIconFrame.width,
                 cardTitle: card.drawnTitleFont?.pointSize ?? 0, cardCaption: card.drawnCaptionFont?.pointSize ?? 0,
-                cardWidth: widest, cardMinWidth: narrowest, tabRowHeight: tab.frame.height, tabTitle: tab.titleFont?.pointSize ?? 0,
-                tabIcon: tab.iconFrame.width, disclosureHeight: card.detailsToggle.fittingSize.height)
+                cardWidth: widest, cardMinWidth: narrowest, tabRowHeight: tab.frame.height, tabHasDetail: tab.hasDetail,
+                detailTabRowHeight: chatRow.frame.height, detailTabHasDetail: chatRow.hasDetail, tabTitle: tab.titleFont?.pointSize ?? 0,
+                tabIcon: tab.iconFrame.width, disclosureHeight: card.detailsToggle.bounds.height)
             print("PINNEDSIZE|\(setting)|row \(measured.pinnedRowHeight) vs \(measured.listRowHeight)|title \(measured.pinnedTitle) vs \(measured.listTitle)"
                 + "|glyph \(measured.pinnedGlyph) vs \(measured.listGlyph)|card pad \(measured.cardPadding) icon \(measured.cardIcon)"
                 + " title \(measured.cardTitle) caption \(measured.cardCaption) width \(measured.cardMinWidth)...\(measured.cardWidth)"
@@ -146,7 +171,31 @@ import Testing
         #expect(m.pinnedRowHeight == m.listRowHeight, "\(setting): pinned row \(m.pinnedRowHeight), workspace row \(m.listRowHeight)")
         #expect(m.pinnedTitle == tokens.titleSize, "\(setting): pinned title \(m.pinnedTitle), token \(tokens.titleSize)")
         #expect(m.pinnedTitle == m.listTitle, "\(setting): pinned title \(m.pinnedTitle), workspace title \(m.listTitle)")
-        #expect(m.pinnedGlyph == m.listGlyph, "\(setting): pinned icon \(m.pinnedGlyph), workspace icon \(m.listGlyph)")
+        // The pinned row's glyph fills the one optical side (Lawrence 2026-11-09, one icon size). A density with its own
+        // icon column draws a workspace favicon's bitmap at the tab's icon box (Lucas 2026-11-14: a row's icon is its
+        // tab's size); the others draw it 4/3 its optical side, so its ink, not its margin, fills that side.
+        // A favicon takes its tab's size (#49583), its bitmap that side's box.
+        let (box, optical, favicon) = Self.at(setting) {
+            (SidebarStyle.rowFaviconOptics.box, SidebarStyle.rowGlyphOpticalSide, SidebarStyle.rowFaviconOpticalSide)
+        }
+        #expect(abs(m.pinnedGlyph - optical) <= 0.5, "\(setting): pinned icon \(m.pinnedGlyph), optical side \(optical)")
+        if let box {
+            #expect(abs(m.listGlyph - box) <= 0.5, "\(setting): workspace favicon \(m.listGlyph), the tab's icon box \(box)")
+        } else {
+            let listOptical = m.listGlyph * 3 / 4
+            #expect(abs(favicon - listOptical) <= 0.5, "\(setting): favicon side \(favicon), workspace icon \(listOptical)")
+        }
+    }
+
+    /// At an app density with its own icon column a workspace favicon is the tab's icon box and the pinned glyph keeps
+    /// the one optical side (Lucas 2026-11-14: a row's icon is its tab's size).
+    @Test(arguments: iconColumnSettings)
+    func aRowAtAnIconColumnDensityDrawsTheTabsBox(_ setting: Setting) throws {
+        let m = try Self.measure(setting)
+        let (box, optical) = Self.at(setting) { (SidebarStyle.rowFaviconOptics.box, SidebarStyle.rowGlyphOpticalSide) }
+        let tabBox = try #require(box, "\(setting): no icon box")
+        #expect(abs(m.listGlyph - tabBox) <= 0.5, "\(setting): workspace favicon \(m.listGlyph), the tab's icon box \(tabBox)")
+        #expect(abs(m.pinnedGlyph - optical) <= 0.5, "\(setting): pinned icon \(m.pinnedGlyph), optical side \(optical)")
     }
 
     /// The card the pinned row opens takes its sizes from ``SidebarRowTokens/hoverCard``.
@@ -160,7 +209,14 @@ import Testing
         #expect(m.cardCaption == card.captionSize, "\(setting): caption \(m.cardCaption), token \(card.captionSize)")
         #expect(m.cardWidth == card.maxWidth, "\(setting): widest \(m.cardWidth), token \(card.maxWidth)")
         #expect(m.cardMinWidth == card.minWidth, "\(setting): narrowest \(m.cardMinWidth), token \(card.minWidth)")
-        #expect(m.tabRowHeight == card.tabRowHeightTwoLines, "\(setting): tab row \(m.tabRowHeight), token \(card.tabRowHeightTwoLines)")
+        // A tab with no detail line is one row tall (#37176, Leo 2026-11-06: "you got all these empty things"); the
+        // fixture's shell tab has no command, place or state, so it takes the one-line token.
+        #expect(!m.tabHasDetail, "\(setting): the shell tab drew a detail line")
+        #expect(m.tabRowHeight == card.tabRowHeight, "\(setting): tab row \(m.tabRowHeight), token \(card.tabRowHeight)")
+        // A tab with a detail line is two rows tall at every density and text size.
+        #expect(m.detailTabHasDetail, "\(setting): the chat tab drew no detail line")
+        #expect(m.detailTabRowHeight == card.tabRowHeightTwoLines,
+                "\(setting): two-line tab row \(m.detailTabRowHeight), token \(card.tabRowHeightTwoLines)")
         #expect(m.tabTitle == card.titleSize, "\(setting): tab title \(m.tabTitle), token \(card.titleSize)")
         #expect(m.tabIcon == card.iconSide, "\(setting): tab icon \(m.tabIcon), token \(card.iconSide)")
         #expect(m.disclosureHeight == card.disclosureHeight, "\(setting): disclosure \(m.disclosureHeight), token \(card.disclosureHeight)")

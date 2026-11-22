@@ -18,7 +18,8 @@ import { Context, Data, Effect, Schema } from "effect";
 import type { Principal } from "../domain/principal.ts";
 import type { VmNetworkAllowed } from "../proofs/vm-network.ts";
 import type { VmImageAllowed } from "../proofs/vm-image.ts";
-import type { SnapshotId, UpstreamId, VmId } from "../lib/ids.ts";
+import type { MeshId, SnapshotId, UpstreamId, VmId } from "../lib/ids.ts";
+import type { TimedPhases } from "../lib/timing.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import type { TenantMayGrow } from "../proofs/tenant-may-grow.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
@@ -81,6 +82,12 @@ export interface CreateVmSpec {
   readonly size?: SizeRequest;
   /** Deployment name (staging, production, ...), tagged on the upstream VM. */
   readonly environment: string;
+  /**
+   * Filled as the create runs, for the handler's vm_create line: recoverMs, verifyImageMs, createMs, recoverAfterMs,
+   * resizeMs (each only when that provider call was made), `recovered`, and the provider's own `providerTotalMs` and
+   * `providerTimingsMs` when its create answer carried them.
+   */
+  readonly phases?: TimedPhases;
 }
 
 
@@ -166,6 +173,14 @@ export interface UpstreamClientService {
     vm: Named<R, VmId>,
     proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:network"> },
   ) => Effect.Effect<void, UpstreamError>;
+  /**
+   * Deletes every such rule, then reads again and fails unless none is left; never touches a narrower rule, an
+   * HTTPS proxy or a shared-network rule. Answers how many it deleted.
+   */
+  readonly revokeVmPublicEgress: <C, R>(
+    vm: Named<R, VmId>,
+    proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:network"> },
+  ) => Effect.Effect<number, UpstreamError>;
   readonly getVm: <C, R>(
     vm: Named<R, VmId>,
     proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:read"> },
@@ -183,7 +198,7 @@ export interface UpstreamClientService {
   readonly inspectCancellingCreation: <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, proofs: { readonly scope: Write<C>; readonly cancelling: CancellingVmCreation<C, V> }) => Effect.Effect<{ readonly upstreamId: UpstreamId } | null, UpstreamError>;
   readonly deleteCancellingCreation: <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, proofs: { readonly scope: Write<C>; readonly cancelling: CancellingVmCreation<C, V>; readonly owns: Owns<C, V> }) => Effect.Effect<void, UpstreamError>;
   readonly recoverCreation: <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, proofs: { readonly scope: Write<C>; readonly pending: PendingVmCreation<C, V> }) => Effect.Effect<{ readonly upstreamId: UpstreamId } | null, UpstreamError>;
-  readonly createVm: <C, S = never>(
+  readonly createVm: <C, S = never, M = never>(
     caller: Named<C, Principal>,
     spec: CreateVmSpec,
     proofs: {
@@ -192,10 +207,18 @@ export interface UpstreamClientService {
       readonly network?: VmNetworkAllowed<C>;
       readonly image?: VmImageAllowed<C>;
       readonly source?: { readonly snapshot: Named<S, SnapshotId>; readonly owns: Owns<C, S> };
+      /** The tenant's mesh whose private network the VM joins in the provider's create (what attachVm does afterwards). */
+      readonly mesh?: { readonly mesh: Named<M, MeshId>; readonly owns: Owns<C, M>; readonly scope: KeyHasScope<C, "mesh:write"> };
     },
   ) => Effect.Effect<
     CreatedResource & {
       readonly vm: UpstreamVm;
+      /**
+       * With `mesh`: the VM's IPv4 address on that mesh's network, when the provider's answer shows the VM on exactly
+       * that network with one. Null otherwise (no mesh asked, or the answer does not show it): the caller then knows
+       * nothing about the VM's networks, and attachVm (declarative, so safe to repeat) still puts it there.
+       */
+      readonly joined: { readonly ipv4: string } | null;
       /** Grows exactly this new VM to `size` on the axes where it is smaller. */
       readonly grow: (size: SizeRequest) => Effect.Effect<UpstreamVm, UpstreamError>;
     },

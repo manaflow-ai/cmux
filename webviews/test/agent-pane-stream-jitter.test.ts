@@ -260,6 +260,10 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
     await page.getByText("Opening paragraph 19.").waitFor();
+    // Do not begin motion sampling while the fallback font can still be replaced: a late font
+    // reflow changes every row's height and looks like a follow jump even though no stream event ran.
+    await page.evaluate(() => document.fonts.ready);
+    await painted(page, 2);
     await rest(page);
     return page;
   }
@@ -333,9 +337,16 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
         );
         const message = row?.querySelector<HTMLElement>(".cv-md");
         const composer = document.querySelector<HTMLElement>(".acpmux-dock");
+        const view = scroller.getBoundingClientRect();
+        const rowBox = row?.getBoundingClientRect();
         w.__frames.push({
           t: Math.round(frame),
-          marker: row?.getBoundingClientRect().top,
+          // Virtualized rows keep their estimated geometry while they are outside the viewport. Do
+          // not treat that offscreen bookkeeping as a painted movement; only compare the marker while
+          // it is actually visible in the transcript. A visible downward move remains a real failure.
+          // The marker is always the row's top: switching to another edge (the message's foot) once
+          // the top scrolls above the view reads as a jump down of the row's height above it.
+          marker: rowBox && rowBox.bottom > view.top && rowBox.top < view.bottom ? rowBox.top : undefined,
           messageBottom: message?.getBoundingClientRect().bottom,
           composerTop: composer?.getBoundingClientRect().top,
           settled: Boolean(document.querySelector(".acpmux-row--last-footer")),
@@ -394,19 +405,33 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       return Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop);
     });
+  /// Where the view is drawn: the scroll offset less the follow motion's translate on the thread. A
+  /// held follow motion folded into the offset once the reader's input goes quiet moves both by the
+  /// same amount and the picture not at all, so only this counts as the view moving.
   const scrollTop = (page: Page) =>
-    page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
-  /// Where the view comes to rest: Linux WebKit animates a wheel step over several frames,
-  /// so a read at a fixed delay can land mid-glide. Resolves once scrollTop holds for 200ms.
+    page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const thread = scroller.querySelector<HTMLElement>(".acpmux-thread");
+      const lag = thread ? Number.parseFloat(getComputedStyle(thread).translate.split(" ")[1] ?? "") || 0 : 0;
+      return scroller.scrollTop - lag;
+    });
+  /// Where the view comes to rest, drawn (as `scrollTop`): Linux WebKit animates a wheel step over
+  /// several frames, so a read at a fixed delay can land mid-glide. Resolves once it holds for 200ms.
   const settledScrollTop = (page: Page) =>
     page.evaluate(
       () =>
         new Promise<number>((resolve) => {
           const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-          let last = scroller.scrollTop;
+          const drawn = () => {
+            const thread = scroller.querySelector<HTMLElement>(".acpmux-thread");
+            const lag = thread ? Number.parseFloat(getComputedStyle(thread).translate.split(" ")[1] ?? "") || 0 : 0;
+            return scroller.scrollTop - lag;
+          };
+          let last = drawn();
           let since = performance.now();
           window.cmuxAfterPaint((now) => {
-            if (scroller.scrollTop !== last) [last, since] = [scroller.scrollTop, now];
+            const at = drawn();
+            if (Math.abs(at - last) > 0.5) [last, since] = [at, now];
             if (now - since < 200) return;
             resolve(last);
             return false;
@@ -442,8 +467,11 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
       await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${RICH}`);
       await page.getByText("Rich ending marker.").waitFor();
-      // fixed-wait: the test watches 3 s of painted frames after open for any jump; the window is the test
-      await page.waitForTimeout(3_000);
+      await page.evaluate(() => document.fonts.ready);
+      await painted(page, 2);
+      // Observe a fixed number of painted frames. A wall-clock window changes its sample count with
+      // runner load and can stop between the layout and the paint that settles it.
+      await painted(page, 180);
       const frames = await page.evaluate(
         () => (window as unknown as { __opened: { t: number; line: number; fromEnd: number }[] }).__opened,
       );
@@ -478,7 +506,13 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       await ended(page, marker);
       await rest(page);
       const frames = await stop(page);
-      expect({ drops: drops(frames), atEnd: (await fromEnd(page)) <= 4 }).toEqual({ drops: [], atEnd: true });
+      // While the turn runs. At its end the tool call between the reply's two paragraphs folds into
+      // "Worked for" and the paragraph over it comes down by the tool's line, in the turn end's one
+      // motion (turnEndFold.ts; Codex parity #42247 keeps the commentary outside the fold): the
+      // settle test below holds that motion to one way and one rest.
+      const end = frames.findIndex((frame) => frame.settled);
+      const running = end < 0 ? frames : frames.slice(0, end);
+      expect({ drops: drops(running), atEnd: (await fromEnd(page)) <= 4 }).toEqual({ drops: [], atEnd: true });
       await page.close();
     },
   );

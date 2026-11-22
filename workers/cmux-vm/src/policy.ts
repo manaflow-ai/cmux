@@ -40,7 +40,7 @@ export interface TenantPolicyService {
   readonly isManaflowTeam: (tenantId: TenantId) => boolean;
   /** Listed in CMUX_VM_ENTITLED_SERVICE_IDS: this service key's requests are entitled for the team they act for. */
   readonly isEntitledService: (serviceId: string) => boolean;
-  /** Live VMs a tenant may hold. */
+  /** Live VMs a tenant may hold; NO_VM_COUNT_CAP for a product tenant with no TENANT_VM_QUOTAS entry. */
   readonly maxVms: (tenantId: TenantId) => number;
   /** Live snapshots per tenant; a budget separate from VMs. */
   readonly maxSnapshots: (tenantId: TenantId) => number;
@@ -70,12 +70,26 @@ export interface PolicyConfig {
 }
 
 /**
- * Defaults until plan-based limits exist. TODO(cx-b4h, billing owner Lawrence
- * Chen): take maxVms from the tenant's plan (web/services/vms/entitlements.ts
- * maxActiveVms) once the entitlement source is reachable from this Worker.
+ * A product tenant has no machine-count cap: the ledger is handed this bound, which no tenant reaches, so the
+ * reservation (and its idempotent create) still runs. Paid machines are metered (running compute per vCPU-hour and
+ * GB-hour, saved and paused disk per GB-month) and the team's spending cap in cmux-platform is the only stop (Leo,
+ * 2026-11-10: "you can have arbitrarily many VMs and we just build based off of that"). cmux-platform's own paid
+ * machine guard (CLOUD_PAID_MAX_*) is the abuse brake; a TENANT_VM_QUOTAS entry still holds one tenant to a number.
  */
-export const DEFAULT_MAX_VMS = 20;
-export const DEFAULT_DEV_TEST_MAX_VMS = 20;
+export const NO_VM_COUNT_CAP = Number.MAX_SAFE_INTEGER;
+export const DEFAULT_MAX_VMS = NO_VM_COUNT_CAP;
+/**
+ * Dev/test tenants (every tenant off production) keep a cap so a leaked test loop stops early. It is NEXT Max's
+ * machines kept (cmux-platform Plan.ts `next_max.max_machines`, paused ones too), the largest plan count, so on
+ * development the team's plan is the stop and never this cap: at 20 it refused a company or NEXT Pro team holding
+ * 20 machines, most of them paused, below its plan's 100 or 50 (manaflow-ai/cmux#45885).
+ */
+export const DEFAULT_DEV_TEST_MAX_VMS = 300;
+/**
+ * A production tenant listed in DEV_TEST_TENANT_IDS (the smoke service) runs on the real account, so a leaked smoke
+ * loop still stops at 20 there; only off production does a dev/test tenant get DEFAULT_DEV_TEST_MAX_VMS.
+ */
+export const PRODUCTION_DEV_TEST_MAX_VMS = 20;
 /** Warm-start pools keep many snapshots per team; snapshots cost storage, not compute. */
 export const DEFAULT_MAX_SNAPSHOTS = 100;
 export const DEFAULT_RATE_PER_MINUTE: Readonly<Record<RateClass, number>> = { read: 600, write: 60, exec: 300, files: 300 };
@@ -94,7 +108,11 @@ export const makeTenantPolicy = (config: PolicyConfig): TenantPolicyService => {
     isManaflowTeam: (tenantId) => manaflow.has(tenantId),
     isEntitledService: (serviceId) => entitledServices.has(serviceId),
     maxVms: (tenantId) =>
-      config.maxVms ?? config.vmQuotas?.[tenantId] ?? (isDevTest(tenantId) ? DEFAULT_DEV_TEST_MAX_VMS : DEFAULT_MAX_VMS),
+      config.maxVms ?? config.vmQuotas?.[tenantId] ?? (config.environment !== "production"
+        ? DEFAULT_DEV_TEST_MAX_VMS
+        : listed.has(tenantId)
+          ? PRODUCTION_DEV_TEST_MAX_VMS
+          : DEFAULT_MAX_VMS),
     maxSnapshots: () => config.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS,
     rate: (rateClass) => ({ perMinute: config.ratePerMinute?.[rateClass] ?? DEFAULT_RATE_PER_MINUTE[rateClass] }),
     maxUploadBytes: config.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES,

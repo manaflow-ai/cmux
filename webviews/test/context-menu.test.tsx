@@ -8,6 +8,7 @@ import { ContextMenu } from "../src/ui/ContextMenu";
 import { UiProvider } from "../src/ui/UiProvider";
 import type { PopupHost } from "../src/ui/popupHost";
 import type { NativePopupEvent, NativePopupModel } from "../src/ui/nativePopup";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -42,9 +43,10 @@ function installDom(): HTMLElement {
   return dom.window.document.getElementById("root")!;
 }
 
-afterEach(() => {
+afterEach(async () => {
   if (root) act(() => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -426,7 +428,7 @@ test("a disabled row is dimmed and a long label has no tooltip", async () => {
   const rows = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
   // The selector ui.css dims must match the disabled row.
   const css = readFileSync(join(import.meta.dir, "../src/ui/ui.css"), "utf8");
-  const dimmed = /([^{}]+)\{\s*opacity:\s*0\.45;\s*\}/.exec(css)![1]!.trim();
+  const dimmed = /([^{}]+)\{\s*opacity:\s*var\(--ds-disabled-opacity[^;]*;\s*\}/.exec(css)![1]!.trim();
   expect(rows[1]!.matches(dimmed)).toBe(true);
   // A long label shows its own text, cut off, with no tooltip (test/tooltip-rules.ts).
   expect(rows[0]!.querySelector<HTMLElement>(".ui-menu-label")?.textContent).toBe(long);

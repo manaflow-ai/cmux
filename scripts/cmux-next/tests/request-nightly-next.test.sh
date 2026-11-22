@@ -17,6 +17,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 # git_q, and no background git maintenance in the scratch repositories.
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
 source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 fail() { printf '%s\n' "$@" >&2; exit 1; }
 sha() { shasum -a 256 "$1" | awk '{print $1}'; }
@@ -29,6 +30,7 @@ cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$ROOT/scripts/cmux-next/tree-commi
 [[ -f "$ROOT/scripts/cmux-next/request-nightly-next.sh" ]] \
   && cp "$ROOT/scripts/cmux-next/request-nightly-next.sh" "$src/scripts/cmux-next/"
 cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$src/scripts/ci/"
+cp "$ROOT/scripts/cmux-next/nightly_quarantine.py" "$src/scripts/cmux-next/"
 cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$src/scripts/cmux-next/"
 echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
 "$ROOT/scripts/cmux-next/tests/lib/tree-inputs-fixture.sh" "$src"
@@ -112,13 +114,51 @@ if [[ "\$1 \$2" == "run list" ]]; then
   [[ -f "$TMP/gh-runs" ]] || exit 1
   cat "$TMP/gh-runs"; exit 0
 fi
+# The starved-run read (queued runs of one event for one commit): the ids of the
+# "<id> <head_sha> <event>" lines of $TMP/gh-starved that match, else none. A
+# run's jobs: $TMP/gh-jobs-<id> (the first job's created_at when it waits with no
+# runner, as the --jq prints it), or a failed read when that file is missing.
+if [[ "\$1" == api && "\$2" == repos/*/actions/workflows/cmux-tui-artifacts.yml/runs\?*"&event="* ]]; then
+  q="\$2"; want_sha="\${q#*head_sha=}"; want_sha="\${want_sha%%&*}"; want_event="\${q#*&event=}"; want_event="\${want_event%%&*}"
+  [[ -f "$TMP/gh-starved" ]] || exit 0
+  while read -r id s e; do [[ "\$s" == "\$want_sha" && "\$e" == "\$want_event" ]] && echo "\$id"; done < "$TMP/gh-starved"
+  exit 0
+fi
+if [[ "\$1" == api && "\$2" == repos/*/actions/runs/*/jobs\?* ]]; then
+  id="\${2#repos/*/actions/runs/}"; id="\${id%%/*}"
+  [[ -f "$TMP/gh-jobs-\$id" ]] || exit 1
+  cat "$TMP/gh-jobs-\$id"; exit 0
+fi
 if [[ "\$1" == api && "\$2" == repos/*/actions/workflows/cmux-tui-artifacts.yml/runs\?* ]]; then
+  if [[ -f "$TMP/gh-active-runs" ]]; then
+    python3 - "\$2" "$TMP/gh-active-runs" <<'PY'
+import json, sys
+from urllib.parse import parse_qs, urlsplit
+query = parse_qs(urlsplit(sys.argv[1]).query)
+runs = json.load(open(sys.argv[2]))
+print(sum(run['status'] == query['status'][0]
+          and ('head_sha' not in query or run['head_sha'] == query['head_sha'][0])
+          for run in runs))
+PY
+    exit \$?
+  fi
   [[ -f "$TMP/gh-runs" ]] || exit 1
   case "\$2" in
     *"&status=in_progress&"*) cat "$TMP/gh-runs" ;;
     *"&status=queued&"*|*"&status=waiting&"*|*"&status=pending&"*|*"&status=requested&"*) echo 0 ;;
     *) echo "gh stub: unknown status in \$2" >&2; exit 1 ;;
   esac
+  exit 0
+fi
+# The direct-push quarantine's history read: $TMP/gh-graphql's answer, else no status anywhere.
+if [[ "\$1 \$2" == "api graphql" ]]; then
+  if [[ -f "$TMP/gh-graphql" ]]; then cat "$TMP/gh-graphql"; else echo '{"data":{"repository":{}}}'; fi
+  exit 0
+fi
+# A commit's full status list (REST, newest first): $TMP/gh-statuses-<sha>, else none.
+if [[ "\$1" == api && "\$2" == repos/*/commits/*/statuses\?* ]]; then
+  sha="\${2#repos/*/commits/}"; sha="\${sha%%/*}"
+  if [[ -f "$TMP/gh-statuses-\$sha" && "\$2" == *"&page=1" ]]; then cat "$TMP/gh-statuses-\$sha"; else echo '[]'; fi
   exit 0
 fi
 [[ "\$1" == api ]] || exit 0
@@ -162,6 +202,75 @@ request --sha "$head" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$head" || fail "a green commit with a published tree must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 [[ "$(grep -c "workflow run nightly.yml" "$TMP/gh.log")" == 1 ]] || fail "the tick requests one promotion:" "$(cat "$TMP/gh.log")"
 
+# A direct push red on feat-cmux-next's push runs quarantines its commit (the status cmuxterm-hq's base-red-watch
+# posts, read by scripts/cmux-next/nightly_quarantine.py): it is not promoted until a later push is green. The shape is
+# 11-12's e0d3bb0ec2f0 by lawrencecchen.
+# The read is one lookup per first-parent commit (c0, c1, ...); only the cmux-bot app's statuses count. GraphQL names
+# it as GitHub does here: login cmux-bot, __typename Bot (REST's cmux-bot[bot] is accepted too).
+status_node() { # <commit> <state> [creator login] [creator type]
+  printf '{"oid":"%s","author":{"user":{"login":"lawrencecchen"},"name":"Lawrence Chen"},"status":{"context":{"state":"%s","description":"red: base %s since e0d3bb0ec2f0 by lawrencecchen","creator":{"__typename":"%s","login":"%s"}}}}' \
+    "$1" "$2" "$(printf '4%.0s' {1..40})" "${4:-Bot}" "${3:-cmux-bot}"
+}
+statuses() { # <node>...: the GraphQL answer
+  local body="" i=0 node
+  for node in "$@"; do body+="${body:+,}\"c$i\":$node"; i=$((i + 1)); done
+  printf '{"data":{"repository":{%s}}}\n' "$body" > "$TMP/gh-graphql"
+}
+quarantine() { # <state> <commit>
+  statuses "$(status_node "$2" "$1")"
+}
+quarantine FAILURE "$head"
+request --sha "$head" --release-compile-green
+[[ "$status" == 0 ]] || fail "a quarantined commit is not an error (exit $status):" "$out"
+! dispatched "$head" || fail "a quarantined commit must not be promoted:" "$(cat "$TMP/gh.log")"
+grep -q "quarantined since direct push e0d3bb0ec2f0 by lawrencecchen" <<<"$out" || fail "the skip must name the push:" "$out"
+# The tick walks up to 120 commits, each a call of this script: GH_TICK_CACHE keeps the one read for the tick.
+GH_TICK_CACHE="$TMP/tick" request --sha "$head" --release-compile-green
+GH_TICK_CACHE="$TMP/tick" request --sha "$head" --release-compile-green
+! dispatched "$head" || fail "a cached quarantine must still hold the commit:" "$(cat "$TMP/gh.log")"
+[[ "$(grep -c '^api graphql ' "$TMP/gh.log")" == 0 ]] || fail "the tick's second call must read the quarantine from its cache:" "$(cat "$TMP/gh.log")"
+# Anyone with write access can post the context: a status from another creator neither sets nor lifts it, and the
+# script says it ignored one.
+statuses "$(status_node "$head" FAILURE someone)"
+request --sha "$head" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$head" || fail "a failure from another creator must not quarantine:" "$out"
+parent=$(git -C "$src" rev-parse "$head^")
+statuses "$(status_node "$head" SUCCESS someone)" "$(status_node "$parent" FAILURE)"
+request --sha "$head" --release-compile-green
+! dispatched "$head" || fail "a success from another creator must not lift the quarantine:" "$(cat "$TMP/gh.log")"
+log=$(cd "$src" && PATH="$TMP/bin:$PATH" python3 scripts/cmux-next/nightly_quarantine.py quarantined --repo o/r --tip "$head" 2>&1 >/dev/null)
+grep -q "ignored a cmux-next/direct-push-gates status (SUCCESS) on ${head:0:12} from someone" <<<"$log" \
+  || fail "the ignored status must be named with its creator:" "$log"
+# GraphQL's status.context is only the latest status of the context: a SUCCESS anyone posts over the publisher's
+# FAILURE must not hide it (Codex BLOCK on #42343 at 28980e76). The publisher's newest verdict is read from the
+# commit's full status list, and only for a commit whose latest status is someone else's.
+statuses "$(status_node "$head" SUCCESS someone User)"
+printf '[{"context":"cmux-next/direct-push-gates","state":"success","description":"","creator":{"login":"someone","type":"User"}},{"context":"cmux-next/direct-push-gates","state":"failure","description":"red: base %s since e0d3bb0ec2f0 by lawrencecchen","creator":{"login":"cmux-bot[bot]","type":"Bot"}}]\n' \
+  "$(printf '4%.0s' {1..40})" > "$TMP/gh-statuses-$head"
+request --sha "$head" --release-compile-green
+! dispatched "$head" || fail "a forged success over the publisher's failure must not lift the quarantine:" "$(cat "$TMP/gh.log")"
+grep -q "^api repos/o/r/commits/$head/statuses" "$TMP/gh.log" || fail "the forged latest status must send the read to the full list:" "$(cat "$TMP/gh.log")"
+rm -f "$TMP/gh-statuses-$head"
+# A user who registers the bare login cmux-bot is a User, not the app: its success does not lift it either. REST's
+# cmux-bot[bot] form of the app still counts (cmux#42343 review F1).
+statuses "$(status_node "$head" SUCCESS cmux-bot User)" "$(status_node "$parent" FAILURE)"
+request --sha "$head" --release-compile-green
+! dispatched "$head" || fail "a User named cmux-bot must not lift the quarantine:" "$(cat "$TMP/gh.log")"
+statuses "$(status_node "$head" FAILURE 'cmux-bot[bot]')"
+request --sha "$head" --release-compile-green
+! dispatched "$head" || fail "the app's REST login form must still quarantine:" "$(cat "$TMP/gh.log")"
+# Only the first-parent line the nightly promotes from is read: a side branch's success does not lift it (Codex F1 on
+# #42248), and the read asks for exactly those commits.
+statuses "$(status_node "$(printf '5%.0s' {1..40})" SUCCESS)" "$(status_node "$parent" FAILURE)"
+request --sha "$head" --release-compile-green
+! dispatched "$head" || fail "a success off the first-parent line must not lift the quarantine:" "$(cat "$TMP/gh.log")"
+grep -q "object(oid:\"$head\")" "$TMP/gh.log" && grep -q "object(oid:\"$parent\")" "$TMP/gh.log" \
+  || fail "the read must ask for the first-parent commits:" "$(cat "$TMP/gh.log")"
+quarantine SUCCESS "$head"
+request --sha "$head" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$head" || fail "once a push's gates pass the commit is promoted:" "$out"
+rm -f "$TMP/gh-graphql"
+
 # A later app-only commit shares the published tree (the key is content-addressed).
 echo app > "$src/App.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "app only"
 app=$(git -C "$src" rev-parse HEAD)
@@ -181,7 +290,12 @@ git_q -C "$src" checkout -q --detach "$head"
 branch() { # <commit>: feat-cmux-next's tip (the script's history, fetched or local)
   git_q -C "$src" update-ref refs/heads/feat-cmux-next "$1"
 }
-no_api() { ! grep -q '^api' "$TMP/gh.log" || fail "--tree-ready must read no GitHub API:" "$(cat "$TMP/gh.log")"; }
+# No REST read. The one exception is the direct-push quarantine's single GraphQL read (its own budget, kept for the
+# whole tick in GH_TICK_CACHE), made only once a candidate is about to be requested.
+no_api() {
+  ! grep -v '^api graphql ' "$TMP/gh.log" | grep -q '^api' || fail "--tree-ready must read no GitHub REST API:" "$(cat "$TMP/gh.log")"
+  (( $(grep -c '^api graphql ' "$TMP/gh.log") <= 1 )) || fail "the quarantine is read once a call:" "$(cat "$TMP/gh.log")"
+}
 branch "$other"
 request --tree-ready "$head"
 [[ "$status" == 0 ]] && dispatched "$app" || fail "the newest commit with the published tree must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
@@ -392,6 +506,27 @@ echo 2 > "$TMP/gh-runs"
 RUN_ID=12 request --sha "$other" --release-compile-green
 ! backfilled && grep -q "queued or running" <<<"$out" \
   || fail "no backfill while an artifacts run is active:" "$out" "$(cat "$TMP/gh.log")"
+# Recovery dispatches the current branch tip, even when this request checks an
+# older commit's marker. Only active runs of that dispatch source suppress it.
+backfill_tip=$(git -C "$src" rev-parse refs/heads/feat-cmux-next)
+branch "$other"
+printf '[{"head_sha":"%s","status":"in_progress"}]\n' "$head" > "$TMP/gh-active-runs"
+RUN_ID=120 request --sha "$other" --release-compile-green
+[[ "$status" == 0 ]] && backfilled \
+  || fail "an unrelated active tree must not suppress marker backfill:" "$out" "$(cat "$TMP/gh.log")"
+for active_state in queued in_progress waiting pending requested; do
+  printf '[{"head_sha":"%s","status":"%s"}]\n' "$other" "$active_state" > "$TMP/gh-active-runs"
+  RUN_ID="121-$active_state" request --sha "$other" --release-compile-green
+  ! backfilled && grep -q "queued or running" <<<"$out" \
+    || fail "an active dispatch-source run ($active_state) must suppress backfill:" "$out" "$(cat "$TMP/gh.log")"
+done
+branch "$head"
+printf '[{"head_sha":"%s","status":"queued"}]\n' "$head" > "$TMP/gh-active-runs"
+RUN_ID=122 request --sha "$other" --release-compile-green
+! backfilled && grep -q "queued or running" <<<"$out" \
+  || fail "backfill must check the remote dispatch tip, not the older marker candidate:" "$out" "$(cat "$TMP/gh.log")"
+branch "$backfill_tip"
+rm -f "$TMP/gh-active-runs"
 rm -f "$TMP/gh-runs"
 RUN_ID=13 request --sha "$other" --release-compile-green
 ! backfilled && grep -q "could not read the cmux-tui-artifacts runs" <<<"$out" \
@@ -637,6 +772,43 @@ echo 0 > "$TMP/gh-runs"
 request --tree-ready "$pending"
 [[ "$status" == 0 ]] && ! dispatched "$pending" || fail "with no active artifacts run the building tip must wait:" "$out"
 grep -q "no active cmux-tui-artifacts run builds tree" <<<"$out" || fail "the wait must say why:" "$out"
+printf '[{"head_sha":"%s","status":"queued"}]\n' "$other" > "$TMP/gh-active-runs"
+RUN_ID=123 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && backfilled && ! dispatched "$pending" \
+  || fail "a tip with no publisher must backfill despite an unrelated queued tree:" "$out" "$(cat "$TMP/gh.log")"
+# The tip's own push run, queued with its first job waiting for a runner past
+# CMUX_TREE_RUN_STARVED_MIN (30 min), is no run: it builds no tree, so the tip
+# is not requested as building and the rescue dispatch goes (2026-11-19: 40+
+# feat-cmux-next preflights queued on cmux-gcp-lane-build-x64 since 04:21Z).
+ago() { python3 -c 'import sys, datetime as d; print((d.datetime.now(d.timezone.utc) - d.timedelta(minutes=int(sys.argv[1]))).strftime("%Y-%m-%dT%H:%M:%SZ"))' "$1"; }
+echo 1 > "$TMP/gh-runs"
+printf '[{"head_sha":"%s","status":"queued"}]\n' "$pending" > "$TMP/gh-active-runs"
+echo "777 $pending push" > "$TMP/gh-starved"
+ago 45 > "$TMP/gh-jobs-777"
+RUN_ID=124 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && backfilled && ! dispatched "$pending" && grep -q "waited 45 min with no runner; counted as no run" <<<"$out" \
+  || fail "a tip run starved of a runner past the limit must count as no run and be rescued:" "$out" "$(cat "$TMP/gh.log")"
+# Under the limit it is still the run that builds the tree: no rescue.
+ago 10 > "$TMP/gh-jobs-777"
+RUN_ID=125 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && ! backfilled && dispatched "$pending" \
+  || fail "a run queued under the limit must still count as building the tree:" "$out" "$(cat "$TMP/gh.log")"
+# The limit is the env's.
+RUN_ID=126 CMUX_TREE_RUN_STARVED_MIN=5 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && backfilled && ! dispatched "$pending" \
+  || fail "CMUX_TREE_RUN_STARVED_MIN must set the limit:" "$out" "$(cat "$TMP/gh.log")"
+# A starved rescue dispatch is not rescued again: only push runs count as starved.
+ago 45 > "$TMP/gh-jobs-777"
+echo "777 $pending workflow_dispatch" > "$TMP/gh-starved"
+RUN_ID=127 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && ! backfilled \
+  || fail "a starved rescue dispatch must not start another rescue:" "$out" "$(cat "$TMP/gh.log")"
+# A run whose jobs cannot be read is not starved (the careful answer).
+echo "777 $pending push" > "$TMP/gh-starved"; rm -f "$TMP/gh-jobs-777"
+RUN_ID=128 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && ! backfilled && dispatched "$pending" \
+  || fail "an unreadable job list must not count the run as starved:" "$out" "$(cat "$TMP/gh.log")"
+rm -f "$TMP/gh-starved" "$TMP/gh-active-runs"
 echo 1 > "$TMP/gh-runs"
 request --tree-ready "$pending"
 [[ "$status" == 0 ]] && dispatched "$pending" || fail "the building tip with the line and an active run must be requested:" "$out" "$(cat "$TMP/gh.log")"

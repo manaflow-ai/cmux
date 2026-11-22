@@ -4,6 +4,7 @@
 //! loads the items, applies an op to a copy, writes the changed rows in its
 //! own commit, and installs the copy only after that commit succeeds.
 
+pub mod client;
 mod model;
 mod reduce;
 

@@ -1,16 +1,24 @@
 import type { ChiefCloudMachine } from "./domains/user-chief.ts"
-import { DEFAULT_CHIEF_ENSURE, DEFAULT_CHIEF_PROVISION, HOSTED_DEFAULT_KEY, defaultChiefVmInstall, defaultChiefWorkspace } from "./domains/user-chief-default.ts"
+import { DEFAULT_CHIEF_BACKFILL, DEFAULT_CHIEF_ENSURE, DEFAULT_CHIEF_PROVISION, HOSTED_DEFAULT_KEY, defaultChiefBackfillDue, defaultChiefVmInstall, defaultChiefWorkspace } from "./domains/user-chief-default.ts"
 import { personalTeamIdFor, type UserState } from "./domains/user.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import type { SubmitResult } from "./owner-do.ts"
+import { isDevSpace } from "./build-space.ts"
+import type { Env, BuildSpace } from "./env.ts";
+import { ccRoute } from "./chief-brain-cc/vm.ts"
 
-/** Trusted RPC on the existing platform service binding; no HTTP route or user credential reaches it. */
+/** Trusted RPC on the existing platform service binding; no HTTP route or user credential reaches it.
+ * `space` is the caller's dev build space (cmux-platform#1465): the RPC carries no header, so it is an argument. */
 export interface DefaultMachinePlatform {
-  ensureDefaultMachine(user: string): Promise<
+  ensureDefaultMachine(user: string, space?: string): Promise<
     | { ok: true; value: { workspace: string; team: string; connectionMachine: string; machine: { id: string; provider: string; creator: string; visibility: string; kind: string } } }
     | { ok: false; code: string; message: string; retryable: boolean }
   >
 }
+
+/** `platform` asked from `space`: a dev space names itself, nightly sends the user only (as before). */
+export const platformInSpace = (platform: DefaultMachinePlatform | undefined, space: BuildSpace | undefined): DefaultMachinePlatform | undefined =>
+  platform && isDevSpace(space) ? { ensureDefaultMachine: (user) => platform.ensureDefaultMachine(user, space) } : platform
 
 export const provisioningFailure = (code: string, retryable = true): Error & { retryable: boolean } =>
   Object.assign(new Error(code), { retryable })
@@ -87,4 +95,56 @@ export const deliverSignupChief = async (entity: string, source: string, items: 
     done.push(item.id)
   }
   return { done }
+}
+
+export type RebindReply = { ok: true; changed: boolean; binding: ChiefCloudMachine } | { ok: false; code: string; retryable: boolean }
+
+/**
+ * The platform moved the default Chief's logical machine to a new VM (a shrink, a rewind, a fresh machine), so
+ * the stored carrier and its install no longer answer. Ask the platform for the current carrier of the same fixed
+ * workspace and follow it, keeping the logical machine; never a caller-chosen machine, never another one.
+ */
+export const rebindDefaultChief = async (
+  platform: DefaultMachinePlatform | undefined,
+  user: string,
+  agent: string,
+  current: () => UserState | undefined,
+  rebind: (machine: ChiefCloudMachine, key: string) => SubmitResult,
+  now: () => number = Date.now
+): Promise<RebindReply> => {
+  const state = current()
+  const chief = state?.user?.id === user && state.hosted_default === agent ? state.chiefs?.[agent] : undefined
+  if (!chief || chief.archived_at !== null || chief.brain_place || !chief.cloud_machine) return { ok: false, code: "chief.machine.not_default", retryable: false }
+  let machine: ChiefCloudMachine
+  try { machine = await ensureChiefMachine(platform, user, () => current()!, now) } catch (error) {
+    return { ok: false, code: error instanceof Error ? error.message : "chief.provision.failed", retryable: (error as { retryable?: unknown })?.retryable === true }
+  }
+  const was = chief.cloud_machine
+  if (machine.machine !== was.machine) return { ok: false, code: "chief.machine.binding_changed", retryable: false }
+  if (machine.connection_machine === was.connection_machine && machine.install === was.install) return { ok: true, changed: false, binding: was }
+  const reply = rebind(machine, `chief-default-rebind:${agent}:${machine.connection_machine}:${machine.install}`).frames.find((f) => f.t === "reject" || f.t === "result")
+  if (!reply) return { ok: false, code: "chief.provision.bind_unanswered", retryable: true }
+  if (reply.t === "reject") return { ok: false, code: reply.code, retryable: reply.retryable === true }
+  return { ok: true, changed: true, binding: machine }
+}
+
+export type BackfillOutcome = "off" | "not_due" | "queued" | "failed"
+
+/**
+ * Accounts made before signup provisioning (#33131) have no default Chief machine: their Chief runs hosted on
+ * credits. After their user.ensure, UserDO queues the same signup outbox once (DEFAULT_CHIEF_BACKFILL decides it
+ * in the reducer, so concurrent ensures queue one). Only where the machine Chief is on (CHIEF_BRAIN_ENABLED and
+ * HANDS_ENABLED, the gate of activateDefault and the hand routes), so production stays as it is. An owner on the
+ * Claude Code route (CHIEF_CC_OWNERS) keeps it: a bound machine would take their turns over. Never throws: the
+ * ensure has already committed, and the outbox's retries own every network step.
+ */
+export const backfillDefaultChief = (env: Env, state: UserState | undefined, submit: (op: string, key: string) => SubmitResult): BackfillOutcome => {
+  if (env.CHIEF_BRAIN_ENABLED !== "1" || env.HANDS_ENABLED !== "1") return "off"
+  if (!state?.user || !defaultChiefBackfillDue(state) || ccRoute(env, state.user.id)) return "not_due"
+  try {
+    const reply = submit(DEFAULT_CHIEF_BACKFILL, `chief-default-backfill:${state.user.id}`).frames.find((f) => f.t === "reject" || f.t === "result")
+    return reply?.t === "result" ? "queued" : "failed"
+  } catch {
+    return "failed"
+  }
 }

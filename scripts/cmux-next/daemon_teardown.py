@@ -42,8 +42,15 @@ def daemon_env(tag: str) -> dict:
     per-user TMPDIR the app hands it, so pass the same one."""
     tmpdir = os.environ.get("TMPDIR") or subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True,
                                                          text=True).stdout.strip()
-    return {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": tmpdir,
-            "CMUX_TUI_STATE_DIR": os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui")}
+    return {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": tmpdir, "CMUX_TUI_STATE_DIR": tag_state_dir(tag)}
+
+
+def tag_state_dir(tag: str) -> str:
+    """The tag daemon's state: NEXT's own folder, or classic's cmux/tags of a build from before it while only that one
+    exists (a newer build moves it at launch and leaves a symlink)."""
+    new = os.path.expanduser(f"~/Library/Application Support/cmux-next/tags/{tag}/tui")
+    old = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui")
+    return old if not os.path.exists(new) and os.path.exists(old) else new
 
 
 def daemon_status(binary: str, tag: str) -> dict | None:

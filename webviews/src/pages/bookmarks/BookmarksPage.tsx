@@ -4,7 +4,9 @@
 // in `BookmarksStore`; this file only renders it and turns plain keys, clicks and drops into store
 // intents. Cmd/Ctrl chords never reach page handlers.
 import {
+  useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -14,7 +16,8 @@ import {
 } from "react";
 import { Breadcrumbs } from "../../ui/Breadcrumbs";
 import { SplitEdge } from "../../ui/SplitEdge";
-import { useLasting } from "../../ui/lasting";
+import { ConnectionChip } from "../../ui/ConnectionChip";
+import { useConnectionQuiet } from "../../ui/lasting";
 import { Tree, type TreeLine } from "../../ui/Tree";
 import { VirtualList } from "../../ui/VirtualList";
 import { PageMenu, type PageMenuItem } from "../shared/PageMenu";
@@ -36,7 +39,9 @@ import {
   type RootTitles,
 } from "./model";
 import type { BookmarksSnapshot, BookmarksStore, RowIcon } from "./store";
+import { FolderGlyph, GlobeGlyph } from "./glyphs";
 import type { Bookmark } from "./types";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** `two-pane` ships: the folder tree beside the list (the tree drops below 480 px and the
  * breadcrumb takes its place). `breadcrumb` and `compact` are gallery alternatives. */
@@ -78,10 +83,10 @@ export function BookmarksPage({
     bar: snap.titles.bar || t("root.bar"),
     other: snap.titles.other || t("root.other"),
   };
-  // A lost host shows nothing until it lasts past the grace (a launch, a daemon restart: the store
-  // re-reads once the link is back); then the disconnected line.
+  // A lost host keeps the rows it had and says so only once it lasts (a launch, a daemon restart: the
+  // store re-reads once the link is back), as a corner mark that takes no room.
   const down = snap.connection === "disconnected";
-  const downLasting = useLasting(down);
+  const downLasting = useConnectionQuiet(down);
   const searching = snap.results !== null;
   const rows = snap.rows;
   const focusIndex = snap.focus === undefined ? -1 : rows.findIndex((row) => row.id === snap.focus);
@@ -161,10 +166,26 @@ export function BookmarksPage({
     openMenu(event, nodeItems(node, selection));
   };
 
+  // Up and Down on a row take DOM focus to the row they select (CMUX-303): the rows rove one tabindex,
+  // and the old row may leave the virtual list, which dropped focus to the page. From the search
+  // field focus stays in the field.
+  const pane = useRef<HTMLDivElement | null>(null);
+  const focusFollows = useRef(false);
+  useLayoutEffect(() => {
+    if (!focusFollows.current) return;
+    focusFollows.current = false;
+    const row = [...(pane.current?.querySelectorAll<HTMLElement>(".bm-row") ?? [])].find(
+      (element) => element.dataset.bookmark === snap.focus,
+    );
+    row?.focus();
+  }, [snap.focus]);
+
   const listKeys = (event: KeyboardEvent) => {
     if (!plain(event)) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       const next = moveSelection(rows, snap.focus, event.key === "ArrowDown" ? 1 : -1);
+      const fromRow = event.target instanceof Element && event.target.closest(".bm-row") !== null;
+      focusFollows.current = fromRow && next !== undefined && next !== snap.focus;
       store.select(next, event.shiftKey ? "range" : "single");
     } else if (event.key === "Enter") {
       const node = focusIndex >= 0 ? rows[focusIndex] : undefined;
@@ -233,13 +254,40 @@ export function BookmarksPage({
     void store.dropInto(ids, folder);
   };
 
-  // Icons are asked for only for the rows the list rendered this frame.
-  const rendered: Bookmark[] = [];
-  useEffect(() => {
-    void store.requestIcons(rendered);
-  });
+  // Icons are asked for by the rows the list draws, in one call per commit. A scroll re-renders only
+  // the virtual list, never this page, so an effect here missed the rows it brought in (CMUX-300).
+  const wantedIcons = useRef<Bookmark[]>([]);
+  const askIcon = useCallback(
+    (node: Bookmark) => {
+      if (wantedIcons.current.push(node) > 1) return;
+      queueMicrotask(() => {
+        const nodes = wantedIcons.current;
+        wantedIcons.current = [];
+        void store.requestIcons(nodes);
+      });
+    },
+    [store],
+  );
 
   const trail = folderTrail(snap.tree, snap.folder, titles);
+  // Without the tree (narrow, or the breadcrumb layout) the path starts at one root: the other is
+  // one click away here.
+  const shownRoot = trail[0]?.id;
+  const roots = (
+    <fieldset className={`bm-roots${layout === "two-pane" ? " is-narrow-only" : ""}`} aria-label={t("page.title")}>
+      {(["bar", "other"] as const).map((root) => (
+        <button
+          key={root}
+          type="button"
+          className="bm-root"
+          aria-pressed={shownRoot === root}
+          onClick={() => store.showFolder(root)}
+        >
+          {titles[root]}
+        </button>
+      ))}
+    </fieldset>
+  );
   const crumbs = (
     <Breadcrumbs
       className={`bm-crumbs${layout === "two-pane" ? " is-narrow-only" : ""}`}
@@ -260,6 +308,7 @@ export function BookmarksPage({
     // The list pane takes the plain keys of its rows; the search field forwards Up, Down and Return.
     // oxlint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events -- the rows are the grid's; this only hears their keys and the empty area's menu and click.
     <div
+      ref={pane}
       className="bm-list-pane"
       onKeyDown={listOnlyKeys}
       onContextMenu={(event) => openMenu(event, addItems())}
@@ -268,21 +317,19 @@ export function BookmarksPage({
         if (event.target instanceof Element && !event.target.closest(".bm-row")) store.select(undefined);
       }}
     >
+      {layout === "two-pane" ? roots : null}
       {layout === "two-pane" ? crumbs : null}
       {snap.notice && !down ? (
         <p className="bm-notice" role="alert">
           {snap.notice.message}
         </p>
       ) : null}
-      {down && !downLasting ? null : down ? (
-        <output className="bm-empty">
-          <span className="bm-empty-title">{t("page.disconnected")}</span>
-        </output>
-      ) : empty ? (
-        snap.loading ? null : (
+      {downLasting ? <ConnectionChip text={t("page.disconnected")} /> : null}
+      {empty ? (
+        snap.loading || down ? null : (
           <div className="bm-empty">
             <span className="bm-empty-title">{t(searching ? "page.emptySearchTitle" : "page.emptyTitle")}</span>
-            <span className="bm-empty-hint">{t(searching ? "page.emptySearchHint" : "page.emptyHint")}</span>
+            {searching ? null : <span className="bm-empty-hint">{t("page.emptyHint")}</span>}
           </div>
         )
       ) : (
@@ -298,7 +345,6 @@ export function BookmarksPage({
           renderRow={(index, style) => {
             const node = rows[index];
             if (!node) return null;
-            rendered.push(node);
             return (
               <BookmarkRow
                 key={node.id}
@@ -317,6 +363,7 @@ export function BookmarksPage({
                       : ""
                 }
                 icon={snap.icons[iconKey(node)]}
+                onShown={askIcon}
                 onClick={(event) => {
                   event.currentTarget.focus();
                   store.select(node.id, event.shiftKey ? "range" : event.metaKey ? "toggle" : "single");
@@ -349,7 +396,7 @@ export function BookmarksPage({
           aria-label={t("page.search")}
           aria-controls="bm-list"
           value={snap.text}
-          disabled={down && downLasting}
+          disabled={downLasting}
           ref={focusOnMount}
           onChange={(event) => store.setText(event.target.value)}
           onKeyDown={searchKeys}
@@ -373,6 +420,7 @@ export function BookmarksPage({
           <MoreGlyph />
         </button>
       </header>
+      {layout === "two-pane" ? null : roots}
       {layout === "two-pane" ? null : crumbs}
       <div className="bm-body">
         {layout === "two-pane" ? (
@@ -421,6 +469,8 @@ interface RowProps {
   drop?: "before" | "into";
   detail: string;
   icon?: RowIcon | null;
+  /** The row is drawn without an icon asked for yet (undefined, not null: null is "the host has none"). */
+  onShown: (node: Bookmark) => void;
   onClick: (event: MouseEvent<HTMLDivElement>) => void;
   onOpen: () => void;
   onMenu: (event: MouseEvent) => void;
@@ -431,38 +481,47 @@ interface RowProps {
   onDrop: (event: DragEvent) => void;
 }
 
-function BookmarkRow({ node, style, index, layout, selected, focused, drop, detail, icon, ...on }: RowProps) {
+function BookmarkRow({ node, style, index, layout, selected, focused, drop, detail, icon, onShown, ...on }: RowProps) {
   const title = node.title || (node.url ? displayURL(node.url) : "");
+  const unasked = icon === undefined;
+  useEffect(() => {
+    if (unasked) onShown(node);
+  }, [node, unasked, onShown]);
   return (
     // A row of the multi-select grid: the grid pane takes its keys (Up/Down, Return, Delete).
-    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- the pane above handles the row's keys.
-    <div
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a virtualized grid row: absolutely placed, no table layout.
-      role="row"
-      tabIndex={focused ? 0 : -1}
-      aria-selected={selected}
-      aria-rowindex={index + 1}
-      data-bookmark={node.id}
-      className={`bm-row${selected ? " selected" : ""}${drop ? ` drop-${drop}` : ""}`}
-      style={style}
-      title={layout === "compact" && node.url ? node.url : undefined}
-      draggable
-      onClick={on.onClick}
-      onDoubleClick={on.onOpen}
-      onContextMenu={on.onMenu}
-      onDragStart={on.onDragStart}
-      onDragEnd={on.onDragEnd}
-      onDragOver={on.onDragOver}
-      onDragLeave={on.onDragLeave}
-      onDrop={on.onDrop}
-    >
-      {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the one cell of a virtualized grid row. */}
-      <span className="bm-row-cell" role="gridcell">
-        <BookmarkIcon node={node} icon={icon} />
-        <span className="bm-row-title">{title}</span>
-        {detail ? <span className="bm-row-detail">{detail}</span> : null}
-      </span>
-    </div>
+    // A compact row shows no address: its hover card does.
+    <WithFacts facts={[{ value: layout === "compact" && node.url ? node.url : "", code: true }]}>
+      {(facts) => (
+        // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- the pane above handles the row's keys.
+        <div
+          {...facts}
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a virtualized grid row: absolutely placed, no table layout.
+          role="row"
+          tabIndex={focused ? 0 : -1}
+          aria-selected={selected}
+          aria-rowindex={index + 1}
+          data-bookmark={node.id}
+          className={`bm-row${selected ? " selected" : ""}${drop ? ` drop-${drop}` : ""}`}
+          style={style}
+          draggable
+          onClick={on.onClick}
+          onDoubleClick={on.onOpen}
+          onContextMenu={on.onMenu}
+          onDragStart={on.onDragStart}
+          onDragEnd={on.onDragEnd}
+          onDragOver={on.onDragOver}
+          onDragLeave={on.onDragLeave}
+          onDrop={on.onDrop}
+        >
+          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the one cell of a virtualized grid row. */}
+          <span className="bm-row-cell" role="gridcell">
+            <BookmarkIcon node={node} icon={icon} />
+            <span className="bm-row-title">{title}</span>
+            {detail ? <span className="bm-row-detail">{detail}</span> : null}
+          </span>
+        </div>
+      )}
+    </WithFacts>
   );
 }
 
@@ -557,32 +616,6 @@ function BookmarkIcon({ node, icon }: { node: Bookmark; icon?: RowIcon | null })
         <GlobeGlyph />
       )}
     </span>
-  );
-}
-
-function FolderGlyph() {
-  return (
-    <svg viewBox="0 0 16 16" width="16" height="16">
-      <path
-        d="M1.75 4.25c0-.83.67-1.5 1.5-1.5h2.9l1.5 1.5h5.1c.83 0 1.5.67 1.5 1.5v6c0 .83-.67 1.5-1.5 1.5H3.25c-.83 0-1.5-.67-1.5-1.5z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function GlobeGlyph() {
-  return (
-    <svg viewBox="0 0 16 16" width="16" height="16">
-      <g fill="none" stroke="currentColor" strokeWidth="1.1">
-        <circle cx="8" cy="8" r="6.25" />
-        <ellipse cx="8" cy="8" rx="2.6" ry="6.25" />
-        <path d="M1.9 6h12.2M1.9 10h12.2" />
-      </g>
-    </svg>
   );
 }
 

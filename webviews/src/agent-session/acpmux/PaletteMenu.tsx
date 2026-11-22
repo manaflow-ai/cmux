@@ -89,7 +89,7 @@ export function PaletteMenu({
     setQuery("");
     if (returnFocus) trigger.current?.focus();
   }, [returnFocus]);
-  const press = usePopoverTrigger(open, setOpen, openMenu);
+  const press = usePopoverTrigger(open, setOpen, openMenu, { popup: "listbox", popupId: menuId });
   useEffect(() => {
     if (!open) return;
     search.current?.focus({ preventScroll: true });
@@ -178,10 +178,8 @@ export function PaletteMenu({
         className="acpmux-picker-button"
         data-menu={label}
         aria-label={label}
+        // tooltip-allow: the trigger is the caller's glyph (the composer's +), with no words of its own.
         title={tooltip}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
         onKeyDown={(event) => {
           if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
             event.preventDefault();

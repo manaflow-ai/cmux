@@ -12,6 +12,7 @@ import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
 import { openEffort } from "./support/effortDropdown";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -83,11 +84,7 @@ afterEach(() => {
 afterAll(async () => {
   // A checkbox indicator's last update lands a task after the final test: let it run on this window.
   await settle();
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 /// Claude Code's model list as Leo's chat reported it: its aliases named as the releases they run,
@@ -251,8 +248,16 @@ for (const model of ["claude-fable-5-1", "claude-fable-5-1[1m]"])
     expect(sent).toEqual([]);
   });
 
-for (const state of ["expired", "signedOut"] as const) {
-  test(`full picker offers Sign in again for ${state} auth before send`, async () => {
+// The button names whose sign-in fixes the chat (sessionAuth.ts authLoginText; 88fae780, user Nov 19:
+// "hard to tell if cmux is signed out or the model provider is signed out"): the agent's own sign-in
+// when acpmux names the agent, else Sign in again. This test kept the old word for both.
+for (const [state, harness, word] of [
+  ["expired", "claude", "Sign in to Claude Code"],
+  ["signedOut", "claude", "Sign in to Claude Code"],
+  ["expired", null, "Sign in again"],
+  ["signedOut", null, "Sign in again"],
+] as const) {
+  test(`full picker offers ${word} for ${state} auth (agent ${harness ?? "unnamed"}) before send`, async () => {
     const { createRoot } = await import("react-dom/client");
     const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
     let logins = 0;
@@ -272,7 +277,7 @@ for (const state of ["expired", "signedOut"] as const) {
             state,
             source: "turn",
             evidenceAt: 1,
-            harness: "claude",
+            harness: harness ?? undefined,
             host: null,
             login: { kind: "terminal", command: "claude auth login" },
           }}
@@ -282,7 +287,7 @@ for (const state of ["expired", "signedOut"] as const) {
     );
     await open();
     const login = doc().querySelector<HTMLButtonElement>(".acpmux-mp-auth-action");
-    expect(login?.textContent).toBe("Sign in again");
+    expect(login?.textContent).toBe(word);
     await act(async () => login!.click());
     expect(logins).toBe(1);
   });
@@ -367,17 +372,15 @@ for (const harnessFixed of [false, true]) {
     await open();
     const top = choices.slice(0, 6).map((choice) => choice.name);
     if (!harnessFixed) {
-      // A rail's menu is the columns menu: the top models, then the harness's other models under
-      // the "Legacy models" caption in the same column.
+      // A rail's menu is the columns menu: the top models, then the harness's other models in the
+      // same column, with no caption between them (#41212).
       const list = [...doc().querySelector('.acpmux-cols [role="listbox"]')!.children];
-      const caption = list.findIndex((item) => item.textContent === "Legacy models");
-      const names = (items: Element[]) =>
-        items
-          .filter((item) => item.getAttribute("role") === "option")
-          .map((item) => item.querySelector(".acpmux-cols-name")?.textContent ?? "");
-      expect(caption, list.map((item) => item.textContent).join(", ")).toBeGreaterThan(0);
-      expect(names(list.slice(0, caption))).toEqual(top);
-      expect(names(list.slice(caption + 1)).sort()).toEqual(["Choice 6", "Choice 7"]);
+      expect(list.some((item) => item.textContent === "Legacy models")).toBe(false);
+      const names = list
+        .filter((item) => item.getAttribute("role") === "option")
+        .map((item) => item.querySelector(".acpmux-cols-name")?.textContent ?? "");
+      expect(names.slice(0, top.length)).toEqual(top);
+      expect(names.slice(top.length).sort()).toEqual(["Choice 6", "Choice 7"]);
       return;
     }
     expect(modelRows().map(label)).toEqual(top);

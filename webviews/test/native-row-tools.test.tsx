@@ -35,7 +35,9 @@ import { applyHostEvent } from "../src/agent-session/acpmux/pageHost";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { openPicker } from "../src/agent-session/acpmux/pickerOpeners";
 import { SummaryButton } from "../src/agent-session/acpmux/summary/SummaryButton";
+import { SEARCH_CHATS_ACTION } from "../src/agent-session/acpmux/header/glassToolbar.experiment";
 import { until } from "./support/until";
+import { settleReact } from "./support/domTeardown";
 
 function deferred<T = unknown>() {
   let resolve!: (value: T) => void;
@@ -228,6 +230,23 @@ test("native and DOM PR labels retain aggregate failure and pending state withou
       }
     }
   }
+});
+
+test("glass toolbar keeps quick tools and search in the native tab row", async () => {
+  const h = nativeHarness();
+  const searches: string[] = [];
+  await h.render({ glass: "keycaps", onSearch: () => searches.push("search") });
+
+  // The experiment changes the host row's treatment, not its owner. No duplicate web controls
+  // may appear beside the native buttons while the flag is on.
+  expect(h.tool("terminal")).toBeDefined();
+  expect(h.tool(SEARCH_CHATS_ACTION)).toEqual(expect.objectContaining({ symbol: "magnifyingglass", enabled: true }));
+  expect(h.container.querySelector("[data-quick-action]")).toBeNull();
+  expect(h.container.querySelector(".acpmux-glass-search")).toBeNull();
+  expect(h.container.querySelector(".acpmux-header-more")).toBeNull();
+
+  act(() => applyHostEvent({ kind: "tabRowToolInvoked", value: { id: SEARCH_CHATS_ACTION } }));
+  expect(searches).toEqual(["search"]);
 });
 
 test("native worktree uses the DOM refusal, retry, exclusion and removed state machine", async () => {
@@ -742,7 +761,7 @@ test("every native id dispatches the shared handler; invalid, disabled and menu 
   expect(calls.at(-1)).toBe("inspector");
 });
 
-test("conditional quick actions and Browser's preview delegation keep the web behavior", () => {
+test("conditional quick actions keep the web behavior, and Browser never opens the chat's page (issue 49623)", () => {
   const calls: string[] = [];
   const input = quickInput(calls);
   expect(headerQuickTools({ ...input, tabTools: false })).toEqual([]);
@@ -761,9 +780,10 @@ test("conditional quick actions and Browser's preview delegation keep the web be
     actions: [{ id: "browser", mode: "toggle" }],
     lit: [HEADER_ACTIONS.preview],
   });
-  expect(nativeRowToolBindings(browser)[0]!.tool.toggled).toBe(true);
+  // An open preview does not light the globe, and the globe opens a blank browser, not the page.
+  expect(nativeRowToolBindings(browser)[0]!.tool.toggled).toBe(false);
   dispatchNativeRowTool({ id: "browser" }, nativeRowToolBindings(browser));
-  expect(calls).toEqual(["preview:toggle:http://localhost:5173/"]);
+  expect(calls).toEqual(["browser:toggle"]);
 });
 
 test("native row menus normalize labels and share one aggregate budget", () => {
@@ -869,6 +889,7 @@ afterEach(async () => {
   if (previousTabRow) setTabRow(previousTabRow);
   previousTabRow = undefined;
   previousHeader = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, { had, value }] of saved) {

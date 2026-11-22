@@ -40,11 +40,7 @@ extension SidebarBridge {
             // Each click flips what the sidebar shows now; the fold holds
             // until the store has it, so no echo undoes a click (cx-qno.17).
             guard let shown = model.group(group)?.isCollapsed else { return true }
-            let collapsed = !shown, v2 = statePersonal
-            rows.fold(group, collapsed: collapsed, on: services.machines.local, failed: saveFailed(intent)) {
-                if v2 { return try await $0.state.updateWorkspaceGroup(group.rawValue, collapsed: collapsed) }
-                try await $0.updatePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), collapsed: collapsed)
-            }
+            saveFold(group, collapsed: !shown)
         case .ungroup(let group):
             // A pending edit until the store has the delete (#26382): the group leaves in this turn, and no
             // live recompute before the delete lands shows it again; a failed delete brings it back and says why.
@@ -152,6 +148,15 @@ extension SidebarBridge {
 
     /// Sends one personal-state command for `intent` to the home daemon; a failure
     /// re-syncs the sidebar and says why; a pending `edit` settles (SidebarRows.send).
+    /// Folds `group` to `collapsed` now and saves it to the home session (a set, never a toggle of what shows then).
+    func saveFold(_ group: GroupID, collapsed: Bool) {
+        let v2 = statePersonal
+        rows.fold(group, collapsed: collapsed, on: services.machines.local, failed: saveFailed(.toggleCollapse(.group(group)))) {
+            if v2 { return try await $0.state.updateWorkspaceGroup(group.rawValue, collapsed: collapsed) }
+            try await $0.updatePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), collapsed: collapsed)
+        }
+    }
+
     private func personal(_ label: String, _ intent: SidebarIntent, edit: SidebarPendingEdits.Token? = nil,
                           until claim: PersonalWriteLedger.Claim? = nil, _ body: @escaping DaemonCommandBody) {
         rows.send(label, edit: edit, on: services.machines.local, until: claim, failed: saveFailed(intent), body)

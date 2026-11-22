@@ -154,8 +154,17 @@ public final class AgentUnsentDrafts {
     /// Whether tab `key` (of `machine`) holds a new chat's typed text (its close earns an undo toast).
     public func hasDraft(_ key: String, machine: String? = nil) -> Bool { drafts[slot(key, machine: machine)] != nil }
 
+    /// How many new chats (and windows' leftover slots) hold typed text not sent yet: Update When Idle waits for them.
+    public var count: Int { drafts.count }
+
     /// Tab `key`'s kept text, if any.
     public func draft(for key: String) -> String? { drafts[key] }
+
+    /// Tab `key`'s (of `machine`) kept text, if any: a Cloud start's sending tab, whose text typed while
+    /// the chat started is that chat's draft (CloudStartChat `openUploaded`, Leo, 2026-11-09: "I can't
+    /// click into the composer at all to, like potentially type other stuff while it's doing that
+    /// initial load situation").
+    public func draft(forTab key: String, machine: String?) -> String? { drafts[slot(key, machine: machine)] }
 
     /// The page of tab `key` sent its text (`chat.unsentDraft`). Until the page takes the kept
     /// draft (its seed, ``seed(for:session:local:)``), each text it sends is only its typing: it is

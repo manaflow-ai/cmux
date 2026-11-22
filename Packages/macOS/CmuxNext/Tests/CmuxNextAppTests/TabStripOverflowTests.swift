@@ -5,7 +5,7 @@ import CmuxNextTestSupport
 import Testing
 
 /// Tab Overflow (cx-kp9b4) on a real strip in a window: crowded Shrink tabs stop at a minimum that keeps
-/// part of the title and then scroll; Scroll keeps tabs about 140 wide and scrolls; a crowded strip
+/// part of the title and then scroll; Scroll keeps tabs at 7/10 of the max width and scrolls; a crowded strip
 /// scrolls with no banner, and wheel, trackpad and selection move it.
 @MainActor @Suite(.serialized, .closesItsWindows) struct TabStripOverflowTests {
     private struct Harness {
@@ -62,9 +62,12 @@ import Testing
         harness.settle()
         let metrics = harness.strip.metrics
         #expect(metrics.overflow == .scroll)
-        #expect(metrics.minInactiveTabWidth >= 140)
-        #expect(harness.unselectedWidths.allSatisfy { $0 >= 140 }, "\(Set(harness.unselectedWidths))")
-        #expect(harness.strip.result.contentWidth > harness.strip.viewportWidth, "20 tabs at 140 pt fit in 1600 pt")
+        // `TabTunables.scrollTabMinWidth`: 7/10 of the density's max width (127 of Compact's 181 since every density
+        // became Default scaled, #44449; it was 140 of the old 200).
+        let comfortable = (metrics.maxTabWidth * 7 / 10).rounded()
+        #expect(metrics.minInactiveTabWidth >= comfortable, "\(metrics.minInactiveTabWidth) of max \(metrics.maxTabWidth)")
+        #expect(harness.unselectedWidths.allSatisfy { $0 >= comfortable }, "\(Set(harness.unselectedWidths))")
+        #expect(harness.strip.result.contentWidth > harness.strip.viewportWidth, "20 tabs at \(comfortable) pt fit in 1600 pt")
         let cell = try #require(harness.strip.cells[harness.selected])
         let viewport = harness.strip.tabsClip.bounds
         #expect(cell.frame.minX >= viewport.minX - 0.5 && cell.frame.maxX <= viewport.maxX + 0.5,
@@ -97,10 +100,12 @@ import Testing
         #expect(isInView(harness.selected, strip), "the selected last tab is scrolled out of view")
         #expect(strip.edgeFade.edges.leading && !strip.edgeFade.edges.trailing, "\(strip.edgeFade.edges)")
 
-        // No banner: the tabs' viewport runs up to the +, and the strip holds no label or button of its own.
+        // No banner: the tabs' viewport runs up to the +, less the + 's own leading gap (#41212, Lucas 2026-11-11: the
+        // split +'s fill touched the last tab), and the strip holds no label or button of its own.
         let metrics = strip.metrics
-        let plusX = strip.bounds.width - metrics.stripHorizontalPadding - metrics.newTabButtonWidth
-        #expect(abs(strip.tabsClip.frame.maxX - plusX) <= 0.5, "something takes \(plusX - strip.tabsClip.frame.maxX) pt beside the tabs")
+        let plusX = strip.bounds.width - metrics.stripHorizontalPadding - strip.newTabControlsWidth
+        #expect(abs(strip.tabsClip.frame.maxX + strip.newTabLeadingGap - plusX) <= 0.5,
+                "something takes \(plusX - strip.newTabLeadingGap - strip.tabsClip.frame.maxX) pt beside the tabs")
         func controls(in view: NSView) -> [NSView] {
             view.subviews.flatMap { ($0 is NSButton || $0 is NSTextField ? [$0] : []) + controls(in: $0) }
         }

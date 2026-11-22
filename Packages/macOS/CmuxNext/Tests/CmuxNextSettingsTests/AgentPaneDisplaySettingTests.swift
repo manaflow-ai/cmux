@@ -18,13 +18,16 @@ struct AgentPaneDisplaySettingTests {
         Row(key: "agentPane.display.harnessPlacement", fallback: .string("symbols"),
             accepted: [.string("symbols"), .string("left"), .string("top"), .string("compact")],
             refused: [.string("right"), .bool(true)]),
-        Row(key: "agentPane.display.width", fallback: .number(800), accepted: [.number(480), .number(1200), .number(4000)],
-            refused: [.number(100), .number(5000), .string("wide")]),
+        Row(key: "agentPane.display.width", fallback: .number(800),
+            accepted: [.number(480), .number(1200), .number(4000), .string("narrow"), .string("medium"), .string("wide")],
+            refused: [.number(100), .number(5000), .string("wider")]),
         Row(key: "agentPane.display.fullWidth", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("yes")]),
         // The VS Code-style chat minimap: off unless turned on.
         Row(key: "agentPane.display.vscodeMinimap", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // The running turn's task list pinned in the chat: off, the composer's hat shows it.
         Row(key: "agentPane.display.pinnedPlan", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
+        // The prompt coach card after a chat that took several corrections (webviews PromptCoachCard.tsx).
+        Row(key: "agentPane.display.promptCoach", fallback: .bool(true), accepted: [.bool(false)], refused: [.string("off")]),
         // The hat over the composer tucked away to its pull tab: off, it shows.
         Row(key: "agentPane.display.trayTucked", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // Where the hat's tuck handle sits along the composer's top edge: the middle unless set.
@@ -40,10 +43,11 @@ struct AgentPaneDisplaySettingTests {
             refused: [.string("right"), .bool(true)]),
         Row(key: "agentPane.display.font.preset", fallback: .string("markdown"),
             accepted: [.string("system"), .string("serif"), .string("mono")], refused: [.string("comic")]),
-        // The whole chat's face: today's tuned Inter unless one of the candidates is picked.
-        Row(key: "agentPane.display.font.ui", fallback: .string("inter-tuned"),
+        // The whole chat's face: the macOS system font unless one of the candidates is picked
+        // (ab5bc5a1, Font-order: "default fonts on cmux for everything should be macos default, not inter").
+        Row(key: "agentPane.display.font.ui", fallback: .string("system-ui"),
             accepted: [.string("verdana"), .string("roboto"), .string("plex"), .string("source-sans"), .string("geist"),
-                       .string("inter"), .string("system-ui"), .string("system-ui-tight"),
+                       .string("inter"), .string("inter-tuned"), .string("system-ui-tight"),
                        .string("cmux-sans"), .string("hanken"), .string("atkinson")],
             refused: [.string("comic"), .string("system"), .bool(true)]),
         Row(key: "agentPane.display.font.size", fallback: .number(14), accepted: [.number(10), .number(28)],
@@ -84,6 +88,27 @@ struct AgentPaneDisplaySettingTests {
         #expect(AgentPaneDisplaySetting(fileRoot: valid).values[key] == .array([.string("cmux-fleet")]))
         let invalid: JSONValue = ["agentPane": ["display": ["commandLabels": .array([.number(1)])]]]
         #expect(AgentPaneDisplaySetting(fileRoot: invalid).values[key] == nil)
+    }
+
+    /// The transcript look (docs/cmux-next/transcript-customization.md): a theme file's look and
+    /// tokens reach the page (the effective root), and the tokens row takes an object of strings and
+    /// numbers only.
+    @Test func theTranscriptLookComesFromTheEffectiveRootAndTheTokensAreAnObject() {
+        let look = "agentPane.display.transcriptLook", tokens = "agentPane.display.transcriptTokens"
+        let file: JSONValue = ["agentPane": ["display": ["width": .number(900)]]]
+        let themed: JSONValue = ["agentPane": ["display": [
+            "width": .number(1200), "transcriptLook": .string("studio"),
+            "transcriptTokens": .object(["userMessage.radius": .number(20), "timestamps": .string("always")]),
+        ]]]
+        let display = AgentPaneDisplaySetting(fileRoot: file, lookRoot: themed)
+        #expect(display.values[look] == .string("studio"))
+        #expect(display.values[tokens] == .object(["userMessage.radius": .number(20), "timestamps": .string("always")]))
+        #expect(display.values["agentPane.display.width"] == .number(900))
+        #expect(AgentPaneDisplaySetting(fileRoot: file).values[look] == nil)
+        #expect(!TranscriptTokensSetting.accepts(.array([])))
+        #expect(!TranscriptTokensSetting.accepts(.object(["fill": .bool(true)])))
+        let bad: JSONValue = ["agentPane": ["display": ["transcriptLook": .string("retro")]]]
+        #expect(AgentPaneDisplaySetting(fileRoot: bad).values[look] == nil)
     }
 
     @Test(arguments: rows)

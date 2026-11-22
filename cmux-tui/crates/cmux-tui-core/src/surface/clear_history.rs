@@ -135,7 +135,7 @@ impl Surface {
                         broadcast_render_scroll_locked(pty, after);
                     }
                     let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
-                    let _ = pty.build_frame_locked(&mut term, generation, false);
+                    let _ = pty.build_frame_locked(&mut term, generation, true);
                     (before != after).then_some(after)
                 }
             };

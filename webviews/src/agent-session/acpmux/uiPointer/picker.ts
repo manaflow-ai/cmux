@@ -9,20 +9,25 @@
 // it at where your mouse currently is"). The page records that element on `contextmenu`, before the
 // native menu opens, so content that moves while the menu is open (a streaming reply) cannot swap
 // it; the menu's own point is the fallback. The hold lasts through the grace rule in grace.ts.
+//
+// While picking (Leo, 2026-11-08: "im also not entirely sure what it's used for" and "you should be
+// able to just see maybe some sort of preview as you're going and hovering"), a hint says what the
+// picker is for and its keys, and a label beside the outline shows what a click would pick
+// (overlay.ts, labelModel.ts). The page takes its keys in the capture phase, ahead of the composer:
+// Esc cancels, the arrows walk the tree (walk.ts), Enter picks the outlined element. A walked
+// element holds against the pointer by the same grace rule as Inspect Element's.
 import { graceAfterMove, startGrace, type UiPointerGrace } from "./grace";
+import {
+  UI_POINTER_LABEL_DENSITY,
+  UI_POINTER_LABEL_PLACEMENT,
+  type LabelDensity,
+  type LabelPlacement,
+} from "./labelModel";
+import { createOverlay, type UiPointerOverlay } from "./overlay";
+import { reportOf, type UiPointerReport } from "./report";
+import { walkFrom, type WalkDirection } from "./walk";
 
-/** What the page reports for a picked element: the native controller builds the reference from it. */
-export type UiPointerReport = {
-  selector: string;
-  tag_name: string;
-  text_content: string;
-  dom_snippet: string;
-  component: string | null;
-  source_location: string | null;
-  bounds: { x: number; y: number; width: number; height: number };
-  viewport: { width: number; height: number };
-  computed_styles: Record<string, string>;
-};
+export type { UiPointerReport } from "./report";
 
 export type UiPointerControl = {
   start(): void;
@@ -37,70 +42,42 @@ export type UiPointerControl = {
 
 type Options = {
   post: (report: UiPointerReport) => void;
+  /** The person cancelled from the page (Esc reached it); the native picker stops too. */
+  cancel?: () => void;
   /** The clock the grace rule reads; tests pass their own. */
   now?: () => number;
+  /** The label's look; the gallery compares the others, the pane takes the defaults. */
+  label?: { density?: LabelDensity; placement?: LabelPlacement };
 };
 
 /** How far the native menu's point may sit from the page's recorded right-click and still be it. */
 const MENU_POINT_SLOP_PX = 12;
-const STYLE_KEYS = [
-  "display",
-  "position",
-  "width",
-  "height",
-  "margin",
-  "padding",
-  "font-family",
-  "font-size",
-  "font-weight",
-  "line-height",
-  "color",
-  "background-color",
-  "border-radius",
-];
-
-const bounded = (value: unknown, limit: number) => String(value || "").slice(0, limit);
-
-function selectorOf(element: Element): string {
-  if (element.id) return `#${CSS.escape(element.id)}`;
-  const testid = element.getAttribute("data-testid");
-  if (testid) return `${element.localName}[data-testid="${CSS.escape(testid)}"]`;
-  const aria = element.getAttribute("aria-label");
-  if (aria) return `${element.localName}[aria-label="${CSS.escape(aria)}"]`;
-  return element.localName || "element";
-}
-
-function reportOf(element: Element): UiPointerReport {
-  const view = element.ownerDocument.defaultView ?? window;
-  const rect = element.getBoundingClientRect();
-  const computed = view.getComputedStyle(element);
-  const styles: Record<string, string> = {};
-  for (const key of STYLE_KEYS) styles[key] = bounded(computed.getPropertyValue(key), 160);
-  return {
-    selector: selectorOf(element),
-    tag_name: element.localName || "element",
-    text_content: bounded((element as HTMLElement).innerText ?? element.textContent, 2000),
-    dom_snippet: bounded(element.outerHTML, 2400),
-    component: element.closest("[data-cmux-component]")?.getAttribute("data-cmux-component") || null,
-    source_location: element.closest("[data-cmux-source]")?.getAttribute("data-cmux-source") || null,
-    bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-    viewport: { width: view.innerWidth, height: view.innerHeight },
-    computed_styles: styles,
-  };
-}
+const WALK_KEYS: Record<string, WalkDirection> = {
+  ArrowUp: "up",
+  ArrowDown: "down",
+  ArrowLeft: "left",
+  ArrowRight: "right",
+};
 
 /**
  * Installs the picker in `doc`: the right-click recorder now (it must see the `contextmenu` that
- * comes before Inspect Element), the outline and pointer listener only between `start` and `stop`.
+ * comes before Inspect Element), the overlay, pointer and key listeners only between `start` and `stop`.
  */
 export function installUiPointer(doc: Document, options: Options): UiPointerControl {
   const now = options.now ?? (() => performance.now());
+  const look = {
+    density: options.label?.density ?? UI_POINTER_LABEL_DENSITY,
+    placement: options.label?.placement ?? UI_POINTER_LABEL_PLACEMENT,
+  };
+  const view = doc.defaultView;
   let menuTarget: { element: Element; x: number; y: number } | null = null;
-  let host: HTMLDivElement | null = null;
-  let outline: HTMLDivElement | null = null;
+  let overlay: UiPointerOverlay | null = null;
   let current: Element | null = null;
   let grace: UiPointerGrace | null = null;
   let held: Element | null = null;
+  let pointer: { x: number; y: number } | null = null;
+  /** The children an Up walk came from, innermost last (walk.ts). */
+  let trail: Element[] = [];
 
   doc.addEventListener(
     "contextmenu",
@@ -111,39 +88,23 @@ export function installUiPointer(doc: Document, options: Options): UiPointerCont
     true,
   );
 
-  const ours = (element: Element | null) => !element || (host !== null && host.contains(element));
+  const ours = (element: Element | null) => !element || (overlay !== null && overlay.host.contains(element));
 
   const ensure = () => {
-    if (host?.isConnected) return;
-    host = doc.createElement("div");
-    host.dataset.cmuxUiPointer = "";
-    host.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:var(--layer-debug)";
-    outline = doc.createElement("div");
-    outline.dataset.cmuxUiPointerOutline = "";
-    outline.style.cssText =
-      "position:fixed;display:none;pointer-events:none;box-sizing:border-box;" +
-      "border:2px solid var(--agent-accent);" +
-      "background:color-mix(in srgb, var(--agent-accent) 12%, transparent);border-radius:3px";
-    host.append(outline);
-    doc.documentElement.append(host);
+    if (overlay?.host.isConnected) return;
+    overlay = createOverlay(doc, look);
   };
 
   const outlineOn = (element: Element | null) => {
     ensure();
     current = element;
-    if (!outline) return;
-    if (!element) {
-      outline.style.display = "none";
-      return;
-    }
-    const rect = element.getBoundingClientRect();
-    Object.assign(outline.style, {
-      display: "block",
-      left: `${rect.x}px`,
-      top: `${rect.y}px`,
-      width: `${rect.width}px`,
-      height: `${rect.height}px`,
-    });
+    overlay?.show(element, pointer);
+  };
+
+  /** Holds `element` against the pointer until a deliberate move (grace.ts). */
+  const hold = (element: Element | null) => {
+    held = element;
+    grace = element ? startGrace(now()) : null;
   };
 
   const elementAt = (x: number, y: number) => {
@@ -152,12 +113,41 @@ export function installUiPointer(doc: Document, options: Options): UiPointerCont
   };
 
   const onMove = (event: MouseEvent) => {
+    pointer = { x: event.clientX, y: event.clientY };
     if (held && grace) {
       grace = graceAfterMove(grace, now(), event.clientX, event.clientY);
-      if (grace) return;
+      if (grace) {
+        overlay?.show(current, pointer);
+        return;
+      }
       held = null;
     }
-    outlineOn(elementAt(event.clientX, event.clientY));
+    const element = elementAt(event.clientX, event.clientY);
+    if (element !== current) trail = [];
+    outlineOn(element);
+  };
+
+  const onKey = (event: KeyboardEvent) => {
+    if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+    const direction = WALK_KEYS[event.key];
+    if (event.key !== "Escape" && event.key !== "Enter" && !direction) return;
+    // The picker's key: no composer caret move, no send, no other page handler.
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.key === "Escape") {
+      control.stop();
+      options.cancel?.();
+    } else if (event.key === "Enter") {
+      if (current?.isConnected) options.post(reportOf(current));
+    } else if (current?.isConnected && direction) {
+      const next = walkFrom(current, direction, trail, ours);
+      if (!next) return;
+      if (direction === "up") trail.push(current);
+      else if (direction === "down") trail = trail.filter((element) => element !== next);
+      else trail = [];
+      hold(next);
+      outlineOn(next);
+    }
   };
 
   let listening = false;
@@ -167,16 +157,21 @@ export function installUiPointer(doc: Document, options: Options): UiPointerCont
       if (listening) return;
       listening = true;
       doc.addEventListener("mousemove", onMove, true);
+      (view ?? doc).addEventListener("keydown", onKey as EventListener, true);
     },
     stop() {
-      if (listening) doc.removeEventListener("mousemove", onMove, true);
+      if (listening) {
+        doc.removeEventListener("mousemove", onMove, true);
+        (view ?? doc).removeEventListener("keydown", onKey as EventListener, true);
+      }
       listening = false;
-      host?.remove();
-      host = null;
-      outline = null;
+      overlay?.remove();
+      overlay = null;
       current = null;
       held = null;
       grace = null;
+      pointer = null;
+      trail = [];
     },
     highlight(x, y) {
       control.start();
@@ -189,7 +184,7 @@ export function installUiPointer(doc: Document, options: Options): UiPointerCont
       if (element) options.post(reportOf(element));
     },
     hide() {
-      if (outline) outline.style.display = "none";
+      overlay?.hide();
     },
     inspectMenuTarget(x, y) {
       control.start();
@@ -199,8 +194,7 @@ export function installUiPointer(doc: Document, options: Options): UiPointerCont
         recorded.element.isConnected &&
         Math.hypot(recorded.x - Number(x), recorded.y - Number(y)) <= MENU_POINT_SLOP_PX;
       const element = matches ? recorded.element : elementAt(Number(x), Number(y));
-      held = element;
-      grace = element ? startGrace(now()) : null;
+      hold(element);
       outlineOn(element);
     },
     current: () => current,

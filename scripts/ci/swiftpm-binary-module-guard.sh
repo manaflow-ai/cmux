@@ -6,8 +6,7 @@
 #
 # Why: a fleet step-warm slot (hq build-fleet cmd/worker/step_warm.go), a
 # GitHub runner's kept checkout or an nx-remote tree builds many commits in one
-# .build. A binary target (CCmuxAppFFI, GhosttyNextKit, CmuxTerminalClientFFI,
-# iroh-ffi) gives its headers to the build at a fixed path
+# .build. A binary target (CCmuxAppFFI, GhosttyNextKit, iroh-ffi) gives its headers to the build at a fixed path
 # (.build/out/Products/<config>/include/... under Xcode 27). Its explicit
 # precompiled module (.pcm) is keyed by the compile arguments, which do not
 # change when a pin moves, so the build reuses the old .pcm against the new
@@ -124,9 +123,43 @@ swiftpm__network_fetch_failure() {
 # a network fetch is tried again after each delay of CMUX_SWIFTPM_RESOLVE_RETRY_DELAYS (seconds, default
 # "5 20": three tries). Returns 0 when it resolved, 75 when every try failed on the network (no test can run),
 # 1 when it failed for another reason (the build reports why).
+# Seed SwiftPM's shared artifact cache for PKGDIR with curl, each artifact checked against its manifest
+# checksum (scripts/ci/swiftpm_prefetch_binary_artifacts.py), so the resolve after it downloads nothing.
+# On the fleet workers SwiftPM's own NSURLSession download of a binary artifact traps (exit 133): macOS's
+# single sign-on check (AppSSO) calls xpc_connection_set_target_uid, an API misuse in the worker's process
+# context (2026-11-20, cmux-austin-mini-0; every CmuxNext swift test on a new FFI pin until the worker had it
+# cached). Runs on macOS, and on Linux when CMUX_SWIFTPM_ARTIFACT_STORE names a store. Never fails the step:
+# what it does not seed, SwiftPM fetches as before. CMUX_SWIFTPM_ARTIFACT_CACHE overrides the cache (tests).
+swiftpm_seed_binary_artifacts() {
+  local pkgdir="$1" seeder args=()
+  shift
+  seeder="$(dirname "${BASH_SOURCE[0]}")/swiftpm_prefetch_binary_artifacts.py"
+  [ -f "$seeder" ] || return 0
+  [ "${CMUX_SWIFTPM_SEED_ARTIFACTS:-1}" != 0 ] || return 0
+  if [ -n "${CMUX_SWIFTPM_ARTIFACT_STORE:-}" ]; then
+    args+=(--store "$CMUX_SWIFTPM_ARTIFACT_STORE")
+  elif [ "$(uname -s)" != Darwin ]; then
+    return 0
+  fi
+  if [ -n "${CMUX_SWIFTPM_ARTIFACT_CACHE:-}" ]; then
+    args+=(--cache "$CMUX_SWIFTPM_ARTIFACT_CACHE")
+  else
+    # A resolve with its own --cache-path reads that cache.
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --cache-path) [ "$#" -lt 2 ] || args+=(--cache "$2/artifacts"); shift ;;
+        --cache-path=*) args+=(--cache "${1#--cache-path=}/artifacts") ;;
+      esac
+      shift
+    done
+  fi
+  python3 -I "$seeder" --package-path "$pkgdir" ${args[@]+"${args[@]}"} < /dev/null || true
+}
+
 swiftpm_resolve_package() {
   local pkgdir="$1" log delays tries try=1 delay code
   shift
+  swiftpm_seed_binary_artifacts "$pkgdir" "$@"
   read -r -a delays <<< "${CMUX_SWIFTPM_RESOLVE_RETRY_DELAYS-5 20}"
   tries=$((${#delays[@]} + 1))
   log="$(mktemp)"
@@ -258,6 +291,21 @@ swiftpm_purge_build_outputs() {
       *) rm -rf -- "$entry" ;;
     esac
   done
+}
+
+# swiftpm_unverified_build SCRATCH: the fleet worker kept this .build after a
+# step whose build never finished (stopped at its max-run, cancelled, or failed)
+# and marked it unverified (hq build-fleet cmd/worker step_warm.go,
+# warmUnverifiedFile). SwiftPM resumes such a build where it stopped: the
+# 2026-11-21 CmuxNext suite steps on lent minis were stopped at 180 min with 27
+# of 13,437-15,760 targets left, and the worker used to drop the .build, so the
+# next step compiled all of them again. When a build on an unverified .build
+# fails, the caller builds once more from clean outputs, so a bad leftover (the
+# 2026-10-10 undefined-symbols link) never reports red. A complete build
+# removes the marker (record_built_ref, run-swift-testing-suites.sh). The worker
+# keeps an unfinished .build only for a step whose script calls this function.
+swiftpm_unverified_build() {
+  [ -f "$1/.cmux-ci-unverified" ]
 }
 
 swiftpm_stale_module_failure() {

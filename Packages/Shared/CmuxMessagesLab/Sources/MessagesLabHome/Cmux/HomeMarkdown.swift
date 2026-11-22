@@ -12,9 +12,31 @@ import Foundation
 /// (URL.isHomePathLink) become links; another scheme shows its label as text.
 /// Bare paths, cmux ids and web URLs in plain text (or a whole code span)
 /// link too (HomeAutoLinks).
-/// Anything else (HTML, tables, images) stays as written. Offsets are UTF-16,
+/// An inline picture (`![alt](source)`) shows its alt text (its file name when it has none), never
+/// the "!", as a link to its source when that is one; its runs are tagged (`imageAlt`, and
+/// `imageMark` on each picture's first run) so a preview can leave it out and count it. A picture
+/// alone on its line with a file to show is a picture bubble instead (HomeMapping.pictureParts).
+/// Anything else (HTML, tables) stays as written. Offsets are UTF-16,
 /// like MessagesLab's runs.
 enum HomeMarkdown {
+    /// The run style on the first run of each inline picture's words (one per picture; `TextLayout` draws no style for it).
+    static let imageMark = "cmux.image"
+    /// The run style of an inline picture's words (its alt text or file name).
+    static let imageAlt = "cmux.imageAlt"
+
+    /// The source a picture's destination names: inside its angle brackets, else before a title (`/a.png "Shot"`).
+    static func pictureSource(_ destination: String) -> String {
+        let d = destination.trimmingCharacters(in: .whitespaces)
+        if d.hasPrefix("<"), d.contains(">") { return String(d.dropFirst().prefix { $0 != ">" }) }
+        return d.split(separator: " ", maxSplits: 1).first.map(String.init) ?? d
+    }
+
+    /// A picture's name when it has no alt text: its file's name.
+    static func pictureName(_ source: String) -> String {
+        let name = source.split(separator: "/").last.map(String.init) ?? source
+        return name.removingPercentEncoding ?? name
+    }
+
     /// `chips`: links to cmux objects, files and GitHub objects show as chips (HomeLinkChip):
     /// the transcript passes true; a plain-text use (the sidebar preview) keeps the default.
     static func render(_ source: String, chips: Bool = false) -> (text: String, runs: [TextRun]) {
@@ -128,6 +150,16 @@ enum HomeMarkdown {
             length += n
         }
 
+        /// Tags the first run appended since `first` runs as a picture's start (``HomeMarkdown/imageMark``).
+        mutating func markPicture(from first: Int) {
+            // No new run: the words joined the run before (a picture right after another to the same link).
+            guard first < runs.count else { return }
+            runs.update(at: first) { run in
+                let styles = run.style ?? []
+                if !styles.contains(HomeMarkdown.imageMark) { run.style = styles + [HomeMarkdown.imageMark] }
+            }
+        }
+
         /// Appends a line rendered on its own (`renderLine` into an empty Output): its runs move by
         /// this text's length. A run never joins one before it: the line follows a newline (no run)
         /// or starts the text.
@@ -168,6 +200,21 @@ enum HomeMarkdown {
                         i = close + ticks; continue
                     }
                     plain += String(repeating: "`", count: ticks); i += ticks; continue
+                }
+                // `![alt](source)`: a picture inside text shows its alt text (its file name without one), never the
+                // "!", a link when the source is one; tagged so a preview leaves it out and counts it (HomeQuotePreview).
+                if ch == "!", i + 1 < c.count, c[checked: i + 1] == "[", let (label, url, end) = linkAt(c, i + 1) {
+                    flush()
+                    let source = HomeMarkdown.pictureSource(url)
+                    let first = out.runs.count
+                    if label.allSatisfy(\.isWhitespace) {
+                        // A file name is no Markdown ("my_shot_1.png" has no italics).
+                        out.append(HomeMarkdown.pictureName(source), add(HomeMarkdown.imageAlt, to: styles), link: link ?? safe(source))
+                    } else {
+                        parse(label, into: &out, styles: add(HomeMarkdown.imageAlt, to: styles), link: link ?? safe(source))
+                    }
+                    out.markPicture(from: first)
+                    i = end; continue
                 }
                 if ch == "[", link == nil, let (label, url, end) = linkAt(c, i) {
                     flush()

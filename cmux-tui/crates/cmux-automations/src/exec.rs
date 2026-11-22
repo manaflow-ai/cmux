@@ -105,7 +105,7 @@ pub fn pid_alive(pid: u32) -> bool {
 
 /// The acpmux to run prompt bodies with: `$CMUX_AUTOMATION_ACPMUX`, else the
 /// one next to this executable, else `acpmux` on `PATH`.
-fn acpmux() -> PathBuf {
+pub fn acpmux() -> PathBuf {
     if let Some(p) = std::env::var_os("CMUX_AUTOMATION_ACPMUX").filter(|p| !p.is_empty()) {
         return PathBuf::from(p);
     }
@@ -304,7 +304,12 @@ pub fn run_job(store: &Store, automation: &str, run: &str) -> Result<ExecOutcome
             let mut c = Command::new(acpmux());
             c.arg("run")
                 .arg("-n")
-                .arg(format!("auto-{}-{}", id_head(&a.id, "auto_"), id_head(&r.id, "run_")))
+                .arg(session_name(&a.id, &r.id))
+                // The run is this machine's: never placed on another machine, and never a
+                // child of the chat whose `cmux automation run` started it.
+                .arg("--machine")
+                .arg("local")
+                .arg("--no-parent")
                 .arg("--timeout")
                 .arg(a.timeout_seconds.to_string())
                 .arg("--on-permission")
@@ -328,7 +333,10 @@ pub fn run_job(store: &Store, automation: &str, run: &str) -> Result<ExecOutcome
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
         .stderr(log.try_clone()?);
-    let outcome = spawn_and_wait(command, Duration::from_secs(a.timeout_seconds));
+    let mut outcome = spawn_and_wait(command, Duration::from_secs(a.timeout_seconds));
+    if matches!(a.body, Body::Prompt { .. }) {
+        outcome = prompt_outcome(outcome);
+    }
     let _ = writeln!(log, "[cmux automation: {outcome:?}]");
     finish(store, automation, run, outcome.clone(), now())?;
     Ok(outcome)
@@ -436,6 +444,25 @@ fn wait_with_timeout(mut child: Child, timeout: Duration) -> ExecOutcome {
             _ => ExecOutcome::Error("no exit status".into()),
         },
         Err(e) => ExecOutcome::Error(e.to_string()),
+    }
+}
+
+/// The agent chat a prompt run is: `auto-<8 of the automation id>-<8 of the
+/// run id>`. The Automations page opens a run's chat by this name.
+pub fn session_name(automation: &str, run: &str) -> String {
+    format!("auto-{}-{}", id_head(automation, "auto_"), id_head(run, "run_"))
+}
+
+/// A prompt run's outcome in its own words: the agent launcher exits 5 when
+/// the turn asked for a permission (`--on-permission fail`: unattended, the run
+/// needs the person) and 3 when its `--timeout` cancelled the turn.
+pub fn prompt_outcome(outcome: ExecOutcome) -> ExecOutcome {
+    match outcome {
+        ExecOutcome::Exited { code: 5 } => {
+            ExecOutcome::Refused { reason: "needs_permission".into() }
+        }
+        ExecOutcome::Exited { code: 3 } => ExecOutcome::TimedOut,
+        other => other,
     }
 }
 

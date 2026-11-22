@@ -24,12 +24,16 @@ import {
 } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { DrivenList, DrivenRow } from "../../../ui/DrivenList";
+import { IllustratedEmpty } from "../../../ui/EmptyState/IllustratedEmpty";
+// Imported, not `new URL(...)`: the page's CSP allows `img-src data:` only, and bundle.mjs inlines it.
+import mascotOrb from "../../../agent-session/acpmux/mascots/ChiefMascotOrb.png";
 import { HomeIcon } from "../../home-channels/icons";
 import type { Strings } from "../../shared/i18n";
 import type { HostMenuItem } from "../types";
 import { headerLayout, listMetrics, ROW, type Rect } from "./layout";
 import { ListRow, PinnedTile, type ItemEvents, type Modifiers } from "./ListItems";
 import { neighbor, placePinned, type ListItem, type ListModel } from "./model";
+import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** Three looks of the same list (the gallery's variants); `messages` is the one the page uses. */
 export type ListLook = "messages" | "accent" | "quiet";
@@ -399,15 +403,14 @@ export function ConversationList(props: ConversationListProps) {
         )}
         {header.filterChip.width > 0 && (
           <div className={`hm-chip-row${header.compact ? " centered" : ""}`} style={box(header.filterChip)}>
-            <button
-              type="button"
-              className="hm-chip"
-              title={t("home.list.filterChipHelp")}
-              onClick={() => props.onUnreadOnly(false)}
-            >
-              <span>{t("sidebar.filter.unread")}</span>
-              <HomeIcon name="close" size={12} />
-            </button>
+            <WithFacts facts={[{ value: t("home.list.filterChipHelp") }]}>
+              {(facts) => (
+                <button {...facts} type="button" className="hm-chip" onClick={() => props.onUnreadOnly(false)}>
+                  <span>{t("sidebar.filter.unread")}</span>
+                  <HomeIcon name="close" size={12} />
+                </button>
+              )}
+            </WithFacts>
           </div>
         )}
       </div>
@@ -507,11 +510,19 @@ export function ConversationList(props: ConversationListProps) {
           </div>
           {empty && (
             <div className="hm-empty" style={{ top: 0 }}>
-              <p>{unreadOnly && query.trim() === "" ? t("sidebar.noUnread") : t("sidebar.noResults")}</p>
-              {unreadOnly && query.trim() === "" && (
-                <button type="button" className="hm-show-all" onClick={() => props.onUnreadOnly(false)}>
-                  {t("sidebar.showAll")}
-                </button>
+              {unreadOnly && query.trim() === "" ? (
+                <>
+                  <p>{t("sidebar.noUnread")}</p>
+                  <button type="button" className="hm-show-all" onClick={() => props.onUnreadOnly(false)}>
+                    {t("sidebar.showAll")}
+                  </button>
+                </>
+              ) : (
+                <IllustratedEmpty
+                  art={mascotOrb}
+                  line={t("sidebar.noResults")}
+                  action={{ label: t("sidebar.clearSearch"), onClick: () => props.onQuery("") }}
+                />
               )}
             </div>
           )}

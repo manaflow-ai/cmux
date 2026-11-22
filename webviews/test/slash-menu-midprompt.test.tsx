@@ -10,6 +10,7 @@ import { noChat, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -77,12 +78,8 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {
@@ -335,24 +332,67 @@ test("Return sends a path or a short word at the prompt's end instead of rewriti
   }
 });
 
-test("Return sends a word that only starts a later part of a name; the arrows or Tab still pick it", async () => {
-  const sending = await composer(chat(), "fix it /pr");
+test("Return takes the highlighted row whenever the list shows; Esc keeps the word, then Return sends", async () => {
+  // Leo, 2026-11-20: "i click enter and it should do it".
+  const picked = await composer(chat(), "fix it /pr");
   expect(names()).toEqual(["/review-pr"]);
-  await press(sending.field, "Enter");
-  expect(sending.sent).toEqual(["fix it /pr"]);
-  const arrowed = await composer(chat(), "fix it /pr");
   // The caret where typing left it (jsdom keeps no selection of its own).
-  await act(async () => arrowed.prompt.setCaret("fix it /pr".length));
-  await press(arrowed.field, "ArrowDown");
-  await press(arrowed.field, "Enter");
-  expect(arrowed.prompt.plainText()).toBe("fix it /review-pr ");
+  await act(async () => picked.prompt.setCaret("fix it /pr".length));
+  await press(picked.field, "Enter");
+  expect(picked.sent).toEqual([]);
+  expect(picked.prompt.plainText()).toBe("fix it /review-pr ");
   const tabbed = await composer(chat(), "fix it /pr");
   await act(async () => tabbed.prompt.setCaret("fix it /pr".length));
   await press(tabbed.field, "Tab");
   expect(tabbed.prompt.plainText()).toBe("fix it /review-pr ");
+  const escaped = await composer(chat(), "fix it /pr");
+  await act(async () => escaped.prompt.setCaret("fix it /pr".length));
+  await press(escaped.field, "Escape");
+  expect(menu()).toBeNull();
+  await press(escaped.field, "Enter");
+  expect(escaped.sent).toEqual(["fix it /pr"]);
 });
 
-test("a list that closes forgets the row the arrows chose: the same word, back, and Return sends", async () => {
+test("the @ list showing no row yet never lets Return send; Esc closes it and Return sends", async () => {
+  // While files are still being searched the @ list shows no row. Return waits; it does not send.
+  const snapshot = chat();
+  const sent: string[] = [];
+  let handle: ComposerHandle | null = null;
+  const { createRoot } = await import("react-dom/client");
+  const { Composer } = await import("../src/agent-session/acpmux/Composer");
+  root ??= createRoot(host);
+  await act(async () =>
+    root!.render(
+      <Composer
+        handle={(value) => void (handle = value)}
+        snapshot={snapshot}
+        sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+        chips={Chips}
+        searchFiles={() => new Promise(() => {})}
+        onSend={(text) => {
+          sent.push(text);
+          return true;
+        }}
+        onStop={() => {}}
+        localName="studio"
+      />,
+    ),
+  );
+  await act(async () => handle!.restore("fix @zz", []));
+  const field = host.querySelector<HTMLElement>("[role=combobox]")!;
+  const prompt = host.querySelector<MarkdownFieldElement>(".acpmux-md-field")!.acpmuxMarkdownField!;
+  await act(async () => prompt.setCaret("fix @zz".length));
+  expect(host.querySelector("#acpmux-mention-menu")).not.toBeNull();
+  await press(field, "Enter");
+  expect(sent).toEqual([]);
+  expect(prompt.plainText()).toBe("fix @zz");
+  await press(field, "Escape");
+  expect(host.querySelector("#acpmux-mention-menu")).toBeNull();
+  await press(field, "Enter");
+  expect(sent).toEqual(["fix @zz"]);
+});
+
+test("a list that closes and comes back highlights its first row again, and Return takes it", async () => {
   const snapshot = chat();
   const { field, prompt, sent } = await composer(snapshot, "fix it /pr");
   await act(async () => prompt.setCaret("fix it /pr".length));
@@ -381,6 +421,8 @@ test("a list that closes forgets the row the arrows chose: the same word, back, 
   await draw(snapshot.commands);
   expect(names()).toEqual(["/review-pr"]);
   expect(prompt.plainText()).toBe("fix it /pr");
+  await act(async () => prompt.setCaret("fix it /pr".length));
   await press(field, "Enter");
-  expect(sent).toEqual(["fix it /pr"]);
+  expect(sent).toEqual([]);
+  expect(prompt.plainText()).toBe("fix it /review-pr ");
 });

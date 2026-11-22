@@ -70,10 +70,12 @@ export const personalTenantStack = (env: Env, http: (request: Request) => Promis
       }
       throw shape("find")
     },
+    // client_read_only_metadata marks it for sign-in clients, which list a person's Stack teams and cannot read
+    // server metadata: they leave it out of the person's teams (CMUX-380). The provenance stays server-only.
     // No creator_user_id: Stack grants a creator its admin defaults (invites included). The owner joins as a
     // plain member instead; a team the owner could not join is deleted so a later create starts clean.
     create: async (marker) => {
-      const created = receipt(await call<Team>("create", "POST", "/teams", { display_name: "Personal", server_metadata: { [KEY]: marker } }), "create")
+      const created = receipt(await call<Team>("create", "POST", "/teams", { display_name: "Personal", server_metadata: { [KEY]: marker }, client_read_only_metadata: { [KEY]: true } }), "create")
       try { await call("join", "POST", `/team-memberships/${encodeURIComponent(created.id)}/${encodeURIComponent(marker.stack_user)}`, {}, false) }
       catch (e) {
         const removed = await call("join", "DELETE", `/teams/${encodeURIComponent(created.id)}`, undefined, false).then(() => true, () => false)

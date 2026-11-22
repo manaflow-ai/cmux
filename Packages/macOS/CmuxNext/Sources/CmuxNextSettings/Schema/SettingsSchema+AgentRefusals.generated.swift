@@ -4,8 +4,10 @@
 extension SettingsSchema {
     /// Keys an agent may not set or reset, with the reason.
     public static let agentRefusedKeys: [String: AgentRefusal] = [
-        // On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.
-        "home.chiefPanel.seesScreen": .userOnly,
+        // The live-tree preview changes how the person's shared editing workflow is presented; only the person turns it on.
+        "labs.liveTree": .userOnly,
+        // Extension chat widgets draw installed extensions' cards in agent chat; only the person turns them on.
+        "experiments.chatWidgets": .userOnly,
         // What leaves the machine: a device proof to the Cloud service (cx-ds09i).
         "freeModel.enabled": .privacy,
         // The Cloud toggle copies the person's folder off this Mac to a paid machine: theirs to set.
@@ -14,13 +16,15 @@ extension SettingsSchema {
         "agentPane.dictationShortcut": .userOnly,
         // Whether an agent starts Cloud machines and sessions with no Start card: only the person delegates it.
         "cloud.agentsStartWithoutAsking": .userOnly,
-        // The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.
-        "cloud.useMyClaudeLoginOnMyCloudMachines": .privacy, "cloud.useMyCodexLoginOnMyCloudMachines": .privacy,
+        // Turn checkpoints save the person's whole Cloud machine to their snapshot storage after every turn: only the person turns that on.
+        "cloud.turnCheckpoints": .userOnly,
         "agents.chats.roots": .privacy, "agents.chats.discovery": .privacy,
         "agentPane.scrollToBottomOnSend": .userOnly,
         "agents.chats.enabled": .privacy,
         // Each recap is an extra model call on the person's usage: theirs to turn on or off.
         "agents.chats.sessionRecap": .userOnly,
+        // Machine cleanup removes worktrees and build caches from this Mac's disk: only the person turns it on or off.
+        "worktrees.autoCleanup": .destructive, "worktrees.cleanBuildCaches": .destructive,
         "picker.pinned": .userOnly,
         // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
         "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
@@ -44,8 +48,6 @@ extension SettingsSchema {
         "feed.needsYouInChief": .userOnly,
         "feed.github.enabled": .network, "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
-        // The weather widget asks Open-Meteo (and names a city) only once the person turns it on.
-        "tabs.newTabWidgets.weather": .network, "tabs.newTabWidgets.weatherCity": .network,
         // Off, Chromium tabs load ads and trackers again.
         "browser.builtInAdBlocker": .privacy,
         // On, merely opening attacker-authored Markdown contacts its web image hosts.
@@ -88,17 +90,24 @@ extension SettingsSchema {
         "agentPane.links.outsideRoots": .privacy,
         // A reply's file link outside the project, and a reply's web image (D4, D5).
         "agentPane.images.remote": .network,
-        "app.quitBehavior": .destructive,
+        // The quit behavior ends sessions; confirmQuit off lets one Cmd-Q end them without asking.
+        "app.quitBehavior": .destructive, "app.confirmQuit": .destructive,
         // Voice Room records mic and screen text and posts it to the configured room.
         "labs.voiceRoom": .privacy,
         // The room address chooses the network endpoint that receives that capture.
         "labs.voiceRoomURL": .network,
         // On, Add Device mints a line that joins any machine to the team's machines: only the person turns that on.
         "labs.machineJoin": .network,
+        // Whether new nonpersistent Cloud agent machines opt into the Mac pause/resume experiment: the person decides this lifecycle change.
+        "labs.pauseAgentMachines": .userOnly,
         // On, a live code build loads Swift patches into the running app: only the person turns that on.
         "labs.liveCode": .userOnly,
+        // On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.
+        "labs.agentCustomization": .userOnly,
         // Whether cmux's own pages open developer tools, which read and change their live content: the person's call.
         "developerTools.appPages": .userOnly,
+        // Whether the person's Command Palette lists the debug commands: the person's call.
+        "app.internalDeveloperMode": .userOnly,
         // On, a key is taken from every other app system-wide.
         "app.globalHotKey": .userOnly, "app.startAgentGlobalHotKey": .userOnly,
         // Off, a close ends running programs and agents without asking.
@@ -112,15 +121,24 @@ extension SettingsSchema {
         "updates.web": .network,
         // How long a nightly waits before it restarts into an update: the person's call.
         "updates.idleInstallMaxWaitSeconds": .userOnly, "updates.idleInstallQuietSeconds": .userOnly,
+        // On, cmux restarts into a downloaded update by itself once idle: the person's call.
+        "updates.installWhenIdle": .userOnly, "updates.installWhenIdleMinutes": .userOnly,
         "announcements.fetch": .network,
         // Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.
         "diagnostics.hangReports": .privacy,
+        // Whether this computer counts how the person uses cmux: the person's choice only.
+        "diagnostics.usagePatterns": .privacy,
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
+        // Whether cmux adds its tools to the person's own coding agents (their config files and each terminal launch): the onboarding step asks the person, and only the person answers; an agent must not grant itself or other agents cmux's tools.
+        "agents.cmuxMcp": .userOnly,
         // How long Claude Code chats keep their prompt cache: it moves the person's model bill.
         "agents.promptCache": .userOnly,
-        // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
-        "computerUse.enabled": .userOnly, "computerUse.driver": .userOnly,
+        // Computer Use: what agents may do with the person's apps. An agent must never widen (or even change) its own access, so every computerUse.* key is the person's alone.
+        "computerUse.mode": .userOnly, "computerUse.deniedApps": .userOnly, "computerUse.allowOwnMachines": .userOnly,
+        "computerUse.pauseOnTakeover": .userOnly, "computerUse.allowForeground": .userOnly,
+        "computerUse.showCursor": .userOnly, "computerUse.cursorTag": .userOnly, "computerUse.settle": .userOnly,
+        "computerUse.livePreview": .userOnly, "computerUse.menus": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
         "notifications.dockBounce": .userOnly,
         // Privacy: whether banners show what agents said is the person's call.
@@ -146,14 +164,14 @@ extension SettingsSchema {
         // Whether and how often a failed turn is sent again spends the person's usage: their call, as `sessions.resumeAgents` is.
         "agents.autoRetry.enabled": .userOnly, "agents.autoRetry.intervalSeconds": .userOnly,
         "agents.autoRetry.attempts": .userOnly,
+        // Whether new chats get the person's saved MCP servers opens their connected services (Linear, Slack and others) to agents: the person's call.
+        "agents.mcpServers.enabled": .network,
         // Compacting on a timer spends the person's usage (one model call each): their call.
         "agents.cacheCompact.enabled": .userOnly, "agents.cacheCompact.minContextPercent": .userOnly,
         // Which folders an agent may open without asking is the person's call: an agent must not widen what it may open without asking.
         "agents.trust.autoTrust": .userOnly, "agents.trust.projectRoots": .userOnly, "agents.trust.ownOrgs": .userOnly,
         // Which hosts an ssh:// link from another app connects to without asking: only the person trusts a host, so a page or an agent cannot add one and skip the confirmation.
         "ssh.linkAllowedHosts": .network,
-        // What reaches this Mac from outside and what leaves it: only the person opens phone access.
-        "phone.allowConnections": .network, "phone.startSessions": .network,
         "phone.keepAwake": .userOnly,
         // Workspace names leave this Mac for the Cloud service: only the person turns it on.
         "phone.cloudReplica": .privacy, "phone.cloudDesktop": .privacy,
@@ -163,10 +181,14 @@ extension SettingsSchema {
         "mobile.terminalSizing": .userOnly, "mobile.terminalSizingOrder": .userOnly,
         // On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Remote: the person's call.
         "macScreen.systemShortcuts": .userOnly,
+        // It is the person's standing yes to Share This Mac; an agent that could set it would approve its own share request. cmux Remote: the person's call.
+        "macScreen.shareWithoutAsking": .userOnly,
         // cmux Remote: the person's call.
         "remote.endSharingOnQuit": .userOnly,
-        // Spends about 2 to 3 times the data on every remote connection; only the person turns it on.
-        "remote.ultraMode": .userOnly,
+        // Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.
+        "remote.ultra": .userOnly,
+        // Ultra spends up to 150 Mbps on every Screen Sharing session this Mac views; only the person picks it.
+        "remote.screenSharingProfile": .userOnly,
         // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.
         "macScreen.debug.relayOnly": .userOnly,
         // Chooses the server this Mac registers its device keys with; only the person sets it.
@@ -193,6 +215,6 @@ extension SettingsSchema {
         "browser.passwords.offerToSave": .privacy, "browser.passwords.generate": .privacy,
         "browser.passwords.allowExport": .privacy,
         // The person decides whether cmux reads verification emails.
-        "browser.verificationAutofill.enabled": .privacy,
+        "browser.verificationAutofill.enabled": .privacy, "browser.verificationAutofill.accounts": .privacy,
     ]
 }

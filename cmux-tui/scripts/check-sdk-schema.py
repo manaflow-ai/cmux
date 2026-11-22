@@ -34,12 +34,17 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "crate::resource_name::NameSource": "NameSource",
     "AgentSessionParams": "AgentSessionSource",
     "ConversationTabSplitParams": "ConversationTabSplit",
+    "TabPlaceRequest": "TabPlace",
     "crate::model::ColumnDock": "ColumnPin",
     "SnapshotHave": "SnapshotRequestHave",
     "RowMarkerPoint": "RowMarkerPoint",
     "RowHeight": "RowHeight",
     "ExpectAgent": "SendExpectAgent",
     "LayoutSizeWire": "LayoutSizeValue",
+    "cmd_workspaces::KnownTree": "ListWorkspacesKnown",
+    "frontend_browser_history::FirstTabParams": "WorkspaceFirstTab",
+    "crate::command_context::Intent": "TerminalCommandContextIntent",
+    "crate::remote_host::AppPermissions": "RemoteHostAppPermissions",
 }
 
 # Request fields the server takes as raw JSON and then decodes element by
@@ -178,7 +183,11 @@ def _parse_rust_fields(body: str, label: str) -> dict[str, RuntimeField]:
         name, rust_type = field.groups()
         if name in fields:
             fail(f"duplicate {label} field {name!r}")
-        fields[name] = RuntimeField(rust_type, tuple(attributes))
+        # `#[serde(skip)]` is never read from the wire: the field is state of the
+        # handler, not a part of the request.
+        skipped = any(part.strip() == "skip" for value in attributes for part in value.split(","))
+        if not skipped:
+            fields[name] = RuntimeField(rust_type, tuple(attributes))
         attributes.clear()
     if attributes:
         fail(f"orphan serde attributes in {label}")

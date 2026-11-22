@@ -66,10 +66,15 @@ impl Hub {
         if let Some(o) = msg.as_object_mut() {
             o.extend(git);
             let trigger = o.get("trigger") == Some(&Value::Bool(true));
-            o.insert("unread".into(), Value::Bool(!trigger && !self.shown(session)));
+            o.insert("unread".into(), Value::Bool(!trigger && !self.attended(session)));
         }
         msg.set("pendingPermissions", self.session_summary(session)["pendingPermissions"].clone());
         self.record_last_turn(session, &msg);
+        // The chat's page after the turn (`turn_shots.rs`), taken once the result is written.
+        let turn = msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
         self.append(session, "mux", "turn_result", msg);
+        if let Some(turn) = turn {
+            super::turn_shots::turn_ended(&self.scope, session, &turn);
+        }
     }
 }

@@ -19,6 +19,7 @@ Exit 0: no clip; 1: a clip (see sweep.json and the PNGs); 2: the harness could n
 import argparse, json, os, re, socket, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -99,14 +100,14 @@ try:
     rpc("debug.window.ax_set_frame", {"frames": [[40, 40, 1100, 820]]})
     opened = rpc("debug.home_native_fixture.open", {"new": True}) or {}
     if not opened.get("ok") or not poll(lambda: texts(), timeout=60):
-        print("FAIL the Home fixture did not open", json.dumps(opened)[:300], flush=True)
+        safe_print("FAIL the Home fixture did not open", json.dumps(opened)[:300], flush=True)
         sys.exit(2)
     for text in (LONG, LONG2):
         rpc("debug.home.drive", {"action": "focus"})
         rpc("debug.home.drive", {"action": "type", "text": text})
         sent = rpc("debug.home.drive", {"action": "send"})
         if not sent.get("ok"):
-            print("FAIL the send was refused", sent, flush=True)
+            safe_print("FAIL the send was refused", sent, flush=True)
             sys.exit(2)
     # The mock Chief answers each send after 1.5 s typing; wait for both answers before sweeping.
     poll(lambda: len(texts()) > 0 and texts()[-1] not in (LONG, LONG2), timeout=20)
@@ -150,8 +151,8 @@ try:
                     rpc("debug.window_snapshot", {"path": path})
                     entry["png"] = os.path.basename(path)
                 steps.append(entry)
-                print(f"{name} {width}: window {entry['windowWidth']} host {entry['hostX']}..{entry['hostRight']} "
-                      f"outgoing {entry['outgoing']} {'CLIPPED ' + json.dumps(bad) if bad else 'ok'}", flush=True)
+                safe_print(f"{name} {width}: window {entry['windowWidth']} host {entry['hostX']}..{entry['hostRight']} "
+                           f"outgoing {entry['outgoing']} {'CLIPPED ' + json.dumps(bad) if bad else 'ok'}", flush=True)
             if streaming:
                 rpc("debug.home.drive", {"action": "stream", "text": "Done.", "done": True})
                 words = 0
@@ -185,14 +186,14 @@ try:
             rpc("debug.window_snapshot", {"path": snap})
             entry["png"] = os.path.basename(snap)
         drag.append(entry)
-        print(f"drag-streaming {int(width)}: ms {entry['ms']} deferred {entry['deferred']} "
-              f"{'CLIPPED ' + json.dumps(bad) if bad else 'ok'}", flush=True)
+        safe_print(f"drag-streaming {int(width)}: ms {entry['ms']} deferred {entry['deferred']} "
+                   f"{'CLIPPED ' + json.dumps(bad) if bad else 'ok'}", flush=True)
         time.sleep(0.02)  # harness wait: one display frame (its tick runs a deferred width pass)
     rpc("debug.home.drive", {"action": "stream", "text": "Done.", "done": True})
     results["sweeps"]["drag-streaming"] = [dict(e, clipped=e["clipped"]) for e in drag]
     clips = {k: [s["width"] for s in v if s["clipped"]] for k, v in results["sweeps"].items()}
     results["clippedWidths"] = clips
-    print("CLIPPED widths:", json.dumps(clips), flush=True)
+    safe_print("CLIPPED widths:", json.dumps(clips), flush=True)
     code = 1 if any(clips.values()) else 0
 finally:
     with open(os.path.join(opts.out, "sweep.json"), "w") as handle:

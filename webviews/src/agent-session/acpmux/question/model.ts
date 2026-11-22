@@ -175,6 +175,15 @@ export function selection(optionIDs: string[] = [], other?: string): Selection {
 
 const selectionIsEmpty = (value: Selection | undefined) => !value || (value.optionIDs.length === 0 && !value.other);
 
+/// The agent's own pick among its choices: Claude Code writes it into the label ("Remove both
+/// (Recommended)"). A place that answers outside the chat (the composer hat, Home's Needs you) draws
+/// the label without it and marks the button instead; the answer still sends the option as asked.
+const RECOMMENDED = /\s*\(recommended\)\s*$/i;
+export function recommendedLabel(label: string): { label: string; recommended: boolean } {
+  const bare = label.replace(RECOMMENDED, "").trim();
+  return bare && bare !== label.trim() ? { label: bare, recommended: true } : { label, recommended: false };
+}
+
 /// True when at least one option carries a preview: the card then shows the highlighted
 /// option's preview beside the list.
 export const hasPreviews = (item: Item): boolean => item.options.some((option) => option.preview !== undefined);

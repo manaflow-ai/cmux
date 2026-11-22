@@ -11,7 +11,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::{Read, Write};
-use std::mem::{offset_of, size_of};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
@@ -32,6 +31,15 @@ use crate::pty::{
 };
 
 const DAEMON_SOCKET_WAIT_MS: u64 = 5_000;
+/// The option that makes an owner end a terminal left with no tab after a grace.
+const REAP_GRACE_OPTION: &str = "--terminal-reap-grace-seconds";
+/// The reap grace of the owner the relay starts, in seconds: the default every owner `ensure`
+/// starts gets (`cmux_tui_core::DEFAULT_TERMINAL_REAP_GRACE`). Its socket is the session's default
+/// one, so a later `cmux` client reuses this owner, and a tab closed in the relay's `cmux-tui
+/// attach` viewer only detaches its terminal.
+const DAEMON_TERMINAL_REAP_GRACE_SECONDS: &str = "30";
+/// The bound on one help probe of the cmux-tui binary (`accepts_reap_grace`).
+const REAP_GRACE_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 const THREAD_OUTPUT_BACKLOG_CAP: usize = 1024 * 1024;
 const THREAD_OUTPUT_OVERFLOW_EXIT: i64 = 75;
 const PIPE_OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(250);
@@ -87,13 +95,13 @@ fn session_socket_path(socket_dir: &Path, uid: u32, session: &str) -> Result<Pat
     }
     let leaf = format!("{session}.sock");
     let preferred = socket_dir.join(&leaf);
-    if unix_socket_path_fits(&preferred) {
+    if cmux_unix_socket::fits(&preferred) {
         return Ok(preferred);
     }
 
     let fallback_dir = Path::new("/tmp").join(format!("cmux-tui-{uid}"));
     let fallback = fallback_dir.join(&leaf);
-    if unix_socket_path_fits(&fallback) {
+    if cmux_unix_socket::fits(&fallback) {
         return Ok(fallback);
     }
 
@@ -104,7 +112,7 @@ fn session_socket_path(socket_dir: &Path, uid: u32, session: &str) -> Result<Pat
         .unwrap_or_else(|| Path::new("/tmp"));
     let hashed =
         preferred_base.join(format!("cmux-tui-hashed-{uid}")).join(format!("{digest}.sock"));
-    if unix_socket_path_fits(&hashed) {
+    if cmux_unix_socket::fits(&hashed) {
         return Ok(hashed);
     }
     Ok(Path::new("/tmp").join(format!("cmux-tui-hashed-{uid}")).join(format!("{digest}.sock")))
@@ -153,15 +161,6 @@ async fn prepare_private_directory(dir: &Path, uid: u32) -> Result<(), String> {
             .map_err(|error| format!("control socket directory permissions failed: {error}"))?;
     }
     Ok(())
-}
-
-fn unix_socket_path_fits(path: &Path) -> bool {
-    use std::os::unix::ffi::OsStrExt;
-
-    // Unix-domain socket paths include a trailing NUL in `sun_path`.
-    const SUN_PATH_CAPACITY: usize =
-        size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
-    path.as_os_str().as_bytes().len() < SUN_PATH_CAPACITY
 }
 
 /// Buffers output until the manager subscribes, then drains one FIFO queue.
@@ -855,6 +854,34 @@ async fn socket_exists(path: &Path) -> bool {
     tokio::fs::metadata(path).await.is_ok()
 }
 
+/// Whether `cmux_tui` accepts `--terminal-reap-grace-seconds`: its root help (older binaries) or
+/// `help start` (current ones) lists the option as a line's first word, the probe the app's
+/// launcher runs (`cmux_daemon_launch_core::ensure::reap_grace_probes`). A cmux-tui that does not
+/// list it would refuse the option and never start, and an owner that never reaps is better than
+/// no owner, so a failed probe answers false.
+async fn accepts_reap_grace(cmux_tui: &CmuxTui, env: &HashMap<String, String>) -> bool {
+    const PROBES: [&[&str]; 2] = [&["--help"], &["help", "start"]];
+    for probe in PROBES {
+        let mut command = tokio::process::Command::new(&cmux_tui.file);
+        command.args(&cmux_tui.prefix).args(probe).env_clear().envs(env).current_dir("/");
+        command.stdin(std::process::Stdio::null());
+        command.stdout(std::process::Stdio::piped());
+        command.stderr(std::process::Stdio::null());
+        command.kill_on_drop(true);
+        let Ok(Ok(output)) = tokio::time::timeout(REAP_GRACE_PROBE_TIMEOUT, command.output()).await
+        else {
+            continue;
+        };
+        let help = String::from_utf8_lossy(&output.stdout);
+        let lists =
+            help.lines().any(|line| line.split_whitespace().next() == Some(REAP_GRACE_OPTION));
+        if output.status.success() && lists {
+            return true;
+        }
+    }
+    false
+}
+
 /// Stop a daemon that was started by `ensure_daemon` but never became ready.
 /// The daemon is placed in its own process group, so cleanup also covers
 /// children it may have spawned before readiness failed.
@@ -983,6 +1010,12 @@ impl PtyDeps for RealPtyDeps {
             "--socket".to_owned(),
             socket_path.to_string_lossy().into_owned(),
         ]);
+        if accepts_reap_grace(cmux_tui, env).await {
+            args.extend([
+                REAP_GRACE_OPTION.to_owned(),
+                DAEMON_TERMINAL_REAP_GRACE_SECONDS.to_owned(),
+            ]);
+        }
         let mut command = tokio::process::Command::new(&cmux_tui.file);
         command.args(&args).env_clear();
         for (key, value) in env {
@@ -1107,5 +1140,67 @@ mod tests {
             .expect("spawn child");
         wait_for_child_exit_without_reaping(child.id() as libc::pid_t).expect("observe child");
         assert_eq!(child.wait().expect("reap child").code(), Some(23));
+    }
+
+    /// Runs the relay's `ensure_daemon` against a stand-in cmux-tui (`script`, a `/bin/sh` script
+    /// that serves no socket) and returns the arguments the owner was started with.
+    async fn owner_arguments(script_text: &str) -> (String, Vec<String>) {
+        let root = Path::new("/tmp").join(format!("crr-{}", crate::pty::random_hex(6)));
+        std::fs::create_dir_all(&root).expect("test root");
+        let script = root.join("fake-cmux-tui.sh");
+        std::fs::write(&script, script_text).expect("fake cmux-tui");
+        let cmux_tui = CmuxTui {
+            file: "/bin/sh".to_owned(),
+            prefix: vec![script.to_string_lossy().into_owned()],
+        };
+        let deps = RealPtyDeps::new(HashMap::from([(
+            "XDG_RUNTIME_DIR".to_owned(),
+            root.join("run").to_string_lossy().into_owned(),
+        )]));
+        let cwd = ResolvedCwd {
+            path: root.clone(),
+            directory: Arc::new(File::open(&root).expect("open test root")),
+        };
+        let session = format!("w5o-{}", crate::pty::random_hex(4));
+        let started = deps
+            .ensure_daemon(&cmux_tui, &session, &deps.socket_dir(), &cwd, &HashMap::new())
+            .await;
+        assert!(started.is_err(), "the stand-in serves no socket");
+        let recorded = std::fs::read_to_string(root.join("fake-cmux-tui.sh.args")).expect("argv");
+        let _ = std::fs::remove_dir_all(&root);
+        (session, recorded.lines().map(str::to_owned).collect())
+    }
+
+    /// The owner the relay starts reaps tabless terminals (`--terminal-reap-grace-seconds 30`), as
+    /// every owner `ensure` starts. Its socket is the session's default one, so a later `cmux` or
+    /// `cmux-tui` client reuses this owner, and a tab closed in the relay's `cmux-tui attach` viewer
+    /// only detaches its terminal: without the option that shell runs until the owner stops.
+    #[tokio::test]
+    async fn w5o_the_owner_the_relay_starts_reaps_tabless_terminals() {
+        // A current cmux-tui: `help start` lists the option; the owner records its arguments.
+        let (session, args) = owner_arguments(
+            "if [ \"$1\" = help ]; then printf '%s\\n' '--terminal-reap-grace-seconds <n>'; exit 0; fi\n\
+             [ \"$1\" = --help ] && exit 0\n\
+             printf '%s\\n' \"$@\" > \"$0.args\"\n",
+        )
+        .await;
+        assert!(args.starts_with(&["--headless".to_owned(), "--session".to_owned(), session]));
+        assert!(
+            args.windows(2).any(|pair| pair == ["--terminal-reap-grace-seconds", "30"]),
+            "the relay's owner does not reap tabless terminals: {args:?}"
+        );
+    }
+
+    /// A cmux-tui older than the reap option still starts an owner (one that never reaps): its
+    /// help does not list the option, so the relay does not pass it.
+    #[tokio::test]
+    async fn w5o_an_older_cmux_tui_starts_without_the_reap_option() {
+        let (session, args) = owner_arguments(
+            "case \"$1\" in --help|help) exit 0 ;; esac\n\
+             printf '%s\\n' \"$@\" > \"$0.args\"\n",
+        )
+        .await;
+        assert!(args.starts_with(&["--headless".to_owned(), "--session".to_owned(), session]));
+        assert!(!args.iter().any(|arg| arg == REAP_GRACE_OPTION), "{args:?}");
     }
 }

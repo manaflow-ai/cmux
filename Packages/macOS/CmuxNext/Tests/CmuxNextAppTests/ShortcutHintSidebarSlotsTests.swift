@@ -84,4 +84,27 @@ struct ShortcutHintSidebarSlotsTests {
         #expect(rows.count == 3)
         for row in rows { #expect(sidebar.shortcutHintItemFrames[row] != nil, "\(row) has no chip") }
     }
+
+    /// Leo 2026-11-07 (Cmd-1…7 next to a group): a member folded into its group's "Done (N)" row draws no row, so no
+    /// digit may count it: every digit that reaches a workspace has a chip on a drawn row.
+    @Test func aGroupWithAFoldedDoneMemberLeavesNoDigitWithoutAChip() {
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = nil }
+        func ws(_ id: String, done: Bool = false) -> SidebarWorkspace {
+            var ws = SidebarWorkspace(id: WorkspaceID(id), title: id)
+            if done { ws.taskStatus = .done }
+            return ws
+        }
+        let section = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [
+            .workspace(ws("a")),
+            .group(SidebarGroup(id: GroupID("g"), name: "G", color: .red, isCollapsed: false,
+                                workspaces: [ws("g-1"), ws("g-2", done: true), ws("g-3")])),
+            .workspace(ws("b")),
+            .workspace(ws("c")),
+        ])
+        let (model, sidebar, window) = Self.layOut([section])
+        defer { window.closeAfterTest() }
+        #expect(Self.digitsWithoutChip(model, sidebar).isEmpty,
+                "digits without a chip: \(Self.digitsWithoutChip(model, sidebar)); order \(model.itemOrder.items)")
+    }
 }

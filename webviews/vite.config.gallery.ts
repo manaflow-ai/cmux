@@ -1,10 +1,14 @@
 // The static gallery (src/gallery): `bun run gallery:build` writes a plain HTML folder
 // (index.html, frame.html, app.html, mock-app.html, chunks/, assets/) that any static server or file host can serve, with
 // the shipped build settings (React Compiler, production React, the same chunking and the diff
-// worker). `CMUX_GALLERY_OUT_DIR` names the output (default dist/gallery).
+// worker). `CMUX_GALLERY_OUT_DIR` names the output (default dist/gallery); `CMUX_GALLERY_ENTRIES` (comma-separated
+// entry ids) builds only those entries (galleryEntrySubset), for gallery health's base replay.
+// `CMUX_GALLERY_STAGE_CSS=dev` keeps the CSS as the dev server serves it (no Tailwind optimize, no CSS minify) for the
+// gallery scans' stage server (test/support/galleryStageServer.ts): the shipped CSS lowers light-dark() into
+// --lightningcss-light fallbacks and reorders rules, which moved 66 control-contrast readings on rose-pine-dawn.
 import type { Plugin } from "vite-plus";
 import base from "./vite.config";
-import { galleryModules } from "./dev-server/galleryHost";
+import { galleryEntrySubset, galleryModules } from "./dev-server/galleryHost";
 
 const outDir = process.env.CMUX_GALLERY_OUT_DIR ?? "dist/gallery";
 
@@ -26,11 +30,12 @@ const flattenPages: Plugin = {
 export default {
   ...base,
   base: "./",
-  plugins: [...(base.plugins ?? []), galleryModules(), flattenPages],
+  plugins: [galleryEntrySubset(), ...(base.plugins ?? []), galleryModules(), flattenPages],
   build: {
     ...base.build,
     outDir,
     emptyOutDir: true,
+    ...(process.env.CMUX_GALLERY_STAGE_CSS === "dev" ? { cssMinify: false } : {}),
     rolldownOptions: {
       ...base.build?.rolldownOptions,
       input: {

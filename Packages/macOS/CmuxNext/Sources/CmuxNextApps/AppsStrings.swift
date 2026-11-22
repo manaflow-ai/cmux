@@ -3,7 +3,7 @@ import Foundation
 /// Strings of the App Store window and app surfaces (Resources/Localizable.xcstrings).
 nonisolated enum AppsStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static var windowTitle: String { t("store.window.title", "App Store") }
@@ -34,8 +34,13 @@ nonisolated enum AppsStrings {
     static var failureCopied: String { t("apps.failure.copied", "Copied") }
     static var failureDetails: String { t("apps.failure.details", "Details") }
     static var failureHideDetails: String { t("apps.failure.hideDetails", "Hide Details") }
+    /// The marker under a kept app view whose last save did not load; the file and line follow it.
+    static var reloadFailed: String { t("apps.mount.reloadFailed", "Not reloaded") }
     /// The second line of an app's toast detail (`cmux.toast`): the app that showed it.
     static func toastSource(_ app: String) -> String { String(format: t("apps.toast.source", "From %@"), app) }
+    /// `app.menu.run` on a row no visible app has now, or with no workspace or tab to act on.
+    static var menuUnknownRow: String { t("apps.menu.unknownRow", "No installed app has this menu item.") }
+    static var menuNoTarget: String { t("apps.menu.noTarget", "Choose a workspace or tab for this menu item.") }
     static var discover: String { t("store.tab.discover", "Discover") }
     static var installed: String { t("store.tab.installed", "Installed") }
     static var features: String { t("store.tab.features", "Features") }
@@ -71,14 +76,13 @@ nonisolated enum AppsStrings {
     static var noneInstalled: String { t("store.empty.noneInstalled", "No apps installed") }
     static var selectApp: String { t("store.empty.select", "Select an app") }
     static func unknownApp(_ id: String) -> String { String(format: t("apps.client.unknownApp", "No app %@"), id) }
-    static var unavailableHelp: String { t("apps.store.disconnected.help", "Nothing can change until then.") }
 
     private static var notConnected: String { t("apps.store.disconnected.notConnected", "This machine isn't connected") }
 
     /// Why the app supervisor cannot be reached (store banner, app sections).
     static func unavailable(_ reason: AppsUnavailableReason) -> String {
         switch reason {
-        case .needsNewerDaemon: t("apps.store.disconnected.needsNewer", "Needs a newer cmux")
+        case .noAppHost: t("apps.store.disconnected.noAppHost", "Apps can’t run in this build of cmux")
         case .notConnected: notConnected
         case .notReady(let cause): "\(notConnected): \(cause)"
         case .turnedOff(let reason): reason
@@ -101,7 +105,10 @@ nonisolated enum AppsStrings {
     static var cloudFeatureOpen: String { t("store.cloud.open", "Explore Cloud") }
     static var installedBadge: String { t("store.badge.installed", "Installed") }
     static var disabledBadge: String { t("store.badge.disabled", "Disabled") }
-    static var localBadge: String { t("store.badge.local", "Local") }
+    /// A `cmux ext dev` app on Installed (the App Store page's badge).
+    static var localBadge: String { t("store.badge.local", "Local (dev)") }
+    /// The App Store page's filter for the SDK examples (developer mode or `cmux ext dev` only).
+    static var examplesShelf: String { t("store.shelf.examples", "Examples") }
     static var hiddenBadge: String { t("apps.store.badge.hidden", "Hidden") }
     static var installedForEveryone: String { t("apps.store.badge.default", "Installed for everyone") }
     static var installedForEveryoneHelp: String {

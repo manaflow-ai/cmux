@@ -14,6 +14,7 @@ import { failedRuns, failedSendText } from "../sendFailure";
 import { messageMenuTarget } from "./messageMenu";
 import { DeliveryFailure } from "./PromptDelivery";
 import { FailedSendsContext, type FailedSends } from "./promptDeliveryModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -39,6 +40,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -145,9 +147,14 @@ test("Retry waits while the folder's trust question is open, and comes back once
   const rows = [failed("a", "ship it", trustPending)];
   const container = await render(transcript(rows, { trustBlock: "trust.answerFirst", trustFolder: () => undefined }));
   expect(button(container, "Retry")!.disabled).toBe(true);
-  expect(button(container, "Retry")!.title).toBe("Answer the trust question first");
+  // Why it waits shows beside it, as text (a disabled button gets no hover), and describes it.
+  const why = container.querySelector<HTMLElement>(".cv-user__retry-wait");
+  expect(why?.textContent).toBe("Answer the trust question first");
+  expect(why?.hidden).toBe(false);
+  expect(button(container, "Retry")!.getAttribute("aria-describedby")).toBe(why!.id);
   await act(async () => root!.render(transcript(rows, {})));
   expect(button(container, "Retry")!.disabled).toBe(false);
+  expect(container.querySelector(".cv-user__retry-wait")).toBeNull();
   // Trusted: nothing left to fix.
   expect(button(container, "Trust folder")).toBeUndefined();
   // Any other cause never waits on the trust question.

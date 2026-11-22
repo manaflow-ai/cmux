@@ -65,11 +65,33 @@ pub(crate) enum TerminalCloseGuard {
     /// The terminal has no tab placement and is not marked `keep`
     /// (`terminal-reap-v1`).
     UnplacedAndNotKept,
+    /// [`Self::UnplacedAndNotKept`], and no client holds an attach stream on
+    /// the terminal (the reaper). The attach check runs under the same locks
+    /// as the close, so an attach after the reaper's first look still keeps
+    /// the terminal.
+    UnplacedNotKeptAndDetached,
+}
+
+impl TerminalCloseGuard {
+    /// The close needs the terminal without a placement and not kept.
+    pub(crate) fn requires_unplaced(self) -> bool {
+        !matches!(self, Self::None)
+    }
+
+    /// The close needs no attach stream on the terminal.
+    pub(crate) fn requires_detached(self) -> bool {
+        matches!(self, Self::UnplacedNotKeptAndDetached)
+    }
 }
 
 /// The close guard did not hold, so nothing changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TerminalCloseGuardFailed;
+pub(crate) enum TerminalCloseGuardFailed {
+    /// The terminal has a placement or is marked `keep`.
+    PlacedOrKept,
+    /// A client holds an attach stream on the terminal.
+    Attached,
+}
 
 impl fmt::Display for TerminalCloseGuardFailed {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

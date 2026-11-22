@@ -79,8 +79,9 @@ pub fn tail(text: &str, max: usize) -> &str {
 }
 
 /// `text` without its terminal escapes: CSI sequences (colors, `ESC [ 1 m`),
-/// OSC sequences (titles, links; ended by BEL or `ESC \`) and other
-/// two-byte escapes. Vite prints `localhost:\x1b[1m5173\x1b[22m/`, which only
+/// string sequences with their payloads (OSC titles and links, DCS queries,
+/// APC graphics, PM and SOS; ended by BEL or `ESC \`) and other two-byte
+/// escapes. Vite prints `localhost:\x1b[1m5173\x1b[22m/`, which only
 /// matches once its color codes are gone. An escape cut off at the end of
 /// `text` is dropped.
 pub fn strip_ansi(text: &str) -> Cow<'_, str> {
@@ -103,8 +104,8 @@ pub fn strip_ansi(text: &str) -> Cow<'_, str> {
                     }
                 }
             }
-            // OSC: up to BEL or ST (`ESC \`).
-            Some(']') => {
+            // OSC, DCS, SOS, PM and APC: up to BEL or ST (`ESC \`).
+            Some(']' | 'P' | 'X' | '^' | '_') => {
                 while let Some(c) = chars.next() {
                     if c == '\x07' {
                         break;
@@ -145,6 +146,9 @@ mod tests {
         assert_eq!(strip_ansi(vite), "  ➜  Local:   http://localhost:5173/");
         assert_eq!(strip_ansi("\x1b]0;title\x07a\x1b]8;;x\x1b\\b\x1b=c"), "abc");
         assert_eq!(strip_ansi("cut \x1b[1"), "cut ");
+        // DCS queries and APC graphics drop their payloads too.
+        assert_eq!(strip_ansi("ready\x1bP$qm\x1b\\"), "ready");
+        assert_eq!(strip_ansi("a\x1b_Gf=100;AAAA\x1b\\b\x1b^pm\x1b\\c"), "abc");
         assert!(matches!(strip_ansi("plain"), Cow::Borrowed("plain")));
     }
 }

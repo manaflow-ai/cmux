@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import AppKit
 import CmuxNextHomeEngine
 
@@ -20,8 +21,6 @@ final class TopPageHost {
     /// The page's view, made on first show; nil when no provider serves the route.
     func view(for route: TopPageRoute, in window: WindowController) -> NSView? {
         guard let services else { return nil }
-        if case .page(let id) = route, InternalPageTabStore.isPreviewPage(id),
-           services.settings?.snapshot.previewFeatures != true { return nil }
         if let view = views[route] { return view }
         let view: NSView
         switch route {
@@ -58,7 +57,7 @@ final class TopPageHost {
     func focus(_ route: TopPageRoute, in window: NSWindow?) {
         switch views[route] {
         case let home as TopHomePageView: home.focusPrimaryInput()
-        case let page as InternalPageView: window?.makeFirstResponder(page.focusTarget)
+        case let page as InternalPageView: FocusRoute(.system, "a top page's input").moveKeyboard(in: window, to: page.focusTarget)
         default: break
         }
     }

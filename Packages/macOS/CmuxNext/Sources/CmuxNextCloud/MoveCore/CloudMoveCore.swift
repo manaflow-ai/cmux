@@ -84,6 +84,13 @@ extension CloudStartCore {
         return CloudMoveCore().call("copies_through_store", Request(account: account, productionAuth: productionAuth), as: Reply.self)?.store ?? false
     }
 
+    /// A refusal sentence inside a start's parentheses: no closing period.
+    public static func reason(_ text: String) -> String {
+        var text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        while text.hasSuffix(".") { text.removeLast() }
+        return text
+    }
+
     /// `text` as one shell word. An FFI that does not answer quotes it.
     public static func shellQuoted(_ text: String) -> String {
         struct Request: Encodable { var text: String }
@@ -112,11 +119,20 @@ extension CloudStartCore {
 extension CloudMachineRequest {
     /// The create of the machine for a send: sized for the chat, under the send's own idempotency key
     /// (the plan's `create_key`), so a retry after a create whose answer was lost gets the same
-    /// machine from the server, never a second paid VM. Its team is the send's, fixed for every try.
-    public init(startChatKey key: String, sizedFor pick: CloudWorkPick?, team: String?) {
+    /// machine from the server, never a second paid VM. Its team is the send's, fixed for every try. `diskMb`: the disk
+    /// the folder needs past `size`'s own (``chatDiskMb``). `plan`: the start's ledger, whose sent create keeps its
+    /// route for every retry (none kept: the relay, ``createRoute(personsOwnCreate:team:)``). `planMax` and `bytes`:
+    /// the plan's largest size and the folder's bytes, which keep the vCPUs and memory asked within the plan (``atLeast(cpu:memoryMb:diskMb:)``).
+    public init(startChatKey key: String, sizedFor pick: CloudWorkPick?, team: String?, size: CloudChatSize? = nil, diskMb: Int? = nil,
+                planMax: CloudChatSize? = nil, bytes: Int64? = nil, plan: CloudMoveCLI.StartChatPlan? = nil) {
         self.init()
         autosize = pick?.autosize
+        chatSize = size
+        chatDiskMb = diskMb
+        (chatPlanMax, chatFolderBytes) = (planMax, bytes)
         idempotencyKey = key
         self.team = team
+        wasSent = plan?.createSent ?? false
+        route = wasSent ? plan?.createRoute : nil
     }
 }

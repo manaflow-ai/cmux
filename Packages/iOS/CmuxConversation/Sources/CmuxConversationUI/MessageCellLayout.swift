@@ -207,6 +207,7 @@ final class BubbleTextCache: @unchecked Sendable {
         var meID: String?
         var runs: [ConversationTextRun]
         var links: [ConversationTextLink] = []
+        var tables: [ConversationTextTable] = []
         var font: UIFont
         var textColor: ConversationColor?
     }
@@ -266,7 +267,7 @@ extension NSAttributedString.Key {
 extension MessageCellLayout {
     /// A bubble's text from its inputs (cached in `BubbleTextCache`).
     static func attributedBody(_ inputs: ConversationBubbleInputs) -> NSAttributedString {
-        attributedBody(inputs.text, outgoing: inputs.outgoing, mentions: inputs.mentions, meID: inputs.meID, runs: inputs.runs, links: inputs.links)
+        attributedBody(inputs.text, outgoing: inputs.outgoing, mentions: inputs.mentions, meID: inputs.meID, runs: inputs.runs, links: inputs.links, tables: inputs.tables)
     }
 
     static func attributedBody(
@@ -275,12 +276,13 @@ extension MessageCellLayout {
         mentions: [ConversationMention] = [],
         meID: String? = nil,
         runs: [ConversationTextRun] = [],
-        links: [ConversationTextLink] = []
+        links: [ConversationTextLink] = [],
+        tables: [ConversationTextTable] = []
     ) -> NSAttributedString {
         // The text colour is read once, so the key and the text built under it agree.
         let colors = ConversationTheme.bubbleColors
         let chosen = outgoing ? colors?.resolvedSentText : colors?.resolvedReceivedText
-        let key = BubbleTextCache.Key(text: text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs, links: links,
+        let key = BubbleTextCache.Key(text: text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs, links: links, tables: tables,
                                       font: ConversationTheme.bubbleFont, textColor: chosen)
         if let cached = BubbleTextCache.shared.text(for: key) { return cached }
         // A build on the main thread is a bubble the off-main pre-build or
@@ -289,7 +291,7 @@ extension MessageCellLayout {
             "BubbleTextBuild", id: bubbleTextSignposter.makeSignpostID(),
             "main=\(Thread.isMainThread ? 1 : 0) length=\(text.utf16.count) links=\(links.count)"
         )
-        let result = buildAttributedBody(text, outgoing: outgoing, textColor: chosen, mentions: mentions, meID: meID, runs: runs, links: links)
+        let result = buildAttributedBody(text, outgoing: outgoing, textColor: chosen, mentions: mentions, meID: meID, runs: runs, links: links, tables: tables)
         bubbleTextSignposter.endInterval("BubbleTextBuild", signpost)
         BubbleTextCache.shared.store(result, for: key)
         return result
@@ -317,7 +319,8 @@ extension MessageCellLayout {
         mentions: [ConversationMention],
         meID: String?,
         runs: [ConversationTextRun],
-        links: [ConversationTextLink]
+        links: [ConversationTextLink],
+        tables: [ConversationTextTable] = []
     ) -> NSAttributedString {
         let textColor = chosen.map(UIColor.init(conversation:)) ?? (outgoing ? ConversationTheme.outgoingText : ConversationTheme.incomingText)
         let result = NSMutableAttributedString(string: text, attributes: [
@@ -343,6 +346,8 @@ extension MessageCellLayout {
             result.addAttribute(.conversationLink, value: link.url, range: link.range)
         }
         ConversationMentionStyle.apply(to: result, mentions: mentions, meID: meID, outgoing: outgoing, font: ConversationTheme.bubbleFont)
+        // Markdown tables: cells under their headers (measured in the fonts set above).
+        if !tables.isEmpty { ConversationTableLayout.apply(tables, to: result, font: ConversationTheme.bubbleFont) }
         return result
     }
 

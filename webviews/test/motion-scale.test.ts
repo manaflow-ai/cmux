@@ -10,6 +10,7 @@ import path from "node:path";
 import {
   MOTION_EASE_OUT,
   MOTION_MS,
+  MOTION_SEND_MS,
   MOTION_SETTLE,
   MOTION_SETTLE_MS,
   MOTION_SPRING,
@@ -40,7 +41,12 @@ describe("motion scale", () => {
     const points = SCALE.spring.points;
     expect(points[0]).toEqual([0, 0]);
     expect(points.at(-1)).toEqual([1, 100]);
-    // Visibly settled (within 1% of rest) from 58% of its run on: about 140 ms of the 240 ms step.
+    // It only rises, and never past its end (Lawrence: no bounce in any motion).
+    for (const [index, [value]] of points.entries()) {
+      expect(value).toBeLessThanOrEqual(1);
+      expect(value).toBeGreaterThanOrEqual(points[Math.max(0, index - 1)]![0]);
+    }
+    // Within 1% of its end from 55% of its run on: about 130 ms of the 240 ms step.
     const settled = points.filter(([value]) => Math.abs(value - 1) > 0.01).at(-1)![1];
     expect((settled / 100) * MOTION_MS[MOTION_SPRING_STEP]).toBeLessThanOrEqual(MOTION_MS.large);
     expect(MOTION_SPRING).toMatch(/^linear\(0, .* 1\)$/);
@@ -59,10 +65,18 @@ describe("motion scale", () => {
     expect(x1).toBeLessThan(0.3);
     expect(MOTION_SETTLE).toBe(`cubic-bezier(${SCALE.settle.bezier.join(", ")})`);
     expect(MOTION_SETTLE_MS).toBe(SCALE.settle.ms);
-    expect(MOTION_SETTLE_MS).toBeLessThanOrEqual(300);
     const desktop = fs.readFileSync(path.join(SRC, "pages/shared/desktop.css"), "utf8");
     expect(desktop).toContain(`--cmux-ease-settle: ${MOTION_SETTLE};`);
     expect(desktop).toContain(`--cmux-motion-settle: ${MOTION_SETTLE_MS}ms;`);
+  });
+
+  // Leo, 2026-11-09: "there's some sort of \"settling\" and like ok maybe but the animations end to end
+  // need to just resolve faster". The settle and the send keep their curve but end on the standard
+  // step, so a fold or a sent prompt is at rest as soon as any structural move.
+  test("the settle and the send end within the standard step", () => {
+    expect(MOTION_SETTLE_MS).toBeLessThanOrEqual(MOTION_MS.standard);
+    expect(MOTION_SEND_MS).toBeLessThanOrEqual(MOTION_MS.standard);
+    expect(SCALE.send.ms).toBe(MOTION_SEND_MS);
   });
 
   // What the scan caught on the base before the scale (feat-cmux-next, 2026-10-20).
@@ -77,7 +91,7 @@ describe("motion scale", () => {
     expect(finds("a.css", ".a { animation: swipe var(--agent-motion-move,190ms) ease-out both; }")).toEqual([1]);
     // A --cmux-motion-* must be a step, and its fallback that step.
     expect(finds("a.css", ":root { --motion-focus: var(--cmux-motion-focus, 100ms); }")).toEqual([1]);
-    expect(finds("a.css", ":root { --motion-in: var(--cmux-motion-micro, 180ms); }")).toEqual([1]);
+    expect(finds("a.css", ":root { --motion-in: var(--cmux-motion-micro, 180ms); }")).toEqual([1]); // motion-allow: an off-step fallback the scan must catch
   });
 
   test("off-scale Tailwind classes and script durations fail", () => {
@@ -93,7 +107,7 @@ describe("motion scale", () => {
 
   test("the scale, zero, vars, loops, delays and marked lines pass", () => {
     const pass = [
-      ".a { transition: opacity 80ms, transform 120ms, height 180ms, width 240ms; }",
+      ".a { transition: opacity 80ms, transform 120ms, height 180ms, width 240ms; }", // motion-allow: scanner fixture, a raw literal
       ".a { transition: opacity 0s; animation-duration: 0.01ms !important; }",
       ".a { transition: opacity var(--cmux-motion-quick) var(--cmux-ease-out); }",
       ".a { transition: opacity var(--cmux-motion-micro, 120ms); }",
@@ -103,7 +117,7 @@ describe("motion scale", () => {
       ".a { animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite; }",
       ".a { animation: breathe 1.4s ease-out infinite alternate; animation-duration: 1.3s; }",
       // Delays: the second time of a shorthand, and the delay properties.
-      ".a { transition: opacity 80ms ease 350ms; transition-delay: 350ms; animation-delay: -0.8s; }",
+      ".a { transition: opacity 80ms ease 350ms; transition-delay: 350ms; animation-delay: -0.8s; }", // motion-allow: scanner fixture, a raw literal
       ".a { transition: width 1s linear; } /* motion-allow: playback progress, not a transition */",
       "/* transition: opacity 150ms; a comment is no style */",
     ];

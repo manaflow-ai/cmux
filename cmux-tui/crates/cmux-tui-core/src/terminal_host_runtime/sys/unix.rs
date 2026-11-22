@@ -35,7 +35,9 @@ pub(crate) use listener::HostListener;
 pub(crate) use process::{
     kill_process_group, process_definitely_absent as process_definitely_gone,
 };
-pub(crate) use pty_readiness::wait_for_pty_readable_or_forced_drain;
+pub(crate) use pty_readiness::{
+    pty_readable_now, pty_reads_without_waiting, wait_for_pty_readable_or_forced_drain,
+};
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 pub(crate) use record_root_watch::follow_record_root_removal;
 
@@ -50,6 +52,32 @@ pub(crate) fn follow_record_root_removal(
 }
 pub(crate) use spawned_host::SpawnedHostProcess;
 pub(crate) use waker::AcceptWaker;
+
+/// Kernel send buffer of a host's client connection. macOS gives a Unix
+/// stream socket 8 KiB, and on macOS the sender's buffer alone bounds what a
+/// write may queue (a larger receive buffer at the daemon changes nothing), so
+/// a batch of queued Output frames took one write and one daemon wake per
+/// 8 KiB. 256 KiB holds one whole writer batch (`MAX_BATCH_BYTES`); the
+/// kernel holds it only while the daemon lags.
+pub(crate) const CLIENT_SEND_BUFFER_BYTES: libc::c_int = 256 * 1024;
+
+/// Sizes `stream`'s kernel send buffer ([`CLIENT_SEND_BUFFER_BYTES`]). Best
+/// effort: a socket that refuses keeps its default, which only costs more
+/// writes.
+pub(crate) fn size_client_send_buffer(stream: &HostStream) {
+    let size = CLIENT_SEND_BUFFER_BYTES;
+    // SAFETY: the descriptor is `stream`'s open socket for this call, and
+    // setsockopt reads one c_int from a live local of the given length.
+    unsafe {
+        libc::setsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_SNDBUF,
+            (&raw const size).cast(),
+            size_of::<libc::c_int>() as libc::socklen_t,
+        );
+    }
+}
 
 /// The host process's bootstrap streams: its private stdin and stdout pipes.
 pub(crate) fn host_bootstrap_streams(
@@ -68,6 +96,27 @@ pub(crate) fn pty_poll_handle(master: &dyn cmux_pty::MasterPty) -> anyhow::Resul
     use anyhow::Context;
 
     master.as_raw_fd().context("open terminal-host PTY poll fd")
+}
+
+/// Sets the PTY non-blocking and returns its input writer, which waits for
+/// room the way a blocking write did. `O_NONBLOCK` belongs to the open file
+/// description that the reader, the writer and every dup share, so once the
+/// reader drains without polling the writer must wait on `WouldBlock`: a
+/// paste is never cut.
+pub(crate) fn nonblocking_pty_writer(
+    pty: PtyPollHandle,
+    writer: Box<dyn std::io::Write + Send>,
+) -> anyhow::Result<Box<dyn std::io::Write + Send>> {
+    use std::os::fd::BorrowedFd;
+
+    // SAFETY: fcntl on the live master the caller owns.
+    let flags = unsafe { libc::fcntl(pty, libc::F_GETFL) };
+    if flags < 0 || unsafe { libc::fcntl(pty, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    // SAFETY: the caller keeps the master open for this call; the dup is owned.
+    let master = unsafe { BorrowedFd::borrow_raw(pty) }.try_clone_to_owned()?;
+    Ok(Box::new(crate::pty_write::WaitingWriter { inner: writer, master }))
 }
 
 /// The session id of an adopted (non-child) process.

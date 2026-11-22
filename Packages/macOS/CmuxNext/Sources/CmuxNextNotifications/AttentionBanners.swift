@@ -2,7 +2,6 @@ import AppKit
 package import CmuxNextAgentPane
 package import CmuxNextDaemon
 package import CmuxNextDaemonService
-package import CmuxNextFeed
 package import CmuxNextSettings
 import Foundation
 
@@ -109,7 +108,7 @@ package final class AttentionBanners {
         host.note("attention \(item.tabId) \(decision)")
         if decision.desktop {
             posted.insert(AttentionBannerLifecycle.attentionBannerID(item))
-            let content = host.bannerFormatter.content(headline: String(localized: "notifications.attention.needsYou", defaultValue: "Needs you", bundle: .module),
+            let content = host.bannerFormatter.content(headline: String(localized: "notifications.attention.needsYou", defaultValue: "Needs you", bundle: .localizedModule),
                                                        posterSubtitle: nil, body: item.reason, workspace: item.workspaceTitle, tab: item.tabTitle, host: nil)
             host.desktop.post(id: AttentionBannerLifecycle.attentionBannerID(item), title: content.title, subtitle: content.subtitle, body: content.body,
                               surface: nil, workspace: nil, defaultSound: decision.sound == "default", category: DesktopNotifier.attentionCategory,
@@ -117,6 +116,12 @@ package final class AttentionBanners {
         }
         if let sound = decision.sound, sound != "default" || !decision.desktop {
             host.soundGate.player.play(sound, volume: decision.soundVolume, banner: decision.desktop)
+        }
+        let seen = self.arrival(item)
+        if AgentStatusAnnouncement.speaks(decision, bannersDenied: host.desktop.authorization == "denied",
+                                          appActive: seen.appActive, paneIsViewed: seen.paneIsViewed) {
+            AgentStatusAnnouncement.announce(.needsYou, name: incognito ? nil : item.tabTitle)
+            host.note("attention \(item.tabId) announced")
         }
     }
 

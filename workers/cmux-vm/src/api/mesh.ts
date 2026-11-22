@@ -42,6 +42,16 @@ export class CreateMeshIntentRequest extends Schema.Class<CreateMeshIntentReques
 const SIGNED =
   "Signed by the device's install key over the cmux-mesh-v1 message (workers/cmux-vm/src/mesh/signed-request.ts); a stale (more than 120 s off), forged or tampered request is 403, a replayed one 409.";
 
+/** The caller's own id for one enroll attempt: letters, digits and . _ : ~ -, at most 128 characters. */
+export const DeviceIntentId = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9._:~-]{1,128}$/u)).annotations({
+  description:
+    "The caller's id for this enroll attempt (letters, digits and . _ : ~ -, at most 128 characters), unique per mesh. " +
+    "A repeat with the same intentId answers the device it made instead of 409. After POST /v1/meshes/{meshId}/device-intents/{intentId}/revoke " +
+    "(or the device's delete) the intent is revoked for 7 days: an enroll with it answers 409 with code mesh.device.intent_revoked and leaves nothing live. " +
+    "While an earlier enroll with it is running, or may have left a tunnel the provider has not confirmed deleted, an enroll with it answers 409 (retry).",
+});
+
+/** The signed fields of every enroll (devices and overlay servers). Only the device route adds an intentId. */
 export class EnrollDeviceRequest extends Schema.Class<EnrollDeviceRequest>("EnrollDeviceRequest")(
   {
     name: DeviceName,
@@ -53,6 +63,11 @@ export class EnrollDeviceRequest extends Schema.Class<EnrollDeviceRequest>("Enro
   },
   { description: SIGNED },
 ) {}
+
+/** `POST /v1/meshes/{meshId}/devices`: the signed enroll, optionally keyed by the caller's intentId (migration 0018). */
+export class EnrollMeshDeviceRequest extends EnrollDeviceRequest.extend<EnrollMeshDeviceRequest>("EnrollMeshDeviceRequest")({
+  intentId: Schema.optional(DeviceIntentId),
+}) {}
 
 /** A one-time enrollment code: `mec_` and 26 base32 characters (130 random bits). */
 export const EnrollmentCodeValue = Schema.String.pipe(Schema.pattern(/^mec_[0-9a-hjkmnp-tv-z]{26}$/u)).annotations({
@@ -273,6 +288,12 @@ const OWN =
   "Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404.";
 
 const MeshPath = Schema.Struct({ meshId: Schema.String });
+const DeviceIntentPath = Schema.Struct({ meshId: Schema.String, intentId: Schema.String });
+
+export class DeviceIntentRevocation extends Schema.Class<DeviceIntentRevocation>("DeviceIntentRevocation")(
+  { deleted: Schema.Boolean.annotations({ description: "Whether this call deleted the intent's device (and its tunnel)." }) },
+  { description: "The intent is revoked: no enroll with it makes a device for 7 days, so an empty device list after this is final." },
+) {}
 
 /** Unauthenticated: the one-time code is the credential. src/api.ts adds this group without the Authentication middleware. */
 export class MeshEnrollGroupDefinition extends HttpApiGroup.make("meshEnroll").add(
@@ -449,7 +470,7 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
   .add(
     HttpApiEndpoint.post("enrollDevice", "/v1/meshes/:meshId/devices")
       .setPath(MeshPath)
-      .setPayload(EnrollDeviceRequest)
+      .setPayload(EnrollMeshDeviceRequest)
       .setHeaders(GroupCreateHeaders)
       .addSuccess(DeviceEnrollment, { status: 201 })
       .addError(BadRequest)
@@ -483,6 +504,23 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .addError(NotFound)
       .addError(QuotaExceeded)
       .annotateContext(describe("Get a device", "mesh:read", `Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. ${EXPERIMENT}`)),
+  )
+  .add(
+    HttpApiEndpoint.post("revokeDeviceIntent", "/v1/meshes/:meshId/device-intents/:intentId/revoke")
+      .setPath(DeviceIntentPath)
+      .setHeaders(GroupTeamHeaders)
+      .addSuccess(DeviceIntentRevocation)
+      .addError(NotFound)
+      .addError(QuotaExceeded)
+      .addError(Conflict)
+      .addError(ServiceUnavailable)
+      .annotateContext(
+        describe(
+          "Revoke an enroll intent",
+          "mesh:join",
+          `Writes a tombstone for the intentId and deletes the device it made, with its tunnel. Idempotent. An enroll with this intentId that has not committed refuses with 409 mesh.device.intent_revoked and removes what it created. A 200 is final: no device of the intent is live or can become live, and no enroll with it can commit. A tunnel its provider create makes after the 200 (a create the provider processes late) backs no device and is deleted by the service's tunnel sweep within minutes; the caller has nothing more to do. A 503 (an enroll that may still be creating its tunnel, or a tunnel delete that failed) means retry the revoke until it answers 200. The tombstone lasts 7 days. Only the principal that used the intent or a tenant admin carrying its labels may revoke it, and a key limited to resources only if every device the intent's enrolls made is in its list; anyone else gets 404 and nothing is written. ${EXPERIMENT}`,
+        ),
+      ),
   )
   .add(
     HttpApiEndpoint.del("deleteDevice", "/v1/devices/:deviceId")

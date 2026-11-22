@@ -1,16 +1,19 @@
 public import AppKit
 import CmuxNextCompat
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextDesignTokens
 
 /// The consent card of "Computer use can act as me" (``AgentPaneActAsMe``): the only in-app way to
-/// turn it on. A floating, non-activating glass panel at the top right of the main screen, as the join
+/// turn it on. The cmux dialog card in the floating dialog panel (``CmuxFloatingDialogPanel``) at the top
+/// right of the main screen, as the join
 /// consent sheet (``JoinConsentAskPanel``'s pattern): Allow answers only from the person's own click,
 /// read from the click itself by the app's strict check (``PersonInputCheck``), never from the button's
 /// action, so a click or key another process posts, an Accessibility press or DEBUG automation never
-/// turns it on. Not Now and Turn Off take any press: closing and revoking need no proof.
+/// turns it on. Not Now and Turn Off take any press: closing and revoking need no proof. Like the join
+/// consent sheet, it is left out of every capture cmux makes and Computer Use refuses it
+/// (`sharingType = .none`, `CaptureExcludedWindows`).
 @MainActor
-public final class AgentPaneActAsMeCard: NSPanel {
+public final class AgentPaneActAsMeCard: CmuxFloatingDialogPanel {
     let grant: AgentPaneActAsMe
     let content: AgentPaneActAsMeCardView
     /// Whether an event is the person's own input (the app's strict source check); with none set, none is.
@@ -30,23 +33,9 @@ public final class AgentPaneActAsMeCard: NSPanel {
     public init(grant: AgentPaneActAsMe) {
         self.grant = grant
         content = AgentPaneActAsMeCardView(grant: grant)
-        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: Metrics.surfaceCornerRadius)
-        super.init(contentRect: NSRect(origin: .zero, size: NSSize(width: AgentPaneActAsMeCardView.width, height: 180)),
-                   styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView], backing: .buffered, defer: true)
-        ThemeScope.app.adopt(self)
-        isOpaque = false
-        backgroundColor = .clear
-        hasShadow = true
-        isFloatingPanel = true
-        level = .statusBar
-        hidesOnDeactivate = false
-        becomesKeyOnlyIfNeeded = true
-        isReleasedWhenClosed = false
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        setAccessibilityIdentifier("cmux.actAsMeCard")
-        glass.autoresizingMask = [.width, .height]
-        contentView = glass
-        content.close = { [weak self] in self?.orderOut(nil) }
+        super.init(identifier: "cmux.actAsMeCard")
+        sharingType = .none
+        content.close = { [weak self] in self?.hide() }
     }
 
     override public func sendEvent(_ event: NSEvent) {
@@ -78,7 +67,7 @@ public final class AgentPaneActAsMeCard: NSPanel {
         defer { personDown = nil }
         guard let allow = content.allow, allow.isEnabled, takePersonClick(on: allow, up: up) else { return }
         grant.turnOn(.init())
-        orderOut(nil)
+        hide()
     }
 
     /// SECURITY: whether `up` ends a click on `button` that is the person's own, taken once: the card holds
@@ -100,109 +89,58 @@ public final class AgentPaneActAsMeCard: NSPanel {
         shownAt.map { time - $0 >= Self.armDelay } ?? true
     }
 
-    /// Shows the card (at once, no fade) with the grant's current state.
+    /// Shows the card (the cmux dialog card at the top right of the screen) with the grant's current state.
     public func show() {
-        animationBehavior = .none
         shownAt = ProcessInfo.processInfo.systemUptime
         content.rebuild()
-        let size = content.fittingSize
-        let area = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(origin: .zero, size: size)
-        setFrame(NSRect(x: area.maxX - size.width - 16, y: area.maxY - size.height - 16, width: size.width, height: size.height),
-                 display: true)
-        orderFrontRegardless()
+        present(content)
     }
 }
 
-/// The card's content: what the grant lets through, then Not Now and Allow, or Turn Off while it is on.
+/// The card's content: the cmux dialog card with what the grant lets through, then Not Now (Escape) and Allow
+/// (person-only: no key), or Turn Off (Return) while it is on.
 @MainActor
-public final class AgentPaneActAsMeCardView: NSView {
-    static let width: CGFloat = 380
+public final class AgentPaneActAsMeCardView: CmuxDialogHostView {
     let grant: AgentPaneActAsMe
     var close: () -> Void = {}
     /// The Allow button now shown (``AgentPaneActAsMeCard/endClick(_:)`` reads the person's click on it).
-    private(set) weak var allow: NSControl?
-    private let stack = NSStackView()
+    var allow: NSControl? { card?.buttonView("allow") }
 
     init(grant: AgentPaneActAsMe) {
         self.grant = grant
-        super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 180))
-        translatesAutoresizingMaskIntoConstraints = false
+        super.init(frame: NSRect(x: 0, y: 0, width: 432, height: 180))
         setAccessibilityIdentifier("cmux.actAsMeCard.content")
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = Metrics.space3
-        stack.edgeInsets = NSEdgeInsets(top: Metrics.space5, left: Metrics.space5, bottom: Metrics.space4, right: Metrics.space5)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            widthAnchor.constraint(equalToConstant: Self.width),
-        ])
         rebuild()
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
     func rebuild() {
-        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        allow = nil
-        let width = Self.width - 2 * Metrics.space5
         let on = grant.isOn
-        stack.addArrangedSubview(label(on ? AgentPaneActAsMeStrings.onTitle : AgentPaneActAsMeStrings.askTitle,
-                                       font: Typography.bodyEmphasized, color: Palette.textPrimary, width: width))
-        stack.addArrangedSubview(label(AgentPaneActAsMeStrings.askBody, font: Typography.body, color: Palette.textPrimary, width: width))
-        stack.addArrangedSubview(label(grant.holder == .managed ? AgentPaneActAsMeStrings.managedNote : AgentPaneActAsMeStrings.askNote,
-                                       font: Typography.caption, color: Palette.textSecondary, width: width))
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = Metrics.space2
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        row.addArrangedSubview(spacer)
-        if on {
-            row.addArrangedSubview(button(AgentPaneActAsMeStrings.turnOff, role: .default, id: "cmux.actAsMeCard.turnOff",
-                                          action: #selector(turnOffPressed)))
-        } else {
-            row.addArrangedSubview(button(AgentPaneActAsMeStrings.notNow, role: .cancel, id: "cmux.actAsMeCard.notNow",
-                                          action: #selector(notNowPressed)))
-            let allow = button(AgentPaneActAsMeStrings.allow, role: .default, id: "cmux.actAsMeCard.allow", action: #selector(allowPressed(_:)))
-            self.allow = allow
-            row.addArrangedSubview(allow)
+        let buttons = on
+            ? [CmuxDialogButton(id: "turnOff", title: AgentPaneActAsMeStrings.turnOff, role: .default)]
+            : [CmuxDialogButton(id: "notNow", title: AgentPaneActAsMeStrings.notNow, role: .cancel),
+               CmuxDialogButton(id: "allow", title: AgentPaneActAsMeStrings.allow, role: .default, personOnly: true)]
+        let spec = CmuxDialogSpec(
+            title: on ? AgentPaneActAsMeStrings.onTitle : AgentPaneActAsMeStrings.askTitle,
+            lines: [AgentPaneActAsMeStrings.askBody,
+                    grant.holder == .managed ? AgentPaneActAsMeStrings.managedNote : AgentPaneActAsMeStrings.askNote],
+            buttons: buttons, identifier: "cmux.actAsMeCard.card")
+        let card = draw(spec) { [weak self] id in
+            switch id {
+            case "notNow": self?.close()
+            // Revoking needs no proof: any press turns it off.
+            case "turnOff":
+                self?.grant.turnOff()
+                self?.close()
+            // SECURITY: Allow's action turns nothing on (the card reads the person's click).
+            default: break
+            }
         }
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.widthAnchor.constraint(equalToConstant: width).isActive = true
-        stack.addArrangedSubview(row)
-        layoutSubtreeIfNeeded()
-    }
-
-    private func button(_ title: String, role: CmuxDialogButton.Role, id: String, action: Selector) -> NSControl {
-        let view = CmuxDialogButtonView(standalone: CmuxDialogButton(id: id, title: title, role: role), target: self, action: action)
-        view.setAccessibilityIdentifier(id)
-        return view
+        for id in ["turnOff", "notNow", "allow"] { card.buttonView(id)?.setAccessibilityIdentifier("cmux.actAsMeCard.\(id)") }
     }
 
     /// SECURITY: a press of Allow through its action (an Accessibility press, a programmatic click, a key)
     /// turns nothing on: only the person's own click does, read by the card (``AgentPaneActAsMeCard/endClick(_:)``).
     @objc func allowPressed(_ sender: NSView) {}
-    @objc private func notNowPressed() { close() }
-    /// Revoking needs no proof: any press turns it off.
-    @objc private func turnOffPressed() {
-        grant.turnOff()
-        close()
-    }
-
-    private func label(_ text: String, font: NSFont, color: NSColor, width: CGFloat) -> NSTextField {
-        let field = NSTextField(wrappingLabelWithString: text)
-        field.font = font
-        field.textColor = color
-        field.isSelectable = false
-        field.preferredMaxLayoutWidth = width
-        return field
-    }
 }
 
 /// The pane's indicator while Computer use can act as me is on: a glass pill at the pane's top right that
@@ -211,7 +149,7 @@ public final class AgentPaneActAsMeCardView: NSView {
 @MainActor
 final class AgentPaneActAsMeBadge: NSView {
     let grant: AgentPaneActAsMe
-    private let text = NSTextField(labelWithString: "")
+    private let text = ThemedLabel(labelWithString: "")
     private var following: Task<Void, Never>?
     private var row: NSStackView?
     private var width: NSLayoutConstraint?
@@ -226,7 +164,8 @@ final class AgentPaneActAsMeBadge: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         setAccessibilityIdentifier("cmux.agentPane.actAsMe")
         text.font = Typography.caption
-        text.textColor = Palette.textPrimary
+        // Fitted to the toast glass it draws on, in the theme's tint, again on every theme change.
+        text.themeColor = { Palette.toastText(.primary) }
         let turnOff = NSButton(title: AgentPaneActAsMeStrings.turnOff, target: self, action: #selector(turnOffPressed))
         turnOff.bezelStyle = .inline
         turnOff.controlSize = .small
@@ -293,33 +232,33 @@ final class AgentPaneActAsMeBadge: NSView {
 /// The card's and the indicator's words.
 enum AgentPaneActAsMeStrings {
     static var askTitle: String {
-        String(localized: "agentPane.actAsMe.askTitle", defaultValue: "Let computer use act as you?", bundle: .module)
+        String(localized: "agentPane.actAsMe.askTitle", defaultValue: "Let computer use act as you?", bundle: .localizedModule)
     }
     static var onTitle: String {
-        String(localized: "agentPane.actAsMe.onTitle", defaultValue: "Computer use can act as you", bundle: .module)
+        String(localized: "agentPane.actAsMe.onTitle", defaultValue: "Computer use can act as you", bundle: .localizedModule)
     }
     static var askBody: String {
         String(localized: "agentPane.actAsMe.askBody",
                defaultValue: "Clicks and key presses an agent's computer use makes in a chat count as yours for Send, Retry and Approve. Nothing else: answering an agent's question or permission, changing a mode or trusting a folder still needs your own click.",
-               bundle: .module)
+               bundle: .localizedModule)
     }
     static var askNote: String {
         String(localized: "agentPane.actAsMe.askNote",
                defaultValue: "Every action it lets through is logged with the app that made it. Turn it off at any time from the chat.",
-               bundle: .module)
+               bundle: .localizedModule)
     }
     static var managedNote: String {
         String(localized: "agentPane.actAsMe.managedNote",
                defaultValue: "Your organization turned this on for this Mac. Turning it off lasts until cmux restarts.",
-               bundle: .module)
+               bundle: .localizedModule)
     }
-    static var allow: String { String(localized: "agentPane.actAsMe.allow", defaultValue: "Allow", bundle: .module) }
-    static var notNow: String { String(localized: "agentPane.actAsMe.notNow", defaultValue: "Not Now", bundle: .module) }
-    static var turnOff: String { String(localized: "agentPane.actAsMe.turnOff", defaultValue: "Turn Off", bundle: .module) }
+    static var allow: String { String(localized: "agentPane.actAsMe.allow", defaultValue: "Allow", bundle: .localizedModule) }
+    static var notNow: String { String(localized: "agentPane.actAsMe.notNow", defaultValue: "Not Now", bundle: .localizedModule) }
+    static var turnOff: String { String(localized: "agentPane.actAsMe.turnOff", defaultValue: "Turn Off", bundle: .localizedModule) }
     static var badge: String {
-        String(localized: "agentPane.actAsMe.badge", defaultValue: "Computer use can act as you", bundle: .module)
+        String(localized: "agentPane.actAsMe.badge", defaultValue: "Computer use can act as you", bundle: .localizedModule)
     }
     static var badgeManaged: String {
-        String(localized: "agentPane.actAsMe.badgeManaged", defaultValue: "Computer use can act as you (managed)", bundle: .module)
+        String(localized: "agentPane.actAsMe.badgeManaged", defaultValue: "Computer use can act as you (managed)", bundle: .localizedModule)
     }
 }

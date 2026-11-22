@@ -10,6 +10,7 @@ import {
   SNAPSHOT_SHOWN_GLOBAL,
   type SnapshotLive,
 } from "./shared";
+import { watchLaunchSettle } from "../launchSettle";
 
 type Shown = { at: number; swappedAt?: number };
 
@@ -86,10 +87,13 @@ export function swapChatSnapshot(): void {
   requestAnimationFrame(() => removeChatSnapshot());
 }
 
-/// How long the live page may take to draw the chat before the copy goes anyway: the page's own
-/// bound for its first paint (App.tsx CHAT_DRAW_HOLD_MS), so a page that never draws one never
-/// keeps an old frame up.
-const SNAPSHOT_HOLD_MS = 10_000;
+/// How long the live page may take to draw the chat before the copy goes anyway, so a page that
+/// never draws one never keeps an old frame up. Past the page's own bounds for its first paint: a
+/// quiet failed handshake is said after hostRetry.ts HOST_ERROR_DEADLINE_MS (25 s, while acpmux
+/// restarts after an update), and an attach is waited on for App.tsx CHAT_DRAW_HOLD_MS (10 s)
+/// after the handshake. At 10 s the copy went while acpmux was still starting, and the pane went
+/// blank until the chat came (Leo, 2026-11-09: "flickered in and out").
+const SNAPSHOT_HOLD_MS = 40_000;
 
 /// Ends the drawn copy's input watch (``reportChatSnapshot``) while one runs.
 let stopCopyInput: (() => void) | undefined;
@@ -151,6 +155,8 @@ export function reportChatSnapshot(
   if (typeof window === "undefined") return;
   const shows = () => {
     void report("pane.painted", { drewKeptTail: true }).catch(() => undefined);
+    // The copy is the page's first paint: what moves from here is the launch's settle (launchSettle.ts).
+    watchLaunchSettle(report, SNAPSHOT_HOST_TAG);
     // A click or key while the copy shows ends the copy and does nothing else: the live page under
     // it is at opacity 0, so a press must never act on a control the person can't see (a permission
     // card's Allow, a shortcut). The press is consumed, with the rest of its gesture (its pointerup
@@ -243,8 +249,13 @@ export function watchChatSnapshot(
       Math.max(0, due),
     );
   };
+  // A change moves the armed timer to its new due time, so the page wakes once when it has been quiet, never to
+  // find it changed and arm again (that re-arm woke a chat at rest after a switch, bench/chat-switch.bench.ts
+  // idle_wakeups). One MutationObserver callback per batch of changes: a clear and a set, no wakeup.
   const observer = new view.MutationObserver(() => {
     changedAt = performance.now();
+    if (timer !== undefined) view.clearTimeout(timer);
+    timer = undefined;
     schedule();
   });
   observer.observe(root, { subtree: true, childList: true, characterData: true, attributes: true });

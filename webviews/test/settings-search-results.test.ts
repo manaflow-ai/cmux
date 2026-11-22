@@ -120,10 +120,13 @@ await requireBrowserLane("settings-search-results.test.ts", async () => {
                 return {
                   group: card.closest("[data-group]")?.getAttribute("data-group"),
                   shown: shown.length,
-                  firstTopRadius: style(shown[0]!).borderTopLeftRadius,
-                  lastBottomRadius: style(shown.at(-1)!).borderBottomLeftRadius,
+                  // The card is the rounded, outlined box (look.css); its rows are square inside it.
+                  cardRadius: style(card).borderTopLeftRadius,
+                  // A hairline sits on top of each shown row after the first, drawn as a background
+                  // line, so none sits over the first row or under the last.
+                  firstLine: shown.length > 0 && style(shown[0]!).backgroundImage !== "none",
                   lastDivider: style(shown.at(-1)!).boxShadow,
-                  innerDividers: shown.slice(0, -1).filter((row) => style(row).boxShadow === "none").length,
+                  missingLines: shown.slice(1).filter((row) => style(row).backgroundImage === "none").length,
                 };
               },
             ),
@@ -132,8 +135,8 @@ await requireBrowserLane("settings-search-results.test.ts", async () => {
           expect(cards.some((card) => card.shown > 1)).toBe(true);
           // The divider under the last shown row drew a second line under the card's rounded edge.
           expect(cards.filter((card) => card.lastDivider !== "none")).toEqual([]);
-          expect(cards.filter((card) => card.innerDividers > 0)).toEqual([]);
-          expect(cards.filter((card) => card.firstTopRadius === "0px" || card.lastBottomRadius === "0px")).toEqual([]);
+          expect(cards.filter((card) => card.firstLine || card.missingLines > 0)).toEqual([]);
+          expect(cards.filter((card) => card.cardRadius === "0px")).toEqual([]);
         } finally {
           await browser.close();
         }

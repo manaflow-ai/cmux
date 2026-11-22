@@ -37,13 +37,13 @@ final class SidebarCardTextButton: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    static var font: NSFont { Typography.system(size: Typography.caption.pointSize, weight: .medium) }
+    static var font: NSFont { Typography.cardButton }
     static var height: CGFloat { ceil(font.boundingRectForFont.height) + Metrics.space1 }
 
-    /// `title` drawn and `help` as the tooltip; VoiceOver reads `help` as the label (nil: the title).
+    /// `title` drawn; VoiceOver reads `help` as the label (nil: the title). No tooltip: the button shows its title
+    /// (a1315's cut 2).
     func configure(title: String, help: String?) {
         label.stringValue = title
-        themedToolTip = help
         setAccessibilityLabel(help ?? title)
         setAccessibilityHelp(nil)
         needsLayout = true
@@ -61,7 +61,7 @@ final class SidebarCardTextButton: NSView {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = Metrics.controlCornerRadius
+        layer?.cornerRadius = Metrics.buttonCornerRadius
         label.font = Self.font
         let h = ceil(label.intrinsicContentSize.height)
         label.frame = NSRect(x: Metrics.space1, y: (bounds.height - h) / 2, width: max(0, bounds.width - 2 * Metrics.space1), height: h)

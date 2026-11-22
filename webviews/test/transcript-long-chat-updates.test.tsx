@@ -8,6 +8,7 @@ import { gridMark, isLineRow, isStatusRow, type AcpmuxRow } from "../src/agent-s
 import { type TurnView, turnView, turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
 import { minimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
 import { transcriptGap } from "../src/agent-session/acpmux/transcriptGrid";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -76,12 +77,8 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 let at = 0;

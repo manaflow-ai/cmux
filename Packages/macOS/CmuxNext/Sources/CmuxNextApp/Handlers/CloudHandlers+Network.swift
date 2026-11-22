@@ -1,71 +1,41 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextDaemonService
 import CmuxNextRemote
 import CmuxNextWakeups
 
 extension CloudHandlers {
     static func bindNetworkActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
-        let cloud = context.services.cloud
+        let cloud = context.services.cloud, rules = CloudHandlerRules()
         bind("cloudTunnelAttach", registry, reason: reason) { invocation in
-            let networkID = try idArgument(invocation, CloudStrings.networkIDRequired)
-            runTracked("attach Cloud tunnel network", context) { try await cloud.api.attachTunnelNetwork(deviceFingerprint: cloud.installIDs.backend.loadNow(), networkID: networkID) }
+            let networkID = invocation["path"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) // none: the joined team
+            runTracked("attach Cloud tunnel network", context) { try await AcpmuxCloudTunnel(QuitAgents.environment(context.services), platformOrigin: cloud.configuration.relayAPIBaseURL(), fallback: CloudStrings.tunnelDaemonUnavailable).run(.attach, token: cloud.auth.tokens().access, networkID: networkID) }
         }
         bind("cloudTunnelDetach", registry, reason: reason) { invocation in
-            let networkID = try idArgument(invocation, CloudStrings.networkIDRequired)
-            runTracked("detach Cloud tunnel network", context) { try await cloud.api.detachTunnelNetwork(deviceFingerprint: cloud.installIDs.backend.loadNow(), networkID: networkID) }
+            let networkID = invocation["path"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) // none: the joined team
+            runTracked("detach Cloud tunnel network", context) { try await AcpmuxCloudTunnel(QuitAgents.environment(context.services), platformOrigin: cloud.configuration.relayAPIBaseURL(), fallback: CloudStrings.tunnelDaemonUnavailable).run(.detach, token: cloud.auth.tokens().access, networkID: networkID) }
         }
         bind("cloudTunnelRotateKey", registry, reason: reason) { invocation in
-            guard let key = invocation["publicKey"]?.stringValue else { throw ActionFailure(message: CloudStrings.tunnelKeyRequired) }
-            runTracked("rotate Cloud tunnel key", context) { _ = try await cloud.api.rotateTunnelKey(deviceFingerprint: cloud.installIDs.backend.loadNow(), publicKey: key) }
+            runTracked("rotate Cloud tunnel key", context) { try await AcpmuxCloudTunnel(QuitAgents.environment(context.services), platformOrigin: cloud.configuration.relayAPIBaseURL(), fallback: CloudStrings.tunnelDaemonUnavailable).run(.rekey, token: cloud.auth.tokens().access) }
         }
         bind("cloudNetworkList", registry, reason: reason) { invocation in
             answer("list Cloud networks", invocation, context) {
-                let networks = try await cloud.api.listNetworks()
-                let lines = networks.map { network in [network.id, "(\(network.scope))", network.cidr ?? ""].joined(separator: " ") }
-                return CloudAnswer(title: CloudStrings.networkTitle, text: lines.joined(separator: "\n"), fields: ["count": .int(networks.count)])
+                let networks = try await cloud.machineAPI.listNetworks()
+                let items: [[String: Any]] = networks.map { ["id": $0.id, "scope": $0.scope, "cidr": $0.cidr as Any].compacted }
+                return cloudAnswer(CloudStrings.networkTitle, rules.answer(["kind": "networks", "items": items]))
             }
         }
-        bind("cloudFirewallList", registry, reason: reason) { invocation in
-            answer("list Cloud firewall rules", invocation, context) {
-                let rules = try await cloud.api.listFirewallRules()
-                return CloudAnswer(title: CloudStrings.firewallTitle, text: rules.map { "\($0.id): \($0.description ?? $0.action)" }.joined(separator: "\n"),
-                                   fields: ["count": .int(rules.count)])
-            }
-        }
-        bind("cloudFirewallGet", registry, reason: reason) { invocation in
-            let ruleID = try idArgument(invocation, CloudStrings.ruleIDRequired)
-            answer("get Cloud firewall rule", invocation, context) {
-                let rule = try await cloud.api.getFirewallRule(ruleID)
-                return CloudAnswer(title: CloudStrings.firewallTitle, text: "\(rule.id): \(rule.description ?? rule.action)",
-                                   fields: ["id": .string(rule.id), "action": .string(rule.action)])
-            }
-        }
-        bind("cloudFirewallDelete", registry, reason: reason) { invocation in
-            let ruleID = try idArgument(invocation, CloudStrings.ruleIDRequired)
-            runTracked("delete Cloud firewall rule", context) { try await cloud.api.deleteFirewallRule(ruleID) }
-        }
-        bind("cloudFirewallCreate", registry, reason: reason) { invocation in
-            guard let json = invocation["path"]?.stringValue, let data = json.data(using: .utf8),
-                  let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let sourceData = try? JSONSerialization.data(withJSONObject: value["source"] ?? [:]),
-                  let destinationData = try? JSONSerialization.data(withJSONObject: value["destination"] ?? [:]),
-                  let source = try? JSONDecoder().decode(CloudFirewallEndpoint.self, from: sourceData),
-                  let destination = try? JSONDecoder().decode(CloudFirewallEndpoint.self, from: destinationData) else {
-                throw ActionFailure(message: CloudStrings.ruleJSONRequired)
-            }
-            runTracked("create Cloud firewall rule", context) { _ = try await cloud.api.createFirewallRule(source: source, destination: destination, description: value["description"] as? String) }
+        // The firewall actions called classic cmux.com's /api/vm/firewall, deleted from NEXT; cmux-platform
+        // serves no firewall rules yet, so each is unavailable and says so at once.
+        let notYet: @MainActor () -> String? = { CloudStrings.firewallNotOnThisCloudYet }
+        for id: ActionID in ["cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete"] {
+            bind(id, registry, reason: notYet) { _ in throw ActionFailure(message: CloudStrings.firewallNotOnThisCloudYet) }
         }
         bind("cloudSetNetworkAccess", registry, reason: reason) { invocation in
             try CloudNetworkAccessActions.set(invocation, context)
         }
-    }
-
-    /// The network or rule id these actions take in `--path`; `missing`
-    /// names which id and where to find one (not the file-path refusal).
-    static func idArgument(_ invocation: ActionInvocation, _ missing: String) throws -> String {
-        guard let value = invocation["path"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { throw ActionFailure(message: missing) }
-        return value
     }
 }

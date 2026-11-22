@@ -3,6 +3,8 @@
 // conversation owner plus the Cloud owners) into these shapes. The page keeps a window of it as
 // view state; it is never a second store. Times are milliseconds since 1970.
 
+import type { EndpointBackend } from "../shared/byoEndpoint";
+
 /** The owner's parts per message (cmux-conversation and home-core `MAX_PARTS`): a protocol bound on
  * one message, never on a send. A send with more files goes as several messages
  * (`messageGroups`), so any number of files attaches. cap-allow: route */
@@ -171,7 +173,8 @@ export interface HomeChiefBackend {
  * The key goes to the Keychain through the host; the page never keeps it after submit. */
 export type HomeChiefByoBackend =
   | { kind: "command"; name: string; command: string; args: string[] }
-  | { kind: "anthropic-endpoint" | "openai-endpoint"; name: string; baseUrl: string; model: string; apiKey: string };
+  /** `id` and `replace` (the form's own earlier add, written again): shared/byoEndpoint.ts. */
+  | EndpointBackend;
 
 /** `_acpmux/harness/doctor {id, prompt: true}`: each step, the first failing one with its fix. */
 export interface HomeChiefDoctor {
@@ -359,6 +362,9 @@ export interface HomeInbox {
   /** The owner keeps my pins and marks (conversation-inbox-state-v1): the page offers Pin and
    * Mark as Unread only then. */
   inboxState?: boolean;
+  /** Why the Cloud inbox read failed (absent: it answered, or there is no Cloud). The Cloud rows are
+   * the last good list; the page says so and reads again. Never a sign-out. */
+  cloudError?: string;
 }
 
 /** `cmux.home.pin`: pin or unpin a conversation in my list (pinned last, by pin time). */

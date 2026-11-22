@@ -38,7 +38,7 @@ extension LiveCoordinator {
                 do {
                     // One row: the probe reads no list, and a whole one (25 MB on a busy Mac)
                     // never came within the timeout.
-                    _ = try await session.acpmux.request("_acpmux/watch", .object(["enabled": .bool(true), "limit": .number(1)]), timeout: .seconds(5))
+                    _ = try await session.acpmux.requestOnce("_acpmux/watch", .object(["enabled": .bool(true), "limit": .number(1)]), timeout: .seconds(5))
                     return
                 } catch is CancellationError {
                     return
@@ -48,28 +48,43 @@ extension LiveCoordinator {
                 _ = await session.acpmux.waitUntilReady(timeout: .seconds(20), clock: clock)
                 return
             }
-            do {
-                try Task.checkCancellation()
-                let link = try await pairedLink(session)
-                let channel = try await link.openChannel(service: "acpmux", args: [:])
-                guard !Task.isCancelled, session.currentLink === link,
-                      sessions[macID] === session else {
-                    await channel.close(code: "eof", reason: "recovery cancelled or link replaced")
-                    return
-                }
-                await session.acpmux.bind(channel)
-                guard session.currentLink === link, !Task.isCancelled else { return }
-                session.chatsError = session.acpmux.isReady ? nil : session.acpmux.lastError
-                if session.acpmux.isReady { feedStore.syncState = .live }
-                phaseChanged(session)
-            } catch is CancellationError {
-            } catch {
-                session.chatsError = LinkController.reason(error)
-            }
+            await rebindAcpmux(session)
         } else {
             retry(macID: macID)
             guard let session = sessions[macID] else { return }
             _ = await session.acpmux.waitUntilReady(timeout: .seconds(20), clock: clock)
+        }
+    }
+
+    /// A read on this Mac's acpmux channel stalled or lost the channel while the link stayed up
+    /// (`AcpmuxHub+Steady.swift`): open a fresh channel on the same link and bind it, as the
+    /// Feed's Retry does, without asking the person. A link that is down reconnects on its own
+    /// and binds the next channel then.
+    func recoverAcpmuxChannel(macID: String) async {
+        guard canLink(macID: macID), let session = sessions[macID],
+              session.link.phase.isConnected, session.servedLink != nil else { return }
+        await rebindAcpmux(session)
+    }
+
+    private func rebindAcpmux(_ session: MacSession) async {
+        let macID = session.macID
+        do {
+            try Task.checkCancellation()
+            let link = try await pairedLink(session)
+            let channel = try await link.openChannel(service: "acpmux", args: AcpmuxConnection.channelArgs)
+            guard !Task.isCancelled, session.currentLink === link,
+                  sessions[macID] === session else {
+                await channel.close(code: "eof", reason: "recovery cancelled or link replaced")
+                return
+            }
+            await session.acpmux.bind(channel)
+            guard session.currentLink === link, !Task.isCancelled else { return }
+            session.chatsError = session.acpmux.isReady ? nil : session.acpmux.lastError
+            if session.acpmux.isReady { feedStore.syncState = .live }
+            phaseChanged(session)
+        } catch is CancellationError {
+        } catch {
+            session.chatsError = LinkController.reason(error)
         }
     }
 }

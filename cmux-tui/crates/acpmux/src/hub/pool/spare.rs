@@ -95,9 +95,9 @@ fn write_file(path: &Path, spares: Vec<Remembered>) -> std::io::Result<()> {
     let bytes = serde_json::to_vec(&SpareFile { spares }).map_err(std::io::Error::other)?;
     let n = SEQ.fetch_add(1, Ordering::Relaxed);
     let tmp = path.with_extension(format!("json.{}.{n}.tmp", std::process::id()));
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, path).inspect_err(|_| {
-        let _ = std::fs::remove_file(&tmp);
+    crate::home_fs::write(&tmp, bytes)?;
+    crate::home_fs::rename(&tmp, path).inspect_err(|_| {
+        let _ = crate::home_fs::remove_file(&tmp);
     })
 }
 
@@ -157,7 +157,10 @@ impl Hub {
     /// Want the spare for this shape (its start runs in the background).
     async fn spare_want(self: &Arc<Self>, r: Remembered) {
         let Remembered { harness, preset, cwd, model, .. } = r;
-        match self.pool_spec_in(Some(harness.clone()), preset, cwd, Some(model)).await {
+        match self
+            .pool_spec_in(Some(harness.clone()), preset, cwd, Some(model), &PrewarmShape::default())
+            .await
+        {
             Ok(spec) => self.pool_want(Role::Spare, spec).await,
             Err(e) => tracing::debug!(%harness, "no spare: {}", e.message),
         }

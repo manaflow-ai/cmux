@@ -22,8 +22,8 @@ use super::*;
 
 use crate::harness_health::Auth;
 use crate::protocol::auth::{
-    SessionAuthLogin, SessionAuthLoginKind as LoginKind, SessionAuthResult,
-    SessionAuthSource as Source, SessionAuthState as State, SessionAuthTarget,
+    SessionAuthCredential as Credential, SessionAuthLogin, SessionAuthLoginKind as LoginKind,
+    SessionAuthResult, SessionAuthSource as Source, SessionAuthState as State, SessionAuthTarget,
 };
 use crate::{route_account, routes};
 use std::collections::BTreeMap;
@@ -39,6 +39,34 @@ pub(crate) struct TurnEvidence {
     pub state: State,
     pub at: u64,
     pub detail: String,
+    /// Whose credential refused the turn, by its error ([`credential_of`]); none for a turn
+    /// that completed.
+    pub credential: Option<Credential>,
+}
+
+/// Whose credential a sign-in failure's text is about: a provider's API key when it names one
+/// and sends no one to a login (`recovery::says_api_key`), else the agent's own login.
+pub(crate) fn credential_of(text: &str) -> Credential {
+    if crate::recovery::says_api_key(text) { Credential::ApiKey } else { Credential::Login }
+}
+
+/// The provider a chat's model names (`opencode-go` in `opencode-go/deepseek-v4.1-flash`), else
+/// the one its agent's family takes its key from.
+pub(crate) fn provider_of(model: Option<&str>, family: &str) -> Option<String> {
+    if let Some((provider, _)) = model.and_then(|m| m.split_once('/'))
+        && !provider.is_empty()
+    {
+        return Some(provider.to_owned());
+    }
+    let implied = match family {
+        "claude" => "anthropic",
+        "codex" => "openai",
+        "gemini" => "google",
+        "grok" => "xai",
+        "deepseek" => "deepseek",
+        _ => return None,
+    };
+    Some(implied.to_owned())
 }
 
 /// What a chat's `lastTurn` says of its sign-in: `ready` when it completed, `signedOut` or
@@ -60,11 +88,11 @@ pub(crate) fn turn_evidence(last: &Value) -> Option<TurnEvidence> {
         }
         _ => return None,
     };
-    let detail = match state {
-        State::Ready => "its last turn completed".to_owned(),
-        _ => format!("its last turn failed: {text}"),
+    let (detail, credential) = match state {
+        State::Ready => ("its last turn completed".to_owned(), None),
+        _ => (format!("its last turn failed: {text}"), Some(credential_of(text))),
     };
-    Some(TurnEvidence { state, at, detail })
+    Some(TurnEvidence { state, at, detail, credential })
 }
 
 fn session_evidence(meta: &SessionMeta) -> Option<TurnEvidence> {
@@ -77,6 +105,7 @@ fn session_evidence(meta: &SessionMeta) -> Option<TurnEvidence> {
             state: State::Unknown,
             at: change.at,
             detail: "credentials changed; the next turn will check the new sign-in".into(),
+            credential: None,
         });
     }
     last.and_then(turn_evidence)
@@ -110,6 +139,14 @@ fn credential_file_changed(
 }
 
 fn account_home(family: &str, env: &BTreeMap<String, String>) -> Option<PathBuf> {
+    if let Some(agent) = signs_in_by_store(family) {
+        // Where `agent_login` signs it in: `agent_login::Cli::store` over the same env.
+        let cli = crate::agent_login::Cli {
+            env: crate::login_env::effective_for(Some(family), env),
+            ..Default::default()
+        };
+        return Some(cli.store(agent));
+    }
     let var = route_account::home_var(family)?;
     let effective = crate::login_env::effective_for(Some(family), env);
     effective.get(var).filter(|v| !v.is_empty()).map(PathBuf::from).or_else(|| {
@@ -119,6 +156,14 @@ fn account_home(family: &str, env: &BTreeMap<String, String>) -> Option<PathBuf>
             .or_else(dirs::home_dir)
             .map(|p| p.join(format!(".{family}")))
     })
+}
+
+/// An `agent_login` agent whose account is its store alone (no route account home): Gemini
+/// (`$GEMINI_CLI_HOME/.gemini`), Grok (`$GROK_HOME`) and Cursor (`$XDG_CONFIG_HOME/cursor`). A
+/// sign-in there supersedes the account's old failures, as for Claude and Codex.
+fn signs_in_by_store(family: &str) -> Option<crate::agent_login::Agent> {
+    use crate::agent_login::Agent;
+    Agent::parse(family).filter(|a| matches!(a, Agent::Gemini | Agent::Grok | Agent::Cursor))
 }
 
 fn mark_credentials_changed(meta: &mut SessionMeta, at: u64) {
@@ -143,6 +188,11 @@ pub(crate) struct Facts {
     pub check: Option<(u64, Result<(Auth, String), String>)>,
     /// The harness's login command, for `login`.
     pub login: Option<String>,
+    /// The kind of the route the chat is bound to: a refusal on the cmux model router is the
+    /// person's cmux account, one on an API-key route that key.
+    pub route_kind: Option<routes::RouteKind>,
+    /// The provider the chat's model is served by ([`provider_of`]), named with an API key.
+    pub provider: Option<String>,
 }
 
 impl Facts {
@@ -163,8 +213,25 @@ impl Facts {
     /// The answer: the first evidence that says something, else `unknown`; its `detail` one
     /// sentence ([`one_sentence`]).
     pub(crate) fn decide(self) -> SessionAuthResult {
+        let route_kind = self.route_kind;
+        let provider = self.provider.clone();
         let mut out = self.answer();
         out.detail = one_sentence(&out.detail);
+        if matches!(out.state, State::SignedOut | State::Expired | State::RouteAuthNeeded) {
+            // The route's kind names the party before the error's words do: a 401 on the cmux
+            // model router is the cmux account whatever the agent printed.
+            out.credential = match route_kind {
+                Some(routes::RouteKind::CmuxRouter) => Some(Credential::Cmux),
+                Some(routes::RouteKind::DirectApiKey) => Some(Credential::ApiKey),
+                _ if out.state == State::RouteAuthNeeded => None,
+                _ => out.credential.or(Some(Credential::Login)),
+            };
+        } else {
+            out.credential = None;
+        }
+        if out.credential == Some(Credential::ApiKey) {
+            out.provider = provider;
+        }
         out
     }
 
@@ -180,6 +247,8 @@ impl Facts {
             route_id: route.clone(),
             login: None,
             from_session_id: None,
+            credential: None,
+            provider: None,
         };
         let terminal = |command: &Option<String>| SessionAuthLogin {
             kind: LoginKind::Terminal,
@@ -217,6 +286,7 @@ impl Facts {
             out.evidence_at = (turn.state != State::Unknown).then_some(turn.at);
             out.detail = turn.detail;
             out.from_session_id = (turn.state != State::Unknown).then_some(from);
+            out.credential = turn.credential;
             if matches!(turn.state, State::SignedOut | State::Expired) {
                 out.login = Some(terminal(&self.login));
             }
@@ -234,6 +304,7 @@ impl Facts {
                 };
                 out.source = Source::AuthCheck;
                 out.evidence_at = Some(at);
+                out.credential = Some(credential_of(&detail));
                 out.detail = detail;
                 if matches!(out.state, State::SignedOut | State::Expired) {
                     out.login = Some(terminal(&self.login));
@@ -329,7 +400,7 @@ impl Hub {
         home: &Path,
         route: Option<&str>,
     ) -> Result<(), RpcError> {
-        if route_account::home_var(family).is_none() {
+        if route_account::home_var(family).is_none() && signs_in_by_store(family).is_none() {
             return Ok(());
         }
         for session in self.sessions() {
@@ -442,6 +513,7 @@ impl Hub {
                     .or_else(|| crate::harness_health::builtin_login(&family).map(str::to_owned)),
                 var.zip(home.as_deref()),
             ),
+            route_kind: route.as_ref().map(|(r, _)| r.file.kind),
             ..Facts::default()
         };
         // Only a probe of the endpoint this harness uses says anything of it.
@@ -520,10 +592,20 @@ impl Hub {
                         detail:
                             "the credential file changed; the next turn will check the new sign-in"
                                 .into(),
+                        credential: None,
                     };
                 }
             }
         }
+        // The provider of the model the evidence ran: the failed chat's, else this one's.
+        let evidence_meta = facts
+            .turn
+            .as_ref()
+            .and_then(|(id, _)| self.resolve(id).ok())
+            .map(|s| s.meta())
+            .or_else(|| meta.clone());
+        let model = evidence_meta.as_ref().and_then(super::current_model);
+        facts.provider = provider_of(model.as_deref(), &family);
         // A provider route does not use the CLI's own subscription login. Its probe/turn
         // evidence answers for it; a local file token expiring cannot block that route.
         if !facts.settled()
@@ -735,6 +817,8 @@ mod tests {
             turn: last.as_ref().and_then(turn_evidence).map(|t| ("chat-1".into(), t)),
             check: check.map(|c| (9, c.map(|a| (a, "`check` ran".into())).map_err(str::to_owned))),
             login: Some("claude auth login".into()),
+            route_kind: None,
+            provider: Some("anthropic".into()),
         }
     }
 
@@ -873,6 +957,77 @@ mod tests {
         assert_eq!(one_sentence("use v2.1 i.e. the new one"), "use v2.1 i.e. the new one");
         let long = one_sentence(&"word ".repeat(100));
         assert!(long.chars().count() <= DETAIL_CHARS && long.ends_with('…'), "{long}");
+    }
+
+    /// Each refusal names whose credential it is (user, Nov 19: "hard to tell if cmux is signed
+    /// out or the model provider is signed out"): an OpenCode Go key the provider expired is that
+    /// provider's API key, never a login; Claude's expired OAuth is its login; a 401 on the cmux
+    /// model router is the cmux account.
+    #[test]
+    fn a_refusal_names_whose_credential_it_is() {
+        let opencode = "Internal error: This API key has expired. Create a new API key in OpenCode \
+                        Console and replace it in your client or secret store. Signing in again \
+                        will not renew this key.";
+        let mut f = facts(None, Some(turn("failed", Some("auth.expired"), opencode, 7)), None);
+        f.harness = "opencode".into();
+        f.provider = provider_of(Some("opencode-go/deepseek-v4.1-flash"), "opencode");
+        let out = f.decide();
+        assert_eq!(out.state, State::Expired);
+        assert_eq!(out.credential, Some(Credential::ApiKey), "{out:?}");
+        assert_eq!(out.provider.as_deref(), Some("opencode-go"));
+
+        let raw = "Internal error: turn failed: 401: {\"type\":\"authentication_error\",\"code\":\"api_key_expired\"}";
+        assert_eq!(credential_of(raw), Credential::ApiKey);
+        assert_eq!(credential_of("Invalid API key · Fix external API key"), Credential::ApiKey);
+        // Claude Code's own sign-in, though its words name a key: /login renews it.
+        assert_eq!(credential_of("Invalid API key · Please run /login"), Credential::Login);
+
+        let out = facts(
+            None,
+            Some(turn("failed", Some("auth.expired"), "API Error: 401 OAuth token has expired", 7)),
+            None,
+        )
+        .decide();
+        assert_eq!(
+            (out.credential, out.provider.as_deref()),
+            (Some(Credential::Login), None),
+            "{out:?}"
+        );
+
+        let mut cmux = facts(Some("auth_needed"), None, None);
+        cmux.route_kind = Some(routes::RouteKind::CmuxRouter);
+        assert_eq!(cmux.decide().credential, Some(Credential::Cmux));
+        let mut cmux = facts(None, Some(turn("failed", Some("auth.expired"), opencode, 7)), None);
+        cmux.route_kind = Some(routes::RouteKind::CmuxRouter);
+        let out = cmux.decide();
+        assert_eq!(
+            (out.credential, out.provider.as_deref()),
+            (Some(Credential::Cmux), None),
+            "{out:?}"
+        );
+        // Another route's refusal is that route's, by its id.
+        let out = facts(Some("auth_needed"), None, None).decide();
+        assert_eq!((out.credential, out.route_id.as_deref()), (None, Some("proxy")));
+        // A ready chat names no party.
+        assert_eq!(
+            facts(None, Some(turn("completed", None, "", 7)), None).decide().credential,
+            None
+        );
+    }
+
+    #[test]
+    fn a_provider_comes_from_the_model_else_the_family() {
+        assert_eq!(
+            provider_of(Some("opencode-go/deepseek-v4.1-flash"), "opencode").as_deref(),
+            Some("opencode-go")
+        );
+        assert_eq!(
+            provider_of(Some("openrouter/deepseek/deepseek-v4"), "pi").as_deref(),
+            Some("openrouter")
+        );
+        assert_eq!(provider_of(Some("claude-opus-5-5"), "claude").as_deref(), Some("anthropic"));
+        assert_eq!(provider_of(None, "codex").as_deref(), Some("openai"));
+        assert_eq!(provider_of(Some("big-pickle"), "opencode"), None);
     }
 
     /// A rate-limited or unknown probe says nothing of the sign-in: the turn answers.

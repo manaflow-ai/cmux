@@ -24,6 +24,7 @@ import {
 import type { AcpmuxActivity, AcpmuxSnapshot } from "../model";
 import { SUBAGENTS } from "../subagents/subagentFold";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
+import { backgroundTurnLook } from "./backgroundTurnLook.experiment";
 import { incomingPrompt } from "./incomingMessage";
 import { inboxText } from "./inboxNotice";
 
@@ -518,5 +519,10 @@ export default agentPaneEntry({
       note: "A reply's footer, a lane on another machine's message, then \"Ran 2 commands, received a message\": one line height, one icon column, the sender once.",
       snapshot: peerLines(),
     },
+  },
+  // Compare arms: the turn's calls inline (default, Leo 2026-11-11) and the line look these variants first drew.
+  experiment: {
+    definition: backgroundTurnLook,
+    script: [{ name: "hover the first row", run: async (ctx) => ctx.hover({ selector: ".cv-tool" }) }],
   },
 });

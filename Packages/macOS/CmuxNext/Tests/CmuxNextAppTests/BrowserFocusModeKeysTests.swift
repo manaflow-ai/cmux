@@ -31,6 +31,7 @@ import Testing
         Key(name: "Cmd-T", characters: "t", keyCode: 17),
         Key(name: "Cmd-W", characters: "w", keyCode: 13),
         Key(name: "Cmd-D", characters: "d", keyCode: 2),
+        Key(name: "Cmd-B", characters: "b", keyCode: 11),
     ] + zip(1...9, [18, 19, 20, 21, 23, 22, 26, 28, 25] as [UInt16]).map { Key(name: "Cmd-\($0)", characters: "\($0)", keyCode: $1) }
 
     static func event(_ key: Key) throws -> NSEvent {
@@ -77,6 +78,19 @@ import Testing
         let key = Key(name: "Opt-Cmd-Return", characters: "\r", keyCode: 36, modifiers: [.command, .option])
         guard case .run(let candidate) = try Self.decision(key, focusMode: true) else {
             Issue.record("Opt-Cmd-Return did not run in focus mode")
+            return
+        }
+        #expect(candidate.id == "toggleBrowserFocusMode")
+    }
+
+    /// The Enter key (keypad Enter, fn-Return on a laptop) is Return for a shortcut, as in Chrome and
+    /// the menus' Return: Opt-Cmd-Enter enters and leaves focus mode (Lawrence 2026-11-16: "cmd option
+    /// enter / browser focus mode sometimes doesn't work"). AppKit reports it as U+0003 with the
+    /// numeric pad flag, which matched no binding, so the page got the key and nothing toggled.
+    @Test(arguments: [false, true]) func theEnterKeyTogglesLikeReturn(_ focusMode: Bool) throws {
+        let key = Key(name: "Opt-Cmd-Enter", characters: "\u{3}", keyCode: 76, modifiers: [.command, .option, .numericPad])
+        guard case .run(let candidate) = try Self.decision(key, focusMode: focusMode) else {
+            Issue.record("Opt-Cmd-Enter did not run (focus mode \(focusMode))")
             return
         }
         #expect(candidate.id == "toggleBrowserFocusMode")

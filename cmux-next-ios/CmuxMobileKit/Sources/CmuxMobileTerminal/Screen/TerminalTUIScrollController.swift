@@ -19,6 +19,8 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
     var selectionOwns: (UITouch?) -> Bool = { _ in false }
     /// A drag began scrolling the app (its content moves under any selection).
     var dragBegan: () -> Void = {}
+    /// DEBUG: a wheel report went to the surface (cmux#48951's round trip).
+    var wheelSent: () -> Void = {}
 
     private weak var surface: TerminalSurfaceView?
     private(set) var pan: UIPanGestureRecognizer?
@@ -30,16 +32,31 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
     private weak var flingStopTouch: UITouch?
     private var link: CADisplayLink?
     private var lastStep: CFTimeInterval = 0
+    /// Whether the host's tap is the app's click (``TerminalTUITapClick``).
+    private var tapClick = TerminalTUITapClick()
+    private weak var tap: UITapGestureRecognizer?
+    /// Where and when the tap's finger landed (host points, the touch clock).
+    private var tapDown: (at: CGPoint, time: TimeInterval)?
 
     /// `tap`: the host's tap, which a touch that stops a fling does not reach.
     func install(in host: UIView, surface: TerminalSurfaceView, tap: UITapGestureRecognizer) {
         self.surface = surface
+        self.tap = tap
         tap.delegate = self
         let pan = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
         pan.maximumNumberOfTouches = 1
         pan.delegate = self
         host.addGestureRecognizer(pan)
+        // A touch that becomes a drag is never also a tap.
+        tap.require(toFail: pan)
         self.pan = pan
+    }
+
+    /// What the host's tap, recognized at `location` (host points), does.
+    func tapVerdict(at location: CGPoint) -> TerminalTUITapClick.Verdict {
+        guard let tapDown else { return .focusOnly }
+        let moved = hypot(location.x - tapDown.at.x, location.y - tapDown.at.y)
+        return tapClick.verdict(downAt: tapDown.time, upAt: CACurrentMediaTime(), moved: moved)
     }
 
     @objc private func panned(_ pan: UIPanGestureRecognizer) {
@@ -71,6 +88,8 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
     private func send(_ wheel: TerminalTUIScroll.Wheel?) {
         guard let wheel, let surface, isEnabled() else { return }
         surface.scrollWheel(at: anchor, deltaY: wheel.dy, momentum: wheel.momentum)
+        tapClick.scrolled(at: CACurrentMediaTime())
+        wheelSent()
     }
 
     private func startMomentum(_ fling: TerminalTUIMomentum) {
@@ -90,6 +109,16 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
         momentum = fling
         send(wheel)
         if fling.isFinished { endLink() }
+    }
+
+    /// DEBUG demo: a fling of `velocityY` (points per second, positive
+    /// scrolls toward older content) from the surface's middle, through the
+    /// same momentum and wheel path as a finger's.
+    func demoFling(velocityY: CGFloat) {
+        guard let surface, isEnabled(), let fling = TerminalTUIMomentum(velocityY: velocityY) else { return }
+        stopMomentum()
+        anchor = CGPoint(x: surface.bounds.midX, y: surface.bounds.midY)
+        startMomentum(fling)
     }
 
     /// A touch, a new drag or leaving the app stops a fling (its end goes out once).
@@ -118,7 +147,12 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
             stopMomentum()
             flingStopTouch = touch
         }
-        guard gestureRecognizer === pan else { return touch !== flingStopTouch }
+        guard gestureRecognizer === pan else {
+            if gestureRecognizer === tap, let view = gestureRecognizer.view {
+                tapDown = (touch.location(in: view), touch.timestamp)
+            }
+            return touch !== flingStopTouch
+        }
         return isEnabled() && !selectionOwns(touch)
     }
 

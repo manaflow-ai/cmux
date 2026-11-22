@@ -14,12 +14,21 @@
   /* A highlighted menu, combobox or list row (desktop.css): hover's family, a touch stronger. */
   --ui-row: var(--cmux-row-focus, color-mix(in srgb, var(--ui-fg) 10%, transparent));
   --ui-row-bar: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
+  --ui-row-pressed: var(--cmux-pressed, color-mix(in srgb, var(--ui-fg) 12%, transparent));
   --ui-surface: var(--cmux-elevated-background, Canvas);
   --ui-ring: var(--cmux-focus-ring-color, color-mix(in srgb, var(--cmux-app-focus-ring, var(--ui-fg)) 48%, transparent));
   --ui-font: var(--font-ui);
   font-family: var(--ui-font);
   -webkit-user-select: none;
   user-select: none;
+}
+/* A menu's highlighted row is the native menu's (GlassMenu's rows, PopupRowView): the theme's hover
+   fill, and its pressed fill while pressed (popupSurface.css), not the stronger list-row wash, so a web
+   menu over the App's glass is the native one to the pixel (the Liquid Glass Parity playground's hover
+   and pressed cells). A host that maps --ui-row itself (the agent pane's accent wash) does not load
+   this file. */
+:where(.ui-popup.ui-menu, .ui-popup.ui-context-menu) {
+  --ui-row: var(--cmux-hover, color-mix(in srgb, var(--ui-fg) 5%, transparent));
 }
 /* The chrome around the controls keeps the arrow. A button (.ui-button) and a drill row (role
    option) are not in this list: a rule here comes after the shared pointing-hand rule and would
@@ -78,23 +87,12 @@
   overflow: visible;
 }
 
-/* A select's options never run past the room on its side: a long list scrolls inside. */
-.ui-menu.ui-select-popup {
-  max-height: min(420px, var(--available-height, 420px));
-  overflow-y: auto;
-}
-
 /* A select's menu hugs its rows and lines up with its trigger (Leo 2026-10-30, on Settings > Updates'
    Update Channel menu: "look for wastage"; leo-workspace design/settings.md and design/menus.md): it
    is a field's drop-down (Select.tsx: matchTrigger, popupSurface.css .ui-menu-match-trigger), and its
    rows are every menu's grid (popupSurface.css, "EVERY MENU ON ONE GRID"). */
-/* Its glass frosts what is under it (a slider, a number field) instead of letting it read through:
-   the menu tint and blur (desktop.css --ds-glass-menu-*), never opaque. Reduce Transparency still
-   makes it the solid popup surface (glass.css, !important). The lens keeps its own clearer glass. */
-.ui-popup.ui-glass.ui-select-popup {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-tint), transparent);
-  --glass-backdrop: var(--ds-glass-menu-blur);
-}
+/* Its glass is every popup's (ui/glass/glass.css GLASS LEVELS: the menu level), and its options
+   scroll inside (popupSurface.css), in the agent pane too. */
 
 /* Large pickers own scrolling in their two columns; the surface itself must stay fixed so opening
    or filtering a list never changes the composer's geometry. */
@@ -125,10 +123,13 @@
   background: var(--ui-row);
   box-shadow: var(--ui-row-bar);
 }
+.ui-menu-item[data-highlighted]:is(:active, [data-pressed]) {
+  background: var(--ui-row-pressed);
+}
 
 .ui-menu-item[data-disabled],
 .ui-menu-item:disabled {
-  opacity: 0.45;
+  opacity: var(--ds-disabled-opacity, 0.6);
 }
 
 .ui-menu-item-destructive {
@@ -299,7 +300,7 @@
   min-width: 24px;
   height: 24px;
   padding: 0 6px;
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
 }
 
 .ui-toolbar-button:hover:not([data-disabled]) {
@@ -312,7 +313,7 @@
 }
 
 .ui-toolbar-button[data-disabled] {
-  opacity: 0.4;
+  opacity: var(--ds-disabled-opacity, 0.6);
 }
 
 .ui-sheet {

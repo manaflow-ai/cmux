@@ -173,6 +173,17 @@ impl Translator {
                         let d = ev.get("delta").cloned().unwrap_or(Value::Null);
                         match d.get("type").and_then(Value::as_str) {
                             Some("text_delta") => {
+                                // Claude Code emits the chat's text as stream events (rather than
+                                // a whole `assistant` line). Mark real streamed output before the
+                                // result arrives, so a text-only turn whose result reports zero
+                                // API turns is not mistaken for resumed-process startup noise.
+                                if parent.is_none()
+                                    && d.get("text")
+                                        .and_then(Value::as_str)
+                                        .is_some_and(|text| !text.is_empty())
+                                {
+                                    self.turn_output.store(true, Ordering::SeqCst);
+                                }
                                 if let Some(p) = parent {
                                     self.streamed_subagents.lock().await.insert(p.to_owned());
                                 }
@@ -301,6 +312,9 @@ impl Translator {
                                 asked: false,
                                 announced: false,
                                 output: None,
+                                workflow_owned: false,
+                                workflow_agent: None,
+                                owner_tries: 0,
                             };
                             self.background_shells.lock().await.insert(id.to_owned(), shell);
                         }
@@ -329,6 +343,17 @@ impl Translator {
                     }
                 }
             }
+            // Claude Code's queue of the lines it was given: the turn's prompt waits behind a
+            // turn of Claude Code's own (`queued`) until it starts. Only the prompt's own uuid
+            // counts; a steered line's never holds a result.
+            "command_lifecycle" => {
+                let command = line.get("command_uuid").and_then(Value::as_str).unwrap_or("");
+                let prompt = self.prompt_echo.lock().await;
+                if !command.is_empty() && prompt.as_deref() == Some(command) {
+                    let state = line.get("state").and_then(Value::as_str).unwrap_or("");
+                    self.prompt_queued.store(state == "queued", Ordering::SeqCst);
+                }
+            }
             // Claude Code's echo of a user line it read (`--replay-user-messages`):
             // first the turn's prompt, then each steered line in order.
             // Matched by the line's uuid; an echo of anything else is ignored.
@@ -337,6 +362,7 @@ impl Translator {
                 let mut prompt = self.prompt_echo.lock().await;
                 if !uuid.is_empty() && prompt.as_deref() == Some(uuid) {
                     *prompt = None;
+                    self.prompt_queued.store(false, Ordering::SeqCst);
                     // What follows is this prompt's output, not a stopped turn's tail.
                     self.turn_output.store(false, Ordering::SeqCst);
                     return out;
@@ -784,6 +810,20 @@ impl Translator {
                     }
                     return out;
                 }
+                // The result of a turn Claude Code ran while the prompt waited in its queue (a task
+                // notification's, a loop tick's): the prompt has not started, so this is not its
+                // end. The prompt, its steers and the turn stay as they are; the prompt's own
+                // result ends it. A stopped chat's result still ends it (the stop is for the whole
+                // turn), and a local command's (no model turn) cannot be another turn's.
+                if self.prompt_queued.load(Ordering::SeqCst)
+                    && !self.cancelled.load(Ordering::SeqCst)
+                    && !cancelled_compaction
+                    && !local_command
+                    && (line.get("num_turns").and_then(Value::as_u64).unwrap_or(0) > 0
+                        || line.get("duration_api_ms").and_then(Value::as_u64).unwrap_or(0) > 0)
+                {
+                    return out;
+                }
                 // A normal result from the new prompt means the cancelled compaction did not
                 // produce a result. Resolve its abandoned request independently, then continue
                 // settling the new prompt; do not let the stale marker consume this result.
@@ -961,9 +1001,29 @@ impl Translator {
             "prompt_suggestion" if parent.is_none() => {
                 out.extend(self.suggestion_update(line).map(upd))
             }
+            // Another session's message Claude Code holds instead of giving it to the model, and
+            // how that hold ends (`hub/native_messaging.rs`). Information only: Claude Code has
+            // no host approval for it.
+            "system" if sub == "peer_message_hold" => {
+                let field = |key: &str| line.get(key).cloned().unwrap_or(Value::Null);
+                out.push(upd(json!({
+                    "sessionUpdate": crate::claude_stdio::native_messaging::HOLD_UPDATE,
+                    "state": field("state"),
+                    "messageUuid": field("message_uuid"),
+                    "lane": field("lane"),
+                    "from": field("from"),
+                    "fromName": field("from_name"),
+                    "cause": field("cause"),
+                    "outcome": field("outcome"),
+                })));
+            }
             "system" if sub.starts_with("task_") => {
                 if let Some(update) = self.background_shell_task(sub, line, &sid).await {
                     out.push(update);
+                }
+                // A run's snapshot: its agents' shells not yet attributed are looked for again.
+                if sub == "task_progress" && line.get("workflow_progress").is_some() {
+                    out.extend(self.attribute_workflow_shells().await);
                 }
                 if let Some(progress) = self.subagent_progress(sub, line).await {
                     out.push(upd(progress));
@@ -991,114 +1051,6 @@ impl Translator {
         let looped = self.loop_model.lock().await.clone();
         let configured = self.model.lock().await.clone();
         usage.get(&looped).and_then(window).or_else(|| usage.get(&configured).and_then(window))
-    }
-
-    /// Claude's task events for a shell (cx-ncc.84): a `local_bash`
-    /// task_started names its task and says whether it runs in the background,
-    /// a task_updated may move it there (either way a `running`
-    /// `background_task_update` goes out once), and a background one's
-    /// `task_notification`, or a task_updated whose patch says it was stopped
-    /// (Claude Code may send no notification after `stop_task`), returns a
-    /// `background_task_update` saying how it ended (`completed`, `failed`
-    /// or `stopped`), with Claude's reason or summary when it gave one. The
-    /// update goes to the session the shell's Bash call ran in, a
-    /// subagent's too. A shell ends once: a later end finds no shell.
-    async fn background_shell_task(&self, sub: &str, line: &Value, sid: &str) -> Option<Message> {
-        let text = |key: &str| line.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
-        let task = text("task_id");
-        let mut shells = self.background_shells.lock().await;
-        // A task_updated or notification may name only the task.
-        let tool = match text("tool_use_id") {
-            Some(tool) => tool.to_owned(),
-            None => {
-                let task = task?;
-                shells.iter().find(|(_, s)| s.task.as_deref() == Some(task))?.0.clone()
-            }
-        };
-        let backgrounded = |at: Option<&Value>| at == Some(&Value::Bool(true));
-        // How it ended: a notification's status, or a task_updated patch's.
-        let status = match sub {
-            "task_updated" => line.pointer("/patch/status").and_then(Value::as_str),
-            _ => text("status"),
-        };
-        match sub {
-            "task_started" if text("task_type") == Some("local_bash") => {
-                let shell = shells.entry(tool.clone()).or_insert_with(|| BackgroundShell {
-                    sid: sid.to_owned(),
-                    command: text("description").unwrap_or("").to_owned(),
-                    description: None,
-                    task: None,
-                    background: false,
-                    launched: backgrounded(line.get("is_backgrounded")),
-                    asked: false,
-                    announced: false,
-                    output: None,
-                });
-                shell.task = task.map(str::to_owned).or(shell.task.take());
-                shell.output = text("output_file").map(str::to_owned).or(shell.output.take());
-                shell.background |= backgrounded(line.get("is_backgrounded"));
-                return running(&tool, shell);
-            }
-            "task_updated" => {
-                let shell = shells.get_mut(&tool)?;
-                shell.background |= backgrounded(line.pointer("/patch/is_backgrounded"));
-                shell.output = text("output_file").map(str::to_owned).or(shell.output.take());
-                // Claude Code may send no notification after `stop_task`: a
-                // stopped task ends here. A completed or failed one waits
-                // for its notification, which carries the summary.
-                if !matches!(status, Some("stopped" | "killed")) {
-                    return running(&tool, shell);
-                }
-            }
-            "task_notification" => {}
-            _ => return None,
-        }
-        let mut shell = shells.remove(&tool).filter(|s| s.background)?;
-        shell.output = text("output_file").map(str::to_owned).or(shell.output.take());
-        let state = match status {
-            Some("failed") => "failed",
-            Some("killed" | "stopped") => "stopped",
-            _ => "completed",
-        };
-        let mut update = background_task_update(&tool, &shell, state);
-        if let Some(task) = task {
-            update.set("taskId", json!(task));
-        }
-        for key in ["reason", "summary"] {
-            if let Some(value) = text(key) {
-                update.set(key, json!(value));
-            }
-        }
-        // Claude Code says a shell's exit code only in its summary
-        // ("Background command \"x\" completed (exit code 0)"); Codex's
-        // updates carry it as `exitCode`, and clients read it there.
-        if let Some(code) = text("summary").and_then(summary_exit_code) {
-            update.set("exitCode", json!(code));
-        }
-        Some(shell_update(&shell, update))
-    }
-
-    /// The background shells still running when Claude's stdout closed: they
-    /// ended with its process, so each is reported `stopped`, marked
-    /// `_meta.acpmux.endedBy: "harness_exit"` for the hub (`hub/processes.rs`
-    /// lists it `lost`); the update itself is what clients show. A call named
-    /// early whose input was still streaming ends `failed` with them, and its
-    /// loops end with it too (`loops.rs`).
-    pub async fn end_background_shells(&self) -> Vec<Message> {
-        let mut shells: Vec<_> =
-            self.background_shells.lock().await.drain().filter(|(_, s)| s.background).collect();
-        shells.sort_by(|a, b| a.0.cmp(&b.0));
-        let mut out = self.end_all_announced().await;
-        out.extend(shells.into_iter().map(|(tool, shell)| {
-            let update = background_task_update(&tool, &shell, "stopped");
-            Message::notification(
-                method::SESSION_UPDATE,
-                json!({"sessionId": shell.sid, "update": update,
-                           "_meta": {"acpmux": {"endedBy": "harness_exit"}}}),
-            )
-        }));
-        out.extend(self.end_loops().await);
-        out
     }
 
     /// Claude's task events for a subagent: `task_started` or `task_updated`
@@ -1379,58 +1331,4 @@ pub(super) fn summary_exit_code(summary: &str) -> Option<i64> {
         .find(|&(i, c)| !(c.is_ascii_digit() || (i == 0 && c == '-')))
         .map_or(rest.len(), |(i, _)| i);
     rest.get(..end)?.parse().ok()
-}
-
-/// A `background_task_update` for one shell.
-fn background_task_update(tool: &str, shell: &BackgroundShell, state: &str) -> Value {
-    let mut update = json!({
-        "sessionUpdate": "background_task_update",
-        "taskId": shell.task.as_deref().unwrap_or(""),
-        "toolCallId": tool,
-        "command": shell.command,
-        "state": state,
-    });
-    // The call's own words for it, so a client that never loaded the call
-    // (an older page, a peer) still names it by them.
-    if let Some(description) = &shell.description {
-        update.set("description", json!(description));
-    }
-    update
-}
-
-/// The `running` update of a shell Claude runs in the background now, once
-/// per shell, with its `origin`: the hub lists it as a process
-/// (`hub/processes.rs`) and keeps a chat with one alive (`hub/idle.rs`).
-/// Clients note only how a shell ended.
-fn running(tool: &str, shell: &mut BackgroundShell) -> Option<Message> {
-    if !shell.background || shell.announced {
-        return None;
-    }
-    shell.announced = true;
-    let mut update = background_task_update(tool, shell, "running");
-    update.set("origin", json!(origin(shell)));
-    Some(shell_update(shell, update))
-}
-
-/// How a shell got to the background: `background` when it started there,
-/// `user_backgrounded` when the person moved it (Ctrl-B), else
-/// `auto_backgrounded` (Claude Code moved it).
-fn origin(shell: &BackgroundShell) -> &'static str {
-    match (shell.launched, shell.asked) {
-        (true, _) => "background",
-        (false, true) => "user_backgrounded",
-        (false, false) => "auto_backgrounded",
-    }
-}
-
-/// `update` as a session update in the shell's session, with its output
-/// file once Claude named it as `_meta.acpmux.outputFile`, which the hub
-/// takes off before the update is logged (`hub/processes.rs`): the path
-/// stays in the registry.
-fn shell_update(shell: &BackgroundShell, update: Value) -> Message {
-    let mut params = json!({"sessionId": shell.sid, "update": update});
-    if let Some(output) = &shell.output {
-        params.set("_meta", json!({"acpmux": {"outputFile": output}}));
-    }
-    Message::notification(method::SESSION_UPDATE, params)
 }

@@ -117,11 +117,10 @@ public final class RecoveryDraftStore {
 /// The draft files, all IO off the main actor.
 package nonisolated struct RecoveryDraftFiles {
     package nonisolated init() {}
-    package static var defaultDirectory: URL {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-        return support.appendingPathComponent("cmux/recovery", isDirectory: true)
-    }
+    /// `~/Library/Application Support/cmux-next/recovery`, a DEV build's own folder in a DEV build
+    /// (``BuildStatePaths/recoveryDrafts``); older builds' drafts in classic's `cmux/recovery` move to the
+    /// shared one once at launch (CmuxNextDaemon's `ClassicFolderItemsMove`).
+    package static var defaultDirectory: URL { BuildStatePaths.current.recoveryDrafts }
 
     package static func fileName(_ id: String) -> String {
         "\(stem(id)).draft"

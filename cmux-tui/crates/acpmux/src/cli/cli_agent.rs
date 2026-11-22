@@ -53,6 +53,13 @@ pub struct Options {
     /// terminal (stdin stays the prompt pipe), for a program that prints
     /// only to a terminal.
     pub tty: bool,
+    /// The program only prints and changes nothing (the profile's owner says so): the agent
+    /// tells acpmux at `initialize` that it asks before every tool call (`asksBeforeTools`; it
+    /// makes none), so a narrower permission policy, such as the `ask` every remote start asks
+    /// for, holds on it. Without it acpmux refuses such a start (`policy_unenforceable`): the
+    /// Cloud carrier drill's no-model agent (cmuxterm-hq run 43973035740). acpmux believes the
+    /// claim only from a harness entry of its own config (`hub/policy_mode.rs`).
+    pub prints_only: bool,
 }
 
 /// The text one prompt sends to the program: its text blocks, or with
@@ -274,6 +281,24 @@ pub async fn run(options: Options) -> Result<()> {
     Ok(())
 }
 
+/// The `initialize` answer: with `prints_only`, the `asksBeforeTools` claim ([`Options`]).
+fn initialize_result(options: &Options) -> Value {
+    let mut capabilities = json!({
+        "loadSession": true,
+        "promptCapabilities": {"image": false, "audio": false, "embeddedContext": false},
+        "mcpCapabilities": {"http": false, "sse": false}
+    });
+    if let (true, Some(fields)) = (options.prints_only, capabilities.as_object_mut()) {
+        fields.insert("_meta".into(), json!({"acpmux": {"asksBeforeTools": true}}));
+    }
+    json!({
+        "protocolVersion": 1,
+        "agentCapabilities": capabilities,
+        "agentInfo": {"name": "acpmux-cli-agent", "version": env!("CARGO_PKG_VERSION")},
+        "authMethods": []
+    })
+}
+
 fn reply(tx: &Out, id: &Value, result: Value) {
     let _ = tx.send(json!({"jsonrpc": "2.0", "id": id, "result": result}));
 }
@@ -290,20 +315,7 @@ async fn handle(msg: Value, options: &Arc<Options>, state: &Arc<Mutex<State>>, t
     let session_of =
         |p: &Value| p.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
     match (method.as_str(), id) {
-        ("initialize", Some(id)) => reply(
-            tx,
-            &id,
-            json!({
-                "protocolVersion": 1,
-                "agentCapabilities": {
-                    "loadSession": true,
-                    "promptCapabilities": {"image": false, "audio": false, "embeddedContext": false},
-                    "mcpCapabilities": {"http": false, "sse": false}
-                },
-                "agentInfo": {"name": "acpmux-cli-agent", "version": env!("CARGO_PKG_VERSION")},
-                "authMethods": []
-            }),
-        ),
+        ("initialize", Some(id)) => reply(tx, &id, initialize_result(options)),
         ("session/new", Some(id)) => {
             let mut s = state.lock().await;
             s.next += 1;
@@ -522,9 +534,8 @@ const TTY_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 /// it and nobody selects in it, and its output is parsed into ACP
 /// `agent_message_chunk` updates (hence `NO_COLOR=1` above). So it sets no
 /// terminal identity and is not one of the terminal child paths that apply
-/// `cmux_pty::UNSET_IN_TERMINAL_CHILDREN` (cmux#22585): a Ghostty version
-/// here cannot cost anyone a mouse selection, and changing what the program
-/// sees would change the text this parses.
+/// `cmux_pty::TERMINAL_IDENTITY`: changing what the program sees would
+/// change the text this parses.
 #[cfg(unix)]
 fn attach_tty(cmd: &mut tokio::process::Command) -> std::io::Result<std::fs::File> {
     use std::os::fd::{FromRawFd, OwnedFd};

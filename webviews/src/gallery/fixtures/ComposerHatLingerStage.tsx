@@ -100,8 +100,8 @@ export function ComposerHatLingerStage({
     () => ({ grace, cooldown, together, seen: looks ? seen : true }),
     [grace, cooldown, together, looks, seen],
   );
-  const kept = useTrayLinger("gallery-linger", live, candidates, held, lingerOptions);
-  const finished = useMemo(() => lingeringTrayItems(ended, kept), [ended, kept]);
+  const lingering = useTrayLinger("gallery-linger", live, candidates, held, lingerOptions);
+  const finished = useMemo(() => lingeringTrayItems(ended, lingering.kept, lingering.ends), [ended, lingering]);
   const empty = items.length + finished.length === 0;
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "var(--agent-page-bg)" }}>

@@ -1,0 +1,169 @@
+import AppKit
+
+/// The Toast Playground's content: what is picked now, then one row per style (``CmuxToastStyle``), each
+/// with every kind of toast in light and dark. Picking one makes it the style of every toast and prompt the
+/// app draws, at once and after a relaunch (``CmuxToastCenter/pick(_:)``).
+@MainActor
+final class CmuxToastPlaygroundView: NSView, CmuxToastStyleFollowing {
+    private let center: CmuxToastCenter
+    private(set) var rows: [CmuxToastPlaygroundRow] = []
+    /// The Corner row: the close toast at each corner on the design scale (Leo, 2026-11-22).
+    private(set) var corners: CmuxToastPlaygroundCorners?
+    private let pickedLabel = ThemedLabel(labelWithString: "")
+    private let cards: [CmuxToastPlaygroundCard]
+    private let openKeycaps: (@MainActor () -> Void)?
+    private let openTooltips: (@MainActor () -> Void)?
+    /// Opens the Keycap Playground (nil without ``openKeycaps``).
+    private(set) var keycapsButton: NSButton?
+    /// Opens the Tooltip Gallery (nil without ``openTooltips``).
+    private(set) var tooltipsButton: NSButton?
+    let scrollView = OverlayScrollView()
+
+    /// - Parameters:
+    ///   - center: The toasts' center: its pick, and where Fire it shows toasts.
+    ///   - themes: The light and dark sheets' themes.
+    ///   - fire: Shows `style`'s toasts as real toasts (in the window the person works in).
+    ///   - focus: Which styles show (Debug Settings > Toasts > Playground shows).
+    ///   - cards: Sidebar cards it shows for real, one Show button each (``CmuxToastPlaygroundCard``).
+    ///   - openKeycaps: Opens the Keycap Playground from a button at the top; nil shows none.
+    ///   - openTooltips: Opens the Tooltip Gallery from a button beside it; nil shows none.
+    init(center: CmuxToastCenter, themes: CmuxToastPlaygroundThemes, focus: CmuxToastPlaygroundFocus = .all,
+         cards: [CmuxToastPlaygroundCard] = [], openKeycaps: (@MainActor () -> Void)? = nil,
+         openTooltips: (@MainActor () -> Void)? = nil, fire: @escaping (CmuxToastStyle) -> Void) {
+        self.center = center
+        self.cards = cards
+        self.openKeycaps = openKeycaps
+        self.openTooltips = openTooltips
+        super.init(frame: .zero)
+        let tuning = center.tuning
+        rows = focus.styles.map { style in
+            CmuxToastPlaygroundRow(style: style, number: (CmuxToastStyle.allCases.firstIndex(of: style) ?? 0) + 1, themes: themes, tuning: tuning, onFire: fire) { [weak center] in
+                center?.pick($0)
+            }
+        }
+        corners = CmuxToastPlaygroundCorners(themes: themes, tuning: tuning)
+        build()
+        center.styles.follow(self)
+        toastStyleDidChange(center.style)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    private func build() {
+        pickedLabel.font = Typography.system(size: TypeScale.body, weight: TypeScale.emphasis)
+        pickedLabel.themeColor = { Palette.textPrimary }
+        let intro = ThemedLabel(wrappingLabelWithString:
+            "Every kind of toast in each style, light and dark. Fire it shows the style as real toasts in your window; "
+            + "Pick makes it the style of every toast and prompt in the app, now and after a relaunch.")
+        intro.font = Typography.body
+        intro.themeColor = { Palette.textSecondary }
+        let column = NSStackView(views: [pickedLabel, intro] + keycapsRow() + cardsRow() + [corners].compactMap { $0 } + rows)
+        column.orientation = .vertical
+        column.alignment = .leading
+        column.spacing = 28
+        column.setCustomSpacing(4, after: pickedLabel)
+        column.edgeInsets = NSEdgeInsets(top: 20, left: 24, bottom: 28, right: 24)
+        column.translatesAutoresizingMaskIntoConstraints = false
+        let document = FlippedPlaygroundDocument()
+        document.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(column)
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.hasVerticalScroller = true
+        scrollView.drawsBackground = false
+        scrollView.documentView = document
+        addSubview(scrollView)
+        var constraints = [
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            document.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
+            document.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
+            document.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            column.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+            column.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+            column.topAnchor.constraint(equalTo: document.topAnchor),
+            column.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+            intro.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -48),
+        ]
+        constraints += (rows + [corners].compactMap { $0 }).map { $0.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -48) }
+        NSLayoutConstraint.activate(constraints)
+    }
+
+    /// "Keycaps and tooltips": opens the Keycap Playground and the Tooltip Gallery, which work before the palette has
+    /// their actions (the pinned app FFI's catalog gains `debug.keycapPlayground` and `debug.tooltipGallery` only with
+    /// a re-pin).
+    private func keycapsRow() -> [NSView] {
+        guard openKeycaps != nil || openTooltips != nil else { return [] }
+        let label = ThemedLabel(labelWithString: "Keycaps and tooltips")
+        label.font = Typography.system(size: TypeScale.body, weight: TypeScale.emphasis)
+        label.themeColor = { Palette.textPrimary }
+        var views: [NSView] = [label]
+        if openKeycaps != nil {
+            let button = NSButton(title: "Open Keycap Playground", target: self, action: #selector(keycapsPressed(_:)))
+            button.bezelStyle = .push
+            button.setAccessibilityIdentifier("cmux.toastPlayground.keycaps")
+            keycapsButton = button
+            views.append(button)
+        }
+        if openTooltips != nil {
+            let button = NSButton(title: "Open Tooltip Gallery", target: self, action: #selector(tooltipsPressed(_:)))
+            button.bezelStyle = .push
+            button.setAccessibilityIdentifier("cmux.toastPlayground.tooltips")
+            tooltipsButton = button
+            views.append(button)
+        }
+        let row = NSStackView(views: views)
+        row.orientation = .horizontal
+        row.spacing = 12
+        return [row]
+    }
+
+    @objc private func keycapsPressed(_ sender: Any?) {
+        openKeycaps?()
+    }
+
+    @objc private func tooltipsPressed(_ sender: Any?) {
+        openTooltips?()
+    }
+
+    /// "Sidebar cards": one Show button per card, which shows it in the window the person works in.
+    private func cardsRow() -> [NSView] {
+        guard !cards.isEmpty else { return [] }
+        let label = ThemedLabel(labelWithString: "Sidebar cards")
+        label.font = Typography.system(size: TypeScale.body, weight: TypeScale.emphasis)
+        label.themeColor = { Palette.textPrimary }
+        let buttons = cards.enumerated().map { index, card in
+            let button = NSButton(title: "Show \(card.title)", target: self, action: #selector(showCard(_:)))
+            button.bezelStyle = .push
+            button.tag = index
+            button.setAccessibilityIdentifier("cmux.toastPlayground.card.\(index)")
+            return button
+        }
+        let row = NSStackView(views: [label] + buttons)
+        row.orientation = .horizontal
+        row.spacing = 12
+        return [row]
+    }
+
+    @objc private func showCard(_ sender: NSButton) {
+        guard cards.indices.contains(sender.tag) else { return }
+        cards[sender.tag].show()
+    }
+
+    func toastStyleDidChange(_ style: CmuxToastStyle) {
+        pickedLabel.stringValue = "Picked: \(style.title)"
+        rows.forEach { $0.showPicked(style) }
+    }
+
+    /// Every sheet's toasts enter, as when they first show.
+    func enter() {
+        (rows.flatMap(\.sheets) + (corners?.sheets ?? [])).forEach { $0.enter() }
+    }
+}
+
+/// The playground's document: rows from the top.
+private final class FlippedPlaygroundDocument: NSView {
+    nonisolated override var isFlipped: Bool { true }
+}

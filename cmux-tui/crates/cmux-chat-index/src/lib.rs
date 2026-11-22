@@ -21,7 +21,10 @@ pub mod transcript;
 
 #[doc(hidden)]
 pub use adapters::forget_codex_reads;
-pub use adapters::{PathRole, classify_path, find_opencode_session};
+pub use adapters::{
+    CodexThreadRow, PathRole, classify_path, codex_thread_rows, find_opencode_session,
+    session_folders,
+};
 pub use entry::{AdapterKind, ChatEntry, ChatKey, Resume, TitleSource};
 pub use index::{ChatChange, ChatIndex, IndexedChat};
 pub use roots::{
@@ -29,8 +32,8 @@ pub use roots::{
     RootSpec, default_roots, discover, discover_on,
 };
 pub use scan::{AdapterConfig, FileRead, RootScan, read_file, scan_root};
-pub use stamp::{Change, FileStamp, FileState, HeadPrint, Tally};
+pub use stamp::{Change, FileStamp, FileState, HeadPrint, KeptRead, Tally};
 /// A private state file (0600, written whole and renamed into place), as the index saves its own.
-pub use store_file::write_json_private;
+pub use store_file::{write_json_private, write_private};
 pub use text::{title_line, without_client_context};
 pub use time::parse_rfc3339_ms;

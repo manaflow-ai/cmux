@@ -195,10 +195,6 @@ public final class AddDeviceModel {
             services.signIn()
             closeCard()
             return true
-        case .showMachines:
-            services.showMachines()
-            closeCard()
-            return true
         case .toggleAdvanced:
             toggleAdvanced()
             return false
@@ -224,7 +220,7 @@ public final class AddDeviceModel {
         if offersInvite { return [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .pairAnotherMachine, key: .return)] }
         return switch joinLine?.phase {
         case .showing: [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .copyJoinLine, key: .return)]
-        case .joined: [AddDeviceButton(action: .showMachines, key: nil), AddDeviceButton(action: .done, key: .return)]
+        case .joined: [AddDeviceButton(action: .done, key: .return)]
         // Signed out, a new line would be refused again: Sign In instead (msg 3790).
         case .failed(.signedOut): [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .signIn, key: .return)]
         case .expired, .failed: [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .newJoinLine, key: .return)]

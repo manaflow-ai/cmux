@@ -132,13 +132,20 @@ fn w5o_placeholder_shells_end_with_the_command_that_opened_them() {
     assert_no_tabless(&server, "agent start beta --split down");
     let beta_pane = text(&beta, "/pane_id");
 
-    // A move into a split: the split opens with a shell tab.
+    // A move into a split. W5-P: the daemon's `pane.move` moves the pane
+    // itself (it keeps its id), so no placeholder shell opens.
     let moved =
         run(&server, &["pane", &beta_pane, "move", "--to-pane", &alpha_pane, "--split", "right"]);
     assert_no_tabless(&server, "pane move --to-pane --split right");
-    let moved_pane = text(&moved, "/destination/pane");
+    let moved_pane = moved
+        .pointer("/value/pane_id")
+        .or_else(|| moved.pointer("/pane_id"))
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("no pane_id in {moved}"))
+        .to_owned();
+    assert_eq!(moved_pane, beta_pane, "the moved pane keeps its id: {moved}");
 
-    // A move to a new screen: the screen opens with a shell tab.
+    // A move to a new screen: the pane is the new screen's only pane.
     run(&server, &["pane", &moved_pane, "move", "--new-screen", "--name", "moved"]);
     assert_no_tabless(&server, "pane move --new-screen");
 
@@ -156,6 +163,164 @@ fn w5o_placeholder_shells_end_with_the_command_that_opened_them() {
     assert_no_tabless(&server, "workspace create --worktree");
     run(&server, &["workspace", &workspace, "close", "--remove-worktree"]);
     assert_no_tabless(&server, "workspace close --remove-worktree");
+
+    drop(server);
+    let _ = fs::remove_dir_all(root);
+}
+
+/// `cmux --json <args>` run from inside terminal `caller` of `server`.
+fn run_in(server: &HeadlessServer, caller: &str, args: &[&str]) -> Value {
+    let output = Command::new(bin())
+        .args(["--json", "--socket"])
+        .arg(&server.socket)
+        .args(args)
+        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_TUI_SESSION_ID")
+        .env("CMUX_TUI_TERMINAL_ID", caller)
+        .output()
+        .unwrap();
+    assert_success(&output);
+    json_output(&output)
+}
+
+/// The record of `terminal` in `terminal list`.
+fn terminal(server: &HeadlessServer, terminal: &str) -> Value {
+    let listed = run(server, &["terminal", "list"]);
+    listed
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|record| record["id"] == terminal)
+        .cloned()
+        .unwrap_or_else(|| panic!("terminal list has no {terminal}: {listed}"))
+}
+
+fn created(result: &Value, field: &str) -> String {
+    result
+        .pointer(&format!("/value/{field}"))
+        .or_else(|| result.get(field))
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("no {field} in {result}"))
+        .to_owned()
+}
+
+/// W5-O review, findings 1 and 2: `workspace <ws> close --remove-worktree`
+/// ended every terminal whose tabs were all in the workspace. That ended the
+/// caller's own terminal (an agent closing its own workspace lost the reply
+/// and the exit code) and a terminal marked `keep`. The close ends only the
+/// other unkept terminals; the caller's and the kept one are left running
+/// with no tab (the reaper skips a kept terminal and ends the caller's after
+/// its grace).
+#[test]
+fn w5o_worktree_close_spares_the_callers_terminal_and_kept_terminals() {
+    let root = unique_temp_dir("tabless-own");
+    let home = root.join("home");
+    let repo = root.join("project");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.name", "cmux test"]);
+    git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&repo, &["add", "a.txt"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let server = HeadlessServer::start_with_options(
+        "tabless-own",
+        None,
+        None,
+        &[("HOME", home.to_str().unwrap())],
+    );
+
+    let made = run(
+        &server,
+        &["workspace", "create", "--worktree", "own", "--repo", repo.to_str().unwrap()],
+    );
+    let workspace = created(&made, "workspace_id");
+    let (pane, caller) = (created(&made, "pane_id"), created(&made, "terminal_id"));
+    let kept = created(&run(&server, &["pane", &pane, "split", "--right"]), "terminal_id");
+    run(&server, &["terminal", &kept, "keep", "on"]);
+    let plain = created(&run(&server, &["pane", &pane, "split", "--down"]), "terminal_id");
+
+    let closed = run_in(&server, &caller, &["workspace", &workspace, "close", "--remove-worktree"]);
+    let ended = closed
+        .pointer("/ended_terminals")
+        .or_else(|| closed.pointer("/value/ended_terminals"))
+        .cloned()
+        .unwrap_or_else(|| panic!("no ended_terminals in {closed}"));
+    assert!(
+        !ended.as_array().into_iter().flatten().any(|id| *id == caller.as_str()),
+        "the close ended the caller's own terminal {caller}: {closed}"
+    );
+    assert!(
+        !ended.as_array().into_iter().flatten().any(|id| *id == kept.as_str()),
+        "the close ended the kept terminal {kept}: {closed}"
+    );
+    assert_eq!(ended, serde_json::json!([plain]), "{closed}");
+
+    // The caller's shell and the kept one still run, with no tab.
+    for id in [&caller, &kept] {
+        let record = terminal(&server, id);
+        assert_eq!(record["lifecycle"], "running", "{record}");
+        assert_eq!(record["tab_ids"], serde_json::json!([]), "{record}");
+    }
+
+    drop(server);
+    let _ = fs::remove_dir_all(root);
+}
+
+/// W5-O follow-up review: the guard must not depend on `identify`. An
+/// `identify` that fails or does not list `terminal-close-if-unplaced-v1`
+/// (Windows has no identify path in the CLI, and `--machine` asked the local
+/// daemon, not the target) sent the plain end, which ended a kept terminal
+/// on a daemon that takes the guard. The test daemon hides the capability:
+/// the close still sends the guard, so the kept terminal and the caller's
+/// stay, and only the plain one ends.
+#[test]
+fn w5o_worktree_close_guards_the_ends_whatever_identify_lists() {
+    let root = unique_temp_dir("tabless-skew");
+    let home = root.join("home");
+    let repo = root.join("project");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.name", "cmux test"]);
+    git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&repo, &["add", "a.txt"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let server = HeadlessServer::start_with_options(
+        "tabless-skew",
+        None,
+        None,
+        &[
+            ("HOME", home.to_str().unwrap()),
+            ("CMUX_TEST_DAEMON_HIDE_CAPABILITIES", "terminal-close-if-unplaced-v1"),
+        ],
+    );
+
+    let made = run(
+        &server,
+        &["workspace", "create", "--worktree", "skew", "--repo", repo.to_str().unwrap()],
+    );
+    let workspace = created(&made, "workspace_id");
+    let (pane, caller) = (created(&made, "pane_id"), created(&made, "terminal_id"));
+    let kept = created(&run(&server, &["pane", &pane, "split", "--right"]), "terminal_id");
+    run(&server, &["terminal", &kept, "keep", "on"]);
+    let plain = created(&run(&server, &["pane", &pane, "split", "--down"]), "terminal_id");
+
+    let closed = run_in(&server, &caller, &["workspace", &workspace, "close", "--remove-worktree"]);
+    let ended = closed
+        .pointer("/ended_terminals")
+        .or_else(|| closed.pointer("/value/ended_terminals"))
+        .cloned()
+        .unwrap_or_else(|| panic!("no ended_terminals in {closed}"));
+    assert_eq!(ended, serde_json::json!([plain]), "the guard was not sent: {closed}");
+    for id in [&caller, &kept] {
+        let record = terminal(&server, id);
+        assert_eq!(record["lifecycle"], "running", "{record}");
+    }
 
     drop(server);
     let _ = fs::remove_dir_all(root);

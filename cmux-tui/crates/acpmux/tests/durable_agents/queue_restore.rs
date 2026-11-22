@@ -292,10 +292,31 @@ async fn a_lost_prompt_runs_once_after_another_turn_started_first() {
 
 /// How many prompts each long log below holds.
 const LONG_LOG_PROMPTS: usize = 20_000;
-/// How long its restore may take: the per-record scans of the waiting list, the reorder list
-/// that grew by every prompt run and the prompts that left the queue for a turn that never
-/// started (`queue.rs` `restore_queue`, `lost_start.rs`) made it quadratic.
+/// How much CPU time the daemon may spend from its start to the restored queue: the per-record
+/// scans of the waiting list, the reorder list that grew by every prompt run and the prompts that
+/// left the queue for a turn that never started (`queue.rs` `restore_queue`, `lost_start.rs`)
+/// made it quadratic. CPU time, not wall time: a loaded gate host stretched a linear restore to
+/// 30-40 s of wall time (the full-run failures of both tests below), while the work it does,
+/// which is what a quadratic restore multiplies, stays the same.
 const LONG_LOG_RESTORE_BOUND: Duration = Duration::from_secs(12);
+
+/// The CPU time (user and system) process `pid` used so far, from `ps -o time=`
+/// (`[[dd-]hh:]mm:ss[.ss]`).
+fn cpu_time(pid: u32) -> Duration {
+    let out = std::process::Command::new("ps")
+        .args(["-o", "time=", "-p", &pid.to_string()])
+        .output()
+        .expect("run ps");
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    let (days, clock) = match text.split_once('-') {
+        Some((d, rest)) => (d.parse::<f64>().unwrap_or_else(|_| panic!("ps time {text:?}")), rest),
+        None => (0.0, text.as_str()),
+    };
+    let secs = clock.split(':').fold(0.0, |acc, part| {
+        acc * 60.0 + part.parse::<f64>().unwrap_or_else(|_| panic!("ps time {text:?}"))
+    });
+    Duration::from_secs_f64(days * 86_400.0 + secs)
+}
 
 /// A `queued` record of prompt `p-{i}` for turn `t-{i}`.
 fn queued(i: usize, text: &str) -> Value {
@@ -304,8 +325,8 @@ fn queued(i: usize, text: &str) -> Value {
 }
 
 /// Appends the records `write` makes to a new session's log, as the daemons that ran them
-/// would have, restarts the daemon and returns the prompt ids its restored queue holds and how
-/// long the logs took to read and the queues to restore.
+/// would have, restarts the daemon and returns the prompt ids its restored queue holds and the
+/// CPU time the daemon used until the logs were read and the queues restored.
 async fn restore_long_log(
     name: &str,
     write: impl FnOnce(&mut dyn FnMut(&str, Value)),
@@ -353,8 +374,9 @@ async fn restore_long_log(
     })
     .await
     .expect("the logs were read within 900 s");
-    let took = started.elapsed();
-    eprintln!("{name}: restored in {took:?}");
+    let wall = started.elapsed();
+    let took = cpu_time(daemon.child.as_ref().expect("the daemon runs").id());
+    eprintln!("{name}: restored in {wall:?}, daemon CPU time {took:?}");
     assert_eq!(info["logsLoading"], false, "{info:#}");
     let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
     let queue = attached["session"]["queue"].as_array().expect("queue in the attach reply");
@@ -395,7 +417,7 @@ async fn a_long_queue_log_restores_in_time() {
     );
     assert!(
         took < LONG_LOG_RESTORE_BOUND,
-        "restoring the queue of a log of {} queued prompts took {took:?} (bound {LONG_LOG_RESTORE_BOUND:?})",
+        "restoring the queue of a log of {} queued prompts took {took:?} of CPU time (bound {LONG_LOG_RESTORE_BOUND:?})",
         LONG_LOG_PROMPTS + 1
     );
 }
@@ -423,7 +445,7 @@ async fn a_long_log_of_unstarted_prompts_restores_in_time() {
     assert!(ids == want, "the restore did not put back every unstarted prompt in order");
     assert!(
         took < LONG_LOG_RESTORE_BOUND,
-        "restoring the queue of a log of {LONG_LOG_PROMPTS} unstarted prompts took {took:?} (bound {LONG_LOG_RESTORE_BOUND:?})"
+        "restoring the queue of a log of {LONG_LOG_PROMPTS} unstarted prompts took {took:?} of CPU time (bound {LONG_LOG_RESTORE_BOUND:?})"
     );
 }
 

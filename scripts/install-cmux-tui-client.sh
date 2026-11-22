@@ -24,6 +24,9 @@
 # installed only while bundle-map.json maps that path; a build that publishes
 # none installs none.
 #
+# When the installed cmux runs the app host and the browser host by argv[0]
+# (link-folded-hosts.sh --probe), bin/cmux-app-host and bin/cmux-browser-host are
+# relative links to cmux instead, and their artifacts are not fetched.
 # The build comes from the artifacts manifest the cmux-tui-artifacts workflow publishes
 # (rolling `latest` by default; a commit-addressed manifest pins one build). Both
 # darwin slices are downloaded, sha256-verified against the manifest, and lipo'd into
@@ -32,7 +35,7 @@
 #
 #   scripts/install-cmux-tui-client.sh <app-path> [--manifest-url <url>] [--cache-dir <dir>]
 #     [--expected-commit <sha>] [--require-capability <name>]... [--require-acpmux]
-#     [--arch <native|arm64|x86_64|universal>]
+#     [--require-companions] [--arch <native|arm64|x86_64|universal>]
 #     [--attest-signer-workflow <owner/repo/.github/workflows/name.yml>] [--allow-unattested]
 #
 # Every remote install authenticates the downloaded manifest before any value in it is
@@ -51,9 +54,10 @@
 #
 # Env: CMUX_TUI_CLIENT_MANIFEST_URL overrides the manifest, CMUX_TUI_CLIENT_LOCAL points at
 # a prebuilt binary to install instead of downloading (offline/dev builds).
-# CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS (default 5) and CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS
-# (default 60, below 1 KiB/s) and CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS
-# (default 600) bound each download attempt and its total retry budget.
+# CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS (default 5), CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS
+# (default 60) below CMUX_TUI_CLIENT_DOWNLOAD_MIN_BYTES_PER_SECOND (default 65536)
+# and CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS (default 600) bound each download
+# attempt and its total retry budget.
 # The attestation is first verified offline from the Sigstore bundle the publisher
 # uploads beside the manifest (CMUX_TUI_ATTEST_BUNDLE_BASE, default
 # <manifest origin>/cmux-tui-attestations, holds sha256-<manifest digest>.sigstore.json);
@@ -65,7 +69,7 @@
 # and still checked with remote-probe and any required capabilities.
 set -euo pipefail
 
-usage() { sed -n '2,36p' "$0"; }
+usage() { sed -n '2,39p' "$0"; }
 
 APP_PATH=""
 MANIFEST_URL="${CMUX_TUI_CLIENT_MANIFEST_URL:-https://files.cmux.com/cmux-tui/latest/manifest.json}"
@@ -75,6 +79,7 @@ ARCH="universal"
 ATTEST_SIGNER_WORKFLOW="manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml"
 ALLOW_UNATTESTED=0
 REQUIRE_ACPMUX=0
+REQUIRE_COMPANIONS=0
 REQUIRED_CAPABILITIES=()
 while (( $# )); do
   case "$1" in
@@ -85,6 +90,7 @@ while (( $# )); do
     --attest-signer-workflow) shift; ATTEST_SIGNER_WORKFLOW="${1:?--attest-signer-workflow needs a value}" ;;
     --allow-unattested) ALLOW_UNATTESTED=1 ;;
     --require-acpmux) REQUIRE_ACPMUX=1 ;;
+    --require-companions) REQUIRE_COMPANIONS=1 ;;
     --require-capability) shift; REQUIRED_CAPABILITIES+=("${1:?--require-capability needs a value}") ;;
     -h|--help) usage; exit 0 ;;
     -*) echo "unknown option: $1" >&2; usage >&2; exit 64 ;;
@@ -266,12 +272,31 @@ else
   echo "note: bin/cmux-agent-screen-detection is not installed: $BUNDLE_MAP does not map it (no license notices yet)"
 fi
 
+# The browser host and the app host run from bin/cmux by argv[0] when the
+# installed client carries them (link-folded-hosts.sh, CMUX-570): they become
+# links to cmux, like cmux-tui and acpmux, and no copy is fetched. folded_hosts
+# names them after fold_hosts; a client from before the fold folds none.
+folded_hosts=()
+fold_hosts() {
+  local name
+  folded_hosts=()
+  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/link-folded-hosts.sh" --probe "$DEST" || return 0
+  for name in "${COMPANIONS[@]}"; do
+    [[ "$name" == cmux-app-host || "$name" == cmux-browser-host ]] && folded_hosts+=("$name")
+  done
+  (( ${#folded_hosts[@]} )) || return 0
+  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/link-folded-hosts.sh" "$DEST_DIR" "${folded_hosts[@]}"
+}
+is_folded() { [[ " ${folded_hosts[*]:-} " == *" $1 "* ]]; }
+
 if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   [[ -f "$CMUX_TUI_CLIENT_LOCAL" ]] || { echo "error: CMUX_TUI_CLIENT_LOCAL not found: $CMUX_TUI_CLIENT_LOCAL" >&2; exit 1; }
   install_binary "$CMUX_TUI_CLIENT_LOCAL"
   # A local client brings its app host and app servers when they sit beside it.
   rm -f "$DEST_DIR/cmux-browser-host" "$DEST_DIR/cmux-agent-screen-detection"
+  fold_hosts
   for companion in "${COMPANIONS[@]}"; do
+    is_folded "$companion" && continue
     rm -f "$DEST_DIR/$companion"
     if [[ -f "$(dirname "$CMUX_TUI_CLIENT_LOCAL")/$companion" ]]; then
       install -m 755 "$(dirname "$CMUX_TUI_CLIENT_LOCAL")/$companion" "$DEST_DIR/$companion"
@@ -289,13 +314,19 @@ fi
 # reuses that connection. Bound each attempt by progress and the whole
 # download by a total budget. Each retry resumes a partial slice with a fresh
 # curl process, so a slow but moving download can finish without hanging the
-# release job forever.
+# release job forever. The floor is a trickle, not only a dead stream: at
+# 1 KiB/s, files.cmux.com serving a 202 MB slice at 6 KB/s kept one attempt
+# alive for the whole 600 s budget (nightly run 42675465011). At 64 KiB/s for
+# 60 s such an attempt ends and resumes on a new connection; a healthy fetch
+# runs at megabytes per second.
 DOWNLOAD_ATTEMPTS="${CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS:-5}"
 DOWNLOAD_STALL_SECONDS="${CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS:-60}"
 DOWNLOAD_MAX_SECONDS="${CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS:-600}"
+DOWNLOAD_MIN_BYTES_PER_SECOND="${CMUX_TUI_CLIENT_DOWNLOAD_MIN_BYTES_PER_SECOND:-65536}"
 for budget in CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS="$DOWNLOAD_ATTEMPTS" \
   CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS="$DOWNLOAD_STALL_SECONDS" \
-  CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS="$DOWNLOAD_MAX_SECONDS"; do
+  CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS="$DOWNLOAD_MAX_SECONDS" \
+  CMUX_TUI_CLIENT_DOWNLOAD_MIN_BYTES_PER_SECOND="$DOWNLOAD_MIN_BYTES_PER_SECOND"; do
   [[ "${budget#*=}" =~ ^[1-9][0-9]*$ ]] \
     || { echo "error: ${budget%%=*} must be a positive integer, got '${budget#*=}'" >&2; exit 64; }
 done
@@ -314,7 +345,7 @@ download() { # <url> <output> [resume]
       --proto '=https' --tlsv1.2 -fsSL
       --connect-timeout 30
       --max-time "$remaining"
-      --speed-limit 1024 --speed-time "$DOWNLOAD_STALL_SECONDS"
+      --speed-limit "$DOWNLOAD_MIN_BYTES_PER_SECOND" --speed-time "$DOWNLOAD_STALL_SECONDS"
     )
     (( resume )) && curl_args+=(--continue-at -)
     local status=0
@@ -411,18 +442,34 @@ case "$ARCH" in
     ;;
 esac
 install_binary "$CLIENT"
+fold_hosts
 # The app host (apps-v1) and the first-party app servers ship from the same build when
 # the manifest has them. Older builds have none; then none is bundled (the app reports
 # that it needs a newer cmux-tui, and the supervisor answers apps.server_missing).
 manifest_has() {
   python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["binaries"].get(sys.argv[2]) else 1)' "$MANIFEST" "$1"
 }
-# install_companion <artifact prefix> <installed name>: both darwin slices, lipo'd
-# like the client, sha256-verified by fetch_slice.
+# install_companion <artifact prefix> <installed name>: the slices --arch needs
+# (both for universal, lipo'd like the client), sha256-verified by fetch_slice.
+# An arm64 install needs no x86_64 slice: off main, cmux-tui-artifacts.yml
+# publishes aarch64-apple-darwin only.
 install_companion() {
-  local prefix="$1" name="$2" dest="$DEST_DIR/$2" binary arm x64 arch
-  if ! { manifest_has "$prefix-aarch64-apple-darwin" && manifest_has "$prefix-x86_64-apple-darwin"; }; then
+  local prefix="$1" name="$2" dest="$DEST_DIR/$2" binary arm x64 arch has
+  case "$ARCH" in
+    arm64) manifest_has "$prefix-aarch64-apple-darwin" && has=1 || has=0 ;;
+    x86_64) manifest_has "$prefix-x86_64-apple-darwin" && has=1 || has=0 ;;
+    universal) { manifest_has "$prefix-aarch64-apple-darwin" && manifest_has "$prefix-x86_64-apple-darwin"; } && has=1 || has=0 ;;
+  esac
+  if [[ "$has" != 1 ]]; then
     rm -f "$dest"
+    # --require-companions (the nightly bundle): a companion the build lacks is an
+    # error, so an app without bin/cmux-app-host (every apps/ext call answers
+    # apps.unavailable) never publishes. Nightly 4334303488301 shipped none of the
+    # six when this was only the note below.
+    if (( REQUIRE_COMPANIONS )); then
+      echo "error: cmux-tui ${COMMIT:0:10} publishes no $name for $ARCH, so the app would ship without bin/$name (--require-companions)" >&2
+      exit 1
+    fi
     echo "note: cmux-tui ${COMMIT:0:10} publishes no $name"
     return 0
   fi
@@ -451,12 +498,12 @@ install_companion() {
   fi
   for arch in "${VERIFY_ARCHS[@]}"; do lipo "$dest" -verify_arch "$arch"; done
 }
-install_companion cmux-tui-app-host cmux-app-host
+is_folded cmux-app-host || install_companion cmux-tui-app-host cmux-app-host
 install_companion cmux-tui-cloud-server cmux-cloud
 install_companion cmux-tui-host cmux-tui-host
 install_companion cmux-tui-holder cmux-holder
 if [[ "$SHIP_BROWSER_HOST" == 1 ]]; then
-  install_companion cmux-tui-browser-host cmux-browser-host
+  is_folded cmux-browser-host || install_companion cmux-tui-browser-host cmux-browser-host
 else
   rm -f "$DEST_DIR/cmux-browser-host"
 fi
@@ -492,7 +539,9 @@ client_reports() {
 }
 SSH_TARGETS=()
 if ! client_reports ssh-payload-macos-from-client; then
-  SSH_TARGETS=(aarch64-apple-darwin x86_64-apple-darwin)
+  SSH_TARGETS=(aarch64-apple-darwin)
+  # Off main the build publishes no Intel Mac slice (cmux-tui-artifacts.yml).
+  if manifest_has cmux-tui-x86_64-apple-darwin; then SSH_TARGETS+=(x86_64-apple-darwin); fi
 fi
 if ! client_reports ssh-payload-download; then
   SSH_TARGETS=(aarch64-unknown-linux-musl x86_64-unknown-linux-musl ${SSH_TARGETS[@]+"${SSH_TARGETS[@]}"})

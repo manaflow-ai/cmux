@@ -30,6 +30,7 @@ struct CLIInstallPlanTests {
         #expect(replace.replaces)
         let offer = try #require(CLIInstallReport.launchOffer(check))
         #expect(offer.replacing)
+        #expect(CLIInstallReport.setupRow(check) == "other", "classic's CLI: the Set Up cmux row offers Replace")
         guard case .offerOther(let entry, let bundle, true) = offer.report else {
             Issue.record("expected classic's offer, got \(offer.report)")
             return
@@ -56,6 +57,19 @@ struct CLIInstallPlanTests {
         try Data("#!/bin/sh\n".utf8).write(to: file)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
         #expect(CLIInstallReport.launchOffer(built.check()) == nil)
+        // Home's Set Up cmux row: no Replace over a `cmux` that is no cmux app's (a build, a package manager's).
+        #expect(CLIInstallReport.setupRow(built.check()) == "foreign")
+        #expect(CLIInstallReport.setupRow(scratch.check()) == "installed")
+    }
+
+    @Test func aLinkToThisAppRunningFromItsImageIsNotInstalledYet() throws {
+        let scratch = try Scratch()
+        let translocated = try Scratch.bundle(
+            scratch.root.appendingPathComponent("AppTranslocation/ID/d/cmux NIGHTLY.app"), id: "com.cmuxterm.app.nightly")
+        try scratch.link(scratch.early, to: translocated.path)
+        let check = CLIPathCheck(path: scratch.path, source: translocated)
+        #expect(check.status == .thisApp)
+        #expect(CLIInstallReport.setupRow(check) == "fromImage", "the link dangles once the image is gone")
     }
 
     @Test func missingOffersInstallWithoutReplacing() throws {

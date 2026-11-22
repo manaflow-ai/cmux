@@ -43,7 +43,7 @@ pub fn record(
     agent: &str,
     kind: &str,
 ) -> std::io::Result<()> {
-    let word = crate::cli::sender::subagent_word;
+    let word = crate::sender_env::subagent_word;
     if !word(agent) || !word(kind) || call_path(home, session, tool_use_id).is_none() {
         return Err(std::io::Error::other("a subagent's call is named by plain words"));
     }
@@ -56,7 +56,7 @@ pub fn of(home: &Path, session: &str, tool_use_id: &str) -> Option<Value> {
     let text = std::fs::read(call_path(home, session, tool_use_id)?).ok()?;
     let sub: Value = serde_json::from_slice(&text).ok()?;
     let word = |key: &str| {
-        sub.get(key).and_then(Value::as_str).filter(|w| crate::cli::sender::subagent_word(w))
+        sub.get(key).and_then(Value::as_str).filter(|w| crate::sender_env::subagent_word(w))
     };
     let (id, kind) = (word("id")?, word("type")?);
     Some(json!({"id": id, "type": kind}))
@@ -72,7 +72,7 @@ pub fn of_call(home: &Path, session: &str, params: &Value) -> Option<Value> {
 /// Tool call `tool_use_id` ended: it names nobody any more.
 pub fn end(home: &Path, session: &str, tool_use_id: &str) {
     if let Some(path) = call_path(home, session, tool_use_id) {
-        let _ = std::fs::remove_file(path);
+        let _ = crate::home_fs::remove_file(path);
     }
 }
 
@@ -85,14 +85,14 @@ pub fn end_agent(home: &Path, session: &str, agent: &str) {
             .and_then(|text| serde_json::from_slice::<Value>(&text).ok())
             .is_some_and(|sub| sub.get("id").and_then(Value::as_str) == Some(agent));
         if theirs {
-            let _ = std::fs::remove_file(path);
+            let _ = crate::home_fs::remove_file(path);
         }
     }
 }
 
 /// Removes `session`'s records: it closed.
 pub fn forget(home: &Path, session: &str) {
-    let _ = std::fs::remove_dir_all(session_dir(home, session));
+    let _ = crate::home_fs::remove_dir_all(session_dir(home, session));
 }
 
 #[cfg(test)]

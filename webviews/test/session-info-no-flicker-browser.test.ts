@@ -11,6 +11,11 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import {
+  SESSION_INFO,
+  SESSION_INFO_TOGGLE,
+  SESSION_INFO_TOGGLE_OFF,
+} from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("session-info-no-flicker-browser.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -43,68 +48,73 @@ await requireBrowserLane("session-info-no-flicker-browser.test.ts", async () => 
       const page = await browser!.newPage({ viewport: { width, height: 720 } });
       try {
         await page.goto(`http://127.0.0.1:${port}${PAGE}`);
-        await page.locator("button.acpmux-session-info-toggle").waitFor();
+        await page.locator(SESSION_INFO_TOGGLE).waitFor();
         // A narrow pane waits for the toggle (sessionInfoFits).
-        const closed = page.locator('button.acpmux-session-info-toggle[aria-pressed="false"]');
+        const closed = page.locator(SESSION_INFO_TOGGLE_OFF);
         if (await closed.count()) await closed.click();
         await page.waitForFunction(
-          () => document.querySelector("aside.acpmux-session-info")?.getAttribute("data-presence") === "shown",
+          ({ SESSION_INFO }) => document.querySelector(SESSION_INFO)?.getAttribute("data-presence") === "shown",
+          { SESSION_INFO },
         );
         // The first running update draws what a running chat shows (the dock's live line), then the
         // panel's enter settles.
         await page.evaluate(() => window.__step(0));
         // fixed-wait: the panel's enter transition and its first reads settle before the window opens.
         await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 600)));
-        const result = await page.evaluate(async (updates) => {
-          const panel = document.querySelector<HTMLElement>("aside.acpmux-session-info")!;
-          const box = () => {
-            const rect = panel.getBoundingClientRect();
-            return [rect.left, rect.top, rect.width, rect.height].map((n) => Math.round(n * 10) / 10).join(",");
-          };
-          const mutations: string[] = [];
-          const observer = new MutationObserver((records) => {
-            for (const record of records) {
-              const target = record.target as Element;
-              const name = target.nodeType === 1 ? `${target.tagName}.${target.getAttribute("class") ?? ""}` : "#text";
-              mutations.push(`${record.type}${record.attributeName ? `:${record.attributeName}` : ""} ${name}`);
+        const result = await page.evaluate(
+          async ({ updates, SESSION_INFO }) => {
+            const panel = document.querySelector<HTMLElement>(SESSION_INFO)!;
+            const box = () => {
+              const rect = panel.getBoundingClientRect();
+              return [rect.left, rect.top, rect.width, rect.height].map((n) => Math.round(n * 10) / 10).join(",");
+            };
+            const mutations: string[] = [];
+            const observer = new MutationObserver((records) => {
+              for (const record of records) {
+                const target = record.target as Element;
+                const name =
+                  target.nodeType === 1 ? `${target.tagName}.${target.getAttribute("class") ?? ""}` : "#text";
+                mutations.push(`${record.type}${record.attributeName ? `:${record.attributeName}` : ""} ${name}`);
+              }
+            });
+            observer.observe(panel, { subtree: true, childList: true, attributes: true, characterData: true });
+            const shifts: string[] = [];
+            const shiftObserver = new PerformanceObserver((list) => {
+              for (const entry of list.getEntries() as (PerformanceEntry & {
+                value: number;
+                sources?: { node?: Node | null }[];
+              })[]) {
+                for (const source of entry.sources ?? [])
+                  if (source.node && panel.contains(source.node))
+                    shifts.push(`${entry.value.toFixed(4)} ${(source.node as Element).className ?? "#text"}`);
+              }
+            });
+            shiftObserver.observe({ type: "layout-shift" });
+            const boxes = new Set<string>([box()]);
+            const renders = window.__renders();
+            for (let step = 1; step <= updates; step++) {
+              window.__step(step);
+              boxes.add(box());
+              await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+              boxes.add(box());
             }
-          });
-          observer.observe(panel, { subtree: true, childList: true, attributes: true, characterData: true });
-          const shifts: string[] = [];
-          const shiftObserver = new PerformanceObserver((list) => {
-            for (const entry of list.getEntries() as (PerformanceEntry & {
-              value: number;
-              sources?: { node?: Node | null }[];
-            })[]) {
-              for (const source of entry.sources ?? [])
-                if (source.node && panel.contains(source.node))
-                  shifts.push(`${entry.value.toFixed(4)} ${(source.node as Element).className ?? "#text"}`);
-            }
-          });
-          shiftObserver.observe({ type: "layout-shift" });
-          const boxes = new Set<string>([box()]);
-          const renders = window.__renders();
-          for (let step = 1; step <= updates; step++) {
-            window.__step(step);
+            // fixed-wait: the observed window stays open for timers and frames the updates scheduled.
+            await new Promise((resolve) => setTimeout(resolve, 300));
             boxes.add(box());
-            await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
-            boxes.add(box());
-          }
-          // fixed-wait: the observed window stays open for timers and frames the updates scheduled.
-          await new Promise((resolve) => setTimeout(resolve, 300));
-          boxes.add(box());
-          for (const record of observer.takeRecords()) mutations.push(`${record.type} late`);
-          observer.disconnect();
-          shiftObserver.disconnect();
-          return {
-            mutations: [...new Set(mutations)].slice(0, 20),
-            mutationCount: mutations.length,
-            shifts: shifts.slice(0, 20),
-            boxes: [...boxes],
-            renders: window.__renders() - renders,
-            placement: panel.dataset.placement,
-          };
-        }, UPDATES);
+            for (const record of observer.takeRecords()) mutations.push(`${record.type} late`);
+            observer.disconnect();
+            shiftObserver.disconnect();
+            return {
+              mutations: [...new Set(mutations)].slice(0, 20),
+              mutationCount: mutations.length,
+              shifts: shifts.slice(0, 20),
+              boxes: [...boxes],
+              renders: window.__renders() - renders,
+              placement: panel.dataset.placement,
+            };
+          },
+          { updates: UPDATES, SESSION_INFO },
+        );
         console.log(`session-info-no-flicker ${width}px:`, JSON.stringify(result));
         expect(result.mutations).toEqual([]);
         expect(result.shifts).toEqual([]);

@@ -21,6 +21,8 @@ use crate::codex_auth_file::{self, AccessFile};
 use cmux_json::JsonSet as _;
 
 mod background;
+mod message_phases;
+mod provider;
 pub use background::TERMINATE;
 mod usage_limits;
 #[cfg(test)]
@@ -32,6 +34,8 @@ pub use usage_limits::{is_plan_snapshot, read_usage_limits, usage_limits};
 pub struct Translator {
     inner: cmux_codex_acp::Translator,
     background: Mutex<background::Background>,
+    message_phases: Mutex<message_phases::MessagePhases>,
+    provider: Mutex<provider::ProviderPin>,
     #[cfg(unix)]
     auth: Mutex<AuthGate>,
 }
@@ -228,8 +232,17 @@ impl Translator {
         start
     }
 
+    fn provider(&self) -> std::sync::MutexGuard<'_, provider::ProviderPin> {
+        self.provider.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// One message from the hub.
     pub fn from_client(&self, msg: &Value) -> Vec<Out> {
+        let out = self.translate_client(msg);
+        self.provider().outgoing(out)
+    }
+
+    fn translate_client(&self, msg: &Value) -> Vec<Out> {
         #[cfg(unix)]
         {
             self.handle_client_read(msg, codex_auth_file::read)
@@ -292,6 +305,14 @@ impl Translator {
 
     /// One line from the app-server.
     pub fn from_server(&self, raw: &Value) -> Vec<Out> {
+        if let Some(out) = self.provider().answer(raw) {
+            return out;
+        }
+        let out = self.translate_server_line(raw);
+        self.provider().outgoing(out)
+    }
+
+    fn translate_server_line(&self, raw: &Value) -> Vec<Out> {
         if let Some(out) = self.background().response(raw) {
             return out;
         }
@@ -348,12 +369,12 @@ impl Translator {
                     return released;
                 }
                 auth.held.extend(self.background().observe(raw));
-                auth.held.extend(self.inner.from_server(raw));
+                auth.held.extend(self.translate_server(raw));
                 return Vec::new();
             }
 
             if auth.enabled() && auth.initialize_id.as_ref() == raw.get("id") {
-                let out = self.inner.from_server(raw);
+                let out = self.translate_server(raw);
                 if raw.get("error").is_some() {
                     return out;
                 }
@@ -383,7 +404,7 @@ impl Translator {
                 match codex_auth_file::read() {
                     Ok(Some(file)) if auth.account_allowed(&file, None) => {
                         auth.held.extend(self.background().observe(raw));
-                        auth.held.extend(self.inner.from_server(raw));
+                        auth.held.extend(self.translate_server(raw));
                         return vec![auth.login_request(file)];
                     }
                     Ok(None) | Err(_) => {
@@ -400,12 +421,19 @@ impl Translator {
             }
         }
         let mut out = self.background().observe(raw);
-        out.extend(self.inner.from_server(raw));
+        out.extend(self.translate_server(raw));
+        out
+    }
+
+    fn translate_server(&self, raw: &Value) -> Vec<Out> {
+        let mut out = self.inner.from_server(raw);
+        self.message_phases.lock().unwrap_or_else(|e| e.into_inner()).enrich(raw, &mut out);
         out
     }
 
     /// The app-server exited or its pipe closed.
     pub fn server_closed(&self, why: &str) -> Vec<Out> {
+        self.provider().closed();
         let mut out = Vec::new();
         #[cfg(unix)]
         out.extend(self.auth.lock().unwrap_or_else(|e| e.into_inner()).fail(&self.inner));
@@ -479,6 +507,8 @@ fn translator_with(prompt_suggestions: bool) -> Arc<Translator> {
             ..Options::default()
         }),
         background: Mutex::default(),
+        message_phases: Mutex::default(),
+        provider: Mutex::default(),
         #[cfg(unix)]
         auth: Mutex::new(AuthGate::new()),
     })
@@ -528,6 +558,24 @@ pub fn tap_kind(raw: &Value) -> Option<String> {
         Some(m) => Some(format!("codex.{m}")),
         None => Some("codex.response".into()),
     }
+}
+
+/// The copy of an app-server line the session log keeps: [`redact`]ed, and a resumed or read
+/// thread's history (`result.thread.turns`) left out as its count (`turnsOmitted`). A
+/// `thread/resume` answer holds the whole thread, up to 1.6 MB a line, and the same history is
+/// logged as the resume's replayed updates: a long Codex chat's log grew by it on every resume,
+/// and every read back over the log's raw lines walked those bytes.
+pub fn logged(raw: &Value) -> Value {
+    let turns = raw.pointer("/result/thread/turns").and_then(Value::as_array).map_or(0, Vec::len);
+    if turns == 0 {
+        return redact(raw);
+    }
+    let mut stub = raw.clone();
+    if let Some(thread) = stub.pointer_mut("/result/thread").and_then(Value::as_object_mut) {
+        thread.remove("turns");
+        thread.insert("turnsOmitted".into(), Value::from(turns));
+    }
+    redact(&stub)
 }
 
 /// Redact credentials before a Codex wire value reaches the session log or
@@ -585,6 +633,29 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// A resumed thread's answer (`thread/resume`) carries the thread's whole history, up to
+    /// 1.6 MB a line on a lane's long Codex chat, logged again on every resume. The log keeps the
+    /// answer without it: the same history is logged as the resume's replayed updates.
+    #[test]
+    fn the_log_keeps_a_resumed_threads_answer_without_its_history() {
+        let turns: Vec<Value> = (0..200)
+            .map(|n| json!({"id": format!("turn-{n}"), "items": [{"type": "agentMessage", "text": "x".repeat(4000)}]}))
+            .collect();
+        let raw = json!({"id": 7, "result": {"thread": {"id": "t", "preview": "p", "turns": turns},
+            "turnsBackwardsCursor": "c", "accessToken": "secret"}});
+        let kept = logged(&raw);
+        assert!(kept.to_string().len() < 1024, "{} bytes logged", kept.to_string().len());
+        assert_eq!(kept["id"], 7);
+        assert_eq!(kept["result"]["thread"]["id"], "t");
+        assert_eq!(kept["result"]["thread"]["preview"], "p");
+        assert_eq!(kept["result"]["thread"]["turnsOmitted"], 200);
+        assert_eq!(kept["result"]["turnsBackwardsCursor"], "c");
+        assert_eq!(kept["result"]["accessToken"], "[REDACTED]");
+        // An answer with no history is logged as it was.
+        let small = json!({"id": 8, "result": {"thread": {"id": "t", "turns": []}}});
+        assert_eq!(logged(&small), small);
+    }
+
     /// What `translator()` tells the hub about audio once an app-server that
     /// reports `user_agent` answered its `initialize`.
     fn advertises_audio(user_agent: &str) -> bool {
@@ -637,6 +708,42 @@ mod tests {
         let done = split(tr.from_server(&json!({"method": "turn/completed",
             "params": {"threadId": "t", "turn": {"id": "turn-1", "status": "completed", "items": []}}})));
         (options, done.server)
+    }
+
+    /// A chat reopened after its app-server restarted (Retry, a later message) runs on the
+    /// provider codex is configured for now, not the one its rollout recorded (cmux#48354).
+    #[test]
+    fn a_resumed_chat_names_the_configured_model_provider() {
+        let tr = translator_with(false);
+        let start = split(tr.start());
+        let init = start.server[0]["id"].clone();
+        let list = split(tr.from_server(
+            &json!({"id": init, "result": {"userAgent": "acpmux/0.164.0 (Linux; x86_64)"}}),
+        ));
+        if let Some(list) = list.server.iter().find(|m| m["method"] == "model/list") {
+            split(tr.from_server(&json!({"id": list["id"], "result": {"data": []}})));
+        }
+        let resume = split(tr.from_client(&json!({"jsonrpc": "2.0", "id": 1,
+            "method": "session/resume", "params": {"sessionId": "t", "cwd": "/tmp", "mcpServers": []}})));
+        assert!(
+            !resume.server.iter().any(|m| m["method"] == "thread/resume"),
+            "held: {:?}",
+            resume.server
+        );
+        let ask = resume.server.iter().find(|m| m["method"] == "config/read").expect("asks codex");
+        let released = split(tr.from_server(&json!({"jsonrpc": "2.0", "id": ask["id"],
+            "result": {"config": {"model_provider": "subrouter"}}})));
+        let resumed =
+            released.server.iter().find(|m| m["method"] == "thread/resume").expect("released");
+        assert_eq!(resumed["params"]["modelProvider"], "subrouter");
+        assert_eq!(resumed["params"]["threadId"], "t");
+        // Its answer reaches the hub as before.
+        let opened = split(tr.from_server(&json!({"id": resumed["id"],
+            "result": {"thread": {"id": "t", "turns": []}, "model": "gpt-6.1-sol"}})));
+        assert!(
+            opened.hub.iter().any(|m| m.to_value().get("result").is_some()),
+            "no resume result"
+        );
     }
 
     #[test]

@@ -90,7 +90,7 @@ final class EventInbox: Sendable {
     /// (as a `tree-changed` carrying it), drop the rest.
     private static func keep(_ envelope: DaemonEventEnvelope, in state: inout State) {
         switch envelope.event {
-        case .connected, .disconnected, .daemonShutdown, .sessionState:
+        case .connected, .disconnected, .daemonShutdown, .sessionState, .screenDeviceChanged:
             // Session state: not in the snapshot the collapse refetches.
             state.append(envelope)
         case .terminalRegistryChanged:

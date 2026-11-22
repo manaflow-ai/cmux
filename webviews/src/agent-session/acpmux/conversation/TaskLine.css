@@ -16,7 +16,7 @@
 .cv-task-line.is-live > .cv-agent-activity__sentence {
   position: relative;
 }
-.cv-task-line.is-live:not(:focus-within) > .cv-agent-activity__sentence > .cv-agent-tag {
+.cv-task-line.is-live:not(:focus-within) > .cv-agent-activity__sentence > .cv-agent-tag:not(:hover) {
   color: var(--cv-text-dim);
 }
 .cv-task-line .cv-row-shimmer .cv-agent-tag {

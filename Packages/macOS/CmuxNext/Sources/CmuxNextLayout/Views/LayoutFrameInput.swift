@@ -38,10 +38,24 @@ struct LayoutFrameInput {
     /// frames (Reduce Motion: no spring lands it, so no settle shows it) shows here, through the same path as a settle
     /// (``ScreenContentView/presentHeldSnap()``): each host lets go of a size drawn ahead for it that its placement did not
     /// take (review of b8085fe5bf1, P1 1 and 2: a press taken back before the tick kept its size and grid with Ghostty
-    /// and the PTY until the pane moved again).
-    func presentWaiting() { // perf-hot: 4ms motion-frame
+    /// and the PTY until the pane moved again). `waitsForContent`: a key press's snap whose terminals' programs have not
+    /// redrawn at the press's grids waits for a later tick, at most as long as they allow
+    /// (``ScreenContentView/heldSnapAwaitsContent()``, RESIZE P0 20); false for a settle (the window went out of sight),
+    /// which shows everything now. Returns whether such a snap still waits (the frames must go on).
+    @discardableResult
+    func presentWaiting(waitsForContent: Bool = true) -> Bool { // perf-hot: 4ms motion-frame
+        var waiting = false
         for view in root.screenViews.values where view.frameInput.presentationWaiting {
-            if view.frameInput.snapWaitsForContent { view.presentHeldSnap() } else { view.applyPresentation() }
+            guard view.frameInput.snapWaitsForContent else {
+                view.applyPresentation()
+                continue
+            }
+            if waitsForContent, view.heldSnapAwaitsContent() {
+                waiting = true
+                continue
+            }
+            view.presentHeldSnap()
         }
+        return waiting
     }
 }

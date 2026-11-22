@@ -17,6 +17,12 @@
 //! for a black hole) and is connected again within the bound. Each row prints its times (`carrier_faults row=...`) as the
 //! baseline. Rows that need behavior acpmux does not have yet are `#[ignore]` with the fix
 //! they wait for named.
+//!
+//! The Cloud carrier's ssh row (relay cut → ssh through `wg dial` → ssh cut → relay, after
+//! `carrier capabilities` lists ssh) runs the `cmux-tui` binary, so it lives beside that
+//! binary's tests: `cmux-tui/tests/carrier_ssh.rs`
+//! `carrier_faults_ssh_row_relay_cut_fails_over_to_ssh_through_wg_dial_and_back`, printing
+//! `carrier_faults row=cloud-ssh ...`.
 
 // The stand-in ssh and its permissions, and the WireGuard relay, are Unix-only.
 #![cfg(unix)]
@@ -592,13 +598,21 @@ impl World {
 /// Each state A's link to `b` took, with when it was first seen.
 type Seen = Arc<Mutex<Vec<(String, Instant)>>>;
 
+/// A's link state now, if A has a peer.
+fn link_state(a: &Hub) -> Option<String> {
+    a.peers().into_iter().next().map(|p| p["state"].as_str().unwrap_or("").to_owned())
+}
+
+/// The state list starts with the state at the call, read before it returns: the spawned
+/// sampler can first run after the caller cut the carrier, so it must not be the one that
+/// records the state before the cut.
 fn record_states(a: Arc<Hub>) -> (Seen, tokio::task::JoinHandle<()>) {
-    let seen: Seen = Arc::default();
+    let first = link_state(&a).map(|state| (state, Instant::now()));
+    let seen: Seen = Arc::new(Mutex::new(first.into_iter().collect()));
     let out = seen.clone();
     let task = tokio::spawn(async move {
         loop {
-            let now =
-                a.peers().into_iter().next().map(|p| p["state"].as_str().unwrap_or("").to_owned());
+            let now = link_state(&a);
             if let Some(now) = now {
                 let mut s = out.lock().unwrap();
                 if s.last().map(|(state, _)| state) != Some(&now) {
@@ -725,6 +739,14 @@ async fn run(row: Row) -> Times {
         },
     };
     sampler.abort();
+    // The state at the end, read here, for the same reason as the first one: under load the
+    // sampler may not run between the link coming back and its abort.
+    if let Some(now) = link_state(&w.a) {
+        let mut seen = states.lock().unwrap();
+        if seen.last().map(|(state, _)| state) != Some(&now) {
+            seen.push((now, Instant::now()));
+        }
+    }
     let timed = states.lock().unwrap().clone();
     // When the link went down (the link dropped, as against slow: a reset, the silence budget
     // running out, or a move to another path), if it did.

@@ -109,5 +109,95 @@ class ProcessTreeReapingTests(unittest.TestCase):
         self.assertIn("terminate_pid complete", completed.stdout)
 
 
+
+# A leader that dies on SIGTERM, with a child in its process group that ignores SIGTERM and closes stdin, stdout and
+# stderr, so no pipe or wait on the leader tells its caller it is still there. The child writes its pid to
+# $STUBBORN_PID first.
+STUBBORN = textwrap.dedent("""
+    import os, signal, sys, time
+    path = os.environ["STUBBORN_PID"]
+    if os.fork() == 0:
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        with open(path + ".tmp", "w") as out:
+            out.write(str(os.getpid()))
+        os.replace(path + ".tmp", path)
+        for fd in (0, 1, 2):
+            os.close(fd)
+        time.sleep(60)
+        os._exit(0)
+    while not os.path.exists(path):
+        time.sleep(0.01)
+    time.sleep(60)
+""")
+
+
+class BoundedRunTests(unittest.TestCase):
+    """ci_process_tree.run_bounded: subprocess.run's shape, but a timeout stops the command's whole tree, not only
+    the process it started (cmux#41752 review F1: a timed-out `git submodule update` left its `git clone` running).
+    Real processes: a shell that starts a background sleeper and waits on it."""
+
+    def setUp(self) -> None:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        self.addCleanup(sys.path.remove, str(ROOT / "scripts/ci"))
+        import ci_process_tree
+        self.tree = ci_process_tree
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.pid_file = pathlib.Path(tmp.name) / "child.pid"
+        self.addCleanup(self.stop_child)
+
+    def child(self) -> int:
+        return int(self.pid_file.read_text().strip()) if self.pid_file.exists() else 0
+
+    def stop_child(self) -> None:
+        import os
+        if self.child():
+            try:
+                os.kill(self.child(), 9)  # only the sleeper this test started
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    @staticmethod
+    def alive(pid: int) -> bool:
+        import os
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        try:
+            return pathlib.Path(f"/proc/{pid}/stat").read_text().split()[2] != "Z"
+        except (OSError, IndexError):
+            return True
+
+    def test_a_timeout_stops_the_grandchild_too(self) -> None:
+        run = getattr(self.tree, "run_bounded", None)
+        self.assertIsNotNone(run, "ci_process_tree has no run_bounded")
+        with self.assertRaises(subprocess.TimeoutExpired):
+            run(["sh", "-c", f"sleep 30 & echo $! > {self.pid_file}; wait"], timeout=1)
+        self.assertTrue(self.child(), "the sleeper never started")
+        self.assertFalse(self.alive(self.child()), "the grandchild outlived the timeout")
+
+    def test_a_child_that_ignores_sigterm_and_closes_its_output_is_killed(self) -> None:
+        """The cmux#41767 review's F1 shape: the leader exits on SIGTERM, its child ignores SIGTERM and holds no pipe,
+        so nothing waits on it; the group still gets SIGKILL after the grace period."""
+        run = getattr(self.tree, "run_bounded", None)
+        self.assertIsNotNone(run, "ci_process_tree has no run_bounded")
+        import os
+        with self.assertRaises(subprocess.TimeoutExpired):
+            run([sys.executable, "-I", "-c", STUBBORN], timeout=1, capture_output=True, text=True,
+                env={**os.environ, "STUBBORN_PID": str(self.pid_file)})
+        self.assertTrue(self.child(), "the stubborn child never started")
+        self.assertFalse(self.alive(self.child()), "a child that ignored SIGTERM outlived the timeout")
+
+    def test_a_quick_command_returns_its_status_and_output(self) -> None:
+        run = getattr(self.tree, "run_bounded", None)
+        self.assertIsNotNone(run, "ci_process_tree has no run_bounded")
+        done = run(["sh", "-c", "echo out; echo err >&2; exit 3"], timeout=10, capture_output=True, text=True)
+        self.assertEqual((done.returncode, done.stdout, done.stderr), (3, "out\n", "err\n"))
+
+
 if __name__ == "__main__":
     unittest.main()

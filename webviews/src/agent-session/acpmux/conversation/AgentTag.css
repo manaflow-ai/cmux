@@ -15,7 +15,7 @@
   overflow: hidden;
   border-radius: 4px;
   color: var(--cv-text);
-  background: color-mix(in srgb, var(--cv-fg, var(--cv-text)) 8%, transparent);
+  background: var(--ds-surface-inset);
   font-size: inherit;
   line-height: calc(1em + var(--ds-space-1));
   letter-spacing: inherit;
@@ -48,9 +48,9 @@ button.cv-agent-tag.is-open {
   gap: var(--ds-space-1);
   height: calc(1em + var(--ds-space-1));
   padding: 0 var(--ds-space-1);
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
   color: var(--cv-text);
-  background: color-mix(in srgb, var(--cv-text) 8%, transparent);
+  background: var(--ds-surface-inset);
   box-shadow: none;
   font-size: inherit;
   letter-spacing: inherit;

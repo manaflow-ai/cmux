@@ -81,7 +81,8 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help=(
             "Directory containing cmux-tui-, cmux-tui-hook- and "
-            "cmux-tui-agent-screen-detection-<rust-target> binaries."
+            "cmux-tui-agent-screen-detection-<rust-target> binaries, and "
+            "(Linux) cmux-tui-host-<rust-target>."
         ),
     )
     parser.add_argument(
@@ -122,9 +123,19 @@ def wheel_info(name: str, data: bytes, mode: int) -> tuple[zipfile.ZipInfo, byte
 
 
 def wheel_bytes(
-    version: str, tag: str, binary: bytes, hook_binary: bytes, notice: bytes, detector_binary: bytes
+    version: str,
+    tag: str,
+    binary: bytes,
+    hook_binary: bytes,
+    notice: bytes,
+    detector_binary: bytes,
+    host_binary: bytes | None = None,
 ) -> list[tuple[str, bytes, int]]:
     dist_info = f"{DIST_NAME}-{version}.dist-info"
+    # Linux wheels ship the slim terminal host as bin/cmux-tui-host, the exact
+    # sibling a Linux daemon runs every terminal host from (host_exe/linux.rs,
+    # CMUX-571); without it each terminal host maps the whole cmux-tui.
+    host_files = [] if host_binary is None else [(f"{PACKAGE_NAME}/bin/cmux-tui-host", host_binary, 0o755)]
     return [
         (
             f"{PACKAGE_NAME}/__init__.py",
@@ -153,6 +164,7 @@ def main() -> None:
         # The daemon runs this exact sibling of its own executable by default
         # (the agent screen-detection plugin).
         (f"{PACKAGE_NAME}/bin/cmux-agent-screen-detection", detector_binary, 0o755),
+        *host_files,
         (
             f"{dist_info}/WHEEL",
             text_bytes(
@@ -236,6 +248,12 @@ def main() -> None:
         detector_path = binaries_dir / f"cmux-tui-agent-screen-detection-{target.rust_target}"
         if not detector_path.is_file():
             raise SystemExit(f"missing agent screen-detection binary: {detector_path}")
+        host_binary = None
+        if target.rust_target.endswith("-unknown-linux-musl"):
+            host_path = binaries_dir / f"cmux-tui-host-{target.rust_target}"
+            if not host_path.is_file():
+                raise SystemExit(f"missing terminal host binary: {host_path}")
+            host_binary = host_path.read_bytes()
         binary = binary_path.read_bytes()
         hook_binary = hook_binary_path.read_bytes()
         detector_binary = detector_path.read_bytes()
@@ -250,7 +268,7 @@ def main() -> None:
                 wheel_path.unlink()
             write_wheel(
                 wheel_path,
-                wheel_bytes(args.version, platform_tag, binary, hook_binary, notice, detector_binary),
+                wheel_bytes(args.version, platform_tag, binary, hook_binary, notice, detector_binary, host_binary),
                 args.version,
             )
 

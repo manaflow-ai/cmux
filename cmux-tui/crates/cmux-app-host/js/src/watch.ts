@@ -1,0 +1,565 @@
+// cmux.watch(name, params): a live, cached read of a signal source (schema/v2/signals.json,
+// table in generated/signals.json). ABI.md, Signals, is the contract. In short:
+// - one entry per (name, canonical params) per app: every reader shares one upstream read;
+// - refcounted: the push subscriptions and the one timer exist only while a reader is mounted;
+// - pushed sources re-read on their events (coalesced: one read in flight, at most one queued);
+//   unpushed sources poll every staleAfterSeconds (or a reader's everySeconds), never faster
+//   than pollFloorSeconds;
+// - a pushed source with safetyPollSeconds is pushed from outside this machine (github.changed):
+//   until its stream says {"live": true} it polls like an unpushed source, and while live it
+//   re-reads only every safetyPollSeconds (what the push cannot see);
+// - stale-while-revalidate: a re-read and a failed re-read keep the old value (status stale);
+// - errors back off from the floor, doubling, to 15 minutes; refused reads are not retried.
+// When the host has `__cmuxAppNative.watch`, a source read with one op (`read.op`) is served by the
+// daemon's signals cache instead (cmux-tui-core apps/signals_cache.rs): one read per (name, params)
+// for every app, polled only while a mount watching it is shown. The entry here then holds no timer
+// and no subscription: it joins the daemon's entry once per mount and mirrors the states it sends.
+// A daemon that does not read the source answers {fallback: true} and the entry reads it itself.
+// The app-facing API does not change.
+
+import { callWith, CmuxError, HOST_OPS, log, setTimer, clearTimer, state, type CallOptions } from "./cmux.ts"
+import { batch, effect, getOwner, onCleanup, runWithOwner, signal, untrack, type Read, type Write } from "./reactive.ts"
+import { READERS } from "./signal-readers.ts"
+import { SchemaValidator } from "../../tools/json-schema.ts"
+import table from "../../generated/signals.json"
+
+export type WatchStatus = "loading" | "fresh" | "stale" | "error"
+export interface WatchState<T = unknown> {
+  value: T | undefined
+  status: WatchStatus
+  error?: CmuxError
+  updatedAt: number | null
+}
+
+interface SignalDef {
+  docs: string
+  scopes: string[]
+  params: Record<string, unknown>
+  read: { op: string } | { reader: string; ops: Array<{ op: string; scope: string }> }
+  push: string[]
+  pollFloorSeconds: number
+  staleAfterSeconds: number
+  /** Pushed from outside this machine: the slow re-read while the push is live (see next()). */
+  safetyPollSeconds?: number
+}
+
+const SIGNALS = (table as unknown as { signals: Record<string, SignalDef> }).signals
+const MAX_BACKOFF_MS = 15 * 60_000
+/** Inactive entries kept for a quick remount; the oldest is dropped past this. */
+const MAX_IDLE_ENTRIES = 32
+/** Errors that a retry cannot fix: the person or the app has to act (grant, connect, fix params). */
+const FINAL = new Set(["scope.missing", "operation.unsupported", "signal.unknown", "signal.params", "validation.invalid"])
+
+interface Entry {
+  key: string
+  name: string
+  def: SignalDef
+  params: Record<string, unknown>
+  value: [Read<unknown>, Write<unknown>]
+  status: [Read<WatchStatus>, Write<WatchStatus>]
+  error: [Read<CmuxError | undefined>, Write<CmuxError | undefined>]
+  updatedAt: [Read<number | null>, Write<number | null>]
+  /** Live readers: their everySeconds (undefined = the source's default). */
+  readers: Map<number, number | undefined>
+  subs: Array<() => void>
+  timer: number | null
+  inFlight: Promise<void> | null
+  again: boolean
+  queued: boolean
+  failures: number
+  lastUse: number
+  /** A push stream said {"live": true} (only sources with safetyPollSeconds look at it). */
+  pushLive: boolean
+  /** A liveness answer came since this mount (the first one follows the mount's own read). */
+  liveHeard: boolean
+  /** The mount each live reader renders in ("" outside a mount). */
+  readerMounts: Map<number, string>
+  /** The daemon's watches of this entry, one per mount. */
+  remote: Map<string, number>
+  /** The daemon said it does not read this source: this entry reads it itself. */
+  local: boolean
+  /** refresh() calls waiting for the daemon's next state. */
+  waiters: Array<() => void>
+}
+
+/** Reads and counters a test or a host can look at (cmux.watch is not instrumented otherwise). */
+export const watchStats = { reads: 0, entries: () => entries.size }
+
+const entries = new Map<string, Entry>()
+/** Daemon watch id to its entry. */
+const watches = new Map<number, Entry>()
+
+/** The daemon serves this entry: the host can watch and the source is read with one op. */
+const served = (e: Entry) => !e.local && "op" in e.def.read && typeof state.native?.watch === "function"
+let nextReader = 1
+const validators = new Map<string, SchemaValidator>()
+
+/** Canonical JSON: object keys sorted at every level, so {a,b} and {b,a} share one entry. */
+function canonical(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>
+    return `{${Object.keys(o).filter((k) => o[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(",")}}`
+  }
+  return JSON.stringify(v ?? null)
+}
+
+/** Keeps the old object wherever the new one is deep-equal, so unchanged rows emit no scene ops. */
+function share(prev: unknown, next: unknown): unknown {
+  if (Object.is(prev, next)) return prev
+  if (Array.isArray(prev) && Array.isArray(next)) {
+    let same = prev.length === next.length
+    const out = next.map((n, i) => {
+      const s = share(prev[i], n)
+      if (s !== prev[i]) same = false
+      return s
+    })
+    return same ? prev : out
+  }
+  if (prev && next && typeof prev === "object" && typeof next === "object" && !Array.isArray(prev) && !Array.isArray(next)) {
+    const p = prev as Record<string, unknown>
+    const n = next as Record<string, unknown>
+    const keys = Object.keys(n)
+    let same = keys.length === Object.keys(p).length
+    const out: Record<string, unknown> = {}
+    for (const k of keys) {
+      out[k] = share(p[k], n[k])
+      if (out[k] !== p[k] || !(k in p)) same = false
+    }
+    return same ? prev : out
+  }
+  return next
+}
+
+const asError = (e: unknown) => (e instanceof CmuxError ? e : new CmuxError("operation.failed", e instanceof Error ? e.message : String(e)))
+
+/**
+ * A source whose params declare `everySeconds` (http.json) takes the reader's pace from its params:
+ * it says how often this reader wants a re-read, not what is read, so it is not part of the entry.
+ */
+const pacedByParams = (def: SignalDef) => (def.params as { properties?: Record<string, unknown> }).properties?.everySeconds !== undefined
+
+function lookup(name: string, params: unknown): { def: SignalDef; params: Record<string, unknown>; pace?: number } {
+  const def = typeof name === "string" ? SIGNALS[name] : undefined
+  if (!def) throw new CmuxError("signal.unknown", `no signal source named ${String(name)}; sources: ${Object.keys(SIGNALS).sort().join(", ")}`, { signal: name })
+  const p = (params ?? {}) as Record<string, unknown>
+  let v = validators.get(name)
+  if (!v) validators.set(name, (v = new SchemaValidator(def.params)))
+  const errors = v.validate(p)
+  if (errors.length) throw new CmuxError("signal.params", `${name}: ${errors.map((e) => `${e.path || "params"} ${e.message}`).join("; ")}`, { signal: name, errors })
+  if (pacedByParams(def) && typeof p.everySeconds === "number") {
+    const { everySeconds, ...read } = p
+    return { def, params: JSON.parse(canonical(read)) as Record<string, unknown>, pace: everySeconds as number }
+  }
+  return { def, params: JSON.parse(canonical(p)) as Record<string, unknown> }
+}
+
+/** The ops a source reads that this app's grant allows (null: the host did not say, so all). */
+function missingScope(def: SignalDef): CmuxError | null {
+  if (!state.allowedOps) return null
+  const ops = "op" in def.read ? [def.read.op] : def.read.ops.map((o) => o.op)
+  if (ops.some((op) => HOST_OPS.has(op) || state.allowedOps!.has(op))) return null
+  return new CmuxError("scope.missing", `this app needs one of ${def.scopes.join(", ")} to watch it`, { scopes: def.scopes }, false)
+}
+
+function entryFor(name: string, def: SignalDef, params: Record<string, unknown>): Entry {
+  const key = `${name} ${canonical(params)}`
+  let e = entries.get(key)
+  if (e) return e
+  e = {
+    key,
+    name,
+    def,
+    params,
+    value: signal<unknown>(undefined),
+    status: signal<WatchStatus>("loading"),
+    error: signal<CmuxError | undefined>(undefined),
+    updatedAt: signal<number | null>(null),
+    readers: new Map(),
+    subs: [],
+    timer: null,
+    inFlight: null,
+    again: false,
+    queued: false,
+    failures: 0,
+    lastUse: Date.now(),
+    pushLive: false,
+    liveHeard: false,
+    readerMounts: new Map(),
+    remote: new Map(),
+    local: false,
+    waiters: []
+  }
+  entries.set(key, e)
+  return e
+}
+
+const snapshot = (e: Entry): WatchState => {
+  const error = e.error[0]()
+  const s: WatchState = { value: e.value[0](), status: e.status[0](), updatedAt: e.updatedAt[0]() }
+  if (error) s.error = error
+  return s
+}
+
+const active = (e: Entry) => e.readers.size > 0
+
+/** The poll interval while unpushed: the shortest a reader asked for, never under the floor. */
+function pollMs(e: Entry): number {
+  let s = e.def.staleAfterSeconds
+  for (const every of e.readers.values()) if (typeof every === "number" && every > 0) s = Math.min(s, every)
+  return Math.max(e.def.pollFloorSeconds, s) * 1000
+}
+
+/**
+ * When the entry reads again by itself, or null for never (pushed, and its push is local or live
+ * with no safety poll). A source pushed from outside polls like an unpushed one until its push is
+ * live, then every safetyPollSeconds.
+ */
+function idleMs(e: Entry): number | null {
+  if (!e.def.push.length) return pollMs(e)
+  if (e.def.safetyPollSeconds === undefined) return null
+  if (!e.pushLive) return pollMs(e)
+  return Math.max(e.def.pollFloorSeconds, e.def.safetyPollSeconds) * 1000
+}
+
+/** Readers' everySeconds move this entry's timer (they never speed up a live push). */
+const readerPaced = (e: Entry) => !e.def.push.length || (e.def.safetyPollSeconds !== undefined && !e.pushLive)
+
+/** Arms the entry's one timer `ms` from now; a negative `ms` only clears it. */
+function schedule(e: Entry, ms: number) {
+  if (e.timer !== null) clearTimer(e.timer)
+  e.timer = null
+  if (!active(e) || ms < 0) return
+  e.timer = runWithOwner(null, () =>
+    setTimer(ms, false, () => {
+      e.timer = null
+      read(e)
+    })
+  )
+}
+
+/** After a read settles: the next poll, a backoff retry, or nothing (pushed and fine, or final). */
+function next(e: Entry, error: CmuxError | null) {
+  if (!active(e)) return
+  if (error) {
+    // An upstream answer its reader marks not retryable (a 404, a 401) stays until a refresh or a remount.
+    if (FINAL.has(error.code) || (error.code === "upstream.failed" && !error.retryable)) return schedule(e, -1)
+    const floor = e.def.pollFloorSeconds * 1000
+    return schedule(e, Math.min(MAX_BACKOFF_MS, floor * 2 ** Math.min(e.failures - 1, 20)))
+  }
+  const ms = idleMs(e)
+  schedule(e, ms === null ? -1 : ms)
+}
+
+function upstream(e: Entry): Promise<unknown> {
+  const call = <T>(op: string, params: unknown) => callWith<T>(op, params, {} as CallOptions, undefined).then((r) => r.value)
+  if ("op" in e.def.read) return call(e.def.read.op, e.params)
+  const reader = READERS[e.def.read.reader]
+  if (!reader) return Promise.reject(new CmuxError("signal.unknown", `this runtime has no reader ${e.def.read.reader}`))
+  return reader(e.params, call)
+}
+
+function read(e: Entry): Promise<void> {
+  if (served(e) && e.remote.size) {
+    const id = e.remote.values().next().value as number
+    return new Promise<void>((resolve) => {
+      e.waiters.push(resolve)
+      state.native!.unwatch!(id, true)
+    })
+  }
+  if (e.inFlight) {
+    e.again = true
+    return e.inFlight
+  }
+  const scope = missingScope(e.def)
+  if (scope) {
+    batch(() => fail(e, scope))
+    return Promise.resolve()
+  }
+  if (e.timer !== null) clearTimer(e.timer)
+  e.timer = null
+  watchStats.reads++
+  if (e.value[0].peek() !== undefined) e.status[1]("stale")
+  let settled: CmuxError | null = null
+  const run = upstream(e).then(
+    (v) =>
+      batch(() => {
+        e.value[1](() => share(e.value[0].peek(), v))
+        e.status[1]("fresh")
+        e.error[1](undefined)
+        e.updatedAt[1](Date.now())
+        e.failures = 0
+      }),
+    (err) => {
+      settled = asError(err)
+      batch(() => fail(e, settled!))
+    }
+  )
+  // A reader effect that throws while the new value flushes must not wedge the entry in flight.
+  e.inFlight = run.catch((err) => log("error", `watch ${e.name}: ${asError(err).message}`)).then(() => {
+    e.inFlight = null
+    if (e.again) {
+      e.again = false
+      return read(e)
+    }
+    next(e, settled)
+  })
+  return e.inFlight
+}
+
+function fail(e: Entry, error: CmuxError) {
+  e.failures++
+  e.error[1](error)
+  e.status[1](e.value[0].peek() === undefined ? "error" : "stale")
+  if (e.failures === 1) log("warn", `watch ${e.name}: ${error.code}: ${error.message}`)
+}
+
+/**
+ * One event of a push stream. `{"live": bool}` says whether the push channel is up: going live
+ * reads once (it missed what changed while down) and stops the poll; going down starts it. Any
+ * other body is a change.
+ */
+function onPush(e: Entry, payload: unknown) {
+  const live = payload && typeof payload === "object" ? (payload as { live?: unknown }).live : undefined
+  if (typeof live !== "boolean") {
+    e.pushLive = true
+    e.liveHeard = true
+    return pushed(e)
+  }
+  const first = !e.liveHeard
+  e.liveHeard = true
+  if (live === e.pushLive) return
+  e.pushLive = live
+  // Live again after a gap: read what changed meanwhile. The first answer after a mount follows
+  // the mount's own read, so it only moves the timer.
+  if (live && !first) return pushed(e)
+  // Back to the poll, or off it, counted from now (a read in flight schedules it when it settles).
+  if (active(e) && !e.inFlight && e.failures === 0) {
+    const ms = idleMs(e)
+    schedule(e, ms === null ? -1 : ms)
+  }
+}
+
+/** A pushed event: one read for every event of this turn (and one queued behind a read in flight). */
+function pushed(e: Entry) {
+  if (e.queued) return
+  e.queued = true
+  Promise.resolve().then(() => {
+    e.queued = false
+    if (active(e)) read(e)
+  })
+}
+
+/** Joins the daemon's entry for `mount` unless this entry already watches it there. */
+function watchRemote(e: Entry, mount: string) {
+  if (e.remote.has(mount)) return
+  let every = 0
+  for (const [id, m] of e.readerMounts) {
+    const s = e.readers.get(id)
+    if (m === mount && typeof s === "number" && s > 0) every = every ? Math.min(every, s) : s
+  }
+  const id = state.native!.watch!(e.name, JSON.stringify(e.params), mount, every)
+  e.remote.set(mount, id)
+  watches.set(id, e)
+}
+
+function unwatchRemote(e: Entry, mount: string) {
+  const id = e.remote.get(mount)
+  if (id === undefined) return
+  e.remote.delete(mount)
+  watches.delete(id)
+  state.native?.unwatch?.(id, false)
+}
+
+/** A state of the daemon's entry for watch `id` (`__cmuxAppWatch`). */
+export function deliverWatch(id: number, json: string) {
+  const e = watches.get(id)
+  if (!e) return
+  const s = JSON.parse(json || "{}") as { fallback?: boolean; value?: unknown; status?: WatchStatus; error?: { code?: string; message?: string; details?: unknown; retryable?: boolean }; updatedAt?: number | null }
+  if (s.fallback) {
+    for (const mount of [...e.remote.keys()]) unwatchRemote(e, mount)
+    e.local = true
+    for (const done of e.waiters.splice(0)) done()
+    if (active(e)) activate(e)
+    return
+  }
+  batch(() => {
+    if (s.value !== undefined && s.value !== null) e.value[1](() => share(e.value[0].peek(), s.value))
+    const error = s.error ? new CmuxError(String(s.error.code ?? "operation.failed"), String(s.error.message ?? "operation failed"), s.error.details, s.error.retryable === true) : undefined
+    if (error && !e.error[0].peek()) log("warn", `watch ${e.name}: ${error.code}: ${error.message}`)
+    e.error[1](error)
+    e.status[1](s.status ?? "fresh")
+    e.updatedAt[1](typeof s.updatedAt === "number" ? s.updatedAt : null)
+  })
+  // A stale state with no error is a read in flight: refresh() waits for its answer.
+  if (s.status !== "stale" || s.error !== undefined) for (const done of e.waiters.splice(0)) done()
+}
+
+function activate(e: Entry) {
+  if (served(e)) {
+    for (const mount of new Set(e.readerMounts.values())) watchRemote(e, mount)
+    return
+  }
+  runWithOwner(null, () => {
+    for (const stream of e.def.push) {
+      try {
+        const subId = state.native!.subscribe(stream, "{}")
+        state.subscriptions.set(subId, (payload) => onPush(e, payload))
+        e.subs.push(() => {
+          if (state.subscriptions.delete(subId)) state.native?.unsubscribe(subId)
+        })
+      } catch (err) {
+        log("warn", `watch ${e.name}: cannot subscribe to ${stream}: ${asError(err).message}`)
+      }
+    }
+  })
+  const age = e.updatedAt[0].peek() === null ? Infinity : Date.now() - e.updatedAt[0].peek()!
+  // A pushed source missed its events while nobody watched; an unpushed one is good until stale.
+  const due = e.value[0].peek() === undefined || e.def.push.length > 0 || age >= e.def.staleAfterSeconds * 1000 || e.status[0].peek() !== "fresh"
+  if (due) read(e)
+  else schedule(e, Math.max(e.def.pollFloorSeconds * 1000, pollMs(e) - age))
+}
+
+function deactivate(e: Entry) {
+  for (const mount of [...e.remote.keys()]) unwatchRemote(e, mount)
+  for (const off of e.subs.splice(0)) off()
+  // The next mount hears the push channel's state again on subscribe.
+  e.pushLive = false
+  e.liveHeard = false
+  if (e.timer !== null) clearTimer(e.timer)
+  e.timer = null
+  e.lastUse = Date.now()
+  prune()
+}
+
+function prune() {
+  const idle = [...entries.values()].filter((x) => !active(x)).sort((a, b) => a.lastUse - b.lastUse)
+  for (const x of idle.slice(0, Math.max(0, idle.length - MAX_IDLE_ENTRIES))) if (!x.inFlight) entries.delete(x.key)
+}
+
+export type Watch<T = unknown> = Read<WatchState<T>> & {
+  value: Read<T | undefined>
+  status: Read<WatchStatus>
+  error: Read<CmuxError | undefined>
+  updatedAt: Read<number | null>
+  refresh: () => Promise<WatchState<T>>
+  dispose: () => void
+}
+
+/** Joins entry `e` as reader `id`; returns the release. */
+function join(e: Entry, id: number, everySeconds: number | undefined, mount: string): () => void {
+  const first = !active(e)
+  e.readers.set(id, everySeconds)
+  e.readerMounts.set(id, mount)
+  if (first) activate(e)
+  else if (served(e)) watchRemote(e, mount)
+  else if (everySeconds && readerPaced(e) && !e.inFlight && e.timer !== null && e.failures === 0) schedule(e, pollMs(e))
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    e.readers.delete(id)
+    e.readerMounts.delete(id)
+    if (!active(e)) deactivate(e)
+    else if (served(e) && ![...e.readerMounts.values()].includes(mount)) unwatchRemote(e, mount)
+    else if (readerPaced(e) && e.timer !== null && !e.inFlight && e.failures === 0) schedule(e, pollMs(e))
+  }
+}
+
+/**
+ * Starts (or joins) the watch of `name` for the current owner: the render or effect that calls it.
+ * `params` may be a function: it is tracked, and when its answer changes the reader moves to the
+ * new entry (a setting that changes what to read). Throws `signal.unknown` or `signal.params`;
+ * a missing scope is the watch's error.
+ */
+export function watch<T = unknown>(name: string, params?: unknown, options: { everySeconds?: number } = {}): Watch<T> {
+  const option = typeof options.everySeconds === "number" ? options.everySeconds : undefined
+  // The reader's pace: the option, else everySeconds in the params of a source paced by them.
+  let every = option
+  const id = nextReader++
+  // The mount this reader renders in: its visibility decides whether the daemon polls for it.
+  const mount = state.mount ?? ""
+  const resolve = (p: unknown) => {
+    const found = lookup(name, p)
+    every = option ?? found.pace
+    return entryFor(name, found.def, found.params)
+  }
+  const [current, setCurrent] = signal<Entry>(resolve(typeof params === "function" ? untrack(params as () => unknown) : params))
+  let release = untrack(() => join(current.peek(), id, every, mount))
+  let disposed = false
+  const dispose = () => {
+    if (disposed) return
+    disposed = true
+    release()
+  }
+  if (typeof params === "function") {
+    let first = true
+    effect(() => {
+      const p = (params as () => unknown)()
+      if (first) {
+        first = false
+        return
+      }
+      untrack(() => {
+        if (disposed) return
+        let e: Entry
+        try {
+          e = resolve(p)
+        } catch (err) {
+          log("error", `watch ${name}: ${asError(err).message}`)
+          return
+        }
+        if (e === current.peek()) {
+          // Only the pace in the params changed (http.json's everySeconds): same entry, new pace.
+          if (e.readers.get(id) !== every && e.readers.has(id)) {
+            e.readers.set(id, every)
+            if (readerPaced(e) && e.timer !== null && !e.inFlight && e.failures === 0) schedule(e, pollMs(e))
+          }
+          return
+        }
+        const old = release
+        release = join(e, id, every, mount)
+        setCurrent(e)
+        old()
+      })
+    })
+  }
+  if (getOwner()) onCleanup(dispose)
+  const accessor = (() => snapshot(current())) as Watch<T>
+  Object.assign(accessor, {
+    peek: () => untracked(current.peek()),
+    value: field(current, (e) => e.value[0]),
+    status: field(current, (e) => e.status[0]),
+    error: field(current, (e) => e.error[0]),
+    updatedAt: field(current, (e) => e.updatedAt[0]),
+    refresh: () => {
+      const e = current.peek()
+      return read(e).then(() => untracked(e) as WatchState<T>)
+    },
+    dispose
+  })
+  return accessor
+}
+
+/** One field of the current entry as a Read (tracks the entry switch and the field). */
+function field<V>(current: Read<Entry>, pick: (e: Entry) => Read<V>): Read<V> {
+  const r = (() => pick(current())()) as Read<V>
+  ;(r as { peek: () => V }).peek = () => pick(current.peek()).peek()
+  return r
+}
+
+const untracked = (e: Entry): WatchState => {
+  const error = e.error[0].peek()
+  const s: WatchState = { value: e.value[0].peek(), status: e.status[0].peek(), updatedAt: e.updatedAt[0].peek() }
+  if (error) s.error = error
+  return s
+}
+
+/** Re-reads (name, params) now, for a command; readers of the same entry see the result. */
+watch.refresh = async (name: string, params?: unknown): Promise<WatchState> => {
+  const found = lookup(name, params)
+  const e = entryFor(name, found.def, found.params)
+  await read(e)
+  if (!active(e)) prune()
+  return untracked(e)
+}

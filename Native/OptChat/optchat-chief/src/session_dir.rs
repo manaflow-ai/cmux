@@ -276,7 +276,12 @@ pub const TURN_DENIED_TOOLS: [&str; 24] = [
 /// Folded `acpmux_*` tools reach coordinator sessions. They are not in
 /// `approval::turn_allowed_tools`: an ask turn still refuses them.
 /// Background tasks stay out because a turn session is temporary.
-pub const CHIEF_CMUX_TOOLS: [&str; 23] = [
+/// The `workspace_*` and `workspace_group_*` tools are the Direct lifetime
+/// (action_lifetime.rs, Leo 2026-11-10: "when I tell it to organize my
+/// workspace versus groups, you don't need to make a workspace for that"):
+/// the Chief lists, renames, moves and groups the person's workspaces in its
+/// own turn instead of spawning a helper.
+pub const CHIEF_CMUX_TOOLS: [&str; 30] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -300,6 +305,13 @@ pub const CHIEF_CMUX_TOOLS: [&str; 23] = [
     "acpmux_info",
     "acpmux_inbox_read",
     "acpmux_inbox_reply",
+    "workspace_list",
+    "workspace_rename",
+    "workspace_move",
+    "workspace_place",
+    "workspace_group_list",
+    "workspace_group_create",
+    "workspace_group_update",
 ];
 
 /// The turn presets' env that keeps `cmux` and its folded `acpmux` server
@@ -645,6 +657,7 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         setup.chiefs_tool,
     );
     write_if_changed(&paths.session.join("AGENTS.md"), agents.as_bytes())?;
+    own_claude_md(&paths.session, matches!(setup.tools, Tools::Cli(_)))?;
     // The Mac host never runs the Cloud mode; it would take Claude's files.
     match setup.tools {
         Tools::Mcp | Tools::Cloud(_) => {
@@ -804,7 +817,13 @@ pub fn write_subagent(paths: &Paths, setup: &SessionSetup, text: &str) -> io::Re
     sub.env.insert(SUBAGENT_ENV.to_owned(), "1".to_owned());
     // Subagents load the user's own settings; no copy of its env here.
     sub.user_env.clear();
-    let settings = pretty(&settings_json(&sub, paths, &SUBAGENT_DENIED_TOOLS))?;
+    let mut settings = settings_json(&sub, paths, &SUBAGENT_DENIED_TOOLS);
+    // Hooks stay on in a subagent: Claude Code's `/goal` (goal.rs) runs as a
+    // Stop hook and refuses to start under `disableAllHooks` (a1147,
+    // 2026-11-12). A subagent works like the user's own session, so the
+    // user's hooks run there too; the Chief's turns keep them off.
+    settings["disableAllHooks"] = json!(false);
+    let settings = pretty(&settings)?;
     write_if_changed(
         &dir.join(".claude").join("settings.json"),
         settings.as_bytes(),
@@ -813,10 +832,29 @@ pub fn write_subagent(paths: &Paths, setup: &SessionSetup, text: &str) -> io::Re
         &dir.join(".claude").join("settings.local.json"),
         settings.as_bytes(),
     )?;
+    own_claude_md(dir, matches!(setup.tools, Tools::Cli(_)))?;
     match setup.tools {
         Tools::Mcp | Tools::Cloud(_) => remove_if_present(&dir.join("AGENTS.md")),
         Tools::Cli(_) => write_if_changed(&dir.join("AGENTS.md"), text.as_bytes()),
     }
+}
+
+/// The one line in a Chief or subagent folder's `.claude/CLAUDE.md`.
+const OWN_CLAUDE_MD: &str = "Your instructions are your system prompt. This folder's AGENTS.md holds the same text for other harnesses: do not read it.\n";
+
+/// With `on` (the layout whose system prompt is the preset's, AGENTS.md kept
+/// for other harnesses), writes `dir/.claude/CLAUDE.md`, Claude's own
+/// instruction file there, so acpmux's cross-harness fallback
+/// (folder_instructions.rs) sends no copy of the folder's AGENTS.md
+/// (tests/folder_context.rs: 33 KB a Chief turn, 15 KB a subagent's first
+/// prompt); else removes it.
+fn own_claude_md(dir: &Path, on: bool) -> io::Result<()> {
+    let path = dir.join(".claude").join("CLAUDE.md");
+    if !on {
+        return remove_if_present(&path);
+    }
+    std::fs::create_dir_all(dir.join(".claude"))?;
+    write_if_changed(&path, OWN_CLAUDE_MD.as_bytes())
 }
 
 /// The subagent directory's AGENTS.md for a codex subagent beside a Claude

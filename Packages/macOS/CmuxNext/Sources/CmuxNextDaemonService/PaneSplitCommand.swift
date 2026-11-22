@@ -9,12 +9,18 @@ public struct PaneSplitCommand: Sendable {
     public let options: SpawnOptions
     /// Set for left and up splits: the original pane moves this way.
     public let swapTowards: PaneDirection?
+    /// The split the new pane wraps whole (`split-around-v1`, Insert New at a divider), whose last pane is `pane`;
+    /// nil splits `pane` alone.
+    public let around: SplitID?
 
-    public init(pane: PaneID, direction: SplitDirection, options: SpawnOptions, swapTowards: PaneDirection?) {
+    public init(pane: PaneID, direction: SplitDirection, options: SpawnOptions, swapTowards: PaneDirection?, around: SplitID? = nil) {
         self.pane = pane
         self.direction = direction
+        var options = options
+        options.around = around
         self.options = options
         self.swapTowards = swapTowards
+        self.around = around
     }
 
     /// Sends the split to `daemon` (the pane's own daemon, local or remote)
@@ -67,7 +73,8 @@ public struct PaneSplitCommand: Sendable {
         options.terminalID = TerminalID(rawValue: provisional.terminalID)
         let pane = pane, direction = direction, sent = options
         // The stand-in's terminal opens in the folder this create sends: its tab shows it from the key's frame.
-        let intent = Intent.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional.opening(in: options.cwd))
+        let intent = Intent.splitPane(pane: pane, direction: direction, ratio: 0.5,
+                                      provisional: provisional.opening(in: options.cwd).wrapping(around))
         // The target at send time, as New Column and New Row do: a split pressed on a split still in flight names that
         // split's stand-in, which the daemon does not know ("unknown pane"); by the time this goes out (the workspace's
         // creates run in order, each once the store holds the one before) the daemon's pane has taken it over

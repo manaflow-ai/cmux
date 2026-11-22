@@ -10,6 +10,7 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -58,12 +59,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};
@@ -171,7 +169,8 @@ test("the omnibar's editing keys stay the field's", async () => {
       taken: modifiers.ctrlKey === true && key === "a",
     });
   }
-  expect(selected()).toBe(0);
+  // A prompt leads with no row of its own (David Beyer 2026-11-20): no row was lit, and none is now.
+  expect(selected()).toBe(-1);
 });
 
 test("the New Tab composer follows the opt-in spell checking setting", async () => {

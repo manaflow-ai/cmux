@@ -52,6 +52,7 @@ fn run_headless(global: &GlobalArgs) -> Option<i32> {
     let (socket, derived) = super::wire::resolve_socket_with_origin(global).ok()?;
     let terminal = std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| id.starts_with("term_"));
     let identity = read_identity_at(&socket, derived, terminal.as_deref()).ok()?;
+    let identity = with_daemon_build(identity, &socket);
     Some(print(global, &without_app(identity, &app_error)))
 }
 
@@ -80,7 +81,7 @@ fn explicitly_routed(global: &GlobalArgs) -> bool {
 
 fn run(global: &GlobalArgs, socket: &Path, terminal: &str) -> i32 {
     match read_identity(socket, terminal) {
-        Ok(identity) => print(global, &identity),
+        Ok(identity) => print(global, &with_daemon_build(identity, socket)),
         Err(failure) => failure.report(global.output),
     }
 }
@@ -262,6 +263,91 @@ fn identity_value(
     })
 }
 
+/// `identity` with `build`: this CLI's build id (`cli`), the daemon's
+/// (`daemon`, from `identify`'s `daemon-build-v1`; null from an older
+/// daemon), the daemon's own `cmux` (`daemon_cli`) and whether the builds
+/// match (`matches`, null when unknown), plus a `warning` when they do not
+/// (W5-Q): an agent that runs an older `cmux` on PATH learns which one to run.
+fn with_build(
+    identity: &mut Value,
+    own: &str,
+    daemon: Option<&super::skew::DaemonBuild>,
+    reach: Reach<'_>,
+) {
+    let Some(object) = identity.as_object_mut() else { return };
+    let matches = daemon.map(|daemon| daemon.build_id == own);
+    object.insert(
+        "build".into(),
+        json!({
+            "cli": own,
+            "daemon": daemon.map(|daemon| daemon.build_id.as_str()),
+            "daemon_cli": daemon.map(|daemon| daemon.cli_path.display().to_string()),
+            "matches": matches,
+        }),
+    );
+    let warning = daemon.filter(|_| matches == Some(false)).map(|daemon| match reach {
+        // The daemon's `cmux` is a path on the other machine: name the
+        // remote upgrade, as the CLI's own skew line does.
+        Reach::Tunnel { socket } => super::skew::remote_skew(daemon, own, socket),
+        Reach::Local { pane_cli } => {
+            let cli = daemon.cli_path.display().to_string();
+            // A pane's `CMUX_TUI_CLI` is its own session's `cmux`; a `--socket`
+            // to another session's daemon needs that daemon's `cmux`.
+            let run = match pane_cli.filter(|path| same_file(Path::new(path), &daemon.cli_path)) {
+                Some(_) => format!("\"$CMUX_TUI_CLI\" ({cli})"),
+                None => cli,
+            };
+            crate::localization::catalog()
+                .pane_cli
+                .build_mismatch
+                .replace("{own}", own)
+                .replace("{daemon}", &daemon.build_id)
+                .replace("{run}", &run)
+        }
+    });
+    object.insert("warning".into(), json!(warning));
+}
+
+/// Whether absolute path `path` names the file `target` names (the same
+/// path, or a link to it).
+fn same_file(path: &Path, target: &Path) -> bool {
+    if !path.is_absolute() {
+        return false;
+    }
+    match (std::fs::canonicalize(path), std::fs::canonicalize(target)) {
+        (Ok(path), Ok(target)) => path == target,
+        _ => path == target,
+    }
+}
+
+/// How the CLI reached the daemon that answered, as [`with_build`] words its
+/// warning.
+#[derive(Clone, Copy, Debug)]
+enum Reach<'a> {
+    /// The daemon itself answered on a local socket; `pane_cli` is the
+    /// `CMUX_TUI_CLI` this process has (set in a cmux pane). The warning
+    /// names it only when it is the daemon's own `cmux` file.
+    Local { pane_cli: Option<&'a str> },
+    /// The socket tunnels to a daemon on another machine; its `cmux` is a
+    /// path there.
+    Tunnel { socket: &'a Path },
+}
+
+/// [`with_build`] for the daemon at `socket`, asked over its own connection.
+fn with_daemon_build(mut identity: Value, socket: &Path) -> Value {
+    let probed = super::skew::probe_socket(socket.to_path_buf());
+    let pane_cli = std::env::var("CMUX_TUI_CLI").ok();
+    let reach = match &probed {
+        Some((_, daemon, route)) if !super::skew::answered_itself(daemon, route) => {
+            Reach::Tunnel { socket }
+        }
+        _ => Reach::Local { pane_cli: pane_cli.as_deref() },
+    };
+    let daemon = probed.map(|(_, daemon, _)| daemon);
+    with_build(&mut identity, super::skew::own_build_id(), daemon.as_ref(), reach);
+    identity
+}
+
 /// The human answer: one labelled line per object.
 fn human(identity: &Value) -> String {
     let labels = &crate::localization::catalog().pane_cli;
@@ -296,6 +382,9 @@ fn human(identity: &Value) -> String {
         rows.push((labels.outer_app, format!("{app} (`cmux app identify`)")));
     }
     rows.push((labels.guide, "cmux skill show".to_owned()));
+    if let Some(warning) = at("/warning").as_str() {
+        rows.push((labels.warning, warning.to_owned()));
+    }
     let width = rows.iter().map(|(label, _)| label.chars().count()).max().unwrap_or(0);
     rows.into_iter()
         .map(|(label, value)| {
@@ -306,130 +395,5 @@ fn human(identity: &Value) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn record(pairs: &[(&str, &str)]) -> Value {
-        Value::Object(pairs.iter().map(|(k, v)| ((*k).to_owned(), json!(v))).collect())
-    }
-
-    /// The caller path follows terminal, tab, pane, screen and workspace in
-    /// that order, and keeps the names the app's caller lacks.
-    #[test]
-    fn identify_follows_the_terminal_to_its_workspace() {
-        let mut asked = Vec::new();
-        let mut read = |operation: ResourceOperation,
-                        extra: Option<(&str, &str)>|
-         -> Result<Value, Failure> {
-            asked.push((operation.wire_name().to_owned(), extra.map(|(_, id)| id.to_owned())));
-            Ok(match operation {
-                ResourceOperation::TerminalGet => record(&[("id", "term_1"), ("tab_id", "tab_1")]),
-                ResourceOperation::TabGet => {
-                    record(&[("id", "tab_1"), ("pane_id", "pane_1"), ("name", "logs")])
-                }
-                ResourceOperation::PaneGet => {
-                    record(&[("id", "pane_1"), ("screen_id", "screen_1")])
-                }
-                ResourceOperation::ScreenGet => {
-                    record(&[("id", "screen_1"), ("workspace_id", "ws_1"), ("name", "main")])
-                }
-                ResourceOperation::WorkspaceGet => record(&[("id", "ws_1"), ("name", "api")]),
-                _ => Value::Null,
-            })
-        };
-        let mut records = CallerRecords::default();
-        assert!(caller_records(&mut read, "term_1", &mut records).is_ok());
-        let caller = records.caller("term_1");
-        assert_eq!(
-            asked.iter().map(|(operation, _)| operation.as_str()).collect::<Vec<_>>(),
-            ["terminal.get", "tab.get", "pane.get", "screen.get", "workspace.get"]
-        );
-        assert_eq!(caller["found"], true);
-        assert_eq!(caller["workspace"], "ws_1");
-        assert_eq!(caller["workspace_name"], "api");
-        assert_eq!(caller["screen"], "screen_1");
-        assert_eq!(caller["pane"], "pane_1");
-        assert_eq!(caller["tab"], "tab_1");
-        assert_eq!(caller["tab_name"], "logs");
-        assert_eq!(caller["terminal_id"], "term_1");
-    }
-
-    /// A terminal that left its tab says so instead of naming a wrong place.
-    #[test]
-    fn a_terminal_without_a_tab_is_not_found() {
-        let mut read = |_: ResourceOperation, _: Option<(&str, &str)>| -> Result<Value, Failure> {
-            Ok(record(&[("id", "t")]))
-        };
-        let mut records = CallerRecords::default();
-        let Err(Failure::Resource(error)) = caller_records(&mut read, "term_9", &mut records)
-        else {
-            panic!("a terminal with no tab was placed");
-        };
-        assert_eq!(error["code"], "selector.not_found");
-    }
-
-    #[test]
-    fn identity_names_the_session_machine_outer_app_and_guide() {
-        let value = identity_value(
-            Path::new("/tmp/cmux-tui-501/bench.sock"),
-            &record(&[("id", "session_1"), ("name", "bench")]),
-            &record(&[("id", "machine_1"), ("name", "mac")]),
-            json!({"found": true, "terminal_id": "term_1"}),
-            json!({"socket_path": "/x/cmux.sock", "identify": "cmux app identify"}),
-        );
-        assert_eq!(value["kind"], "cmux-tui");
-        assert_eq!(value["session"], json!({"id": "session_1", "name": "bench"}));
-        assert_eq!(value["machine"], json!({"id": "machine_1", "name": "mac"}));
-        assert_eq!(value["socket_path"], "/tmp/cmux-tui-501/bench.sock");
-        assert_eq!(value["outer_app"]["identify"], "cmux app identify");
-        assert_eq!(value["guide"], "cmux skill show");
-        let text = human(&value);
-        assert!(text.contains("session_1 bench"), "{text}");
-        assert!(text.contains("/x/cmux.sock (`cmux app identify`)"), "{text}");
-    }
-
-    /// With no app, identify still answers from the daemon and says why no
-    /// app answered.
-    #[test]
-    fn a_headless_identity_says_no_app_answered() {
-        let value = without_app(
-            identity_value(
-                Path::new("/run/cmux-tui/main.sock"),
-                &record(&[("id", "session_1"), ("name", "main")]),
-                &record(&[("id", "machine_1"), ("name", "runner")]),
-                json!({"found": false, "terminal_id": null, "error": {"message": "outside"}}),
-                Value::Null,
-            ),
-            &json!({"code": "app.not_found", "message": "no cmux app found", "details": {}}),
-        );
-        assert_eq!(value["app_connected"], false);
-        assert_eq!(value["app"], Value::Null);
-        assert_eq!(
-            value["app_error"],
-            json!({"code": "app.not_found", "message": "no cmux app found"})
-        );
-        assert_eq!(value["session"]["name"], "main");
-        let text = human(&value);
-        assert!(text.contains(crate::localization::catalog().pane_cli.no_app), "{text}");
-    }
-
-    /// `machine.get` refuses a session parameter ("unknown parameters").
-    #[test]
-    fn the_machine_read_names_no_session() {
-        assert!(route(ResourceOperation::MachineGet).get("session").is_none());
-        assert_eq!(route(ResourceOperation::MachineGet)["machine"], "current");
-        assert_eq!(route(ResourceOperation::SessionGet)["session"], "current");
-        assert_eq!(route(ResourceOperation::TerminalGet)["session"], "current");
-    }
-
-    #[test]
-    fn an_explicit_route_keeps_the_classic_identify() {
-        let mut global = GlobalArgs::default();
-        assert!(!explicitly_routed(&global));
-        global.session = Some("other".into());
-        assert!(explicitly_routed(&global));
-        let global =
-            GlobalArgs { app_socket: Some("/x/cmux.sock".into()), ..GlobalArgs::default() };
-        assert!(explicitly_routed(&global));
-    }
-}
+#[path = "pane_identify_tests.rs"]
+mod tests;

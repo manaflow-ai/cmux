@@ -13,6 +13,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import live_apply  # noqa: E402
+import importlib.util  # noqa: E402
+import os  # noqa: E402
+
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_env = importlib.util.spec_from_file_location(
+    "git_fixture_env",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_fixture_env.py"),
+)
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
+_git_fixture_env.loader.exec_module(git_fixture_env)
 
 VIEW = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift"
 # A module the app's live code build does not patch (docs/cmux-next/live-code.md: CmuxNextApp only).
@@ -29,6 +39,11 @@ class ClassifyTests(unittest.TestCase):
                                        ("A", "scripts/cmux-next/tests/test_x.py")]), "no-app")
         self.assertEqual(self.verdict([("M", "images/cmux-vm/inputs.lock.json")]), "no-app")
         self.assertEqual(self.verdict([("M", "Packages/macOS/CmuxNext/ci-target-graph.json")]), "no-app")
+        self.assertEqual(self.verdict([("M", "examples/extensions/activity/src/main.ts")]), "no-app")
+        self.assertEqual(self.verdict([("M", "design/terminal-chat-toggle-gallery.html")]), "no-app")
+        # The screen detector under cmux-tui/bindings/examples/ ships in the app: a daemon restart, not no-app.
+        self.assertEqual(self.verdict([("M", "cmux-tui/bindings/examples/rust-agent-screen-detection/src/lib.rs")]),
+                         "daemon")
 
     def test_a_web_change_is_live(self):
         self.assertEqual(self.verdict([("M", "webviews/src/agent-pane/Composer.tsx"), ("M", "docs/a.md")]), "web-live")
@@ -61,8 +76,14 @@ class ClassifyTests(unittest.TestCase):
     def test_new_types_enum_cases_and_resources_need_a_rebuild(self):
         self.assertEqual(self.verdict([("M", VIEW)], {VIEW: [("+", "struct Chip: View {")]}), "rebuild")
         self.assertEqual(self.verdict([("M", VIEW)], {VIEW: [("+", "    case pinned")]}), "rebuild")
-        self.assertEqual(self.verdict([("M", "Resources/Localizable.xcstrings")]), "rebuild")
         self.assertEqual(self.verdict([("M", "Packages/macOS/CmuxNext/Package.swift")]), "rebuild")
+
+    def test_native_sources_need_a_rebuild_except_the_ones_cmux_tui_builds(self):
+        self.assertEqual(self.verdict([("M", "cmux-tui/crates/cmux-remote-browser-host/csrc/rb_shim.mm")]), "daemon")
+        self.assertEqual(self.verdict([("M", "cmux-tui/bindings/zig/src/raw/generated/protocol.zig")]), "daemon")
+        self.assertEqual(self.verdict([("M", "ghostty/src/main.zig")]), "rebuild")
+        self.assertEqual(self.verdict([("M", "Packages/macOS/CmuxNext/CEFShim/src/shim_client.mm")]), "rebuild")
+        self.assertEqual(self.verdict([("M", "Sources/CmuxNextApp/Bridge.m")]), "rebuild")
 
     def test_a_new_swift_file_is_live_unless_it_is_an_entry_point(self):
         new = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Chip.swift"
@@ -89,6 +110,54 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.verdict([("M", SHELL)], {SHELL: body}), "swift-live")
         # A deleted file leaves its code in the binary unused, whatever its module.
         self.assertEqual(self.verdict([("D", PANE)]), "swift-live")
+
+    def test_string_catalogs_are_tried_with_no_build_and_ci_still_builds_them(self):
+        catalog = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings"
+        lab = "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Resources/CmuxHome.xcstrings"
+        result = live_apply.classify([("M", catalog), ("M", lab)], {})
+        self.assertEqual(result["verdict"], "strings")
+        self.assertEqual(result["reasons"], {})
+        self.assertEqual(result["files"], {"strings": sorted([catalog, lab])})
+        # A body edit beside it is still a live code patch; web UI beside it is still a web swap.
+        body = {VIEW: [("-", "        Text(\"old\")"), ("+", "        Text(\"new\")")]}
+        self.assertEqual(self.verdict([("M", catalog), ("M", VIEW)], body), "swift-live")
+        self.assertEqual(self.verdict([("M", catalog), ("M", "webviews/src/a.tsx")]), "web-live")
+        # Compiled tables, plists and the iPhone app's catalogs keep their rules.
+        self.assertEqual(self.verdict([("M", "Resources/en.lproj/Localizable.strings")]), "rebuild")
+        self.assertEqual(self.verdict([("M", "Packages/iOS/CmuxMobile/Resources/Localizable.xcstrings")]), "ios-only")
+
+    def test_typescript_only_the_web_bundles_import_is_web_live(self):
+        generated = "clients/ts/cloud/src/generated.ts"
+        result = live_apply.classify([("M", generated)], {})
+        self.assertEqual(result["verdict"], "web-live")
+        self.assertEqual(result["reasons"], {})
+        self.assertEqual(self.verdict([("M", "config/vite-plus/check.ts")]), "web-live")
+
+    def test_no_web_bundle_input_is_filed_as_an_unknown_app_file(self):
+        # The router's BUNDLE_INPUTS lists what the web bundles are built from, outside webviews/ included
+        # (tests/test_web_bundle_key_inputs.sh keeps it complete). None of them is native code, so none may fall
+        # through to "other app file" (a rebuild), as clients/ts/cloud/src/generated.ts did. The markdown viewer's
+        # scripts are also copied into the app as they are (Resources/markdown-viewer): those stay a rebuild.
+        import ast
+        router = Path(__file__).resolve().parents[2] / "ci" / "cmux_next_route.py"
+        tree = ast.parse(router.read_text())
+        inputs = next(ast.literal_eval(node.value) for node in ast.walk(tree) if isinstance(node, ast.Assign)
+                      and any(getattr(t, "id", None) == "BUNDLE_INPUTS" for t in node.targets))
+        self.assertIn("clients/ts/cloud/src/generated.ts", inputs)
+        for spec in inputs:
+            if spec.startswith("Resources/markdown-viewer/"):
+                continue
+            path = spec.replace("*", "x.json")
+            reasons = live_apply.classify([("M", path)], {})["reasons"]
+            self.assertNotIn("other app file", reasons, spec)
+
+    def test_messages_lab_home_is_a_live_code_module(self):
+        body = [("-", "        label.stringValue = old"), ("+", "        label.stringValue = new")]
+        home = "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/TranscriptView.swift"
+        self.assertEqual(self.verdict([("M", home)], {home: body}), "swift-live")
+        # Its sibling module is not in the live code build.
+        sidebar = "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/SidebarView.swift"
+        self.assertEqual(self.verdict([("M", sidebar)], {sidebar: body}), "rebuild")
 
     def test_a_deleted_swift_file_is_live_and_ios_alone_leaves_the_mac_app(self):
         self.assertEqual(self.verdict([("D", VIEW)]), "swift-live")

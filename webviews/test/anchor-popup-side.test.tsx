@@ -6,6 +6,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useRef } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -34,12 +35,9 @@ beforeAll(() => {
   Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const rect = (left: number, top: number, width: number, height: number) =>

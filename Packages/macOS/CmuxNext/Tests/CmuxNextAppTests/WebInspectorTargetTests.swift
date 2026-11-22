@@ -3,13 +3,14 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextPages
+import CmuxNextTestSupport
 import Testing
 import WebKit
 
 /// Inspect Element and the Developer Tools set (u3971, plans/cmux-next/web-devtools.md) act on
 /// any focused web view, not only browser panes: Cmd-Shift-P lists Inspect Element everywhere,
 /// disabled with the reason while no web view has focus, and the `devtools.*` set shows when one does.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct WebInspectorTargetTests {
     static func services() -> AppServices {
         _ = NSApplication.shared

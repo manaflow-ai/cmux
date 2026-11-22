@@ -6,6 +6,7 @@ import { DictationButton } from "./DictationButton";
 import { DictationCancelButton } from "./DictationListening";
 import type { Dictation } from "./dictation";
 import { SHORTCUT_ACTIONS, ShortcutsContext } from "./shortcuts";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -52,6 +53,7 @@ async function resetDom(): Promise<void> {
       root!.unmount();
     });
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

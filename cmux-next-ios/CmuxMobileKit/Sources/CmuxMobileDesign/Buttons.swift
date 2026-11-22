@@ -15,7 +15,9 @@ public struct CmuxMobileCapsuleSize: Sendable, Hashable {
     public static let inline = CmuxMobileCapsuleSize(height: 40, fullWidth: false)
 }
 
-/// Solid `accent` capsule with `onAccent` label. Pressed: 0.85 opacity and 0.98
+/// Solid neutral capsule (black in light, white in dark), whatever accent the person
+/// picked: a call to action never takes the accent colour (Aziz 2026-11-12).
+/// Pressed: 0.85 opacity and 0.98
 /// scale; disabled: the same capsule at 40%; loading: spinner, width kept.
 public struct PrimaryCapsule: View {
     let title: LocalizedStringKey
@@ -34,7 +36,7 @@ public struct PrimaryCapsule: View {
 
     public var body: some View {
         Button(action: action) {
-            CapsuleLabel(title: title, systemImage: systemImage, isLoading: isLoading, spinnerTint: theme.colors.onAccent.color)
+            CapsuleLabel(title: title, systemImage: systemImage, isLoading: isLoading, spinnerTint: theme.colors.neutralOnAccent.color)
         }
         .buttonStyle(CmuxMobileCapsuleStyle(size: size, kind: .primary))
         .allowsHitTesting(!isLoading)
@@ -65,7 +67,7 @@ public struct SecondaryCapsule: View {
                 .frame(height: size.height)
                 .contentShape(.capsule)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressGlass)
         .glassEffect(.regular.interactive(), in: .capsule)
     }
 }
@@ -88,7 +90,7 @@ public struct TextCTA: View {
                 .frame(minHeight: 44)
                 .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
     }
 }
 
@@ -117,7 +119,7 @@ public struct CmuxMobileCapsuleStyle: ButtonStyle {
     /// Fill treatment.
     public struct Kind: Sendable, Hashable {
         public let id: Int
-        /// `accent` fill, `onAccent` label.
+        /// Neutral fill (`neutralAccent`), `neutralOnAccent` label.
         public static let primary = Kind(id: 0)
         /// `surface` fill in dark, `fill` in light, `label` text (sign-in providers).
         public static let provider = Kind(id: 1)
@@ -144,23 +146,21 @@ public struct CmuxMobileCapsuleStyle: ButtonStyle {
             // Grows with Dynamic Type instead of clipping its label.
             .padding(.vertical, size.fullWidth ? 12 : 8)
             .frame(minHeight: size.height)
-            .background(background, in: .capsule)
+            // Held: the pressed wash over the fill; the label never dims, shrinks or changes weight.
+            .cmuxMobilePressFill(pressed, rest: background, in: Capsule())
             .contentShape(.capsule)
             // Disabled primary: the same capsule at 40%, still shaped.
             .opacity(kind == .primary && !isEnabled ? 0.4 : 1)
-            .opacity(pressed ? 0.85 : 1)
-            .scaleEffect(pressed ? 0.98 : 1)
-            .animation(theme.motion.snap.animation.unlessReduceMotion, value: pressed)
     }
 
     private var foreground: AnyShapeStyle {
         guard isEnabled || kind == .primary else { return AnyShapeStyle(theme.colors.label3) }
-        return kind == .primary ? AnyShapeStyle(theme.colors.onAccent) : AnyShapeStyle(theme.colors.label)
+        return kind == .primary ? AnyShapeStyle(theme.colors.neutralOnAccent) : AnyShapeStyle(theme.colors.label)
     }
 
     private var background: AnyShapeStyle {
         if kind == .primary {
-            return AnyShapeStyle(theme.colors.accent)
+            return AnyShapeStyle(theme.colors.neutralAccent)
         }
         return colorScheme == .dark ? AnyShapeStyle(theme.colors.surface) : AnyShapeStyle(theme.colors.fill)
     }

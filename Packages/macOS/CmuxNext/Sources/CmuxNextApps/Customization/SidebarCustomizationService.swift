@@ -11,9 +11,10 @@ public import Observation
 @MainActor
 @Observable
 public final class SidebarCustomizationService: SidebarCustomization {
-    static let hoverCardInterface = "cmux.hovercard/1"
+    // Nonisolated: ``AppMountSurface`` resolves the hover card by the same app and interface.
+    nonisolated static let hoverCardInterface = "cmux.hovercard/1"
     static let rowsInterface = "cmux.sidebar.rows/1"
-    static let userApp = "local/customize"
+    nonisolated static let userApp = "local/customize"
 
     @ObservationIgnored private let client: AppsClient
     @ObservationIgnored private let isPresented: (String) -> Bool
@@ -42,7 +43,7 @@ public final class SidebarCustomizationService: SidebarCustomization {
     /// status): another installed app cannot.
     func implementation(_ interface: String) -> (app: String, implementation: AppImplementation)? {
         guard let app = client.app(Self.userApp), isPresented(app.id),
-              let found = app.manifest.implementations.first(where: { $0.interface == interface && $0.hasScene }) else { return nil }
+              let found = app.manifest.sceneImplementation(interface: interface) else { return nil }
         return (app.id, found)
     }
 
@@ -100,12 +101,14 @@ public final class SidebarCustomizationService: SidebarCustomization {
         onRowDecorationsChange?()
     }
 
-    /// Every `Group` node with a `row` prop, read as a decoration (later nodes win).
+    /// Every `Group` node naming its row by `row` (the id) or `title`, read as a decoration (later nodes win).
+    /// `title` is read too: a rows view that names rows by title (the documented example, the example
+    /// looks) decorated nothing while only `row` was read.
     static func decorations(_ scene: AppScene) -> [String: SidebarRowDecoration] {
         var out: [String: SidebarRowDecoration] = [:]
         for node in scene.nodes.values where node.type == .group {
             var props: [String: String] = [:]
-            for key in ["row", "icon", "weight", "indicator", "badge"] { props[key] = node.string(key) }
+            for key in ["row", "title", "icon", "weight", "indicator", "badge"] { props[key] = node.string(key) }
             if let (id, decoration) = SidebarRowDecoration.parse(props) { out[id] = decoration }
         }
         return out

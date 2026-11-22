@@ -1,11 +1,10 @@
 // Lawrence 2026-10-23 (msg 11494): scrollbars grow near the pointer and fade at rest. The pure
-// parts of scrollers.ts: when the pointer is near a scroller's trailing edge, and which scrolls
+// parts of scrollers.ts: when the pointer is over a scroller's bar (its lane, scroller-grab-zone.test.ts), and which scrolls
 // show a fading chat thumb (the transcript following new rows does not). The painted behavior is
 // in scroller-near-grow.test.ts (browser lane).
 import { describe, expect, test } from "bun:test";
 import {
   MINIMAL_SCROLLER_ATTRIBUTE,
-  NEAR_PX,
   SCROLLING_HIDE_MS,
   SHOWN_SCROLLER_ATTRIBUTE,
   isUserScroll,
@@ -18,28 +17,28 @@ function element(...attributes: string[]): Element {
   return { hasAttribute: (name: string) => attributes.includes(name) } as unknown as Element;
 }
 
-describe("near the trailing edge", () => {
+describe("over the vertical bar's lane", () => {
   const box = { left: 100, right: 300, top: 0, bottom: 200 };
-  test("within NEAR_PX of the right edge, inside the box, is near", () => {
-    expect(nearTrailingEdge(box, 300, 50)).toBe(true);
-    expect(nearTrailingEdge(box, 300 - NEAR_PX, 50)).toBe(true);
-    expect(nearTrailingEdge(box, 300 - NEAR_PX - 1, 50)).toBe(false);
-    expect(nearTrailingEdge(box, 301, 50)).toBe(false);
-    expect(nearTrailingEdge(box, 295, 201)).toBe(false);
+  test("the lane's columns inside the box are near, half-open", () => {
+    expect(nearTrailingEdge(box, 299.5, 50, 8)).toBe(true);
+    expect(nearTrailingEdge(box, 292, 50, 8)).toBe(true);
+    expect(nearTrailingEdge(box, 291.9, 50, 8)).toBe(false);
+    expect(nearTrailingEdge(box, 300, 50, 8)).toBe(false);
+    expect(nearTrailingEdge(box, 295, 200, 8)).toBe(false);
   });
-  test("a box narrower than NEAR_PX is near only inside itself", () => {
-    expect(nearTrailingEdge({ left: 290, right: 300, top: 0, bottom: 10 }, 285, 5)).toBe(false);
+  test("no lane (an overlay scrollbar) is never near", () => {
+    expect(nearTrailingEdge(box, 299.5, 50, 0)).toBe(false);
   });
 });
 
-describe("near the bottom edge (a sideways bar)", () => {
+describe("over the sideways bar's lane", () => {
   const box = { left: 0, right: 400, top: 100, bottom: 300 };
-  test("within NEAR_PX above the bottom edge, inside the box, is near", () => {
-    expect(nearBottomEdge(box, 200, 300)).toBe(true);
-    expect(nearBottomEdge(box, 200, 300 - NEAR_PX)).toBe(true);
-    expect(nearBottomEdge(box, 200, 300 - NEAR_PX - 1)).toBe(false);
-    expect(nearBottomEdge(box, 200, 301)).toBe(false);
-    expect(nearBottomEdge(box, 401, 295)).toBe(false);
+  test("the lane's rows inside the box are near, half-open", () => {
+    expect(nearBottomEdge(box, 200, 299.5, 8)).toBe(true);
+    expect(nearBottomEdge(box, 200, 292, 8)).toBe(true);
+    expect(nearBottomEdge(box, 200, 291.9, 8)).toBe(false);
+    expect(nearBottomEdge(box, 200, 300, 8)).toBe(false);
+    expect(nearBottomEdge(box, 400, 295, 8)).toBe(false);
   });
 });
 

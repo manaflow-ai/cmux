@@ -17,7 +17,15 @@ export const OUTBOX_MAX_ATTEMPTS = 12
  * (backoff, retried forever, never dead letter). `poison`: the item itself fails (counts toward
  * dead letter for its own head item only).
  */
-export type OutboxFailure = "transient" | "poison"
+export type OutboxFailure = "transient" | "poison" | "in_flight"
+/**
+ * `in_flight`: the target still runs this very item (a duplicate during its run, cmux-platform approvals takeAnswer).
+ * Not done, so it stays queued and is resent after OUTBOX_IN_FLIGHT_RETRY_MS, without counting toward dead letter;
+ * past OUTBOX_IN_FLIGHT_MAX_MS since the head's first in_flight reply (well above an approved run's ~25 s) a run that
+ * never ends counts as an ordinary failure, so the item cannot sit queued forever.
+ */
+export const OUTBOX_IN_FLIGHT_MAX_MS = 10 * 60_000
+export const OUTBOX_IN_FLIGHT_RETRY_MS = 5_000
 const MAX_BACKOFF_MS = 5 * 60_000
 
 /** '' for PlanetScale projections; '<class>:<name>' for a target object. */
@@ -51,6 +59,22 @@ export class Outbox {
       .map((r) => r.channel)
   }
 
+  /**
+   * Whether one channel has a pending item and its backoff has passed: one indexed probe of that channel (the
+   * `_pending` partial index and the backoff primary key), never a scan of every due channel.
+   */
+  channelDue(channel: string, now: number): boolean {
+    return (
+      this.sql.exec(
+        `SELECT 1 FROM ${this.t.outbox} WHERE channel = ? AND sent_at IS NULL AND dead_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM ${this.backoff} WHERE channel = ? AND next_at > ?) LIMIT 1`,
+        channel,
+        channel,
+        now
+      ).length > 0
+    )
+  }
+
   /** Earliest time a pending channel may run again (now-ish when one is due), or null. */
   nextDueAt(now: number): number | null {
     const r = this.sql.exec<{ at: number | null }>(
@@ -76,6 +100,11 @@ export class Outbox {
         payload: JSON.parse(r.payload) as unknown,
         target: r.target ? (JSON.parse(r.target) as OutboxRow["target"]) : null
       }))
+  }
+
+  /** Whether an item for `entity` is still pending on `channel`: one indexed lookup (`_pending_entity`), however long the queue. */
+  queued(channel: string, entity: string): boolean {
+    return this.sql.exec(`SELECT 1 FROM ${this.t.outbox} WHERE channel = ? AND entity = ? AND sent_at IS NULL AND dead_at IS NULL LIMIT 1`, channel, entity).length > 0
   }
 
   /** Every pending item, oldest first (debug and tests). */
@@ -119,6 +148,12 @@ export class Outbox {
     this.sql.exec(`DELETE FROM ${this.backoff} WHERE channel = ?`, channel)
   }
 
+  /** When this channel's head first got an in_flight reply since its last success, or null. */
+  inFlightSince(channel: string): number | null {
+    const at = this.sql.exec<{ at: number | null }>(`SELECT in_flight_since AS at FROM ${this.backoff} WHERE channel = ?`, channel)[0]?.at
+    return at === null || at === undefined ? null : Number(at)
+  }
+
   /** True after a failure until the next success: the drain then sends one item per attempt, so a poison item is found alone. */
   isolating(channel: string): boolean {
     return this.sql.exec(`SELECT 1 FROM ${this.backoff} WHERE channel = ?`, channel).length > 0
@@ -132,6 +167,17 @@ export class Outbox {
    */
   failed(channel: string, now: number, kind: OutboxFailure = "poison"): number | null {
     return this.sql.transaction(() => {
+      if (kind === "in_flight") {
+        // Neither attempts nor poison change: the next ordinary failure backs off and counts as if this never happened.
+        this.sql.exec(
+          `INSERT INTO ${this.backoff} (channel, attempts, next_at, poison, in_flight_since) VALUES (?, 0, ?, 0, ?)
+           ON CONFLICT (channel) DO UPDATE SET next_at = excluded.next_at, in_flight_since = COALESCE(in_flight_since, excluded.in_flight_since)`,
+          channel,
+          now + OUTBOX_IN_FLIGHT_RETRY_MS,
+          now
+        )
+        return null
+      }
       const prior = this.sql.exec<{ attempts: number; poison: number }>(`SELECT attempts, poison FROM ${this.backoff} WHERE channel = ?`, channel)[0]
       const attempts = (prior ? Number(prior.attempts) : 0) + 1
       const poison = kind === "poison" ? (prior ? Number(prior.poison) : 0) + 1 : 0

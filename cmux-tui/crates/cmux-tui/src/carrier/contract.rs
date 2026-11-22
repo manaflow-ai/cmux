@@ -451,6 +451,45 @@ pub(super) fn phases_line(
     )
 }
 
+/// The carriers line, appended only to the connect log after an attempt's
+/// phases line (and after each resume's route line):
+/// `carrier.routes machine=<vm_id> phase=<connect|reconnect|resume> [ssh=<on|no_candidate|no_tunnel|no_key>] carrier=<relay:0|ssh:0|none> outcome=<ok|error_code>`.
+/// `ssh` says whether the attempt had the ssh backup route and, when not,
+/// why it was left out (a resume rotates over the routes its dial built, so
+/// it has none). `carrier` is the route that carried the attempt or resume,
+/// `none` when it failed. It holds neither `cloud.connect` nor
+/// `carrier.phases`, so readers that pin those lines' shapes (cmuxterm-hq's
+/// start matrix) never take it for one of theirs.
+pub(super) fn routes_line(
+    machine: &str,
+    phase: Phase,
+    ssh: Option<&str>,
+    carrier: Option<&str>,
+    outcome: Option<Step>,
+    said: Option<&str>,
+) -> String {
+    let ssh = ssh.map_or_else(String::new, |ssh| format!(" ssh={ssh}"));
+    let said = said
+        .map(cmux_remote::provider::one_line)
+        .filter(|said| !said.is_empty())
+        .map_or_else(String::new, |said| format!(" ssh_stderr=\"{}\"", last_chars(&said)));
+    format!(
+        "carrier.routes machine={machine} phase={}{ssh} carrier={} outcome={}{said}\n",
+        phase.name(),
+        carrier.unwrap_or("none"),
+        outcome.map_or("ok", Step::error_code),
+    )
+}
+
+/// The most of a captured ssh stderr line a `carrier.routes` line keeps:
+/// its end, where ssh says why it stopped.
+const MAX_SSH_STDERR_CHARS: usize = 240;
+
+fn last_chars(line: &str) -> String {
+    let kept: Vec<char> = line.chars().rev().take(MAX_SSH_STDERR_CHARS).collect();
+    kept.into_iter().rev().collect()
+}
+
 /// `--answer-fd`: 0 (stdin) or a descriptor past stderr, in decimal.
 pub(super) fn parse_answer_fd(text: &str) -> Option<i32> {
     if !text.bytes().all(|b| b.is_ascii_digit()) || text.len() > 9 {

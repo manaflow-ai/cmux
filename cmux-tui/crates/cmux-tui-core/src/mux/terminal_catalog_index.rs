@@ -18,6 +18,21 @@ pub(super) fn catalog_scans_for_test() -> u64 {
 }
 
 impl State {
+    /// The surface a client's tab shows terminal `terminal_id` in: its first placement, else its
+    /// catalog owner (a terminal no tab shows). `list-agents`, `agent-changed` and
+    /// `agent-presence-changed` all name this one surface, so an app that keys a terminal's agent
+    /// by its tab's surface finds it. The catalog owner's id alone is not that surface once a
+    /// terminal was restored or reopened into a new placement: its tab would draw no agent mark.
+    pub(crate) fn terminal_view_surface(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<SurfaceId> {
+        self.placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
+            .first()
+            .copied()
+            .or_else(|| self.terminal_catalog.get(terminal_id).map(|surface| surface.id))
+    }
+
     /// The catalog owner of daemon-local runtime `id`.
     pub(crate) fn terminal_runtime_by_id(&self, id: SurfaceId) -> Option<&Arc<Surface>> {
         self.terminal_catalog_by_runtime
@@ -71,6 +86,15 @@ impl State {
 }
 
 impl Mux {
+    /// The runtime id of the in-process terminal whose host id is `host`
+    /// (W5-P: a terminal selector takes a host id, and the host index holds
+    /// hosted terminals only).
+    pub(crate) fn in_process_terminal_by_host(&self, host: &str) -> Option<SurfaceId> {
+        let reserved =
+            self.reserved_in_process_terminals.lock().unwrap_or_else(PoisonError::into_inner);
+        reserved.iter().find(|(_, identity)| identity.terminal_id == host).map(|(id, _)| *id)
+    }
+
     /// The catalog owner of host terminal `terminal_id`; two owners with that
     /// identity are `duplicate_terminal_id`.
     pub(super) fn catalog_terminal_by_host(

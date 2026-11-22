@@ -29,6 +29,8 @@ import subprocess
 import sys
 import tempfile
 import time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 SCRATCH = "cmux-remote-group-e2e"
 
@@ -142,7 +144,7 @@ def main() -> int:
                 bridge.kill()
             shutil.rmtree(work, ignore_errors=True)
         else:
-            print(json.dumps({"bridge_pid": bridge.pid, "socket": sock}))
+            safe_print(json.dumps({"bridge_pid": bridge.pid, "socket": sock}))
 
 
 if __name__ == "__main__":

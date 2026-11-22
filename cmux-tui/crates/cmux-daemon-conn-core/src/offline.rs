@@ -7,10 +7,19 @@
 //! the action up with one refusal the person sees, and the visible state
 //! returns once. One transition each way, never a flip.
 //!
+//! A request that timed out, or whose reply a closed connection lost, may
+//! already sit in the daemon's queue: a
+//! client timeout cancels nothing there. Such an action is `sent`, and it is
+//! never replayed blindly nor refused for certain: once the daemon answers,
+//! the app settles it from the daemon's state (replay only if it did not
+//! land); past the bound with no answer, the one notice says it may still
+//! happen.
+//!
 //! The app keeps the held list (`DaemonStore` `HeldIntents`) and asks here:
 //! - [`disposition`]: hold or reject a failed command, by its error's kind
 //!   (the Swift `DaemonError` case name, as [`crate::errors::KINDS`]);
 //! - [`sweep`]: which held actions replay now and which expire;
+//! - [`requeue`]: a replay or settle that failed, back on the held list;
 //! - [`text`]: the pending label and the refusal, in the person's words.
 
 use serde::{Deserialize, Serialize};
@@ -29,13 +38,24 @@ pub enum Disposition {
     /// replay it when the daemon answers again.
     Hold,
     /// The daemon refused it (or the error says nothing about reach): the
-    /// intent leaves and the visible state returns.
+    /// intent leaves and the visible state returns. When the same reply says
+    /// `sent` (a late reply from a daemon that answers), the action may still
+    /// land, so the person sees [`Text::unsure`], never [`Text::refusal`].
     Reject,
 }
 
 /// Kinds that mean the command never reached a daemon that could answer.
 const UNREACHED: [&str; 4] =
     ["notConnected", "connectionClosed", "daemonShutdown", "connectFailed"];
+
+/// The command may have reached the daemon before it failed with `kind`, so
+/// a held copy is [`Held::sent`]: a missed deadline, or a connection that
+/// closed (or a daemon that shut down) with the request written and its
+/// reply lost. Only a connection that never opened (`notConnected`,
+/// `connectFailed`) proves the daemon never had it.
+pub fn maybe_sent(kind: &str) -> bool {
+    matches!(kind, "timedOut" | "connectionClosed" | "daemonShutdown")
+}
 
 /// Hold or reject a command that failed with error `kind`. A missed
 /// deadline (`timedOut`) holds only while the heartbeat says the daemon is
@@ -50,7 +70,7 @@ pub fn disposition(kind: &str, answering: bool) -> Disposition {
 }
 
 /// One held action, in the order the person made them.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Held {
     pub id: String,
     /// When it was first held (the app's monotonic clock, milliseconds).
@@ -60,6 +80,28 @@ pub struct Held {
     /// goes back to held with its first `held_at_ms`).
     #[serde(default)]
     pub replaying: bool,
+    /// It may have reached the daemon ([`maybe_sent`]): settled from the
+    /// daemon's state instead of replayed, and never refused for certain.
+    #[serde(default)]
+    pub sent: bool,
+    /// Its settle is in flight (the app reads the daemon's state): neither
+    /// settled again nor expired until that read's outcome is known.
+    #[serde(default)]
+    pub settling: bool,
+}
+
+/// A replay or settle of `entry` failed with error `kind` and it goes back on
+/// the held list: no longer in flight, its first `held_at_ms` kept, and still
+/// [`Held::sent`] if this attempt (or any before it) may have reached the
+/// daemon. A failure the daemon refused ([`disposition`] says reject) is
+/// dropped instead of requeued.
+pub fn requeue(entry: &Held, kind: &str) -> Held {
+    Held {
+        replaying: false,
+        settling: false,
+        sent: entry.sent || maybe_sent(kind),
+        ..entry.clone()
+    }
 }
 
 /// What to do with the held actions now.
@@ -69,6 +111,14 @@ pub struct Sweep {
     pub replay: Vec<String>,
     /// Past the bound: give up, one refusal each, the visible state returns.
     pub expire: Vec<String>,
+    /// Sent ones with the daemon answering again before the bound: read
+    /// whether each landed from the daemon's state, and replay only those
+    /// that did not; the app marks each settling.
+    pub settle: Vec<String>,
+    /// Sent ones past the bound with no answer: give up with the notice
+    /// that it may still happen ([`Text::unsure`]); the visible state returns
+    /// and the daemon's next state settles it.
+    pub unsure: Vec<String>,
     /// When the earliest still-held action expires (absolute, the app's
     /// clock); `None` when nothing waits on the clock.
     pub next_check_ms: Option<u64>,
@@ -76,17 +126,21 @@ pub struct Sweep {
 
 /// The held actions' fate at `now_ms`. `reachable`: the daemon is connected
 /// and answering. An action past `bound_ms` expires even when the daemon is
-/// back, so a person never sees an action land minutes after they were told
-/// it would not.
+/// back (a late sweep, after the app was suspended or its timer ran late),
+/// so a person never sees an action replayed minutes after they were told
+/// it would not land; a sent one gets the may-still-happen notice instead.
 pub fn sweep(held: &[Held], now_ms: u64, reachable: bool, bound_ms: u64) -> Sweep {
     let mut out = Sweep::default();
     for entry in held {
-        if entry.replaying {
+        if entry.replaying || entry.settling {
             continue;
         }
         let expires_at = entry.held_at_ms.saturating_add(bound_ms);
         if now_ms >= expires_at {
-            out.expire.push(entry.id.clone());
+            let list = if entry.sent { &mut out.unsure } else { &mut out.expire };
+            list.push(entry.id.clone());
+        } else if entry.sent && reachable {
+            out.settle.push(entry.id.clone());
         } else if reachable {
             out.replay.push(entry.id.clone());
         } else {
@@ -105,6 +159,9 @@ pub struct Text {
     pub when_back: String,
     /// The one refusal past the bound.
     pub refusal: String,
+    /// The notice past the bound for an action that may have reached the
+    /// daemon: not a refusal, since it may still land.
+    pub unsure: String,
 }
 
 /// The prefix of every refusal: what failed, before what was not done.
@@ -114,26 +171,34 @@ pub const REFUSAL_PREFIX: &str = "cmux couldn't reach its session service";
 /// `color`, `icon`; anything else is shown as given) on `name` (a tab or
 /// screen title).
 pub fn text(action: &str, name: &str) -> Text {
-    let (verb, done) = match action {
-        "close" => ("Close", format!("{name} wasn't closed")),
-        "rename" => ("Rename", format!("{name} wasn't renamed")),
-        "move" => ("Move", format!("{name} wasn't moved")),
-        "pin" => ("Pin", format!("{name} wasn't pinned")),
-        "unpin" => ("Unpin", format!("{name} wasn't unpinned")),
-        "color" => ("Change the color of", format!("{name}'s color wasn't changed")),
-        "icon" => ("Change the icon of", format!("{name}'s icon wasn't changed")),
+    let (verb, done, maybe) = match action {
+        "close" => ("Close", "wasn't closed", "may still close"),
+        "rename" => ("Rename", "wasn't renamed", "may still be renamed"),
+        "move" => ("Move", "wasn't moved", "may still move"),
+        "pin" => ("Pin", "wasn't pinned", "may still be pinned"),
+        "unpin" => ("Unpin", "wasn't unpinned", "may still be unpinned"),
+        "color" => ("Change the color of", "'s color wasn't changed", "'s color may still change"),
+        "icon" => ("Change the icon of", "'s icon wasn't changed", "'s icon may still change"),
         other => {
             return Text {
                 pending: other.to_string(),
                 when_back: format!("will {} when back", lowercase_first(other)),
                 refusal: format!("{REFUSAL_PREFIX}; \u{201c}{other}\u{201d} wasn't done"),
+                unsure: format!(
+                    "{REFUSAL_PREFIX}; \u{201c}{other}\u{201d} may still happen when it's back"
+                ),
             };
         }
+    };
+    // "Tab's color", "Tab wasn't closed": the possessive joins without a space.
+    let join = |words: &str| {
+        if words.starts_with('\'') { format!("{name}{words}") } else { format!("{name} {words}") }
     };
     let pending = format!("{verb} {name}");
     Text {
         when_back: format!("will {} when back", lowercase_first(&pending)),
-        refusal: format!("{REFUSAL_PREFIX}; {done}"),
+        refusal: format!("{REFUSAL_PREFIX}; {}", join(done)),
+        unsure: format!("{REFUSAL_PREFIX}; {} when it's back", join(maybe)),
         pending,
     }
 }
@@ -151,7 +216,7 @@ mod tests {
     use super::*;
 
     fn held(id: &str, at: u64) -> Held {
-        Held { id: id.to_string(), held_at_ms: at, replaying: false }
+        Held { id: id.to_string(), held_at_ms: at, replaying: false, sent: false, settling: false }
     }
 
     #[test]
@@ -215,11 +280,75 @@ mod tests {
 
     #[test]
     fn a_replay_in_flight_does_not_expire_under_it() {
-        let list = [Held { id: "a".into(), held_at_ms: 0, replaying: true }];
+        let list = [Held { replaying: true, ..held("a", 0) }];
         let out = sweep(&list, HOLD_BOUND_MS * 2, false, HOLD_BOUND_MS);
         assert!(out.expire.is_empty());
         assert!(out.replay.is_empty());
         assert_eq!(out.next_check_ms, None);
+    }
+
+    #[test]
+    fn a_timed_out_close_is_never_refused_for_certain_and_settles_when_the_daemon_is_back() {
+        // The daemon is paused: the close times out, but may sit in its queue.
+        assert!(maybe_sent("timedOut"));
+        // A reply lost when the connection closed or the daemon shut down.
+        assert!(maybe_sent("connectionClosed"));
+        assert!(maybe_sent("daemonShutdown"));
+        // A connection that never opened: the daemon never had it.
+        assert!(!maybe_sent("notConnected"));
+        assert!(!maybe_sent("connectFailed"));
+        let list = [Held { sent: true, ..held("a", 0) }, held("b", 0)];
+        // Past the bound with no answer: `a` gets the notice that it may
+        // still close, never "wasn't closed"; `b` never left, so it is refused.
+        let out = sweep(&list, HOLD_BOUND_MS, false, HOLD_BOUND_MS);
+        assert_eq!(out.unsure, ["a"]);
+        assert_eq!(out.expire, ["b"]);
+        assert!(out.replay.is_empty() && out.settle.is_empty());
+        // The daemon resumes before the bound: `a` is settled from its
+        // state, never sent a second time.
+        let back = sweep(&list, 60_000, true, HOLD_BOUND_MS);
+        assert_eq!(back.settle, ["a"]);
+        assert_eq!(back.replay, ["b"]);
+        assert!(back.expire.is_empty() && back.unsure.is_empty());
+    }
+
+    #[test]
+    fn a_sent_action_past_the_bound_is_never_settled_late_even_when_the_daemon_is_back() {
+        // No sweep ran at the bound (the app was suspended); the first one
+        // after it already sees the daemon answering.
+        let list = [Held { sent: true, ..held("a", 0) }, held("b", 0)];
+        let out = sweep(&list, HOLD_BOUND_MS + 30_000, true, HOLD_BOUND_MS);
+        assert_eq!(out.unsure, ["a"]);
+        assert_eq!(out.expire, ["b"]);
+        assert!(out.settle.is_empty() && out.replay.is_empty(), "no late replay");
+    }
+
+    #[test]
+    fn a_settle_in_flight_is_not_asked_for_twice() {
+        let mut list = vec![Held { sent: true, ..held("a", 0) }];
+        assert_eq!(sweep(&list, 10_000, true, HOLD_BOUND_MS).settle, ["a"]);
+        list[0].settling = true;
+        let again = sweep(&list, 11_000, true, HOLD_BOUND_MS);
+        assert!(again.settle.is_empty() && again.replay.is_empty(), "no second settle");
+        // Nor does it expire under the read.
+        let late = sweep(&list, HOLD_BOUND_MS * 2, false, HOLD_BOUND_MS);
+        assert!(late.unsure.is_empty() && late.expire.is_empty());
+    }
+
+    #[test]
+    fn a_replay_that_times_out_goes_back_held_as_sent() {
+        let replaying = Held { replaying: true, ..held("a", 1_000) };
+        let back = requeue(&replaying, "timedOut");
+        assert_eq!(back, Held { sent: true, ..held("a", 1_000) });
+        // Past the bound it is never refused for certain.
+        let late = sweep(std::slice::from_ref(&back), HOLD_BOUND_MS + 1_000, false, HOLD_BOUND_MS);
+        assert_eq!(late.unsure, ["a"]);
+        // A later attempt that never left does not clear it.
+        assert!(requeue(&Held { replaying: true, ..back }, "notConnected").sent);
+        // A settle that failed before its connection opened changes only
+        // its in-flight mark.
+        let settling = Held { settling: true, ..held("b", 0) };
+        assert_eq!(requeue(&settling, "connectFailed"), held("b", 0));
     }
 
     #[test]
@@ -230,6 +359,14 @@ mod tests {
         assert_eq!(
             close.refusal,
             "cmux couldn't reach its session service; Background task wasn't closed"
+        );
+        assert_eq!(
+            close.unsure,
+            "cmux couldn't reach its session service; Background task may still close when it's back"
+        );
+        assert_eq!(
+            text("color", "Logs").refusal,
+            "cmux couldn't reach its session service; Logs's color wasn't changed"
         );
         let other = text("Reorder tabs", "x");
         assert_eq!(other.pending, "Reorder tabs");

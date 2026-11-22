@@ -112,6 +112,18 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
     // frames in a row show the same rows at the same places.
     await page.evaluate(async () => {
       await document.fonts.ready;
+      // A category the page switches to fades in with a small slide (layout.css settings-enter; the
+      // describe's later cases route the same page to another category): while it plays, a row's
+      // offsetTop is measured from its sliding section. Wait for it, so rows are watched at rest.
+      const finite = () =>
+        document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+          );
+      for (let moving = finite(); moving.length > 0; moving = finite())
+        await Promise.allSettled(moving.map((animation) => animation.finished));
       const state = window as unknown as { wheels: number };
       state.wheels = 0;
       addEventListener("wheel", () => (state.wheels += 1), { capture: true, passive: true });
@@ -123,7 +135,7 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
         let same = 0;
         window.cmuxAfterPaint(() => {
           const now = layout();
-          same = now === last ? same + 1 : 0;
+          same = now === last && finite().length === 0 ? same + 1 : 0;
           last = now;
           if (same < 2) return true;
           resolve();
@@ -177,9 +189,11 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
         await browser?.close();
       });
 
-      test("scrolling Appearance top to bottom: one scroller, no row removed or moved", async () => {
-        await open(page, "appearance");
-        expect(await watchRows(page)).toBeGreaterThan(40);
+      // Editor is one of the longest pages of plain rows since the settings overhaul (2026-11-11) put
+      // Appearance's rarer rows behind More Options.
+      test("scrolling Editor top to bottom: one scroller, no row removed or moved", async () => {
+        await open(page, "editor");
+        expect(await watchRows(page)).toBeGreaterThan(20);
         const steps: string[] = [];
         // The loop stops at the end; the cap only bounds a page that never gets there. WebKit moves
         // about 110px per 120px wheel step, so 80 steps stopped 4px short once the regenerated schema
@@ -204,8 +218,8 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
       });
 
       test("an open select pop-up never makes the document scroll and stays at its anchor", async () => {
-        await open(page, "appearance");
-        const control = '[data-row-key="sidebar.sectionLook"] .ui-select-button';
+        await open(page, "editor");
+        const control = '[data-row-key="editor.autoSave"] .ui-select-button';
         // The select near the bottom edge, as in the report.
         await page.evaluate((selector) => {
           const content = document.querySelector(".content")!;
@@ -245,7 +259,7 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
       });
 
       test("opening a font list pushes no row down; its button closes it again", async () => {
-        await open(page, "appearance");
+        await open(page, "terminal");
         await watchRows(page);
         const button = '[data-row-key="terminal.fontFamily"] .domain-button';
         await page.click(button);

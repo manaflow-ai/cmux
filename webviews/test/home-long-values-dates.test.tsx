@@ -2,10 +2,12 @@
 // Home and New Tab keep long values readable and older dates absolute (#28079):
 // - A row's ages stay relative for under a week, then read as a localized date, so "3mo ago" or
 //   "45d" never stands in for a date the person has to work out.
-// - A cut title, project, ask or where-line carries its whole value as a tooltip, on Home's lists
+// - A cut title, project, ask or where-line shows its whole value on a hover card, on Home's lists
 //   and New Tab's All chats, live chats at the top included.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
+import { factsCardText } from "./support/factsCard";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -54,12 +56,8 @@ const { age } = await import("../src/agent-session/acpmux/homeListsModel");
 const { ageLabel } = await import("../src/agent-session/acpmux/newTabModel");
 const { session } = await import("../src/gallery/fixtures/acpmux");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const document = dom.window.document;
@@ -84,7 +82,7 @@ test("ages stay relative under a week and read as a localized date from seven da
 const LONG_TITLE = "Refactor the payment reconciliation worker so retries never double-charge a customer";
 const LONG_CWD = "/Users/sample/projects/atlas-web-payments-reconciliation-service";
 
-test("All chats gives every cut title its whole text, the live chats at the top included", async () => {
+test("All chats has no tooltip on a title whose text shows, the live chats at the top included; its folder path is described", async () => {
   const root = createRoot(document.getElementById("root")!);
   const load = async () => ({
     chats: [{ key: "old", harness: "claude", title: "Indexed " + LONG_TITLE, cwd: LONG_CWD, updatedAt: 1 }],
@@ -97,16 +95,17 @@ test("All chats gives every cut title its whole text, the live chats at the top 
   await settle();
   const live = document.querySelector(".nt-all-active .nt-all-title");
   expect(live?.textContent).toBe("Live " + LONG_TITLE);
-  expect(live?.getAttribute("title")).toBe("Live " + LONG_TITLE);
+  expect(live?.getAttribute("title")).toBeNull();
   const indexed = [...document.querySelectorAll(".nt-all-title")].find((title) =>
     title.textContent?.startsWith("Indexed"),
   );
-  expect(indexed?.getAttribute("title")).toBe("Indexed " + LONG_TITLE);
-  expect(document.querySelector(".nt-all-project")?.getAttribute("title")).toBe(LONG_CWD);
+  expect(indexed?.getAttribute("title")).toBeNull();
+  // The cut folder name shows its whole path on its hover card.
+  expect(await factsCardText(document.querySelector(".nt-all-project")!)).toBe(LONG_CWD);
   await act(async () => root.unmount());
 });
 
-test("Home's rows give a cut title and project their whole value", async () => {
+test("Home's rows put no tooltip on a title whose text shows, and describe the project's whole path", async () => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -127,9 +126,10 @@ test("Home's rows give a cut title and project their whole value", async () => {
   );
   const title = [...host.querySelectorAll(".acpmux-home-title")].find((node) => node.textContent === LONG_TITLE);
   expect(title).toBeDefined();
-  expect(title!.getAttribute("title")).toBe(LONG_TITLE);
+  expect(title!.getAttribute("title")).toBeNull();
   const metas = [...title!.parentElement!.querySelectorAll(".acpmux-home-meta")];
-  expect(metas.some((meta) => meta.getAttribute("title") === LONG_CWD)).toBe(true);
+  const project = metas.find((meta) => meta.classList.contains("acpmux-home-project"));
+  expect(await factsCardText(project!)).toBe(LONG_CWD);
   await act(async () => root.unmount());
   host.remove();
 });
@@ -161,7 +161,7 @@ test("Home's folder name cuts with an ellipsis instead of pushing the age and ch
       <HomeLists sessions={sessions} currentId="home" onSelect={() => {}} onAnswer={async () => "answered"} />,
     ),
   );
-  expect(host.querySelector(".acpmux-home-project")?.getAttribute("title")).toBe(LONG_CWD);
+  expect(await factsCardText(host.querySelector(".acpmux-home-project")!)).toBe(LONG_CWD);
   await act(async () => root.unmount());
   host.remove();
 });

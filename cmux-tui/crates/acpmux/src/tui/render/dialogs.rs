@@ -15,7 +15,7 @@ pub fn help_rows(app: &App) -> Vec<(String, String)> {
             group = d.group;
             rows.push((String::new(), group.to_owned()));
         }
-        let shortcuts = app.keymap.hints(d.name);
+        let shortcuts = d.shown_keys(&app.keymap);
         let key = if shortcuts.is_empty() {
             format!("{}{}", app.palette_prefix, d.name)
         } else {

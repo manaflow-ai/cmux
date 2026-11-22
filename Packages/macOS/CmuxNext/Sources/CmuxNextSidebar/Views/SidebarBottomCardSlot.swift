@@ -26,7 +26,11 @@ struct SidebarBottomCardSlot {
         update.onCloseAction = { [weak sidebar] card, action in sidebar?.model.send(.noticeAction(card: card, action: action)) }
         // The highlights show in the app's one hover card window (one card at a time).
         update.hoverCards = { [weak sidebar] in sidebar?.list.hoverCards }
-        notice.onAction = { [weak sidebar] card, action in sidebar?.model.send(.noticeAction(card: card, action: action)) }
+        notice.onAction = { [weak sidebar] card, action in
+            // The restoring card's Details opens what the footer's health line opens (app health's popover).
+            if card == "restoring", action == SidebarNoticeCard.detailsAction, sidebar?.healthIndicator?.accessibilityPerformPress() == true { return }
+            sidebar?.model.send(.noticeAction(card: card, action: action))
+        }
         notice.onDismiss = { [weak sidebar] card in sidebar?.model.send(.dismissNotice(card)) }
         nowPlaying.onCommand = { [weak sidebar] command in sidebar?.model.send(.nowPlaying(command)) }
         nowPlaying.onClose = { [weak sidebar] in sidebar?.model.send(.hideNowPlayingCard) }
@@ -98,8 +102,12 @@ struct SidebarBottomCardSlot {
     func place(above bottom: CGFloat, top: CGFloat = 0, width sidebarWidth: CGFloat, slotHeight: CGFloat, in sidebar: NSView? = nil) {
         let inset = Metrics.space3, width = Self.cardWidth(in: sidebarWidth)
         let shown = slotHeight > 0 ? shown : nil
+        // The card keeps its own height (on the half-point grid, the 2x pixel): `integral` on a half-point origin grew it
+        // a whole point, and the room went under its buttons (the tip card's bottom padding, Lawrence msg 40504).
         func frame(_ which: Shown, height: CGFloat) -> NSRect {
-            shown == which ? NSRect(x: inset, y: bottom - Metrics.space2 - height, width: width, height: height).integral : .zero
+            guard shown == which else { return .zero }
+            let across = NSRect(x: inset, y: 0, width: width, height: 1).integral
+            return NSRect(x: across.minX, y: (2 * (bottom - Metrics.space2 - height)).rounded(.down) / 2, width: across.width, height: height)
         }
         nowPlaying.isHidden = shown != .nowPlaying
         nowPlaying.frame = frame(.nowPlaying, height: nowPlaying.nowPlaying.map(SidebarNowPlayingCardView.height(for:)) ?? 0)

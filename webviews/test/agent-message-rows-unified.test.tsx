@@ -23,6 +23,7 @@ import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/Subagent
 import { DoneReportLookContext } from "../src/agent-session/acpmux/subagents/subagentDoneLineModel";
 import { SubagentNavContext } from "../src/agent-session/acpmux/subagents/subagentGroupModel";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -60,6 +61,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -135,7 +137,8 @@ test("an unverified sender gets the marker only: no 'self-declared' words anywhe
   const container = await render(<IncomingMessageLine id="m-declared" message={message} onOpen={() => undefined} />);
   await openAll(container);
   const marker = container.querySelector(".cv-unverified");
-  expect(marker?.getAttribute("title")).toBe("Sender not verified");
+  // The name it gave is its claim (UnverifiedMark.tsx).
+  expect(marker?.getAttribute("title")).toBe(`Claimed to be ${message.name}, not proven`);
   expect(container.innerHTML).not.toContain("self-declared");
   expect(container.innerHTML).not.toContain("unauthenticated");
   expect(container.textContent).toContain("gcp-codex-swarm-05/cloud-start-matrix");
@@ -200,7 +203,7 @@ test("an older acpmux's inbox notice: bare names, no label, the whole message on
   expect(JSON.stringify(notice)).not.toContain("self-declared");
 });
 
-test("a notice thread rendered: the marker, the first line as its preview, the whole message opened", async () => {
+test("a notice thread rendered: the marker, and the whole message under its line before it is opened", async () => {
   const from = `gcp-codex-swarm-05/cloud-start-matrix ${SUFFIX}`;
   const whole = relayed("Matrix run 14 is green.\n\nNext: the cold-start numbers.", "56d7d1c5", from);
   const notice = inboxNotice("[inbox] New messages from other agents in 1 thread.", {
@@ -219,7 +222,11 @@ test("a notice thread rendered: the marker, the first line as its preview, the w
   const container = await render(<InboxNoticeCard rowId="r-old" notice={notice} onOpen={() => undefined} />);
   expect(container.querySelector(".cv-agentmsg")).not.toBeNull();
   expect(container.querySelector(".cv-unverified")).not.toBeNull();
-  expect(container.querySelector(".cv-agentmsg__preview")?.textContent).toContain("Matrix run 14 is green.");
+  // Shut, the card under the line holds the message whole (Leo, 2026-11-09); the line says it once.
+  const newest = container.querySelector(".cv-inbox__newest")?.textContent ?? "";
+  expect(newest).toContain("Matrix run 14 is green.");
+  expect(newest).toContain("Next: the cold-start numbers.");
+  expect(container.querySelector(".cv-agentmsg__preview")?.textContent).toBe("");
   await openAll(container);
   const text = container.textContent ?? "";
   expect(text).toContain("Next: the cold-start numbers.");
@@ -247,7 +254,9 @@ test("a thread with no messages and no preview reads them from acpmux before it 
   );
   await act(async () => undefined);
   expect(reads).toEqual(["pr:9"]);
-  expect(container.querySelector(".cv-agentmsg__preview")?.textContent).toContain("The whole message.");
+  // One short line, read whole: on the line, as a received line reads (inboxThreadRead.ts `fitsLine`).
+  expect(container.querySelector(".cv-agentmsg__preview")?.textContent).toBe("The whole message.");
+  expect(container.querySelector(".cv-inbox__newest")).toBeNull();
   await openAll(container);
   expect(container.querySelector(".cv-received__text")?.textContent).toBe("The whole message.");
 });
@@ -443,7 +452,7 @@ test("a lane batch's hover lists its messages newest first by their time, not th
 
 // Review of #37653: acpmux may say a thread's newest sender is unverified only on the thread (its
 // sender record, or an older acpmux's suffix on its `from`), not on each message. That message's
-// row and the group's hover still show "Sender not verified".
+// row and the group's hover still mark its sender's name as a claim.
 test("a thread's unverified sender marks its newest message's row and hover", async () => {
   const { flattenInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
   const { GroupHoverLookContext, MessageGroupHover, hoverMessages, inboxHover } =
@@ -488,7 +497,9 @@ test("a thread's unverified sender marks its newest message's row and hover", as
   );
   const items = [...container.querySelectorAll(".cv-group-hover__item")];
   expect(items[0]?.textContent).toContain("second");
-  expect(items[0]?.querySelector(".cv-unverified")?.getAttribute("title")).toBe("Sender not verified");
+  expect(items[0]?.querySelector(".cv-unverified")?.getAttribute("title")).toBe(
+    "Claimed to be vm-1/lane-b, not proven",
+  );
   expect(items[1]?.querySelector(".cv-unverified")).toBeNull();
   // The notice card's own hover reads the same.
   expect(inboxHover(notice.threads).messages.map((m) => [m.text, m.unverified === true])).toEqual([
@@ -747,12 +758,13 @@ test("two preview-only notices from one sender whose previews clean to nothing b
   expect(again).toEqual(["pr:1"]);
 });
 
-// Opening a received line or an inbox thread keeps the line as it was, its first line in place, as
-// the disclosure line these rows drew before kept its label: the chevron after the words stays on
-// its pixel instead of jumping back to the chip (gallery health, agent-pane.inbox-notice#one-open,
-// whose layout-shift row is 0). Leo, 2026-11-04: "we move all our affected, possibly affected
-// elements in the cohesive way".
-test("an opened received line or inbox thread keeps its first line, so its chevron does not move", async () => {
+// Opening a received line or an inbox thread keeps the line as it was, as the disclosure line these
+// rows drew before kept its label: the chevron after the words stays on its pixel instead of jumping
+// back to the chip (gallery health, agent-pane.inbox-notice#one-open, whose layout-shift row is 0).
+// A received line keeps its first line; an inbox thread's line carries none in either state, its
+// text in the card under it (Leo, 2026-11-09). Leo, 2026-11-04: "we move all our affected, possibly
+// affected elements in the cohesive way".
+test("an opened received line or inbox thread keeps its line as it was, so its chevron does not move", async () => {
   const message = received(
     relayed("Matrix run 14 is green.\n\nNext: the cold-start numbers.", "56d7d1c5", "vm/lane-a"),
     { verification: "verified", harness: "codex", relay: { by: "lane-gh broker", machine: "vm" } },
@@ -777,7 +789,10 @@ test("an opened received line or inbox thread keeps its first line, so its chevr
     ],
   };
   const thread = await render(<InboxNoticeCard rowId="r-keep" notice={notice} onOpen={() => undefined} />);
+  expect(thread.querySelector(".cv-agentmsg__preview")?.textContent).toBe("");
+  expect(thread.querySelector(".cv-agentmsg__card")?.textContent).toContain("Rebase on main.");
   await openAll(thread);
   expect(thread.querySelector(".cv-agentmsg[data-open]")).not.toBeNull();
-  expect(thread.querySelector(".cv-agentmsg__preview")?.textContent).toBe("Rebase on main.");
+  expect(thread.querySelector(".cv-agentmsg__preview")?.textContent).toBe("");
+  expect(thread.querySelector(".cv-agentmsg__card")?.textContent).toContain("Rebase on main.");
 });

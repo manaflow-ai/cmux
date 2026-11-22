@@ -4,6 +4,7 @@
 // draws the owner's transcript read only, an ask showing who it waits on and no answer buttons.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -56,12 +57,8 @@ type Props = Parameters<typeof GuestPage>[0];
 type RedeemRequest = Parameters<Props["redeem"]>[1];
 type AcceptRequest = Parameters<NonNullable<Props["accept"]>>[1];
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const SHARE = "c2hhcmUtMTIzNDU2Nzg";

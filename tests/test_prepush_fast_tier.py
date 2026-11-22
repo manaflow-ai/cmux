@@ -4,10 +4,19 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 TIER = ROOT / "scripts/cmux-next/prepush_fast_tier.py"
@@ -99,6 +108,42 @@ class TierTest(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(receipt["status"], "deferred")
         self.assertIn("budget exhausted", receipt["checks"][0]["detail"])
+        self.assertEqual(list(scratch.iterdir()), [])
+
+    def test_a_stopped_supervisor_takes_its_worker_with_it_and_cleans_its_scratch(self):
+        """The hook's time limit stops the supervisor with SIGTERM; the worker runs in its own process group, so
+        the supervisor must pass the stop on or the worker outlives the limit."""
+        installed = Path(self.temp.name) / "installed"
+        installed.mkdir()
+        for name in ("prepush_fast_tier.py", "inner_loop_timing.py"):
+            shutil.copy2(TIER.with_name(name), installed / name)
+        worker_pid = Path(self.temp.name) / "worker.pid"
+        (installed / "push_range.py").write_text(
+            "import os, time\ndef given_range(*args):\n"
+            f"    open({str(worker_pid)!r}, \"w\").write(str(os.getpid()))\n    time.sleep(60)\n")
+        scratch = Path(self.temp.name) / "scratch"
+        scratch.mkdir()
+        supervisor = subprocess.Popen([sys.executable, "-I", str(installed / TIER.name), "--repo", str(self.repo),
+                                       "--base", self.base, "--head", "HEAD"], stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE, env={**self.env, "TMPDIR": str(scratch)})
+        deadline = time.monotonic() + 3
+        while not (worker_pid.exists() and worker_pid.read_text()) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertTrue(worker_pid.exists(), "the worker never started")
+        worker = int(worker_pid.read_text())
+        supervisor.send_signal(signal.SIGTERM)
+        supervisor.communicate(timeout=5)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            try:
+                os.kill(worker, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
+        else:
+            os.kill(worker, signal.SIGKILL)
+            self.fail("the worker outlived its stopped supervisor")
+        self.assertNotEqual(supervisor.returncode, 0)
         self.assertEqual(list(scratch.iterdir()), [])
 
     def test_edit_timestamp_survives_commits_and_resets_on_branch_change(self):

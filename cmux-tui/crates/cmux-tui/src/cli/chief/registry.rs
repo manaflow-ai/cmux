@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use cmux_json::JsonGet as _;
 use serde_json::{Map, Value, json};
 
 use super::link::{Link, LinkError};
@@ -60,7 +61,7 @@ struct Text {
 }
 
 static ENGLISH: Text = Text {
-    usage: "usage: cmux chief list\n       cmux chief get CHIEF\n       cmux chief new --name NAME [PROFILE]\n       cmux chief adopt AGENT [PROFILE]\n       cmux chief edit CHIEF [PROFILE] [--clear-avatar]\n       cmux chief delete CHIEF\n       cmux chief history CHIEF [--limit N]\n       cmux chief undo CHIEF [--to-rev N]\n\n  Your Chiefs: each has its own name, role, picture, personality, instructions,\n  tools, backend and memory. CHIEF is an id (agent_...) or a name.\n  history lists every change to a Chief (who made it, when); undo restores the\n  version before the last change, or revision N, as a new change.\n  adopt makes AGENT, an agent already in your conversations (agent_...), a Chief\n  under its own id: its conversations and history stay; it gets a new Chief's defaults.\n\n  PROFILE:\n  --name NAME              1 to 100 characters\n  --role TEXT              one line, for example \"Release captain\"\n  --personality TEXT       tone and style\n  --instructions TEXT      added to the Chief's system prompt (after the base rules)\n  --instructions-file F    the same, read from file F\n  --avatar FILE            a PNG, JPEG, GIF or WebP picture, at most 1 MiB\n  --tools a,b              from browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces\n  --harnesses a,b          the harnesses its subagents may use (empty: all)\n  --self-edit a,b          what the Chief may change itself: avatar, display_name, engine, instructions, personality, role (default: all)\n  --harness H --model M --effort E   its backend: an acpmux harness (claude, codex, claude-sr2, opencode, unii for UniiChat after `unii login` on this Mac,\n                                     or your own: cmux harness add), model and effort\n  --lock / --unlock        only you may change it (no Chief can, itself included)\n  --chief-home DIR         an isolated Chief home",
+    usage: "usage: cmux chief list\n       cmux chief get CHIEF\n       cmux chief new --name NAME [PROFILE]\n       cmux chief adopt AGENT [PROFILE]\n       cmux chief edit CHIEF [PROFILE] [--clear-avatar]\n       cmux chief delete CHIEF\n       cmux chief history CHIEF [--limit N]\n       cmux chief undo CHIEF [--to-rev N]\n\n  Your Chiefs: each has its own name, role, picture, personality, instructions,\n  tools, backend and memory. CHIEF is an id (agent_...) or a name.\n  history lists every change to a Chief (who made it, when); undo restores the\n  version before the last change, or revision N, as a new change.\n  adopt makes AGENT, an agent already in your conversations (agent_...), a Chief\n  under its own id: its conversations and history stay; it gets a new Chief's defaults.\n\n  PROFILE:\n  --name NAME              1 to 100 characters\n  --role TEXT              one line, for example \"Release captain\"\n  --personality TEXT       tone and style\n  --instructions TEXT      added to the Chief's system prompt (after the base rules)\n  --instructions-file F    the same, read from file F\n  --avatar FILE            a PNG, JPEG, GIF or WebP picture, at most 1 MiB\n  --tools a,b              from browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces\n  --harnesses a,b          the harnesses its subagents may use (empty: all)\n  --self-edit a,b          what the Chief may change itself: avatar, display_name, engine, instructions, personality, role (default: all)\n  --harness H --model M --effort E   its backend: an acpmux harness (claude, codex, claude-sr2, opencode, unii for UniiChat after `cmux harness login unii` on this Mac,\n                                     or your own: cmux harness add), model and effort\n  --lock / --unlock        only you may change it (no Chief can, itself included)\n  --chief-home DIR         an isolated Chief home",
     needs_name: "cmux chief new needs --name NAME",
     needs_chief: "give the Chief: an id (agent_...) or its name; cmux chief list shows them",
     no_such: "no Chief is named {chief}; cmux chief list shows them",
@@ -80,7 +81,7 @@ static ENGLISH: Text = Text {
 };
 
 static JAPANESE: Text = Text {
-    usage: "使い方: cmux chief list\n       cmux chief get CHIEF\n       cmux chief new --name NAME [PROFILE]\n       cmux chief adopt AGENT [PROFILE]\n       cmux chief edit CHIEF [PROFILE] [--clear-avatar]\n       cmux chief delete CHIEF\n       cmux chief history CHIEF [--limit N]\n       cmux chief undo CHIEF [--to-rev N]\n\n  あなたの Chief たち。それぞれに名前、役割、画像、性格、指示、ツール、バックエンド、記憶があります。\n  CHIEF は id (agent_...) または名前です。\n  history は Chief への変更の一覧 (誰がいつ) を表示し、undo は直前の変更の前の版\n  (または版 N) を新しい変更として戻します。\n  adopt は会話にすでにいるエージェント AGENT (agent_...) を、その id のまま Chief にします。\n  会話と履歴はそのまま残り、新しい Chief の既定値が付きます。\n\n  PROFILE:\n  --name NAME              1 から 100 文字\n  --role TEXT              1 行。例: \"リリース担当\"\n  --personality TEXT       口調とスタイル\n  --instructions TEXT      Chief のシステムプロンプトに追加 (基本ルールの後)\n  --instructions-file F    同じ内容をファイル F から読む\n  --avatar FILE            PNG、JPEG、GIF または WebP の画像 (1 MiB まで)\n  --tools a,b              browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces から\n  --harnesses a,b          サブエージェントが使えるハーネス (空ならすべて)\n  --self-edit a,b          Chief が自分で変えられる項目: avatar, display_name, engine, instructions, personality, role (既定: すべて)\n  --harness H --model M --effort E   バックエンド: acpmux のハーネス (claude, codex, claude-sr2, opencode、UniiChat の unii (この Mac での `unii login` が必要)、\n                                     または cmux harness add で追加したもの)、モデル、推論の強さ\n  --lock / --unlock        あなただけが変更できるようにする (Chief 自身を含め、どの Chief も変更できません)\n  --chief-home DIR         独立した Chief ホーム",
+    usage: "使い方: cmux chief list\n       cmux chief get CHIEF\n       cmux chief new --name NAME [PROFILE]\n       cmux chief adopt AGENT [PROFILE]\n       cmux chief edit CHIEF [PROFILE] [--clear-avatar]\n       cmux chief delete CHIEF\n       cmux chief history CHIEF [--limit N]\n       cmux chief undo CHIEF [--to-rev N]\n\n  あなたの Chief たち。それぞれに名前、役割、画像、性格、指示、ツール、バックエンド、記憶があります。\n  CHIEF は id (agent_...) または名前です。\n  history は Chief への変更の一覧 (誰がいつ) を表示し、undo は直前の変更の前の版\n  (または版 N) を新しい変更として戻します。\n  adopt は会話にすでにいるエージェント AGENT (agent_...) を、その id のまま Chief にします。\n  会話と履歴はそのまま残り、新しい Chief の既定値が付きます。\n\n  PROFILE:\n  --name NAME              1 から 100 文字\n  --role TEXT              1 行。例: \"リリース担当\"\n  --personality TEXT       口調とスタイル\n  --instructions TEXT      Chief のシステムプロンプトに追加 (基本ルールの後)\n  --instructions-file F    同じ内容をファイル F から読む\n  --avatar FILE            PNG、JPEG、GIF または WebP の画像 (1 MiB まで)\n  --tools a,b              browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces から\n  --harnesses a,b          サブエージェントが使えるハーネス (空ならすべて)\n  --self-edit a,b          Chief が自分で変えられる項目: avatar, display_name, engine, instructions, personality, role (既定: すべて)\n  --harness H --model M --effort E   バックエンド: acpmux のハーネス (claude, codex, claude-sr2, opencode、UniiChat の unii (この Mac での `cmux harness login unii` が必要)、\n                                     または cmux harness add で追加したもの)、モデル、推論の強さ\n  --lock / --unlock        あなただけが変更できるようにする (Chief 自身を含め、どの Chief も変更できません)\n  --chief-home DIR         独立した Chief ホーム",
     needs_name: "cmux chief new には --name NAME が必要です",
     needs_chief: "Chief を指定してください: id (agent_...) または名前。cmux chief list で一覧を表示します",
     no_such: "{chief} という名前の Chief はいません。cmux chief list で一覧を表示します",
@@ -417,8 +418,12 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
     let request = match parse(args) {
         Ok(request) => request,
         Err(error) => {
-            eprintln!("cmux: {error}\n\n{}", t.usage);
-            return 2;
+            let json = args.iter().any(|arg| arg == "--json");
+            let global = GlobalArgs {
+                output: if json { OutputMode::Json } else { global.output },
+                ..global.clone()
+            };
+            return super::usage_failure(&global, &error, t.usage);
         }
     };
     if request.help {
@@ -444,49 +449,38 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         }
         return super::super::wire::print_operation_error(&agent_refused(what, marker), output);
     }
+    // Every failure below in the one shape: the `--json` envelope under
+    // `--json` (here or before the scope), else `cmux: <message>`.
+    let output = if request.json { OutputMode::Json } else { global.output };
+    let fail = |code: &str, message: String, exit: i32| {
+        super::super::wire::print_local_error(
+            &json!({"code": code, "message": format!("cmux: {message}"), "details": {}, "retryable": false}),
+            output,
+            exit,
+        )
+    };
     let socket = match super::target(global, request.chief_home.as_deref()) {
         Ok(Target::Explicit(socket, derived)) => (socket, derived),
         Ok(Target::Home(home)) => match home.socket() {
             Ok(socket) => (socket, true),
-            Err(error) => {
-                eprintln!("cmux: {error}");
-                return 2;
-            }
+            Err(error) => return fail("usage.invalid", error.to_string(), 2),
         },
-        Err((code, message)) => {
-            eprintln!("cmux: {message}");
-            return code;
-        }
+        Err((code, message)) => return fail("chief.unavailable", message, code),
     };
     let mut link = match Link::connect(&socket.0, socket.1) {
         Ok(link) => link,
-        Err(error) => {
-            eprintln!("{}", super::super::wire::connect_failure(&socket.0, &error));
-            return 3;
-        }
+        Err(error) => return super::super::wire::report_connect_failure(&socket.0, &error, output),
     };
     match execute(&mut link, &request, global.output) {
         Ok(()) => 0,
-        Err(Failure::Usage(message)) => {
-            eprintln!("cmux: {message}");
-            2
-        }
-        Err(Failure::Link(LinkError::Transport(message))) => {
-            eprintln!("cmux: {message}");
-            3
-        }
-        Err(Failure::Unsupported) => {
-            eprintln!("cmux: {}", t.unsupported);
-            1
-        }
+        Err(Failure::Usage(message)) => fail("usage.invalid", message, 2),
+        Err(Failure::Link(LinkError::Transport(message))) => fail("transport.failed", message, 3),
+        Err(Failure::Unsupported) => fail("chief.unsupported", t.unsupported.to_string(), 1),
         Err(Failure::Link(LinkError::Rejected { code, message })) => {
-            eprintln!("cmux: {code}: {message}");
-            1
+            fail(&code, format!("{code}: {message}"), 1)
         }
         Err(Failure::Partial { done, error }) => {
-            eprintln!("cmux: {done}");
-            eprintln!("cmux: {error}");
-            1
+            fail("chief.partial", format!("{done}\ncmux: {error}"), 1)
         }
     }
 }
@@ -561,7 +555,7 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
         let wanted =
             request.chief.as_deref().ok_or_else(|| Failure::Usage(t.needs_chief.into()))?;
         let found = resolve(&records, wanted).map_err(Failure::Usage)?;
-        let id = text_of(&found, "id").to_owned();
+        let id = found.get_str("id").unwrap_or("").to_owned();
         if request.word == "history" {
             let mut params = json!({"chief": id});
             if let Some(limit) = request.limit {
@@ -659,8 +653,8 @@ fn print_result(record: &Value, template: &str, json_out: bool) {
 fn fill(record: &Value, template: &str) -> String {
     let rev = record.get("rev").map(Value::to_string).unwrap_or_default();
     template
-        .replace("{name}", text_of(record, "display_name"))
-        .replace("{id}", text_of(record, "id"))
+        .replace("{name}", record.get_str("display_name").unwrap_or(""))
+        .replace("{id}", record.get_str("id").unwrap_or(""))
         .replace("{rev}", &rev)
 }
 
@@ -669,35 +663,34 @@ fn revision_line(revision: &Value) -> String {
     let rev = revision.get("rev").map(Value::to_string).unwrap_or_default();
     [
         rev.as_str(),
-        text_of(revision, "at"),
-        text_of(revision, "actor"),
-        text_of(revision, "operation"),
+        revision.get_str("at").unwrap_or(""),
+        revision.get_str("actor").unwrap_or(""),
+        revision.get_str("operation").unwrap_or(""),
     ]
     .join("\t")
 }
 
 /// `id  name  role  [default]`, tab-separated.
 fn line(record: &Value, t: &Text) -> String {
-    let mut parts =
-        vec![text_of(record, "id"), text_of(record, "display_name"), text_of(record, "role")];
+    let mut parts = vec![
+        record.get_str("id").unwrap_or(""),
+        record.get_str("display_name").unwrap_or(""),
+        record.get_str("role").unwrap_or(""),
+    ];
     if record.get("is_default").and_then(Value::as_bool) == Some(true) {
         parts.push(t.default_mark);
     }
     parts.join("\t").trim_end().to_owned()
 }
 
-fn text_of<'a>(record: &'a Value, key: &str) -> &'a str {
-    record.get(key).and_then(Value::as_str).unwrap_or("")
-}
-
 /// The one record `wanted` names: its id, else its display name.
 fn resolve(records: &[Value], wanted: &str) -> Result<Value, String> {
     let t = text();
-    if let Some(record) = records.iter().find(|r| text_of(r, "id") == wanted) {
+    if let Some(record) = records.iter().find(|r| r.get_str("id").unwrap_or("") == wanted) {
         return Ok(record.clone());
     }
     let named: Vec<&Value> =
-        records.iter().filter(|r| text_of(r, "display_name") == wanted).collect();
+        records.iter().filter(|r| r.get_str("display_name").unwrap_or("") == wanted).collect();
     match named.as_slice() {
         [one] => Ok((*one).clone()),
         [] => Err(t.no_such.replace("{chief}", wanted)),

@@ -82,8 +82,11 @@ export async function open120Hz(
       // A clip-path animation runs on the compositor in Chromium, and under BeginFrame control its
       // frames never finish: a sent prompt's bubble reveal (conversation.css SEND-ENTRANCE) hung the
       // steer and tools turns at their 180 s limit. The app draws with WebKit, which animates
-      // clip-path on the main thread, so the page here does too.
-      "--disable-features=CompositeClipPathAnimation",
+      // clip-path on the main thread, so the page here does too. A background-color transition is
+      // the same: the Codex look's send button eases its color in once typed text makes it ready
+      // (composerStates.css), and the motion contract hung in "settle after typing" until its
+      // 180 s limit (run 43399332571).
+      "--disable-features=CompositeClipPathAnimation,CompositeBGColorAnimation",
     ],
   });
   let browser: Browser | undefined;
@@ -172,7 +175,15 @@ export async function open120Hz(
       },
       async close() {
         running = false;
-        await pump;
+        // A beginFrame the browser leaves unanswered holds the pump (chrome-headless-shell 158.0.8127.36,
+        // scripts/ci/ensure-system-chrome.sh): closing the browser ends that call, so the pump gets a bound.
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+          pump,
+          // fixed-wait: the most a close waits for the pump's last frame before it closes the browser
+          new Promise((resolve) => (timer = setTimeout(resolve, 5000))),
+        ]);
+        clearTimeout(timer);
         await browser?.close();
         await owner.close();
       },

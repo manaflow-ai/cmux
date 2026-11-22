@@ -10,10 +10,11 @@ import CmuxNextCompat
 /// have no id to rewrite, so the original text is forwarded after the duplicate-key check; only
 /// notifications that feed a host-side observer are parsed.
 nonisolated final class AcpmuxRequestIds: Sendable {
-    private static let observedNotificationMethods = [
+    /// Notifications a host observer reads (``toPage(_:)``); never shed (``AcpmuxPaneShedding``).
+    static let observedNotificationMethods = [
         "_acpmux/prompt_accepted", "_acpmux/event", "_acpmux/permission_pending",
     ]
-    private static let eventObserverMarkers = [
+    static let eventObserverMarkers = [
         "\"permission_request\"", "\"permission_reissued\"", "\"permission_decision\"",
     ]
 
@@ -125,7 +126,7 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         // JSON method names are normally plain ASCII. If an escaped key or value appears, use
         // Foundation once to decode that rare spelling before deciding whether host observers
         // need the object; plain stream notifications never take this path.
-        if method?.contains("\\") == true || (!methodScan.found && text.contains("\\")) {
+        if method?.contains("\\") == true || (!methodScan.found && text.utf8Contains("\\")) {
             if let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] {
                 if let decoded = object["method"] as? String {
                     method = decoded
@@ -139,7 +140,7 @@ nonisolated final class AcpmuxRequestIds: Sendable {
             // Most `_acpmux/event` frames are transcript chunks. The host only reads permission
             // records from that stream; pacing for turn boundaries uses the raw text path below.
             if method == "_acpmux/event" &&
-                !Self.eventObserverMarkers.contains(where: text.contains) {
+                !text.utf8ContainsAny(Self.eventObserverMarkers) {
                 return .page(text, object: nil, replyTo: "_acpmux/event")
             }
             let object = notificationObject ?? (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
@@ -152,7 +153,8 @@ nonisolated final class AcpmuxRequestIds: Sendable {
             return .page(text, object: object, replyTo: method)
         }
         if methodScan.found {
-            return .page(text, object: nil, replyTo: nil)
+            // Opaque: its method still goes along, for the page-wait check (``AcpmuxPaneSocket/pageWaits(on:method:)``).
+            return .page(text, object: nil, replyTo: method)
         }
         guard var object = replyObject ?? (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return .drop }
         guard let relayID = object["id"].flatMap(AcpmuxPaneMethods.rawID).flatMap({ Int($0) }) else { return .drop }

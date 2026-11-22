@@ -48,9 +48,12 @@
 //!   machine; unlike a mode, no asking table makes that safe.
 //! - Web and Peer: no `session/cancel` of a chat started on this machine, but from the
 //!   owner's own peer daemon (`cancel_owner.rs`).
-//! - Web and Peer: no `_acpmux/btw` (`btw.remote`). A side session is a new
-//!   session on this machine, in the chat's harness and folder, with a policy
-//!   that approves reads: the app and the unix socket only.
+//! - Web and Peer: no `_acpmux/btw` (`btw.remote`), but from the owner's own peer daemon
+//!   (`cancel_owner.rs` `owner`). A side session is a new session on this machine, in the
+//!   chat's harness and folder, with a policy that approves reads: the app, the unix socket,
+//!   and the person's own daemon on another machine asking for itself or for its app, whose
+//!   own guard already held its callers to this rule (it marks a Web client's request
+//!   `via: web` and a paired machine's `via: device`, and both stay refused here).
 //! - Web and LocalApp: no `_acpmux/peer_add`, `_acpmux/peer_remove` or
 //!   `_acpmux/peer_lease` (they change which machines this daemon reaches
 //!   with the user's ssh keys and tokens); `peer_reconnect` only retries a
@@ -163,10 +166,18 @@ pub(super) fn full_access_device(
     conn: &super::Conn,
     params: &Value,
 ) -> Option<String> {
+    sending_device(conn, params).filter(|id| hub.pairing.full_access(id))
+}
+
+/// The paired machine that sent this request, or None: the connection presented that machine's
+/// own `client` or `phone` credential (`ConnAuth::Device`, as `full_access_device`) and the
+/// request is held to the Web's rules. What a prompt carries to its dispatch
+/// (`PromptOptions::full_access_device`), where each rule reads the store again: its Full-access
+/// setting (`Hub::full_access_hold`) and whether it is the owner's own phone (D13,
+/// `Hub::local_claude_refusal`). It grants nothing by itself.
+pub(super) fn sending_device(conn: &super::Conn, params: &Value) -> Option<String> {
     let id = conn.device.as_deref().filter(|_| conn.auth == super::ConnAuth::Device)?;
-    (control_of(conn.origin, conn.auth, params) == crate::hub::Control::Web
-        && hub.pairing.full_access(id))
-    .then(|| id.to_owned())
+    (control_of(conn.origin, conn.auth, params) == crate::hub::Control::Web).then(|| id.to_owned())
 }
 
 /// A request forwarded to a peer, which serves this daemon as Peer: one
@@ -247,22 +258,65 @@ fn refused(what: &str) -> RpcError {
     ))
 }
 
+/// Each request by which the owner's own phone controls a chat D13 refuses every other remote
+/// client (`Hub::local_claude_refusal`), logged once with the phone's device id, the method and
+/// the chat, here where every remote request passes once (the hub checks it again at dispatch).
+fn log_own_phone_control(hub: &crate::hub::Hub, sender: Option<&str>, m: &str, params: &Value) {
+    let controls = matches!(
+        m,
+        method::SESSION_PROMPT
+            | method::SESSION_CANCEL
+            | method::SESSION_SET_MODE
+            | method::SESSION_SET_CONFIG_OPTION
+            | method::SESSION_SET_MODEL
+            | method::SESSION_FORK
+            | method::SESSION_CLOSE
+            | method::SESSION_DELETE
+            | method::MUX_QUEUE_EDIT
+            | method::MUX_QUEUE_REMOVE
+            | method::MUX_QUEUE_APPROVE
+            | method::MUX_QUEUE_DECLINE
+            | method::MUX_PERMISSION_RESPOND
+            | method::MUX_PERMISSION_GROUP_RESPOND
+            | method::MUX_SET_RULES
+            | method::MUX_SET_POLICY
+            | method::MUX_KILL
+            | method::MUX_PAUSE
+            | method::MUX_HANDOFF_PREPARE
+    );
+    if !controls {
+        return;
+    }
+    let Some(device) = sender.filter(|d| hub.pairing.own_phone(d)) else { return };
+    let Ok(s) = super::session_key(params).and_then(|key| hub.resolve(key)) else { return };
+    let meta = s.meta();
+    if hub.local_claude_refusal(&meta, None).is_some() {
+        tracing::info!(device, method = m, session = %meta.id, harness = %meta.harness, "the owner's phone controls a chat started on this Mac");
+    }
+}
+
 /// Check (and canonicalize the folder fields of) a request from a
 /// connection that is not the unix socket (`hint::check` adds `servedAs`).
+#[allow(clippy::too_many_arguments)]
 async fn check_inner(
     hub: &std::sync::Arc<crate::hub::Hub>,
     origin: super::Origin,
     auth: super::ConnAuth,
-    device: Option<&str>,
+    sender: Option<&str>,
     m: &str,
     params: &mut Value,
     policy_proved: bool,
+    web_device: bool,
 ) -> Result<(), RpcError> {
     // The mode rules below give an authenticated connection more (any mode
     // of the Codex bridge, `Hub::any_mode_for_web`): none without a proof.
     if !auth.authenticated() {
         return Err(super::conn_auth::refused());
     }
+    // `sender`: the paired machine that sent it (`sending_device`), what D13 reads. `device`: that
+    // machine when its Full-access setting covers this request now (`full_access_device`).
+    let device = sender.filter(|d| hub.pairing.full_access(d));
+    log_own_phone_control(hub, sender, m, params);
     // A GitHub action runs with the person's GitHub login on their Mac (`github_broker.rs`): an
     // agent session of this daemon asks over the unix socket; no page, app or peer does.
     if m == method::MUX_GITHUB_ACTION || m == method::MUX_GITHUB_APP_LEASE {
@@ -302,12 +356,16 @@ async fn check_inner(
     let web = origin.web_class();
     // Taking over a watched conversation starts its harness on this machine (`hub/watch.rs`):
     // only a local client does that.
+    if web && m == method::MUX_RELEASE_TO_WATCH {
+        return Err(RpcError::new(-32602, "a chat is handed to a terminal only on this machine")
+            .with_data(serde_json::json!({"reason": "watch.origin_refused"})));
+    }
     if web && m == method::MUX_WATCH_TAKE_OVER {
         return Err(RpcError::new(-32602, "a watched chat is taken over only on this machine")
             .with_data(serde_json::json!({"reason": "watch.origin_refused"})));
     }
     if m == method::SESSION_CANCEL && web {
-        cancel_owner::check(hub, origin, auth, params)?;
+        cancel_owner::check(hub, origin, auth, params, sender)?;
     }
     // A per-session env is set over the unix socket only (session_env.rs).
     if matches!(m, method::SESSION_NEW | method::SESSION_FORK)
@@ -363,11 +421,12 @@ async fn check_inner(
     if m == method::MUX_WEB_TOKEN_ROTATE {
         return Err(refused("rotating the web token"));
     }
-    // A side session starts a new local session that approves reads (`hub/btw.rs`):
-    // never for a Web connection or a peer, whatever the chat.
-    if m == method::MUX_BTW && origin.web_class() {
+    // A side session starts a new local session that approves reads (`hub/btw.rs`): never for
+    // a Web connection, a paired device or a peer forwarding for either, whatever the chat. The
+    // owner's own peer daemon may: the same proof that lets it stop a chat started here.
+    if m == method::MUX_BTW && origin.web_class() && !cancel_owner::owner(origin, auth, params) {
         return Err(RpcError::invalid_params(
-            "btw.remote: a side session is opened only in the app or over the local unix socket",
+            "btw.remote: a side session is opened only in the app, over the local unix socket or by the owner's own daemon",
         )
         .with_data(serde_json::json!({"reason": "btw.remote"})));
     }
@@ -579,11 +638,23 @@ async fn check_inner(
         )
         .with_data(serde_json::json!({"reason": "workflows.remote"})));
     }
+    // A prompt from a browser that presented its own device on the mesh hub (`web_device.rs`)
+    // to a chat the hub lists for the person's other machine, which nothing here or on a peer
+    // resolves: it goes through the hub with that device's credential only (`mesh_read.rs`
+    // `prompt`) and runs there, under that machine's own rules on the hub-stamped person
+    // (`mesh_relay.rs`). No session here to hold to the asking table; every check above held.
+    // Without a device, the asking check below refuses it as before.
+    let device_hub_prompt = web_device
+        && m == method::SESSION_PROMPT
+        && super::session_key(params).is_ok_and(|key| {
+            hub.resolve(key).is_err()
+                && super::mesh_relay::read::hub_prompt_target(hub, key).is_some()
+        });
     // After the folder checks: what the request starts from, and its mode.
-    if web {
+    if web && !device_hub_prompt {
         let control = control_of(origin, auth, params);
         let vm_boundary = crate::hub::vm_boundary::asked(auth, control, params);
-        web_starts_asking(hub, control, vm_boundary, m, params).await?;
+        web_starts_asking(hub, control, vm_boundary, sender, m, params).await?;
     }
     // A chat in Full access by a machine's setting: every request that controls or changes its
     // turn and queue comes from that machine (`Hub::full_access_hold`; `device`, from
@@ -659,7 +730,7 @@ async fn mode_asks(
     if cloud_mobile {
         return hub.cloud_mobile_mode_asks(m);
     }
-    hub.any_mode_for_web(m) || hub.web_modes().session_asks(m)
+    hub.any_mode_for_web(m) || hub.web_session_asks(m)
 }
 
 /// After a request ran: every reply to a non-unix connection is redacted
@@ -715,24 +786,32 @@ pub(super) async fn settle_web_session_mode(
         let asks = |m: &crate::store::SessionMeta| {
             crate::web_modes::mode_of(m).is_some_and(|mode| settled.contains(&mode))
         };
+        // Already in the start mode: nothing to move. A chat at its owner's VM boundary is
+        // offered full access first and an asking mode after it, tried in that order, so a
+        // refused full access (`sessions.allowFullAccess` off meanwhile) still settles it.
+        let first = settled.first().cloned();
+        if first.is_some() && crate::web_modes::mode_of(&s.meta()) == first {
+            return Ok(());
+        }
+        for start in &settled {
+            if hub.set_mode(s, start).await.is_ok()
+                && crate::web_modes::mode_of(&s.meta()).as_deref() == Some(start.as_str())
+            {
+                hub.restore_web_control(s);
+                return Ok(());
+            }
+        }
         if asks(&s.meta()) {
             return Ok(());
         }
-        let Some(start) = settled.first() else {
-            let _ = hub.kill(s, true).await;
-            return Err(no_reviewed_asking_mode());
-        };
-        if hub.set_mode(s, start).await.is_err() || !asks(&s.meta()) {
-            let _ = hub.kill(s, true).await;
-            return Err(no_reviewed_asking_mode());
-        }
-        hub.restore_web_control(s);
-        return Ok(());
+        let _ = hub.kill(s, true).await;
+        return Err(no_reviewed_asking_mode());
     }
     if mode_asks(hub, &s.meta(), cloud_mobile).await {
         return Ok(());
     }
-    let Some(default) = asking_modes(hub, &family_of(&s.meta())).await.into_iter().next() else {
+    let modes_of = hub.trusted_mode_family(&s.meta());
+    let Some(default) = asking_modes(hub, &modes_of).await.into_iter().next() else {
         let _ = hub.kill(s, true).await;
         return Err(no_reviewed_asking_mode());
     };
@@ -855,10 +934,11 @@ fn asking_policy(p: crate::config::PermissionPolicy) -> bool {
 ///   source session's effective policy skips asking or its mode is a known
 ///   permissive one: a downgrade could not reach a mode held inside the
 ///   harness, which a fork copies.
-async fn web_starts_asking(
+pub(super) async fn web_starts_asking(
     hub: &std::sync::Arc<crate::hub::Hub>,
     control: crate::hub::Control,
     vm_boundary: bool,
+    device: Option<&str>,
     m: &str,
     params: &mut Value,
 ) -> Result<(), RpcError> {
@@ -883,10 +963,47 @@ async fn web_starts_asking(
                 .or_else(|| params.get(key).and_then(Value::as_str).map(str::to_owned))
         };
         let cwd = params.get("cwd").and_then(Value::as_str).map(Path::new).map(Path::to_path_buf);
-        let (family, any_mode) =
+        // The one remote start rule (`web_modes::remote_start`): the Codex bridge starts, a
+        // refused family never does, and another starts only in a reviewed asking mode.
+        let start =
             hub.preflight_remote_new(pick("harness"), pick("preset"), pick("model"), cwd).await?;
-        if !any_mode && asking_modes(hub, &family).await.is_empty() {
+        if start.is_err() {
             return Err(no_reviewed_asking_mode());
+        }
+    }
+    // A fork onto another harness (`hub/fork.rs` `Retarget`) starts that harness as a new
+    // chat would: the same remote start rule, so a family with no reviewed asking mode is refused.
+    // Of a chat this machine runs; a peer's chat is the peer's to judge (forwarded `via: web`).
+    let peer_chat = super::session_key(params)
+        .is_ok_and(|key| hub.resolve(key).is_err() && hub.resolve_remote(key).is_some());
+    if m == method::SESSION_FORK
+        && web
+        && !peer_chat
+        && let Some(harness) = params.pointer("/_meta/acpmux/harness").and_then(Value::as_str)
+    {
+        let model = params.pointer("/_meta/acpmux/model").and_then(Value::as_str);
+        let start = hub
+            .preflight_remote_new(Some(harness.to_owned()), None, model.map(str::to_owned), None)
+            .await?;
+        if start.is_err() {
+            return Err(no_reviewed_asking_mode());
+        }
+        // D13 (`hub/web_control.rs` `local_claude_refusal`) on the chat the fork would be: a fork of a
+        // chat the Mac started keeps its origin (`hub/fork.rs` `retarget_to`), so onto Claude it would
+        // run with the Mac's Claude permissions, which a remote device never starts. A remote chain's
+        // fork runs in the sandbox like its parent; an unknown chat is the peer's to judge.
+        if let Ok(s) = super::session_key(params).and_then(|key| hub.resolve(key)) {
+            let mut would_be = s.meta();
+            // The profile and family the fork would carry (`hub/fork.rs` `Target`), a family name
+            // resolved to its profile as the fork resolves it: a Claude adapter that is not Claude
+            // Code itself (family `claude`) is Claude here too. No such profile: the name, and
+            // `local_claude_refusal` refuses a profile it cannot read.
+            let (agent, family) = super::trust_gate::resolve_harness(hub, harness).await;
+            would_be.harness = agent;
+            would_be.family = Some(family);
+            if let Some(e) = hub.local_claude_refusal(&would_be, device) {
+                return Err(e);
+            }
         }
     }
     if m == method::SESSION_NEW
@@ -949,7 +1066,7 @@ async fn web_starts_asking(
         // A NEW target (a draft, never prompted, never drifted) in its
         // harness's own mode is moved to the asking default, like a new Web
         // session; a family with none is ended and refused.
-        if let Err(e) = hub.web_control_check(&t, control) {
+        if let Err(e) = hub.web_control_check(&t, control, device) {
             let not_asking = e.data.as_ref().and_then(|d| d.get("reason"))
                 == Some(&Value::from("remote.mode_not_asking"));
             if !(draft && not_asking) {
@@ -961,7 +1078,7 @@ async fn web_starts_asking(
             // may switch it later, as any bridge session).
             settle_web_session_mode(hub, &t, false, cloud_mobile).await?;
         }
-        return hub.web_control_check(&t, control);
+        return hub.web_control_check(&t, control, device);
     }
     // D13: a remote device does not change or end a Claude session the Mac
     // started either (its rules, policy, model, its life or its log).
@@ -970,6 +1087,7 @@ async fn web_starts_asking(
         method::MUX_SET_RULES
             | method::MUX_SET_POLICY
             | method::MUX_KILL
+            | method::MUX_PAUSE
             | method::SESSION_DELETE
             | method::SESSION_CLOSE
             | method::SESSION_SET_MODEL
@@ -977,7 +1095,7 @@ async fn web_starts_asking(
     if web
         && mutates
         && let Ok(s) = super::session_key(params).and_then(|key| hub.resolve(key))
-        && let Some(e) = hub.local_claude_refusal(&s.meta())
+        && let Some(e) = hub.local_claude_refusal(&s.meta(), device)
     {
         return Err(e);
     }
@@ -989,13 +1107,13 @@ async fn web_starts_asking(
         return match hub.resolve(key) {
             Ok(s) if m == method::MUX_PERMISSION_RESPOND => {
                 let (narrows, proved) = hub.answer_shape(params);
-                hub.web_answer_check(&s, control, narrows, proved)
+                hub.web_answer_check(&s, control, narrows, proved, device)
             }
             Ok(s) if m == method::MUX_PERMISSION_GROUP_RESPOND => {
                 let narrows = params["decision"].as_str() == Some("deny");
-                hub.web_answer_check(&s, control, narrows, false)
+                hub.web_answer_check(&s, control, narrows, false, device)
             }
-            Ok(s) => hub.web_control_check(&s, control),
+            Ok(s) => hub.web_control_check(&s, control, device),
             // A configured peer's session: forwarded with `via: web`, so
             // that peer applies the Web's rules on its own fresh state.
             Err(_) if hub.resolve_remote(key).is_some() => Ok(()),
@@ -1003,6 +1121,13 @@ async fn web_starts_asking(
             // to be a peer's.
             Err(e) => Err(e),
         };
+    }
+    // A fork of a configured peer's chat (a live fork, a model switch onto another harness:
+    // `fork_through.rs`) is that peer's `session/fork`: forwarded with `via: web`
+    // (`mark_forwarded`), so the peer applies the Web's rules, D13 among them, on its own state,
+    // as a control above is. A local not-found or ambiguous key is still refused below.
+    if m == method::SESSION_FORK && peer_chat {
+        return Ok(());
     }
     // The handler's own resolution; a source it cannot resolve (unknown, or
     // an ambiguous prefix) is refused for the Web, never passed unchecked.
@@ -1016,14 +1141,14 @@ async fn web_starts_asking(
     // local state; a remote chain starts fresh.
     if web
         && matches!(m, method::SESSION_FORK | method::MUX_HANDOFF_PREPARE)
-        && let Some(e) = hub.local_claude_refusal(&s.meta())
+        && let Some(e) = hub.local_claude_refusal(&s.meta(), device)
     {
         return Err(e);
     }
     // A copy or a mode switch of a session at its owner's VM boundary is its owner's alone
     // (`hub/vm_boundary.rs`): a fork keeps the boundary.
     if sets_mode || (web && copies && s.meta().vm_boundary) {
-        hub.web_control_check(&s, control)?;
+        hub.web_control_check(&s, control, device)?;
     }
     let meta = s.meta();
     if sets_mode {
@@ -1034,8 +1159,13 @@ async fn web_starts_asking(
             let id = params.get("configId").and_then(Value::as_str);
             (Some(id.unwrap_or_default()), params.get("value").and_then(Value::as_str))
         };
+        // By the modes the configured harness offers (`Hub::trusted_mode_family`); a refused
+        // family is refused
+        // whatever its modes.
+        let refused = hub.web_modes().refused().contains(&family_of(&meta));
         return if hub.any_mode_for_web(&meta)
-            || hub.web_modes().config_value_asks(&family_of(&meta), id, value)
+            || (!refused
+                && hub.web_modes().config_value_asks(&hub.trusted_mode_family(&meta), id, value))
         {
             Ok(())
         } else {
@@ -1043,6 +1173,11 @@ async fn web_starts_asking(
                 "{m}: this mode or option is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
             )))
         };
+    }
+    // The owner's phone with Full access copies a chat in the mode it has, as it drives one
+    // (`Hub::owner_phone_full_access`): the floor holds the copy's turns once that ends.
+    if web && hub.owner_phone_full_access(device) {
+        return Ok(());
     }
     let default = hub.config.read().await.permission_policy;
     let policy = meta.permission_policy.as_deref().and_then(|p| p.parse().ok()).unwrap_or(default);
@@ -1105,7 +1240,8 @@ async fn peer_scratch(params: &Value, cloud_peer: bool) -> Result<String, RpcErr
             builder.recursive(true);
             #[cfg(unix)]
             std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-            builder.create(&dir)
+            builder.create(&dir)?;
+            mark_made_by_acpmux(&dir)
         })
         .await;
         made.map_err(|e| failed(e.to_string()))?.map_err(|e| failed(e.to_string()))?;
@@ -1163,18 +1299,8 @@ fn cloud_chat_folder_under(home: &std::path::Path, name: &str) -> Result<PathBuf
 fn peer_scratch_root() -> Result<PathBuf, RpcError> {
     static ROOT: OnceLock<Result<PathBuf, String>> = OnceLock::new();
     ROOT.get_or_init(|| {
-        let uid = {
-            #[cfg(unix)]
-            {
-                unsafe { libc::getuid() }.to_string()
-            }
-            #[cfg(not(unix))]
-            {
-                "user".to_owned()
-            }
-        };
-        let root = std::env::temp_dir()
-            .join(format!("acpmux-peer-scratch-{uid}-{}", uuid::Uuid::now_v7().simple()));
+        // The trust rule reads the same path (`trust::Paths::peer_scratch`).
+        let root = crate::trust::peer_scratch_root();
         let mut builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
@@ -1186,6 +1312,22 @@ fn peer_scratch_root() -> Result<PathBuf, RpcError> {
     .map_err(|e| {
         RpcError::invalid_params(format!("the peer's scratch root could not be made: {e}"))
     })
+}
+
+/// Marks `dir`, a scratch folder this daemon just made, as made by acpmux (`trust.rs`
+/// `made_by_cmux`): the folder of a chat the person gave no folder is trusted as the app's
+/// agent-home is. A marker already there is kept; anything else in its place (a link, a folder)
+/// is no marker, so the folder is asked about as any other.
+fn mark_made_by_acpmux(dir: &std::path::Path) -> std::io::Result<()> {
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(dir.join(crate::trust::AGENT_HOME_MARKER))
+    {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(e),
+    }
 }
 
 /// A session name as one folder name: letters, digits, `.`, `-` and `_`; anything
