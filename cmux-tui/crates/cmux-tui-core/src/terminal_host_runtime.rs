@@ -70,7 +70,7 @@ const HOST_CONNECT_RETRY_INTERVAL: std::time::Duration = std::time::Duration::fr
 const TERMINAL_HOST_PUBLICATION_LOCK_FILE: &str = ".publication.lock";
 // Keep live PTY backpressure independent from the extra headroom needed by
 // one maximum Resized + Colors + targeted acknowledgement transition.
-const MAX_HOST_CLIENT_OUTPUT_QUEUED_BYTES: usize = 512 * 1024 * 1024; // PROBE ONLY, not for landing
+const MAX_HOST_CLIENT_OUTPUT_QUEUED_BYTES: usize = 8 * 1024 * 1024;
 const MAX_HOST_CLIENT_STATE_QUEUED_BYTES: usize = MAX_FRAME_PAYLOAD
     + MAX_TERMINAL_COLORS_PAYLOAD
     + CELL_PIXEL_SIZE_ENCODED_LEN
