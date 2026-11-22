@@ -789,11 +789,12 @@ try {
       plugins: [
         {
           name: "immutable-pane-baseline",
-          setup: (builder) =>
+          setup: (builder) => {
             builder.onLoad({ filter: /\.tsx?$/ }, (args) => {
               const contents = priorSources.get(args.path);
               return contents === undefined ? undefined : { contents, loader: args.path.endsWith("x") ? "tsx" : "ts" };
-            }),
+            });
+          },
         },
       ],
     });
