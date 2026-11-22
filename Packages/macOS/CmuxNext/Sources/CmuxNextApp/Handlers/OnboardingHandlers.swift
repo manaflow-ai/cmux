@@ -9,18 +9,15 @@ import CmuxNextImportCards
 import CmuxNextImportSuggestions
 import CmuxNextOnboarding
 
-/// Import and default-app actions. Import from Browser and Make cmux Yours open the tool window
-/// (`OnboardingService`); Make cmux the Default Terminal asks macOS directly
+/// Import and default-app actions. Import from Browser and Make cmux Yours (on the current settings; Skip restores them) open
+/// the tool window (`OnboardingService`); Make cmux the Default Terminal asks macOS directly
 /// for each handler; Make cmux the Default Browser asks macOS directly
 /// (macOS shows its confirmation); Import Workspaces from Classic cmux opens
 /// classic's last saved session.
 enum OnboardingHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services; registry.bindEffect("home.showSetup") { invocation in services.onboarding.setup.reopen(); _ = registry.perform("home.show", invocation: invocation); _ = registry.perform("home.openChief", invocation: invocation); return .done }
-        registry.bind("importFromBrowser", run: { _ in services.onboarding.show(step: .importData) })
-        // Make cmux Yours again, on the person's current settings: the step reads them when it opens, and Skip puts
-        // back exactly what was set then (not the defaults). Not the first-run path: no first-run flag changes.
-        registry.bind("home.makeItYours", run: { _ in services.onboarding.show(step: .makeItYours) })
+        registry.bind("importFromBrowser", run: { _ in services.onboarding.show(step: .importData) }); registry.bindEffect("home.makeItYours") { _ in services.onboarding.show(step: .makeItYours); return .done }
         BrowserImportGate(host: services).install(into: registry) { BrowserImportOfferStrings.turnedOff }
         registry.bind("browserProfile.removeImportedData", run: { invocation in
             let record = try context.browserProfile(invocation), sync = services.onboarding.historySync
