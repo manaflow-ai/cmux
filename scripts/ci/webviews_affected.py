@@ -281,6 +281,7 @@ class Selector:
             for target in (*GALLERY_ROOTS, *entries):
                 self.imports.setdefault(test, set()).add(target)
                 self.graph.importers.setdefault(target, set()).add(test)
+        self.css_texts: dict[str, str] | None = None
         self.gallery_outside = [root.rstrip("/") + "/" for root in self.fixture_roots()]
 
     def pinned(self, pins: dict[str, str]) -> bool:
@@ -431,8 +432,21 @@ class Selector:
         if not self.gallery:
             return False
         if f.startswith(WEB):
+            if f.endswith(".css") and self.css_imported(f):
+                return False  # only its importers load it: the graph's edge, as for any test
             return not f.endswith(ft.EXTENSIONS) or not f.startswith(WEB + "src/") and not self.reaching(f)
         return bool(GALLERY_OUTSIDE.search(f)) or any(f.startswith(r) for r in self.gallery_outside)
+
+    def css_imported(self, f: str) -> bool:
+        """Whether a stylesheet reaches a page only through the modules that import it: a module imports it and no
+        other webviews stylesheet or HTML page names it (an @import, a <link>)."""
+        if not self.graph.importers.get(f):
+            return False
+        if self.css_texts is None:
+            self.css_texts = {g: (self.root / g).read_text(encoding="utf-8", errors="replace")
+                              for g in self.graph.known if g.endswith((".css", ".html")) and "/node_modules/" not in g}
+        name = Path(f).name
+        return not any(name in text for g, text in self.css_texts.items() if g != f)
 
     def closure(self, path: str) -> set[str]:
         """`path` and every module it imports, transitively."""
