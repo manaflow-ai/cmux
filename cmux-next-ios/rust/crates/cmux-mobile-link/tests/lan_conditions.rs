@@ -38,6 +38,9 @@
 //! - `NETCOND_RUNS` (default 5)
 //! - `NETCOND_ECHOES` (default 20)
 //! - `NETCOND_SEED_BASE` (default 0)
+//! - `NETCOND_STREAM_KB` (default 0: off): while each path dials and echoes, a streaming session
+//!   on its own relayed link through the same radio pushes this many KiB every 10 ms and drains
+//!   the echo (a long live agent stream on the same Mac and Wi-Fi: the duress case).
 
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -244,6 +247,35 @@ async fn first_up(a: impl Future<Output = Option<Up>>, b: impl Future<Output = O
     }
 }
 
+/// A streaming session beside the path under test: its own relayed link, flooding an echo
+/// channel; dropped (tasks aborted, link closed) when the cold run ends.
+struct Stream {
+    _up: Up,
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        for task in &self.tasks {
+            task.abort();
+        }
+    }
+}
+
+async fn stream_load(mac: &Mac, radio: &Radio, kib: u64) -> Option<Stream> {
+    let up = dial_relayed(mac, radio).await?;
+    let channel = timeout(WAIT, up.connected.link.open("echo", json!({}))).await.ok()?.ok()?;
+    let (sender, mut receiver) = channel.split();
+    let chunk = Bytes::from(vec![b's'; (kib * 1024) as usize]);
+    let push = tokio::spawn(async move {
+        while sender.send(chunk.clone()).await.is_ok() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    });
+    let drain = tokio::spawn(async move { while receiver.recv().await.is_some() {} });
+    Some(Stream { _up: up, tasks: vec![push, drain] })
+}
+
 /// `count` keystrokes, each timed to its echo; `None` for one that never came back.
 async fn echoes(link: &Link, count: u64) -> Vec<Option<f64>> {
     let Ok(Ok(channel)) = timeout(WAIT, link.open("echo", json!({}))).await else {
@@ -277,10 +309,14 @@ async fn first_echo(link: &Link, since: Instant) -> Option<f64> {
     }
 }
 
-async fn cold(profile: &LinkProfile, path: &str, run: u64, seed: u64, echo_count: u64) {
+async fn cold(profile: &LinkProfile, path: &str, run: u64, seed: u64, echo_count: u64, stream_kib: u64) {
     let trace = Trace::new();
     let mac = Mac::start().await;
     let radio = Radio::start(&mac, profile, seed, &trace).await;
+    let load = if stream_kib > 0 { stream_load(&mac, &radio, stream_kib).await } else { None };
+    if stream_kib > 0 {
+        emit(profile, path, "stream_up", Some(if load.is_some() { 1.0 } else { 0.0 }), run, seed);
+    }
     if matches!(profile.disruption, Some(Disruption::InternetDown)) {
         radio.internet_down();
     }
@@ -310,6 +346,7 @@ async fn cold(profile: &LinkProfile, path: &str, run: u64, seed: u64, echo_count
             }
         }
     }
+    drop(load);
 }
 
 async fn fallback(profile: &LinkProfile, path: &str, run: u64, seed: u64) {
@@ -353,6 +390,7 @@ async fn lan_conditions() {
     let runs = env_u64("NETCOND_RUNS", 5);
     let echo_count = env_u64("NETCOND_ECHOES", 20);
     let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let stream_kib = env_u64("NETCOND_STREAM_KB", 0);
     let paths = env_list("NETCOND_PATHS", "relayed,lan,race,race-dead-lan");
     let fallbacks = env_list("NETCOND_FALLBACK", "lan");
     for name in env_list("NETCOND_PROFILES", "lan,internet-down-lan-up") {
@@ -360,7 +398,7 @@ async fn lan_conditions() {
         for run in 0..runs {
             let seed = run + seed_base;
             for path in &paths {
-                cold(&profile, path, run, seed, echo_count).await;
+                cold(&profile, path, run, seed, echo_count, stream_kib).await;
                 if fallbacks.contains(&name) && matches!(path.as_str(), "relayed" | "lan") {
                     fallback(&profile, path, run, seed).await;
                 }
