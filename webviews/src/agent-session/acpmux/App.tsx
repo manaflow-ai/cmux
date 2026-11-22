@@ -14397,7 +14397,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             />
           ) : null}
           {(showsChatView || premountsChatView) && (
-            <Activity key={chatViewMount.current.key} mode={showsChatView || parkVisible ? "visible" : "hidden"}>
+            // Its own key space: the classic page beside it is keyed by `newTabGeneration` (0 and up),
+            // and a shared key let React lose the page's fiber and mount the page again beside it.
+            <Activity
+              key={`chat-view-${chatViewMount.current.key}`}
+              mode={showsChatView || parkVisible ? "visible" : "hidden"}
+            >
               <div
                 className={`acpmux-stage${inspectorOpen ? " acpmux-inspecting" : ""}`}
                 data-solo-tab={soloUnder ? "" : undefined}
