@@ -252,11 +252,63 @@ class SelectTest(unittest.TestCase):
         self.assertIsNone(self.change("webviews/src/preloaded.ts"))
         self.assertIsNone(self.change("webviews/test/preload.ts"))
 
-    def test_build_inputs_unmapped_assets_and_names_in_data_files_run_everything(self) -> None:
-        self.assertIsNone(self.change("webviews/package.json"))
-        self.assertIsNone(self.change("webviews/src/page.css"))
-        self.assertIsNone(self.change("cmux-tui/assets/fixture-icons.svg"))
-        self.assertIsNone(self.change("scripts/ci/webviews_affected.py"))
+    def test_inputs_every_test_loads_run_everything(self) -> None:
+        for path in ("webviews/package.json", "webviews/bun.lock", "webviews/bunfig.toml", "webviews/tsconfig.json",
+                     "webviews/reactCompiler.mjs", "scripts/ci/webviews_affected.py", "scripts/ci/run-webviews-tests.sh",
+                     ".github/workflows/ci-web.yml"):
+            with self.subTest(path=path):
+                self.assertIsNone(self.change(path))
+
+    def test_unmapped_assets_and_names_in_data_files_select_the_always_set(self) -> None:
+        # A css a page links, or a file a fixture names: only Vite, a browser or a file read loads them, and every
+        # test doing those is always-run.
+        self.assertEqual(self.change("webviews/src/page.css"), ALWAYS)
+        self.assertEqual(self.change("cmux-tui/assets/fixture-icons.svg"), ALWAYS)
+        (self.root / "webviews/test/fixture.test.ts").write_text('import data from "../src/fixture.json";\n')
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "fixture importer")
+        self.assertEqual(self.change("cmux-tui/assets/fixture-icons.svg"), with_always("webviews/test/fixture.test.ts"))
+
+    def test_a_name_in_a_resolution_config_runs_everything(self) -> None:
+        (self.root / "shared").mkdir()
+        (self.root / "shared/aliased-module.ts").write_text("export const a = 1;\n")
+        (self.root / "tools").mkdir()
+        (self.root / "tools/check-colors.py").write_text("x = 1\n")
+        (self.root / "webviews/tsconfig.json").write_text('{"compilerOptions": {"paths": {"@a": ["../shared/aliased-module.ts"]}}}\n')
+        (self.root / "webviews/package.json").write_text('{"scripts": {"colors": "python3 ../tools/check-colors.py"}}\n')
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "fixture configs")
+        self.assertIsNone(self.change("shared/aliased-module.ts"))
+        # A package.json script is a shell command: a test running it spawns a process, so it is always-run.
+        self.assertEqual(self.change("tools/check-colors.py"), ALWAYS)
+        (self.root / "webviews/package.json").write_text(
+            '{"imports": {"#colors": "../tools/check-colors.py"}, "scripts": {}}\n')
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "fixture imports map")
+        self.assertIsNone(self.change("tools/check-colors.py"))
+
+    def test_vite_configs_scripts_and_helpers_outside_the_preload_select_their_tests(self) -> None:
+        (self.root / "webviews/scripts").mkdir(parents=True, exist_ok=True)
+        (self.root / "webviews/test/support").mkdir(parents=True, exist_ok=True)
+        (self.root / "webviews/vite.config.ts").write_text('export default {};\n')
+        (self.root / "webviews/scripts/table.mjs").write_text("export const t = 1;\n")
+        (self.root / "webviews/test/support/helper.ts").write_text("export const h = 1;\n")
+        (self.root / "webviews/test/helped.test.ts").write_text(
+            'import { h } from "./support/helper";\nimport { t } from "../scripts/table.mjs";\n')
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "fixture helpers")
+        # Vite builds and serves pages; every test that runs it, a browser, or reads a bundle is always-run.
+        self.assertEqual(self.change("webviews/vite.config.ts"), ALWAYS)
+        self.assertEqual(self.change("webviews/test/support/helper.ts"), with_always("webviews/test/helped.test.ts"))
+        self.assertEqual(self.change("webviews/scripts/table.mjs"), with_always("webviews/test/helped.test.ts"))
+        wa.NARROW = False
+        try:
+            self.assertIsNone(self.change("webviews/vite.config.ts"))
+            self.assertIsNone(self.change("webviews/scripts/table.mjs"))
+            self.assertIsNone(self.change("webviews/src/page.css"))
+            self.assertIsNone(self.change("cmux-tui/assets/fixture-icons.svg"))
+        finally:
+            wa.NARROW = True
 
     def test_the_cli_prints_paths_under_webviews_or_nothing(self) -> None:
         self.change("webviews/src/leaf.ts")
@@ -340,7 +392,7 @@ class PullRequestShardsTest(unittest.TestCase):
 
     def test_build_and_runner_inputs_run_every_shard(self) -> None:
         self.assertIsNone(self.touched("webviews/package.json"))
-        self.assertIsNone(self.touched("scripts/ci/webviews_affected.py"))
+        self.assertIsNone(self.touched("scripts/ci/run-webviews-tests.sh"))
 
     def test_a_deleted_source_touches_the_tests_that_still_name_it(self) -> None:
         self.assertEqual(self.touched("webviews/src/leaf.ts", delete=True), ["webviews/test/leaf.test.ts"])
@@ -394,12 +446,226 @@ class PullRequestShardsTest(unittest.TestCase):
         self.touched("webviews/package.json")
         self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 3)[2], {})  # every shard runs its whole split
 
+    def test_a_ci_web_or_selection_edit_alone_runs_shard_1_and_two_sampled_shards(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        real = ps.shard_files
+        ps.shard_files = lambda repo, shard, count, selected: {"webviews/test/leaf.test.ts"} if shard == 5 else set()
+        try:
+            for path in (".github/workflows/ci-web.yml", "scripts/ci/webviews_affected.py",
+                         "scripts/ci/focused_tests.py", "scripts/ci/webviews_pr_shards.py"):
+                self.touched(path)
+                head = git(self.root, "rev-parse", "HEAD").strip()
+                shards, why, own = ps.pick(self.root, "HEAD^1", "HEAD", 12)
+                sample = ps.sampled_shards(head, 12)
+                self.assertEqual(len(sample), 2)
+                self.assertTrue(set(sample) <= set(range(2, 13)))
+                self.assertEqual((shards, own), ([1, *sample], {}))
+                self.assertIn(ps.SAMPLE_WHY, why)
+            # A source edit beside it adds its touched tests as one job, unless a sampled shard already runs them.
+            self.touched(".github/workflows/ci-web.yml", "webviews/src/leaf.ts")
+            sample = ps.sampled_shards(git(self.root, "rev-parse", "HEAD").strip(), 12)
+            shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 12)
+            if 5 in sample:
+                self.assertEqual((shards, own), ([1, *sample], {}))
+            else:
+                self.assertEqual((shards, own), (sorted({1, 5, *sample}), {5: ["test/leaf.test.ts"]}))
+        finally:
+            ps.shard_files = real
+        # A build input beside it still runs every shard.
+        self.touched(".github/workflows/ci-web.yml", "webviews/package.json")
+        self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 12)[0], list(range(1, 13)))
+
+    def test_the_sample_is_fixed_per_head_and_rotates_across_heads(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        heads = [f"{n:040x}" for n in range(200)]
+        self.assertEqual(ps.sampled_shards(heads[0], 12), ps.sampled_shards(heads[0], 12))
+        seen = {shard for h in heads for shard in ps.sampled_shards(h, 12)}
+        self.assertEqual(seen, set(range(2, 13)))
+        self.assertEqual(ps.sampled_shards(heads[0], 2), [2])
+
+    def test_the_sample_off_switch_and_the_summary(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        self.touched(".github/workflows/ci-web.yml")
+        summary = self.root / "summary.md"
+        script = str(ROOT / "scripts/ci/webviews_pr_shards.py")
+        run = subprocess.run([sys.executable, script, "--base", "HEAD^1", "--count", "12", "--repo", str(self.root),
+                              "--summary", str(summary)], capture_output=True, text=True, check=True,
+                             env=dict(os.environ, CI_WEBVIEWS_PUSH_CLASSES="0"))
+        self.assertEqual(len(__import__("json").loads(run.stdout)), 3, run.stderr)
+        text = summary.read_text()
+        self.assertIn("sampled shards", text)
+        self.assertIn("`full-ci` label", text)
+        self.assertIn("CI_WEBVIEWS_CI_EDIT_SAMPLE", text)
+        old = os.environ.get("CI_WEBVIEWS_CI_EDIT_SAMPLE")
+        os.environ["CI_WEBVIEWS_CI_EDIT_SAMPLE"] = "0"
+        try:
+            self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 12)[0], list(range(1, 13)))
+        finally:
+            if old is None:
+                del os.environ["CI_WEBVIEWS_CI_EDIT_SAMPLE"]
+            else:
+                os.environ["CI_WEBVIEWS_CI_EDIT_SAMPLE"] = old
+
     def test_files_of_refuses_shards_outside_the_count(self) -> None:
         run = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_pr_shards.py"), "--base", "HEAD^1",
                               "--count", "3", "--files-of", "4"], capture_output=True, text=True)
         self.assertNotEqual(run.returncode, 0)
         self.assertEqual(run.stdout, "")
 
+
+class PushClassTest(unittest.TestCase):
+    """webviews_pr_shards.classify: every pull request push is fast (docs or comments only), sampled (shard 1, the
+    touched tests, and two head-sampled shards where the pick would have run every shard) or full (a FULL path).
+    Leo, 2026-11-22: "there must surely be some changes which can get the fast track route. like a nexus card." """
+
+    setUp = SelectTest.setUp
+
+    def commit(self, edits: dict[str, str]) -> None:
+        for path, text in edits.items():
+            (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / path).write_text(text)
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "change")
+
+    def classify(self, edits: dict[str, str], count: int = 12):
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        self.commit(edits)
+        real = ps.shard_files
+        ps.shard_files = lambda repo, shard, n, selected: {"webviews/test/leaf.test.ts"} if shard == 5 else set()
+        try:
+            return ps.classify(self.root, "HEAD^1", "HEAD", count)
+        finally:
+            ps.shard_files = real
+
+    def head(self) -> str:
+        return git(self.root, "rev-parse", "HEAD").strip()
+
+    def test_comment_only_edits_are_fast(self) -> None:
+        cls, shards, why, own = self.classify({"webviews/src/leaf.ts": TREE["webviews/src/leaf.ts"] + "// a note\n"})
+        self.assertEqual((cls, shards, own), ("fast", [1], {}))
+        self.assertIn("changes only comments", why)
+        block = 'import { hub } from "./hub";\n/**\n * Why leaf exists.\n */\nexport const leaf = hub;\n'
+        self.assertEqual(self.classify({"webviews/src/leaf.ts": block})[0], "fast")
+        self.assertEqual(self.classify({"unrelated/tool.py": "# why\nx = 1\n"})[0], "fast")
+
+    def test_a_tool_directive_or_a_code_line_is_not_a_comment_edit(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        leaf = TREE["webviews/src/leaf.ts"]
+        for added in ("// @ts-expect-error\n", "/* oxlint-disable */\n", "export const more = 2;\n"):
+            self.assertFalse(ps.comment_only("webviews/src/leaf.ts", leaf, leaf + added), added)
+        # A `*` continuation line is code, and a `//` inside a string is not a comment.
+        self.assertFalse(ps.comment_only("a.ts", "const x = 1\n  * 2;\n", "const x = 1\n  * 3;\n"))
+        self.assertFalse(ps.comment_only("a.ts", 'const u = "a // b";\n', 'const u = "a // c";\n'))
+        self.assertFalse(ps.comment_only("a.ts", None, "// new file\n"))
+        self.assertFalse(ps.comment_only("a.json", "{}\n", "{} \n"))
+        self.assertTrue(ps.comment_only("a.yml", "a: 1\n", "# why\na: 1\n"))
+        self.assertFalse(ps.comment_only("a.sh", "echo\n", "#!/bin/bash\necho\n"))
+        cls, shards, _, _ = self.classify({"webviews/src/leaf.ts": leaf + "// @ts-ignore\n"})
+        self.assertEqual((cls, shards), ("sampled", [1, 5]))
+
+    def test_a_doc_is_fast_unless_a_webviews_file_reads_it(self) -> None:
+        self.assertEqual(self.classify({"docs/readme.md": "y\n"})[0], "fast")
+        self.assertEqual(self.classify({"webviews/src/gallery/sample.md": "y\n"})[0], "sampled")  # imported ?raw
+        self.assertEqual(self.classify({"README.md": "y\n"})[0], "sampled")  # named by src/docs.ts
+
+    def test_a_code_edit_is_sampled_with_its_touched_tests(self) -> None:
+        cls, shards, _, own = self.classify({"webviews/src/leaf.ts": 'import { hub } from "./hub";\nexport const leaf = hub + 1;\n'})
+        self.assertEqual((cls, shards, own), ("sampled", [1, 5], {5: ["test/leaf.test.ts"]}))
+        cls, shards, why, _ = self.classify({"unrelated/tool.py": "x = 2\n"})
+        self.assertEqual((cls, shards), ("sampled", [1]))
+        self.assertIn("touches no webviews test", why)
+
+    def test_an_every_shard_input_outside_full_is_sampled(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        for path in (".github/workflows/ci-web.yml", "webviews/vite.config.ts", "scripts/ci/webviews_affected.py"):
+            cls, shards, why, _ = self.classify({path: "x = 1\n" if path.endswith(".py") else "const a = 1;\n"})
+            sample = ps.sampled_shards(self.head(), 12)
+            self.assertEqual(cls, "sampled", path)
+            self.assertTrue(set(shards) >= {1, *sample} and len(shards) <= 4, (path, shards))
+            self.assertIn(ps.SAMPLE_WHY, why)
+        # A comment-only edit of this workflow is fast.
+        self.commit({".github/workflows/ci-web.yml": "on: push\n"})
+        self.assertEqual(self.classify({".github/workflows/ci-web.yml": "# why\non: push\n"})[0], "fast")
+
+    def test_full_paths_run_every_shard(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        for path in ("scripts/ci/run-webviews-tests.sh", "scripts/ci/webviews_test_shards.py",
+                     "scripts/ci/webviews_test_results.py", "webviews/bun.lock", "webviews/package.json",
+                     "webviews/bunfig.toml", "webviews/test/preload.ts"):
+            cls, shards, why, own = self.classify({path: f"changed {path}\n", "docs/readme.md": f"{path}\n"})
+            self.assertEqual((cls, shards, own), ("full", list(range(1, 13)), {}), path)
+            self.assertIn(path, why)
+        self.assertLessEqual(len(ps.FULL), 6)  # the list stays short
+
+    def run_cli(self, *args: str, classes: str = "1") -> tuple[list, str, str]:
+        import json  # noqa: PLC0415
+        summary, class_out = self.root / "summary.md", self.root / "class.txt"
+        for f in (summary, class_out):
+            f.unlink(missing_ok=True)
+        run = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_pr_shards.py"), "--count", "12",
+                              "--repo", str(self.root), "--summary", str(summary), "--class-out", str(class_out),
+                              *args], capture_output=True, text=True, check=True,
+                             env=dict(os.environ, CI_WEBVIEWS_PUSH_CLASSES=classes))
+        return (json.loads(run.stdout), summary.read_text() if summary.exists() else "",
+                class_out.read_text().strip() if class_out.exists() else "")
+
+    def test_the_summary_names_the_class_the_rule_and_the_full_run(self) -> None:
+        self.commit({"webviews/src/leaf.ts": TREE["webviews/src/leaf.ts"] + "// a note\n"})
+        shards, text, cls = self.run_cli("--base", "HEAD^1")
+        self.assertEqual((len(shards), cls), (1, "fast"))
+        self.assertIn("react-apps-check: fast", text)
+        self.assertIn("Rule: webviews/src/leaf.ts changes only comments", text)
+        self.assertIn("`full-ci` label", text)
+        self.assertIn("CI_WEBVIEWS_PUSH_CLASSES", text)
+        shards, text, cls = self.run_cli("--all", "--full-why", "a push run on the base")
+        self.assertEqual((len(shards), cls), (12, "full"))
+        self.assertIn("Rule: a push run on the base", text)
+
+    def test_the_off_switch_returns_the_pick_before_the_classes(self) -> None:
+        self.commit({"webviews/vite.config.ts": "const a = 1;\n"})
+        self.assertEqual(len(self.run_cli("--base", "HEAD^1")[0]) < 12, True)
+        shards, _, cls = self.run_cli("--base", "HEAD^1", classes="0")
+        self.assertEqual((len(shards), cls), (12, ""))
+
+
+class CiWebWorkflowTest(unittest.TestCase):
+    """ci-web.yml parses strictly (no duplicate keys) and wires the push class from the pick to the shards."""
+
+    def test_strict_parse_and_class_wiring(self) -> None:
+        try:
+            import yaml  # noqa: PLC0415
+        except ImportError:
+            self.skipTest("PyYAML is not installed")
+
+        class Strict(yaml.SafeLoader):
+            pass
+
+        def mapping(loader, node, deep=False):
+            keys = [loader.construct_object(k, deep=deep) for k, _ in node.value]
+            dupes = {k for k in keys if keys.count(k) > 1}
+            if dupes:
+                raise yaml.constructor.ConstructorError(None, None, f"duplicate keys {sorted(map(str, dupes))}",
+                                                        node.start_mark)
+            return yaml.SafeLoader.construct_mapping(loader, node, deep=deep)
+
+        Strict.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, mapping)
+        text = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        doc = yaml.load(text, Loader=Strict)  # noqa: S506 - a SafeLoader subclass
+        jobs = doc["jobs"]
+        self.assertIn("CI_WEBVIEWS_PUSH_CLASSES", doc["env"])
+        self.assertEqual(jobs["web-subarea-scope"]["outputs"]["react_class"], "${{ steps.react-shards.outputs.class }}")
+        pick = next(s for s in jobs["web-subarea-scope"]["steps"] if s.get("id") == "react-shards")
+        self.assertIn("--class-out", pick["run"])
+        self.assertIn('echo "class=', pick["run"])
+        test = next(s for s in jobs["react-apps-check-shard"]["steps"] if s.get("id") == "webview-tests")
+        self.assertEqual(test["env"]["REACT_APPS_CLASS"], "${{ needs.web-subarea-scope.outputs.react_class }}")
+        self.assertIn('"$REACT_APPS_CLASS" = fast', test["run"])
+        # The base batch's culprit bisect is cmux-next-web.yml's web-bisect (scripts/ci/web_coalesce.py): its
+        # report names each culprit commit for the auto-revert, with this run's URL.
+        web = yaml.load((ROOT / ".github/workflows/cmux-next-web.yml").read_text(), Loader=Strict)  # noqa: S506
+        step = next(s for s in web["jobs"]["web-bisect"]["steps"] if s.get("name") == "Bisect the new webview reds")
+        self.assertIn("--run-url", step["run"])
+        self.assertNotIn("webviews-culprit-bisect", jobs)
 
 if __name__ == "__main__":
     unittest.main()
