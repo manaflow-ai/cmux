@@ -416,6 +416,13 @@ mod tests {
 
     #[test]
     fn viewer_reads_exact_sample_surrounded_by_different_pixels() {
+        // A runner service in session 0, or a locked session, has no desktop a
+        // visible window can paint, so GetPixel reads white. The selftest skips
+        // its capture cell for the same reason.
+        if let Some(reason) = crate::windows::no_interactive_desktop() {
+            eprintln!("skipped: {reason}");
+            return;
+        }
         let (width, height) = (640, 360);
         let mut rgb = vec![0; width * height * 3];
         let center = (height / 2 * width + width / 2) * 3;
