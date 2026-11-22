@@ -356,6 +356,23 @@ pub struct HubError {
     pub retry_after: Option<Duration>,
     /// The HTTP status the hub answered, when it answered one.
     pub status: Option<u16>,
+    /// Where the failure came from: this daemon before it asked, the hub's answer, or no answer.
+    /// It words a failure (`server/team.rs` `inbox_failure`); `refused` alone says whether to
+    /// try again.
+    pub source: HubErrorSource,
+}
+
+/// Where a [`HubError`] came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HubErrorSource {
+    /// This daemon, before it asked the hub: no token command, a token command that failed, a
+    /// request it would not send.
+    Daemon,
+    /// The hub's answer: a status, a revoked credential, two tokens refused, an answer too large
+    /// or not the shape of the contract.
+    Hub,
+    /// No answer: no connection, a dropped one, or none in time.
+    NoAnswer,
 }
 
 impl HubError {
@@ -367,10 +384,17 @@ impl HubError {
         self.refused && self.status.is_none_or(|s| s == 401 || s == 403)
     }
 
+    /// A failure that may pass, with no answer from the hub (no connection, none in time).
     pub fn unavailable(message: impl Into<String>) -> Self {
-        Self { refused: false, ..Self::refused(message) }
+        Self { refused: false, source: HubErrorSource::NoAnswer, ..Self::refused(message) }
     }
 
+    /// A failure that may pass, made by this daemon before it asked (a token command that failed).
+    pub fn local(message: impl Into<String>) -> Self {
+        Self { source: HubErrorSource::Daemon, ..Self::unavailable(message) }
+    }
+
+    /// A refusal this daemon made before it asked; [`HubError::from_hub`] marks the hub's.
     pub fn refused(message: impl Into<String>) -> Self {
         let message = message.into();
         Self {
@@ -380,7 +404,13 @@ impl HubError {
             candidates: None,
             retry_after: None,
             status: None,
+            source: HubErrorSource::Daemon,
         }
+    }
+
+    /// This failure, as the hub's answer.
+    pub fn from_hub(self) -> Self {
+        Self { source: HubErrorSource::Hub, ..self }
     }
 }
 
