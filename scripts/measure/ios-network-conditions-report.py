@@ -19,6 +19,7 @@ import sys
 from collections import defaultdict
 
 METRIC_ORDER = [
+    "r1_ms",
     "first_content_ms",
     "interactive_ms",
     "gap_after_link_back_ms",
@@ -28,6 +29,10 @@ METRIC_ORDER = [
     "bytes_up",
     "round_trips",
 ]
+READ_FIRST_LEGEND = (
+    "R2 time to fresh = first_content_ms (tap to the first frame from the Mac); "
+    "R1 time to readable = r1_ms (tap to the first frame from the phone's own store, link cut)"
+)
 PHASE_ORDER = ["cold", "warm", "reconnect", "fixture", "home", "reattach"]
 # mode=duress: the idle fixture and the loaded daemon (mobile_link_conditions.rs open_path_under_duress).
 DURESS_SCALES = {"idle": 0, "duress": 1}
@@ -170,7 +175,12 @@ def main() -> int:
     with open(args.json, "w") as handle:
         json.dump({"after": args.after, "before": args.before, "rows": rows}, handle, indent=1)
 
-    out = []
+    # The read-first track's two headline numbers (goals/mobile-speed-ios-bench.md in cmuxterm-hq):
+    # R1 time to readable (tap to the first frame drawn from the phone's own store, link cut) and
+    # R2 time to fresh (tap to the frame that matches the Mac). This headless leg has no phone
+    # store, so its first_content_ms (first content from the real daemon) is R2; R1 comes from the
+    # simulator leg's r1_ms rows when present.
+    out = [READ_FIRST_LEGEND, ""]
     for surface in sorted({row["surface"] for row in rows}):
         out.append(f"### {surface} (p50 / p95; after {args.after[:12]}" + (f", before {args.before[:12]})" if args.before else ")"))
         out.append("")
