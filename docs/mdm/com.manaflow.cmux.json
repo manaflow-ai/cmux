@@ -535,7 +535,7 @@
     },
     "agents.chats.sessionRecap" : {
       "default" : true,
-      "description" : "A line on where a Claude chat stands when you come back. Each is a small model call.",
+      "description" : "A line on where a chat stands when you come back. Each is a small model call.",
       "title" : "Session Recap",
       "type" : "boolean"
     },
