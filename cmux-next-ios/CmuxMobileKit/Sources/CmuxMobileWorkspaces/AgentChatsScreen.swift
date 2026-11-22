@@ -445,7 +445,7 @@ struct AgentChatRow: View {
                 if chat.isActive || !subtitle.isEmpty {
                     HStack(spacing: 6) {
                         if chat.isActive {
-                            Circle().fill(chat.status == "waiting" ? Color.orange : Color.green).frame(width: 6, height: 6)
+                            Circle().fill(chat.status == "waiting" ? Color.cmuxMobileWarning : Color.cmuxMobileSuccess).frame(width: 6, height: 6)
                                 .accessibilityHidden(true)
                         }
                         Text(subtitle)

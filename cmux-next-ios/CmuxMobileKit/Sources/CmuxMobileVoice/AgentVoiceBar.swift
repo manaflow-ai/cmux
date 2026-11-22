@@ -61,7 +61,7 @@ public struct AgentVoiceBar: View {
             if case .connecting = session.phase {
                 CmuxSpinner().controlSize(.small)
             } else if let failure = session.failure {
-                Image(systemName: failure.symbol).foregroundStyle(.red)
+                Image(systemName: failure.symbol).foregroundStyle(Color.cmuxMobileDanger)
             } else if session.isMuted {
                 Image(systemName: "mic.slash.fill").foregroundStyle(.secondary)
             } else if session.userSpeaking {
@@ -125,7 +125,7 @@ public struct AgentVoiceBar: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: 36, height: 36)
-                .cmuxMobilePressBackground(Color.red, in: .circle)
+                .cmuxMobilePressBackground(Color.cmuxMobileDanger, in: .circle)
         }
         .buttonStyle(.cmuxPressFillInLabel)
         .accessibilityLabel(AgentVoiceText.end)

@@ -154,7 +154,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     private lazy var decline: UIButton = {
         var configuration = UIButton.Configuration.bordered()
         configuration.title = "Decline"
-        configuration.baseForegroundColor = .systemRed
+        configuration.baseForegroundColor = .cmuxMobileDanger
         let button = UIButton(configuration: configuration)
         button.addAction(UIAction { [weak self] _ in self.map { $0.delegate?.rowDecline($0.id) } }, for: .touchUpInside)
         row.addSubview(button)

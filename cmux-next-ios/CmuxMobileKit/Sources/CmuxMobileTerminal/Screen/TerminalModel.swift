@@ -740,7 +740,7 @@ public final class TerminalModel {
     public func demoFillComposer(_ text: String, attachments withAttachments: Bool) {
         composerText = text
         guard withAttachments else { return }
-        let colors: [UIColor] = [.systemOrange, .systemTeal]
+        let colors: [UIColor] = [.systemOrange, .systemTeal] // color-literal-allow: DEBUG fake photo pixels
         for (index, color) in colors.enumerated() {
             let image = UIGraphicsImageRenderer(size: CGSize(width: 168, height: 168)).image { context in
                 color.setFill()

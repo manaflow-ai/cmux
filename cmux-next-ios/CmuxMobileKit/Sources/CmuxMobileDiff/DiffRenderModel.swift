@@ -128,7 +128,7 @@ final class DiffRenderModel: @unchecked Sendable {
     static let splitNumberColumn: CGFloat = 38
 
     /// The background of a Search in File match.
-    static let searchMatch = UIColor.systemYellow.withAlphaComponent(0.45)
+    static let searchMatch = CmuxMobileMatchHighlight.fill(CmuxMobileMatchHighlight.currentShare)
 
     /// Code text with word-level highlights (tabs expanded, see `DiffLayout.display`), and the
     /// matches of `search`.

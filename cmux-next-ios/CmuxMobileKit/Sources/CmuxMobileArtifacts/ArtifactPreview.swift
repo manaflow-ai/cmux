@@ -715,7 +715,7 @@ struct CodeView: View {
                         }
                         .font(.system(size: codeSize, design: .monospaced))
                         .padding(.vertical, 1)
-                        .background(index + 1 == highlightLine ? Color.yellow.opacity(0.15) : .clear)
+                        .background(index + 1 == highlightLine ? Color.cmuxMobileMatchLine : .clear)
                         .id(index + 1)
                     }
                 }

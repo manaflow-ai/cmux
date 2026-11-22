@@ -65,7 +65,7 @@ public struct CloudAutomationsScreen: View {
                             Button(row.enabled ? "Pause" : "Resume", systemImage: row.enabled ? "pause" : "play") {
                                 Task { await model.setEnabled(row, !row.enabled) }
                             }
-                            .tint(.orange)
+                            .tint(Color.cmuxMobileWarning)
                             .disabled(!model.canAct)
                         }
                         .accessibilityIdentifier("automations.row.\(row.id)")
@@ -119,10 +119,10 @@ struct CloudAutomationRow: View {
 
 func automationColor(_ result: CloudAutomation.LastResult) -> Color {
     switch result {
-    case .succeeded: .green
-    case .failed: .red
-    case .running: .blue
-    case .skipped: .orange
+    case .succeeded: .cmuxMobileSuccess
+    case .failed: .cmuxMobileDanger
+    case .running: .cmuxMobileAccent
+    case .skipped: .cmuxMobileWarning
     case .none: Color(uiColor: .tertiaryLabel)
     }
 }

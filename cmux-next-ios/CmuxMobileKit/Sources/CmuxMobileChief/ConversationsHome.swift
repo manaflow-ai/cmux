@@ -337,7 +337,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 // A refused switch or create while the Cloud Chief is open.
                 Text(error)
                     .font(.footnote)
-                    .foregroundStyle(Color(uiColor: .systemRed))
+                    .foregroundStyle(Color.cmuxMobileDanger)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
                     .padding(.bottom, 8)
@@ -853,7 +853,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         if let error = sources.changeError {
             Text(error)
                 .font(.footnote)
-                .foregroundStyle(Color(uiColor: .systemRed))
+                .foregroundStyle(Color.cmuxMobileDanger)
                 .multilineTextAlignment(.center)
                 .accessibilityIdentifier("home.chief.changeError")
         }
@@ -946,7 +946,7 @@ struct HomeRowSwipeButtons: View {
                     theme.haptics.selection()
                     feed.setPinned(pin, id)
                 }
-                .tint(.orange)
+                .tint(Color.cmuxMobileWarning)
                 .accessibilityIdentifier(pin ? "home.row.swipe.pin" : "home.row.swipe.unpin")
             }
         }

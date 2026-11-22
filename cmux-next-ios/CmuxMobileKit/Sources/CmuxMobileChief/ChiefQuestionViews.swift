@@ -91,7 +91,7 @@ struct ChiefQuestionBar: View {
     private func failureBar(_ failure: ChiefTurnFailure) -> some View {
         Button { session.retryFailedTurn() } label: {
             HStack(spacing: 10) {
-                Image(systemName: "exclamationmark.bubble.fill").font(.body).foregroundStyle(.orange)
+                Image(systemName: "exclamationmark.bubble.fill").font(.body).foregroundStyle(Color.cmuxMobileWarning)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(failure.barTitle).font(.footnote.weight(.semibold))
                     Text("Send your last message again.").font(.footnote).foregroundStyle(.secondary).lineLimit(2)

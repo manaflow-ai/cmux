@@ -187,7 +187,7 @@ public struct LiveCallScreen: View {
             Spacer()
             Image(systemName: failure.symbol)
                 .font(.largeTitle)
-                .foregroundStyle(.orange)
+                .foregroundStyle(Color.cmuxMobileWarning)
                 .accessibilityHidden(true)
             Text(failure.title)
                 .font(.headline)
@@ -283,7 +283,7 @@ public struct LiveCallScreen: View {
                     withAnimation(theme.motion.snappy.animation.unlessReduceMotion) { typing.toggle() }
                 }
                 .disabled(!session.isLive)
-                LiveCallControl(symbol: "phone.down.fill", title: LiveCallText.end, on: false, tint: .red,
+                LiveCallControl(symbol: "phone.down.fill", title: LiveCallText.end, on: false, tint: .cmuxMobileDanger,
                                 identifier: "chief.call.end") {
                     session.hangUp()
                 }

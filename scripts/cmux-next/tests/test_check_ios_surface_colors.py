@@ -34,6 +34,34 @@ class Hits(unittest.TestCase):
             self.assertEqual(check.hits(line), 0, line)
 
 
+class Placeholders(unittest.TestCase):
+    def test_placeholder_and_debug_colors_are_found(self):
+        for line in (
+            ".fill(Color.yellow.opacity(0.28))",
+            "background.backgroundColor = UIColor.systemYellow.withAlphaComponent(0.28)",
+            ".tint(.orange)",
+            ".foregroundStyle(.red)",
+            "    case .failed: .red",
+            "LinearGradient(colors: [.orange, .pink], startPoint: .top, endPoint: .bottom)",
+            ".redacted(reason: .placeholder)",
+            ".border(Color.blue)",
+            "configuration.baseForegroundColor = .systemRed",
+        ):
+            self.assertEqual(len(check.placeholder_lines(line)), 1, line)
+
+    def test_tokens_components_cases_and_allowed_lines_are_not(self):
+        for line in (
+            ".fill(Color.cmuxMobileMatch)",
+            ".foregroundStyle(Color.cmuxMobileDanger)",
+            "let r = rgb.red + a.red",
+            "case .red: return 1",
+            "case \"red\": return Color.red // color-literal-allow: the workspace color the person picked",
+            "view.layer.borderWidth = 1",
+            "// Color.red in a comment",
+        ):
+            self.assertEqual(check.placeholder_lines(line), [], line)
+
+
 class Ratchet(unittest.TestCase):
     def run_check(self, source, baseline_rows):
         with tempfile.TemporaryDirectory() as root:
@@ -52,6 +80,10 @@ class Ratchet(unittest.TestCase):
         self.assertEqual(self.run_check(source, [1]), 1)
         self.assertEqual(self.run_check(source, [2]), 0)
         self.assertEqual(self.run_check(".cmuxMobileContentSurface(.card, in: Circle())\n", []), 0)
+
+    def test_a_placeholder_color_fails_whatever_the_baseline(self):
+        self.assertEqual(self.run_check(".fill(Color.yellow)\n", [5]), 1)
+        self.assertEqual(self.run_check(".tint(.red)\n", [5]), 1)
 
 
 if __name__ == "__main__":

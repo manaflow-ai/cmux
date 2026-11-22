@@ -41,7 +41,7 @@ public struct MacWorkspaceGroup: Identifiable, Hashable, Sendable, Codable {
     /// The Mac's next group color (`GroupColor.automatic`): the first of its
     /// automatic order no group uses, never blue or grey; grey when all are used.
     public static func nextColor(used: Set<String>) -> WorkspaceColor {
-        let order: [WorkspaceColor] = [.red, .green, .yellow, .purple, .cyan, .orange, .pink]
+        let order: [WorkspaceColor] = [.red, .green, .yellow, .purple, .cyan, .orange, .pink] // color-literal-allow: workspace color names, not colors
         return order.first { !used.contains($0.rawValue) } ?? .grey
     }
 }

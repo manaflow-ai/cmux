@@ -2688,13 +2688,13 @@ struct TabGroupChip: View {
     static func color(_ token: String) -> Color {
         switch token {
         case "blue": return Color.blue
-        case "red": return Color.red
-        case "yellow": return Color.yellow
+        case "red": return Color.red // color-literal-allow: the workspace color the person picked
+        case "yellow": return Color.yellow // color-literal-allow: the workspace color the person picked
         case "green": return Color.green
         case "pink": return Color.pink
         case "purple": return Color.purple
         case "cyan": return Color.cyan
-        case "orange": return Color.orange
+        case "orange": return Color.orange // color-literal-allow: the workspace color the person picked
         default:
             if token.hasPrefix("#"), token.count == 7, let value = UInt32(token.dropFirst(), radix: 16) {
                 return Color(red: Double(value >> 16 & 0xFF) / 255, green: Double(value >> 8 & 0xFF) / 255, blue: Double(value & 0xFF) / 255)

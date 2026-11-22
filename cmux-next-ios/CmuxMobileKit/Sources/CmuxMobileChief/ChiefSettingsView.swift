@@ -289,7 +289,7 @@ public struct ChiefSettingsView: View {
                     .accessibilityIdentifier("chief.settings.modelStatus")
             }
             if let engineError {
-                Text(engineError).font(.footnote).foregroundStyle(.red)
+                Text(engineError).font(.footnote).foregroundStyle(Color.cmuxMobileDanger)
             }
             if let stopNote {
                 Text(stopNote).font(.footnote).foregroundStyle(.secondary)
@@ -753,7 +753,7 @@ struct ChiefFieldEditor: View {
                     .accessibilityIdentifier("chief.settings.field")
             } footer: {
                 if let error {
-                    Text(error).foregroundStyle(.red)
+                    Text(error).foregroundStyle(Color.cmuxMobileDanger)
                 } else if let footer {
                     Text(footer)
                 }

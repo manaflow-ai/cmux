@@ -307,7 +307,7 @@ public struct MockArtifactSource: ArtifactSource {
         let image = renderer.image { context in
             UIColor.black.setFill()
             context.fill(CGRect(origin: .zero, size: size))
-            let colors = [UIColor.systemTeal, .systemPurple, .systemGreen, .systemOrange]
+            let colors = [UIColor.systemTeal, .systemPurple, .systemGreen, .systemOrange] // color-literal-allow: mock screenshot pixels
             for (index, color) in colors.enumerated() {
                 color.withAlphaComponent(0.85).setFill()
                 UIBezierPath(roundedRect: CGRect(x: 20, y: 70 + CGFloat(index) * 52, width: 120 + CGFloat(index * 50), height: 36), cornerRadius: 10).fill()

@@ -43,7 +43,7 @@ extension [FeedSwipeAction] {
 /// legible on every one of them in both modes.
 enum FeedSwipeTint {
     /// Destructive (Deny, Decline): the system destructive red.
-    static var destructive: Color { Color(uiColor: .systemRed) }
+    static var destructive: Color { Color.cmuxMobileDanger }
     /// Archive-like (Done), as Mail's Archive.
     static var archive: Color { Color(uiColor: .systemPurple) }
     /// Read state, as Mail's Unread.

@@ -27,7 +27,7 @@ struct TerminalComposer: View {
             if let notice = model.composerNotice {
                 Label(notice, systemImage: "exclamationmark.arrow.circlepath")
                     .font(.footnote)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color.cmuxMobileWarning)
                     .padding(.leading, TerminalDockMetrics.control + 8)
                     .accessibilityIdentifier("terminal.composer.notSent")
             }
@@ -38,7 +38,7 @@ struct TerminalComposer: View {
             if let error = model.attachmentError {
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(.footnote)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.cmuxMobileDanger)
                     .padding(.leading, TerminalDockMetrics.control + 8)
                     .accessibilityIdentifier("terminal.composer.attachmentError")
             }
@@ -198,7 +198,7 @@ struct TerminalComposer: View {
             // ↑ (send) is the primary action: glass tinted with the
             // monochrome accent, never blue (design/ios.md); empty, plain glass.
             // Empty (disabled): plain glass that does not react to a touch.
-            .glassEffect(failed ? .regular.tint(.red).interactive()
+            .glassEffect(failed ? .regular.tint(Color.cmuxMobileDanger).interactive()
                          : canSend || model.isUploading ? .regular.tint(Color.cmuxMobileAccent).interactive()
                          : .regular, in: .circle)
             .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)

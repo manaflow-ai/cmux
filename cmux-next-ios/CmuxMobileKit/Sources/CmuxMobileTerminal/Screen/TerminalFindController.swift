@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import OSLog
 import UIKit
 
@@ -248,10 +249,10 @@ private final class TerminalFindHighlightView: UIView {
     override func draw(_ rect: CGRect) {
         for (cells, selected) in rects {
             let path = UIBezierPath(roundedRect: cells, cornerRadius: 2)
-            (selected ? UIColor.systemYellow.withAlphaComponent(0.55) : UIColor.systemYellow.withAlphaComponent(0.25)).setFill()
+            CmuxMobileMatchHighlight.fill(selected ? CmuxMobileMatchHighlight.currentShare : CmuxMobileMatchHighlight.otherShare).setFill()
             path.fill()
             if selected {
-                UIColor.systemYellow.setStroke()
+                CmuxMobileMatchHighlight.stroke.setStroke()
                 path.lineWidth = 1.5
                 path.stroke()
             }

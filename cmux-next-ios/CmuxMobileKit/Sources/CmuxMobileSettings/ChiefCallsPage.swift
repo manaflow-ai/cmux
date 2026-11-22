@@ -215,7 +215,7 @@ private struct CheckLine: View {
         } icon: {
             Image(systemName: good ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
         }
-        .foregroundStyle(good ? Color.green : Color.orange)
+        .foregroundStyle(good ? Color.cmuxMobileSuccess : Color.cmuxMobileWarning)
         .accessibilityIdentifier("settings.chiefCalls.checkResult")
     }
 

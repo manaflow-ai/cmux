@@ -880,9 +880,10 @@ struct AttachmentThumb: View {
                 if attachment.kind == .image, let data = attachment.data, let image = UIImage(data: data) {
                     Image(uiImage: image).resizable().scaledToFill().frame(width: 56, height: 56)
                 } else if attachment.kind == .image {
-                    LinearGradient(colors: [.orange, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
-                        .overlay { Image(systemName: "photo").foregroundStyle(.white) } // color-literal-allow: glyph over a photo thumbnail
+                    // Its picture has not loaded: the inset surface with the photo glyph, never a colored stand-in.
+                    Image(systemName: "photo").foregroundStyle(.secondary)
                         .frame(width: 56, height: 56)
+                        .cmuxMobileContentSurface(.inset, in: .rect(cornerRadius: 12, style: .continuous))
                 } else {
                     HStack(spacing: 8) {
                         Image(systemName: AgentVideo.isVideoName(attachment.name) ? "film" : attachment.isPDF ? "doc.richtext" : "doc.text")

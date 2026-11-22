@@ -82,7 +82,7 @@ public struct CloudMachinesScreen: View {
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             if machine.status == .running {
-                                Button("Pause", systemImage: "pause") { Task { await model.pause(machine) } }.tint(.orange).disabled(!model.canAct)
+                                Button("Pause", systemImage: "pause") { Task { await model.pause(machine) } }.tint(Color.cmuxMobileWarning).disabled(!model.canAct)
                             } else if machine.status == .paused {
                                 Button("Start", systemImage: "play") { Task { await model.start(machine) } }.tint(.green).disabled(!model.canAct)
                             }
@@ -147,10 +147,10 @@ struct CloudMachineRow: View {
 
 func cloudMachineColor(_ status: CloudMachine.Status) -> Color {
     switch status {
-    case .running: .green
-    case .starting, .provisioning: .blue
-    case .pausing, .paused: .orange
-    case .failed: .red
+    case .running: .cmuxMobileSuccess
+    case .starting, .provisioning: .cmuxMobileAccent
+    case .pausing, .paused: .cmuxMobileWarning
+    case .failed: .cmuxMobileDanger
     case .deleting: Color(uiColor: .tertiaryLabel)
     }
 }

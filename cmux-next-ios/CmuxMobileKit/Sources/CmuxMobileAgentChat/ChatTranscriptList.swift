@@ -1524,7 +1524,7 @@ extension UICollectionViewCell {
     func setFindMarked(_ marked: Bool) {
         var background = UIBackgroundConfiguration.clear()
         if marked {
-            background.backgroundColor = UIColor.systemYellow.withAlphaComponent(0.28)
+            background.backgroundColor = CmuxMobileMatchHighlight.fill(CmuxMobileMatchHighlight.currentShare)
             background.cornerRadius = 12
             background.backgroundInsets = NSDirectionalEdgeInsets(top: -6, leading: 14, bottom: -6, trailing: 14)
         }

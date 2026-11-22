@@ -657,7 +657,7 @@ private struct FeedRowBuilder {
     }
 
     mutating func failureLayout(_ failure: String) -> (NSAttributedString, CGRect) {
-        let text = attributed(failure, styles.font(.footnote), .systemRed, alignment: .right)
+        let text = attributed(failure, styles.font(.footnote), .cmuxMobileDanger, alignment: .right)
         let size = nativeTextSize(text, width: columnWidth)
         let top = place(size.height)
         return (text, CGRect(x: columnX, y: top, width: columnWidth, height: size.height))

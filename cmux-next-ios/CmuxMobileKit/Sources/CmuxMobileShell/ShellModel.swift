@@ -307,8 +307,8 @@ final class ShellModel {
     #if DEBUG
     /// A screenshot-like picture for New Task's captures: a colored gradient with bars.
     static func demoTaskImage(_ index: Int) -> TaskImage {
-        let colors: [(UIColor, UIColor)] = [(.systemBlue, .systemTeal), (.systemOrange, .systemPink), (.systemGreen, .systemMint),
-                                            (.systemPurple, .systemIndigo), (.systemRed, .systemYellow), (.systemGray, .systemBrown)]
+        let colors: [(UIColor, UIColor)] = [(.systemBlue, .systemTeal), (.systemOrange, .systemPink), (.systemGreen, .systemMint), // color-literal-allow: DEBUG fake screenshot pixels
+                                            (.systemPurple, .systemIndigo), (.systemRed, .systemYellow), (.systemGray, .systemBrown)] // color-literal-allow: DEBUG fake screenshot pixels
         let (top, bottom) = colors[index % colors.count]
         // width-allow: a bitmap's pixel size (a fake screenshot attachment), never a layout frame
         let size = CGSize(width: 390, height: 844)
