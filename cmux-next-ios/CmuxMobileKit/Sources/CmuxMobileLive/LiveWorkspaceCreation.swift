@@ -23,7 +23,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// Reads the person made, sent until the Mac answers (LiveWorkspaceArrangement.swift).
     var reads = StickyRead()
     /// New Task's chats by the workspace `create` made, until `sendTask` sends the task.
-    var taskSessions: [String: (session: String, cwd: String)] = [:]
+    var taskSessions: [String: (session: String, cwd: String?)] = [:]
     /// Each workspace's newest Mark as Read / Unread: an older read stops once a newer one is made.
     var readMarks: [String: Int] = [:]
 
@@ -60,19 +60,22 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     /// The Mac's New Agent Chat over Home: a new workspace whose only tab is the
     /// chat, in `request.directory` (a folder of one of the Mac's workspaces, so
-    /// acpmux's remote guard takes it). The chat starts first, so a folder that
+    /// acpmux's remote guard takes it). No folder, or the home folder (never a chat's on the
+    /// Mac), starts it with no `cwd`: acpmux gives the owner's phone a new folder of the chat's
+    /// own, as the Mac gives a chat in a workspace with no folder. The chat starts first, so a folder that
     /// is not trusted yet leaves no empty workspace behind; then `create-workspace`
     /// (an empty workspace) and `new-conversation-tab {workspace}`, which makes its
     /// first pane. Nothing new on the daemon lane.
     func createChatWorkspace(_ request: NewWorkspaceRequest, start: AgentChatStart, placeholder: Workspace,
                              client: DaemonClient) async throws -> Workspace {
         let folders = Set((sync.tree?.directories ?? [:]).values)
-        guard let cwd = Self.chatFolder(request.directory, known: folders) else {
+        let named = request.directory?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let found = Self.chatFolder(request.directory, known: folders)
+        // A folder the Mac has no workspace in is refused by its guard: said here first.
+        if named, found == nil, request.directory.map({ Self.isHomeAlias($0) || Self.isHomeOrAbove($0) }) != true {
             throw WorkspaceCreationError(Self.chatFolderRefusal, isForPerson: true)
         }
-        guard !Self.isHomeOrAbove(cwd) else {
-            throw WorkspaceCreationError("Agent chats start in a project folder, not the home folder. Pick a project folder.", isForPerson: true)
-        }
+        let cwd = found.flatMap { Self.isHomeOrAbove($0) ? nil : $0 }
         let (harness, session) = try await startAgentSession(start, cwd: cwd, macID: request.macID)
         do {
             let created = try WorkspaceSync.check(await client.request("create-workspace", params: ["name": placeholder.title]))
@@ -219,6 +222,11 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     struct TerminalLaunchUncertain: Error, LocalizedError {
         let message: String
         var errorDescription: String? { message }
+    }
+
+    /// `~` (the phone's spelling of the Mac's home folder), with or without a trailing slash.
+    nonisolated static func isHomeAlias(_ directory: String) -> Bool {
+        ["~", "~/"].contains(directory.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     nonisolated static let chatFolderRefusal = "Agent chats start in a folder that's open on the Mac. Open a workspace there first (New Workspace › Open Folder…), then start the chat."
@@ -445,25 +453,28 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
     }
 
-    /// The new chat's acpmux session, in the folder of the workspace's
-    /// terminal on the Mac: the harness the start names, else the Mac's default
-    /// agent (or the first one a phone may start); then its model, when one was
-    /// chosen, with `session/set_model` as the Mac's New Tab page does.
+    /// The new chat's acpmux session, in the first project folder of the workspace's
+    /// tabs on the Mac (else of the workspace), or with no folder: the harness the start names,
+    /// else the Mac's default agent (or the first one a phone may start); then its model, when one
+    /// was chosen, with `session/set_model` as the Mac's New Tab page does.
     private func startAgentSession(_ start: AgentChatStart, in workspace: Workspace) async throws -> (harness: String, session: String) {
         guard let acpmux, acpmux.isReady else { throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true) }
         let directories = sync.tree?.directories ?? [:]
-        guard let cwd = workspace.tabs.lazy.compactMap({ directories[$0.id] }).first else {
-            throw WorkspaceCreationError("This workspace has no folder on the Mac. Open a terminal tab first.", isForPerson: true)
-        }
-        guard !Self.isHomeOrAbove(cwd) else {
-            throw WorkspaceCreationError("Open this workspace in a project folder, then try again.",
-                                         isForPerson: true)
-        }
+        let cwd = Self.projectFolder(workspace.tabs.map { directories[$0.id] } + [workspace.directory])
         return try await startAgentSession(start, cwd: cwd, macID: workspace.macID)
     }
 
-    /// The new chat's acpmux session in `cwd` (an absolute folder on the Mac).
-    func startAgentSession(_ start: AgentChatStart, cwd: String, macID: String) async throws -> (harness: String, session: String) {
+    /// The first of `candidates` that is a project folder on the Mac (absolute, below the home
+    /// folder), or nil: the chat then starts with no folder, and acpmux gives the owner's phone a
+    /// new folder of the chat's own (`remote_guard.rs` `phone_agent_home`), as the Mac gives a chat
+    /// in a workspace with no folder. Never the home folder, which acpmux refuses a phone.
+    nonisolated static func projectFolder(_ candidates: [String?]) -> String? {
+        candidates.lazy.compactMap { $0 }.first { $0.hasPrefix("/") && !isHomeOrAbove($0) }
+    }
+
+    /// The new chat's acpmux session in `cwd` (an absolute folder on the Mac), or with no `cwd`
+    /// when nil: acpmux then makes the chat a folder of its own.
+    func startAgentSession(_ start: AgentChatStart, cwd: String?, macID: String) async throws -> (harness: String, session: String) {
         guard let acpmux, acpmux.isReady else { throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true) }
         let catalog = try await agentCatalog(on: macID, models: start.model != nil)
         guard let (choice, model) = catalog.resolve(start, folder: cwd) else {
@@ -472,16 +483,18 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             }
             throw WorkspaceCreationError(catalog.unavailableReason ?? "No agent on this Mac can start a chat from your iPhone.", isForPerson: true)
         }
+        var params: [String: JSONValue] = [
+            "mcpServers": .array([]),
+            "_meta": .object(["acpmux": .object(["harness": .string(choice.id), "policy": .string("ask")])]),
+        ]
+        if let cwd { params["cwd"] = .string(cwd) }
         let reply: JSONValue
         do {
-            reply = try await acpmux.request("session/new", .object([
-                "cwd": .string(cwd), "mcpServers": .array([]),
-                "_meta": .object(["acpmux": .object(["harness": .string(choice.id), "policy": .string("ask")])]),
-            ]), timeout: .seconds(90))
+            reply = try await acpmux.request("session/new", .object(params), timeout: .seconds(90))
         } catch let error as AcpmuxConnection.RPCError where error.reason == "trust.pending" || error.reason == "trust.untrusted" {
             // acpmux asks the person to trust a new folder, and only on the Mac (a phone may
             // not answer: `acp.trust.set` is refused remotely). Claude's own trust answer counts too.
-            let folder = (cwd as NSString).lastPathComponent
+            let folder = cwd.map { ($0 as NSString).lastPathComponent } ?? "this chat's folder"
             throw WorkspaceCreationError(error.reason == "trust.untrusted"
                 ? "\(folder) is marked Don't Trust on this Mac. Trust it in cmux on the Mac to start agent chats there."
                 : Self.trustSteps(folder: folder, agent: choice.name, family: choice.family),
@@ -1207,11 +1220,10 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         guard let surface = tree.surfaces[tabID] else { throw WorkspaceCreationError("The Mac doesn't list this tab") }
         let workspace = (tree.workspaces + tree.homeWorkspaces).first { $0.tabs.contains { $0.id == tabID } }
         // The first project folder of the tab, its workspace's tabs, then the workspace: acpmux
-        // refuses a phone's chat in the home folder or above, so those are passed over.
+        // refuses a phone's chat in the home folder or above, so those are passed over. None: the
+        // chat starts with no folder, and acpmux makes it one of its own (`projectFolder`).
         let candidates = [tree.directories[tabID]] + (workspace?.tabs.map { tree.directories[$0.id] } ?? []) + [workspace?.directory]
-        guard let cwd = candidates.lazy.compactMap({ $0 }).first(where: { $0.hasPrefix("/") && !Self.isHomeOrAbove($0) }) else {
-            throw WorkspaceCreationError("Open this workspace in a project folder on the Mac, then send again.", isForPerson: true)
-        }
+        let cwd = Self.projectFolder(candidates)
         let (harness, session) = try await startAgentSession(AgentChatStart(harness: tree.agentTabs[tabID]?.harness), cwd: cwd, macID: sync.macID)
         willBind(session)
         do {

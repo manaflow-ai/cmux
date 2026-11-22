@@ -842,9 +842,38 @@ same set of folders as `file`'s tab-folder rule (`feat-cnx-ios-fileroots`).
   command, argv, env, mode or permission policy other than `ask`; opencode and the
   codex-acp adapter stay refused families (`web_modes.rs`; Codex on the app-server
   bridge starts in its asking mode, round 2); MCP servers stay empty. The
-  phone's own guard says why before it asks: a workspace whose folder is the
-  home folder (or above) gets "Agent chats start in a project folder" instead of
-  acpmux's refusal (`LiveWorkspaceCreationBackend.isHomeOrAbove`).
+  phone never names the home folder (or above): a chat with no project folder
+  starts with no `cwd` (below) instead (`LiveWorkspaceCreationBackend.projectFolder`).
+
+## `acpmux`: a phone chat with no project folder gets a folder of its own
+
+A chat the phone starts where no project folder is known (a Mac's New chat tab in
+the Home workspace, New Agent Chat in a workspace whose terminal sits at `~`, a
+new chat workspace with no folder picked) used to stop on the phone with "Open
+this workspace in a project folder on the Mac, then send again." Leo: "figure
+out the fucking right behaviour we want, perfect it." The right behaviour is the
+Mac's own: a chat in a workspace with no folder gets a private agent-home folder
+(`AgentHome`, `AcpmuxPathPolicy` product rule 1). So the phone now sends
+`session/new` with no `cwd`, and acpmux's remote guard gives the owner's own
+paired phone a new folder `<agent-home>/phone-<uuid>` (`remote_guard.rs`
+`phone_agent_home`): made owner-only (0700) by acpmux, never an existing folder,
+and marked as made by cmux, so the trust gate trusts it by construction as it
+trusts the Mac's agent-home folders (the phone cannot answer a trust question,
+and nobody else chose the folder).
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | The same agent start the phone already makes in a project folder, now in an empty folder made for it: an asking policy only (`web_only`), no MCP servers, an asking mode, each tool approval answered by the person. Nothing widens but the start folder, which is new and empty. |
+| Mutates or destroys objects the session does not own? | It makes one new empty folder under the Mac app's agent-home folder. It never names, reuses or deletes an existing one. |
+| Reads local state the remote should not see? | No: the folder is empty, and the agent's tools still ask for every read outside it. The home folder and every folder above it stay refused to the phone with a `cwd` too. |
+| Whose objects? | Only the owner's own paired phone gets it: a connection that presented a live `phone` credential (`ConnAuth::Device` under its own id, `Pairing::own_phone`, read from the store each request, so a phone removed in Settings gets nothing), the same proof that lets it control chats it started. The shared dashboard token, a paired machine that is not a phone (forwarding for its Web client), a read-only device and a peer forwarding for a Web client stay refused (`remote.cwd_outside_roots`). |
+
+- **Tests:** acpmux `tests/remote_guard_phone_scratch.rs` (the owner's phone with no
+  `cwd` gets a new marked, owner-only folder, keeps `ask`, and its first message runs;
+  a second chat gets another folder; the dashboard, a client machine and a removed
+  phone are refused; the phone is still refused the home folder and an approving
+  policy); `tests/remote_guard_peer.rs` (a Web connection with no folder is refused).
+  Swift `aChatWithNoProjectFolderStartsWithNoFolder`.
 
 ## Parity with the Mac app's tab and workspace actions (`feat-cnx-ios-parity`)
 
