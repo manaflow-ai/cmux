@@ -2588,6 +2588,15 @@ button.cv-subagent > :last-child {
   cursor: ns-resize;
   touch-action: none;
 }
+/* While the rim drags, the hat follows the cursor alone: no transition eases a height, a fold or a
+   row behind it (Leo, 2026-11-22: "the dragging isn't properly relative accurate to the cursor"),
+   the resize cursor holds wherever the pointer goes, and no text selects under it. */
+.acpmux-running-tray[data-dragging],
+.acpmux-running-tray[data-dragging] * {
+  transition: none !important;
+  cursor: ns-resize !important;
+  user-select: none;
+}
 /* The height the person dragged to caps the list, never pads it (it is the list's `max-height`, as
    the default five lines are), with or without the latest-step second lines. Last in the file, so
    it wins over the default caps above of the same weight. It keeps their 2px allowance for the
@@ -2666,7 +2675,6 @@ button.cv-subagent > :last-child {
   left: calc(var(--hat-face-index) * var(--hat-face-step));
   display: inline-flex;
   line-height: 0;
-  cursor: pointer;
   border-radius: 999px;
   /* A thin ring of the hat's own glass between overlapping icons, so each reads as its own. */
   box-shadow: 0 0 0 1.5px var(--acpmux-hat-face-ring, color-mix(in srgb, var(--agent-bg, Canvas) 85%, transparent));
@@ -2717,5 +2725,6 @@ button.cv-subagent > :last-child {
   inset: calc(-1 * var(--ds-space-1)) auto calc(-1 * var(--ds-space-1)) calc(-1 * var(--ds-space-1));
   width: calc(var(--hat-face-open-width) + 2 * var(--ds-space-1));
   border-radius: 999px;
+  /* chat-surface-allow: the fan's backing is the page colour, so the faces read over the transcript */
   background: var(--acpmux-hat-face-ring, color-mix(in srgb, var(--agent-bg, Canvas) 92%, transparent));
 }
