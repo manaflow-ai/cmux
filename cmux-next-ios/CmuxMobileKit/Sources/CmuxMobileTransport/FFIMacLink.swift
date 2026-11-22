@@ -125,6 +125,10 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
         return .milliseconds(handle.probeTimeoutMs(floorMs: millis))
     }
 
+    func setForegroundProbe(_ on: Bool) {
+        handle.setForegroundProbe(on: on)
+    }
+
     func close() async {
         handle.close()
     }

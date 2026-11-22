@@ -615,7 +615,7 @@ async fn blackout_with(
     {
         let (sessions, mac_arrivals, mac_link) =
             (Arc::clone(&sessions), Arc::clone(&mac_arrivals), Arc::clone(&mac_link));
-        let config = config.clone();
+        let config = LinkConfig { foreground_probe: false, ..config.clone() };
         tokio::spawn(async move {
             while let Some(session) = mac.next_session().await {
                 sessions.fetch_add(1, Ordering::SeqCst);
@@ -1010,7 +1010,9 @@ async fn detect(
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
     let mac_link = Arc::new(Mutex::new(None::<cmux_mobile_link::Link>));
     {
-        let (mac_link, config) = (Arc::clone(&mac_link), config.clone());
+        // The foreground probe is the phone app's; the Mac never runs it.
+        let (mac_link, config) =
+            (Arc::clone(&mac_link), LinkConfig { foreground_probe: false, ..config.clone() });
         tokio::spawn(async move {
             while let Some(session) = mac.next_session().await {
                 let events = SessionEvents {
@@ -1235,6 +1237,9 @@ async fn blackout_matrix() {
 /// Idle cost: one idle minute each, shaped, scaled to an hour.
 /// `DURESS_SURVIVE_ONLY=1` runs only the survival part, and
 /// `DURESS_SURVIVE_IDLE=1` runs it without the stream.
+/// `DURESS_FOREGROUND=1` gives the "after" phone its foreground probe
+/// (`Link::set_foreground_probe`: the app in front with a terminal or chat
+/// on screen); the Mac stays on the default.
 /// `DURESS_PROFILES=lte cargo test -p cmux-mobile-link --test roaming duress_matrix -- --ignored --nocapture`
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 #[ignore = "timed matrix (about 9 minutes a profile): run by hand for the PR's numbers"]
@@ -1246,15 +1251,17 @@ async fn duress_matrix() {
     let survive_only = std::env::var_os("DURESS_SURVIVE_ONLY").is_some();
     // `DURESS_SURVIVE_IDLE=1`: the survival runs without the stream.
     let survive_stream = std::env::var_os("DURESS_SURVIVE_IDLE").is_none();
+    // `DURESS_FOREGROUND=1`: the "after" phone runs its foreground probe.
+    let after_config = || LinkConfig {
+        foreground_probe: std::env::var_os("DURESS_FOREGROUND").is_some(),
+        ..LinkConfig::default()
+    };
     for name in names.split(',').map(str::trim).filter(|name| !name.is_empty()) {
         let profile = (name != "none").then(|| LinkProfile::named(name));
         eprintln!("DURESS profile={name} {profile:?}");
         set_link_profile(profile, 0x4934_2000);
-        let configs = if survive_only {
-            vec![]
-        } else {
-            vec![("before", base_config()), ("after", LinkConfig::default())]
-        };
+        let configs =
+            if survive_only { vec![] } else { vec![("before", base_config()), ("after", after_config())] };
         for (label, config) in configs {
             for side in [DarkSide::Phone, DarkSide::Mac] {
                 for load in [Load::Idle, Load::Stream] {
@@ -1291,7 +1298,7 @@ async fn duress_matrix() {
             }
         }
         let mut runs = Vec::new();
-        for (label, config) in [("before", base_config()), ("after", LinkConfig::default())] {
+        for (label, config) in [("before", base_config()), ("after", after_config())] {
             for secs in [8u64, 10, 30, 60] {
                 let duress = Duress { shaped: true, stream: survive_stream };
                 let run = blackout_with(config.clone(), Duration::from_secs(secs), false, duress);
@@ -1326,7 +1333,7 @@ async fn duress_matrix() {
             continue;
         }
         let before = idle_minute_with(base_config(), false, base_config(), true).await;
-        let after = idle_minute_with(LinkConfig::default(), false, LinkConfig::default(), true).await;
+        let after = idle_minute_with(after_config(), false, LinkConfig::default(), true).await;
         eprintln!(
             "WAKEUPS profile={name} idle, per hour (one minute x 60): before phone={} mac={} | after phone={} mac={} (datagrams before {}/{}, after {}/{})",
             before.0.1 * 60,

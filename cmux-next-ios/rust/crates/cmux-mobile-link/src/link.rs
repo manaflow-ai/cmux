@@ -166,6 +166,23 @@ pub const LIVENESS_LANE: &str = "liveness";
 /// retransmitted it. Not while the link is suspect: its probes every
 /// [`SUSPECT_PROBE`] are the retries then.
 const DATAGRAM_PING_RESEND: Duration = Duration::from_millis(500);
+
+/// While the phone app is in the foreground with a terminal or chat on
+/// screen ([`Link::set_foreground_probe`]) and the link's pings travel as
+/// liveness datagrams, it sends one this often, beside the keepalive, so a
+/// dead path (an elevator) is suspect within seconds instead of a
+/// keepalive later. Off (backgrounded, nothing on screen, no datagram
+/// lane) the link sends only its keepalive, as before.
+pub const FOREGROUND_PROBE: Duration = Duration::from_secs(3);
+/// Foreground probes in a row with nothing at all received after them
+/// before the link is suspect.
+pub const FOREGROUND_PROBE_MISSES: u32 = 2;
+/// A foreground probe nothing answered is sent once more after this many
+/// smoothed round trips (at least [`DATAGRAM_PING_RESEND`], at most
+/// [`FOREGROUND_RESEND_CAP`]), so one lost datagram on a lossy path is not
+/// a miss.
+const FOREGROUND_RESEND_RTTS: u32 = 2;
+const FOREGROUND_RESEND_CAP: Duration = Duration::from_millis(1500);
 const DATAGRAM_PING_ATTEMPTS: u8 = 5;
 /// A liveness datagram: kind, the ping's nonce (8 bytes, big-endian), the
 /// attempt number. A pong echoes the ping's nonce and attempt.
@@ -222,6 +239,9 @@ pub struct LinkConfig {
     /// it) before the link is suspect; `None` turns the suspect signal and
     /// its probes off. See [`SUSPECT_AFTER`].
     pub suspect_after: Option<Duration>,
+    /// Whether the link starts with its foreground probe on
+    /// ([`Link::set_foreground_probe`]). Off by default.
+    pub foreground_probe: bool,
 }
 
 impl Default for LinkConfig {
@@ -231,6 +251,7 @@ impl Default for LinkConfig {
             keepalive_timeout: KEEPALIVE_TIMEOUT,
             aligned: false,
             suspect_after: Some(SUSPECT_AFTER),
+            foreground_probe: false,
         }
     }
 }
@@ -630,6 +651,9 @@ struct Inner {
     datagrams: Mutex<Option<mpsc::Sender<Vec<u8>>>>,
     /// This side's pings go as datagrams: the peer is listening.
     datagram_pings: AtomicBool,
+    /// The phone app is in the foreground with a surface on screen
+    /// ([`Link::set_foreground_probe`]).
+    foreground: watch::Sender<bool>,
     rtt: watch::Sender<Option<Duration>>,
     /// The smoothed round trip of answered pings ([`Link::probe_timeout`]).
     srtt: Mutex<Option<Duration>>,
@@ -847,6 +871,7 @@ impl Link {
             pings: Mutex::new(HashMap::new()),
             datagrams: Mutex::new(None),
             datagram_pings: AtomicBool::new(false),
+            foreground: watch::channel(config.foreground_probe).0,
             rtt: watch::channel(None).0,
             srtt: Mutex::new(None),
             ping_stats: Mutex::new(PingStats::default()),
@@ -870,6 +895,8 @@ impl Link {
         if let Some(after) = config.suspect_after {
             let link = Self { inner: Arc::clone(&inner) };
             tasks.push(tokio::spawn(watch_liveness(link, after)));
+            let link = Self { inner: Arc::clone(&inner) };
+            tasks.push(tokio::spawn(foreground_probe(link)));
         }
         if let Some(interval) = config.keepalive
             && config.aligned
@@ -939,6 +966,21 @@ impl Link {
         let reader = tokio::spawn(read_datagrams(Arc::clone(&self.inner), incoming));
         self.inner.tasks.lock().unwrap_or_else(PoisonError::into_inner).push(reader);
         tracing::debug!(role = ?self.inner.role, peer_listening, "liveness datagrams attached");
+    }
+
+    /// The phone app is in the foreground with a terminal or chat on
+    /// screen (`true`), or not. While it is and the pings travel as
+    /// datagrams, the link probes every [`FOREGROUND_PROBE`] and is suspect
+    /// after [`FOREGROUND_PROBE_MISSES`] unanswered probes. The keepalive
+    /// keeps its own interval either way. Needs the suspect signal
+    /// (`LinkConfig::suspect_after`); without it this does nothing.
+    pub fn set_foreground_probe(&self, on: bool) {
+        self.inner.foreground.send_if_modified(|state| std::mem::replace(state, on) != on);
+    }
+
+    /// Whether the foreground probe is on ([`Link::set_foreground_probe`]).
+    pub fn foreground_probe(&self) -> bool {
+        *self.inner.foreground.borrow()
     }
 
     /// Whether this link's pings travel as datagrams now.
@@ -1400,6 +1442,95 @@ async fn watch_liveness(link: Link, after: Duration) {
             _ = closed.wait_for(Option::is_some) => return,
             () = inner.unanswered_changed.notified() => {}
             () = tokio::time::sleep_until(next.unwrap_or(now)), if next.is_some() => {}
+        }
+    }
+}
+
+/// The foreground probe ([`Link::set_foreground_probe`]): while it is on
+/// and the pings travel as datagrams, a datagram ping every
+/// [`FOREGROUND_PROBE`], sent once more when nothing came back in a couple
+/// of round trips. A probe with nothing at all received after it by the
+/// next one is a miss; [`FOREGROUND_PROBE_MISSES`] in a row make the link
+/// suspect, and the watchdog's [`SUSPECT_PROBE`] probes take over until
+/// anything arrives. The probes take no waiter and do not count as the
+/// watchdog's unanswered pings, so `SUSPECT_AFTER` does not shorten the
+/// misses rule.
+async fn foreground_probe(link: Link) {
+    let inner = &link.inner;
+    let mut closed = inner.closed.subscribe();
+    let mut on = inner.foreground.subscribe();
+    loop {
+        while !*on.borrow_and_update() {
+            tokio::select! {
+                _ = closed.wait_for(Option::is_some) => return,
+                changed = on.changed() => if changed.is_err() { return },
+            }
+        }
+        // The last probe (when, its nonce) and whether it was resent.
+        let mut last: Option<(Instant, u64)> = None;
+        let mut resent = false;
+        let mut misses = 0u32;
+        let mut first_miss: Option<Instant> = None;
+        let mut tick = Instant::now();
+        loop {
+            let resend_at = last.filter(|_| !resent).map(|(at, _)| {
+                let srtt = *inner.srtt.lock().unwrap_or_else(PoisonError::into_inner);
+                let wait = srtt.map_or(DATAGRAM_PING_RESEND, |srtt| srtt * FOREGROUND_RESEND_RTTS);
+                at + wait.clamp(DATAGRAM_PING_RESEND, FOREGROUND_RESEND_CAP)
+            });
+            tokio::select! {
+                _ = closed.wait_for(Option::is_some) => return,
+                changed = on.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+                    if !*on.borrow_and_update() {
+                        break;
+                    }
+                    continue;
+                }
+                () = tokio::time::sleep_until(resend_at.unwrap_or(tick)), if resend_at.is_some() => {
+                    resent = true;
+                    if let Some((at, nonce)) = last
+                        && inner.last_received() < at
+                        && !inner.suspect_flag.load(Ordering::Relaxed)
+                    {
+                        inner.send_datagram(DATAGRAM_PING, nonce, 1);
+                    }
+                    continue;
+                }
+                () = tokio::time::sleep_until(tick) => {}
+            }
+            let now = Instant::now();
+            tick = (tick + FOREGROUND_PROBE).max(now);
+            if !inner.datagram_pings() || inner.suspect_flag.load(Ordering::Relaxed) {
+                // No lane (pings in the stream: the keepalive's), or suspect
+                // (the watchdog probes): start counting afresh.
+                (last, misses, first_miss) = (None, 0, None);
+                continue;
+            }
+            if let Some((at, _)) = last {
+                if inner.last_received() < at {
+                    misses += 1;
+                    first_miss.get_or_insert(at);
+                } else {
+                    (misses, first_miss) = (0, None);
+                }
+            }
+            if misses >= FOREGROUND_PROBE_MISSES
+                && let Some(since) = first_miss
+            {
+                inner.raise_suspect(since);
+                // The watchdog sleeps on an idle link: wake it to probe.
+                inner.unanswered_changed.notify_one();
+                (last, misses, first_miss) = (None, 0, None);
+                continue;
+            }
+            let nonce = inner.next_nonce.fetch_add(1, Ordering::Relaxed);
+            if inner.send_datagram(DATAGRAM_PING, nonce, 0) {
+                inner.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).sent += 1;
+            }
+            (last, resent) = (Some((now, nonce)), false);
         }
     }
 }
@@ -2243,6 +2374,7 @@ mod tests {
             keepalive_timeout: Duration::from_millis(600),
             aligned: false,
             suspect_after: None,
+            foreground_probe: false,
         };
         let phone = Link::new(a, Role::Phone, config, None);
         // A peer that streams data frames and never answers pings.
@@ -2722,6 +2854,99 @@ mod tests {
         assert!(!phone.pings_as_datagrams());
         tokio::time::timeout(Duration::from_secs(2), phone.ping()).await.expect("stream pong").unwrap();
         assert!(!phone.pings_as_datagrams());
+        phone.close("done");
+        mac.close("done");
+    }
+
+    /// Liveness datagrams across `dark` (dropped while it is true, as a dead
+    /// path drops them), counting what the phone sends.
+    fn gated_datagrams(
+        dark: &watch::Sender<bool>,
+        phone_sent: Arc<AtomicU64>,
+    ) -> (LivenessDatagrams, LivenessDatagrams) {
+        fn wire(
+            dark: watch::Receiver<bool>,
+            sent: Option<Arc<AtomicU64>>,
+        ) -> (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) {
+            let (outgoing, mut from) = mpsc::channel::<Vec<u8>>(64);
+            let (delivered, incoming) = mpsc::channel(64);
+            tokio::spawn(async move {
+                while let Some(datagram) = from.recv().await {
+                    if let Some(sent) = &sent {
+                        sent.fetch_add(1, Ordering::Relaxed);
+                    }
+                    if !*dark.borrow() {
+                        let _ = delivered.try_send(datagram);
+                    }
+                }
+            });
+            (outgoing, incoming)
+        }
+        let (phone_out, mac_in) = wire(dark.subscribe(), Some(phone_sent));
+        let (mac_out, phone_in) = wire(dark.subscribe(), None);
+        (
+            LivenessDatagrams { outgoing: phone_out, incoming: phone_in, peer_listening: true },
+            LivenessDatagrams { outgoing: mac_out, incoming: mac_in, peer_listening: true },
+        )
+    }
+
+    /// In the foreground the phone probes every `FOREGROUND_PROBE` over the
+    /// datagram lane and is suspect after `FOREGROUND_PROBE_MISSES` of them
+    /// go unanswered: within 3 x 3 s of the network going dark, not the
+    /// 15 s keepalive plus `SUSPECT_AFTER`. Backgrounded it is the keepalive
+    /// alone again.
+    #[tokio::test(start_paused = true)]
+    async fn a_foreground_probe_finds_a_dark_link_in_two_misses() {
+        let (phone, mac, dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+        let sent = Arc::new(AtomicU64::new(0));
+        let (phone_lane, mac_lane) = gated_datagrams(&dark, Arc::clone(&sent));
+        phone.attach_liveness_datagrams(phone_lane);
+        mac.attach_liveness_datagrams(mac_lane);
+        assert!(!phone.foreground_probe());
+        phone.set_foreground_probe(true);
+        // Settle into the probe's beat, between two probes.
+        tokio::time::sleep(Duration::from_millis(16_500)).await;
+        assert!(!phone.is_suspect() && !mac.is_suspect(), "a false suspect on a live link");
+        let began = Instant::now();
+        dark.send_replace(true);
+        let bound = FOREGROUND_PROBE * (FOREGROUND_PROBE_MISSES + 1) + Duration::from_millis(10);
+        let at = tokio::time::timeout(bound, suspect_after(&phone, began))
+            .await
+            .expect("suspect within three foreground probes");
+        assert!(at >= FOREGROUND_PROBE * FOREGROUND_PROBE_MISSES - FOREGROUND_PROBE, "suspect after {at:?}");
+        dark.send_replace(false);
+        let mut state = phone.suspect_state();
+        tokio::time::timeout(SUSPECT_PROBE + Duration::from_millis(100), state.wait_for(|suspect| !suspect))
+            .await
+            .expect("alive again within one suspect probe")
+            .unwrap();
+        // Backgrounded: a quiet minute costs the keepalive's pings alone.
+        phone.set_foreground_probe(false);
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let from = sent.load(Ordering::Relaxed);
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        let background = sent.load(Ordering::Relaxed) - from;
+        // Its keepalive pings and its pongs to the Mac's: 4 each.
+        assert!(background <= 10, "{background} datagrams in a backgrounded minute");
+        phone.set_foreground_probe(true);
+        let from = sent.load(Ordering::Relaxed);
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        let foreground = sent.load(Ordering::Relaxed) - from;
+        // 20 probes besides.
+        assert!((26..=32).contains(&foreground), "{foreground} datagrams in a foreground minute");
+        assert!(!phone.is_closed() && !mac.is_closed());
+        phone.close("done");
+        mac.close("done");
+    }
+
+    /// With no datagram lane (WebRTC, loopback) the foreground probe stays
+    /// off: the link pings only on its keepalive.
+    #[tokio::test(start_paused = true)]
+    async fn no_datagram_lane_no_foreground_probe() {
+        let (phone, mac, _dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+        phone.set_foreground_probe(true);
+        tokio::time::sleep(Duration::from_secs(31)).await;
+        assert_eq!(phone.take_ping_stats().sent, 2, "only the keepalive's pings");
         phone.close("done");
         mac.close("done");
     }

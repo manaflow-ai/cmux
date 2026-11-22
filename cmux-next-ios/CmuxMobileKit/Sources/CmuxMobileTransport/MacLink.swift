@@ -91,6 +91,10 @@ public protocol MacLink: AnyObject, Sendable {
     /// longer on a link whose measured round trip needs it (the Rust link:
     /// three smoothed round trips, at most 5 s).
     func probeTimeout(floor: Duration) -> Duration
+    /// The app is in the foreground with a terminal or chat on screen, or
+    /// not. The Rust link probes more often while it is (every 3 s on its
+    /// datagram lane); a link without one ignores it.
+    func setForegroundProbe(_ on: Bool)
     func close() async
     /// The path of a link that is already up when the dial returns (nil:
     /// unknown until its first `states` element). The controller then adopts
@@ -115,6 +119,7 @@ extension MacLink {
     public var receivedAgo: Duration? { nil }
     public var trafficAgo: Duration? { nil }
     public func probeTimeout(floor: Duration) -> Duration { floor }
+    public func setForegroundProbe(_ on: Bool) {}
 
     /// A link that only pings: the pong or nothing.
     public func probe(timeout: Duration) async throws -> UInt32? {

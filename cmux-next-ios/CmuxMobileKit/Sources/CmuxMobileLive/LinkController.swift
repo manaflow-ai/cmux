@@ -17,6 +17,12 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "link")
 public final class LinkController {
     public private(set) var phase: LinkMachine.Phase = .idle
     public private(set) var link: (any MacLink)?
+    /// This Mac's data is on screen (a terminal, the Feed, a chat). With the
+    /// app in front, the Rust link then runs its foreground probe
+    /// (``MacLink/setForegroundProbe(_:)``); the timing is the link's.
+    @ObservationIgnored public var onScreen = false {
+        didSet { if onScreen != oldValue { applyForegroundProbe() } }
+    }
     /// The last failure, kept while reconnecting (Settings shows it).
     public private(set) var lastFailure: String?
     /// The WebRTC media session beside the current WireGuard link.
@@ -238,6 +244,7 @@ public final class LinkController {
         if case .waiting(_, _, let reason, _) = machine.phase { lastFailure = reason }
         if machine.phase.isConnected { lastFailure = nil }
         for effect in effects { run(effect) }
+        if wasBackgrounded != machine.isBackgrounded { applyForegroundProbe() }
         if wasBackgrounded != machine.isBackgrounded, phase.isConnected {
             probeTask?.cancel()
             probeTask = nil
@@ -461,9 +468,14 @@ public final class LinkController {
         }
     }
 
+    private func applyForegroundProbe() {
+        link?.setForegroundProbe(onScreen && !machine.isBackgrounded)
+    }
+
     private func adopt(_ link: any MacLink, generation: Int) {
         ConnectTimeline.shared.mark("link_adopted")
         self.link = link
+        applyForegroundProbe()
         watchTask?.cancel()
         let states = link.states
         let id = ObjectIdentifier(link)
