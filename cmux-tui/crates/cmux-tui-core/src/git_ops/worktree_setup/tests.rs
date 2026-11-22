@@ -279,7 +279,7 @@ fn own_tree_a_setup_log_is_not_written_through_a_link() {
 fn own_tree_a_teardown_log_is_not_written_through_a_link() {
     let top = folder_with_a_link_in_its_git_folder_at(LOG_FILE);
 
-    let reply = teardown(&place_in(&top), Some("touch ran"));
+    let reply = teardown(&place_in(&top), Some("touch ran"), None);
 
     assert!(!made_elsewhere(&top), "the open followed the link");
     assert_eq!(reply, None, "a teardown with no log does not run");
@@ -419,7 +419,7 @@ fn own_tree_a_setup_log_with_a_second_name_is_made_new() {
 fn own_tree_a_teardown_log_with_a_second_name_is_made_new() {
     let top = folder_with_a_second_name_in_its_git_folder_at(LOG_FILE);
 
-    let reply = teardown(&place_in(&top), Some("touch ran")).unwrap_or_default();
+    let reply = teardown(&place_in(&top), Some("touch ran"), None).unwrap_or_default();
 
     let log = fs::read_to_string(top.join("git-folder").join(LOG_FILE)).unwrap_or_default();
     assert_eq!(
@@ -444,7 +444,7 @@ fn own_tree_a_log_with_one_name_keeps_its_lines() {
     let log_path = top.join("git-folder").join(LOG_FILE);
     fs::write(&log_path, "a line of the setup\n").unwrap();
 
-    let reply = teardown(&place_in(&top), Some("touch ran")).unwrap_or_default();
+    let reply = teardown(&place_in(&top), Some("touch ran"), None).unwrap_or_default();
 
     let log = fs::read_to_string(&log_path).unwrap_or_default();
     assert!(log.starts_with("a line of the setup\n$ touch ran\n"), "the log: {log}");
