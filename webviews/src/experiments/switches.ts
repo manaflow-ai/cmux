@@ -36,7 +36,10 @@ function subscribe(listener: () => void) {
   return () => void listeners.delete(listener);
 }
 
-/// Whether switch `name` is on; re-renders when the person flips it.
+/// Whether switch `name` is on; re-renders when the person flips it. The same read serves the
+/// server snapshot, so a row rendered to a string (the transcript's server renders) reads the
+/// switches as they are set now instead of throwing.
 export function useExperimentSwitch(name: string): boolean {
-  return useSyncExternalStore(subscribe, () => current[name] === true);
+  const read = () => current[name] === true;
+  return useSyncExternalStore(subscribe, read, read);
 }
