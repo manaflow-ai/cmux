@@ -822,13 +822,13 @@ class EveryTier(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
         self.assertIn("vendored_pin: ${{ steps.route.outputs.vendored_pin }}", workflow)
         swift_test = workflow[workflow.index("\n  swift-test:\n"):workflow.index("\n  daemon-test:\n")]
-        # Swift runs on a PR labeled full-ci (same-repository or fork; since 2026-11-05, when every
-        # unlabeled PR run was cancelled or skipped and none passed) and on dispatches; a
-        # feat-cmux-next push skips it (push CI is the app build).
+        # Swift runs on a PR into feat-cmux-next labeled full-ci (same-repository or fork; since 2026-11-05,
+        # when every unlabeled PR run was cancelled or skipped and none passed), on a PR into another base
+        # (#49046) and on dispatches; a feat-cmux-next push skips it (push CI is the app build).
         condition = next(line for line in swift_test.splitlines() if line.startswith("    if: "))
         self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
-        self.assertIn("github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')",
-                      condition)
+        self.assertIn("github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next'"
+                      " || contains(github.event.pull_request.labels.*.name, 'full-ci')", condition)
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", condition)
         self.assertIn("    continue-on-error: false\n", swift_test)
         self.assertIn("    name: cmux-next swift test\n", swift_test)
@@ -1275,8 +1275,9 @@ class WorkflowRoute(unittest.TestCase):
         self.assertIsNotNone(start, job)
         end = re.compile(r"^  [\w-]+:\n", re.M).search(self.HEAD, start.end())
         block = self.HEAD[start.start():end.start() if end else len(self.HEAD)]
-        edited, count = re.subn(r"^    timeout-minutes: (\d+)$", lambda m: f"    timeout-minutes: {int(m.group(1)) + 1}",
-                                block, count=1, flags=re.M)
+        # A job's bound may say why after it ("timeout-minutes: 45  # up to 16 min reading the tip check", #48979).
+        edited, count = re.subn(r"^    timeout-minutes: (\d+)(?=\s*(?:#.*)?$)",
+                                lambda m: f"    timeout-minutes: {int(m.group(1)) + 1}", block, count=1, flags=re.M)
         self.assertEqual(count, 1, f"{job} has no job-level timeout-minutes")
         return self.HEAD.replace(block, edited)
 
@@ -2141,9 +2142,12 @@ class HotAwareWorkflows(unittest.TestCase):
         guards = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text(encoding="utf-8"))
         job = guards["jobs"]["tooling-tests"]
         # The 30-minute window gate (#48652) holds a push's guards; a pull request skips it (its output is
-        # empty, never 'false'), and a skipped or failed placement still runs the tests.
+        # empty, never 'false'), and a skipped or failed placement still runs the tests. A pull request into
+        # feat-cmux-next runs them only with full-ci; its push runs them (#49046, affected-jobs.json).
         self.assertEqual(job["needs"], ["coalesce", "portable-placement"])
-        self.assertEqual(job["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}")
+        self.assertEqual(job["if"], "${{ (!cancelled() && needs.coalesce.outputs.run != 'false') && "
+                                    "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != "
+                                    "'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}")
         legs = job["runs-on"].split(" || ")
         mini = [leg for leg in legs if "outputs.mini_runner" in leg]
         linux = [leg for leg in legs if "outputs.linux_runner" in leg]

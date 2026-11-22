@@ -6,9 +6,10 @@ import Testing
 /// Environment Secrets Playground in AppKit: the places it drew differently from its SwiftUI first version,
 /// checked on the drawn view (``EnvRenderedPage``) or on its laid-out view tree (``EnvLaidOutPage``).
 @MainActor @Suite struct EnvSecretsAppKitParityTests {
-    /// Sentences, Terminal state: every terminal line is shown in full (wrapped where the 680-point column is
-    /// too narrow), none cut off with an ellipsis, and the terminal scrolls with the whole page, in the same
-    /// scroll view as the page's header.
+    /// Sentences, Terminal state: as in a terminal, every line is one visual line, shown in full (no wrap, no
+    /// ellipsis), so the `cmux secrets list` columns line up. A frame wider than the 680-point column scrolls
+    /// sideways inside its own scroll view, and that scroll view sits in the page's scroll, so the page still
+    /// scrolls as a whole.
     @Test func sentencesTerminalShowsEveryLineInFull() throws {
         let model = EnvSecretsPlaygroundModel()
         model.direction = .sentences
@@ -18,10 +19,20 @@ import Testing
         #expect(lines.count > 10, "the two terminal frames draw their lines (\(lines.count) found)")
         let cut = lines.filter { !page.showsInFull($0) }.map(\.stringValue)
         #expect(cut.isEmpty, "terminal lines cut off: \(cut)")
+        let wrapped = lines.filter { !page.isOneLine($0) }.map(\.stringValue)
+        #expect(wrapped.isEmpty, "terminal lines on more than one visual line: \(wrapped)")
+        let columns = try #require(lines.first { $0.stringValue.hasPrefix("NAME ") }, "the list's column header line is drawn")
+        #expect(columns.stringValue.hasSuffix("LAST USE") && page.isOneLine(columns), "every column title is on the header's one line")
+
         let header = try #require(page.label(startingWith: "Values every chat in this environment"), "the page header is drawn")
         let pageScroll = try #require(header.enclosingScrollView, "the page scrolls")
-        let own = lines.filter { $0.enclosingScrollView !== pageScroll }.map(\.stringValue)
-        #expect(own.isEmpty, "terminal lines in a scroll view of their own, not the page's: \(own)")
+        let frameScroll = try #require(columns.enclosingScrollView, "the list frame has a scroll view")
+        #expect(frameScroll !== pageScroll, "the list frame scrolls sideways on its own, not with the page")
+        #expect(frameScroll.hasHorizontalScroller, "the list frame scrolls sideways")
+        #expect(frameScroll.enclosingScrollView === pageScroll, "the list frame sits in the page's scroll")
+        let document = try #require(frameScroll.documentView)
+        #expect(document.frame.width > frameScroll.contentView.bounds.width,
+                "the list is wider (\(document.frame.width)) than its frame (\(frameScroll.contentView.bounds.width)), so it scrolls")
     }
 
     /// Ledger, Paste state: each row's type menu reads as a borderless menu, as in SwiftUI: the type's symbol
@@ -91,6 +102,25 @@ import Testing
         let page = try EnvRenderedPage(model)
         let title = try #require(page.line(containing: "STRIPE_SECRET_KEY"), "the highlighted card's title is drawn")
         #expect(page.accentEdgeWidth(leftOf: title) == 1.5, "border \(page.accentEdgeWidth(leftOf: title)) pt")
+    }
+
+    /// Inspector, Paste (the Type radios) and the two "agent asks" cards (the "Keep in" radios): each radio
+    /// circle is centred on the first line of its title, as SwiftUI centres a radio on its label, not on the
+    /// top of the title-and-note column.
+    @Test(arguments: [(EnvSecretsPlaygroundModel.Direction.inspector, EnvSecretsPlaygroundModel.Scene.paste),
+                      (.ledger, .request), (.sentences, .request)])
+    func radioCirclesSitOnTheirTitlesFirstLine(direction: EnvSecretsPlaygroundModel.Direction,
+                                               scene: EnvSecretsPlaygroundModel.Scene) throws {
+        let model = EnvSecretsPlaygroundModel()
+        model.direction = direction
+        model.scene = scene
+        let page = EnvLaidOutPage(model)
+        let rows = page.radioRows()
+        #expect(rows.count >= 3, "\(direction) \(scene): radio rows found: \(rows.map(\.title.stringValue))")
+        for row in rows {
+            let offset = row.radioMidY - row.titleFirstLineMidY
+            #expect(abs(offset) <= 0.5, "\(direction) \(scene): the radio of \"\(row.title.stringValue)\" sits \(offset) pt off its title's first line")
+        }
     }
 }
 #endif

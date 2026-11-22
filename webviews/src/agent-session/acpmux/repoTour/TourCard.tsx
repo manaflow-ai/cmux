@@ -120,7 +120,7 @@ function TourTaskRow({ task, onStart }: { task: TourTask; onStart?: StartTourTas
             data-state={run.state}
             disabled={run.state === "starting" || run.state === "started"}
             onClick={start}
-            title={t("tour.startTitle")}
+            aria-description={t("tour.startTitle")}
           >
             {run.state === "starting"
               ? t("tour.starting")
