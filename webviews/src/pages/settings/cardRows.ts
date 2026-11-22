@@ -96,3 +96,17 @@ export const ROTATE_FAVORITES_KEY = "appearance.rotateFavoriteThemes";
 export const THEME_FILE_KEY = "appearance.themeFile";
 /** appearance.favoriteThemes: the starred themes, shared by every theme picker on the page. */
 export const FAVORITE_THEMES_KEY = "appearance.favoriteThemes";
+
+/** The schema rows about spaces (Sidebar > Sidebar Buttons and Spaces). With one space the page
+ * draws none of them (Hide Spaces); search still finds them. */
+export const SPACE_ROWS: ReadonlySet<string> = new Set([
+  "sidebar.showSpaces",
+  "sidebar.spacesPosition",
+  "sidebar.spacesVisibility",
+]);
+
+/** Whether the active window has a second space: until then no Settings page names spaces. */
+export function useSeveralSpaces(): boolean {
+  const { host } = useSettingsState();
+  return (host?.rooms?.length ?? 0) > 1;
+}

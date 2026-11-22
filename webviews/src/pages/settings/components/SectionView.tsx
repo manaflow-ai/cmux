@@ -16,10 +16,12 @@ import {
   HIGHLIGHT_COLOR_KEY,
   MACHINE_COLORS_KEY,
   ROTATE_FAVORITES_KEY,
+  SPACE_ROWS,
   THEME_EDITS_KEY,
   THEME_FILE_KEY,
   THEME_KEY,
   useBackdropsShown,
+  useSeveralSpaces,
 } from "../cardRows";
 import { arrangeGroups } from "../rowLevels";
 import { Card } from "./cardModules";
@@ -57,6 +59,8 @@ export function SectionView({
   const computerUseCard = [...category.lead, ...category.trail].includes("computerUse");
   // The Machines card draws appearance.machineColors: a color well on each machine's row.
   const machinesCard = [...category.lead, ...category.trail].includes("machines");
+  // With one space no row names spaces (Hide Spaces); a second space brings them back.
+  const severalSpaces = useSeveralSpaces();
   // appearance.themeEdits is the pickers' "(custom)" themes and appearance.favoriteThemes their
   // stars, never rows of their own.
   const groups = category.groups
@@ -71,6 +75,7 @@ export function SectionView({
           !(pet && CHIEF_PET_ROWS.has(row.key)) &&
           !(chiefsCard && CHIEFS_ROWS.has(row.key)) &&
           !(machinesCard && row.key === MACHINE_COLORS_KEY) &&
+          !(!severalSpaces && SPACE_ROWS.has(row.key)) &&
           !(computerUseCard && COMPUTER_USE_ROWS.has(row.key)) &&
           !(densityCard && DENSITY_CARD_ROWS.has(row.key)),
       ),
