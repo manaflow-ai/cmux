@@ -127,6 +127,75 @@ RUNTIME_LOADS = {
 # An import specifier that ends in a module's name, with or without its extension or a query.
 SPECIFIER = r"""["'`][^"'`\n]*/{}(?:\.[\w.]+)?(?:\?[^"'`\n]*)?["'`]"""
 
+# Gallery stage tests: a browser test that serves the gallery with vite.config.gallery-dev.ts and opens only
+# `galleryFrame(id)` stages. galleryFrame puts the file defining `id` in the URL (`entryPath`), and the frame then
+# loads that file alone (src/gallery/registry.ts), so what the page runs is the import closure of the frame, the
+# Vite config and that entry file: real edges, not "always". Such a test leaves the always-run set; it runs for a
+# change in any of those closures, a webviews file outside every test's import graph (a stylesheet's @import, a
+# fixture, a script the harness spawns), or a file outside webviews/ the harness reads (GALLERY_OUTSIDE).
+# Off with CI_WEBVIEWS_GALLERY_EDGES=0 (or CI_WEBVIEWS_NARROW_SELECTION=0): they are always-run again.
+GALLERY_EDGES = NARROW and os.environ.get("CI_WEBVIEWS_GALLERY_EDGES", "1") != "0"
+GALLERY_CONFIG = WEB + "vite.config.gallery-dev.ts"
+# What every stage loads besides its entry: the Vite config (and its plugins), the frame's script (frame.html's
+# only module) and the pane stylesheet galleryHost builds by running bundle.mjs over the pane's dev entry.
+GALLERY_ROOTS = (GALLERY_CONFIG, WEB + "src/gallery/frame/main.ts", WEB + "scripts/agent-pane/bundle.mjs",
+                 WEB + "src/agent-session/acpmux/dev.tsx")
+# Files outside webviews/ the gallery server reads (galleryHost.ts, goldenLooks.ts, firstPartyPreviews.ts, plugins'
+# fs.allow): themes, the Swift design tunables and web theme, the pane build script, the fixture index and the
+# schemas it serves, first-party previews, example looks. The fixture index's roots are added at run time.
+GALLERY_OUTSIDE = re.compile(r"^(Resources/|Packages/macOS/CmuxNext/Sources/CmuxNextDesign/|schemas/|examples/looks/"
+                             r"|first-party-apps/[^/]+/preview/|scripts/cmux-next/build-agent-pane-web\.sh$)")
+# The reviewed harness: every module in GALLERY_ROOTS' closures, galleryFrame.ts's and requireBrowserLane.ts's that
+# reads files, spawns or imports what no graph follows. Their reads are the zone above (webviews/ non-graph files,
+# GALLERY_OUTSIDE, the gallery files themselves), or home-folder and dev-only routes the gallery config leaves out.
+# Pinned like RUNTIME_LOADS: an edit to one puts every gallery stage test back in the always-run set (the edit
+# selects them all anyway) until the pin is renewed (`webviews_affected.py --pins`).
+GALLERY_HARNESS = {
+    "webviews/dev-server/agentGitHost.ts": "33a6bae12270443476a0a86432534b9593801edc59c3913131906acba020a449",
+    "webviews/dev-server/diffHost.ts": "04fa1052aa2bb63296dbc89e82a31c2bd3590f04238be054a3b64f8c75a94bca",
+    "webviews/dev-server/diffLanguages.ts": "6c6dd22dc1f9005954b4a43a5bfce3e44f9b480f01bcf35477ab3525496fc6ec",
+    "webviews/dev-server/editorHost.ts": "775ebfb6949361f9783d5b9a66c2bc6ca3c3951a448cfb7e087cbe15cf1c1e39",
+    "webviews/dev-server/firstPartyPreviews.ts": "a03b66effef3f17a9a6266ceaf7f447fe08c5e3d99366c0ff34d3cd8dd8b60f5",
+    "webviews/dev-server/galleryHost.ts": "76c2f1a4d2628a31c29490ba256f20ac457f10e460f59c5d881092f0edad9778",
+    "webviews/dev-server/galleryLive.ts": "416f427f016a38ed2a58a7d05cea0dc4496d9a21d749912dfa7f7bdea45748cd",
+    "webviews/dev-server/goldenLooks.ts": "685cf14de0bf9d5aeb7c5a0f51746871f6d2be2d82fa5bb55a8f5156ab50deb6",
+    "webviews/dev-server/markdownHost.ts": "0f089dd4131797750e5f12d6e7db4a82361c9c6403eff6afc43a88135c58f9e1",
+    "webviews/dev-server/perfLint.ts": "8fb5e8907322ad2a74bb06a02805df730b295fc8a5f1969823e82a80118a2230",
+    "webviews/dev-server/plugins.ts": "442ebf1eb1febab0f0a7ed5a2e6f81adf3d1b861d952d0ee2597052f207ba747",
+    "webviews/dev-server/viewerEmptyHost.ts": "00d07085fc72ae42a23409117789a397b23e18fd51fa7884dc7c520f07b5a772",
+    "webviews/reactCompiler.mjs": "cf69080f14637c1d71ef8defe0b2373072c85ac554eb0e766f628783a396f38d",
+    "webviews/scripts/agent-pane/artifactRuntimePlugin.mjs": "3d0b42f53ce581e23083ffeacbdfcce6850563096dacf272e029265abc5e6302",
+    "webviews/scripts/agent-pane/bundle.mjs": "80df1e8d2725dc64b9733c5244a1f1ea4b262f56a3618115e31c095878d43804",
+    "webviews/scripts/bundle-metafile.mjs": "831962bec2e77c7b0fd92c3a058e4513d3c995b0e6d82981ce8c52389cda4840",
+    "webviews/scripts/gallery/entries.ts": "43ae4eb980d25a0745ebc95a70c23a99a51dc464a8c910c8ca350f7ff7be58ea",
+    "webviews/scripts/packed-shiki-data.mjs": "334a89d6ac88c7f2b7704aa80687ff946329d408b029042ba61278932d41e88b",
+    "webviews/src/diff-viewer/importHunks.ts": "734e4b333f6d11f9c6cfbe52b890712ddb5a8527aa763fbe01d13a72066cee44",
+    "webviews/src/gallery/entryStore.ts": "c04482199aa91b40359f5b88c25d4c1e7e23cfecc26e8c1530aade0ff8777842",
+    "webviews/src/gallery/frame/liveErrors.ts": "f553033653f2ca9e6a7a1277e9351452001f70bc55a91861d8c1bc16ea50b5bc",
+    "webviews/src/gallery/registry.ts": "26564ec915a72c5f3eb1d00766c1c6d42354ae922bb0ee1b73ccb535e4744ff4",
+    "webviews/src/pages/editor/main.tsx": "fcf6a290b299f6c48b38fcedfbcc551c5c0186362ea671df603ab9b40d8982f3",
+    "webviews/src/pages/editor/view.ts": "6c142785fe0b2f042a1739163e636962cdc6846700f06b56b15f5785ca8556f9",
+    "webviews/test/support/galleryFrame.ts": "1f9eb44639c07f42cd34050c8a02454537c52be5152f778904f8a9ed7d0ab3c0",
+    "webviews/test/support/requireBrowserLane.ts": "150ec45c9b3aeb1e9781442bbfc85f44ec5ff65e06babe0c429da4efe94a3890",
+    "webviews/test/support/systemChrome.ts": "0507f6cb924086aa87d15a541c3bec4387e0ecddf70544e6d2505e3d56b9961b",
+    "webviews/vite.config.ts": "c8404cad884ee737f7ebb7813a703c5118a73f9e99328e82e4383bc6200a7647",
+}
+# galleryFrame.ts's own test for the file that defines an entry id (galleryEntryPath).
+GALLERY_ID_LINE = r'^\s*id:\s*"{}",?\s*$'
+GALLERY_FILE = re.compile(r"\.gallery\.tsx?$")
+# What a stage test's own text may do beyond the import graph: launch a browser, start the gallery's Vite server,
+# write (never read) files. Anything else (a read, a spawn, another page, a script or file handed to the page)
+# keeps it always-run.
+STAGE_FS_IMPORT = re.compile(r"""\bimport\s*(\{[^}]*\})?\s*(?:from\s*)?["'](?:node:)?fs(?:/promises)?["']""")
+STAGE_FS_WRITES = {"writeFile", "writeFileSync", "mkdir", "mkdirSync", "mkdtemp", "mkdtempSync", "rm", "rmSync"}
+STAGE_REFUSED = re.compile(
+    r"\.html\b|\baddScriptTag\b|\baddStyleTag\b|\baddInitScript\(\s*\{|\.route\(|\brouteFromHAR\b|\bsetInputFiles\b"
+    r"|\bgoto\(\s*[\"'`](?!about:blank)|readFile|readdir|existsSync|statSync|Bun\.file|spawn|exec[A-Z(]"
+    # An entry id built at run time: `agent-pane.${x}` or "agent-pane." + x.
+    r"|[\"'`][a-z0-9-]+\.(?:\$\{|[\"']\s*\+)")
+STRING_LITERAL = re.compile(r"""["']([a-z0-9][a-z0-9.-]*)["']""")
+JS_COMMENTS = re.compile(r"/\*[\s\S]*?\*/|(?<![:\"'`\\])//[^\n]*")
+
 
 class Selector:
     def __init__(self, root: Path):
@@ -149,6 +218,85 @@ class Selector:
                     and hashlib.sha256((root / f).read_bytes()).hexdigest() == digest}
         self.always = {t for t in self.graph.tests if self.closure(t) & (untracked - reviewed)}
         self.preload = self.closure(PRELOAD)
+        self.gallery: dict[str, set[str]] = self.gallery_stages(untracked - reviewed) if GALLERY_EDGES else {}
+        self.always -= set(self.gallery)
+        for test, entries in self.gallery.items():
+            for target in (*GALLERY_ROOTS, *entries):
+                self.imports.setdefault(test, set()).add(target)
+                self.graph.importers.setdefault(target, set()).add(test)
+        self.gallery_outside = [root.rstrip("/") + "/" for root in self.fixture_roots()]
+
+    def pinned(self, pins: dict[str, str]) -> bool:
+        return all(f in self.text and hashlib.sha256((self.root / f).read_bytes()).hexdigest() == digest
+                   for f, digest in pins.items())
+
+    def fixture_roots(self) -> list[str]:
+        try:
+            roots = json.loads((self.root / "schemas/gallery/fixtures.json").read_text(encoding="utf-8")).get("roots")
+        except (OSError, ValueError, AttributeError):
+            return [""]  # unreadable: every path outside webviews/ is in the zone
+        return [r for r in roots if isinstance(r, str)] if isinstance(roots, list) else [""]
+
+    def gallery_stages(self, untracked: set[str]) -> dict[str, set[str]]:
+        """The always-run tests proven to be gallery stage tests, each with the entry files it opens."""
+        if not self.pinned(GALLERY_HARNESS):
+            return {}
+        harness = set(GALLERY_HARNESS)
+        base = set().union(*(self.closure(r) for r in GALLERY_ROOTS))
+        if (base & untracked) - harness:
+            return {}
+        galleries = {f: t for f, t in self.text.items() if f.startswith(WEB + "src/") and GALLERY_FILE.search(f)}
+        out: dict[str, set[str]] = {}
+        for test in sorted(self.always):
+            entries = self.stage_entries(test, galleries)
+            if entries is None:
+                continue
+            reach = self.closure(test) | base | set().union(*(self.closure(e) for e in entries))
+            if not (reach & untracked) - harness - {test}:
+                out[test] = entries
+        return out
+
+    def stage_entries(self, test: str, galleries: dict[str, str]) -> set[str] | None:
+        """The gallery files a stage test opens, or None when its text does anything else no edge covers."""
+        text = JS_COMMENTS.sub("", self.text[test])
+        if "galleryFrame(" not in text and "warmGalleryFrame(" not in text or STAGE_REFUSED.search(text):
+            return None
+        if "createServer" in text and (GALLERY_CONFIG.removeprefix(WEB) not in text
+                                       or len(set(re.findall(r"vite\.config[\w.-]*", text))) != 1):
+            return None
+        for m in STAGE_FS_IMPORT.finditer(text):
+            names = {n.split(" as ")[0].strip() for n in (m.group(1) or "").strip("{}").split(",") if n.strip()}
+            if not m.group(1) or not names <= STAGE_FS_WRITES:
+                return None
+        allowed = re.compile(r"playwright|[\"']vite[\"']|requireBrowserLane|createServer\(|(?:node:)?fs(?:/promises)?[\"']")
+        for m in [*UNTRACKED.finditer(text), *UNTRACKED_OUTSIDE_SRC.finditer(text)]:
+            if not allowed.search(m.group(0)) and not re.fullmatch(r"import\s*\(\s*", m.group(0)):
+                return None
+        if re.search(r"\bimport\s*\(\s*(?![\"']vite[\"'])", text):
+            return None  # a dynamic import other than Vite's own
+        # Every entry id the test or its own helpers (outside src/) spell: the over-approximation of what it opens.
+        literals = set(STRING_LITERAL.findall(text))
+        for f in self.closure(test) - {test}:
+            if not f.startswith(WEB + "src/") and f in self.text:
+                literals |= set(STRING_LITERAL.findall(JS_COMMENTS.sub("", self.text[f])))
+        entries: set[str] = set()
+        for literal in literals:
+            if "." not in literal:
+                continue
+            line = re.compile(GALLERY_ID_LINE.format(re.escape(literal)), re.M)
+            files = [f for f, t in galleries.items() if line.search(t)]
+            if len(files) > 1:
+                return None  # galleryEntryPath throws; the run decides
+            entries.update(files)
+        return entries or None
+
+    def in_gallery_zone(self, f: str) -> bool:
+        """Whether a changed path can reach a gallery stage other than through the import graph."""
+        if not self.gallery:
+            return False
+        if f.startswith(WEB):
+            return not f.endswith(ft.EXTENSIONS) or not f.startswith(WEB + "src/") and not self.reaching(f)
+        return bool(GALLERY_OUTSIDE.search(f)) or any(f.startswith(r) for r in self.gallery_outside)
 
     def closure(self, path: str) -> set[str]:
         """`path` and every module it imports, transitively."""
@@ -225,6 +373,8 @@ class Selector:
         for f in files:
             if (EVERY_TEST if NARROW else EVERYTHING).search(f) or f in self.preload:
                 return None, f"{f} is a build or runner input"
+            if self.in_gallery_zone(f):
+                out |= set(self.gallery)
             if f.startswith(WEB):
                 if f in self.graph.tests:
                     out.add(f)
