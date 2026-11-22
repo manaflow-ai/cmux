@@ -89,13 +89,18 @@ class NightlyNextOneJobTests(unittest.TestCase):
 
     def test_it_runs_on_the_one_job_label(self) -> None:
         runs_on = one_line(self.job.get("runs-on"))
-        # cmux15's signer label, a literal (no variable chooses where signing secrets go).
+        # The signer label, a literal (no variable chooses where signing secrets go); the signer pick only narrows it
+        # to one signer runner, on the attempt that made it (docs/ci/nightly-workflow-notes.md#note-33).
         self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && "
-                                  "'glaeda-trusted-next-signing' || 'glaeda-trusted-next-signing' }}")
+                                  "'glaeda-trusted-next-signing' || needs.pick-nightly-next-signer.outputs.attempt == "
+                                  "github.run_attempt && needs.pick-nightly-next-signer.outputs.pin && "
+                                  "fromJSON(needs.pick-nightly-next-signer.outputs.pin) || 'glaeda-trusted-next-signing' }}")
         self.assertEqual(self.job.get("environment"), "${{ needs.decide.outputs.environment }}")
 
     def test_no_artifact_carries_the_app_into_or_out_of_it(self) -> None:
         for step in self.job.get("steps") or []:
+            if "signer shadow" in str(step.get("name") or "").lower():
+                continue
             uses = str(step.get("uses") or "")
             self.assertNotIn("download-artifact", uses, f"{step.get('name')}: the one job downloads nothing")
             run = str(step.get("run") or "")
@@ -108,12 +113,38 @@ class NightlyNextOneJobTests(unittest.TestCase):
                 self.assertNotRegex(path, r"\.app\b|cmux-nightly-unsigned|prepared-app|signed-app",
                                     f"{step.get('name')} uploads the app")
 
+    def test_signer_shadow_handoff_is_explicitly_default_off_and_before_secrets(self) -> None:
+        steps = self.job.get("steps") or []
+        names = [str(step.get("name") or "") for step in steps]
+        package = names.index("Package unsigned app for signer shadow")
+        digest = names.index("Record unsigned app digest for signer shadow")
+        upload = names.index("Upload unsigned app for signer shadow")
+        retry = names.index("Retry unsigned app upload for signer shadow")
+        first_secret = next(
+            i for i, step in enumerate(steps)
+            if self.SIGNING_SECRET.search(json.dumps(step))
+        )
+        self.assertLess(package, digest)
+        self.assertLess(digest, upload)
+        self.assertLess(upload, retry)
+        self.assertLess(retry, first_secret)
+        for index in (package, digest, upload, retry):
+            condition = one_line(steps[index].get("if"))
+            self.assertIn("vars.NIGHTLY_SIGNER_SHADOW == 'on'", condition)
+            self.assertIn("!env.LEFT_SLOT", condition)
+        self.assertEqual(steps[upload].get("continue-on-error"), True)
+        self.assertEqual((steps[upload].get("with") or {}).get("retention-days"), 1)
+        self.assertEqual((steps[retry].get("with") or {}).get("overwrite"), True)
+
     def test_it_holds_its_own_concurrency_group_and_never_cancels_a_started_run(self) -> None:
         # The push slot (docs/ci/nightly-workflow-notes.md#note-19): a loop run's nightly-next-one takes
-        # nightly-next-one-push, any other run's is scoped to the run; tests/test_nightly_next_push_slot_at_build.py.
+        # nightly-next-one-push-<host>, any other run's is scoped to the run; tests/test_nightly_next_push_slot_at_build.py.
         self.assertEqual(self.job.get("concurrency"), {
+            # One slot per signer Mac: docs/ci/nightly-workflow-notes.md#note-33.
             "group": "${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || "
-                     "inputs.nightly_next_loop_retry != '') && 'nightly-next-one-push' || "
+                     "inputs.nightly_next_loop_retry != '') && (vars.NIGHTLY_NEXT_SLOTS == '2' && vars.CI_NIGHTLY_MINI == '' && format('nightly-next-one-push-{0}', "
+                     "needs.pick-nightly-next-signer.outputs.attempt == github.run_attempt && "
+                     "needs.pick-nightly-next-signer.outputs.host || 'cmux15') || 'nightly-next-one-push') || "
                      "format('nightly-next-one-{0}', github.run_id) }}",
             "cancel-in-progress": False})
 
@@ -195,7 +226,10 @@ class NightlyNextOneJobTests(unittest.TestCase):
 
     # Build-time code and the app's own code share this job with the signing and publication secrets, so each set
     # of secrets is fenced by a stray-process check, and nothing from the bundle runs while signing secrets exist.
-    STRAY_CHECKS = ("Refuse stray processes before secrets", "Refuse stray processes before secrets (publication)")
+    # The Sparkle key's step runs after the bundle's checks (they run beside the keyless deltas), behind its own check.
+    STRAY_CHECKS = ("Refuse stray processes before secrets", "Refuse stray processes before secrets (publication)",
+                    "Refuse stray processes before the Sparkle key")
+    SPARKLE_SECRET = re.compile(r"secrets\.(SPARKLE_|NIGHTLY_SPARKLE_)")
     SIGNING_SECRET = re.compile(r"secrets\.(APPLE_|ASC_API_|SPARKLE_|NIGHTLY_SPARKLE_)")
     PUBLICATION_SECRET = re.compile(r"secrets\.(CMUX_RELEASE_APP_|NIGHTLY_NEXT_R2_)|steps\.writer-token\.")
     # The steps that execute the built app or a binary from its bundle (verify-signed-nightly's and
@@ -211,22 +245,35 @@ class NightlyNextOneJobTests(unittest.TestCase):
         steps = self.job.get("steps") or []
         names = [s.get("name") for s in steps]
         blobs = [yaml.safe_dump(s) for s in steps]
-        first, second = (names.index(n) for n in self.STRAY_CHECKS)
-        for index in (first, second):
+        first, second, sparkle = (names.index(n) for n in self.STRAY_CHECKS)
+        for index in (first, second, sparkle):
             self.assertIn("refuse_stray_processes.py", steps[index].get("run", ""))
             self.assertNotIn("secrets.", blobs[index])
         signing = [i for i, b in enumerate(blobs) if self.SIGNING_SECRET.search(b)]
         publication = [i for i, b in enumerate(blobs) if self.PUBLICATION_SECRET.search(b)]
         self.assertTrue(signing and publication)
-        self.assertEqual(min(signing), first + 1, "the first check sits right before the first signing secret")
+        self.assertLess(first, min(signing), "the first check precedes the first signing secret")
         self.assertEqual(min(publication), second + 1, "the second check sits right before the publication secrets")
         self.assertLess(max(signing), second, "no signing secret after the publication check")
 
         runners = [names.index(n) for n in self.BUNDLE_RUNNERS]
+        before = [i for i in signing if i < sparkle]
+        after = [i for i in signing if i > sparkle]
+        # Past the Sparkle check only the Sparkle key: the one secret whose step follows the bundle's checks.
+        self.assertTrue(after)
+        for index in after:
+            self.assertRegex(blobs[index], self.SPARKLE_SECRET, names[index])
+            self.assertIsNone(re.search(r"secrets\.(APPLE_|ASC_API_)", blobs[index]), names[index])
+        self.assertGreater(sparkle, max(runners), "the Sparkle check comes after the last step that runs the bundle")
+        # Nothing from the bundle runs between the deltas' start and the Sparkle check holds any secret.
+        start = names.index("Start the nearest deltas and the notes fetch (no key, no token)")
+        for index in range(start, sparkle):
+            self.assertIsNone(re.search(r"secrets\.|steps\.[a-z-]*token", blobs[index]), names[index])
         for index in runners:
             # Nothing from the bundle runs while the signing secrets are in the job, and the publication check
             # comes after the last of them, so nothing such a step left behind meets the publication secrets.
-            self.assertGreater(index, max(signing), names[index])
+            self.assertGreater(index, max(before), names[index])
+            self.assertLess(index, sparkle, names[index])
             self.assertLess(index, second, names[index])
 
     def test_a_warm_mac_skips_the_zig_package_restore_and_installs_zig_once(self) -> None:

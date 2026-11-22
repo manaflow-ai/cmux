@@ -1694,6 +1694,137 @@
         }
       }
     },
+    "rooms.refusal.spacesOff" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spaces is off. Turn on Show Spaces in Settings to use spaces."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "المساحات متوقفة. شغّل «إظهار المساحات» في الإعدادات لاستخدام المساحات."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prostori su isključeni. Uključite Prikaži prostore u Postavkama da biste koristili prostore."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Områder er slået fra. Slå Vis områder til i Indstillinger for at bruge områder."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Spaces ist aus. Aktiviere „Spaces anzeigen“ in den Einstellungen, um Spaces zu verwenden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los espacios están desactivados. Activa Mostrar espacios en Ajustes para usar espacios."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les espaces sont désactivés. Activez Afficher les espaces dans les Réglages pour utiliser les espaces."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gli spazi sono disattivati. Attiva Mostra spazi nelle Impostazioni per usare gli spazi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "スペースはオフです。スペースを使うには、設定で「スペースを表示」をオンにしてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "លំហត្រូវបានបិទ។ បើក បង្ហាញលំហ ក្នុងការកំណត់ ដើម្បីប្រើលំហ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "스페이스가 꺼져 있습니다. 스페이스를 사용하려면 설정에서 스페이스 표시를 켜세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Områder er av. Slå på Vis områder i Innstillinger for å bruke områder."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Obszary są wyłączone. Włącz Pokaż obszary w Ustawieniach, aby używać obszarów."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Os espaços estão desativados. Ative Mostrar espaços nos Ajustes para usar espaços."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Области отключены. Включите «Показывать области» в настройках, чтобы пользоваться областями."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "พื้นที่ถูกปิดอยู่ เปิด แสดงพื้นที่ ในการตั้งค่าเพื่อใช้พื้นที่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alanlar kapalı. Alanları kullanmak için Ayarlar’da Alanları Göster’i açın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Простори вимкнено. Увімкніть «Показувати простори» в Параметрах, щоб користуватися просторами."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không gian đang tắt. Bật Hiện không gian trong Cài đặt để dùng không gian."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "空间已关闭。请在设置中打开“显示空间”以使用空间。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "空間已關閉。請在設定中開啟「顯示空間」以使用空間。"
+          }
+        }
+      }
+    },
     "rooms.refusal.noRoom" : {
       "extractionState" : "manual",
       "localizations" : {

@@ -322,6 +322,14 @@ impl DatagramLink {
         }
     }
 
+    /// Queues one complete encoded frame, allowing the link to evict stale
+    /// frames without leaving their datagram fragments behind.
+    pub fn send_datagram_frame(&self, datagrams: Vec<Vec<u8>>, droppable: bool) {
+        if let Some(net) = &self.net {
+            net.send_datagram_frame(datagrams, droppable);
+        }
+    }
+
     /// Takes every waiting event.
     pub fn poll(&mut self, out: &mut Vec<LinkOut>) {
         let Some(net) = &self.net else { return };
