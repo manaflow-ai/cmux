@@ -480,7 +480,16 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       const page = await firstRunPage();
       try {
         const { field } = await prepareDraft(page, noProject, pendingImage);
-        if (addHarness) await page.locator(".acpmux-add-harness:visible").click();
+        if (pendingImage) {
+          // Return waits for a screenshot still being read (NewTabScreen submit, holdForAttachments):
+          // setup does not open yet and the draft stays. Setup opened from the Add harness chip meanwhile
+          // is what lets Start Chat run while the image is still pending.
+          await startChat(page);
+          await page.waitForTimeout(300);
+          expect(await page.locator(".acpmux-harnesses-close").count()).toBe(0);
+          expect(await field.isVisible()).toBe(true);
+        }
+        if (addHarness || pendingImage) await page.locator(".acpmux-add-harness:visible").click();
         else await startChat(page);
         const claude = page.locator('[data-harness-row="claude"]');
         await page.locator('[data-harness-row="claude"][data-harness-status="notInstalled"]').waitFor();
