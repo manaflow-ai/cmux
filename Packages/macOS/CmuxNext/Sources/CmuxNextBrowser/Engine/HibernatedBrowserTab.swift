@@ -33,6 +33,12 @@ public final class HibernatedBrowserTab: BrowserTab {
     /// (`BrowserWakeStandIn`), which then needs no decode of its own.
     public var shownPicture: CGImage? { pictureView.decodedPicture }
     @ObservationIgnored private let pictureView: BrowserPictureView
+    /// Called when the pane, showing this placeholder, got the last frame's decoded pixels: the
+    /// host times a wake's last frame to it.
+    public var onPictureShown: (@MainActor () -> Void)? {
+        get { pictureView.onShown }
+        set { pictureView.onShown = newValue }
+    }
     /// What woke the page, for the host to apply once it is restored.
     public enum Wake: Sendable, Hashable {
         case load(URL)

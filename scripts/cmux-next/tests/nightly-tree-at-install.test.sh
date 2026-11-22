@@ -406,7 +406,11 @@ echo "install $c" >> "$STUB_LOG"; [[ "$c" != "${STUB_INSTALL_FAIL:-none}" ]]
 STUB
 printf '#!/usr/bin/env bash\necho "version $*" >> "$STUB_LOG"\n' > "$B/scripts/cmux-next/write-cmux-tui-version.sh"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$B/scripts/strip-release-bundle.sh"
-printf '#!/usr/bin/env bash\nexit 0\n' > "$B/scripts/cmux-next/check-daemon-capabilities.sh"
+# STUB_CAPS_FAIL: a commit whose client lacks a capability the app needs (the last install is checked).
+cat > "$B/scripts/cmux-next/check-daemon-capabilities.sh" <<'STUB'
+#!/usr/bin/env bash
+c=$(grep '^install ' "$STUB_LOG" | tail -1); echo "caps ${c#install }" >> "$STUB_LOG"; [[ "${c#install }" != "${STUB_CAPS_FAIL:-none}" ]]
+STUB
 chmod +x "$B/scripts/cmux-next/"*.sh "$B/scripts/"*.sh
 bundle() { # [VAR=value...] -> status; outputs in $TMP/bundle-out, calls in $TMP/bundle-log
   : > "$TMP/bundle-out"; : > "$TMP/bundle-log"; status=0
@@ -429,6 +433,9 @@ check '[[ $status == 0 ]] && grep -qx "tree=exact" "$TMP/bundle-out" && ! grep -
 bundle STUB_WAIT_EXACT="$app" STUB_INSTALL_FAIL="$base"
 check '[[ $status == 0 ]] && grep -qx "commit=$app" "$TMP/bundle-out" && grep -qx "key=$key" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -qx "install $base" "$TMP/bundle-log" && grep -qx "install $app" "$TMP/bundle-log"' \
   "a fallback tree the installer refuses falls back to waiting for the build commit's tree"
+bundle STUB_WAIT_EXACT="$app" STUB_CAPS_FAIL="$base"
+check '[[ $status == 0 ]] && grep -qx "commit=$app" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -qx "caps $base" "$TMP/bundle-log" && grep -qx "install $app" "$TMP/bundle-log" && grep -qx "caps $app" "$TMP/bundle-log"' \
+  "a fallback tree missing a capability the app needs (run 44975559258) falls back to waiting for the build commit's tree"
 bundle TREE_PENDING=false CMUX_TUI_CLIENT_COMMIT="$own"
 check '[[ $status == 0 ]] && grep -qx "commit=$own" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && ! grep -q "^await" "$TMP/bundle-log"' "a resolved tree installs without any wait"
 

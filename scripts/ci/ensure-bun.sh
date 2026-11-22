@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Puts bun VERSION (or a newer release of its major) on a step job's PATH: the `bun` tool of
+# Puts bun VERSION on a step job's PATH: the `bun` tool of
 # ci/steps.toml's [tools] table, which runs it when a routed step lists `bun` in `needs`. It stands in for
 # oven-sh/setup-bun (pinned "1.4.4" by the workflows that moved into steps), which a step cannot call.
 #
 #   ensure-bun.sh VERSION BIN_DIR
 #
-# bun VERSION or newer of the same major (the rule scripts/check-webviews-bun-version.sh holds) already on
-# PATH: BIN_DIR gets a link to it and nothing is downloaded. Otherwise it downloads the release zip from
-# github.com/oven-sh/bun (bounded curl with retries and a low-speed abort), checks it against the release's
-# SHASUMS256.txt, and unpacks it into BIN_DIR. A runner that keeps RUNNER_TOOL_CACHE between jobs keeps the
+# Exactly bun VERSION already on PATH: BIN_DIR gets a link to it and nothing is downloaded (any other bun a
+# shared host has must not decide what `bun install --frozen-lockfile` or a bundle check sees). Otherwise it
+# downloads the release zip from github.com/oven-sh/bun (bounded curl with retries and a low-speed abort),
+# checks it against the release's SHASUMS256.txt, and unpacks it into BIN_DIR. A runner that keeps RUNNER_TOOL_CACHE between jobs keeps the
 # download there (bun/VERSION/ARCH), so its next job downloads nothing. Needs bash, curl, python3 and
 # sha256sum or shasum; no root.
 set -euo pipefail
@@ -17,15 +17,7 @@ want="${1:?usage: ensure-bun.sh VERSION BIN_DIR}"
 bin="${2:?usage: ensure-bun.sh VERSION BIN_DIR}"
 mkdir -p "$bin"
 
-# Whether HAVE is a release of WANT's major at or above WANT (no prerelease, no build suffix).
-acceptable() {
-  local have="$1"
-  [[ "$have" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
-  [ "${have%%.*}" = "${want%%.*}" ] || return 1
-  [ "$(printf '%s\n%s\n' "$want" "$have" | sort -V | head -n1)" = "$want" ]
-}
-
-if have_bin="$(command -v bun 2>/dev/null)" && have="$(bun --version 2>/dev/null)" && acceptable "$have"; then
+if have_bin="$(command -v bun 2>/dev/null)" && have="$(bun --version 2>/dev/null)" && [ "$have" = "$want" ]; then
   ln -sf "$have_bin" "$bin/bun"
   echo "bun $have is on PATH ($have_bin)"
   exit 0

@@ -73,6 +73,7 @@ import { focusAfterEscape } from "../../ui/escapeFocus";
 import type { RunModeRows } from "./sandboxRun";
 import { machineLoadWarning, type MachineResources } from "./machineResources";
 import { useComposerSettings } from "./composerSettings";
+import { useConnectionQuiet } from "../../ui/lasting";
 import { repickMachine, type RepickMachine } from "./cloudRepick";
 import { CONTEXT_LABELS, splitForMiddleTruncation } from "./composerContextModel";
 import {
@@ -852,6 +853,22 @@ export function ComposerContext({
   // carries the machine's dot (MachineCard.tsx).
   const machineCardShown = started && environmentsShown && layout === "combined" && !waiting && !savedPick;
   const { card: machineCardRows, dot: machineDot } = useMachineCard(currentPickerComputer, Boolean(machineCardShown));
+  // The machine chip's live dot keeps its filled look while the machine's link comes up or comes back
+  // on its own, for the shared bound (ui/lasting.ts CONNECTION_QUIET_MS, schemas/notice-timing): a
+  // blip draws no ring and no "Not connected" (Leo, 2026-11-14: "i also want all our connectivity stuff
+  // to shut up and load faster"; 2026-11-16: "obviously if it isn't interactive im not connected").
+  // A refused sign-in or an update the machine needs, and a Cloud machine asleep, show at once. The
+  // whole link word (`peerLinks`) comes first: a daemon folds authFailed, updateRequired and paused
+  // into the older `state` word "offline" (acpmux protocol/peer_state.rs MachineLink::folded).
+  const computerState = (currentComputer ? peerLinks[currentComputer.id]?.link : undefined) ?? currentComputer?.state;
+  const computerDipping =
+    currentComputer !== undefined &&
+    !environmentReady(currentComputer) &&
+    computerState !== "authFailed" &&
+    computerState !== "updateRequired" &&
+    computerState !== "paused" &&
+    computerState !== "resuming";
+  const computerDipSaid = useConnectionQuiet(computerDipping);
   // After the last hook: nothing to show yet draws the bare strip.
   if (!currentComputer && !currentFolder && !projectChoices) return <div className="acpmux-composer-strip" />;
   // What every environment control shares: the list, the pick, setup and Cloud's run mode.
@@ -956,7 +973,7 @@ export function ComposerContext({
     cloudPicked || sandboxPicked || savedPick || waiting || (layout === "where-machine" && localMachine)
       ? undefined
       : currentComputer
-        ? environmentReady(currentComputer)
+        ? environmentReady(currentComputer) || (computerDipping && !computerDipSaid)
         : undefined;
   // A Cloud machine that sleeps (withCloudSleep): paused is the quiet ring, resuming a spinner.
   const machineSleep =
@@ -1713,7 +1730,6 @@ function LocationPicker({
               // tooltip-allow: the row shows the folder's name; the tooltip is its full path
               <span
                 className="acpmux-menu-text acpmux-location-name"
-                title={path}
                 data-section={section}
                 data-first-section={section && index === 0 ? "" : undefined}
                 data-ready={folder?.disabled ? "false" : undefined}

@@ -34,8 +34,15 @@ extension WorkspaceRowView {
     /// the marks it stands in for.
     func updateNeedsYouGlow() {
         let glows = showsNeedsYouGlow
-        let markAlpha: CGFloat = glows ? 0 : 1
-        for mark in [rowBadge, badge, activity] as [NSView] where mark.alphaValue != markAlpha { mark.alphaValue = markAlpha }
+        if glows {
+            hideMarksForNeedsYouGlow()
+        } else if marksHiddenForGlow {
+            marksHiddenForGlow = false
+            // The marks come back by the layout's rules, never here: a hovered row keeps them clear under its ✕ and
+            // ⋮. Setting them to 1 on every display pass drew the ✕ over the unread dot and the error mark
+            // (https://github.com/manaflow-ai/cmux/issues/48363).
+            needsLayout = true
+        }
         guard glows, let tone = needsYouTone, let host = layer else {
             removeNeedsYouGlow()
             return
@@ -50,6 +57,12 @@ extension WorkspaceRowView {
         glow.borderColor = color.withAlphaComponent(0.45).cgColor
         layoutNeedsYouGlow()
         updateNeedsYouGlowMotion()
+    }
+
+    /// Clears the marks the halo stands in for. The layout calls it too, after its own mark pass shows them.
+    func hideMarksForNeedsYouGlow() {
+        marksHiddenForGlow = true
+        for mark in [rowBadge, badge, activity] as [NSView] where mark.alphaValue != 0 { mark.alphaValue = 0 }
     }
 
     /// Fits the halo to the row's fill (`layout`).

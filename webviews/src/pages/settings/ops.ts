@@ -1802,6 +1802,8 @@ export type SettingsOps = {
   "cmux.settings.web_updates.check": [Record<string, never>, Record<string, never>];
   /** Native: Updates > Web UI's Roll Back (updates.web.rollback), from the next safe point. */
   "cmux.settings.web_updates.rollback": [Record<string, never>, Record<string, never>];
+  /** Native: General > Language's Relaunch: the app relaunches so its menus take app.language (the person's gesture only). */
+  "cmux.settings.language.relaunch": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Chief > Voice input's switch writes home.voiceInput (the person's gesture only). */
   "cmux.settings.voice_input.set": [{ on: boolean }, Record<string, never>];
   /** Native: Settings > Menus saves a menu's arrangement; null (Reset) removes it (the person's gesture only). */
