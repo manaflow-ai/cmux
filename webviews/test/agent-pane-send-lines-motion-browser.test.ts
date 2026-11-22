@@ -41,6 +41,7 @@ import {
   type MotionRecord,
 } from "./support/transcriptMotion";
 import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
+import { MOTION_SEND_MS } from "../src/motion/scale.generated";
 
 await requireBrowserLane("agent-pane-send-lines-motion-browser.test.ts", async () => {
   setDefaultTimeout(1_400_000);
@@ -251,7 +252,8 @@ await requireBrowserLane("agent-pane-send-lines-motion-browser.test.ts", async (
     await installPaintedFrames(page);
     if (!frames) await page.goto(address);
     await page.locator(COMPOSER_EDITOR).first().waitFor({ timeout: 120_000 });
-    await page.getByText("Answer 40:", { exact: false }).first().waitFor({ timeout: 120_000 });
+    // Earlier cases' sends are the chat's end now: wait for its rows, not one answer's text.
+    await page.locator(".acpmux-thread > .acpmux-row").first().waitFor({ timeout: 120_000 });
     await page.evaluate(defineTranscriptMotion, TRANSCRIPT_MOTION);
     await settle(page);
     const opened = { page, frames };
@@ -338,45 +340,79 @@ await requireBrowserLane("agent-pane-send-lines-motion-browser.test.ts", async (
     ...(flag.detail ? { detail: flag.detail } : {}),
     ...(flag.cause.length ? { cause: flag.cause } : {}),
   });
-  const KINDS: MotionFlagKind[] = ["move", "resize", "off-curve"];
+  /// The kinds a case is gated on: the detector's, and `send-glide`: a geometry animation on the
+  /// transcript (its thread, a row, the dock, the composer) that starts with the send and runs longer
+  /// than the send's step (MOTION_SEND_MS, 0: "its room, its bubble and the thread are in their places
+  /// in the frame the composer empties", motion/scale.generated.ts). The detector excuses it (it rides
+  /// the house curve); the send's contract does not.
+  type Kind = MotionFlagKind | "send-glide";
+  const KINDS: Kind[] = ["move", "resize", "off-curve", "send-glide"];
+  const TRANSCRIPT_TARGET = /^(row:|dock$|composer$|div\.acpmux-thread|div\.acpmux-scroll|div\.acpmux-dock)/;
+  const sendGlides = (record: MotionRecord) => {
+    const sendAt = record.frames.findIndex((frame) => frame.marks.includes("send"));
+    return record.animations.filter(
+      (animation) =>
+        animation.frame >= sendAt - 1 &&
+        TRANSCRIPT_TARGET.test(animation.target) &&
+        animation.duration > MOTION_SEND_MS + 0.5,
+    );
+  };
+  const counts = (played: { flags: MotionFlag[]; record: MotionRecord }): Record<Kind, number> => ({
+    ...countFlags(played.flags),
+    "send-glide": sendGlides(played.record).length,
+  });
   const baseline = (await Bun.file(path.join(import.meta.dir, "send-lines-motion-baseline.json")).json()) as Record<
     string,
-    MotionFlagKind[]
+    Kind[]
   >;
   const results: Record<string, unknown>[] = [];
 
   describe("a multi-line send from the composer", () => {
     for (const c of CASES) {
-      test(key(c), async () => {
-        let played = await play(c);
-        const kinds = (flags: MotionFlag[]) => KINDS.filter((kind) => countFlags(flags)[kind] > 0);
-        const allowed = baseline[key(c)] ?? [];
-        let fresh = kinds(played.flags).filter((kind) => !allowed.includes(kind));
-        if (fresh.length) {
-          // A flag counts when it repeats.
-          const again = await play(c);
-          const repeated = kinds(again.flags).filter((kind) => fresh.includes(kind));
-          if (repeated.length < fresh.length) played = again;
-          fresh = repeated;
-        }
-        const line = {
-          case: key(c),
-          flags: countFlags(played.flags),
-          typedPx: played.typedPx,
-          scrolledUpPx: Math.round(played.upPx),
-          composer: played.collapse,
-          animations: played.record.animations.map(
-            (a) => `${a.target} ${a.properties.join(",")} ${a.duration}ms ${a.easing}`,
-          ),
-          first: played.flags.slice(0, 8).map(brief),
-        };
-        results.push(line);
-        console.log(`send-lines ${JSON.stringify(line)}`);
-        const cleared = allowed.filter((kind) => !kinds(played.flags).includes(kind));
-        if (cleared.length)
-          console.log(`send-lines ratchet: ${key(c)} no longer flags ${cleared.join(", ")}: take it out`);
-        expect(fresh).toEqual([]);
-      });
+      test(
+        key(c),
+        async () => {
+          let played = await play(c);
+          const kinds = (one: typeof played) => KINDS.filter((kind) => counts(one)[kind] > 0);
+          const allowed = baseline[key(c)] ?? [];
+          let fresh = kinds(played).filter((kind) => !allowed.includes(kind));
+          if (fresh.length) {
+            // A flag counts when it repeats.
+            const again = await play(c);
+            const repeated = kinds(again).filter((kind) => fresh.includes(kind));
+            if (repeated.length < fresh.length) played = again;
+            fresh = repeated;
+          }
+          const line = {
+            case: key(c),
+            flags: counts(played),
+            // Flags by kind and element: rows by their kind, everything else by its key.
+            by: played.flags.reduce<Record<string, number>>((by, flag) => {
+              const el = flag.of === "row" ? "row" : flag.key.replace(/#\d+$/, "");
+              by[`${flag.kind} ${el}`] = (by[`${flag.kind} ${el}`] ?? 0) + 1;
+              return by;
+            }, {}),
+            glides: sendGlides(played.record).map(
+              (a) => `${a.target} ${a.properties.join(",")} ${a.duration}ms ${a.easing}`,
+            ),
+            ...(c.image ? { attached: played.attached } : {}),
+            typedPx: played.typedPx,
+            scrolledUpPx: Math.round(played.upPx),
+            composer: played.collapse,
+            animations: played.record.animations.map(
+              (a) => `${a.target} ${a.properties.join(",")} ${a.duration}ms ${a.easing}`,
+            ),
+            first: played.flags.slice(0, 8).map(brief),
+          };
+          results.push(line);
+          console.log(`send-lines ${JSON.stringify(line)}`);
+          const cleared = allowed.filter((kind) => !kinds(played).includes(kind));
+          if (cleared.length)
+            console.log(`send-lines ratchet: ${key(c)} no longer flags ${cleared.join(", ")}: take it out`);
+          expect(fresh).toEqual([]);
+        },
+        300_000,
+      );
     }
   });
 
