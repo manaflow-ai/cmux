@@ -215,7 +215,6 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
           strings={emptyStrings}
           texts={{
             title: strings.t(EMPTY.title),
-            subtitle: strings.t(EMPTY.subtitle),
             choose: strings.t(EMPTY.choose),
             drop: strings.t(EMPTY.drop),
             recentsEmpty: strings.t(EMPTY.recents),

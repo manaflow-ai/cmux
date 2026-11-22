@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import AppKit
 import CmuxNextHomeEngine
 
@@ -56,7 +57,7 @@ final class TopPageHost {
     func focus(_ route: TopPageRoute, in window: NSWindow?) {
         switch views[route] {
         case let home as TopHomePageView: home.focusPrimaryInput()
-        case let page as InternalPageView: window?.makeFirstResponder(page.focusTarget)
+        case let page as InternalPageView: FocusRoute(.system, "a top page's input").moveKeyboard(in: window, to: page.focusTarget)
         default: break
         }
     }

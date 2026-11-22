@@ -35,12 +35,6 @@ final class AllUIStatesHomeCaptureUITests: UIStateCaptureCase {
                     { C.wait(C.any(app, "home.showHidden"), "Show hidden row", timeout: 6) },
                 ])
             },
-            Scene(group: g, id: "home-unread-filter-empty", args: ["-cmux-mobile-tab", "home"]) { app in
-                C.tap(C.any(app, "home.unread"), "unread filter")
-            },
-            Scene(group: g, id: "home-unread-filter-rows", args: ["-cmux-mobile-tab", "home"], env: Self.homeRows, settle: 4) { app in
-                C.tap(C.any(app, "home.unread"), "unread filter")
-            },
             Scene(group: g, id: "home-search", args: ["-cmux-mobile-tab", "home"], env: Self.homeRows, settle: 4) { app in
                 app.swipeDown()
                 let field = app.searchFields.firstMatch
@@ -137,7 +131,6 @@ final class AllUIStatesHomeCaptureUITests: UIStateCaptureCase {
             },
             Scene(group: g, id: "chief-initial-loading", args: ["-cmux-mobile-demo", "chief-open", "-cmux-mobile-chief-slow-history"], settle: 2.2),
             Scene(group: g, id: "chief-live-bubble", args: ["-cmux-mobile-demo", "chief-open", "-cmux-mobile-chief-live"], settle: 5),
-            Scene(group: g, id: "chief-outbox-unsent", args: ["-cmux-mobile-demo", "chief-open", "-cmux-mobile-chief-outbox-demo"], settle: 5),
             Scene(group: g, id: "chief-stale-try-again", args: ["-cmux-mobile-demo", "chief-open", "-cmux-mobile-chief-stale-demo"], settle: 5),
             Scene(group: g, id: "chief-settings-page", args: ["-cmux-mobile-demo", "chief-settings"], settle: 7),
             Scene(group: g, id: "chief-settings-scrolled", args: ["-cmux-mobile-demo", "chief-settings"], settle: 7) { app in

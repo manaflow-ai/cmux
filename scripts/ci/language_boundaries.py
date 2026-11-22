@@ -7,8 +7,14 @@ swift." #37777 deleted the native Swift Chief transcript for a React page and sh
 nightly; this check fails that diff (tests/fixtures/language-boundaries/pr-37777-name-status.tsv).
 
 A `keep` area fails when the pull request loses files of the area's language there (more deleted or renamed away
-than added) or adds a file of a foreign language there. A `minimal` area fails when the pull request adds a Swift
-file there. The header of .github/language-boundaries.toml is the schema and the rules in full.
+than added) while it brings in code of another language that could replace them, or when it adds a file of a foreign
+language there. A loss is a port only with a possible destination: at least one new source file of another language
+(swift, rust or web) anywhere in the repo, added, copied or renamed from another language (an area file renamed to
+another language among them). A pull request that only deletes, and edits files that already exist, is a removal and
+passes: Leo, 2026-11-17, on the ceremony audit, "go remove this", and the chat notice it removed (cmux#45562, four web
+files deleted, nothing added) was refused as a port. Mechanical on purpose: a quote in a PR body can be typed by
+anyone. A `minimal` area fails when the pull request adds a Swift file there. The header of
+.github/language-boundaries.toml is the schema and the rules in full.
 
 Leo's approval, the only way through, needs all three:
   1. the label `leo-approved-port` is on the pull request;
@@ -308,6 +314,22 @@ def read_records(path: Path, fmt: str) -> list[Record]:
     return parse_records(path.read_text())
 
 
+def replacements(language: str, records: list[Record]) -> list[str]:
+    """Where a keep area's lost LANGUAGE files could have gone: the source files of another language this pull request
+    brings in anywhere in the repo, as a new file, a copy, or a rename from another language (an area file renamed to
+    another language among them). Edits to files that already exist bring in none. Empty: a removal, not a port."""
+    out = []
+    for rec in records:
+        now = language_of(rec.path)
+        if rec.status == "removed" or now is None or now == language:
+            continue
+        if rec.status == "added":
+            out.append(rec.path)
+        elif rec.status == "copied" or (rec.status == "renamed" and language_of(rec.old) != now):
+            out.append(f"{rec.old} -> {rec.path}")
+    return out
+
+
 def violations(areas: list[Area], records: list[Record]) -> list[str]:
     """One line per broken boundary, empty when the pull request keeps every area in its language."""
     out = [f"changes the language-boundaries check itself: {rec.path}" for rec in records
@@ -333,10 +355,13 @@ def violations(areas: list[Area], records: list[Record]) -> list[str]:
             elif new_in and language_of(rec.path) == "swift" and (
                     arrived or (rec.status == "renamed" and language_of(rec.old) != "swift")):
                 new_swift.append(rec.path if rec.status == "added" else f"{rec.old} -> {rec.path}")
-        if len(lost) > len(gained):
+        into = replacements(area.language, records) if len(lost) > len(gained) else []
+        if into:  # a loss with nothing of another language brought in is a removal, not a port
             shown = ", ".join(lost[:8]) + (f" and {len(lost) - 8} more" if len(lost) > 8 else "")
+            dest = ", ".join(into[:3]) + (f" and {len(into) - 3} more" if len(into) > 3 else "")
             out.append(f"{area.name}: loses {len(lost) - len(gained)} {area.language} file(s) net "
-                       f"({len(lost)} deleted or moved away, {len(gained)} added): {shown}")
+                       f"({len(lost)} deleted or moved away, {len(gained)} added): {shown}; while adding "
+                       f"{len(into)} file(s) of another language: {dest}")
         for path in foreign:
             out.append(f"{area.name}: adds {path}, {language_of(path)} in a {area.language} area")
         for path in new_swift:

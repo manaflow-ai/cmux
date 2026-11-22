@@ -51,13 +51,22 @@ final class TabCell {
     var isWindowMain = true { didSet { if oldValue != isWindowMain, isSelected { updateColors(animated: false) } } }
     /// The strip's window is on screen and not fully covered: a busy indicator spins only then
     /// (cx-qtgj2: a minimized or covered window costs no spinner frames).
-    var isWindowVisible = true { didSet { if oldValue != isWindowVisible, item.isBusy { updateSpinner() } } }
+    var isWindowVisible = true {
+        didSet {
+            guard oldValue != isWindowVisible else { return }
+            if item.isBusy { updateSpinner() }
+            updateNeedsYouGlowMotion()
+        }
+    }
     /// The strip shows in its window (not a parked workspace's strip or a hidden screen bar). An
     /// app-wide indicator resync (the app coming back to the front) reaches the cell only then, so
     /// an activation costs the tabs on screen, not every busy tab of the session; a resync that
     /// came while hidden runs when the strip shows again.
     var isStripShown = true {
-        didSet { if isStripShown, !oldValue, owesIndicatorResync { statusIndicatorResync() } }
+        didSet {
+            if isStripShown, !oldValue, owesIndicatorResync { statusIndicatorResync() }
+            if isStripShown != oldValue { updateNeedsYouGlowMotion() }
+        }
     }
     /// A resync arrived while the strip was hidden (TabCell+StatusIndicator).
     var owesIndicatorResync = false
@@ -156,18 +165,27 @@ final class TabCell {
     // unread or showing status, close button on the selected/hovered tab.
     var spinnerLayer: StatusIndicatorLayer?
     var isSpinnerExiting = false
+    /// The unread dot about to take the leaving spinner's place fades in with its exit (`TabBusyUnreadMark`).
+    var dotFadesIn = false
+    /// The leaving spinner fades out in the status slot it held, under the dot taking its place, never in the
+    /// cluster beside it, so the title's end holds through the hand-over (`TabBusyUnreadMark`).
+    var spinnerExitsInSlot = false
     var badgeLayer: CALayer?
     var statusGlyphLayer: StatusIndicatorLayer? // a status icon set's badge mark (TabCell+StatusBadge)
     var closeBackgroundLayer: CALayer?
     var closeGlyphLayer: CAShapeLayer?
     /// The machine badge, created while the item names a remote machine.
     var machineLayer: ChromeTextLayer?
+    /// The machine badge as a glyph (`TabItem.machineBadgeIcon`), in place of `machineLayer`.
+    var machineIconLayer: CALayer?
     var themeBadgeLayer: CALayer?
     var profileLayer: CALayer? // browser profile dot (TabCell+ProfileBadge)
     var presenceLayer: CALayer? // the acting agent's dot (TabCell+PresenceDot)
     var audioLayer: CALayer? // speaker of a tab playing sound (TabCell+AudioBadge)
     var audioBackgroundLayer: CALayer? // the speaker button's hover and press fill
     var hibernationRingLayer: CAShapeLayer? // dotted ring of a hibernated tab (TabCell+HibernationRing)
+    var needsYouGlowLayer: CALayer? // the waiting tab's halo in place of its mark (TabCell+NeedsYouGlow)
+    var countPillLayer: CALayer? // an agent chat's count pill, `experiments.agentBadges` (TabCell+CountPill)
 
     var hasCloseLayers: Bool { closeBackgroundLayer != nil || closeGlyphLayer != nil }
 
@@ -245,11 +263,12 @@ final class TabCell {
             updateSpinner()
         }
         if previous?.status != item.status || previous?.blockedKind != item.blockedKind { updateStatusGlyph() }
-        if previous?.machineBadge != item.machineBadge { updateMachineBadge() }
+        if previous?.machineBadge != item.machineBadge || previous?.machineBadgeIcon != item.machineBadgeIcon { updateMachineBadge() }
         if previous?.themeBadge != item.themeBadge { updateThemeBadge() }
         if previous?.profileBadge != item.profileBadge { updateProfileBadge() }
         if previous?.presence != item.presence { updatePresenceDot() }
         if previous?.audio != item.audio { updateAudioBadge() }
+        if previous?.agentBadgeCount != item.agentBadgeCount { updateCountPill(from: previous?.agentBadgeCount, animated: previous != nil) }
         // Animated only for a tab that hibernates or wakes while it is in the strip.
         if (previous?.isDormant ?? false) != item.isDormant { updateHibernationRing(animated: previous != nil) }
         updateColors(animated: false)
@@ -360,13 +379,21 @@ final class TabCell {
             // A hibernated tab keeps its title color (Chrome's discarded tabs do too); the ring marks it.
             let text = isSelected ? Palette.textPrimary : Palette.textSecondary
             hibernationRingLayer?.strokeColor = Self.hibernationRingColor.cgColor
+            applyNeedsYouGlowColor()
             titleLayer.foregroundColor = text.cgColor
             machineLayer?.foregroundColor = item.machineBadgeColor.cgColor
+            applyMachineIcon()
             applyProfileDotColors()
             applyPresenceDotColor()
             applyAudioIcon()
+            applyCountPillColors()
             let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
-            spinnerLayer?.colors = indicatorColors
+            var spinnerColors = indicatorColors
+            if combinedBusyUnread == .tintedSpinner {
+                spinnerColors.spinner = Palette.notificationBlue.cgColor
+                spinnerColors.working = Palette.notificationBlue.cgColor
+            }
+            spinnerLayer?.colors = spinnerColors
             statusGlyphLayer?.colors = indicatorColors
             iconLayer.contents = iconImage(tint: item.tint?.markColor ?? AgentIdentityTone.rgb(item.agentTone, tokens: themeScope.tokens)?.nsColor ?? text)
             applySeparatorColor()
@@ -383,7 +410,18 @@ final class TabCell {
     }
 
     /// The tab draws its unread or status mark (`badgeColor`, or a status icon set's glyph).
-    var hasStateMark: Bool { item.status != .none || item.isUnread }
+    var hasStateMark: Bool { item.status != .none || showsUnreadDot }
+
+    /// How a busy tab with unread output draws (`TabStripMetrics.busyUnreadMark`, else the Debug tunable).
+    var busyUnreadLook: TabBusyUnreadMark { metrics.busyUnreadMark ?? TabTunables.busyUnreadMark.value }
+
+    /// The look the unread dot and the busy indicator share as one mark in the status slot, nil while they draw
+    /// apart (the `pair` look, no spinner showing, or a status, which keeps its own mark).
+    var combinedBusyUnread: TabBusyUnreadMark? {
+        guard item.status == .none, showsUnreadDot, let spinnerLayer, !isSpinnerExiting, spinnerLayer.plan.glyph != .none else { return nil }
+        let look = busyUnreadLook
+        return look == .pair ? nil : look
+    }
 
     /// theme-scoped: resolved by callers inside `themeScope.perform`.
     var badgeColor: NSColor? {
@@ -391,7 +429,7 @@ final class TabCell {
         case .needsInput: return Palette.statusAttention // the sidebar's needs-input dot too
         case .success: return Palette.success
         case .failure: return Palette.danger
-        case .none: return item.isUnread ? Palette.notificationBlue : nil
+        case .none: return showsUnreadDot ? Palette.notificationBlue : nil
         }
     }
 
@@ -452,6 +490,7 @@ final class TabCell {
         defer { CATransaction.commit() }
 
         backgroundLayer.frame = bounds
+        layoutNeedsYouGlow(pill: bounds, onPath: onPath)
         layoutSeparator(slot: slot, pill: bounds)
         backgroundLayer.cornerRadius = m.cornerRadius
         // A folder tab takes the circular curve of its shade cut-out and fillets (``folderPath()``, ``feetPath``), so a
@@ -571,9 +610,7 @@ final class TabCell {
             // status holds the x's slot at rest, so the hovered x takes it with nothing else moving; an x shown at
             // rest (a narrow selected tab) keeps the status beside it.
             let statusSlot = hasStatusMark && item.isClosable && (closeRect == nil || visibility.closeReplacesStatus)
-                ? CGRect(x: pixel(bounds.width - m.contentTrailingInset - m.closeButtonSize), y: pixel(midY - m.closeButtonSize / 2),
-                         width: m.closeButtonSize, height: m.closeButtonSize)
-                : nil
+                ? statusSlotRect(pillWidth: bounds.width, midY: midY) : nil
             let visibleEnd = layoutTrailingMarks(titleX: titleX, titleEnd: titleEnd, midY: midY, onPath: onPath, statusSlot: statusSlot,
                                                  statusHidden: visibility.closeReplacesStatus,
                                                  animated: animatesCloseChange && !onPath && m.hoverCloseSwap != .instant)
@@ -593,7 +630,14 @@ final class TabCell {
                 fadeWidth: m.titleFadeWidth,
                 restWidth: restWidth
             )
-            let frame = CGRect(x: pixel(titleX), y: pixel(midY - lineHeight / 2), width: span, height: lineHeight)
+            // A density's `tabTitleDrop` (Chrome's 1 pt: it centers the title over the shape and the toolbar's 1 pt
+            // overlap, so its baseline sits 19 pt under a 28 pt shape's top, Helium's 18).
+            let drop = Metrics.densityToken("tabTitleDrop") ?? 0
+            // The capitals center on the pill's middle, the icon's center, at every density (Lucas 2026-11-15: "vertically
+            // aligned with the icon always"): the baseline half a cap height under it, on the pixel grid, and the layer
+            // draws it one pixel-rounded ascender under its top.
+            let baseline = pixel(midY + titleFont.capHeight / 2 + drop)
+            let frame = CGRect(x: pixel(titleX), y: baseline - pixel(titleFont.ascender), width: span, height: lineHeight)
             if onPath {
                 pathTitle = TitleFade.Sample(geometry: geometry, frame: frame)
             } else {
@@ -601,7 +645,11 @@ final class TabCell {
             }
         } else {
             titleLayer.opacity = 0
-            for badge in [machineLayer, profileLayer, presenceLayer, audioLayer, audioBackgroundLayer] { badge?.opacity = 0 }
+            for badge in [machineLayer, machineIconLayer, profileLayer, presenceLayer, audioLayer, audioBackgroundLayer] { badge?.opacity = 0 }
+            if let countPillLayer {
+                countPillLayer.removeAnimation(forKey: "opacity")
+                countPillLayer.opacity = 0
+            }
             if onPath {
                 pathTitle = nil
             } else {

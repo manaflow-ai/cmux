@@ -127,8 +127,8 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     ("rpc.rs", "\"session/list\"", 1, "the method's name"),
     ("rpc.rs", "\"_acpmux/sessions\"", 1, "the method's name"),
     ("rpc.rs", "\"_acpmux/watch\"", 1, "the method's name"),
-    ("capabilities.rs", "method::MUX_SESSIONS", 3, "the capability ids, no read"),
-    ("capabilities.rs", "method::MUX_WATCH", 2, "the capability ids, no read"),
+    ("capabilities.rs", "method::MUX_SESSIONS", 4, "the capability ids, no read"),
+    ("capabilities.rs", "method::MUX_WATCH", 3, "the capability ids and the batch wire, no read"),
     ("pairing/read_only.rs", "method::SESSION_LIST", 1, "a paired device's read-only methods"),
     ("pairing/read_only.rs", "method::MUX_SESSIONS", 1, "a paired device's read-only methods"),
     ("pairing/read_only.rs", "method::MUX_WATCH", 1, "a paired device's read-only methods"),
@@ -138,7 +138,8 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     // `whole_list` itself: the v1 fallback's pager, kept whole until the shim goes.
     ("client.rs", "method::MUX_SESSIONS", 1, "`Client::whole_list`, each page after the first"),
     // The peer link's reads: row 8's, which moves them to the list stream on the link.
-    ("peer.rs", "method::MUX_SESSIONS", 2, "row 8: the peer link's watch pages"),
+    ("peer.rs", "method::MUX_SESSIONS", 1, "row 8: the peer link's watch pages"),
+    ("peer_list_read.rs", "method::MUX_SESSIONS", 1, "row 8: the peer link's watch pages"),
     ("peer.rs", "method::MUX_WATCH", 4, "row 8: the peer link's watch"),
     ("peer_runtime_io.rs", "method::MUX_WATCH", 1, "row 8: the link's watch, page by page"),
     // `deliver::sessions` has no caller outside its own test.
@@ -148,6 +149,7 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     ("cli/run/ls.rs", "method::MUX_SESSIONS", 1, "`ls`'s fallback (`V1_PAGES`)"),
     ("cli/run/standard.rs", "method::MUX_SESSIONS", 1, "`pending`'s fallback"),
     ("cli/run/fanout.rs", "method::MUX_SESSIONS", 1, "`send --tag`'s fallback"),
+    ("cli/search_all.rs", "method::MUX_SESSIONS", 1, "search's fallback for the whole view"),
     ("acpmux_mcp.rs", "method::MUX_SESSIONS", 1, "MCP `ls`'s fallback"),
     // v1 read kept: `ls --cursor C` reads one v1 page.
     (

@@ -8,8 +8,19 @@ import CmuxNextWakeups
 @MainActor
 public protocol PaneFirstPaintGated: AnyObject {
     var awaitsFirstPaint: Bool { get }
+    /// It has drawn no frame at all yet (not one that only waits to draw again at a new size).
+    var neverPainted: Bool { get }
     /// Runs `body` once the content has painted (now if it has).
     func whenFirstPainted(_ body: @escaping () -> Void)
+    /// A hold's short limit passed before it painted: it shows the picture it keeps of itself (a chat's or New Tab page's
+    /// last frame) under it until it paints, and says true. False: it has none (a brand-new chat), and the hold keeps
+    /// what it showed for it, as long as before (``PanePaintHold/limit``), rather than show a clear or empty frame.
+    func standInUntilPainted() -> Bool
+}
+
+extension PaneFirstPaintGated {
+    public var neverPainted: Bool { awaitsFirstPaint }
+    public func standInUntilPainted() -> Bool { false }
 }
 
 /// The outgoing view a container (a pane, or the window's content area
@@ -17,9 +28,30 @@ public protocol PaneFirstPaintGated: AnyObject {
 /// invisible, has not painted.
 @MainActor
 public final class PanePaintHold {
-    /// The longest the outgoing view stays: a page that never reports its
+    /// The longest a pane's outgoing tab stays: a page that never reports its
     /// first frame shows as it is after this.
     public static let limit: Duration = .milliseconds(500)
+
+    /// `count` frames of a display that draws `framesPerSecond` (33 ms for two at 60 Hz, 17 ms at 120 Hz).
+    public static func frames(_ count: Int, at framesPerSecond: Int) -> Duration {
+        .nanoseconds(Int64(count) * 1_000_000_000 / Int64(max(1, framesPerSecond)))
+    }
+
+    /// How often `view`'s screen draws: its window's screen, else the main one, else 60 Hz.
+    public static func framesPerSecond(of view: NSView) -> Int {
+        let rate = view.window?.screen?.maximumFramesPerSecond ?? NSScreen.main?.maximumFramesPerSecond ?? 60
+        return rate > 0 ? rate : 60
+    }
+
+    private let owner: String
+    /// How many frames of the host's screen a hold lasts at most; nil: ``limit``.
+    private let frames: Int?
+    /// Times the limit; a test sets its own before the first hold.
+    public var clock: any Clock<Duration> = ContinuousClock() {
+        didSet { deadline = DemandTimer(owner: owner, clock: clock) }
+    }
+    /// How often the screen showing a host draws; a test sets its own.
+    public var displayFramesPerSecond: @MainActor (NSView) -> Int = { PanePaintHold.framesPerSecond(of: $0) }
 
     private weak var outgoing: NSView?
     private weak var incoming: NSView?
@@ -27,9 +59,11 @@ public final class PanePaintHold {
     private var holding = false
     private var release: ((NSView) -> Void)?
     private var ended: (() -> Void)?
-    private let deadline: DemandTimer
+    private var deadline: DemandTimer
     /// Where the outgoing view shows in the container (``begin(outgoing:incoming:in:keepingPlaceIn:release:ended:)``).
     private var place: KeptPlace?
+    /// Work that waits for the kept view to stop showing (``afterHold(of:_:)``); it outlives a hand-off to the next hold.
+    private var afterEnd: [() -> Void] = []
 
     private struct KeptPlace {
         weak var view: NSView?
@@ -41,8 +75,18 @@ public final class PanePaintHold {
         let autoresizingMask: NSView.AutoresizingMask
     }
 
-    public init(owner: String) {
+    /// `frames`: a hold ends after that many frames of its host's screen (two for the window's workspace swap: 33 ms at
+    /// 60 Hz, 17 ms at 120 Hz) when every page still waiting in the incoming view then shows its picture
+    /// (``PaneFirstPaintGated/standInUntilPainted()``); one without a picture keeps it to ``limit``. Nil: ``limit``.
+    public init(owner: String, frames: Int? = nil) {
+        self.owner = owner
+        self.frames = frames
         deadline = DemandTimer(owner: owner)
+    }
+
+    /// The short limit of a hold in `host` (``limit`` without `frames`).
+    private func firstLimit(in host: NSView) -> Duration {
+        frames.map { min(Self.limit, Self.frames($0, at: displayFramesPerSecond(host))) } ?? Self.limit
     }
 
     /// Whether `view` replacing `hosted` waits for its first frame. Content
@@ -77,14 +121,57 @@ public final class PanePaintHold {
         ChatOpenTrace.shared.mark(.holdBegin, view: incoming)
         #endif
         gated.whenFirstPainted { [weak self] in self?.end(token) }
-        // A later hold replaces this deadline; the token keeps it to its own hold.
-        deadline.schedule(after: Self.limit) { @MainActor [weak self] in
-            self?.end(token)
+        // A later hold replaces this deadline; the token keeps it to its own hold. A hand-off to the next swap starts the
+        // next one's own limit: a run of swaps faster than the limit keeps one view on screen and never shows the views it
+        // passes over (ending holds mid-burst showed each one and started a new hold on it, cmux#44329).
+        let first = firstLimit(in: host)
+        deadline.schedule(after: first) { @MainActor [weak self] in
+            self?.firstLimitPassed(token, rest: Self.limit - first)
         }
+    }
+
+    /// The short limit passed before `incoming` painted: the pages still waiting in it stand in with their pictures
+    /// (``standsIn(_:)``) and it shows now, in one frame. When one has no picture, it shows when it paints or after `rest`.
+    private func firstLimitPassed(_ token: UInt64, rest: Duration) {
+        guard holding, self.token == token, let incoming else { return }
+        guard Self.standsIn(incoming) || rest <= .zero else {
+            return deadline.schedule(after: rest) { @MainActor [weak self] in self?.end(token) }
+        }
+        end(token)
+    }
+
+    /// Whether every page still waiting in `view` shows a picture of itself now (asking each that never painted,
+    /// ``PaneFirstPaintGated/standInUntilPainted()``); `view` itself when it holds no such page (a pane's incoming tab).
+    /// A chat that drew before and waits to draw at a new size has no picture at that size (Leo 2026-10-20: "we
+    /// shouldn't be having these wild-ass layout shifts"): false.
+    static func standsIn(_ view: NSView) -> Bool {
+        var pages: [any PaneFirstPaintGated] = [], resized = false
+        let clips = !view.bounds.isEmpty
+        func visit(_ parent: NSView) {
+            for child in parent.subviews where !child.isHidden && child.alphaValue > 0 {
+                guard let page = child as? any PaneFirstPaintGated else { visit(child); continue }
+                guard page.awaitsFirstPaint, !clips || child.convert(child.bounds, to: view).intersects(view.bounds) else { continue }
+                if page.neverPainted { pages.append(page) } else { resized = true }
+            }
+        }
+        visit(view)
+        guard !resized else { return false }
+        guard !pages.isEmpty else { return (view as? any PaneFirstPaintGated)?.standInUntilPainted() ?? false }
+        // Every page is asked, so each one with a picture shows it even when another has none.
+        return pages.map { $0.standInUntilPainted() }.allSatisfy { $0 }
     }
 
     /// The view this hold keeps on screen, while it holds.
     public var kept: NSView? { holding ? outgoing : nil }
+
+    /// Runs `body` when `view`, which this hold keeps on screen, stops showing (the incoming view showed); false when
+    /// this hold keeps no such view and the caller goes on now. A kept workspace closed meanwhile is torn down then,
+    /// not under the incoming one that has not painted (an empty frame until it did).
+    public func afterHold(of view: NSView, _ body: @escaping () -> Void) -> Bool {
+        guard kept === view else { return false }
+        afterEnd.append(body)
+        return true
+    }
 
     /// A newer swap that waits too takes over: the incoming view, which never
     /// showed, leaves through `remove`, and ``kept`` stays on screen for the
@@ -123,6 +210,10 @@ public final class PanePaintHold {
         if let incoming { PageWebView.syncChromiumVisibility(in: incoming) }
         if let outgoing { PageWebView.syncChromiumVisibility(in: outgoing) }
         ended?()
+        // The kept view stopped showing in this transaction: what waited for that (a teardown) goes in it too.
+        let after = afterEnd
+        afterEnd = []
+        after.forEach { $0() }
         CATransaction.commit()
         #if DEBUG || CMUX_BENCH_HOOKS
         if let incoming { ChatOpenTrace.shared.mark(.holdEnd, view: incoming) }
@@ -214,5 +305,39 @@ public struct DrawnPages {
                 if left == 0 { body() }
             }
         }
+    }
+}
+
+extension NSView {
+    /// Neither it nor an ancestor is fully transparent. A view a hold keeps unseen (``PanePaintHold``, on it or on
+    /// its whole workspace) shows in one frame when the hold ends, so nothing it starts then is seen half done.
+    public var isOpaqueUpToItsWindow: Bool {
+        sequence(first: self, next: \.superview).allSatisfy { $0.alphaValue > 0 }
+    }
+}
+
+extension AgentPaneView {
+    /// Its page drew no frame yet (``PaneFirstPaintGated/neverPainted``); a redraw at a new size is not this.
+    public var neverPainted: Bool { !model.hasPainted }
+    /// A hold's short limit passed before it painted: its pane draws its picture under it (``drawsLastPage``), true when
+    /// one shows. False for a chat with none (a brand-new one): the hold keeps what it showed for it.
+    public func standInUntilPainted() -> Bool {
+        model.hasPainted || drawsLastPage?() == true
+    }
+}
+
+/// A container whose ``PanePaintHold`` may keep a view it swapped out on screen until the incoming view paints (the
+/// window's content area).
+@MainActor
+public protocol PaintHoldHosting: AnyObject {
+    var paintHold: PanePaintHold { get }
+}
+
+extension NSView {
+    /// Defers `body` while a container's hold keeps this view on screen: it runs when the hold ends, in that frame.
+    /// False when no hold keeps it (run it now).
+    public func deferredPastPaintHold(_ body: @escaping () -> Void) -> Bool {
+        let holds = sequence(first: self, next: { $0.superview }).dropFirst().lazy.compactMap { ($0 as? PaintHoldHosting)?.paintHold }
+        return holds.contains { $0.afterHold(of: self, body) }
     }
 }

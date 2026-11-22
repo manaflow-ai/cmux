@@ -39,6 +39,8 @@ use std::os::fd::AsRawFd;
 const KEY_A: u32 = 0x0007_0004;
 /// The bench's upstream stream id (any id the host does not use for a display).
 const UP_STREAM: u16 = 100;
+/// The most `--marker-log` entries kept (about 28 minutes at 60 fps).
+const MARKER_LOG_MAX: usize = 100_000;
 
 #[cfg(all(test, any(feature = "vp9", feature = "av1")))]
 #[path = "bench_eval_tests.rs"]
@@ -166,6 +168,11 @@ struct Viewer {
     arrivals: Vec<Arrival>,
     marker: Option<u16>,
     marker_at_ns: u64,
+    /// Linux `--present`: when the frame that showed the marker was on the X display (this
+    /// machine's clock, ns; `Presenter::show` returns once the server copied it), else 0.
+    marker_shown_ns: u64,
+    /// When the newest decoded frame was on the display (0: not shown).
+    last_shown_ns: u64,
     /// Host capture time (host monotonic us) of the frame that showed the marker.
     marker_capture_us: u64,
     /// The frame that showed the marker, when its first datagram arrived and when the
@@ -176,6 +183,9 @@ struct Viewer {
     marker_complete_ns: u64,
     /// Times the marker changed (`--input none`: the fps of a ticking marker).
     marker_changes: u64,
+    /// `--marker-log 1` (passive runs): every marker change, as (decoded µs on the protocol
+    /// clock, marker), so a script can time recovery after a stall frame by frame.
+    marker_log: Option<Vec<(u64, u16)>>,
     /// The first datagram's arrival of the newest video frames (frame, ns).
     first_rx: std::collections::VecDeque<(u32, u64)>,
     frames: u64,
@@ -250,8 +260,12 @@ impl Viewer {
             return;
         }
         self.marker_changes += u64::from(self.marker.is_some());
+        if let Some(log) = self.marker_log.as_mut().filter(|log| log.len() < MARKER_LOG_MAX) {
+            log.push((decoded_ns / 1000, v));
+        }
         self.marker = Some(v);
         self.marker_at_ns = decoded_ns;
+        self.marker_shown_ns = self.last_shown_ns;
         self.marker_capture_us = t_capture_us;
         self.marker_frame = frame;
         self.marker_complete_ns = complete_ns;
@@ -372,9 +386,14 @@ impl Viewer {
                         match decoded {
                             Ok(Some(yuv)) => {
                                 #[cfg(target_os = "linux")]
-                                if let Some(p) = self.presenter.as_mut() {
-                                    if p.show(&yuv).is_err() {
-                                        self.present_errors += 1;
+                                {
+                                    self.last_shown_ns = 0;
+                                    if let Some(p) = self.presenter.as_mut() {
+                                        if p.show(&yuv).is_err() {
+                                            self.present_errors += 1;
+                                        } else {
+                                            self.last_shown_ns = now_ns();
+                                        }
                                     }
                                 }
                                 self.decoded_frames += 1;
@@ -439,7 +458,19 @@ impl Viewer {
             self.reassembler.next_nack_us(5_000, 50_000).map_or(timeout_ns, |deadline| {
                 timeout_ns.min(deadline.saturating_mul(1000).saturating_sub(now_ns()))
             });
-        wait_readable(&self.io.fds(), Some(timeout_ns))?;
+        #[allow(unused_mut)]
+        let mut fds = self.io.fds();
+        // A key typed into the `--present` window wakes the wait, so it leaves at once. Keys the
+        // connection already read (during a frame's put) wake nothing, so they go first.
+        #[cfg(target_os = "linux")]
+        if let Some(p) = &self.presenter {
+            fds.push(p.fd());
+        }
+        #[cfg(target_os = "linux")]
+        self.forward_present_keys()?;
+        wait_readable(&fds, Some(timeout_ns))?;
+        #[cfg(target_os = "linux")]
+        self.forward_present_keys()?;
         let mut arrived = Vec::new();
         self.io.receive(&mut arrived)?;
         for item in arrived {
@@ -479,6 +510,25 @@ impl Viewer {
         self.reassembler.tick(now_ns() / 1000);
         self.maybe_feedback()?;
         self.send_input()?;
+        Ok(())
+    }
+
+    /// Sends the keys typed into the `--present` window to the host, as the app's viewer does.
+    #[cfg(target_os = "linux")]
+    fn forward_present_keys(&mut self) -> Res<()> {
+        let Some(p) = self.presenter.as_mut() else {
+            return Ok(());
+        };
+        let mut any = false;
+        for (code, down) in p.take_keys()? {
+            if let Some(usage) = crate::keymap::x_to_hid(code) {
+                self.sender.push(InputEvent::Key { usage, down });
+                any = true;
+            }
+        }
+        if any {
+            self.send_input()?;
+        }
         Ok(())
     }
 
@@ -740,11 +790,14 @@ pub fn run(opts: &Opts) -> Res<()> {
         arrivals: Vec::new(),
         marker: None,
         marker_at_ns: 0,
+        marker_shown_ns: 0,
+        last_shown_ns: 0,
         marker_capture_us: 0,
         marker_frame: 0,
         marker_first_rx_ns: 0,
         marker_complete_ns: 0,
         marker_changes: 0,
+        marker_log: (opts.num_or("marker-log", 0u8)? == 1).then(Vec::new),
         first_rx: std::collections::VecDeque::new(),
         frames: 0,
         decoded_frames: 0,
@@ -880,7 +933,12 @@ pub fn run(opts: &Opts) -> Res<()> {
         "first_rx_ns": v.marker_first_rx_ns,
         "complete_ns": v.marker_complete_ns,
         "decoded_ns": v.marker_at_ns,
+        "presented_ns": v.marker_shown_ns,
     });
+    // `--present`: connect start to the first frame on the display, and key to the frame on it.
+    let first_frame_presented_ms = (v.marker_shown_ns >= start && v.marker_shown_ns > 0)
+        .then(|| (v.marker_shown_ns - start) as f64 / 1e6);
+    let mut presented = Vec::new();
     let (b0, f0, c0, t_begin) = (v.bytes, v.frames, cpu_s(), now_ns());
     // A stall is a run of lost samples: from the first lost key press to the next one
     // that showed. A link blip shows up here as its length plus the recovery time.
@@ -924,6 +982,9 @@ pub fn run(opts: &Opts) -> Res<()> {
                     stalls_ms.push((v.marker_at_ns - from) as f64 / 1e6);
                 }
                 g2g.push((v.marker_at_ns - t0) as f64 / 1e6);
+                if v.marker_shown_ns >= v.marker_at_ns && v.marker_shown_ns > 0 {
+                    presented.push((v.marker_shown_ns - t0) as f64 / 1e6);
+                }
                 to_capture.push((v.marker_capture_us as f64 * 1000.0 - t0 as f64) / 1e6);
                 capture_to_decoded
                     .push((v.marker_at_ns as f64 - v.marker_capture_us as f64 * 1000.0) / 1e6);
@@ -934,6 +995,7 @@ pub fn run(opts: &Opts) -> Res<()> {
                     "first_rx_ns": v.marker_first_rx_ns,
                     "complete_ns": v.marker_complete_ns,
                     "decoded_ns": v.marker_at_ns,
+                    "presented_ns": v.marker_shown_ns,
                 }));
                 break;
             }
@@ -958,6 +1020,9 @@ pub fn run(opts: &Opts) -> Res<()> {
         "first_frame_times": first_frame_times,
         "stalls_ms": stalls_ms,
         "g2g_ms": pct(&mut g2g),
+        "presented_ms": pct(&mut presented.clone()),
+        "presented_n": presented.len(),
+        "first_frame_presented_ms": first_frame_presented_ms,
         "lost": lost,
         "same_clock_input_to_capture_ms": pct(&mut to_capture),
         "same_clock_capture_to_decoded_ms": pct(&mut capture_to_decoded),
@@ -1058,6 +1123,7 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         "marker_changes": v.marker_changes - marker_changes_start,
         "marker_fps": (v.marker_changes - marker_changes_start) as f64 / secs.max(f64::EPSILON),
         "series": series,
+        "marker_log": v.marker_log.as_ref(),
         "decode_errors": v.decode_errors,
         "present_errors": v.present_errors,
         "client_cpu_pct": (cpu_s() - c0) / secs * 100.0,
