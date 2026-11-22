@@ -51,6 +51,20 @@ await requireBrowserLane("no-hard-clip-browser.test.ts", async () => {
       root: ".acpmux-running-tray__head",
     },
     {
+      name: "the composer hat's header with eleven things of every kind, folded",
+      entry: "agent-pane.subagent-tray-command-kinds",
+      variant: "every-kind",
+      width: 360,
+      root: ".acpmux-running-tray__head",
+    },
+    {
+      name: "the composer hat's header with eleven things of every kind, folded, at 420px",
+      entry: "agent-pane.subagent-tray-command-kinds",
+      variant: "every-kind",
+      width: 420,
+      root: ".acpmux-running-tray__head",
+    },
+    {
       name: "seven subagents started",
       entry: "agent-pane.subagent-started-line",
       variant: "seven",

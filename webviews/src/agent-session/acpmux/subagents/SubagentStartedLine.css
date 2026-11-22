@@ -73,8 +73,6 @@
 }
 .cv-subagent-started__face {
   display: inline-flex;
-  border-radius: 999px;
-  box-shadow: 0 0 0 1.5px var(--agent-bg, Canvas);
 }
 .cv-subagent-started__face + .cv-subagent-started__face {
   margin-inline-start: calc(-1 * var(--ds-space-1));
