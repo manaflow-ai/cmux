@@ -171,10 +171,16 @@ extension SidebarListViewComponents {
         let dy = new.totalHeight - old.totalHeight
         var lines = groupLineViews.lines.filter { $0.group != id }
         if dy != 0 {
-            for index in lines.indices where lines[index].frame.minY > header.y { lines[index].frame.origin.y += dy }
-            // An uncolored parent's block holds the folded group: its bottom moves with the fold.
+            for index in lines.indices where lines[index].frame.minY > header.y {
+                lines[index].frame.origin.y += dy
+                lines[index].rail?.origin.y += dy
+            }
+            // An uncolored parent's block holds the folded group: its bottom, and its rail's, moves with the fold.
             for index in lines.indices where lines[index].isBlock && lines[index].frame.minY <= header.y
-                && lines[index].frame.maxY > header.y { lines[index].frame.size.height += dy }
+                && lines[index].frame.maxY > header.y {
+                lines[index].frame.size.height += dy
+                lines[index].rail?.size.height += dy
+            }
         }
         // In list order, top to bottom, as a full rebuild lists them.
         lines.insert(contentsOf: own, at: lines.firstIndex { $0.frame.minY > header.y } ?? lines.count)

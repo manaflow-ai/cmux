@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -98,6 +98,25 @@ fn a_long_chat_keeps_its_newest_messages() {
     assert_eq!(turns.last(), Some(&3), "the newest turn is held");
     assert!(!turns.contains(&0), "the oldest is left out");
     assert!(doc.message(doc.messages.len() - 1).starts_with("prompt3"));
+}
+
+/// A newest message past the bound alone (a pasted 50 MB log) keeps its newest text: the chat
+/// was held with no text at all, so no word of it was found (`text_scale_bench`).
+#[test]
+fn a_message_past_the_bound_alone_keeps_its_newest_text() {
+    let words = needle("tailword");
+    // Two-byte characters, so the cut falls inside one.
+    let huge = format!("headword {} tailword", "é".repeat(CHAT_BYTES));
+    let stamp = Stamp { updated_ms: 0, messages: None };
+    let read = Doc::new(stamp, &[turn("start", "short"), turn("paste", &huge)]);
+    let mut edited = Doc::new(stamp, &[turn("start", "short")]);
+    edited.edit(1, &[turn("paste", &huge)], 0);
+    for doc in [read, edited] {
+        assert!(doc.is_sound(), "{} bytes", doc.text.len());
+        let found = doc.find(&words, &Matcher::new(&words)).expect("the newest text is found");
+        assert_eq!(doc.messages[found.message as usize].turn, 1);
+        assert!(doc.find(&needle("headword"), &Matcher::new(&needle("headword"))).is_none());
+    }
 }
 
 #[test]
@@ -240,6 +259,78 @@ fn a_gone_chat_leaves_the_saved_copy_at_once_and_the_first_pass_marks_it_filled(
     let off = ChatText::new(text.path.clone());
     off.load();
     assert_eq!(off.held(), (0, 0), "chats off: nothing saved");
+    let _ = std::fs::remove_file(&text.path);
+}
+
+/// Leo's history holds more text than the bound, so every pass runs at it: the newest chat grows
+/// and the oldest held chat is let go of. Before, each such pass rewrote the whole saved copy (up
+/// to 128 MB, every pass the text thread ran) and read the first chat past the bound again only to
+/// let it go. Now a pass at the bound writes nothing until the timed save and reads only the chat
+/// that changed; a chat gone from the chat index still leaves the saved copy at once.
+#[test]
+fn at_the_bound_a_pass_writes_nothing_and_reads_only_what_changed() {
+    const OLDER: usize = 60;
+    const PASSES: i64 = 300;
+    let path = std::env::temp_dir().join(format!("acpmux-text-{}.json", uuid::Uuid::now_v7()));
+    let text = ChatText::with_total(path, 40 * 1024);
+    let reads = Cell::new(0_usize);
+    // The newest chat has as many turns as its time says (~20 bytes each); every older chat has
+    // ten (~1.2 KB).
+    let read = |entry: &ChatEntry| {
+        reads.set(reads.get() + 1);
+        let (turns, answer) = if entry.session_id == "new" {
+            (entry.updated_ms, "ok".to_owned())
+        } else {
+            (10, "answer ".repeat(14))
+        };
+        Some(
+            (0..turns)
+                .map(|t| turn(&format!("prompt {t} of {}", entry.session_id), &answer))
+                .collect(),
+        )
+    };
+    let older: Vec<IndexedChat> = (0..OLDER).map(|c| chat(&format!("c{c:02}"), 1)).collect();
+    let list = |turns: i64| {
+        let mut chats = vec![chat("new", turns)];
+        chats.extend(older.iter().cloned());
+        chats
+    };
+    text.update(&list(10), &read);
+    let (_, held) = text.held();
+    assert!(held <= 40 * 1024 && held > 30 * 1024, "the first fill holds up to the bound: {held}");
+    let first = (text.saves(), reads.get());
+    let held_at_first = text.held().0;
+    for turns in 11..10 + PASSES {
+        text.update(&list(turns), &read);
+    }
+    let (chats, bytes) = text.held();
+    assert!(bytes <= 40 * 1024, "the bound holds: {bytes}");
+    assert!(chats < held_at_first, "the newest chat grew, so older chats were let go of");
+    assert_eq!(
+        text.saves(),
+        first.0,
+        "no pass at the bound rewrote the saved copy ({} bytes written by the first)",
+        first.0.1
+    );
+    assert_eq!(
+        reads.get() - first.1,
+        usize::try_from(PASSES - 1).unwrap(),
+        "each pass read only the chat that changed, not the chat past the bound"
+    );
+    // Newest first: the newest chats are found, the oldest let go of are not.
+    assert!(text.search(&needle("prompt of new")).contains_key("codex:new"));
+    assert!(text.search(&needle("prompt of c00")).contains_key("codex:c00"));
+    assert!(text.search(&needle("prompt of c59")).is_empty());
+    let every = text.search(&needle("prompt of")).len();
+    assert_eq!(every, chats, "every held chat and only those");
+    // A chat gone leaves the saved copy at once, within the timed save's interval.
+    let mut without_c00 = list(10 + PASSES);
+    without_c00.remove(1);
+    text.update(&without_c00, &read);
+    assert_eq!(text.saves().0, first.0.0 + 1, "a chat gone is written out now");
+    let again = ChatText::new(text.path.clone());
+    again.load();
+    assert!(again.search(&needle("prompt of c00")).is_empty(), "c00's text left the saved copy");
     let _ = std::fs::remove_file(&text.path);
 }
 

@@ -142,7 +142,9 @@ impl CmuxClient {
             rows: optional(rows),
             activate: None,
             after: Optional::Missing,
+            place: Optional::Missing,
             split: Optional::Missing,
+            transaction: Optional::Missing,
             workspace: Optional::Missing,
         })?;
         let created = || -> Option<FrontendBrowserTabCreated> {

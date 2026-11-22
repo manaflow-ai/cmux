@@ -136,6 +136,10 @@ def plan_from(result: dict, labels: set[str] = frozenset(), event: str = "pull_r
         reasons.setdefault(why, []).extend(paths)
     if "ios-only" in files:
         reasons["iOS (not covered by this lane)"] = files["ios-only"]
+    if "strings" in files:
+        # A person tries a catalog edit in a copy with no build (live_apply.py), but the shipped app's
+        # translations are compiled tables, so CI builds it.
+        reasons["string catalogs (compiled into the app)"] = files["strings"]
     if "rebuild" in files and not result["reasons"]:
         reasons["rebuild"] = files["rebuild"]
     linked = app_linked_rust(files.get("daemon", []), repo)

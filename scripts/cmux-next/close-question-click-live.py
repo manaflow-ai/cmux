@@ -28,6 +28,9 @@ parser.add_argument("--fullscreen", action="store_true", help="put the window in
 parser.add_argument("--input", choices=["hid", "cua-desktop", "cua-foreground", "cua-background"], default="hid",
                     help="hid: CGEventPost at the HID tap (needs the Accessibility grant); cua-*: cua-driver's pixel click")
 opts = parser.parse_args()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import require_no_person_mac  # noqa: E402
+require_no_person_mac("close-question-click-live")  # it posts real input (CGEventPost): never on a person's Mac
 os.makedirs(opts.out, exist_ok=True)
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"closeq-{opts.tag}-")

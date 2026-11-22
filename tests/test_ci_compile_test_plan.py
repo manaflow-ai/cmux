@@ -109,9 +109,10 @@ class CompileTestPlanTests(unittest.TestCase):
         self.assertTrue(plan[CMUXNEXT], "the CmuxNext test targets that use CMUXAuthCore")
 
     def test_packages_outside_the_macos_lanes_are_not_compiled(self) -> None:
-        # iOS packages build in the iOS jobs, not with a macOS `swift build`.
-        plan = self.plan(["Packages/iOS/CmuxTabsKit/Sources/CmuxTabsKit/Tabs.swift"])
-        self.assertNotIn("Packages/iOS/CmuxTabsKit", plan)
+        # A package outside the lane's PACKAGES builds in its own jobs, not with a macOS `swift build`.
+        # (CmuxMobileSSH: scripts/ci/swift-test-targets.json says why the lane does not run it.)
+        plan = self.plan(["Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/SSHStores.swift"])
+        self.assertNotIn("Packages/iOS/CmuxMobileSSH", plan)
 
     def test_changes_that_compile_no_test_are_an_empty_plan(self) -> None:
         self.assertEqual(self.plan(["docs/ci/merge-freeze.md", "web/app/page.tsx", "README.md"]), {})
@@ -371,6 +372,25 @@ class PullRequestCompilesCmuxNextTests(unittest.TestCase):
         tip = (ROOT / ".github" / "workflows" / "cmux-next-tip-test-compile.yml").read_text()
         self.assertNotIn("--skip-package", tip)
         self.assertNotIn("--skip-package", (ROOT / "scripts" / "ci" / "tip-test-compile.sh").read_text())
+
+
+class PullRequestRunsOnlyWithFullCiTests(unittest.TestCase):
+    """2026-11-21: the advisory check runs on a pull request only with full-ci; the tip compile catches the rest
+    after the merge. Its gateway job held a Mac runner while it waited on the Linux pool."""
+
+    def test_the_plan_needs_full_ci(self) -> None:
+        plan = WORKFLOW.read_text().split("\n  plan:\n", 1)[1].split("\n  compile:\n", 1)[0]
+        condition = re.search(r"^    if: (.*)$", plan, re.M).group(1)
+        self.assertIn("contains(github.event.pull_request.labels.*.name, 'full-ci')", condition)
+        # The compile job needs the plan, so a skipped plan skips it: no gateway runner is taken.
+        job = WORKFLOW.read_text().split("\n  compile:\n", 1)[1]
+        self.assertRegex(job, r"(?m)^    needs: plan$")
+        self.assertNotIn("always()", job)
+
+    def test_the_tip_compile_still_runs_on_every_push(self) -> None:
+        tip = (ROOT / ".github" / "workflows" / "cmux-next-tip-test-compile.yml").read_text()
+        self.assertIn("branches: [feat-cmux-next]", tip)
+        self.assertNotIn("full-ci", tip)
 
 
 class AdvisoryVerdictTests(unittest.TestCase):
