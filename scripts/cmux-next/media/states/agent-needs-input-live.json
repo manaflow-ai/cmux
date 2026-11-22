@@ -1,0 +1,88 @@
+{
+  "title": "A running turn draws its \"Needs your input\" card the moment its wrap-up call returns (Leo, Nov 19, on the Needs your input cards: \"odd looking / plus it's not instant yet\"; #48989): a turn still running whose newest call is a returned wrap-up with a recap and a question, seeded by debug seed_rows fixture \"wrap-up\" (webviews wrapUpFixture.ts). Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/agent-needs-input-live.json",
+  "launch_args": [
+    "--showcase"
+  ],
+  "frameInterval": 0.5,
+  "steps": [
+    {
+      "title": "Open a main workspace",
+      "cmux": [
+        "action",
+        "run",
+        "newTab",
+        "--name",
+        "Needs your input capture",
+        "--focus",
+        "--cwd",
+        "/tmp"
+      ]
+    },
+    {
+      "title": "Open a chat",
+      "cmux": [
+        "agent",
+        "new-chat",
+        "--cwd",
+        "/tmp"
+      ]
+    },
+    {
+      "title": "Wait for the chat page",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "chat_state"
+        }
+      }
+    },
+    {
+      "title": "Start the chat's session (the showcase mock answers)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "send_prompt",
+          "text": "Fix the flaky retry test and land it"
+        }
+      },
+      "wait": 4
+    },
+    {
+      "title": "A running turn whose newest call is a returned wrap-up",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "seed_rows",
+          "fixture": "wrap-up"
+        }
+      },
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "The card from its top",
+      "rpc": {
+        "method": "debug.page",
+        "params": {
+          "page": "cmux.agent",
+          "action": "scroll",
+          "selector": ".acpmux-next-step",
+          "block": "start"
+        }
+      },
+      "wait": 1,
+      "optional": "the card already fits the window"
+    },
+    {
+      "title": "The Needs your input card while the turn still runs",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "query",
+          "selector": ".acpmux-next-step"
+        }
+      },
+      "wait": 0.5
+    }
+  ]
+}
