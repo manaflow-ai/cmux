@@ -919,9 +919,16 @@ export function EnvironmentPicker({
               !environment.loadWarning &&
               environment.kind !== "local" &&
               (environment.connected !== undefined || list === "devices") && (
-                <span className="acpmux-env-status" data-connected={String(list === "devices" || environment.connected)}>
+                <span
+                  className="acpmux-env-status"
+                  data-connected={String(list === "devices" || environment.connected)}
+                >
                   <span className="acpmux-env-status-text">
-                    {t(list === "devices" || environment.connected ? "composer.envConnected" : "composer.envNotConnected")}
+                    {t(
+                      list === "devices" || environment.connected
+                        ? "composer.envConnected"
+                        : "composer.envNotConnected",
+                    )}
                   </span>
                 </span>
               )}
