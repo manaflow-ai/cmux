@@ -265,11 +265,15 @@ mod tests {
         let _held = pairing.waiting.hold(request("probe"));
         let fingerprint = request("probe").fingerprint();
         for (text, allow) in [("true", true), ("false", false)] {
-            let args = json!({"action": "answer", "deviceId": "probe", "fingerprint": fingerprint, "allow": text});
+            let args =
+                json!({"action": "answer", "deviceId": "probe", "fingerprint": fingerprint, "allow": text});
             assert_eq!(handle(Some(&pairing), &PAIRED_PHONE, &args).unwrap(), json!({"ok": true}));
-            assert!(matches!(events.lock().unwrap().last(), Some(Event::PairAnswer { allow: a, .. }) if *a == allow));
+            assert!(
+                matches!(events.lock().unwrap().last(), Some(Event::PairAnswer { allow: a, .. }) if *a == allow)
+            );
         }
-        let args = json!({"action": "answer", "deviceId": "probe", "fingerprint": fingerprint, "allow": "yes"});
+        let args =
+            json!({"action": "answer", "deviceId": "probe", "fingerprint": fingerprint, "allow": "yes"});
         assert_eq!(handle(Some(&pairing), &PAIRED_PHONE, &args).unwrap_err().0, "bad_request");
     }
 
