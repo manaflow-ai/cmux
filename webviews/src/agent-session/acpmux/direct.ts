@@ -180,6 +180,7 @@ import {
   SessionPager,
   withUsage,
   LIST_FOLLOW_CAPABILITY,
+  USAGE_CAPABILITY,
   allSessionsWanted,
   onWantAllSessions,
   inNewestOrder,
@@ -4538,6 +4539,7 @@ export class AcpmuxDirectClient {
       const capabilities = initialized?._meta?.acpmux?.capabilities;
       this.capabilities = Array.isArray(capabilities) ? new Set(capabilities.map(String)) : undefined;
       this.sessionPages.follows = this.capabilities?.has(LIST_FOLLOW_CAPABILITY) === true;
+      this.sessionPages.usageAlone = this.capabilities?.has(USAGE_CAPABILITY) === true;
       const extensions = initialized?._meta?.acpmux?.extensions;
       this.extensions = Array.isArray(extensions) ? extensions.map(String) : [];
       this.localOrigin = initialized?._meta?.acpmux?.origin === "local";
