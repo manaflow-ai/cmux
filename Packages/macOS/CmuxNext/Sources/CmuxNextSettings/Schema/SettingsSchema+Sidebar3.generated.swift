@@ -29,9 +29,12 @@ extension SidebarSettingsSchema {
                     SettingChoice(SidebarGroupBackgroundStyle.glass.rawValue, SettingsText.keyed("settings.choice.groupBackgroundGlass", "Glass")),
                     SettingChoice(SidebarGroupBackgroundStyle.solid.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSolid", "Solid")),
                     SettingChoice(SidebarGroupBackgroundStyle.sections.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSections", "Sections")),
+                    SettingChoice(SidebarGroupBackgroundStyle.chip.rawValue, SettingsText.keyed("settings.choice.groupBackgroundChip", "Chips")),
+                    SettingChoice(SidebarGroupBackgroundStyle.tree.rawValue, SettingsText.keyed("settings.choice.groupBackgroundTree", "Tree")),
+                    SettingChoice(SidebarGroupBackgroundStyle.card.rawValue, SettingsText.keyed("settings.choice.groupBackgroundCard", "Cards")),
                 ]),
                 default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header", "sections", "section", "heading", "plain"]
+                keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header", "sections", "section", "heading", "plain", "chip", "chromium", "rail", "tree", "guide", "card", "cards"]
             ),
             SettingDescriptor(
                 SidebarSectionsSetting.groupPalettePath,
