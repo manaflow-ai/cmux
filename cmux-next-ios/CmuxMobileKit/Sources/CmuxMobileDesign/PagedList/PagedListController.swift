@@ -116,6 +116,7 @@ final class PagedListLayout: UICollectionViewCompositionalLayout {
     override func invalidationContext(forPreferredLayoutAttributes preferred: UICollectionViewLayoutAttributes,
                                       withOriginalAttributes original: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutInvalidationContext {
         let context = super.invalidationContext(forPreferredLayoutAttributes: preferred, withOriginalAttributes: original)
+        PagedListCounters.invalidations += 1
         guard let collectionView else { return context }
         guard context.contentOffsetAdjustment == .zero else {
             // UIKit's own adjustment for this row: a correction for the measure, not a scroll.
@@ -155,6 +156,7 @@ final class PagedListCell: UICollectionViewCell {
     }
 
     override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
+        PagedListCounters.sized += 1
         let width = attributes.size.width
         if let height = knownHeight?(width) {
             let fitted = attributes.copy() as? UICollectionViewLayoutAttributes ?? attributes
@@ -421,7 +423,10 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         spring.target = { [weak self] in self?.newestOffset ?? 0 }
         spring.current = { [weak self] in self?.collectionView.contentOffset.y ?? 0 }
         spring.holds = { [weak self] in self?.collectionView.isTracking ?? false }
-        spring.apply = { [weak self] y in self?.moveOffset(to: y) }
+        spring.apply = { [weak self] y in
+            PagedListCounters.springSteps += 1
+            self?.moveOffset(to: y)
+        }
         spring.finished = { [weak self] frames in
             guard let self else { return }
             // The slide ends at the newest end: the list follows it from here.
@@ -442,6 +447,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     // MARK: Rows
 
     private func configure(_ cell: PagedListCell, _ id: Item.ID) {
+        PagedListCounters.configured += 1
         guard let item = items[id] else { return }
         let row = row
         cell.contentConfiguration = UIHostingConfiguration { row(item) }.margins(.all, 0)
@@ -473,6 +479,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// again in place; rows that came or went above the reader leave what they read where it was;
     /// rows that arrive at the newest end while the reader is there slide in.
     func update(items given: [Item], edge newEdge: PagedListEdge, newerEdge newNewerEdge: PagedListEdge = .end) {
+        PagedListCounters.updates += 1
         // The diffable data source raises on a repeated id: a source that sends one twice shows it
         // once (the first).
         var seen = Set<Item.ID>()
@@ -554,6 +561,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         if edgeChanged, present.contains(.edge), newShowsEdge { reconfigure.append(.edge) }
         if newerEdgeChanged, present.contains(.newerEdge), newShowsNewerEdge { reconfigure.append(.newerEdge) }
         snapshot.reconfigureItems(reconfigure)
+        PagedListCounters.reconfigured += reconfigure.count
         applies += 1
         // The new rows' move to the newest end is the slide (or, without motion, the jump) below,
         // the list's own: the layout pass doesn't pin them first.
@@ -565,6 +573,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         // No diff animation: a page lands out of view, or under a reader who stays put; rows that
         // arrive at the newest end slide in on the list's spring below.
         dataSource.apply(snapshot, animatingDifferences: false)
+        PagedListCounters.applies += 1
         collectionView.layoutIfNeeded()
         arriving = false
         // Rows that came or went: put the reader back now, also mid-fling (an `.up` list's older page
@@ -672,6 +681,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// end, re-sorted) is skipped: following it would carry the reader away. Returns the row used.
     @discardableResult
     private func restore(_ anchor: Anchor, shiftedBy shift: CGFloat = 0, deliberate: Bool = false) -> Anchor.Row? {
+        PagedListCounters.restores += 1
         let survivors = anchor.rows.compactMap { row in dataSource.indexPath(for: row.id).map { (row, $0.item) } }
         guard !survivors.isEmpty else { return nil }
         func stable(_ i: Int) -> Bool {
@@ -860,6 +870,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// row stays on it (keyboard, rotation, a row that grew); otherwise the bottom edge's move is
     /// answered as `pinning` says, and the reader is kept.
     private func didLayout() {
+        PagedListCounters.layouts += 1
         guard !keeping, !laying else {
             passHold = nil
             return
@@ -1221,6 +1232,23 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         let configuration = UISwipeActionsConfiguration(actions: contextual)
         configuration.performsFirstActionWithFullSwipe = true
         return configuration
+    }
+}
+
+/// Per-path call counts for the stress bench's no-probe reps (a measurement graft, never landed).
+@MainActor
+public enum PagedListCounters {
+    public static var updates = 0
+    public static var applies = 0
+    public static var reconfigured = 0
+    public static var restores = 0
+    public static var springSteps = 0
+    public static var invalidations = 0
+    public static var sized = 0
+    public static var configured = 0
+    public static var layouts = 0
+    public static var json: String {
+        #"{"updates":\#(updates),"applies":\#(applies),"reconfigured":\#(reconfigured),"restores":\#(restores),"springSteps":\#(springSteps),"invalidations":\#(invalidations),"sized":\#(sized),"configured":\#(configured),"layouts":\#(layouts)}"#
     }
 }
 #endif

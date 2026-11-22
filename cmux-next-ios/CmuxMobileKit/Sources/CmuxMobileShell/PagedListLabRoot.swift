@@ -120,8 +120,6 @@ public struct PagedListLabRoot: View {
         .task {
             probe.pageLanded = { [hud] shift, rows in hud.landed(shift: shift, rows: rows) }
             probe.scrolling = { [hud] moving in hud.scrolling(moving) }
-            probe.frameShift = { [hud] shift in hud.sampled(shift) }
-            probe.shiftDetail = { [hud] shift, detail in hud.shifted(shift, detail) }
             probe.slid = { [hud] frames in hud.slid(frames) }
             probe.held = { [hud] rows in hud.hold(rows) }
             await model.loadFirst()
@@ -463,7 +461,7 @@ final class PagedLabHUD {
 
     func json(edge: String, newer: String = "end", changes: Int = 0, flushes: Int = 0) -> String {
         let ratio = seconds > 0 ? hitchMs / seconds : 0
-        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames),"held":\#(heldRows),"worstShift":"\#(worstShift)"}"#
+        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames),"held":\#(heldRows),"worstShift":"\#(worstShift)","counts":\#(PagedListCounters.json),"noProbe":true}"#
     }
 }
 
