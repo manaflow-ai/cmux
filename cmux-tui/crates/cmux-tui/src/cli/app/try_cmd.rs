@@ -7,8 +7,9 @@
 //!
 //! The path is picked here, cheapest first:
 //! 1. **Live.** CI signs `cmux-tui/<sha>/mac-live.json` per merge: the
-//!    commit's Mac binaries and `live_from`, every app commit that can take
-//!    them without the app changing. When the app's CMUXCommit is listed, each
+//!    commit's Mac binaries, `live_from` for daemon compatibility and
+//!    `native_from` for unchanged app content outside those binaries. When both
+//!    cover the app's CMUXCommit (or it is already the target commit), each
 //!    binary is downloaded into the store and checked (size, sha256), the prior
 //!    files are kept by sha256, the new ones are renamed into
 //!    `Contents/Resources/bin`, and the app's daemon is handed over (SIGTERM to
@@ -211,7 +212,7 @@ impl Plan {
 }
 
 /// The cheapest path to `commit` for an app at `app_commit`: live when the
-/// signed file lists the app; else a switchable build of the commit in the
+/// signed file proves daemon compatibility and native equality; else a build in the
 /// feed listing `builds`; else none, with every reason.
 fn choose(
     commit: &str,
@@ -227,15 +228,17 @@ fn choose(
         (Live::Refused(error), _) => why.push(messages.why_live_refused.replace("{error}", error)),
         (Live::Found(_), None) => why.push(messages.why_no_app_commit.to_owned()),
         (Live::Found(payload), Some(app_commit)) => {
-            if live::takes(&payload.live_from, app_commit) {
+            if !live::takes(&payload.live_from, app_commit) {
+                why.push(messages.why_not_live_from.replace("{app_commit}", app_commit));
+            } else if !live::native_matches(payload, app_commit) {
+                why.push(messages.why_native_unproven.to_owned());
+            } else {
                 match live::wanted(payload, base) {
                     Ok(files) => return Plan::Live { files },
                     Err(error) => {
                         why.push(messages.why_live_refused.replace("{error}", &error));
                     }
                 }
-            } else {
-                why.push(messages.why_not_live_from.replace("{app_commit}", app_commit));
             }
         }
     }

@@ -33,7 +33,7 @@ private func makeStore(removeLinkPairings: @escaping @Sendable () -> Void = {}) 
 /// A device's screen pane, not asking the hub.
 @MainActor
 private func devicePane(_ name: String = "Studio") -> MacScreenPane {
-    MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: deviceID) { nil }, name: name, preferences: ScreenPreferences())
+    MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: deviceID) { nil }, name: name, preferences: ScreenPreferences(), viewerLook: .current)
 }
 
 /// Mac Screen tabs: the record, scrolling.
