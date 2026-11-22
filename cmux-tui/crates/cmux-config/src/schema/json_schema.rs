@@ -94,6 +94,15 @@ impl Schema {
                 "additionalProperties": false,
             }),
         );
+        root.insert(
+            "design".into(),
+            json!({
+                "type": "object",
+                "description": "The look's design-system layer for extensions (cmux.design/1): type roles, the spacing scale, color roles and limits. It sits between cmux's system and design.json beside the settings file; `cmux ext design --show` prints the result.",
+                "properties": { "design": { "const": "cmux.design/1" } },
+                "required": ["design"],
+            }),
+        );
         for row in self.rows.iter().filter(|row| is_look(row)) {
             root.insert(row.key.clone(), leaf(row));
             if row.path.len() > 1 {

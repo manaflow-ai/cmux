@@ -216,6 +216,22 @@ fn a_theme_file_sets_the_buttons_session_info_and_its_own_density() {
 }
 
 #[test]
+fn a_theme_files_design_layer_is_no_setting_and_the_schema_takes_it() {
+    let file = overlay(
+        r#"{ "appearance.accent": "blue", "design": { "design": "cmux.design/1", "type": { "title": { "size": 22, "weight": "bold" } } } }"#,
+    );
+    assert!(file.is_loaded);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(file.keys(), ["appearance.accent"]);
+    let schema = Schema::embedded().theme_file_json_schema(is_look);
+    let validator = jsonschema::validator_for(&schema).expect("a valid schema");
+    assert!(
+        validator.is_valid(&json!({"design": {"design": "cmux.design/1", "space": [0, 4, 8]}}))
+    );
+    assert!(!validator.is_valid(&json!({"design": {"space": [0, 4, 8]}})));
+}
+
+#[test]
 fn a_relative_picture_resolves_against_the_themes_folder() {
     let folder = Path::new("/tmp/cmux-config/themes");
     let background = |value: &str, folder: Option<&Path>| {
