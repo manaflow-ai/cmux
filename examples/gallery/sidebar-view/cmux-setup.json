@@ -1,0 +1,16 @@
+{
+  // A view of your own, no colors: customize/ is the customize app (a Scene SDK app). It draws
+  // the sidebar's hover card and decorates its rows, and follows whatever theme you wear.
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/starter-sidebar-view",
+  "name": "Starter Sidebar View",
+  "tagline": "A hover card and sidebar rows of your own, drawn with the Scene SDK.",
+  "description": "A customize app that implements cmux.hovercard/1 (a three-line card: title and age, the agent's status, the branch) and cmux.sidebar.rows/1 (rows that show a dot while an agent works). While it is installed it stands in for your own customize/ view; removing it puts yours back.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "cmuxProfile": 1,
+  "settings": {
+    "sidebar.hoverCards.enabled": true,
+    "sidebar.hoverCards.delay": 300
+  }
+}

@@ -64,6 +64,12 @@ fn fields_the_catalog_lacks_reach_the_app() {
             "platform": { "os": "linux", "arch": "x86_64" },
             "capabilities": ["terminal", "agent_session"],
             "provider_operations": ["snapshot", "resize"],
+            "disk_health": {
+                "state": "healthy",
+                "free_mb": 4096, "used_mb": 12288, "total_mb": 16384,
+                "floor_mb": 1024, "top_users": [{ "path": "/home/cmux", "used_mb": 2048 }],
+                "observed_at": 1_700_000_000_000i64
+            },
             "idlePause": idle,
         }),
     );
@@ -71,7 +77,7 @@ fn fields_the_catalog_lacks_reach_the_app() {
     assert!(machine.has_capability("agent_session"));
     assert!(!machine.has_capability("provider_secret"));
     let encoded = encode(&machine);
-    for key in ["platform", "capabilities", "provider_operations", "idlePause"] {
+    for key in ["platform", "capabilities", "provider_operations", "disk_health", "idlePause"] {
         assert_eq!(encoded[key], source[key], "{key}");
     }
 
@@ -89,6 +95,7 @@ fn fields_the_catalog_lacks_reach_the_app() {
     assert_eq!(plain["platform"], Value::Null);
     assert_eq!(plain["capabilities"], json!([]));
     assert!(plain.get("provider_operations").is_none());
+    assert!(plain.get("disk_health").is_none());
     assert!(plain.get("idlePause").is_none());
 }
 
@@ -102,6 +109,7 @@ fn the_extra_fields_never_shadow_a_catalog_field() {
         platform: Some(super::MachinePlatform::default()),
         capabilities: vec!["x".into()],
         provider_operations: vec!["x".into()],
+        disk_health: Some(json!({ "free_mb": 1 })),
         idle_pause: Some(json!({})),
     })
     .expect("extra encodes");
@@ -112,6 +120,31 @@ fn the_extra_fields_never_shadow_a_catalog_field() {
         );
     }
     assert_eq!(catalog["pause_reason"], "idle");
+}
+
+#[test]
+fn disk_health_state_is_computed_by_the_relay() {
+    let warning = decode(with(
+        record("vm-warning", "1"),
+        json!({
+            "disk_health": {
+                "free_mb": 1024, "used_mb": 15360, "total_mb": 16384,
+                "floor_mb": 1024, "top_users": [], "observed_at": 1_700_000_000_000i64
+            }
+        }),
+    ));
+    assert_eq!(encode(&warning)["disk_health"]["state"], "warning");
+
+    let invalid = decode(with(
+        record("vm-invalid", "1"),
+        json!({
+            "disk_health": {
+                "free_mb": 12000, "used_mb": 8000, "total_mb": 16384,
+                "floor_mb": 1024, "top_users": [], "observed_at": 1_700_000_000_000i64
+            }
+        }),
+    ));
+    assert_eq!(encode(&invalid)["disk_health"]["state"], "unknown");
 }
 
 #[test]
