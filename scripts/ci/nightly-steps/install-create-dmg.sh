@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# nightly.yml build-sign-notarize-nightly and nightly-next-one: "Install build deps". Moved out of the workflow to keep
-# nightly.yml under its size budget (tests/test_workflow_file_size.py); it runs under bash -e as the inline block did.
+# nightly.yml "Install create-dmg" (recover-nightly-next-notarization, sign-nightly-identity-legacy) and "Install build
+# deps" (build-sign-notarize-nightly, nightly-next-one). Moved out of the workflow to keep nightly.yml under its size
+# budget (tests/test_workflow_file_size.py); the step's env: still sets every input.
+set -e  # the inline steps ran under bash -e
 CMUX_NODE_BIN="$(command -v node)"
 export npm_config_prefix="$RUNNER_TEMP/npm-global"
 mkdir -p "$npm_config_prefix"

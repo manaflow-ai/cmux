@@ -4087,7 +4087,7 @@ jobs:
       - &x56
         name: Install build deps
         if: ${{ !env.LEFT_SLOT }}
-        run: s=scripts/ci/nightly-steps/install-create-dmg.sh; [ -f "$s" ] || s=".nightly-signing-control/$s"; bash -e "$s"
+        run: s=scripts/ci/nightly-steps/install-create-dmg.sh; [ -f "$s" ] || s=".nightly-signing-control/$s"; [ -f "$s" ] || s=".publish-tooling/${s#*/}"; bash -e "$s"
 
 
       - &x57
@@ -4104,7 +4104,7 @@ jobs:
           SHARED_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.SPARKLE_PRIVATE_KEY || '' }}
           NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.NIGHTLY_SPARKLE_PRIVATE_KEY || '' }}
           NEXT_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track == 'nightly-next' && secrets.SPARKLE_NEXT_PRIVATE_KEY || '' }}
-        run: s=scripts/ci/nightly-steps/derive-sparkle-public-key.sh; [ -f "$s" ] || s=".nightly-signing-control/$s"; bash "$s"
+        run: s=scripts/ci/nightly-steps/derive-sparkle-public-key.sh; [ -f "$s" ] || s=".nightly-signing-control/$s"; [ -f "$s" ] || s=".publish-tooling/${s#*/}"; bash "$s"
 
 
       - &x58
@@ -4113,7 +4113,7 @@ jobs:
         env:
           NOTARY_PROBE: ${{ needs.decide.outputs.notary_probe }}
           BUILD_SHORT_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
-        run: s=scripts/ci/nightly-steps/inject-nightly-identities.sh; [ -f "$s" ] || s=".nightly-signing-control/$s"; bash "$s"
+        run: s=scripts/ci/nightly-steps/inject-nightly-identities.sh; [ -f "$s" ] || s=".nightly-signing-control/$s"; [ -f "$s" ] || s=".publish-tooling/${s#*/}"; bash "$s"
 
 
       - &x59
@@ -6818,6 +6818,7 @@ jobs:
             scripts/ci/gh_app_token.sh
             scripts/ci/nightly_next_dev_ring.sh
             scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh
+            scripts/ci/nightly-steps/republish-deltas-and-appcasts.sh
             scripts/ci/nightly-steps/republish-deltas-upload-appcasts.sh
             scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh
             scripts/ci/signing-runner-claim.sh
