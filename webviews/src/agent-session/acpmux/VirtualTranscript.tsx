@@ -5060,6 +5060,18 @@ function TranscriptView({
   const anchorPass = useCommittedEvent(() => {
     // What the pinned live line is drawn held back by, before this pass's chase moves the thread.
     notePinPass(thread.current);
+    // A send whose prompt's rows came in its own commit (a loaded host draws the composer's collapse
+    // and the prompt in one frame): the send's hold opens here, before this pass moves the rows, so
+    // the move it makes at once is held with the send's and plays as one glide (sendMoves releases it).
+    if (
+      sends !== seenSends.current &&
+      followingRef.current &&
+      jumpTarget.current === undefined &&
+      thread.current &&
+      transactionOn(thread.current) &&
+      broughtSentPrompt(previousRows.current, rows)
+    )
+      threadTransaction(thread.current).expect("send");
     /// This pass is the follow chase's (the last branch below): the rows under a change glide, against
     /// the row the chase measured from.
     let tailGlides = false;
