@@ -12,6 +12,9 @@
 //   bun scripts/gallery/proof-clip.mjs --base origin/feat-cmux-next                # the entries the diff touches most
 //   options: --out DIR (default $FAST_CHECKS_OUT or proof-clip-out) --clip CSS (crop to it; default the component's
 //            painted bounds) --slow 0.35 (the slowed loop's rate) --max-seconds 10 --schemes light,dark
+//            --hover CSS (each state again with the pointer on that element: rest, then hover)
+//            --before DIR (a checkout of the base, its webviews/ folder: each state rendered there first, as a
+//            "before" row over the head's "after"; `git worktree add --detach DIR $(git merge-base HEAD origin/feat-cmux-next)`)
 //            --width normal|narrow --max-states 4 --margin 12 --scale 2 --min-cell 560 (a small element is
 //            rendered at a higher device scale until its cell is this many pixels wide, up to 8x)
 //
@@ -48,6 +51,9 @@ const { values: args } = parseArgs({
     fps: { type: "string", default: "30" },
     "min-cell": { type: "string", default: "560" },
     "gallery-dir": { type: "string" },
+    hover: { type: "string" },
+    before: { type: "string" },
+    "before-gallery-dir": { type: "string" },
   },
 });
 
@@ -115,30 +121,42 @@ lap("select", t0);
 t0 = performance.now();
 const galleryDir = args["gallery-dir"] ? path.resolve(args["gallery-dir"]) : path.join(work, "gallery");
 // --gallery-dir DIR reuses a build there, or builds into it once (a second clip of the same head skips the build).
-if (!fs.existsSync(path.join(galleryDir, "frame.html"))) {
+async function buildGallery(cwd, dir) {
+  if (fs.existsSync(path.join(dir, "frame.html"))) return;
+  if (!fs.existsSync(path.join(cwd, "node_modules")))
+    run("bun", ["install", "--frozen-lockfile"], { cwd, stdio: "ignore" });
   await new Promise((resolve, reject) => {
     const build = spawn("bun", ["run", "gallery:build"], {
-      cwd: root,
+      cwd,
       stdio: ["ignore", "ignore", "inherit"],
-      env: { ...process.env, CMUX_GALLERY_ENTRIES: entryIds.join(","), CMUX_GALLERY_OUT_DIR: galleryDir },
+      env: { ...process.env, CMUX_GALLERY_ENTRIES: entryIds.join(","), CMUX_GALLERY_OUT_DIR: dir },
     });
     build.once("error", reject);
-    build.once("exit", (code) => (code === 0 ? resolve() : reject(new Error(`gallery build exited ${code}`))));
+    build.once("exit", (code) =>
+      code === 0 ? resolve() : reject(new Error(`gallery build in ${cwd} exited ${code}`)),
+    );
   });
 }
+const beforeRoot = args.before ? path.resolve(args.before) : null;
+const beforeDir = beforeRoot ? path.resolve(args["before-gallery-dir"] ?? path.join(work, "gallery-before")) : null;
+await Promise.all([buildGallery(root, galleryDir), beforeRoot ? buildGallery(beforeRoot, beforeDir) : null]);
 lap("build", t0);
 
 const { preview } = await import("vite");
-process.env.CMUX_GALLERY_OUT_DIR = galleryDir;
-const server = await preview({
-  root,
-  configFile: path.join(root, "vite.config.gallery.ts"),
-  build: { outDir: galleryDir },
-  preview: { host: "127.0.0.1", port: 0 },
-  logLevel: "warn",
-});
-const address = server.httpServer.address();
-const baseUrl = `http://127.0.0.1:${address.port}`;
+async function serve(projectRoot, dir) {
+  process.env.CMUX_GALLERY_OUT_DIR = dir;
+  const server = await preview({
+    root: projectRoot,
+    configFile: path.join(projectRoot, "vite.config.gallery.ts"),
+    build: { outDir: dir },
+    preview: { host: "127.0.0.1", port: 0 },
+    logLevel: "warn",
+  });
+  return { server, url: `http://127.0.0.1:${server.httpServer.address().port}` };
+}
+const after = await serve(root, galleryDir);
+const before = beforeRoot ? await serve(beforeRoot, beforeDir) : null;
+const baseUrl = after.url;
 const { chromium } = await import("playwright");
 const browser = await chromium.launch();
 
@@ -196,7 +214,7 @@ t0 = performance.now();
 const cells = new Map();
 const states = [];
 
-async function openStage(entry, variant, scheme, scale = SCALE) {
+async function openStage(entry, variant, scheme, scale = SCALE, url = baseUrl, hover = null) {
   const context = await browser.newContext({
     viewport: { width: 1040, height: 900 },
     deviceScaleFactor: scale,
@@ -206,7 +224,7 @@ async function openStage(entry, variant, scheme, scale = SCALE) {
   const page = await context.newPage();
   const query = new URLSearchParams({ entry, colorScheme: scheme, width: args.width, frame: "component" });
   if (variant) query.set("variant", variant);
-  await page.goto(`${baseUrl}/frame.html?${query}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${url}/frame.html?${query}`, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(
     () => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
     undefined,
@@ -216,6 +234,20 @@ async function openStage(entry, variant, scheme, scale = SCALE) {
   );
   const status = await page.evaluate(() => document.documentElement.dataset.galleryReady);
   if (status !== "1") throw new Error(`${entry}/${variant ?? ""} did not render (${scheme})`);
+  if (hover) {
+    const target = page.locator(hover).first();
+    if (!(await target.count())) throw new Error(`${entry}/${variant ?? ""}: nothing matches --hover ${hover}`);
+    await target.hover({ timeout: 10_000 });
+    // The hover's own transitions run out before the first frame.
+    await page.evaluate(() =>
+      Promise.all(
+        document
+          .getAnimations()
+          .filter((a) => a.effect?.getComputedTiming?.().iterations !== Infinity)
+          .map((a) => a.finished.catch(() => null)),
+      ),
+    );
+  }
   // Two frames for the first paint of anything the ready signal raced.
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   return { context, page };
@@ -241,11 +273,18 @@ if (states.length > MAX_STATES) {
   states.length = MAX_STATES;
 }
 
-for (const state of states) {
-  const key = `${state.entry}/${state.variant ?? ""}`;
+const rowsWanted = [];
+for (const state of states)
+  for (const side of before ? ["before", "after"] : [null])
+    for (const hover of args.hover ? [null, args.hover] : [null])
+      rowsWanted.push({ ...state, side, hover, url: side === "before" ? before.url : baseUrl });
+for (const state of rowsWanted) {
+  const key = [state.side, `${state.entry}/${state.variant ?? ""}`, state.hover ? "hover" : null]
+    .filter(Boolean)
+    .join(" · ");
   const perScheme = {};
   for (const scheme of SCHEMES) {
-    let { context, page } = await openStage(state.entry, state.variant, scheme);
+    let { context, page } = await openStage(state.entry, state.variant, scheme, SCALE, state.url, state.hover);
     let scale = SCALE;
     try {
       let m = await page.evaluate(measureStage, args.clip ?? null);
@@ -255,7 +294,7 @@ for (const state of states) {
       if (want > scale) {
         await context.close();
         scale = want;
-        ({ context, page } = await openStage(state.entry, state.variant, scheme, scale));
+        ({ context, page } = await openStage(state.entry, state.variant, scheme, scale, state.url, state.hover));
         m = await page.evaluate(measureStage, args.clip ?? null);
         if (m.error) throw new Error(`${key} (${scheme}): ${m.error}`);
       }
@@ -375,7 +414,7 @@ async function segment(rate, seconds, file, tag) {
   for (const key of rows) {
     const label = path.join(work, `label-${n}.png`);
     // The entry is in the clip's title; a row is named by its variant.
-    await pillPng(rows.length > 1 || !key.endsWith("/") ? key.split("/").pop() || key : key, label);
+    await pillPng(entryIds.length === 1 ? key.replace(`${entryIds[0]}/`, "") : key, label);
     const labelInput = n++;
     inputs.push("-loop", "1", "-framerate", String(FPS), "-i", label);
     SCHEMES.forEach((scheme, s) => {
@@ -461,7 +500,8 @@ run("ffmpeg", ["-nostdin", "-loglevel", "error", "-y", "-i", clipFile, "-frames:
 lap("compose", t0);
 
 await browser.close();
-await new Promise((resolve) => server.httpServer.close(() => resolve()));
+for (const s of [after, before].filter(Boolean))
+  await new Promise((resolve) => s.server.httpServer.close(() => resolve()));
 
 // ------------------------------------------------------------------------------------------- sidecar
 const duration = Number(
