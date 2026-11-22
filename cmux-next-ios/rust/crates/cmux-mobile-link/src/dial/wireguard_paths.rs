@@ -26,6 +26,7 @@ use cmux_transport::{
     local_networks, medium_of,
 };
 use cmux_wg::{DueProbes, PathWatch, ProbeConfig};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -41,6 +42,27 @@ pub(super) const UPGRADE_PROBE_EVERY: Duration = Duration::from_millis(750);
 /// data. An idle relayed link (keepalives only) keeps the 30 s turn, so a
 /// phone on cellular does not wake its radio every second for nothing.
 pub(super) const UPGRADE_BUSY: Duration = Duration::from_secs(3);
+
+/// The phone app is in the background ([`set_app_backgrounded`]). False
+/// until it says (and always on the Mac), so nothing changes for a side
+/// that never calls it.
+static APP_BACKGROUNDED: AtomicBool = AtomicBool::new(false);
+
+/// The phone app went to (`true`) or came back from (`false`) the
+/// background. While it is there no session sends upgrade probes
+/// ([`UPGRADE_PROBE_EVERY`]): a dead direct path keeps its 30 s turn, as on
+/// an idle link, so a backgrounded phone (a call, a background task) does
+/// not wake its radio for them. The same app state as the Link's
+/// foreground probe (`Link::set_foreground_probe`, off whenever the app is
+/// backgrounded).
+pub fn set_app_backgrounded(backgrounded: bool) {
+    APP_BACKGROUNDED.store(backgrounded, Ordering::Relaxed);
+}
+
+/// The last value [`set_app_backgrounded`] stored.
+pub fn app_backgrounded() -> bool {
+    APP_BACKGROUNDED.load(Ordering::Relaxed)
+}
 
 /// Selector path ids start here: below are the receive origins
 /// (`UDP_PATH`, `TURN_PATH`), which a peer's probe answer names.
@@ -71,6 +93,9 @@ pub(super) struct Paths {
     last_probe_id: u64,
     /// Until when the session counts as carrying data ([`UPGRADE_BUSY`]).
     busy_until: Option<Instant>,
+    /// Where the app's background state is read ([`APP_BACKGROUNDED`]; a
+    /// test's own flag in unit tests, which run side by side).
+    backgrounded: &'static AtomicBool,
 }
 
 impl Paths {
@@ -83,6 +108,7 @@ impl Paths {
             probes: ProbeConfig::default(),
             last_probe_id: 0,
             busy_until: None,
+            backgrounded: &APP_BACKGROUNDED,
         }
     }
 
@@ -240,7 +266,15 @@ impl Paths {
     /// While relayed and busy: each dead direct path whose upgrade probe is
     /// due gets one now. Returns when the next is due.
     fn upgrade_probes(&mut self, now: Instant) -> Option<Instant> {
-        if !self.relayed() || self.busy_until.is_none_or(|until| now >= until) {
+        // Stops when the session goes direct, when no data went out for
+        // UPGRADE_BUSY, or while the phone app is in the background.
+        if !self.relayed()
+            || self.busy_until.is_none_or(|until| now >= until)
+            || self.backgrounded.load(Ordering::Relaxed)
+        {
+            for entry in &mut self.entries {
+                entry.upgrade_probe_at = None;
+            }
             return None;
         }
         let mut next: Option<Instant> = None;
@@ -449,6 +483,24 @@ mod tests {
         let later = now + std::time::Duration::from_secs(6);
         let busy = pings_for(&mut paths, id, later, std::time::Duration::from_secs(6), true);
         assert!((6..=9).contains(&busy), "busy: {busy} probes in 6 s");
+    }
+
+    #[test]
+    fn a_backgrounded_phone_sends_no_upgrade_probes() {
+        static BACKGROUNDED: AtomicBool = AtomicBool::new(false);
+        let mut paths = paths_on(lan_table());
+        paths.backgrounded = &BACKGROUNDED;
+        let (lan, relay) = (udp("192.168.1.30:4100"), turn("203.0.113.9:4100"));
+        let (now, id) = relayed_with_a_dead_lan(&mut paths, lan, relay);
+        BACKGROUNDED.store(true, Ordering::Relaxed);
+        // Busy but backgrounded: the dead path keeps its 30 s turn.
+        let background = pings_for(&mut paths, id, now, std::time::Duration::from_secs(6), true);
+        assert!(background <= 1, "backgrounded: {background} probes in 6 s");
+        // Back in front: the upgrade probes resume at once.
+        BACKGROUNDED.store(false, Ordering::Relaxed);
+        let later = now + std::time::Duration::from_secs(6);
+        let front = pings_for(&mut paths, id, later, std::time::Duration::from_secs(6), true);
+        assert!((6..=9).contains(&front), "foreground: {front} probes in 6 s");
     }
 
     #[test]

@@ -52,6 +52,7 @@ mod roam;
 use roam::{Control, Session};
 #[path = "wireguard_paths.rs"]
 mod paths;
+pub use paths::{app_backgrounded, set_app_backgrounded};
 pub use roam::{network_changed, rehome, roam_timeline, route_destinations};
 #[doc(hidden)]
 pub use roam::{roam_session, session_endpoints, simulate_network_loss, simulate_turn_loss};
