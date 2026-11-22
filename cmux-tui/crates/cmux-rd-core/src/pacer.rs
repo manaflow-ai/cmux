@@ -104,7 +104,7 @@ impl Pacer {
     /// queued longer than `SPREAD_SHARE` of a frame interval or `MAX_SPREAD_US`.
     fn set_rate(&mut self, target_bps: u64) {
         let interval_us = if self.frame_interval_us == 0 { 16_667 } else { self.frame_interval_us };
-        let window_us = (interval_us as f64 * SPREAD_SHARE).min(MAX_SPREAD_US).max(1_000.0);
+        let window_us = (interval_us as f64 * SPREAD_SHARE).clamp(1_000.0, MAX_SPREAD_US);
         let floor = target_bps as f64 * PACING_FACTOR / 8.0 / 1e6;
         let fit = self.queued_bytes as f64 / window_us;
         self.rate_bytes_per_us = floor.max(fit);
