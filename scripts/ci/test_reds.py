@@ -1000,7 +1000,7 @@ def _read_bun_step(lines: list[str], step: int, attempts: list, result: Result) 
 # Each log is parsed once per process (2026-11-06, cmux#36356 at 2c9f6957). base_red_excuse.py's window compares the
 # head's log with up to BASE_WINDOW base logs and re-classifies the whole window each time it grows, and classify,
 # classify_any, observations and flaky_failures each read the head again: 50 reads of 6 logs. A `cmux-next daemon
-# tests` log is 20 to 27 MB, about 3 s a read, so that judge spent 110 s of CPU in read() alone and merge_hold's 120 s
+# tests` log is 20 to 27 MB, about 3 s a read, so that judge spent 110 s of CPU in read() alone and land-judge's 120 s
 # bound on the classifier refused the merge three times. A read depends only on the log's text and BUN, so its result
 # is kept by text: each caller gets its own copy, and at most KEEP_PARSED texts are kept (the window's logs, which
 # the judge holds anyway, plus the head), the oldest dropped first.
@@ -1870,6 +1870,8 @@ def classify_web_cut_short(head_log: str | None, windows, job: str = "", base: s
                           f"{'; '.join(left)[:600]}"], shared)
 
 
+# (Until 2026-11-21; the post-merge batch tier, cmux-next-post-merge.yml, now runs the base web checks and bisects
+# its own reds, so no new `web bisect` lines come. bisect_report still reads the old runs.)
 # A coalesced feat-cmux-next web run (cmux-next-web.yml runs its web checks at most once every 30 minutes, on the
 # newest push, routed from the last run's commit) covers several commits. When its webview tests go red, its
 # `web bisect` job (scripts/ci/web_coalesce.py bisect) re-runs only the new red files, only on those commits, and

@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 /* Version of this ABI; bumped on every incompatible change. */
-#define CMUX_RD_FFI_ABI_VERSION 6u
+#define CMUX_RD_FFI_ABI_VERSION 7u
 
 /* Carriers. */
 #define CMUX_RD_CARRIER_DATAGRAM 0u
@@ -56,6 +56,7 @@ extern "C" {
 #define CMUX_RD_ERR_CONSENT (-8)     /* the upstream sender has no consent for its media kind */
 #define CMUX_RD_ERR_FULL (-9)        /* a bulk queue or the open transfer limit is full */
 #define CMUX_RD_ERR_TOO_LARGE (-10)  /* a clipboard text over CMUX_RD_CLIPBOARD_MAX_TEXT (refused, counted) */
+#define CMUX_RD_ERR_IO (-11)         /* the recording file could not be created or written */
 
 /* Input event kinds (the wire tags). */
 #define CMUX_RD_INPUT_KEY 1u
@@ -237,6 +238,24 @@ int32_t cmux_rd_session_stage_ledger(CmuxRdSession *session, uint8_t *out, size_
    *offset_us) and the round trip of the best sample: 1 when an estimate
    exists, 0 before the first answer. */
 int32_t cmux_rd_session_clock(const CmuxRdSession *session, int64_t *offset_us, uint32_t *rtt_us);
+
+/* ---- Recording as you go (ABI 7) ----
+   The session copies every frame of stream 0 that cmux_rd_session_pop_frame
+   hands out into a fragmented MP4 (H.264, no re-encoding, timed by the
+   host's capture clock). The file begins at the next keyframe carrying its
+   SPS and PPS, which record_start asks the host for; each frame is one
+   moof+mdat, so a file cut off by a crash still plays. Same thread rule as
+   every session call. */
+
+/* Starts recording into a new file at path (UTF-8, NUL terminated; missing
+   folders are created, an existing file is replaced). A running recording
+   is finished first. CMUX_RD_ERR_INVALID for an empty or non-UTF-8 path,
+   CMUX_RD_ERR_IO when the file cannot be created. */
+int32_t cmux_rd_session_record_start(CmuxRdSession *session, const char *path);
+/* Finishes the recording and closes the file. Returns the frames written
+   (0 when none, or when no recording was running), or CMUX_RD_ERR_IO when a
+   write failed. */
+int32_t cmux_rd_session_record_stop(CmuxRdSession *session);
 
 /* ---- Upstream media sender (rd change C4b, cap "up_media", ABI 3) ----
    One sender per upstream stream (microphone, camera, screen share) the host
