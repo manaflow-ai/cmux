@@ -73,36 +73,36 @@ export function WorkingFor({
   const toggles = onToggle !== undefined && !row.below;
   const label = (
     <>
-        {!waiting && doing && row.doingCommand && !sending && (
-          <span className="cv-worked__glyph" aria-hidden="true">
-            <TerminalSquare />
+      {!waiting && doing && row.doingCommand && !sending && (
+        <span className="cv-worked__glyph" aria-hidden="true">
+          <TerminalSquare />
+        </span>
+      )}
+      {waiting ? (
+        <output className="cv-worked__label cv-waiting" data-waiting={waiting}>
+          {t(WAITING_LABEL[waiting])}
+        </output>
+      ) : doing || row.thinkingNow ? (
+        <>
+          <span ref={words} className={doing ? "cv-worked__label cv-worked__doing" : "cv-worked__label"}>
+            {doing ??
+              (held ? t("thinking") : <StatusVerb elapsedMs={Math.max(0, until - row.at)} verbKey={row.verbKey} />)}
           </span>
-        )}
-        {waiting ? (
-          <output className="cv-worked__label cv-waiting" data-waiting={waiting}>
-            {t(WAITING_LABEL[waiting])}
-          </output>
-        ) : doing || row.thinkingNow ? (
-          <>
-            <span ref={words} className={doing ? "cv-worked__label cv-worked__doing" : "cv-worked__label"}>
-              {doing ??
-                (held ? t("thinking") : <StatusVerb elapsedMs={Math.max(0, until - row.at)} verbKey={row.verbKey} />)}
-            </span>
-            <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
-          </>
-        ) : (
-          <span className="cv-worked__label">
-            {until - row.at < 1000 ? (
-              t("subsession.state.working")
-            ) : (
-              <TimedLabel
-                text={(time) => t("turn.working", { time })}
-                time={Math.max(0, until - row.at)}
-                ticking={!held}
-              />
-            )}
-          </span>
-        )}
+          <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
+        </>
+      ) : (
+        <span className="cv-worked__label">
+          {until - row.at < 1000 ? (
+            t("subsession.state.working")
+          ) : (
+            <TimedLabel
+              text={(time) => t("turn.working", { time })}
+              time={Math.max(0, until - row.at)}
+              ticking={!held}
+            />
+          )}
+        </span>
+      )}
     </>
   );
   return (
@@ -112,12 +112,7 @@ export function WorkingFor({
     // room (`is-toggle`, conversation.css), so the turn's end swaps the words and nothing moves.
     <div className={row.below ? "cv-worked is-below" : "cv-worked has-divider is-toggle"} data-find-skip>
       {toggles ? (
-        <button
-          type="button"
-          className="cv-worked__toggle"
-          aria-expanded={expanded}
-          onClick={onToggle}
-        >
+        <button type="button" className="cv-worked__toggle" aria-expanded={expanded} onClick={onToggle}>
           {label}
           <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
         </button>

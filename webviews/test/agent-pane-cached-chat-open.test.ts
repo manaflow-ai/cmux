@@ -463,75 +463,79 @@ test("a turn that ended while away does not come back as a running turn", async 
 // #50987: the tail kept while the turn ran ends without its turn_result. Drawn as it came, that
 // turn showed every call open for the second the attach took, then folded under the reader.
 for (const settled of [false, true])
-test(`a turn that ended while away draws folded on the frame back, before its attach answers (${settled ? "laid on the tail" : "read again"})`, async () => {
-  const daemon = new Daemon(`turn-ended-folded-${settled}`);
-  const [A, B] = [daemon.sessionA, daemon.sessionB];
-  const started: Step = ["mux", "turn_started", { turnId: "turn-1" }];
-  const call: Step = [
-    "in",
-    "tool_call",
-    {
-      method: "session/update",
-      params: {
-        sessionId: A,
-        update: {
-          sessionUpdate: "tool_call",
-          toolCallId: "c1",
-          title: "git status",
-          kind: "execute",
-          status: "completed",
-          rawInput: { command: "git status" },
+  test(`a turn that ended while away draws folded on the frame back, before its attach answers (${settled ? "laid on the tail" : "read again"})`, async () => {
+    const daemon = new Daemon(`turn-ended-folded-${settled}`);
+    const [A, B] = [daemon.sessionA, daemon.sessionB];
+    const started: Step = ["mux", "turn_started", { turnId: "turn-1" }];
+    const call: Step = [
+      "in",
+      "tool_call",
+      {
+        method: "session/update",
+        params: {
+          sessionId: A,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "c1",
+            title: "git status",
+            kind: "execute",
+            status: "completed",
+            rawInput: { command: "git status" },
+          },
         },
       },
-    },
-  ];
-  const running = [prompt("Run it"), started, reply(A, "Checking."), call];
-  daemon.pages.set(A, [
-    { events: running },
-    {
-      events: [...running, reply(A, "All done."), ["mux", "turn_result", { status: "completed", turnId: "turn-1" }]],
-      settled,
-    },
-  ]);
-  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
-  daemon.status.set(A, "running");
-  const { client, last } = await paneOn(daemon);
-  try {
-    expect(last().isWorking).toBe(true);
-    expect(last().rows.some((row) => row.kind === "turnSummary")).toBe(false);
-    await client.select(B);
-    daemon.status.set(A, "idle");
-    daemon.changed(A);
-    daemon.hold = A;
-    const back = client.select(A);
-    await daemon.asked;
-    // The frame back, from the kept tail: the turn already ended, under its result's own row.
-    const kept = last();
-    expect(kept.isWorking).toBe(false);
-    expect(text(kept)).toContain("Checking.");
-    const shapedKept = turnView(kept.rows, NO_FOLDS, { agentFamily: "codex" });
-    expect(shapedKept.some((row) => row.kind === WORKED)).toBe(true);
-    // The call is inside the closed fold, not drawn as a row of its own.
-    expect(shapedKept.some((row) => row.kind === "activity")).toBe(false);
-    expect(kept.rows.filter((row) => row.kind === "turnSummary").map((row) => row.id)).toEqual(["summary-turn-1"]);
-    daemon.release();
-    await back;
-    // The attach keeps that row and fold, and only brings the rest of the turn.
-    expect(last().rows.filter((row) => row.kind === "turnSummary").map((row) => row.id)).toEqual(["summary-turn-1"]);
-    expect(text(last())).toContain("All done.");
-    const shapedRead = turnView(last().rows, NO_FOLDS, { agentFamily: "codex" });
-    expect(shapedRead.find((row) => row.kind === WORKED)?.id).toBe(shapedKept.find((row) => row.kind === WORKED)?.id);
-    // The turn ends after all of its rows, the reply the attach brought included: a page laid on
-    // the tail reopens the provisional end before its records (direct.ts `reopenKeptTurn`).
-    const ids = last().rows.map((row) => row.id);
-    expect(ids.at(-1)).toBe("summary-turn-1");
-    expect(text(last()).indexOf("All done.")).toBeGreaterThan(-1);
-    expect(last().rows.findIndex((row) => JSON.stringify(row).includes("All done."))).toBeLessThan(ids.length - 1);
-    expect(last().rows.find((row) => row.id === "summary-turn-1")?.turnStartedAtMs).toBeDefined();
-  } finally {
-    client.close();
-  }
-});
+    ];
+    const running = [prompt("Run it"), started, reply(A, "Checking."), call];
+    daemon.pages.set(A, [
+      { events: running },
+      {
+        events: [...running, reply(A, "All done."), ["mux", "turn_result", { status: "completed", turnId: "turn-1" }]],
+        settled,
+      },
+    ]);
+    daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
+    daemon.status.set(A, "running");
+    const { client, last } = await paneOn(daemon);
+    try {
+      expect(last().isWorking).toBe(true);
+      expect(last().rows.some((row) => row.kind === "turnSummary")).toBe(false);
+      await client.select(B);
+      daemon.status.set(A, "idle");
+      daemon.changed(A);
+      daemon.hold = A;
+      const back = client.select(A);
+      await daemon.asked;
+      // The frame back, from the kept tail: the turn already ended, under its result's own row.
+      const kept = last();
+      expect(kept.isWorking).toBe(false);
+      expect(text(kept)).toContain("Checking.");
+      const shapedKept = turnView(kept.rows, NO_FOLDS, { agentFamily: "codex" });
+      expect(shapedKept.some((row) => row.kind === WORKED)).toBe(true);
+      // The call is inside the closed fold, not drawn as a row of its own.
+      expect(shapedKept.some((row) => row.kind === "activity")).toBe(false);
+      expect(kept.rows.filter((row) => row.kind === "turnSummary").map((row) => row.id)).toEqual(["summary-turn-1"]);
+      daemon.release();
+      await back;
+      // The attach keeps that row and fold, and only brings the rest of the turn.
+      expect(
+        last()
+          .rows.filter((row) => row.kind === "turnSummary")
+          .map((row) => row.id),
+      ).toEqual(["summary-turn-1"]);
+      expect(text(last())).toContain("All done.");
+      const shapedRead = turnView(last().rows, NO_FOLDS, { agentFamily: "codex" });
+      expect(shapedRead.find((row) => row.kind === WORKED)?.id).toBe(shapedKept.find((row) => row.kind === WORKED)?.id);
+      // The turn ends after all of its rows, the reply the attach brought included: a page laid on
+      // the tail reopens the provisional end before its records (direct.ts `reopenKeptTurn`).
+      const ids = last().rows.map((row) => row.id);
+      expect(ids.at(-1)).toBe("summary-turn-1");
+      expect(text(last()).indexOf("All done.")).toBeGreaterThan(-1);
+      expect(last().rows.findIndex((row) => JSON.stringify(row).includes("All done."))).toBeLessThan(ids.length - 1);
+      expect(last().rows.find((row) => row.id === "summary-turn-1")?.turnStartedAtMs).toBeDefined();
+    } finally {
+      client.close();
+    }
+  });
 
 test("a chat still running when the reader comes back draws as working at once", async () => {
   const daemon = new Daemon("still-running");
