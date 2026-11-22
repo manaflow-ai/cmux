@@ -117,5 +117,5 @@ public final class CustomizeDoctorNotice {
 }
 
 enum CustomizeDoctorStrings {
-    static var review: String { String(localized: "customizeDoctor.notice.review", defaultValue: "Review", bundle: .module) }
+    static var review: String { String(localized: "customizeDoctor.notice.review", defaultValue: "Review", bundle: .localizedModule) }
 }

@@ -18,8 +18,6 @@ enum WindowHandlers {
         context.services.pages.register(context.services.settingsWindow)
         context.services.pages.register(context.services.debugSettings)
         registry.bind("openSettings", run: { invocation in
-            // `route`: an in-process page-only place (the customize doctor's notice); else a
-            // `card.NAME` setting whose card no section opens.
             let link = SettingsDeepLink(invocation), cardRoute = link.route ?? SettingsPageLayout.pageOnlyCardRoute(link.setting)
             try context.services.settingsWindow.show(section: link.section, setting: cardRoute == nil ? link.setting : nil, focus: invocation.allowsViewChange, route: cardRoute)
         })
