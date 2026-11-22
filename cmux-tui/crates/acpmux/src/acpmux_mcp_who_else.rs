@@ -174,6 +174,9 @@ pub(super) fn brief(answer: &Value) -> Value {
                     "sessions": dropped,
                     "rankedOut": ranked_out,
                     "listEntries": cut,
+                    // The detail tier each kept row was cut to, so six rows in short form read
+                    // apart from six rows in full: the most entries a list keeps, the longest text.
+                    "rowDetail": {"tier": tier, "listMax": list, "textMax": field},
                     "charactersOfWhole": whole,
                     "how": "pass detail: true for every row and field, or narrow the call with files, topic or since",
                 }),
@@ -200,9 +203,14 @@ pub(super) fn text(answer: &Value) -> String {
         let n = |k: &str| o.get(k).and_then(Value::as_u64).unwrap_or(0);
         let (sessions, entries, whole) = (n("sessions"), n("listEntries"), n("charactersOfWhole"));
         if sessions > 0 || entries > 0 {
+            let detail = o.get("rowDetail");
+            let d = |k: &str| detail.and_then(|v| v.get(k)).and_then(Value::as_u64).unwrap_or(0);
             out.push_str(&format!(
                 "\n(bounded to {MAX_CHARS} characters of {whole}: {sessions} session rows and \
-{entries} list entries left out, and long text clipped. For all of it: detail: true.)"
+{entries} list entries left out; each row kept in short form, at most {} list entries and {} \
+characters of text. For all of it: detail: true.)",
+                d("listMax"),
+                d("textMax")
             ));
         }
     }
@@ -296,6 +304,10 @@ mod tests {
         assert_eq!(short.get("sessions").and_then(Value::as_array).unwrap().len(), 6);
         assert_eq!(short.get("omitted").unwrap().get("sessions").unwrap(), &json!(0));
         assert!(short.get("omitted").unwrap().get("listEntries").unwrap().as_u64().unwrap() > 0);
+        // The cut names its tier, so six short rows read apart from six whole ones.
+        let detail = short.get("omitted").unwrap().get("rowDetail").unwrap();
+        assert!(detail.get("tier").unwrap().as_u64().unwrap() > 0, "{detail}");
+        assert!(text(&short).contains("short form"));
     }
 
     #[test]
