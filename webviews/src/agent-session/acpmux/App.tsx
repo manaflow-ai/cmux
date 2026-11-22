@@ -110,7 +110,6 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
-  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -119,12 +118,13 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
+  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  withCloudStartFolder,
   withDraftFolder,
+  withCloudStartFolder,
   shownCloudStartPick,
   withCloudStartPick,
 } from "./newtab/draftFolder";
@@ -320,9 +320,9 @@ import {
   type BackgroundCommand,
   backgroundCommands,
   backgroundSection,
+  backgroundRowCount,
   type ProcessSource,
   useProcessRegistry,
-  backgroundRowCount,
 } from "./session-info/processes";
 import {
   setSessionInfoOpen as setSessionInfoPanelOpen,
@@ -334,12 +334,12 @@ import {
 import { chatProcessesHere, openCommand, opensProcessTerminal } from "./processTerminal";
 import {
   descendants,
+  callIds,
   subagentChangesFolder,
   subagentProcesses,
   subagentSummary,
   withChatEnds,
   type SubagentScope,
-  callIds,
 } from "./session-info/subagentScope";
 import { pendingToolCalls, waitingSubagents } from "./summary/subagentStatusListModel";
 import { SubagentTray } from "./subagents/SubagentTray";
@@ -366,7 +366,7 @@ import {
   withSubagentLines,
   endedInFailure,
 } from "./subagents/runningTray";
-import { lingeringTrayItems, trayItemEnd, useTrayLinger, TRAY_LINGER_MS } from "./subagents/trayLinger";
+import { lingeringTrayItems, TRAY_LINGER_MS, trayItemEnd, useTrayLinger } from "./subagents/trayLinger";
 import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
 import { SelectionReplyChip } from "./conversation/SelectionReply";
 import { quoteInReply, setQuoteReplySink } from "./conversation/selectionReplyModel";
@@ -602,8 +602,6 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
@@ -612,6 +610,8 @@ import {
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   pageOnOtherMachine,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
