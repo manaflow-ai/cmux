@@ -6,11 +6,13 @@
 
 use super::*;
 
-/// `acpmux send --from AGENT --class result`: another agent's action, steering by default. One
-/// that names no class is an FYI (`inbox.rs` `default_notice_class`), which steers into no turn.
+/// `acpmux send --from AGENT --class question`: another agent's question, steering by default.
+/// One that names no class is an FYI (`inbox.rs` `default_notice_class`), which steers into no
+/// turn, and a result waits out its coalescing window (`hub/inbox.rs` `STEER_COALESCE_MS`); a
+/// question steers into the running turn at once.
 fn from_agent(id: &str, prompt_id: &str, text: &str, steer: bool) -> Value {
     let meta = json!({
-        "promptId": prompt_id, "fromAgent": "coordinator", "steer": steer, "class": "result",
+        "promptId": prompt_id, "fromAgent": "coordinator", "steer": steer, "class": "question",
     });
     json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": meta}})
 }
