@@ -17,7 +17,6 @@
     "backend.yml:promote-production": "a nightly, dev or promote delivery workflow: its behaviour stays its owner's call (2026-11-18 brief: timeouts only); left for the owner to move to !cancelled()",
     "ci-web.yml:react-apps-check": "the React apps gate: a cancelled run reports a red gate, never a skipped (passing) one (tests/test_ci_change_areas.py holds it)",
     "cloudflare-relay.yml:rollback-production": "rolls production back after a regressed journey; it must run even when the run is cancelled after the regression was seen",
-    "cmux-next-web-bundle-publish.yml:pointer": "a nightly, dev or promote delivery workflow: its behaviour stays its owner's call (2026-11-18 brief: timeouts only); left for the owner to move to !cancelled()",
     "ios-appstore-upload.yml:assign-internal": "a nightly, dev or promote delivery workflow: its behaviour stays its owner's call (2026-11-18 brief: timeouts only); left for the owner to move to !cancelled()",
     "nightly-next-canary.yml:verdict": "a nightly, dev or promote delivery workflow: its behaviour stays its owner's call (2026-11-18 brief: timeouts only); left for the owner to move to !cancelled()",
     "nightly-next-launch-smoke.yml:crashed": "a nightly, dev or promote delivery workflow: its behaviour stays its owner's call (2026-11-18 brief: timeouts only); left for the owner to move to !cancelled()",
