@@ -70,6 +70,10 @@ final class WindowOverlayLayer {
     private var evaluateAfterLayout = false
     /// A parent move or resize reported during the layout pass.
     private var geometryAfterLayout = false
+    /// In-tree pages on: the page child windows seen on screen now (by window number), each counted once.
+    private var seenPageWindows: Set<Int> = []
+    /// In-tree pages on: the last page child windows that showed (`debug.layers` `retired_page_windows`); must stay empty.
+    private(set) var retiredPageWindowSightings: [String] = []
     /// Reorders done (for `debug.layers`).
     var reorderCount: Int { WindowOverlayHost.existingHost(for: window)?.reorderCount ?? 0 }
 
@@ -301,13 +305,13 @@ final class WindowOverlayLayer {
         }
         isEvaluating = true
         defer { isEvaluating = false }
-        var wanted: Placement = window.isVisible && !Self.contentChildWindows(of: window).isEmpty ? .overlayWindow : .inWindow
-        // In-tree pages: the overlays are views on the window (`WindowOverlayHost.usesWindowBackend`) and the dividers
-        // plain views; no panel and no catcher ever orders in. A page window still on screen is counted, never served.
-        if wanted == .overlayWindow, InTreePages.shared.isActive {
-            InTreeRetiredGuards.shared.fired(.dividerCatchers)
-            wanted = .inWindow
-        }
+        let pageWindows = window.isVisible ? Self.contentChildWindows(of: window) : []
+        // The placement follows the real windows in both modes: in-window while no page window is on screen, the panel
+        // and the catchers while one is. With in-tree pages no page is a window, so this stays in-window; a page window
+        // that still shows (a page the fork refused twice, `CEFInTreeHosting.fellBack`) is served as before and counted
+        // (`InTreeRetiredGuards.dividerCatchers`, `retiredPageWindowSightings`).
+        let wanted: Placement = pageWindows.isEmpty ? .inWindow : .overlayWindow
+        notePageWindowsInTree(pageWindows)
         if wanted != placement {
             placement = wanted
             switch wanted {
@@ -324,11 +328,40 @@ final class WindowOverlayLayer {
     private func showPanel() {
         guard !isTornDown else { return }
         host.onBlockingChange = { [weak self] in self?.syncCatchers() }
+        // A page window on screen: the host's overlays go back to its panel above it, also with in-tree pages on.
+        host.servesPageWindows = true
         host.setPlanesWantPanel(true)
     }
 
     private func hidePanel() {
+        WindowOverlayHost.existingHost(for: window)?.servesPageWindows = false
         WindowOverlayHost.existingHost(for: window)?.setPlanesWantPanel(false)
+    }
+
+    /// In-tree pages on: each page child window that shows is counted once per appearance
+    /// (`InTreeRetiredGuards.dividerCatchers`) and described (`retiredPageWindowSightings`, `debug.layers`), so a check
+    /// names the window instead of only seeing a count.
+    private func notePageWindowsInTree(_ pageWindows: [NSWindow]) {
+        guard InTreePages.shared.isActive else {
+            seenPageWindows.removeAll()
+            return
+        }
+        let numbers = Set(pageWindows.map(\.windowNumber))
+        for child in pageWindows where !seenPageWindows.contains(child.windowNumber) {
+            InTreeRetiredGuards.shared.fired(.dividerCatchers)
+            retiredPageWindowSightings.append(Self.describe(child))
+            if retiredPageWindowSightings.count > 16 { retiredPageWindowSightings.removeFirst() }
+        }
+        seenPageWindows = numbers
+    }
+
+    static func describe(_ child: NSWindow) -> String {
+        let f = child.frame
+        let content = child.contentView.map { String(describing: type(of: $0)) } ?? "nil"
+        let delegate = child.delegate.map { String(describing: type(of: $0)) } ?? "nil"
+        return "\(NSStringFromClass(type(of: child))) #\(child.windowNumber) frame=(\(Int(f.minX)),\(Int(f.minY)),\(Int(f.width)),"
+            + "\(Int(f.height))) alpha=\(child.alphaValue) level=\(child.level.rawValue) content=\(content) delegate=\(delegate) "
+            + "ignoresMouse=\(child.ignoresMouseEvents) uptime=\(Int(ProcessInfo.processInfo.systemUptime * 1000))"
     }
 
     /// Wanted child order, bottom to top: content windows, the host panel,
@@ -380,7 +413,7 @@ final class WindowOverlayLayer {
             }
         }
         // A modal or dimming overlay blocks the whole window: no divider takes the mouse under it.
-        catchers.update(catcherAreas, active: placement == .overlayWindow && !InTreePages.shared.isActive && WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow != true)
+        catchers.update(catcherAreas, active: placement == .overlayWindow && WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow != true)
         // The panels pass hover through to the layout, and moving them under
         // a still pointer sends no event: the layout recomputes now (cx-ww20).
         for plane in planes {
