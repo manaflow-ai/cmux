@@ -29,6 +29,11 @@ pub trait FrameSource: Send {
     /// The encoder profile for the next frame, and whether that frame refines a still screen
     /// (ultra). An encoder without an ultra mode keeps its settings.
     fn set_profile(&mut self, _profile: EncodeProfile, _refine: bool) {}
+    /// Whether [`FrameSource::set_profile`] changes the encoder's settings. A source without an
+    /// ultra mode says no, and the stats line then names no profile rather than one it never ran.
+    fn applies_profile(&self) -> bool {
+        false
+    }
     /// Pixels of damage in the next frame (ultra's frame-size guard sizes the frame from it).
     fn set_changed_pixels(&mut self, _pixels: u64) {}
     fn kbps(&self) -> u32;
