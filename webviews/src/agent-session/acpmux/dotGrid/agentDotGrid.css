@@ -9,7 +9,9 @@
   /* The link blue, not the accent: the accent is neutral in some themes and would read as idle. */
   --dot-running: var(--agent-link, var(--agent-accent));
   --dot-approval: var(--agent-warning, #d9a23a);
-  --dot-done: var(--agent-success, var(--acpmux-add, #3fb950));
+  /* A share of the text keeps the green a mark's 3:1 over a see-through window's light picture, where the page's
+     green read 2.98:1 (control-contrast-2, four-agents over the light picture). */
+  --dot-done: color-mix(in srgb, var(--agent-success, var(--acpmux-add, #3fb950)) 85%, var(--agent-text));
   --dot-error: var(--agent-danger, #d35c5c);
   --dot-idle: color-mix(in srgb, var(--agent-muted) 70%, transparent);
   --dot-ring: max(1px, calc(var(--dot) * 0.12));
@@ -47,7 +49,6 @@
   border-radius: 50%;
   background: transparent;
   appearance: none;
-  cursor: pointer;
   /* A state change fades its colors over the scale's largest step. */
   transition:
     background-color var(--cmux-motion-large) var(--cmux-ease-out),
