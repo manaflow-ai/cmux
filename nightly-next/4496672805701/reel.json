@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "build": "4496672805701",
+  "notes": "notes/4496672805701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 44508,
+      "title": "rd: expose successful socket departure receipts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49259,
+      "title": "post-merge batch: create and push the revert branch with a workflows-write token",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49404,
+      "title": "acpmux: a task end its own agent read sends no end notice after it (hq#15820)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46973,
+      "title": "acpmux: archive and unarchive chats, ls --archived, and archive inactive chats on a setting",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49324,
+      "title": "cmux-tui spec: rust caches keyed without the runner's env hash",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47070,
+      "title": "Feed: terminal Claude Code events show what the agent said, and its approvals and questions are answerable from the phone",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49190,
+      "title": "acpmux: asks about a peer down for minutes no longer re-dial its ssh each second",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49453,
+      "title": "acpmux: mesh read retries stay within READ_WAIT; inbox failures say how",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49079,
+      "title": "machine join: install cmux-rd from the files channel so a joined Linux machine's screen is shareable (on base)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
