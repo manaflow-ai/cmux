@@ -228,6 +228,22 @@ class SelectTest(unittest.TestCase):
         self.assertIsNone(self.change("cmux-tui/assets/fixture-icons.svg"))
         self.assertIsNone(self.change("scripts/ci/webviews_affected.py"))
 
+    def test_a_bench_script_or_data_file_no_source_names_selects_only_the_always_set(self) -> None:
+        # cmux#46518: webviews/bench/transcript-scroll-up-ab.sh was "no rule maps", so shard 1 ran every file.
+        self.assertEqual(self.change("webviews/bench/scroll-ab.sh", "webviews/bench/link-profiles-data.json"), ALWAYS)
+
+    def test_a_bench_data_file_a_source_names_still_follows_its_namer(self) -> None:
+        self.change("webviews/bench/named-bench-data.txt")
+        with open(self.root / "webviews/src/leaf.ts", "a") as out:
+            out.write('export const benchData = "bench/named-bench-data.txt";\n')
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "name it")
+        self.assertEqual(self.change("webviews/bench/named-bench-data.txt"), with_always("webviews/test/leaf.test.ts"))
+
+    def test_an_unmapped_non_code_file_elsewhere_under_webviews_still_runs_everything(self) -> None:
+        self.assertIsNone(self.change("webviews/public/unmapped-thing.bin"))
+        self.assertIsNone(self.change("webviews/benchmarks-not-bench/run.sh"))
+
     def test_the_cli_prints_paths_under_webviews_or_nothing(self) -> None:
         self.change("webviews/src/leaf.ts")
         run = lambda: subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_affected.py"), "--base", "HEAD^1",

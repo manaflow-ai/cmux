@@ -25,7 +25,10 @@ it from missing a test:
   - a build or runner input (webviews/package.json, bun.lock, bunfig, tsconfig, vite configs,
     webviews/scripts/, the test support dir, the preload bunfig loads before every file and
     what it imports, the runner scripts, this file, ci-web.yml) selects everything, as does
-    any other file under webviews/ no rule maps.
+    any other file under webviews/ no rule maps;
+  - a non-code file under webviews/bench/ (a bench's shell script or data) that no webviews
+    source names selects nothing: a pull request touching one ran all 370 test files in shard 1,
+    82 of the job's 90 minutes (cmux#46518, run 44989487266). Named, it follows the naming rule.
 Docs (.md) no test imports and files no webviews source names select nothing.
 """
 from __future__ import annotations
@@ -41,6 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import focused_tests as ft  # noqa: E402
 
 WEB = "webviews/"
+BENCH = WEB + "bench/"
 EVERYTHING = re.compile(
     r"^webviews/(package\.json|bun\.lock|bunfig\.toml|tsconfig[^/]*\.json|vite[^/]*\.(ts|mjs|js)|"
     r"reactCompiler\.mjs|scripts/|test/support/|test/setup|test/preload)"
@@ -175,6 +179,8 @@ class Selector:
             named = self.named_by(f)
             if named is None:
                 return None, f"{f} is named by a webviews file outside the import graph"
+            if f.startswith(BENCH) and not named and not f.endswith(ft.EXTENSIONS):
+                continue  # a bench's script or data no webviews source names: a bench run reads it, no test does
             if f.startswith(WEB) and not named and not f.endswith(ft.EXTENSIONS):
                 return None, f"no rule maps {f}"
             out |= named
