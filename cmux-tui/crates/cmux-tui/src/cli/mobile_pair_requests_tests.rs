@@ -55,7 +55,7 @@ fn every_refusal_says_what_to_do_next() {
         ("fingerprint_mismatch", "cmux mobile pair-requests list --mac Studio"),
         ("no_waiting_request", "Start pairing on that device again"),
         ("unavailable", "Open the cmux app on Studio"),
-        ("unknown_service", "Update cmux on Studio"),
+        ("unknown_service", "pair-requests-v1"),
     ] {
         let (full, text) = explain(code, "why", "Studio");
         assert_eq!(full, format!("pair_requests.{code}"));

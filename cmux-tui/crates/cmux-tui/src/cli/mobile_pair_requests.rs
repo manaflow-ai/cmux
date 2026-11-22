@@ -129,7 +129,8 @@ pub(super) fn explain(code: &str, reason: &str, mac: &str) -> (String, String) {
             "{mac} cannot answer pairing requests now ({reason}). Open the cmux app on {mac} and sign in, then try again"
         ),
         "unknown_service" | "not_offered" => format!(
-            "{mac} runs a cmux without pairing answers from other devices (pair-requests-v1). Update cmux on {mac}"
+            "{mac} does not offer pair-requests-v1, so it cannot be answered from here; run `cmux machine {mac} doctor` \
+             to see the cmux link version it runs"
         ),
         "busy" => {
             format!("{mac} is busy with other pairing checks ({reason}); try again in a moment")
