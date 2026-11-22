@@ -83,7 +83,8 @@ const FIRST_PARTY_PUBLISHER: &str = "cmux/";
 impl Shelf {
     pub(crate) fn of(package: &Package) -> Self {
         match package.source {
-            Source::Default | Source::User => Self::Store,
+            // A git-installed app is the person's own install, like User.
+            Source::Default | Source::User | Source::Git => Self::Store,
             // A first-party STORE app is built into the same folder as the
             // samples; its `cmux/` publisher puts it on Discover (Leo,
             // 2026-11-20: "JUST ADD SHIT").
