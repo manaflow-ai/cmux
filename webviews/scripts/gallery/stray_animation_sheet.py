@@ -9,7 +9,9 @@ stray-animation-capture.ts writes every frame Chromium painted from the turn's e
 
 so the motion the reader was not expecting is visible as white where nothing should move.
 
-Usage: python3 -I stray_animation_sheet.py CAPTURE_DIR OUT_DIR
+Usage: python3 -I stray_animation_sheet.py CAPTURE_DIR OUT_DIR [LABEL ...]
+The labels default to `before after`; name others to compare a later capture (a reviewed
+head, a control run) against the same before.
 """
 
 import sys
@@ -17,7 +19,6 @@ from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw
 
-LABELS = ("before", "after")
 THUMB_W = 300
 PAD = 8
 HEAD = 22
@@ -63,9 +64,9 @@ def row(folder: Path, most: int) -> tuple[list[Image.Image], list[Image.Image], 
     return shots, diffs, notes
 
 
-def sheet(capture: Path, variant: str, out: Path, most: int = 7) -> None:
+def sheet(capture: Path, variant: str, out: Path, labels: tuple[str, ...], most: int = 7) -> None:
     rows: list[tuple[str, list[Image.Image], list[str]]] = []
-    for label in LABELS:
+    for label in labels:
         folder = capture / label / variant / "painted"
         if not folder.is_dir():
             raise SystemExit(f"no painted frames in {folder}")
@@ -98,8 +99,9 @@ def sheet(capture: Path, variant: str, out: Path, most: int = 7) -> None:
 def main() -> None:
     capture = Path(sys.argv[1]).resolve()
     out = Path(sys.argv[2]).resolve()
-    for variant in sorted(path.name for path in (capture / "before").iterdir() if path.is_dir()):
-        sheet(capture, variant, out)
+    labels = tuple(sys.argv[3:]) or ("before", "after")
+    for variant in sorted(path.name for path in (capture / labels[0]).iterdir() if path.is_dir()):
+        sheet(capture, variant, out, labels)
 
 
 if __name__ == "__main__":

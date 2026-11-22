@@ -6,7 +6,7 @@
 // scrolls the reader down and stops), the script samples the running animations frame by frame
 // while the turn ends, records a video of it, and writes a PNG strip of the end's first frames.
 //
-// Usage: bun scripts/gallery/stray-animation-capture.ts OUT_DIR [--label before|after]
+// Usage: bun scripts/gallery/stray-animation-capture.ts OUT_DIR [--label NAME] [--wheel scroll|arm-only|scroll-only]
 // Writes OUT_DIR/<label>/<variant>/{frame-NNN.png,end.png,*.webm} and OUT_DIR/<label>/report.json,
 // and prints one JSON line per variant.
 import fs from "node:fs";
@@ -22,6 +22,17 @@ const args = process.argv.slice(2);
 const outRoot = path.resolve(args.find((arg) => !arg.startsWith("--")) ?? "stray-animation-capture");
 const labelIndex = args.indexOf("--label");
 const label = labelIndex >= 0 ? args[labelIndex + 1]! : "after";
+// `reader-scrolling` by default sends the reader's wheel AND moves the scroller, as a wheel does.
+// The two controls take that pair apart, because `endOnReaderScroll` wants both: an input arms it
+// and the scroller's own later `scroll` settles it.
+//   --wheel arm-only    the wheel alone, offset left where it is  (did the input settle the fold?)
+//   --wheel scroll-only the offset moves with no input first      (did a bare scroll settle it?)
+// A fold that keeps playing under both controls and stops under the default is the real
+// arm-then-scroll path doing the work, not the harness's synthetic event.
+const wheelIndex = args.indexOf("--wheel");
+const wheelMode = wheelIndex >= 0 ? args[wheelIndex + 1]! : "scroll";
+if (!["scroll", "arm-only", "scroll-only"].includes(wheelMode))
+  throw new Error(`--wheel takes scroll, arm-only or scroll-only, not ${wheelMode}`);
 const out = path.join(outRoot, label);
 fs.mkdirSync(out, { recursive: true });
 
@@ -91,7 +102,7 @@ try {
       // End the turn and watch every frame for WATCH_MS: the running animations, where they sit
       // against the scroller's view, and the view's own offset.
       const watched = await page.evaluate(
-        async ({ watchMs, wheel }) => {
+        async ({ watchMs, wheel, armOnly, scrollOnly }) => {
           const report = window.cmuxStrayAnimation!;
           const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
           const frames: {
@@ -113,9 +124,13 @@ try {
               });
               // The reader keeps wheeling while the fold is in flight (endOnReaderScroll).
               if (wheel && ms >= 16 && ms <= 200) {
-                node.dispatchEvent(new WheelEvent("wheel", { deltaY: 40, bubbles: true }));
-                node.scrollTop += 40;
-                node.dispatchEvent(new Event("scroll"));
+                // `scroll-only`: the offset moves with no input to arm it.
+                if (!scrollOnly) node.dispatchEvent(new WheelEvent("wheel", { deltaY: 40, bubbles: true }));
+                // `arm-only`: the input alone, with the offset left where it is.
+                if (!armOnly) {
+                  node.scrollTop += 40;
+                  node.dispatchEvent(new Event("scroll"));
+                }
               }
               if (ms >= watchMs) resolve();
               else requestAnimationFrame(tick);
@@ -130,7 +145,12 @@ try {
             frames,
           };
         },
-        { watchMs: WATCH_MS, wheel: variant === "reader-scrolling" },
+        {
+          watchMs: WATCH_MS,
+          wheel: variant === "reader-scrolling",
+          armOnly: wheelMode === "arm-only",
+          scrollOnly: wheelMode === "scroll-only",
+        },
       );
       await cdp.send("Page.stopScreencast").catch(() => {});
       await page.screenshot({ path: path.join(dir, "frame-999-end.png") });
