@@ -39,13 +39,15 @@ pub(crate) fn running_work(session: &Session, turn_runs: bool, commands: usize) 
     RunningWork { subagents: running.len(), names, commands }
 }
 
-/// A peer's summary as a census row (`Hub::session_list_summary`): no inventory, and a long
-/// title cut (`TITLE_CHARS`), including in rows supplied by older peers.
-/// A packed row cuts the same with no parse (`PeerRow::changed_text`).
+/// A peer's summary as a census row (`Hub::session_list_summary`): no inventory, no
+/// `timeBreakdown` (a local census row has none either), and a long title cut (`TITLE_CHARS`),
+/// including in rows supplied by older peers. A packed row cuts the same with no parse
+/// (`PeerRow::changed_text`).
 pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
     if let Some(row) = summary.as_object_mut() {
         row.remove("tools");
         row.remove("toolsMutable");
+        row.remove("timeBreakdown");
         if let Some(Value::String(title)) = row.get_mut("title") {
             *title = summary_title(title);
         }
