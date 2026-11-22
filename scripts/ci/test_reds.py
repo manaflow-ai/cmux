@@ -1870,6 +1870,8 @@ def classify_web_cut_short(head_log: str | None, windows, job: str = "", base: s
                           f"{'; '.join(left)[:600]}"], shared)
 
 
+# (Until 2026-11-21; the post-merge batch tier, cmux-next-post-merge.yml, now runs the base web checks and bisects
+# its own reds, so no new `web bisect` lines come. bisect_report still reads the old runs.)
 # A coalesced feat-cmux-next web run (cmux-next-web.yml runs its web checks at most once every 30 minutes, on the
 # newest push, routed from the last run's commit) covers several commits. When its webview tests go red, its
 # `web bisect` job (scripts/ci/web_coalesce.py bisect) re-runs only the new red files, only on those commits, and
