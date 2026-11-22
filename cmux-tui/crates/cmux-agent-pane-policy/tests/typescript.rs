@@ -101,6 +101,13 @@ fn the_allowlist_is_what_the_page_sends() {
     let p = policy();
     assert!(sent.remove(&p.initialize), "the page sends initialize");
     assert!(sent.remove("file.search"), "file.search is a mock-mode literal");
+    // The relay allows the move picker's targets read (#49141, AcpmuxPaneMethods.swift) before the
+    // page sends it; the app's own move commands read it on their own connection.
+    assert!(
+        !sent.contains("_acpmux/move_targets"),
+        "the page now sends _acpmux/move_targets: drop this line"
+    );
+    sent.insert("_acpmux/move_targets".to_owned());
     assert_eq!(sent, p.requests, "requests the page sends vs policy.json requests");
     // A frame the page writes itself: `jsonrpc: "2.0",` then its `method:`.
     let notifications: BTreeSet<String> = direct

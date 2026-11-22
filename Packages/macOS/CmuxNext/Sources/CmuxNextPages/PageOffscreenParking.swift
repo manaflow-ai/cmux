@@ -6,10 +6,11 @@ public import AppKit
 /// Adopting the page reparents it into a pane.
 ///
 /// Its alpha is only to keep the page out of sight, so it does not hide a Chromium page in it
-/// (``PageWebView/setChromiumVisibility(_:)``): a Chromium page's child window ignores alpha and
-/// keeps drawing, off screen, so adopting it shows a page that already painted. Hidden by its
-/// alpha, a parked Chromium spare never painted, and each Cmd-T waited for the pane's 500 ms
-/// paint-hold limit.
+/// (``PageWebView/setChromiumVisibility(_:)``): a Chromium page's child window ignores alpha, and the
+/// page draws there until it painted at its parked size, so adopting it shows a page that already
+/// painted. Hidden by its alpha, a parked Chromium spare never painted, and each Cmd-T waited for the
+/// pane's 500 ms paint-hold limit. Once it drew, it reports hidden until it is adopted, a frame wait
+/// or a picture asks it to draw, or it is resized (`PageWebView+AwayDrawing`, CMUX-571).
 @MainActor
 public final class PageOffscreenParking: NSView {
     /// The size of the pane content the page will fill (nil: the window content's), far
