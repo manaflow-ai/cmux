@@ -74,9 +74,7 @@ function composerBox(ctx: PlayContext) {
 const openSubagent = (hat: boolean) => async (ctx: PlayContext) => {
   const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { revealTurn?(id: string): void } };
   page.cmuxAcpmuxBridge?.revealTurn?.(`subagent:${COVERAGE}`);
-  await ctx.waitFor(
-    () => ctx.document.querySelector("[data-composer-relay]"),
-  );
+  await ctx.waitFor(() => ctx.document.querySelector("[data-composer-relay]"));
   const form = composerBox(ctx);
   const field = form.querySelector('[role="combobox"]');
   if (field?.getAttribute("aria-label") !== "Message Test coverage")
