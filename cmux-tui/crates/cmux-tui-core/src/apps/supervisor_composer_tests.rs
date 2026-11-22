@@ -183,6 +183,22 @@ fn mention_completions_are_ranked_by_the_daemon() {
     );
 }
 
+#[test]
+fn composer_toolbar_is_opt_in_and_follows_installed_app_visibility() {
+    let f = fixture();
+    let path = spy_dir(&f).join("cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let buttons = json!([{ "action": "composer.attachFiles" }, { "action": "composer.commands", "label": "Commands" }]);
+    manifest["implements"]["cmux.composer.toolbar/1"] =
+        json!({ "options": { "buttons": buttons } });
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    f.supervisor.reload_local_apps(&Default::default());
+    assert_eq!(list(&f)["toolbarButtons"], json!([]));
+    f.install("local/spy");
+    assert_eq!(list(&f)["toolbarButtons"], buttons);
+}
+
 /// Gives the app in `dir` the mention provider `prefix` with `items`
 /// (`[(id, label)]`) and, when `version` is set, that version.
 fn save_mentions(dir: &Path, prefix: &str, items: &[(&str, &str)], version: Option<&str>) {

@@ -137,6 +137,54 @@
             "border",
             "edge"
           ]
+        },
+        {
+          "key": "experiments.toastsV2",
+          "note": "Taste prototype: toasts v2. A working toast (a spinner) turns into its result in place; every person's tab close, a single workspace close and a sidebar chat archive show one line with an inline Undo; toasts draw quiet glass with a mark in the tone's color and an ink-filled action (CmuxToastCenter.v2, from experimentSwitches; the web toast arm from useExperimentSwitch(\"toastsV2\")). Off by default; off keeps today's toasts.",
+          "title": {
+            "key": "settings.experiments.toastsV2",
+            "text": "Toasts v2"
+          },
+          "help": {
+            "key": "settings.experiments.toastsV2.help",
+            "text": "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "experiments",
+            "experimental",
+            "toasts",
+            "toast",
+            "undo",
+            "spinner"
+          ]
+        },
+        {
+          "key": "experiments.chatWidgets",
+          "note": "Agent chat draws an installed extension's chat widget (cmux.chat.widget/1, the daemon's apps.chat_widgets.route) as a card under a finished tool call (webviews ToolWidget.tsx, useExperimentSwitch(\"chatWidgets\")). Off by default; off makes no route call and draws no card, so the chat is unchanged.",
+          "title": {
+            "key": "settings.experiments.chatWidgets",
+            "text": "Extension Chat Widgets"
+          },
+          "help": {
+            "key": "settings.experiments.chatWidgets.help",
+            "text": "Installed extensions can show a card under a finished tool call in agent chat."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "extension",
+            "extensions",
+            "chat",
+            "widget",
+            "tool",
+            "card"
+          ]
         }
       ]
     }

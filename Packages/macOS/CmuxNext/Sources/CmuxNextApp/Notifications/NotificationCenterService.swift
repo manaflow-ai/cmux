@@ -398,9 +398,9 @@ final class NotificationCenterService {
         let owner = known ?? self.owner(of: tab), local = owner?.isLocal ?? true
         // Going into a tab a strip press held ends the hold: its focus is a look again.
         if [.click, .keystroke, .open].contains(trigger), !viewHolds.isEmpty { viewHolds.remove(tab.id) }
-        // Any look at the tab sees its OSC 7501 done and error records and an
-        // agent chat's completed turn (client view state; the owners keep the facts).
+        // Any look sees OSC 7501 done/error, a chat's done turn, its row's symbols (view state; owners keep facts).
         ProgramStatusSeenStore.shared.markSeen(tab)
+        if [.focus, .click, .open].contains(trigger), let store = (owner ?? services?.daemon)?.store { StatusMapping.shared.markSeen(workspaceOf: tab, in: store) }
         if local, agentFinished[tab.id] != nil, NotificationPolicy(prefs: preferences).clears(trigger, for: .agent) {
             note("\(trigger.rawValue) read agent turn \(tab.id)")
             agentFinished[tab.id] = nil
