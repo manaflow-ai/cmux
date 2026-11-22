@@ -15,6 +15,11 @@ public import WebKit
 /// The web-dev.json server and overlay (live reload) stay ahead
 /// of it, so the order is dev server, dev overlay, update, bundle.
 ///
+/// One registered output is one piece. A piece switched out by the signed switch file of the
+/// channel (``setSwitches(_:)``, cmux-tui/crates/cmux-web-pieces) is served from another kept
+/// update or from the bundle while the others stay on the active update; ``Serving`` is the whole
+/// answer a page loads with.
+///
 /// Only the app's web updater activates a folder, after it checked the folder against a
 /// signed pointer (``load(_:)`` at launch, ``activate(_:)`` for a new update); nothing a page
 /// or a file says can point the app at other files.
@@ -31,8 +36,31 @@ public nonisolated final class WebBundleOverlay: Sendable {
         let output: String
     }
 
+    /// What every piece is served from: the active update and the pieces switched away from it.
+    public nonisolated struct Serving: Equatable, Sendable {
+        /// The active update's folder, nil for the bundle.
+        public var tree: URL?
+        /// The outputs switched out: each one's kept update folder, or nil for its bundled copy.
+        public var switched: [String: URL?]
+
+        public init(tree: URL?, switched: [String: URL?] = [:]) {
+            self.tree = tree
+            self.switched = switched
+        }
+
+        /// The folder `output` is served from (nil: the bundle).
+        public func tree(forOutput output: String) -> URL? {
+            if let other = switched[output] { return other }
+            return tree
+        }
+
+        /// Every update folder this serves from.
+        var trees: Set<URL> { Set(([tree] + switched.values).compactMap { $0 }) }
+    }
+
     nonisolated struct State {
         var tree: URL?
+        var switched: [String: URL?] = [:]
         var bases: [Base] = []
         /// The launch check of the kept update; requests wait for it.
         var pending: Task<URL?, Never>?
@@ -89,12 +117,48 @@ public nonisolated final class WebBundleOverlay: Sendable {
         }
     }
 
+    /// Switches the outputs named in `switched` out of the active update, each to the kept update
+    /// folder given or (nil) to its bundled copy, from the next request on; an output not named is
+    /// served from the active update. Returns whether anything changed. Only the web updater calls
+    /// it, with the answer of the verified switch file.
+    @discardableResult
+    public func setSwitches(_ switched: [String: URL?]) -> Bool {
+        let switched = switched.mapValues { $0?.standardizedFileURL }
+        return state.withLock { held in
+            guard held.switched != switched else { return false }
+            held.switched = switched
+            return true
+        }
+    }
+
     /// The update folder served now, nil for the bundle (or while the launch check runs).
     public var activeTree: URL? { state.withLock { $0.tree } }
 
+    /// The outputs switched out of the active update now.
+    public var switches: [String: URL?] { state.withLock { $0.switched } }
+
+    /// The update folders switched-out pieces are served from now (they stay on disk).
+    public var switchedTrees: [URL] { state.withLock { $0.switched.values.compactMap { $0 } } }
+
+    /// What a page that loads from `tree` now is served: `tree` with the switches of now.
+    public func serving(tree: URL?) -> Serving {
+        Serving(tree: tree?.standardizedFileURL, switched: switches)
+    }
+
+    /// What a new page loads from, once the launch check settled.
+    public func serving() async -> Serving {
+        serving(tree: await current())
+    }
+
+    /// The registered output that holds the bundled root `bundled`, nil when none does.
+    public func output(for bundled: URL) -> String? {
+        let path = Self.realPath(bundled)
+        return state.withLock { $0.bases }.first { path == $0.bundled || path.hasPrefix($0.bundled + "/") }?.output
+    }
+
     /// The folder to serve a request for the bundled root `bundled` from: the active update's.
     public func root(for bundled: URL) async -> URL {
-        root(for: bundled, tree: await current())
+        root(for: bundled, serving: await serving())
     }
 
     /// The update folder a new page loads from (nil: the bundle), once the launch check settled.
@@ -111,10 +175,25 @@ public nonisolated final class WebBundleOverlay: Sendable {
         return Self.mapped(bundled, tree: tree, bases: bases) ?? bundled
     }
 
+    /// The folder to serve a request for the bundled root `bundled` from under `serving`: inside
+    /// the update its piece is served from, else the bundled root.
+    public func root(for bundled: URL, serving: Serving) -> URL {
+        guard serving.tree != nil || !serving.switched.isEmpty else { return bundled }
+        let bases = state.withLock { $0.bases }
+        return Self.mapped(bundled, serving: serving, bases: bases) ?? bundled
+    }
+
     /// `bundled` inside `tree` when one of `bases` holds it, else nil.
     static func mapped(_ bundled: URL, tree: URL, bases: [Base]) -> URL? {
+        mapped(bundled, serving: Serving(tree: tree), bases: bases)
+    }
+
+    /// `bundled` inside the update `serving` serves its piece from, when one of `bases` holds it
+    /// and that piece is not served from the bundle; else nil.
+    static func mapped(_ bundled: URL, serving: Serving, bases: [Base]) -> URL? {
         let path = realPath(bundled)
         for base in bases where path == base.bundled || path.hasPrefix(base.bundled + "/") {
+            guard let tree = serving.tree(forOutput: base.output) else { return nil }
             let rest = path.dropFirst(base.bundled.count)
             return tree.appending(path: base.output + rest, directoryHint: .isDirectory)
         }
@@ -130,27 +209,52 @@ public nonisolated final class WebBundleOverlay: Sendable {
 /// page reads the tree it loaded with until it reloads, so an update swaps in page by page and an
 /// open page never mixes two builds' chunks (a lazy import, a stylesheet) while another reloads.
 nonisolated struct WebBundlePins {
-    private var trees: [ObjectIdentifier: URL?] = [:]
+    /// What a view loaded with, and the outputs (pieces) its requests read.
+    private struct Pin {
+        var serving: WebBundleOverlay.Serving
+        var outputs: Set<String> = []
+    }
+
+    private var pins: [ObjectIdentifier: Pin] = [:]
 
     /// The tree `view` loaded from (`.some(nil)`: the bundle), nil before its first request.
-    func tree(for view: ObjectIdentifier) -> URL?? { trees[view] }
+    func tree(for view: ObjectIdentifier) -> URL?? { pins[view].map(\.serving.tree) }
 
-    mutating func pin(_ view: ObjectIdentifier, to tree: URL?) { trees[view] = .some(tree) }
+    /// What `view` loaded with, nil before its first request.
+    func serving(for view: ObjectIdentifier) -> WebBundleOverlay.Serving? { pins[view]?.serving }
+
+    mutating func pin(_ view: ObjectIdentifier, to tree: URL?) { pin(view, to: WebBundleOverlay.Serving(tree: tree)) }
+
+    /// `view` reads `serving` from now on; the outputs it read before stay known.
+    mutating func pin(_ view: ObjectIdentifier, to serving: WebBundleOverlay.Serving) {
+        pins[view] = Pin(serving: serving, outputs: pins[view]?.outputs ?? [])
+    }
+
+    /// `view` read a file of `output`.
+    mutating func read(_ view: ObjectIdentifier, output: String) { pins[view]?.outputs.insert(output) }
 
     /// Forgets `view` (a new web view that may reuse a gone one's identity).
-    mutating func forget(_ view: ObjectIdentifier) { trees[view] = nil }
+    mutating func forget(_ view: ObjectIdentifier) { pins[view] = nil }
 
     /// Keeps only `live`'s pins.
-    mutating func keep(_ live: Set<ObjectIdentifier>) { trees = trees.filter { live.contains($0.key) } }
+    mutating func keep(_ live: Set<ObjectIdentifier>) { pins = pins.filter { live.contains($0.key) } }
 
     /// Whether `view` still reads a tree other than `tree` (a view with no pin yet loads `tree`).
     func isBehind(_ view: ObjectIdentifier, _ tree: URL?) -> Bool {
-        guard let pinned = trees[view] else { return false }
-        return pinned != tree
+        isBehind(view, WebBundleOverlay.Serving(tree: tree, switched: pins[view]?.serving.switched ?? [:]))
+    }
+
+    /// Whether `view` reads a piece from another folder than `serving` names for it (a view with
+    /// no pin yet loads `serving`). A view that read no registered output is compared by the
+    /// active update alone; a switch of a piece it does not read never reloads it.
+    func isBehind(_ view: ObjectIdentifier, _ serving: WebBundleOverlay.Serving) -> Bool {
+        guard let pin = pins[view] else { return false }
+        guard !pin.outputs.isEmpty else { return pin.serving.tree != serving.tree }
+        return pin.outputs.contains { pin.serving.tree(forOutput: $0) != serving.tree(forOutput: $0) }
     }
 
     /// The update trees pages read now, which must stay on disk.
-    var pinned: Set<URL> { Set(trees.values.compactMap { $0 }) }
+    var pinned: Set<URL> { pins.values.reduce(into: []) { $0.formUnion($1.serving.trees) } }
 }
 
 /// The web views the page and agent pane scheme handlers served, and the update each loaded from,
@@ -202,12 +306,21 @@ public final class WebBundleServedViews {
     /// tree that page loaded with, which its first request pins to the update active then.
     public func root(for bundled: URL, in webView: WKWebView, overlay: WebBundleOverlay = .shared) async -> URL {
         let view = ObjectIdentifier(webView)
-        if let pinned = pins.tree(for: view) { return overlay.root(for: bundled, tree: pinned) }
-        let tree = await overlay.current()
+        let output = overlay.output(for: bundled)
+        if let pinned = pins.serving(for: view) { return root(for: bundled, view, output, pinned, overlay) }
+        let serving = await overlay.serving()
         // Another request of the same page may have pinned it while this one waited.
-        if let pinned = pins.tree(for: view) { return overlay.root(for: bundled, tree: pinned) }
-        pins.pin(view, to: tree)
-        return overlay.root(for: bundled, tree: tree)
+        if let pinned = pins.serving(for: view) { return root(for: bundled, view, output, pinned, overlay) }
+        pins.pin(view, to: serving)
+        return root(for: bundled, view, output, serving, overlay)
+    }
+
+    /// `bundled` under `serving`, noting that `view` reads `output` (so a switch of that piece
+    /// reloads it, and a switch of another does not).
+    private func root(for bundled: URL, _ view: ObjectIdentifier, _ output: String?, _ serving: WebBundleOverlay.Serving,
+                      _ overlay: WebBundleOverlay) -> URL {
+        if let output { pins.read(view, output: output) }
+        return overlay.root(for: bundled, serving: serving)
     }
 
     /// The served views that show a document.
@@ -219,6 +332,14 @@ public final class WebBundleServedViews {
         let live = webViews.allObjects
         pins.keep(Set(live.map(ObjectIdentifier.init)))
         return live.filter { $0.url != nil && !keepsLoaded.contains($0) && pins.isBehind(ObjectIdentifier($0), tree) }
+    }
+
+    /// The shown views that read a piece from another folder than `serving` names for it, less the
+    /// ones that keep their tree until they close (``keepLoadedTree(_:)``).
+    public func behind(_ serving: WebBundleOverlay.Serving) -> [WKWebView] {
+        let live = webViews.allObjects
+        pins.keep(Set(live.map(ObjectIdentifier.init)))
+        return live.filter { $0.url != nil && !keepsLoaded.contains($0) && pins.isBehind(ObjectIdentifier($0), serving) }
     }
 
     /// The update trees open pages read now (they stay on disk until those pages reload).
@@ -237,10 +358,20 @@ public final class WebBundleServedViews {
         return views.count
     }
 
+    /// Reloads `views` under `serving`. Returns how many it reloaded.
+    @discardableResult
+    public func reload(_ views: [WKWebView], to serving: WebBundleOverlay.Serving) -> Int {
+        for webView in views {
+            pins.pin(ObjectIdentifier(webView), to: serving)
+            webView.reload()
+        }
+        return views.count
+    }
+
     /// Reloads every served view that shows a document from the folder now active. Returns how
     /// many it reloaded.
     @discardableResult
     public func reloadServed(overlay: WebBundleOverlay = .shared) -> Int {
-        reload(shown, to: overlay.activeTree)
+        reload(shown, to: overlay.serving(tree: overlay.activeTree))
     }
 }
