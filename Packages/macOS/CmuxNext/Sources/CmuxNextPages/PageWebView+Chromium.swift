@@ -241,6 +241,10 @@ extension PageWebView {
             guard let page else { return false }
             return await Self.apply(edit, token: self?.inputReadiness.editToken, expectedEpoch: expectedEpoch, in: page)
         }
+        inputReadiness.stateReader = { [weak page] in
+            guard let page else { return nil }
+            return await Self.readinessState(in: page)
+        }
         chromiumSession = session
         scriptTarget.bridge = bridge
         bridge.evaluate(chromiumZoomScript + DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))
@@ -288,6 +292,7 @@ extension PageWebView {
         chromiumDragged = nil
         chromiumDropConfirmed = nil
         inputReadiness.editor = nil
+        inputReadiness.stateReader = nil
         scriptTarget.bridge = bridge
         engineDecision = .webKit(reason)
         webView.isHidden = false
@@ -312,6 +317,7 @@ extension PageWebView {
         chromiumSession?.end()
         chromiumSession = nil
         inputReadiness.editor = nil
+        inputReadiness.stateReader = nil
     }
 
     // MARK: Events
@@ -338,7 +344,7 @@ extension PageWebView {
                 return
             }
             // The Runtime domain off before the document's scripts run, and the binding again.
-            chromiumSession.bridge.documentCommitted()
+            chromiumSession.bridge.documentCommitted(resendInputReadiness: true)
             documentCommitted()
             chromiumSession.bridge.evaluate(chromiumZoomScript)
         case .finished:
@@ -480,8 +486,11 @@ extension PageWebView {
     /// needs (a dev server's lets the page's HMR socket connect).
     func chromiumResource(_ url: URL, range: String? = nil) async -> PageChromiumResponse {
         guard let request = PageSchemeHandler.dynamicRequest(for: url, page: descriptor) else {
+            // Pinned to the update this page's document loaded with, as a WebKit page is: one
+            // document never mixes two builds' files.
             return await PageSchemeHandler.liveChromiumResponse(to: url, range: range, page: descriptor,
-                                                                root: Self.servedRoot(for: descriptor), dynamicSource: dynamicResources)
+                                                                root: Self.servedRoot(for: descriptor), dynamicSource: dynamicResources,
+                                                                pinnedIn: webView)
         }
         if let ranged = dynamicResources as? any PageRangedResourceSource {
             return await PageSchemeHandler.rangedResponse(to: request, range: range, source: ranged)
@@ -541,5 +550,12 @@ extension PageWebView {
             return false
         }
         return ChromiumPageHostWire.evaluationIsTrue(json)
+    }
+
+    /// The readiness script's state now (``PageInputReadiness/refresh()``), as an evaluation's value: no binding call.
+    private static func readinessState(in page: any PageChromiumPage) async -> String? {
+        let params: [String: any Sendable] = ["expression": PageInputReadiness.stateExpression, "returnByValue": true]
+        guard let json = try? await page.devTools("Runtime.evaluate", params: params) else { return nil }
+        return ChromiumPageHostWire.evaluationString(json)
     }
 }
