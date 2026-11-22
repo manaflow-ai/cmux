@@ -1,7 +1,8 @@
-// A chat page's start reads no computed style for the three values it asks for at once: the page
+// A chat page's start reads no computed style for the values it asks for at once: the page
 // background's see-through (desktop.ts updateSeeThrough), the Interface Size the transcript places
-// its gaps at (transcriptGrid.ts gridScale) and the page zoom the column is sized at (chatWidth.ts
-// readUIScale). A computed read restyles whatever is dirty first, and at the start that is every
+// its gaps at (transcriptGrid.ts gridScale), the page zoom the column is sized at (chatWidth.ts
+// readUIScale) and the one the host glass measures at (ui/glass/hostGlass.ts hostGlassPageZoom).
+// A computed read restyles whatever is dirty first, and at the start that is every
 // element of the chat's drawn copy too (chatSnapshot/paint.ts): fleet profile of
 // bench/first-load-after-restart.bench.ts (6 pages, CPU 4), 434 ms of getPropertyValue with the copy
 // against 108 ms without. Each still follows the host's change at runtime.
@@ -103,8 +104,8 @@ test("the column's page zoom loads with no computed read and follows the host's 
   reads = 0;
   root().style.setProperty("--cmux-ui-scale", "1.25");
   // A module of its own (the query), so its load-time read happens here, in this window.
-  const { uiScale } =
-    (await import("../src/agent-session/acpmux/chatWidth.ts?start-style-reads")) as typeof import("../src/agent-session/acpmux/chatWidth");
+  const fresh = "../src/agent-session/acpmux/chatWidth.ts?start-style-reads";
+  const { uiScale } = (await import(fresh)) as typeof import("../src/agent-session/acpmux/chatWidth");
   expect(uiScale()).toBe(1.25);
   root().style.setProperty("--cmux-ui-scale", "1.5");
   dom.window.dispatchEvent(new dom.window.Event("cmux-ui-scale-change"));
@@ -112,5 +113,16 @@ test("the column's page zoom loads with no computed read and follows the host's 
   root().style.removeProperty("--cmux-ui-scale");
   dom.window.dispatchEvent(new dom.window.Event("cmux-ui-scale-change"));
   expect(uiScale()).toBe(1);
+  expect(reads).toBe(0);
+});
+
+test("the host glass reads the page zoom from the host's inline value, never computed", async () => {
+  reads = 0;
+  const { hostGlassPageZoom } = await import("../src/ui/glass/hostGlass");
+  root().style.removeProperty("--cmux-ui-scale");
+  expect(hostGlassPageZoom(doc())).toBe(1);
+  root().style.setProperty("--cmux-ui-scale", "1.25");
+  expect(hostGlassPageZoom(doc())).toBe(1.25);
+  root().style.removeProperty("--cmux-ui-scale");
   expect(reads).toBe(0);
 });
