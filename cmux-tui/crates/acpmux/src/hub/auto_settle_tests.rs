@@ -298,3 +298,29 @@ async fn a_reopened_pull_request_keeps_it() {
     assert_eq!(tag(&session, SETTLED_TAG), None);
     hub.shutdown_all().await;
 }
+
+/// The chat menu's Never Settle (`_acpmux/auto_settle`): sets and removes only the override, says
+/// whether it changed, and the rule then leaves the chat alone until it is removed.
+#[tokio::test]
+async fn never_settle_from_the_menu_sets_and_clears_the_override() {
+    let (hub, session) = chat().await;
+    let rules = Rules { idle_ms: Some(DAY_MS), ..Rules::default() };
+    let mut states = PrStates::default();
+    assert_eq!(hub.auto_settle_state(&session)["never"], json!(false));
+
+    assert!(hub.set_settle_never(&session, true).unwrap());
+    assert!(!hub.set_settle_never(&session, true).unwrap(), "already never: no change");
+    assert_eq!(tag(&session, OVERRIDE_TAG).as_deref(), Some(NEVER));
+    assert_eq!(hub.auto_settle_state(&session)["never"], json!(true));
+    session.meta.lock().unwrap().updated_at = 1;
+    hub.auto_settle_pass(&rules, &mut states).await;
+    assert_eq!(tag(&session, SETTLED_TAG), None, "never keeps it");
+
+    assert!(hub.set_settle_never(&session, false).unwrap());
+    assert!(!hub.set_settle_never(&session, false).unwrap(), "already follows: no change");
+    assert_eq!(tag(&session, OVERRIDE_TAG), None);
+    session.meta.lock().unwrap().updated_at = 1;
+    hub.auto_settle_pass(&rules, &mut states).await;
+    assert_eq!(tag(&session, SETTLED_TAG).as_deref(), Some("idle"), "back on the rule");
+    hub.shutdown_all().await;
+}

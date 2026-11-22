@@ -664,7 +664,7 @@ import { mergeInboxNotices } from "./conversation/inboxNotice";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { cloudAgentLogin, localApiKeyLogin, SIGN_IN_ON_MACHINE } from "./cloudAgentLogin";
 import { handoffTurns } from "./cloudHandoffTurn";
-import { archiveRow, markUnreadRow } from "./header/archiveRow";
+import { type AutoSettleState, archiveRow, markUnreadRow, neverSettleRow } from "./header/archiveRow";
 import { archiveClosesTab, deleteClosesTab } from "./header/archiveClose";
 import { afterDeleteDismiss } from "./header/deleteDismiss";
 import { DeleteChatDialog } from "./header/DeleteChatDialog";
@@ -10943,6 +10943,36 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     t,
   );
   archiveChatRef.current = archive && !archived ? archive.onSelect : undefined;
+  // The chat menu's Never Settle (header/archiveRow.ts neverSettleRow): acpmux says, once per
+  // chat shown, whether a Settle Chats setting is on and whether this chat is set to never.
+  const [autoSettle, setAutoSettle] = useState<AutoSettleState>();
+  const autoSettleLocal = localCwd !== undefined;
+  // `never` undefined only reads (an acpmux without it answers nothing, and the row stays away);
+  // a write that fails says so.
+  const applyAutoSettle = (sessionId: string, never?: boolean) => {
+    const client = directClient.current;
+    if (!client) return;
+    client.autoSettle(sessionId, never).then(
+      (state) => {
+        if (state && snapshotRef.current?.sessionId === sessionId) setAutoSettle({ sessionId, ...state });
+      },
+      (error: unknown) => {
+        if (never !== undefined) notices.failed(errorMessage(error) || String(error));
+      },
+    );
+  };
+  const readAutoSettle = useEffectEvent((sessionId: string) => applyAutoSettle(sessionId));
+  useEffect(() => {
+    if (snapshot.sessionId && autoSettleLocal && !archived) readAutoSettle(snapshot.sessionId);
+  }, [snapshot.sessionId, autoSettleLocal, archived]);
+  const neverSettle = neverSettleRow(
+    { sessionId: snapshot.sessionId, archived, local: autoSettleLocal },
+    autoSettle,
+    (never) => {
+      if (snapshot.sessionId) applyAutoSettle(snapshot.sessionId, never);
+    },
+    t,
+  );
   const markUnread = markUnreadRow(
     {
       sessionId: snapshot.sessionId,
@@ -11583,6 +11613,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           ? []
           : miniRow({ sessionId: snapshot.sessionId, mini: chatMini() }, (sessionId) => void showInMini(sessionId), t)),
         ...(markUnread ? [markUnread] : []),
+        ...(neverSettle ? [neverSettle] : []),
         ...(archive ? [archive] : []),
         ...remove,
         {

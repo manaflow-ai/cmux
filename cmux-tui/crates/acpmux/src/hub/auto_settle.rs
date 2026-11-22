@@ -519,6 +519,37 @@ impl Hub {
         self.update_tags_answered(session, change, None)
     }
 
+    /// The chat menu's Never Settle (`_acpmux/auto_settle`): `never` sets the chat's
+    /// [`OVERRIDE_TAG`]=[`NEVER`], false removes it. It leaves a settled chat settled (Unsettle
+    /// brings it back). Answers whether the tag changed; no change logs nothing.
+    pub(crate) fn set_settle_never(
+        &self,
+        session: &Session,
+        never: bool,
+    ) -> Result<bool, RpcError> {
+        let change = |m: &SessionMeta| {
+            let is_never = m.tags.get(OVERRIDE_TAG).is_some_and(|t| t.value == NEVER);
+            (is_never != never).then(|| {
+                let mut set = serde_json::Map::new();
+                if never {
+                    set.insert(OVERRIDE_TAG.into(), Value::String(NEVER.into()));
+                    (set, Vec::new())
+                } else {
+                    (set, vec![OVERRIDE_TAG.to_owned()])
+                }
+            })
+        };
+        self.update_tags_answered(session, change, None)
+    }
+
+    /// What the chat menu draws its Never Settle row from: `{never, on}`, `on` when any settle
+    /// setting is on on this daemon (the row shows only then, or on a chat already `never`).
+    pub(crate) fn auto_settle_state(&self, session: &Session) -> Value {
+        let never =
+            session.read_meta(|m| m.tags.get(OVERRIDE_TAG).is_some_and(|t| t.value == NEVER));
+        json!({"never": never, "on": read_rules().any()})
+    }
+
     /// The person's own prompt reached `session`: a settled chat comes back.
     pub(crate) fn unsettle_on_person_prompt(&self, session: &Session) {
         let change = |m: &SessionMeta| m.tags.contains_key(SETTLED_TAG).then(|| brought_back(m));
