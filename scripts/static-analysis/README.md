@@ -4,8 +4,8 @@ Each script installs its pinned tool (sha256-checked release binary), runs it ov
 repository, writes the full report to `${FAST_CHECKS_OUT:-${TMPDIR:-/tmp}/static-analysis-out}/`
 and ends with one line, `SA_SUMMARY tool=<tool> findings=<N> seconds=<S>`. A script exits 0
 whenever its tool ran, whatever it found; nonzero only when the tool could not be installed or
-crashed. Nothing here is a CI job or a gate: run them yourself on the fleet, never on a
-person's Mac.
+crashed. Run them yourself on the fleet, never on a person's Mac. Two are also a CI guard
+(below); the rest are report-only.
 
 ```bash
 cmux-ci test --setup webviews -- bash scripts/static-analysis/run-all.sh  # every tool, one table (knip needs bun)
@@ -23,4 +23,17 @@ SA_ONLY="zizmor gitleaks" bash scripts/static-analysis/run-all.sh  # a subset
 | `gitleaks.sh` | gitleaks | Secrets in new commits (`origin/<base>..HEAD`; `GITLEAKS_RANGE`, `SA_BASE`, `GITLEAKS_FULL=1`), always redacted. Allowlist in `gitleaks/gitleaks.toml`. |
 | `osv-scanner.sh` | osv-scanner | Known vulnerabilities in every lockfile (Cargo, bun, npm, Go, SwiftPM). |
 
-A finding becomes a gate only by a later, separate decision.
+## The CI guard: zizmor and gitleaks
+
+`ratchet.py` runs `zizmor.sh` or `gitleaks.sh` and judges its report; ci-guards.yml's `ci` group runs both
+(Linux only), so `scripts/ci/guards-local.sh` and the CI fast guards run them.
+
+- `ratchet.py zizmor`: offline, persona regular. Fails when a file has more findings of an audit and severity
+  than `zizmor/baseline.json` records, or zizmor cannot audit a file the baseline does not list. Counts are
+  per file, not per line, so moving a line keeps its key. Fix a new finding; after fixing old ones, or for a
+  reviewed exception (say why in the pull request), `python3 scripts/static-analysis/ratchet.py zizmor --update`.
+- `ratchet.py gitleaks`: this change's commits only (a pull request's merge commit or a push, each against its
+  first parent or `CMUX_GUARDS_BASE_SHA`), so it has no baseline: any finding fails. A known non-secret goes in
+  `gitleaks/gitleaks.toml`'s allowlist; a real one is rotated.
+
+Any other finding becomes a gate only by a later, separate decision.

@@ -73,25 +73,44 @@ args=(--persona "${ZIZMOR_PERSONA:-regular}" --no-progress)
 
 # zizmor exit codes: 0 clean, 10-14 findings by max severity, anything else a
 # crash. One file whose audit crashes (zizmor aborts the whole run on it) must not
-# hide the rest, so files run one at a time; crashed files are listed, not fatal.
+# hide the rest, so each file is its own zizmor run; crashed files are listed, not
+# fatal. The runs go ZIZMOR_JOBS (default: every core) at a time and are joined in
+# file order: one at a time took 17 s for 279 files on 8 cores, and the CI guard
+# step (ratchet.py) runs this on every guard pass.
 tmp="$(mktemp -d)" || exit 2
 : >"$OUT_DIR/zizmor.stderr"
 : >"$txt"
-crashed=()
+audit_one() {
+  local i=$1 f=$2 rc
+  "$ZIZMOR" "${args[@]}" --format json "$f" >"$tmp/$i.json" 2>"$tmp/$i.err"
+  rc=$?
+  if [ "$rc" -ne 0 ] && { [ "$rc" -lt 10 ] || [ "$rc" -gt 14 ]; }; then
+    echo "$f (exit $rc)" >"$tmp/$i.crash"; rm -f "$tmp/$i.json"; return
+  fi
+  [ "$rc" -ne 0 ] && "$ZIZMOR" "${args[@]}" --format plain "$f" >"$tmp/$i.txt" 2>/dev/null
+  return 0
+}
+jobs_max="${ZIZMOR_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
 i=0
 for f in "${inputs[@]}"; do
   i=$((i + 1))
-  "$ZIZMOR" "${args[@]}" --format json "$f" >"$tmp/$i.json" 2>>"$OUT_DIR/zizmor.stderr"
-  rc=$?
-  if [ "$rc" -ne 0 ] && { [ "$rc" -lt 10 ] || [ "$rc" -gt 14 ]; }; then
-    crashed+=("$f (exit $rc)"); rm -f "$tmp/$i.json"; continue
-  fi
-  [ "$rc" -ne 0 ] && "$ZIZMOR" "${args[@]}" --format plain "$f" >>"$txt" 2>/dev/null
+  audit_one "$i" "$f" &
+  # Batches, not `wait -n`: macOS ships bash 3.2.
+  [ $((i % jobs_max)) -eq 0 ] && wait
+done
+wait
+crashed=()
+for i in $(seq 1 "${#inputs[@]}"); do
+  [ -f "$tmp/$i.err" ] && cat "$tmp/$i.err" >>"$OUT_DIR/zizmor.stderr"
+  [ -f "$tmp/$i.crash" ] && crashed+=("$(cat "$tmp/$i.crash")")
+  [ -f "$tmp/$i.txt" ] && cat "$tmp/$i.txt" >>"$txt"
 done
 if [ "${#crashed[@]}" -eq "${#inputs[@]}" ]; then
   echo "zizmor.sh: zizmor crashed on every file" >&2; tail -20 "$OUT_DIR/zizmor.stderr" >&2; rm -rf "$tmp"; exit 4
 fi
-jq -s 'add // []' "$tmp"/*.json >"$json"
+jsons=()
+for i in $(seq 1 "${#inputs[@]}"); do [ -f "$tmp/$i.json" ] && jsons+=("$tmp/$i.json"); done
+jq -s 'add // []' "${jsons[@]}" >"$json"
 rm -rf "$tmp"
 
 findings=$(jq 'length' "$json" 2>/dev/null || echo 0)

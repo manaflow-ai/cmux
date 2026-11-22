@@ -807,6 +807,21 @@ jobs:
           ./scripts/ci/install-actionlint.sh
           "$RUNNER_TEMP/actionlint"
 
+      # zizmor (Actions injection, pull_request_target with a head checkout, token permissions) over every
+      # workflow and composite action, held at scripts/static-analysis/zizmor/baseline.json: a new finding
+      # fails, today's do not. Offline, the pinned release binary; about 4 s. Linux only (LINUX_ONLY_STEPS).
+      - name: Hold zizmor's workflow findings at their baseline
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          python3 tests/test_static_analysis_ratchet.py
+          python3 scripts/static-analysis/ratchet.py zizmor
+
+      # gitleaks over this change's commits (a merge commit's or push's diff against its first parent or
+      # CMUX_GUARDS_BASE_SHA), values redacted: any secret fails. Linux only (LINUX_ONLY_STEPS).
+      - name: Scan this change's commits for secrets (gitleaks)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 scripts/static-analysis/ratchet.py gitleaks
+
       - name: Validate contributor verification receipts and selection
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: |
