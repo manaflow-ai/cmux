@@ -3164,4 +3164,7 @@ class GhMergeGreenRestFallbackTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    sys.path.insert(0, str(ROOT / "tests"))
+    import parallel_unittest
+
+    sys.exit(parallel_unittest.main())

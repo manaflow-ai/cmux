@@ -195,7 +195,13 @@ HEALTH_REPORT_WORKFLOW = ROOT / ".github" / "workflows" / "ci-health-report.yml"
 # RUNNER_POOLS is a JSON map of pool -> label, read as fromJSON(vars.RUNNER_POOLS).<pool>; its labels are
 # checked by scripts/ci/runner_pools.py --check (ci-repo-variables.yml), not by the label policy.
 # CI_RUNNER_STATE is compressed discovery metadata, not a runs-on label.
-NON_LABEL_RUNNER_VARIABLES = {"CI_RUNNER_STATE", "CI_SEED_KEEP_LOCAL_RUNNERS", "RUNNER_POOLS"}
+# RUNNER_ADMISSION_CONTROLLER is the build controller's URL that expected_wait.py reads, not a runs-on label.
+NON_LABEL_RUNNER_VARIABLES = {
+    "CI_RUNNER_STATE",
+    "CI_SEED_KEEP_LOCAL_RUNNERS",
+    "RUNNER_ADMISSION_CONTROLLER",
+    "RUNNER_POOLS",
+}
 
 
 def reported_runner_variables() -> set[str]:

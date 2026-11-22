@@ -373,6 +373,15 @@ SIM_FIRST_CAPABILITY = "glaeda-ios-sim"
 # (runner_pools.owned_ephemeral()), and the janitor's snapshot counts its queue and starts
 # (queue_janitor.pool_load_snapshot(), label_started()) so a full fleet moves its pool to Blacksmith.
 OWNED_EPHEMERAL_LINUX = ("glaeda-linux-arm64",)
+# The owned GCP Linux pool's own label: same-repository x64 work the GCP fleet takes (a reconciler boots a VM per
+# queued job, and the persistent pool's runners carry it too). Blacksmith's runners never take it, so a job naming it
+# runs on our machines only. It may lead an x64 RUNNER_POOLS pool whose jobs need no fresh machine
+# (runner_pools.owned_lead(), spec_problems()); the janitor counts its queue and starts like the label above, so a
+# saturated pool moves to Blacksmith. Leo, 2026-11-21: "i just am like fundamentally opposed to paying for ci when i
+# exist".
+OWNED_GCP_LINUX = ("cmux-fleet-linux-x64",)
+# Every owned Linux label a RUNNER_POOLS pool may lead with, and the janitor counts per label.
+OWNED_POOL_LEAD_LINUX = OWNED_EPHEMERAL_LINUX + OWNED_GCP_LINUX
 # A warm key (owned_warm_state.py): a main commit's first 12 hex digits, or
 # `pr-<number>` for a kept build of that pull request.
 WARM_KEY = re.compile(r"[0-9a-f]{12}|pr-[1-9][0-9]{0,8}")
