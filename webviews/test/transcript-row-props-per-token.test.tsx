@@ -8,6 +8,7 @@ import { afterAll, expect, mock, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { teardownDom } from "./support/domTeardown";
+import { pastFirstPaint } from "./support/pastFirstPaint";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -124,6 +125,8 @@ async function streamAt(height: number): Promise<{ mounted: number; perToken: nu
     );
   try {
     await draw();
+    // Past the chat's first paint its full history mounts: the tokens are measured on the settled chat.
+    await act(pastFirstPaint);
     await draw();
     const mounted = dom.window.document.querySelectorAll(".acpmux-row").length;
     compared = 0;
