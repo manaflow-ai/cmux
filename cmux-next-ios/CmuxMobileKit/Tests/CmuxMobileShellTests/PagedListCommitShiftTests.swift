@@ -38,6 +38,9 @@ import UIKit
 
     final class Seen {
         var shifts: [CGFloat] = []
+        /// The drawn measure's samples (``PagedListProbe/drawnShift``).
+        var drawn: [CGFloat] = []
+        var drawnWorst: CGFloat { drawn.map(abs).max() ?? 0 }
         var worst: CGFloat { shifts.map(abs).max() ?? 0 }
     }
 
@@ -58,6 +61,7 @@ import UIKit
         let seen = Seen()
         let probe = PagedListProbe()
         probe.frameShift = { seen.shifts.append($0) }
+        probe.drawnShift = { shift, _ in seen.drawn.append(shift) }
         let rows = Rows()
         let list = Screen(rows: rows, probe: probe)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
@@ -82,6 +86,7 @@ import UIKit
         }, "the list showed no rows")
         settle()
         seen.shifts = []
+        seen.drawn = []
         return Hosted(window: window, list: found, seen: seen, rows: rows, container: container)
     }
 
@@ -197,6 +202,52 @@ import UIKit
     private func top(of item: Int, in list: UICollectionView) -> CGFloat? {
         guard let attributes = list.layoutAttributesForItem(at: IndexPath(item: item, section: 0)) else { return nil }
         return list.convert(attributes.frame.origin, to: nil).y
+    }
+
+    /// (a) A move drawn with no offset change and no layout pass of the list counts in full on the
+    /// drawn measure.
+    @Test func aDrawnMoveWithNoOffsetChangeCountsInFull() throws {
+        let hosted = try host()
+        defer { hosted.window.isHidden = true }
+        let offset = hosted.list.contentOffset
+        hosted.container.transform = CGAffineTransform(translationX: 0, y: 10)
+        settle()
+        #expect(hosted.list.contentOffset == offset)
+        #expect(!hosted.seen.drawn.isEmpty, "the drawn measure took no sample")
+        #expect(abs(hosted.seen.drawnWorst - 10) < 0.5, "a drawn 10 pt move measured \(hosted.seen.drawn)")
+    }
+
+    /// (b) Rows removed above the reader (a windowed swap of what is above): the offset and the
+    /// layout move together by the removed height and nothing on screen moves: 0 on the drawn measure.
+    @Test func theOffsetAndTheLayoutMovingTogetherDrawNoShift() throws {
+        let hosted = try host()
+        defer { hosted.window.isHidden = true }
+        let list = hosted.list
+        list.setContentOffset(CGPoint(x: 0, y: 20 * 60 - list.adjustedContentInset.top), animated: false)
+        settle()
+        hosted.seen.drawn = []
+        let offset = list.contentOffset.y
+        hosted.rows.items.removeFirst(10)
+        settle()
+        #expect(abs(list.contentOffset.y - (offset - 600)) < 0.5, "the offset moved \(list.contentOffset.y - offset) pt")
+        #expect(!hosted.seen.drawn.isEmpty, "the drawn measure took no sample")
+        #expect(hosted.seen.drawnWorst <= 0.5, "a swap of the rows above measured \(hosted.seen.drawn)")
+    }
+
+    /// (c) The row being read is removed (swapped out) in a frame: the measure follows a row drawn in
+    /// both frames instead of reading the removed row's far position.
+    @Test func theRowBeingReadSwappedOutFollowsASurvivingRow() throws {
+        let hosted = try host()
+        defer { hosted.window.isHidden = true }
+        let list = hosted.list
+        list.setContentOffset(CGPoint(x: 0, y: 20 * 60 - list.adjustedContentInset.top), animated: false)
+        settle()
+        hosted.seen.drawn = []
+        hosted.rows.items.removeAll { $0.id == 20 }
+        settle()
+        #expect(!hosted.seen.drawn.isEmpty, "the drawn measure took no sample")
+        let big = hosted.seen.drawn.filter { abs($0) > 100 }
+        #expect(big.isEmpty, "the removed row was followed out of the list: \(hosted.seen.drawn)")
     }
 
     /// One run loop turn: the frame so far is committed.
