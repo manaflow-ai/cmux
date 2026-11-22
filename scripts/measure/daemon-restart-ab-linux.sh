@@ -32,7 +32,9 @@ export PATH="$HOME/.cargo/bin:$PATH"
 # crates read files across the repository (include_str!) and cmux-vm's crate. Check out the whole tree.
 full_tree() { [[ "$(git -C "$1" config --bool core.sparseCheckout)" != true ]] || git -C "$1" sparse-checkout disable; }
 full_tree "$root"
-out="$(mktemp -d)"
+# A short root: the daemon socket sits several levels under $out/tmp and a Unix socket path stops at
+# 108 bytes (an inherited $TMPDIR under /tmp/acpmux-UID/t/... made every arm fail "did not bind its socket").
+out="$(mktemp -d /tmp/dab.XXXXXX)"
 trap 'git -C "$root" worktree remove --force "$out/base-src" >/dev/null 2>&1 || true; rm -rf "$out"' EXIT
 git fetch -q --depth=50 origin "${base#origin/}" 2>/dev/null || true
 base_sha="$(git rev-parse "$base")"
@@ -68,7 +70,8 @@ for ((r = 0; r < rounds; r++)); do
       break 2
     fi
     began=$SECONDS
-    mkdir -p "$out/tmp"
+    # 0700 whatever the umask: the daemon refuses a group-writable ancestor of its home (a lane VM's umask is 0002).
+    mkdir -p -m 700 "$out/tmp"
     code=0
     (cd "$root/cmux-tui/crates/acpmux" && TMPDIR="$out/tmp" ACPMUX_GOD_SHAPES="$shapes" \
       ACPMUX_GOD_DAEMON_BIN="$out/acpmux-$arm" timeout --kill-after=30 900 "$out/god_daemon" \
