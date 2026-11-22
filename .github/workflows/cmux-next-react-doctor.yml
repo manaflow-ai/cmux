@@ -83,6 +83,10 @@ jobs:
     # Blacksmith, never GitHub-hosted; fork pull requests get a fixed Blacksmith label.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 30
+    # id-token: the controller identifies this run by its OIDC token to look up or record a signed receipt.
+    permissions:
+      contents: read
+      id-token: write
     env:
       REACT_DOCTOR_NO_TELEMETRY: "1"
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
@@ -151,21 +155,33 @@ jobs:
           echo "::notice title=ci-receipt shadow::react-doctor would_skip=$HIT pinned=$PINNED input_key=$INPUT_KEY"
           echo "ci-receipt shadow: react-doctor would_skip=$HIT pinned=$PINNED input_key=$INPUT_KEY" >> "$GITHUB_STEP_SUMMARY"
 
+      # Signed input-keyed receipt (scripts/ci/receipt_signed.py; cmuxterm-hq build-fleet/cmd/controller/input_receipt.go):
+      # the controller keys every project of this tree itself and, when a green feat-cmux-next push left a signed
+      # receipt under the same key, posts it as `cmux/receipt: React Doctor (changed React projects)` on the head, and
+      # the scan below is skipped. A pinned file (the gate's own scripts, tool, workflow or tests; a line of base
+      # scripts/ci/check-paths.txt) is never a hit, and any error is a miss: the scan runs. The skip is on unless the
+      # repository variable CI_INPUT_RECEIPT_SKIP is `off` (Leo, 2026-11-19: "We need to skip more often.").
+      - name: Signed receipt
+        id: signed
+        if: steps.base.outputs.projects != '' && steps.key.outputs.pinned != 'true' && vars.CI_INPUT_RECEIPT_SKIP != 'off'
+        continue-on-error: true
+        run: python3 scripts/ci/receipt_signed.py lookup react-doctor --output "$GITHUB_OUTPUT"
+
       - name: Setup Bun
-        if: steps.base.outputs.projects != ''
+        if: steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Setup Node
-        if: steps.base.outputs.projects != ''
+        if: steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
 
       - name: Cache Bun package cache
-        if: steps.base.outputs.projects != ''
+        if: steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -173,6 +189,7 @@ jobs:
           restore-keys: bun-react-doctor-${{ runner.os }}-${{ runner.arch }}-
 
       - name: React Doctor gate
+        if: steps.signed.outputs.hit != 'true'
         env:
           BASE: ${{ steps.base.outputs.base }}
         run: |
@@ -185,17 +202,24 @@ jobs:
           fi
 
       - name: Record the receipt (shadow)
-        if: success() && steps.key.outputs.input_key != '' && steps.receipt.outputs.cache-hit != 'true'
+        if: success() && steps.key.outputs.input_key != '' && steps.receipt.outputs.cache-hit != 'true' && steps.signed.outputs.hit != 'true'
         continue-on-error: true
         env:
           INPUT_KEY: ${{ steps.key.outputs.input_key }}
           BASE: ${{ steps.base.outputs.base }}
         run: python3 scripts/ci/receipt_input_key.py record react-doctor --input-key "$INPUT_KEY" --base "$BASE" --out "$RUNNER_TEMP/ci-receipt/receipt.json"
 
+      # A green full scan of a feat-cmux-next push: the controller signs a receipt under this tree's key (first green
+      # wins). A pull request cannot record.
+      - name: Record the signed receipt
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.base.outputs.projects == 'all' && steps.signed.outputs.hit != 'true'
+        continue-on-error: true
+        run: python3 scripts/ci/receipt_signed.py record react-doctor
+
       # Saved from feat-cmux-next pushes only: GitHub scopes a pull request's cache entries to that pull request,
       # so a PR's save is read by nothing else (tests/test_ci_no_run_scoped_cache_keys.py). PRs restore it.
       - name: Save the receipt (shadow)
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.key.outputs.input_key != '' && steps.receipt.outputs.cache-hit != 'true'
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.key.outputs.input_key != '' && steps.receipt.outputs.cache-hit != 'true' && steps.signed.outputs.hit != 'true'
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -203,7 +227,7 @@ jobs:
           key: ci-receipt-v1-react-doctor-${{ steps.key.outputs.input_key }}
 
       - name: Upload reports
-        if: always() && steps.base.outputs.projects != ''
+        if: always() && steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: react-doctor-reports
