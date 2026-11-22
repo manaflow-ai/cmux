@@ -16,6 +16,10 @@
 //!   with the canonical path (symlinks resolved, no `..`). An `acp.trust.set`
 //!   for a peer's session names the peer's folder: it goes on to that peer
 //!   unchanged, and the peer's own guard checks the folder there.
+//!   A Web `session/new` with no `cwd` (the home folder, never a root) is refused, but from a
+//!   proven peer (a scratch folder, `peer_scratch`) and from the owner's own paired phone, which
+//!   gets a new agent-home folder of its own (`phone_agent_home`), as a chat in a workspace with
+//!   no folder gets on the Mac; its policy is still an asking one.
 //! - A session method acpmux does not handle itself is not passed to the
 //!   harness (`requests.rs` catch-all), so no harness extension method can
 //!   take caller params that spawn or read. LocalApp may pass
@@ -534,10 +538,18 @@ async fn check_inner(
             // An absent cwd means the home directory, which is never a root. A proven
             // peer (the owner's own daemon) gets a scratch folder named after the
             // session instead: "acpmux is too belt and suspenders there" (Leo).
-            if control_of(origin, auth, params) != crate::hub::Control::Peer {
+            // The owner's own paired phone (`own_phone`, the proof that lets it control
+            // the chats it started) gets a fresh agent-home folder, as the Mac's pane gives a
+            // chat in a workspace with no folder (`phone_agent_home`); its policy stays an
+            // asking one (`web_only`). Every other Web caller is refused.
+            let own_phone = sender.is_some_and(|d| hub.pairing.own_phone(d));
+            if own_phone && control_of(origin, auth, params) == crate::hub::Control::Web {
+                if deferred.is_none() {
+                    params.set("cwd", Value::String(phone_agent_home().await?));
+                }
+            } else if control_of(origin, auth, params) != crate::hub::Control::Peer {
                 return Err(outside_roots("cwd"));
-            }
-            if deferred.is_none() {
+            } else if deferred.is_none() {
                 let cloud_peer =
                     crate::hub::vm_boundary::asked(auth, control_of(origin, auth, params), params);
                 let scratch = peer_scratch(params, cloud_peer).await?;
@@ -1245,6 +1257,38 @@ async fn peer_scratch(params: &Value, cloud_peer: bool) -> Result<String, RpcErr
         made.map_err(|e| failed(e.to_string()))?.map_err(|e| failed(e.to_string()))?;
     }
     crate::config::private_state_dir(&dir).map_err(|e| failed(e.to_string()))?;
+    canonical_dir(&dir.to_string_lossy()).await.ok_or_else(|| folder_refused("cwd"))
+}
+
+/// The folder of a chat the owner's own phone starts with no `cwd` (a chat tab whose workspace
+/// has no project folder): `<agent-home>/phone-<id>`, new for each chat, made owner-only and
+/// marked as made by cmux (`mark_made_by_acpmux`). It is the Mac's agent-home kind of folder
+/// (`trust::agent_home_root`, the app's `AgentHome`), not the peer scratch root: the Mac's pane
+/// treats it as a chat with no project (Choose Folder… offered), it outlives this daemon (the
+/// peer scratch root is a temp folder new for each process), and acpmux trusts it by
+/// construction for every caller (`trust.rs` `made_by_cmux`), so the phone, which cannot answer
+/// a trust question, is not left waiting on one for a folder nobody else chose.
+async fn phone_agent_home() -> Result<String, RpcError> {
+    let failed = |why: String| {
+        RpcError::invalid_params(format!("the chat's folder could not be made on this Mac: {why}"))
+    };
+    let root = crate::trust::agent_home_root()
+        .ok_or_else(|| failed("this Mac has no application data folder".to_owned()))?;
+    let dir = root.join(format!("phone-{}", uuid::Uuid::now_v7().simple()));
+    let made = {
+        let dir = dir.clone();
+        tokio::task::spawn_blocking(move || -> std::io::Result<()> {
+            crate::config::private_state_dir(&root).map_err(std::io::Error::other)?;
+            let mut builder = std::fs::DirBuilder::new();
+            #[cfg(unix)]
+            std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+            // Never an existing folder: a new id, made here or refused.
+            builder.create(&dir)?;
+            mark_made_by_acpmux(&dir)
+        })
+        .await
+    };
+    made.map_err(|e| failed(e.to_string()))?.map_err(|e| failed(e.to_string()))?;
     canonical_dir(&dir.to_string_lossy()).await.ok_or_else(|| folder_refused("cwd"))
 }
 

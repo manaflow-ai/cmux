@@ -113,13 +113,11 @@ folder.
    for good. The coordinator now records the session each store used and
    rebuilds it when the tree binds another (`bind-conversation-tab-session`,
    `agent-session-start`).
-   - The copy now says what to do: "<Agent> hasn't started in this tab yet.
-     Send the first message from cmux on <Mac>; the chat continues here."
-   - It repeats when a prompt is sent.
-   - The phone does not start the chat itself. A Mac chat starts at its
-     first send in the Mac app, and the daemon starts only `registry:` tabs.
-     Allowlisting `agent-session-start` for a phone is a policy decision
-     (#13742).
+   - Superseded (2026-11-22): the phone now starts an unbound chat itself.
+     Its first message runs `session/new` over the `acpmux` lane and binds the
+     session to the tab (`bind-conversation-tab-session`, expected session
+     null), and the reply streams into the same screen. The "hasn't started"
+     notice is gone.
 10. **Offline Mac.** When the linked Mac went offline, the target fell back to
     the list's first Mac (offline for 15 h). `LinkMachine.target` now keeps
     the linked Mac.

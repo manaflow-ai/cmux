@@ -260,6 +260,19 @@ import Testing
             #expect(!LiveWorkspaceCreationBackend.isHomeOrAbove(path), "\(path)")
         }
     }
+
+    /// A chat from the phone starts in the first project folder it has, else with no folder (the
+    /// Mac's acpmux makes the chat one of its own), never in the home folder and never refused.
+    @Test func aChatWithNoProjectFolderStartsWithNoFolder() {
+        let pick = LiveWorkspaceCreationBackend.projectFolder
+        #expect(pick(["/Users/aziz", nil, "/Users/aziz/Projects/mario"]) == "/Users/aziz/Projects/mario")
+        #expect(pick(["~/Projects/mario", "/tmp/x"]) == "/tmp/x")
+        #expect(pick(["/Users/aziz", "/", nil]) == nil)
+        #expect(pick([]) == nil)
+        #expect(LiveWorkspaceCreationBackend.isHomeAlias("~"))
+        #expect(LiveWorkspaceCreationBackend.isHomeAlias(" ~/ "))
+        #expect(!LiveWorkspaceCreationBackend.isHomeAlias("~/Projects"))
+    }
 }
 
 /// New Task's first message: its photos inline and its files as links to their uploaded copies,

@@ -1148,6 +1148,9 @@ public final class AgentChatStore {
             // The refusal said Full access was off; a connection that says it is on ends it.
             if on, clientError == Self.fullAccessOffNotice || clientError == Self.fullAccessOffPromptNotice { clientError = nil }
             modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)
+        case .agent(let harness, let name):
+            if summary.harness != harness { summary.harness = harness }
+            if summary.agentName != name { summary.agentName = name }
         case .status(let status):
             summary.status = status
             if status != .disconnected, wantsBookmarks { loadBookmarks() }
