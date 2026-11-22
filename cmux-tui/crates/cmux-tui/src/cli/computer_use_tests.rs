@@ -63,3 +63,51 @@ fn bad_commands_are_usage_errors() {
         vec!["call".to_owned(), "click".into(), "--args".into(), r#"{"machine":"x"}"#.into()];
     assert!(parse(&machine_in_args).is_err());
 }
+
+/// What `cmux ARGS` asks the computer-use command for, globals applied.
+fn request(text: &str) -> Request {
+    let (global, rest) = split(&words(text)).expect("a computer-use command");
+    parse(&rest).unwrap().on_machine(global.machine.as_deref())
+}
+
+#[test]
+fn machine_after_the_command_reaches_the_command() {
+    // The global option used to swallow these, so the call ran on this machine.
+    assert_eq!(
+        request("computer-use status --machine cmux16"),
+        Request::Call { tool: "status".into(), args: json!({}), machine: Some("cmux16".into()) }
+    );
+    assert_eq!(
+        request("computer-use call list_windows --machine air-blue"),
+        Request::Call {
+            tool: "list_windows".into(),
+            args: json!({}),
+            machine: Some("air-blue".into())
+        }
+    );
+    assert_eq!(
+        request("computer-use screenshot --out /tmp/a.png --machine=studio"),
+        Request::Screenshot {
+            out: "/tmp/a.png".into(),
+            window: None,
+            machine: Some("studio".into())
+        }
+    );
+}
+
+#[test]
+fn machine_before_the_command_is_the_fallback() {
+    assert_eq!(
+        request("--machine studio computer-use status"),
+        Request::Call { tool: "status".into(), args: json!({}), machine: Some("studio".into()) }
+    );
+    assert_eq!(
+        request("--machine studio computer-use status --machine other"),
+        Request::Call { tool: "status".into(), args: json!({}), machine: Some("other".into()) }
+    );
+    assert_eq!(
+        request("computer-use status"),
+        Request::Call { tool: "status".into(), args: json!({}), machine: None }
+    );
+    assert!(split(&words("workspace list --machine m")).is_none());
+}
