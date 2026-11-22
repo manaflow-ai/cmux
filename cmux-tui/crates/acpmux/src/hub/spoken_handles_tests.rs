@@ -6,17 +6,18 @@ use serde_json::json;
 use std::path::Path;
 use std::sync::Arc;
 
-fn hub(home: &Path) -> Arc<Hub> {
+fn hub() -> Arc<Hub> {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake"});
     let mut cfg: Config = serde_json::from_value(cfg).unwrap();
-    cfg.store.mode = StoreMode::Local;
-    let store = crate::store::open(&cfg.store, home).unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
 }
 
 fn new(handle: Option<&str>) -> NewRequest {
     NewRequest {
+        harness: Some("fake".into()),
         cwd: Some(std::env::temp_dir()),
         handle: handle.map(str::to_owned),
         ..Default::default()
@@ -25,8 +26,7 @@ fn new(handle: Option<&str>) -> NewRequest {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_new_chat_gets_a_free_cute_name_and_can_pick_its_own() {
-    let home = tempfile::tempdir().unwrap();
-    let hub = hub(home.path());
+    let hub = hub();
     let a = hub.new_session(new(None)).await.unwrap();
     let b = hub.new_session(new(None)).await.unwrap();
     let (ha, hb) = (a.meta().spoken_handle().into_owned(), b.meta().spoken_handle().into_owned());
