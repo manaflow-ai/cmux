@@ -32,6 +32,12 @@ Headlines (INFTABS lines, and one PERF_ROW JSON line each for the perf cron):
                        for a wake whose placeholder showed none: no kept frame, or the page was back first
   snapshot_covered     the share of those wakes a kept last frame covered
 INFTABS-KIND lines give each process kind at empty and full (count, RSS, footprint, CPU, wakeups).
+--app-vm: INFTABS-APPVM lines give the app process's `vmmap --summary`, `footprint` and `heap --sortBySize` at empty
+and at full, so the two diff region by region (the app is Chromium's browser process and PartitionAlloc is its
+default malloc zone: Swift, AppKit and Chromium allocations all land in "App-Specific Tag 14"). --app-stacks also
+launches the app with MallocStackLogging=lite and prints INFTABS-APPSTACK lines at full: `malloc_history -callTree
+-invert` of every live block that went through malloc (Swift, Objective-C, CoreFoundation; Chromium's own operator
+new goes straight to PartitionAlloc and is not in it), so Tag 14 minus its total is Chromium's own.
 
 Measurement only, never a gate. macOS only, a fleet Mac, never a laptop (DEV or bench build: it reads
 debug.surfaces):
@@ -46,6 +52,7 @@ import json
 import os
 import shutil
 import signal
+import subprocess
 import sys
 import time
 
@@ -234,6 +241,32 @@ def summarize(args, report: dict, made: list[dict]) -> dict:
     return summary
 
 
+def app_memory(pid: int, label: str, args, report: dict):
+    """--app-vm and --app-stacks at phase `label`, after its measured window (vmmap, heap and malloc_history suspend
+    the app while they read it). Printed, and kept in the report under `app_vm`."""
+    got = {}
+    if args.app_vm:
+        got = bm.app_vm(pid)
+        for tool, out in got.items():
+            for line in out.get("lines") or [f"error={out.get('error') or out.get('stderr', '')[-200:]!r}"]:
+                print(f"INFTABS-APPVM {label} {tool} | {line.rstrip()}")
+    if args.app_stacks and label == "full":
+        try:
+            proc = subprocess.run(["malloc_history", str(pid), "-callTree", "-invert", "-ignoreThreads", "-chargeSystemLibraries"],
+                                  capture_output=True, text=True, timeout=600)
+            lines = proc.stdout.splitlines()
+            got["malloc_history"] = {"rc": proc.returncode, "lines": lines[: args.app_stacks], "total_lines": len(lines),
+                                     "stderr": proc.stderr[-600:]}
+        except (OSError, subprocess.TimeoutExpired) as e:
+            got["malloc_history"] = {"error": str(e)[:300]}
+        out = got["malloc_history"]
+        for line in out.get("lines") or [f"error={out.get('error') or out.get('stderr', '')[-200:]!r}"]:
+            print(f"INFTABS-APPSTACK {label} | {line.rstrip()}")
+    if got:
+        report.setdefault("app_vm", {})[label] = got
+    sys.stdout.flush()
+
+
 def run(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--app", required=True)
@@ -249,6 +282,9 @@ def run(argv: list[str]) -> int:
     parser.add_argument("--config", default="{}", help="cmux.json settings merged over the run's own")
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
                         help="an environment variable for the app (repeatable), e.g. CMUX_NEXT_TUI_TERMINAL_HOST_MODEL=holder")
+    parser.add_argument("--app-vm", action="store_true", help="the app process's vmmap, footprint and heap at empty and full")
+    parser.add_argument("--app-stacks", type=int, default=0, metavar="LINES",
+                        help="launch with MallocStackLogging=lite; print LINES lines of the live-allocation call tree at full")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
     if sys.platform != "darwin":
@@ -267,6 +303,8 @@ def run(argv: list[str]) -> int:
     if any("=" not in pair or not pair.split("=", 1)[0] for pair in args.env):
         raise SystemExit("bench-infinite-tabs: --env takes NAME=VALUE")
     extra_env = dict(pair.split("=", 1) for pair in args.env)
+    if args.app_stacks:
+        extra_env.setdefault("MallocStackLogging", "lite")  # malloc_history needs the live blocks' stacks
     pid, sock, scratch = bm.launch(bundle, config, extra_env=extra_env)
     app = bm.App(bundle, sock)
     report = {"app": bundle, "config": config, "phases": {}, "wakes": [],
@@ -279,6 +317,7 @@ def run(argv: list[str]) -> int:
     try:
         time.sleep(args.settle)  # test script: the launched app settles before its empty sample
         phase(pid, bundle, sock, "empty", 0, args.measure, report)
+        app_memory(pid, "empty", args, report)
         chats = bm.FakeChats(app, bundle, args.fake_agent) if args.chats else None
         started = time.monotonic()
         for index in range(args.workspaces):
@@ -323,6 +362,7 @@ def run(argv: list[str]) -> int:
         attribution.start()
         full = phase(pid, bundle, sock, "full", len(made) + sum(len(e["pages"]) for e in made), args.measure, report)
         found = attribution.finish()
+        app_memory(pid, "full", args, report)
         pump_after = (app.call("debug.cef", timeout=30) or {}).get("pump") or {}
         pump = {key: round(value - pump_before.get(key, 0), 3) for key, value in pump_after.items()
                 if isinstance(value, (int, float)) and not isinstance(value, bool)}
