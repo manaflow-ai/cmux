@@ -12,6 +12,8 @@ import UIKit
 public struct StreamedSimulatorPage: View {
     let model: StreamedBrowserModel
     var insets: EdgeInsets
+    /// A reopen the page does on its own shows its line only past the shared quiet bound.
+    @State private var quiet = QuietStatusGate()
 
     public static let unavailableText = String(localized: "Simulators aren't available from this Mac.")
 
@@ -34,7 +36,7 @@ public struct StreamedSimulatorPage: View {
                     }
                     .padding(.horizontal, 16).padding(.vertical, 12)
                     .glassEffect(.regular, in: .rect(cornerRadius: 18))
-                } else {
+                } else if !model.healsQuietly || quiet.isShown {
                     retryStatus(reason)
                 }
             } else if model.phase == .connecting {
@@ -52,6 +54,7 @@ public struct StreamedSimulatorPage: View {
         .background(Color.black)
         // The simulator page is black in both appearances: its status and Retry draw dark.
         .environment(\.colorScheme, .dark)
+        .onChange(of: model.healsQuietly, initial: true) { _, down in quiet.update(down: down) }
         .onAppear {
             model.setVisible(true)
             model.reconnect()
