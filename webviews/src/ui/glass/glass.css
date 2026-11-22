@@ -218,7 +218,7 @@
    The page's own secondary ink is fitted to the opaque page, so on a level that lets a white page
    through under dark glass (or a black one under light glass) it fell to 1.9-2.8:1. Rather than
    raise any tint, every glass surface reads one secondary ink: the theme's text at the design
-   scale's --ds-glass-ink-secondary (64% light, 68% dark) over the glass, so it moves with whatever
+   scale's --ds-glass-ink-secondary (68% on both sides; 64% in light read Rose Pine Dawn's menu icons at 2.96:1) over the glass, so it moves with whatever
    the glass lets through. The page's secondary tokens point at it inside .ui-glass, so the
    composer's placeholder and dim words, a tooltip's detail and hint, and a hover card's muted rows
    are one recipe (--agent-soft too: a permission ask's command). Reduce Transparency (an opaque
@@ -346,6 +346,44 @@
   }
 }
 
+/* WALLPAPER LIGHTING (appearance.wallpaperLighting, off by default; Leo 2026-11-17: "what if you almost
+   treat the background wallpaper like a light source? lighting inside cmux!?"). The host reads the
+   wallpaper once per picture into a light field (cmux-motion light.rs, in linear light) and sends it
+   with the theme (WebTheme.swift), never per frame:
+   - data-wallpaper-light on the root while it is on;
+   - --wl-rim, --wl-rim-alpha: the key light's hue at a fixed brightness, and how much it stands out;
+   - --wl-dx, --wl-dy: the unit direction from the window's center toward the key light (y down);
+   - --wl-bloom, --wl-bloom-alpha: the picture's most colorful dominant color, for the composer's glow;
+   - --wl-tint, --wl-tint-share: the picture's mean color and how far the glass surface leans to it.
+   The material rim (above) keeps its white top-left specular and gains a colored line and a soft wash
+   on the edge that faces the light; the glass surface leans toward the picture's color (mixed in
+   linear light). The colors are theme colors, so a new picture crossfades them with the theme's own
+   transition (appearance.colorTransition, off with motion off); the numbers move at once. Reduce
+   Transparency and the lens keep their own looks. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-wallpaper-light]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) {
+    --glass-surface: color-mix(
+      in srgb-linear,
+      var(--cmux-surface-solid, Canvas),
+      var(--wl-tint) calc(100% * var(--wl-tint-share))
+    );
+  }
+  :root[data-wallpaper-light]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]),
+  :root[data-wallpaper-light]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) .ui-glass {
+    --wl-lit: color-mix(in srgb, var(--wl-rim) calc(100% * var(--wl-rim-alpha) * var(--glass-rim)), transparent);
+    --wl-lit-soft: color-mix(in srgb, var(--wl-rim) calc(45% * var(--wl-rim-alpha) * var(--glass-rim)), transparent);
+    /* An inset shadow shows on the side opposite its offset, so the offset points away from the light. */
+    --glass-material-rim:
+      inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--glass-material-specular),
+      inset 1px 1.5px 1px -1px var(--glass-material-specular),
+      inset -1px -1px 1px -1px var(--glass-material-return),
+      inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--glass-material-return),
+      inset 0 16px 20px -16px var(--glass-material-sheen),
+      inset calc(-1.5px * var(--wl-dx)) calc(-1.5px * var(--wl-dy)) 1px -0.5px var(--wl-lit),
+      inset calc(-18px * var(--wl-dx)) calc(-18px * var(--wl-dy)) 24px -16px var(--wl-lit-soft);
+  }
+}
+
 /* SVG REFRACTION (svgRefraction.ts; the gallery's and the latency harness's comparison, never set by a
    shipped page): Chromium runs the SVG filter as the backdrop, bending the page's own pixels. */
 @media not (prefers-reduced-transparency: reduce) {
@@ -414,6 +452,21 @@
 }
 :root[data-glass-underlay="heavy"] {
   --glass-underlay: 70%;
+}
+/* A covered element's own filter list (seeThroughBlur.ts writes it on the element's inline style).
+   Not inherited: no descendant reads it, and as an inherited property its every write (the rail's
+   preview card showing, moving or going) restyled every row in the transcript's scroller. */
+@property --glass-under-filter {
+  syntax: "*";
+  inherits: false;
+}
+@property --glass-under-filter-hover-card {
+  syntax: "*";
+  inherits: false;
+}
+@property --glass-under-filter-summary {
+  syntax: "*";
+  inherits: false;
 }
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {

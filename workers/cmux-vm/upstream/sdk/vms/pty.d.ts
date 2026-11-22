@@ -1,6 +1,8 @@
 import type { FreestyleClient } from "../client.js";
 /** Text frames sent by the server. Binary frames are raw terminal output. */
-export type PtyServerMsg = {
+export type PtyServerMsg = ({
+    type: "outputCursor";
+} & PtyOutputCursor) | {
     type: "sessionInfo";
     sessionId: number;
     slug?: string;
@@ -62,6 +64,8 @@ export interface ClosePtySessionResult {
     exitCode?: number | null;
 }
 export interface PtyOpenOptions {
+    /** Enable byte cursors from creation, without a separate attach. */
+    cursor?: boolean;
     /** Command to run; omit for a login shell. */
     exec?: string;
     /** Initial width in columns (default 80). */
@@ -101,7 +105,21 @@ export interface PtyOpenOptions {
 }
 /** A session's id, or the slug it was opened with. */
 export type PtySessionSelector = number | string;
+/** Byte positions are decimal strings, preserving all 64 bits. */
+export interface PtyOutputCursor {
+    requestedOffset: string;
+    /** First output byte that follows this event. */
+    offset: string;
+    /** Exclusive end of retained output when the attachment registered. */
+    endOffset: string;
+    /** The requested offset expired; bytes before offset are no longer retained. */
+    expired: boolean;
+}
 export interface PtyAttachOptions {
+    /** Next byte to read (u64 decimal string). Use "0" to start with retained output.
+     * Omit for legacy replay. Reconnect resumes from the bytes delivered to onData.
+     * Cursors belong to the numeric session id, not a reusable slug. */
+    fromOffset?: string;
     /** The session to reattach to: its id, or the slug it was opened with. */
     session: PtySessionSelector;
     /** Guest Linux user that must own the session. */
@@ -118,7 +136,13 @@ export interface PtySessionEvents {
         exact: boolean;
     }) => void;
     onReplayEnd?: () => void;
-    onData?: (data: Uint8Array) => void;
+    /** Called before output on every cursor-mode attachment, including gap reports. */
+    onOutputCursor?: (info: PtyOutputCursor) => void;
+    /** Checkpoint nextOffset only after processing these bytes. */
+    onData?: (data: Uint8Array, cursor?: {
+        offset: string;
+        nextOffset: string;
+    }) => void;
     onExit?: (exitCode: number) => void;
     onClose?: (info: {
         wasClean: boolean;
@@ -153,13 +177,17 @@ interface SessionTransport {
         cols: number;
         rows: number;
     };
-    dial: (sessionId: number, signal: AbortSignal) => Promise<Socket>;
+    fromOffset?: string;
+    dial: (sessionId: number, signal: AbortSignal, fromOffset?: string) => Promise<Socket>;
 }
 /** A stable handle across reattachments. Input is never retried or buffered. */
 export declare class PtySession {
     private readonly events;
     private readonly transport?;
     private _sessionId;
+    private _outputOffset?;
+    private cursorReceived;
+    private handshakePending;
     private _slug;
     private _created;
     private _state;
@@ -188,6 +216,7 @@ export declare class PtySession {
     constructor(socket: Socket, sessionId: number, events?: PtySessionEvents, transport?: SessionTransport | undefined);
     private setState;
     private clearConnection;
+    private completeHandshake;
     private bind;
     private lost;
     private scheduleRetry;
@@ -202,9 +231,12 @@ export declare class PtySession {
         cols: number;
         rows: number;
     }): void;
+    /** Signal the foreground process group; remain attached for final output and exit. */
     signal(signal: "sigint" | "sigkill"): void;
     /** Cancel recovery and detach. The guest process remains alive. */
     detach(): void;
+    /** Next received byte in cursor mode; undefined for legacy replay. */
+    get outputOffset(): string | undefined;
     get sessionId(): number;
     get slug(): string | undefined;
     get created(): boolean;
