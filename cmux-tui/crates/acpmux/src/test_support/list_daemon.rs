@@ -385,8 +385,8 @@ pub fn emit(name: &str, small: &[Vec<u128>], god: &[Vec<u128>], unit: &str) -> (
 }
 
 /// [`emit`] and, beside the best rounds, the god side's p95 over every sample of every round
-/// (`god_p95_all`, a row's `ratio_all`): a slow round the best one hides still shows. The
-/// best p95s and that one.
+/// (`god_p95_all`, a row's `ratio_all`): a slow round the best one hides still shows. Answers
+/// the small and god best p95s, then `god_p95_all`.
 pub fn emit_with_all(
     name: &str,
     small: &[Vec<u128>],

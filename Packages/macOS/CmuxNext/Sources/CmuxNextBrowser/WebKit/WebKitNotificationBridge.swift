@@ -35,7 +35,9 @@ final class WebKitNotificationBridge: NSObject, WKScriptMessageHandler {
             guard let tab, store.setting(.notifications, for: origin) == .allow else { return }
             let site = URL(string: origin).flatMap { url in url.host().map { host in url.port.map { "\(host):\($0)" } ?? host } } ?? origin
             tab.emit(.webNotification(BrowserWebNotification(title: title, body: text, site: site) { [weak tab] in
-                tab?.webView.callAsyncJavaScript("window.__cmuxWebNotificationClick?.(id)", arguments: ["id": id], in: frame,
+                // A hidden page's notification, clicked while it is frozen.
+                guard let tab, tab.resumeIfSuspended() else { return }
+                tab.webView.callAsyncJavaScript("window.__cmuxWebNotificationClick?.(id)", arguments: ["id": id], in: frame,
                                                  in: .page, completionHandler: nil)
             }))
         }

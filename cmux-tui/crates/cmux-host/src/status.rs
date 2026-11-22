@@ -27,6 +27,11 @@ pub struct Status {
     pub last_wake: String,
     /// Loop turns since the agent started.
     pub wakes: u64,
+    /// The session host's restart budget on the supervisor contract (`cmux-supervise-core`):
+    /// today's faults, and `restart-budget-exceeded` with their causes above it. Absent from an
+    /// agent that predates it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restart_budget: Option<cmux_supervise_core::BudgetState>,
 }
 
 impl Status {

@@ -43,19 +43,34 @@ pub struct JoinStep {
     pub state: StepState,
     pub detail: String,
     pub fix: Option<String>,
+    /// Structured readiness data for callers such as the app. Sensitive command output is
+    /// reduced to booleans before it reaches this field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
 }
 
 impl JoinStep {
     pub fn new(step: &'static str, state: StepState, detail: impl Into<String>) -> Self {
-        Self { step, state, detail: detail.into(), fix: None }
+        Self { step, state, detail: detail.into(), fix: None, data: None }
     }
 
     pub fn fail(step: &'static str, detail: impl Into<String>, fix: impl Into<String>) -> Self {
-        Self { step, state: StepState::Fail, detail: detail.into(), fix: Some(fix.into()) }
+        Self {
+            step,
+            state: StepState::Fail,
+            detail: detail.into(),
+            fix: Some(fix.into()),
+            data: None,
+        }
     }
 
     pub fn with_fix(mut self, fix: impl Into<String>) -> Self {
         self.fix = Some(fix.into());
+        self
+    }
+
+    pub fn with_data(mut self, data: Value) -> Self {
+        self.data = Some(data);
         self
     }
 
@@ -373,7 +388,9 @@ fn consent_step(facts: &Facts, status: Option<&Value>) -> JoinStep {
         detail.push_str(&format!("; a {surface} request was last refused here"));
     }
     if !on("screen") || !on("control") {
-        detail.push_str("; to allow, run here: acpmux host consent grant --screen (or --control)");
+        detail.push_str(
+            "; to allow, turn it on in the cmux app here, or as this Mac's admin: sudo acpmux machine consent grant --control (or --screen)",
+        );
     }
     JoinStep::new("consent", StepState::Ok, detail)
 }
@@ -729,6 +746,12 @@ pub fn run_here(fix: bool, print: Print, out: &mut dyn std::io::Write) -> i32 {
         checked = mark_fixed(&checked, steps(&probe(), now()));
     }
     let name = crate::cli::hosts::short_name(&crate::hand::pair::hostname());
+    if let Some(step) = super::host_sandbox::local_step(fix) {
+        checked.push(step);
+    }
+    if let Some(step) = super::host_agents::local_step(&name) {
+        checked.push(step);
+    }
     let (text, ok) = render(&name, "this machine", &checked, print);
     let _ = out.write_all(text.as_bytes());
     let _ = out.flush();
