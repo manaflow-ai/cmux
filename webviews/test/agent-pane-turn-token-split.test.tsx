@@ -19,7 +19,7 @@ const text = (html: string) =>
     .replace(/\s+/g, " ")
     .trim();
 const SPLIT_SPAN =
-  /<span class="cv-worked__tokens is-split" title="Wrote 12\.4K tokens · read 60K new, 2\.1M again"><span class="cv-worked__tokens-part">↓ 12\.4K out<\/span><span class="cv-worked__tokens-part">↑ 60K in<\/span><\/span>/;
+  /<span class="cv-worked__tokens is-split" aria-description="Wrote 12\.4K tokens · read 60K new, 2\.1M again"><span class="cv-worked__tokens-part">↓ 12\.4K out<\/span><span class="cv-worked__tokens-part">↑ 60K in<\/span><\/span>/;
 
 for (const [name, line] of Object.entries(tokenLines))
   for (const arm of ["total", "split"])
