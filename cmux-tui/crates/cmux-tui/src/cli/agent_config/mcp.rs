@@ -112,8 +112,10 @@ fn parse(rest: &[String]) -> Result<Parsed, String> {
     let mut words = rest.iter();
     match words.next().map(String::as_str) {
         Some("mcp") => {}
-        Some(other) => return Err(format!("unknown part {other:?}: `mcp`, `hooks` or `skills`")),
-        None => return Err("name a part: mcp, hooks or skills".into()),
+        Some(other) => {
+            return Err(format!("unknown part {other:?}: `skills`, `hooks`, `settings` or `mcp`"));
+        }
+        None => return Err("name a part: skills, hooks, settings or mcp".into()),
     }
     let mut parsed = Parsed {
         verb: words.next().cloned().ok_or("name a verb: list, add, remove, enable or disable")?,
