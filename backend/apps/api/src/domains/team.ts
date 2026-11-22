@@ -367,6 +367,20 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         // Audit only; no state beyond the audit chain (identities live in the sso_identities side table).
         return withAudit({ ok: true, state, value: { connection: q.connection }, audit: { summary: q.linked ? `first SSO sign-in through ${q.connection}` : `SSO sign-in through ${q.connection}`, detail: q } }, state.team.id, ctx, op)
       }
+      case "auth.handoff.minted":
+      case "auth.handoff.redeemed":
+      case "auth.handoff.refused": {
+        if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
+        const q = params as { handoff?: string; stage?: string; reason?: string; device?: string; minted_device?: string }
+        // Audit only (auth-handoff.ts keeps the codes in its own side table, by hash).
+        const summary =
+          op === "auth.handoff.minted"
+            ? `sign-in hand-off ${q.handoff ?? "?"} minted${q.device ? ` for ${q.device}` : ""}`
+            : op === "auth.handoff.redeemed"
+              ? `sign-in hand-off ${q.handoff ?? "?"} redeemed${q.device ? ` by ${q.device}` : ""}`
+              : `sign-in hand-off ${q.stage ?? "?"} refused: ${q.reason ?? "?"}${q.device ? ` (${q.device})` : ""}`
+        return withAudit({ ok: true, state, value: { audited: true }, audit: { summary, detail: q } }, state.team.id, ctx, op)
+      }
       case "sso.connection.secret_set":
       case "sso.connection.activated": {
         if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")

@@ -232,11 +232,11 @@ final class AgentDialogDesk {
     }
 
     private static func text(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "AgentDialogs", bundle: .module)
+        String(localized: key, defaultValue: english, table: "AgentDialogs", bundle: .module.inAppLanguage)
     }
 
     private static func text(_ key: StaticString, _ english: String.LocalizationValue, _ arguments: any CVarArg...) -> String {
-        String(format: String(localized: key, defaultValue: english, table: "AgentDialogs", bundle: .module), arguments: arguments)
+        String(format: String(localized: key, defaultValue: english, table: "AgentDialogs", bundle: .module.inAppLanguage), arguments: arguments)
     }
 }
 
