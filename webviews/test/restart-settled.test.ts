@@ -66,9 +66,8 @@ describe("restart to settled", () => {
     const rows = [{ id: "a", top: 100 }];
     const frames = [frame(80, rows), frame(96, rows), frame(700, rows)];
     const got = restartSettled(frames, classifyFrames(frames), 650);
-    // motion-allow: a frame time in the fixture, not a motion step.
     expect(got).toEqual({
-      firstContentMs: 80,
+      firstContentMs: 80, // motion-allow: a frame time in the fixture, not a motion step
       settledMs: 650,
       shifts: 0,
       shiftPxMax: 0,
