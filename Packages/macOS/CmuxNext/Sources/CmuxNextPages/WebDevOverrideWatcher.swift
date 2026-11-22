@@ -8,6 +8,7 @@ public import WebKit
 /// served on a change (``WebBundleServedViews``, the one list a web UI update also reloads). Does
 /// nothing unless ``WebDevOverride/isEnabled``.
 public final class WebDevOverrideWatcher {
+    // lint:allow: the app has one web-dev.json watch; tests pass their own watcher to reloadPages.
     public static let shared = WebDevOverrideWatcher()
 
     /// Runs after a page did not start from the overlay and every page fell back to the bundled ones
