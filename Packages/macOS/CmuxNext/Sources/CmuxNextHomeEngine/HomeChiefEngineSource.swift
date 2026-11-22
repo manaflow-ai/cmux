@@ -82,6 +82,7 @@ public nonisolated struct HomeChiefLocalEngine: HomeChiefEngineSource {
         var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(2), jitter: 0.3)
         let deadline = ContinuousClock.now + QuietHold.connectionDelay
         while ContinuousClock.now < deadline {
+            // concurrency-allow: Backoff.wait is an async clock sleep (no thread blocks), a few attempts within the 10 s connection bound after a person's set.
             do { try await backoff.wait(owner: "HomeChiefLocalEngine.setOnceStarted") } catch { break }
             guard let connection = await connection() else { continue }
             do {

@@ -6,6 +6,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextSettings
+@testable import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -176,10 +177,10 @@ struct DaemonRestartTests {
         #expect(Self.shown("daemon.restart", in: view) != nil)
         #expect(standIn.ensures().allSatisfy { !$0.contains("--replace-unresponsive") })
 
-        // The owner is stuck now: the window coming forward asks again at once, and the failure still offers Restart.
+        // The owner is stuck now: the window coming back into sight asks again at once, and the failure still offers Restart.
         standIn.mark(standIn.stuck)
         let before = standIn.ensures().count
-        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: try #require(view.window))
+        FrameScheduler.tellSightFollowers(of: try #require(view.window))
         // Restart already shows, so wait for that ensure.
         await Self.wait { standIn.ensures().count > before }
         #expect(standIn.ensures().count > before)
