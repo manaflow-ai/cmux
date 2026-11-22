@@ -273,7 +273,7 @@ fn target_refuses_an_agent_request_under_the_owner_device_grant() {
     let other = device.sign(ShareApproval { confirmed_by: "user_other".into(), ..unsigned() });
     assert_eq!(code(&other, &owner, &keys), "share.other_account");
     let unjoined = OwnerPairedDevice { account: "" };
-    assert_eq!(code(&device.sign(unsigned()), &unjoined, &keys), "share.other_account");
+    assert_eq!(code(&device.sign(unsigned()), &unjoined, &keys), "share.not_granted");
     assert!(!unjoined.covers(&Asker { device: ASKER, account: "" }));
     assert!(!owner.covers(&Asker { device: ASKER, account: "user_other" }));
 }
