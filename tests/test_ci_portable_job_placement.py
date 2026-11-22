@@ -351,6 +351,21 @@ class Decide(unittest.TestCase):
         self.assertEqual(placed.linux_runner, "cmux-fleet-linux-x64")
         self.assertEqual(placed.linux_jobs, ("cmux-next-daemon-tests",))
 
+    def test_a_vouched_label_counts_its_os_unknown_single_label_runners(self):
+        # 2026-11-18: GitHub lists the GCP build lane's runners (one label each) with os "unknown".
+        config = env(JOBS="build-linux build", LINUX_ONLY="build-linux build",
+                     FLEET_LINUX="cmux-gcp-lane-build-x64", REQUIRE_LIVE_CAPACITY="1")
+        gcp = {"name": "gcp-build-1", "status": "online", "busy": False, "os": "unknown",
+               "labels": [{"name": "cmux-gcp-lane-build-x64"}]}
+        placed = placement.decide({**config, "FLEET_LINUX_VOUCHED": "1"}, [gcp, {**gcp, "busy": True}], snapshot(), NOW)
+        self.assertEqual((placed.linux_runner, placed.linux_jobs), ("cmux-gcp-lane-build-x64", ("build-linux",)))
+        # Not vouched, another label (a Mac's), or a non-Linux OS: nothing is placed.
+        for vouch, runner in (("", gcp), ("1", {**gcp, "labels": [{"name": "cmux-gcp-lane-build-x64"}, {"name": "macOS"}]}),
+                              ("1", {**gcp, "os": "macOS"})):
+            with self.subTest(vouch=vouch, runner=runner):
+                placed = placement.decide({**config, "FLEET_LINUX_VOUCHED": vouch}, [runner], snapshot(), NOW)
+                self.assertEqual((placed.linux_runner, placed.linux_jobs), ("", ()))
+
     def test_a_mac_first_job_takes_a_mini_before_fleet_linux(self):
         placed = placement.decide(env(FLEET_LINUX="gcp-linux-32", MAC_FIRST="tooling-tests"),
                                   idle(1), snapshot(), NOW)
@@ -599,6 +614,13 @@ class OrganizationFallback(unittest.TestCase):
         self.assertTrue(any("visible_to_repository=cmux" in path for _, path in calls))
 
 
+def placement_step(job: dict) -> dict:
+    """The job's portable_job_placement.py step (steps after it may save its pool snapshot to the Actions cache)."""
+    found = [step for step in job["steps"] if "portable_job_placement.py" in str(step.get("run", ""))]
+    assert len(found) <= 1, [step.get("name") for step in job["steps"]]
+    return found[0] if found else job["steps"][-1]
+
+
 class Wiring(unittest.TestCase):
     def test_next_portable_bootstrap_needs_no_private_app_credentials(self):
         bootstrap = jobs("cmux-next.yml")["portable-placement"]
@@ -606,7 +628,7 @@ class Wiring(unittest.TestCase):
         self.assertNotIn("environment", bootstrap)
         self.assertFalse(any("actions/create-github-app-token@" in step.get("uses", "")
                              for step in bootstrap["steps"]))
-        config = bootstrap["steps"][-1]["env"]
+        config = placement_step(bootstrap)["env"]
         self.assertNotIn("ROUTE_TOKEN", config)
         self.assertNotIn("ROUTE_TOKEN_FALLBACK", config)
         # Not a hosted exception any more: it runs on Blacksmith on every attempt (cmux#45735).
@@ -615,7 +637,7 @@ class Wiring(unittest.TestCase):
 
     def test_next_secretless_bootstrap_uses_only_fresh_registered_capacity(self):
         bootstrap = jobs("cmux-next.yml")["portable-placement"]
-        config = env(JOBS=bootstrap["steps"][-1]["env"]["JOBS"],
+        config = env(JOBS=placement_step(bootstrap)["env"]["JOBS"],
                      GITHUB_REPOSITORY="manaflow-ai/cmux", REQUIRE_LIVE_CAPACITY="1",
                      SNAPSHOT_TOKEN="ordinary-token")
         state = {
@@ -646,14 +668,13 @@ class Wiring(unittest.TestCase):
 
     def test_status_reports_consume_live_capacity_without_a_routing_app(self):
         offered = 0
-        for workflow, name in (("pr-red-checks-comment.yml", "comment"),
-                               ("ci-guards.yml", "guard-status")):
+        for workflow, name in (("ci-guards.yml", "guard-status"),):
             with self.subTest(workflow=workflow):
                 workflow_jobs = jobs(workflow)
                 bootstrap = workflow_jobs.get("portable-placement")
                 if bootstrap is None:
                     continue
-                step = bootstrap["steps"][-1]
+                step = placement_step(bootstrap)
                 config = {key: str(value) for key, value in step["env"].items() if "${{" not in str(value)}
                 config.update(SIDE_LABEL=SIDE, FLEET_LINUX="", GITHUB_RUN_ATTEMPT="1")
                 placed = placement.decide(config, idle(1), snapshot(), NOW)
@@ -673,8 +694,8 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(secret_names(bootstrap), set())
                 self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", bootstrap["if"])
                 offered += len(placed.mini_jobs)
-        print(f"status reports offered an idle mini: {offered}/2")
-        self.assertEqual(offered, 2)
+        print(f"status reports offered an idle mini: {offered}/1")
+        self.assertEqual(offered, 1)
 
     PLACED = {"cmux-next.yml": {"checks": "linux_16"},
               "cmux-next-guards.yml": {"tooling-tests": "linux_4"}}
@@ -683,14 +704,15 @@ class Wiring(unittest.TestCase):
         for workflow, expected_pools in self.PLACED.items():
             workflow_jobs = jobs(workflow)
             place = workflow_jobs["portable-placement"]
-            listed = place["steps"][-1]["env"]["JOBS"].split()
+            listed = placement_step(place)["env"]["JOBS"].split()
             for name, pool in expected_pools.items():
                 with self.subTest(job=f"{workflow}#{name}"):
                     job = workflow_jobs[name]
                     self.assertIn(name, listed)
-                    # tooling-tests also needs hot-route: a hot-only pull request skips the mini leg
-                    # (tests/test_cmux_next_route.py HotAwareWorkflows).
-                    self.assertEqual([need for need in job["needs"] if need != "hot-route"], ["portable-placement"])
+                    # tooling-tests reads portable-placement's hot_only too: a hot-only pull request skips the mini
+                    # leg (tests/test_cmux_next_route.py HotAwareWorkflows).
+                    # cmux-next-guards.yml's jobs also wait for its window gate (base-coalesce.yml).
+                    self.assertEqual([n for n in job["needs"] if n != "coalesce"], ["portable-placement"])
                     self.assertTrue(str(job["if"]).startswith("${{ !cancelled()"))
                     for runs_on in routes(job, name):
                         linux = runs_on.index(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')")
@@ -701,11 +723,19 @@ class Wiring(unittest.TestCase):
                         self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)",
                                       runs_on)
 
-    def test_release_notary_takes_the_placement_through_ci_guards(self):
+    def test_release_notary_takes_fleet_linux_then_the_linux_pool_never_a_mini(self):
+        # On a mini 12 of its steps went red for the mini alone (no node; run 44211360475), as the guard group's do.
         guards = jobs("cmux-next-guards.yml")
-        self.assertIn("release-notary", guards["portable-placement"]["steps"][-1]["env"]["JOBS"].split())
-        runner = guards["nightly-guards"]["with"]["guard_tests_runner"]
-        self.assertIn("contains(needs.portable-placement.outputs.mini_jobs, ' release-notary ')", runner)
+        self.assertIn("release-notary", placement_step(guards["portable-placement"])["env"]["JOBS"].split())
+        job = guards["release-notary"]
+        self.assertEqual(job["needs"], ["coalesce", "portable-placement"])
+        self.assertTrue(str(job["if"]).startswith("${{ !cancelled()"))
+        for runs_on in routes(job, "release-notary"):
+            linux = runs_on.index("contains(needs.portable-placement.outputs.linux_jobs, ' release-notary ')")
+            self.assertNotIn("mini_jobs", runs_on)
+            self.assertNotIn("mini_runner", runs_on)
+            self.assertLess(linux, runs_on.rindex("fromJSON(vars.RUNNER_POOLS).linux"))
+        # ci-guards.yml's matrix still takes a caller's placement (ci.yml's routes).
         for tests in routes(jobs("ci-guards.yml")["workflow-guard-tests"], "workflow-guard-tests"):
             self.assertIn("inputs.guard_tests_runner != '' && inputs.guard_tests_runner", tests)
             self.assertLess(tests.index("head.repo.full_name != github.repository"), tests.index("inputs.guard_tests_runner"))
@@ -725,7 +755,9 @@ class Wiring(unittest.TestCase):
         workflow = jobs("cmux-tui-artifacts.yml")
         preflight = workflow["tree-preflight"]
         picker = next(step for step in preflight["steps"] if step.get("id") == "linux-placement")
-        self.assertEqual(picker["env"]["FLEET_LINUX"], "cmux-fleet-linux-x64")
+        # The persistent GCP build lane, vouched as Linux: cmux-fleet-linux-x64 had no runner on 2026-11-19.
+        self.assertEqual(picker["env"]["FLEET_LINUX"], "cmux-gcp-lane-build-x64")
+        self.assertEqual(picker["env"]["FLEET_LINUX_VOUCHED"], "1")
         self.assertEqual(picker["env"]["REQUIRE_LIVE_CAPACITY"], "1")
         daemon = single_runs_on(workflow["cmux-next-daemon-tests"])
         live = daemon.index("needs.tree-preflight.outputs.linux_runner")
@@ -733,9 +765,19 @@ class Wiring(unittest.TestCase):
         self.assertLess(live, fallback)
         self.assertEqual(workflow["tree-preflight"]["outputs"]["linux_runner"],
                          "${{ steps.linux-placement.outputs.linux_runner }}")
-        # The placement counts room for the daemon job only, so no build leg takes its label.
-        for name in ("build", "build-windows"):
-            self.assertNotIn("linux_runner", workflow[name].get("with", {}))
+        # The placement counts room for the daemon job only, so no build leg takes its label. The build calls take
+        # only the GCP build lane's placement (gcp-placement), which counts room for them (2026-11-18).
+        self.assertNotIn("linux_runner", workflow["build-windows"].get("with", {}))
+        gcp = next(step for step in preflight["steps"] if step.get("id") == "gcp-placement")
+        self.assertEqual(gcp["env"]["FLEET_LINUX"], "${{ vars.LINUX_RUNNER_DARWIN_CROSS }}")
+        self.assertEqual(gcp["env"]["REQUIRE_LIVE_CAPACITY"], "1")
+        self.assertEqual(set(gcp["env"]["JOBS"].split()), set(gcp["env"]["LINUX_ONLY"].split()))
+        for name in ("build", "build-linux"):
+            with self.subTest(call=name):
+                runner = workflow[name]["with"]["linux_runner"]
+                self.assertNotIn("outputs.linux_runner", runner)
+                self.assertIn(f"contains(needs.tree-preflight.outputs.gcp_jobs, ' {name} ')", runner)
+                self.assertIn(name, gcp["env"]["JOBS"].split())
 
     def test_the_nightly_tree_musl_legs_route_owned_gcp_linux_first_then_blacksmith(self):
         # 2026-11-18: tree 453a2f94's musl legs sat on blacksmith-16vcpu behind about 346 queued runs while
@@ -910,15 +952,13 @@ class Wiring(unittest.TestCase):
 
     def test_new_light_workflows_place_status_jobs_before_hosted_overflow(self):
         expected = {
-            "pr-checks.yml": {"jobs": ("size", "ui-review", "split"), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
-            "cmux-next-fast-gates.yml": {"jobs": ("resolve", "post"), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
-            "web-validation.yml": {"jobs": ("web-validation",), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
+            "cmux-next-fast-gates.yml": {"jobs": ("resolve", "receipt", "post"), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
         }
         for workflow, spec in expected.items():
             with self.subTest(workflow=workflow):
                 workflow_jobs = jobs(workflow)
                 place = workflow_jobs["portable-placement"]
-                self.assertEqual(place["steps"][-1]["env"]["JOBS"].split(), list(spec["jobs"]))
+                self.assertEqual(placement_step(place)["env"]["JOBS"].split(), list(spec["jobs"]))
                 for name in spec["jobs"]:
                     job = workflow_jobs[name]
                     needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
@@ -935,9 +975,9 @@ class Wiring(unittest.TestCase):
         placement = ci["portable-placement"]
         changes = ci["changes"]
         self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", placement["if"])
-        self.assertEqual(placement["steps"][-1]["env"]["JOBS"], "changes")
-        self.assertEqual(placement["steps"][-1]["env"]["LINUX_ONLY"], "changes")
-        self.assertEqual(placement["steps"][-1]["env"]["REQUIRE_LIVE_CAPACITY"], "1")
+        self.assertEqual(placement_step(placement)["env"]["JOBS"], "changes")
+        self.assertEqual(placement_step(placement)["env"]["LINUX_ONLY"], "changes")
+        self.assertEqual(placement_step(placement)["env"]["REQUIRE_LIVE_CAPACITY"], "1")
         self.assertEqual(changes["needs"], ["portable-placement"])
         self.assertIn("always()", changes["if"])
         self.assertIn("!cancelled()", changes["if"])
@@ -952,7 +992,7 @@ class Wiring(unittest.TestCase):
         path_route = next_jobs["path_route"]
         next_placement = next_jobs["portable-placement"]
         self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", next_placement["if"])
-        self.assertEqual(next_placement["steps"][-1]["env"]["JOBS"], "checks path_route")
+        self.assertEqual(placement_step(next_placement)["env"]["JOBS"], "checks path_route")
         self.assertEqual(path_route["needs"], ["portable-placement"])
         self.assertIn("always()", path_route["if"])
         self.assertIn("!cancelled()", path_route["if"])
@@ -966,9 +1006,7 @@ class Wiring(unittest.TestCase):
 
     def test_portable_bootstraps_are_bounded_and_kill_switch_skips_the_job(self):
         expected = {
-            "pr-checks.yml": ("size", "ui-review", "split"),
-            "cmux-next-fast-gates.yml": ("resolve", "post"),
-            "web-validation.yml": ("web-validation",),
+            "cmux-next-fast-gates.yml": ("resolve", "receipt", "post"),
         }
         for workflow, consumers in expected.items():
             with self.subTest(workflow=workflow):
@@ -976,8 +1014,6 @@ class Wiring(unittest.TestCase):
                 placement_job = workflow_jobs["portable-placement"]
                 placement_if = str(placement_job["if"])
                 self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", placement_if)
-                if workflow == "web-validation.yml":
-                    self.assertIn("github.event_name != 'merge_group'", placement_if)
                 route = "\n".join(routes(placement_job, "portable-placement"))
                 # Blacksmith on every attempt: GitHub-hosted Ubuntu left these queued for hours (cmux#45735).
                 self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
@@ -986,27 +1022,28 @@ class Wiring(unittest.TestCase):
                 self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", route)
                 # Owned labels remain inputs to capacity validation, never the
                 # bootstrap's assignment before that validation can run.
-                side_label = placement_job["steps"][-1]["env"]["SIDE_LABEL"]
+                side_label = placement_step(placement_job)["env"]["SIDE_LABEL"]
                 self.assertIn("vars.CI_LIGHT_LANE_RUNNER", side_label)
                 self.assertIn("vars.CI_SIDE_LANE_RUNNER", side_label)
-                self.assertEqual(placement_job["steps"][-1]["env"]["PORTABLE_ATTEMPT3_RESCUE"], "1")
+                self.assertEqual(placement_step(placement_job)["env"]["PORTABLE_ATTEMPT3_RESCUE"], "1")
                 for name in consumers:
                     condition = str(workflow_jobs[name]["if"])
-                    if name == "web-validation":
-                        self.assertEqual(condition, "always()")
+                    self.assertIn("!cancelled()", condition)
+                    if name == "receipt":
+                        self.assertIn("needs.resolve.result == 'success'", condition)
+                        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
                     else:
                         self.assertIn("always()", condition)
-                        self.assertIn("!cancelled()", condition)
 
     def test_other_portable_callers_do_not_opt_into_bot_attempt_three(self):
         for workflow in ("ci.yml", "cmux-next.yml"):
             with self.subTest(workflow=workflow):
-                step = jobs(workflow)["portable-placement"]["steps"][-1]
+                step = placement_step(jobs(workflow)["portable-placement"])
                 self.assertNotIn("PORTABLE_ATTEMPT3_RESCUE", step.get("env", {}))
 
-    def test_merge_group_skips_placement_but_keeps_web_rollup(self):
+    def test_merge_group_keeps_web_rollup_without_placement(self):
         workflow_jobs = jobs("web-validation.yml")
-        self.assertIn("github.event_name != 'merge_group'", workflow_jobs["portable-placement"]["if"])
+        self.assertNotIn("portable-placement", workflow_jobs)
         self.assertEqual(workflow_jobs["web-validation"]["if"], "always()")
 
     def test_runner_state_bootstrap_does_not_fall_through_to_github_api(self):
@@ -1027,9 +1064,12 @@ class Wiring(unittest.TestCase):
         self.assertIsNone(queue)
 
     def test_placement_runs_the_trusted_base_copy(self):
-        for workflow in (*self.PLACED, "pr-checks.yml", "cmux-next-fast-gates.yml", "web-validation.yml"):
+        for workflow in (*self.PLACED, "cmux-next-fast-gates.yml"):
             with self.subTest(workflow=workflow):
-                checkout = jobs(workflow)["portable-placement"]["steps"][0]
+                # The first checkout (a pool job may first remove a reused workspace left sparse:
+                # tests/test_ci_reused_sparse_checkout.py).
+                checkout = next(step for step in jobs(workflow)["portable-placement"]["steps"]
+                                if str(step.get("uses", "")).startswith("actions/checkout@"))
                 self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha || github.sha }}")
 
 
