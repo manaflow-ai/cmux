@@ -1333,6 +1333,14 @@ impl Hub {
                         // an attached client as `_acpmux/permission_pending`
                         // (`server/mod.rs` `deliver`), so the same rule.
                         method::MUX_EVENT => {
+                            let kind = params.get("kind").and_then(Value::as_str).unwrap_or("");
+                            // An ask can be held with its params whole (`hold_peer_ask`); any
+                            // other record's `msg` is taken out of them, not copied.
+                            let msg = if is_permission_ask(kind) {
+                                params.get("msg").cloned()
+                            } else {
+                                params.get_mut("msg").map(Value::take)
+                            };
                             let record = EventRecord {
                                 seq: params.get("seq").and_then(Value::as_u64).unwrap_or(0),
                                 at: params.get("at").and_then(Value::as_u64).unwrap_or_else(now_ms),
@@ -1346,7 +1354,7 @@ impl Hub {
                                     .and_then(Value::as_str)
                                     .unwrap_or("")
                                     .to_owned(),
-                                msg: params.get("msg").cloned().unwrap_or(Value::Null),
+                                msg: msg.unwrap_or(Value::Null),
                                 host_seq: None,
                             };
                             // An ask held for this session that was answered meanwhile is not

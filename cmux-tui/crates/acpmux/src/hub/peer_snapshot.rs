@@ -1686,7 +1686,11 @@ impl Store {
         let Some(c) = self.copies.get(key) else { return Ok(()) };
         let Some(records) = &c.records else { return Ok(()) };
         let bytes = disk::encode(&c.head, records);
-        let head = serde_json::to_vec(&c.head).map_or(u64::MAX, |h| h.len() as u64);
+        // Its head line as `encode` wrote it, not serialized again; an empty one did not serialize.
+        let head = match bytes.iter().position(|b| *b == b'\n') {
+            Some(0) | None => u64::MAX,
+            Some(len) => len as u64,
+        };
         if !disk::head_fits(head) || bytes.len() as u64 > FILE_BYTES {
             // Its head (its row) is past what a copy may hold, as a restart reads it: not kept.
             tracing::warn!(peer = %key.0, session = %key.1, "peer snapshot past its bound; not kept");
