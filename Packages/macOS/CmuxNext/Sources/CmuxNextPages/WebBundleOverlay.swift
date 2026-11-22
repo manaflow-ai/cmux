@@ -231,17 +231,24 @@ public final class WebBundleServedViews {
     /// in place with no visible reload (``PageWebView/swapReload()``); another view reloads as before.
     @discardableResult
     public func reload(_ views: [WKWebView], to tree: URL?) -> Int {
+        for webView in views { pins.pin(ObjectIdentifier(webView), to: tree) }
+        Self.swapReload(views)
+        return views.count
+    }
+
+    /// Reloads each of `views` into the web it is served now: a page's view in place with no visible
+    /// reload (``PageWebView/swapReload()``), any other view as before.
+    public static func swapReload(_ views: [WKWebView]) {
+        guard !views.isEmpty else { return }
         let pages = PageRegistry.pages()
         for webView in views {
-            pins.pin(ObjectIdentifier(webView), to: tree)
-            if let page = pages.first(where: { $0.webKitView === webView }) {
-                // task-owner: one swap per page; it ends with the page's restored frame or its cover limit
-                Task { await page.swapReload() }
-            } else {
+            guard let page = pages.first(where: { $0.webKitView === webView }) else {
                 webView.reload()
+                continue
             }
+            // task-owner: one swap per page; it ends with the page's restored frame or its cover limit
+            Task { await page.swapReload() }
         }
-        return views.count
     }
 
     /// Reloads every served view that shows a document from the folder now active. Returns how
