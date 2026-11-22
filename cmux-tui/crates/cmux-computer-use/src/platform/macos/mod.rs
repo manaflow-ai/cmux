@@ -501,7 +501,12 @@ impl Desktop for MacDesktop {
     fn permissions(&self) -> Permissions {
         Permissions {
             accessibility: grant(ax::trusted()),
-            screen_capture: grant(capture::screen_capture_granted()),
+            screen_capture: grant(
+                self.host
+                    .as_ref()
+                    .and_then(|h| h.screen_capture_granted())
+                    .unwrap_or_else(capture::screen_capture_granted),
+            ),
             input: grant(post_event_granted()),
         }
     }
@@ -662,6 +667,18 @@ impl Desktop for MacDesktop {
     fn capture_apps(&self) -> DResult<Vec<App>> {
         match &self.host {
             Some(host) => host.capture_apps(),
+            None => Err(DesktopError::Unsupported("no capture host".into())),
+        }
+    }
+
+    fn frame_encoder(
+        &self,
+        width: u32,
+        height: u32,
+        fps: u32,
+    ) -> DResult<Box<dyn crate::record::FrameEncoder>> {
+        match &self.host {
+            Some(host) => host.frame_encoder(width, height, fps),
             None => Err(DesktopError::Unsupported("no capture host".into())),
         }
     }
