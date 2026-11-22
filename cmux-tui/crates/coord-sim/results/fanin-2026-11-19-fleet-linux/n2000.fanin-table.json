@@ -1,0 +1,111 @@
+{
+ "agent_hosts": false,
+ "attach_failed": 0,
+ "attach_ms": {
+  "max": 11.205,
+  "n": 2000,
+  "p50": 4.425,
+  "p95": 6.751,
+  "p99": 7.993
+ },
+ "attach_one_ms": {
+  "max": 8317.181,
+  "n": 59,
+  "p50": 4.858,
+  "p95": 33.102,
+  "p99": 4218.943
+ },
+ "client_methods": {
+  "_acpmux/event": 39363,
+  "_acpmux/lagged": 10054,
+  "_acpmux/prompt_accepted": 1967,
+  "session/update": 202862
+ },
+ "controller": {
+  "cpu_basis": "whole life",
+  "cpu_pct": 29.213,
+  "cpu_pct_per_session": 0.015,
+  "cpu_s_life": 93.94,
+  "hosts_cpu_s_life": 118.03,
+  "life_s": 321.568,
+  "rss_kb": 761868,
+  "rss_kb_baseline": 48420,
+  "rss_kb_peak": 761268,
+  "rss_kb_per_session": 356.724,
+  "rss_kb_window_max": 766620
+ },
+ "create_failed": 0,
+ "events": {
+  "client_lagged": 22513,
+  "dup": 0,
+  "emitted": 193482,
+  "fanout_dup": 0,
+  "fanout_lost": 1429,
+  "fanout_sent": 6000,
+  "lost": 1564
+ },
+ "fanin_ms": {
+  "max": 8736.128,
+  "n": 191918,
+  "p50": 0.212,
+  "p95": 2645.215,
+  "p99": 7179.036
+ },
+ "fanout_back_ms": {
+  "max": 9035.856,
+  "n": 4571,
+  "p50": 8387.505,
+  "p95": 8967.585,
+  "p99": 9008.695
+ },
+ "fanout_ms": {
+  "max": 3140.307,
+  "n": 4571,
+  "p50": 566.501,
+  "p95": 2805.249,
+  "p99": 3021.859
+ },
+ "gaps": [
+  "client lagged: 22513 notices dropped by the controller's fan-out"
+ ],
+ "gauges": {
+  "attach_p95_ms": null,
+  "fanout_p95_ms": null
+ },
+ "hosts": 10,
+ "hosts_rss_kb": {
+  "max": 158564.0,
+  "mean": 153980.0
+ },
+ "latency_ms": 0,
+ "list": {
+  "paged_ms_at_rest": 41.486,
+  "pages": 20,
+  "rows": 2000,
+  "whole_ms_at_rest": 11.262,
+  "whole_ms_window": {
+   "max": 25.097,
+   "n": 19,
+   "p50": 11.464,
+   "p95": 23.693,
+   "p99": 25.097
+  }
+ },
+ "n": 2000,
+ "prompt_ms": {
+  "max": 8973.92,
+  "n": 6000,
+  "p50": 8550.389,
+  "p95": 8899.538,
+  "p99": 8972.803
+ },
+ "rate_per_session": 0.333,
+ "schema": "fanin-table.v1",
+ "setup_ms": {
+  "attach_all": 291,
+  "controller_ready": 1035,
+  "create": 3589,
+  "hosts": 73
+ },
+ "window_s": 300.014
+}

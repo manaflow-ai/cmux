@@ -295,6 +295,28 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(module.first_surface({"marks": {"home.first_page": 1}}), "home")
         self.assertEqual(module.first_surface({"marks": {}}), "none")
 
+    # A fresh launch's window readies its own regions (sidebar rows, the tab strip, the pane holding Home's page)
+    # before Home's page draws: marks from a real fresh run (cmux-ci step 8feecdfbb939cc88ee5f3023, 2026-11-21).
+    FRESH_MARKS = {"reveal.sidebar": 305.0, "reveal.tabs": 556.0, "reveal.pane": 584.0, "reveal.home": 972.0,
+                   "home.first_page": 972.0, "window_usable": 1128.0}
+
+    def test_regions_readied_before_home_are_not_a_surface(self):
+        r = row("head", "run1", None, self.FRESH_MARKS, "sidebar")
+        self.assertEqual(module.first_surface(r), "home")
+        self.assertIsNone(module.judge(r, "home", None))
+
+    def test_a_terminal_drawn_before_home_is_tabs(self):
+        marks = dict(self.FRESH_MARKS, first_terminal_frame=700.0)
+        r = row("head", "run1", None, marks, "sidebar")
+        self.assertEqual(module.first_surface(r), "tabs")
+        self.assertIn("on a tab with no saved state", module.judge(r, "home", None))
+        snap = row("head", "run1", None, dict(self.FRESH_MARKS, launch_snapshot_shown=200.0), "sidebar")
+        self.assertEqual(module.first_surface(snap), "tabs")
+
+    def test_a_terminal_after_home_is_still_home(self):
+        r = row("head", "run1", None, dict(self.FRESH_MARKS, first_terminal_frame=3140.0), "sidebar")
+        self.assertEqual(module.first_surface(r), "home")
+
 
 class KeysTests(unittest.TestCase):
     # head: three measured launches, two whose message held keys (first_key_ms 900 and 1100); base: one, none held.
