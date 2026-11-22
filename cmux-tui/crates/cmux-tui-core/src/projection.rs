@@ -304,10 +304,23 @@ fn attach(
         .map(|dir| dir.join("projections").join(&line.name))
         .ok_or(("projection.unavailable", "no state folder".to_owned()))?;
     let projected = mount(&line.name, manifest, &state, &at, digest)?;
-    if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME"))
-        && let Err(error) = git_stat::keep(dir, Path::new(&home), &at)
-    {
-        eprintln!("cmux-tui: projection {}: git settings: {error}", line.name);
+    if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME")) {
+        let live: Vec<PathBuf> = projections()
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .map(|projected| projected.at.clone())
+            .collect();
+        match git_stat::keep(dir, Path::new(&home), &live) {
+            Ok(unnamed) if unnamed.contains(&at) => eprintln!(
+                "cmux-tui: projection {}: git settings: {} cannot be named in git's config; git \
+                 there checks every file",
+                line.name,
+                at.display()
+            ),
+            Ok(_) => {}
+            Err(error) => eprintln!("cmux-tui: projection {}: git settings: {error}", line.name),
+        }
     }
     let data = json!({
         "at": at,
@@ -419,34 +432,43 @@ fn mount(
 /// default checks every `git status` would read every tracked file once, fetching all of them
 /// from the Mac (cmuxterm-hq: 1.1 GB and minutes before an agent's first answer, against 3 s).
 /// Only this machine's git settings change, never the folder: `~/.gitconfig` includes
-/// [`MOUNTS`], which holds one `includeIf "gitdir:<mount>/"` per mount, naming [`STAT`].
+/// [`MOUNTS`], which holds one `includeIf "gitdir:<mount>/"` per live mount, naming [`STAT`].
 mod git_stat {
     use std::io::Write as _;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     pub(super) const STAT: &str = "git-stat.config";
     pub(super) const MOUNTS: &str = "git-mounts.config";
     const STAT_TEXT: &str = "[core]\n\tcheckStat = minimal\n\ttrustctime = false\n";
 
-    /// Makes `at` (and every repository below it) use [`STAT`]; `dir` is the projections'
-    /// state folder, `home` the work user's home.
-    pub(super) fn keep(dir: &Path, home: &Path, at: &Path) -> std::io::Result<()> {
+    /// Makes every folder in `live` (and every repository below it) use [`STAT`], and no other.
+    /// [`MOUNTS`] is rewritten from `live`, the mounts this daemon serves now, so a mount that
+    /// went away leaves nothing behind (a mount never outlives the daemon serving it). `dir` is
+    /// the projections' state folder, `home` the work user's home. A mount whose path git's
+    /// config cannot hold (not UTF-8, a newline, NUL) gets no entry and is returned, so the
+    /// caller can say so: git there keeps its default checks, slower but correct.
+    pub(super) fn keep(dir: &Path, home: &Path, live: &[PathBuf]) -> std::io::Result<Vec<PathBuf>> {
         let stat = dir.join(STAT);
         if std::fs::read_to_string(&stat).ok().as_deref() != Some(STAT_TEXT) {
-            std::fs::write(&stat, STAT_TEXT)?;
+            write_whole(&stat, STAT_TEXT)?;
+        }
+        let mut sections = String::new();
+        let mut unnamed = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
+        for at in live.iter().filter(|at| seen.insert(*at)) {
+            match section(at, &stat) {
+                Some(section) => sections.push_str(&section),
+                None => unnamed.push(at.clone()),
+            }
         }
         let mounts = dir.join(MOUNTS);
-        let section = section(at, &stat);
-        let known = std::fs::read_to_string(&mounts).unwrap_or_default();
-        if !known.contains(&section) {
-            std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&mounts)?
-                .write_all(section.as_bytes())?;
+        if std::fs::read_to_string(&mounts).ok().as_deref() != Some(sections.as_str()) {
+            write_whole(&mounts, &sections)?;
         }
         let global = home.join(".gitconfig");
-        let include = include(&mounts);
+        let include = include(&mounts).ok_or_else(|| {
+            std::io::Error::other(format!("{} cannot be named in git's config", mounts.display()))
+        })?;
         let text = std::fs::read_to_string(&global).unwrap_or_default();
         if !text.contains(&include) {
             let lead = if text.is_empty() || text.ends_with('\n') { "" } else { "\n" };
@@ -456,16 +478,55 @@ mod git_stat {
                 .open(&global)?
                 .write_all(format!("{lead}{include}").as_bytes())?;
         }
-        Ok(())
+        Ok(unnamed)
+    }
+
+    /// Writes beside `path` and renames over it, so git never reads half a file.
+    fn write_whole(path: &Path, text: &str) -> std::io::Result<()> {
+        let mut name = path.file_name().unwrap_or_default().to_owned();
+        name.push(".tmp");
+        let next = path.with_file_name(name);
+        std::fs::write(&next, text)?;
+        std::fs::rename(&next, path)
     }
 
     /// The `includeIf` for `at`: git adds `**` after a trailing `/`, so it holds below `at` too.
-    pub(super) fn section(at: &Path, stat: &Path) -> String {
-        format!("[includeIf \"gitdir:{}/\"]\n\tpath = {}\n", at.display(), stat.display())
+    /// `None` when git's config cannot hold either path.
+    pub(super) fn section(at: &Path, stat: &Path) -> Option<String> {
+        let pattern = subsection(&glob(text(at)?));
+        Some(format!("[includeIf \"gitdir:{pattern}/\"]\n\tpath = {}\n", value(text(stat)?)))
     }
 
-    pub(super) fn include(mounts: &Path) -> String {
-        format!("[include]\n\tpath = {}\n", mounts.display())
+    pub(super) fn include(mounts: &Path) -> Option<String> {
+        Some(format!("[include]\n\tpath = {}\n", value(text(mounts)?)))
+    }
+
+    /// The path as config text; `None` for a name git's config cannot hold.
+    fn text(path: &Path) -> Option<&str> {
+        path.to_str().filter(|text| !text.contains(['\n', '\r', '\0']))
+    }
+
+    /// `gitdir:` takes a wildmatch pattern: `*`, `?`, `[` and `\` in a folder's name match
+    /// literally only behind a backslash.
+    fn glob(text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        for c in text.chars() {
+            if matches!(c, '*' | '?' | '[' | '\\') {
+                out.push('\\');
+            }
+            out.push(c);
+        }
+        out
+    }
+
+    /// A quoted subsection name: `"` and `\` are escaped (git drops any other backslash).
+    fn subsection(text: &str) -> String {
+        text.replace('\\', "\\\\").replace('"', "\\\"")
+    }
+
+    /// A value, quoted, so `#`, `;` and edge spaces stay part of it.
+    fn value(text: &str) -> String {
+        format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
     }
 }
 

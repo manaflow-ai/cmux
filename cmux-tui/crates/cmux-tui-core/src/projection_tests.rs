@@ -184,8 +184,10 @@ fn a_mount_makes_git_check_only_size_and_mtime_there_and_keeps_it_once() {
     std::fs::create_dir_all(&state).unwrap();
     std::fs::create_dir_all(&home).unwrap();
     std::fs::write(home.join(".gitconfig"), "[user]\n\tname = t").unwrap();
-    for at in ["/w/a", "/w/b", "/w/a"] {
-        git_stat::keep(&state, &home, Path::new(at)).unwrap();
+    let paths = |list: &[&str]| list.iter().map(PathBuf::from).collect::<Vec<_>>();
+    let live = paths(&["/w/a", "/w/b", "/w/a"]);
+    for n in 1..=live.len() {
+        assert!(git_stat::keep(&state, &home, &live[..n]).unwrap().is_empty());
     }
     let global = std::fs::read_to_string(home.join(".gitconfig")).unwrap();
     assert!(global.starts_with("[user]\n\tname = t\n[include]"), "{global}");
@@ -197,9 +199,53 @@ fn a_mount_makes_git_check_only_size_and_mtime_there_and_keeps_it_once() {
     assert!(stat.contains("checkStat = minimal") && stat.contains("trustctime = false"));
 }
 
+/// cmuxterm-hq#13942: the list held every folder ever projected, for good.
+#[test]
+fn a_mount_that_went_away_leaves_no_git_settings_behind() {
+    let dir = cmux_unix_socket::short_test_dir("pgit");
+    let (state, home) = (dir.path().join("projections"), dir.path().join("home"));
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    git_stat::keep(&state, &home, &[PathBuf::from("/w/a"), PathBuf::from("/w/b")]).unwrap();
+    git_stat::keep(&state, &home, &[PathBuf::from("/w/b")]).unwrap();
+    let mounts = std::fs::read_to_string(state.join(git_stat::MOUNTS)).unwrap();
+    assert!(!mounts.contains("/w/a/") && mounts.contains("gitdir:/w/b/"), "{mounts}");
+    git_stat::keep(&state, &home, &[]).unwrap();
+    assert_eq!(std::fs::read_to_string(state.join(git_stat::MOUNTS)).unwrap(), "");
+}
+
+/// A name git's config cannot hold gets no entry and is named back; the rest still do.
+#[test]
+fn a_mount_named_with_a_newline_is_left_out_and_said() {
+    let dir = cmux_unix_socket::short_test_dir("pgit");
+    let (state, home) = (dir.path().join("projections"), dir.path().join("home"));
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    let odd = PathBuf::from("/w/a\nb");
+    let unnamed = git_stat::keep(&state, &home, &[odd.clone(), PathBuf::from("/w/c")]).unwrap();
+    assert_eq!(unnamed, vec![odd]);
+    let mounts = std::fs::read_to_string(state.join(git_stat::MOUNTS)).unwrap();
+    assert!(!mounts.contains("/w/a") && mounts.contains("gitdir:/w/c/"), "{mounts}");
+}
+
+fn git_in(home: &Path, repo: &Path, args: &[&str]) -> std::process::Output {
+    std::process::Command::new("git")
+        .env("HOME", home)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .arg("-C")
+        .arg(repo)
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+fn has_git() -> bool {
+    std::process::Command::new("git").arg("--version").output().is_ok()
+}
+
 #[test]
 fn git_takes_the_settings_in_a_mount_and_below_it_only() {
-    if std::process::Command::new("git").arg("--version").output().is_err() {
+    if !has_git() {
         return;
     }
     let dir = cmux_unix_socket::short_test_dir("pgit");
@@ -208,21 +254,42 @@ fn git_takes_the_settings_in_a_mount_and_below_it_only() {
     for folder in [&state, &home, &at.join("repo"), &other] {
         std::fs::create_dir_all(folder).unwrap();
     }
-    git_stat::keep(&state, &home, &at).unwrap();
+    git_stat::keep(&state, &home, std::slice::from_ref(&at)).unwrap();
     let check = |repo: &Path| {
-        let git = |args: &[&str]| {
-            std::process::Command::new("git")
-                .env("HOME", &home)
-                .env("GIT_CONFIG_NOSYSTEM", "1")
-                .arg("-C")
-                .arg(repo)
-                .args(args)
-                .output()
-                .unwrap()
-        };
-        assert!(git(&["init", "-q"]).status.success());
-        String::from_utf8_lossy(&git(&["config", "core.checkStat"]).stdout).trim().to_owned()
+        assert!(git_in(&home, repo, &["init", "-q"]).status.success());
+        let out = git_in(&home, repo, &["config", "core.checkStat"]).stdout;
+        String::from_utf8_lossy(&out).trim().to_owned()
     };
     assert_eq!(check(&at.join("repo")), "minimal");
+    assert_eq!(check(&other), "");
+}
+
+/// cmuxterm-hq#13942: a folder named with `"` or `\` wrote a broken include, and every git
+/// command on the machine failed. Glob characters in the name matched other folders too.
+#[test]
+fn a_mount_named_with_quotes_backslashes_and_glob_marks_breaks_no_git() {
+    if !has_git() {
+        return;
+    }
+    let dir = cmux_unix_socket::short_test_dir("pgit");
+    let base = std::fs::canonicalize(dir.path()).unwrap();
+    let (state, home) = (base.join("p #;"), base.join("h"));
+    let at = base.join("a\"b\\c*[x]? #;");
+    let near = base.join("a\"b\\cZZ[x]Q #;");
+    let other = base.join("o");
+    for folder in [&state, &home, &at.join("repo"), &near.join("repo"), &other] {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    assert!(git_stat::keep(&state, &home, std::slice::from_ref(&at)).unwrap().is_empty());
+    let check = |repo: &Path| {
+        let init = git_in(&home, repo, &["init", "-q"]);
+        assert!(init.status.success(), "{}", String::from_utf8_lossy(&init.stderr));
+        let status = git_in(&home, repo, &["status", "--short"]);
+        assert!(status.status.success(), "{}", String::from_utf8_lossy(&status.stderr));
+        let out = git_in(&home, repo, &["config", "core.checkStat"]).stdout;
+        String::from_utf8_lossy(&out).trim().to_owned()
+    };
+    assert_eq!(check(&at.join("repo")), "minimal");
+    assert_eq!(check(&near.join("repo")), "", "a glob mark in the name matched another folder");
     assert_eq!(check(&other), "");
 }
