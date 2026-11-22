@@ -42,6 +42,7 @@ import { INCOMING_LOOK, threadMinimapIncoming } from "./incoming.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import { tickRanges } from "./tickWindow";
 import { RailRows, tickRows, turnRows } from "./railRows";
+import { PromptHeads } from "../promptHeads";
 import { useThreadMinimapArm } from "../chatDisplay";
 import {
   CARD_DELAY,
@@ -95,6 +96,15 @@ const RAIL_FILTER_LABEL = {
 const STEP_PENDING_MS = STEP_MS + 150;
 /// A pointer that moves this far after pressing a row scrubs instead of clicking.
 const SCRUB_SLOP = 3;
+/// A fling, for the rail's list: FLING_MOVES band moves in a row while the wheel drives the chat (a
+/// wheel event, a trackpad's momentum ones included, within FLING_REST_MS), each with the transcript
+/// going at least FLING_SPEED px a ms (200 px a 60 Hz frame, past reading speed) and each within
+/// FLING_REST_MS of the last. A jump, a wheel read line by line or a key's step is none. The fling is
+/// at rest once the band has held FLING_REST_MS.
+const FLING_SPEED = 12;
+const FLING_MOVES = 3;
+// motion: allow a gesture rest timer (how long the band holds still), not an animation step.
+const FLING_REST_MS = 120;
 /// Whether `node` holds focus a navigation key gave it, not a click's; still true once a pointer
 /// move has taken its ring away, so the rail keeps the keyboard (focusCameFromKey).
 function keyboardFocused(node: HTMLElement): boolean {
@@ -127,7 +137,6 @@ const promptSeq = (id: string) => {
   const match = /^user-(\d+)/.exec(id);
   return match ? Number(match[1]) : Number.NaN;
 };
-const EMPTY_EARLIER: readonly AcpmuxRow[] = [];
 
 /// A row the rail's state names: the index the state holds for it, and its prompt's key.
 type KeyedRow = { index: number; key: string };
@@ -146,7 +155,7 @@ const bubbleOf = (row: HTMLElement | undefined) => row?.querySelector<HTMLElemen
 
 export function ThreadMinimap({
   rows,
-  earlier = EMPTY_EARLIER,
+  earlier = PromptHeads.EMPTY,
   promptCount,
   loadThrough,
   loadPromptIndex,
@@ -166,7 +175,7 @@ export function ThreadMinimap({
 }: {
   rows: readonly AcpmuxRow[];
   /// The chat's prompts older than `rows` (VirtualTranscript `earlier`): ticks from the first frame.
-  earlier?: readonly AcpmuxRow[];
+  earlier?: PromptHeads;
   /// The chat's prompt count while `rows` and `earlier` do not hold every prompt yet (the snapshot's
   /// `promptCount`): the prompts neither holds draw as pending resting ticks above the held ones
   /// (model.ts pendingCount), so the rail's first frame has its final length and tick rows. It
@@ -210,7 +219,6 @@ export function ThreadMinimap({
   const t = useT();
   const topInsetNow = useRef(topInset);
   topInsetNow.current = topInset;
-  const earlierRows = earlier;
   /// The full-height map (ScrollMap.tsx), the compact Codex rail below, or none (`off`: the turn
   /// steps below still run), read once per pane. The Chat Minimap setting
   /// (`agentPane.display.minimap`) wins when set, live.
@@ -232,32 +240,42 @@ export function ThreadMinimap({
   // Every streamed token is a new `rows`: `turns` then changes with the live reply (the card reads
   // it), while `ticks` stays as long as the prompts do, so the tick list below renders nothing.
   const read = useMemo(
-    () => minimapTurns(rows, sessionId, lastTurns.current, change, earlierRows, promptCount),
-    [rows, sessionId, change, earlierRows, promptCount],
+    () => minimapTurns(rows, sessionId, lastTurns.current, change, earlier, promptCount),
+    [rows, sessionId, change, earlier, promptCount],
   );
   useLayoutEffect(() => {
     lastTurns.current = read;
   }, [read]);
-  const loadedTurns = read.loadedTurns ?? read.turns.filter((turn) => turn.index >= 0);
+  const loadedTurns = read.turns;
   /// Whose prompts the rail shows (model.ts `RailFilter`), picked from its right-click menu.
   const [filter, setFilter] = useState<RailFilter>("all");
   // A run of other chats' messages next to each other draws as one tick (model.ts `foldIncoming`):
   // the rail's jumps, hover, keys and bookmarks all read the folded lists. The full-height map keeps
   // a mark per prompt (`loadedTurns`). A filtered rail draws each prompt it keeps as its own tick, and
   // falls back to every prompt when the filter would leave none, so the rail and its menu stay.
+  // The indexed prompts (`read.earlier`) come before the held ones as rows of the rail's own (railRows.ts). The index
+  // names no sender, so they are the person's: Mine keeps them, Agents none.
   const named = useMemo(() => {
-    const start = read.loadedStart ?? 0;
+    const indexed = read.earlier ?? PromptHeads.EMPTY;
     // The full-height map draws every loaded turn and finds its jump in these lists: it never filters.
-    const kept = filter === "all" || full ? undefined : filterTurns(read.turns, read.ticks, start, filter);
-    if (kept?.ticks.length) return { ...kept, filtered: true };
-    const folded = incomingLook.fold ? foldIncoming(read.turns, read.ticks, start) : read;
-    return { turns: folded.turns, ticks: folded.ticks, loadedStart: start, filtered: false };
+    const kept = filter === "all" || full ? undefined : filterTurns(read.turns, read.ticks, 0, filter);
+    const keptIndexed = filter === "agents" ? PromptHeads.EMPTY : indexed;
+    if (kept && (kept.ticks.length || keptIndexed.length))
+      return { turns: kept.turns, ticks: kept.ticks, earlier: keptIndexed, filtered: true };
+    const folded = incomingLook.fold ? foldIncoming(read.turns, read.ticks, 0) : read;
+    return { turns: folded.turns, ticks: folded.ticks, earlier: indexed, filtered: false };
   }, [filter, full, incomingLook.fold, read]);
   // Prompts known only by count have no sender yet: a filtered rail draws none of them.
   const pendingCount = named.filtered ? 0 : (read.pendingCount ?? 0);
-  const loadedStart = named.loadedStart + pendingCount;
-  const turns = useMemo(() => turnRows(named.turns, pendingCount, sessionId), [named.turns, pendingCount, sessionId]);
-  const ticks = useMemo(() => tickRows(named.ticks, pendingCount, sessionId), [named.ticks, pendingCount, sessionId]);
+  const loadedStart = pendingCount + named.earlier.length;
+  const turns = useMemo(
+    () => turnRows(named.turns, pendingCount, sessionId, named.earlier),
+    [named.turns, pendingCount, sessionId, named.earlier],
+  );
+  const ticks = useMemo(
+    () => tickRows(named.ticks, pendingCount, sessionId, named.earlier),
+    [named.ticks, pendingCount, sessionId, named.earlier],
+  );
   /// The row under the pointer, or the one a scrub is on.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
   /// When the pane is too narrow for the rail beside the text, the edge strip can reveal it over the
@@ -470,6 +488,7 @@ export function ThreadMinimap({
     marks,
     viewportHeight,
     onScreen,
+    top,
     sessionId,
     shown,
     hovered,
@@ -485,6 +504,7 @@ export function ThreadMinimap({
       marks,
       viewportHeight,
       onScreen,
+      top,
       sessionId,
       shown,
       hovered,
@@ -1037,6 +1057,33 @@ export function ThreadMinimap({
     },
     [rowPitch],
   );
+  /// The band's last move, and how many fast moves ran into it (FLING_SPEED): a fling.
+  const bandMotion = useRef<
+    { first: number; last: number; top: number; at: number; fast: number; sessionId?: string } | undefined
+  >(undefined);
+  /// The one timer that places the list once a fling is at rest (FLING_REST_MS), and the render it asks
+  /// for. Each fling frame moves it later; the unmount clears it.
+  const restTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [rested, setRested] = useState(0);
+  useEffect(
+    () => () => {
+      if (restTimer.current !== undefined) clearTimeout(restTimer.current);
+    },
+    [],
+  );
+  /// When the wheel last drove the transcript: only a wheel's motion is a fling (FLING_MOVES). The rail is
+  /// inside the scroller, and a wheel over its own list browses the rail, not the chat.
+  const wheelAt = useRef(Number.NEGATIVE_INFINITY);
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node) return;
+    const wheeled = (event: WheelEvent) => {
+      if (list.current?.contains(event.target as Node | null)) return;
+      wheelAt.current = performance.now();
+    };
+    node.addEventListener("wheel", wheeled, { capture: true, passive: true });
+    return () => node.removeEventListener("wheel", wheeled, { capture: true });
+  }, [scroller]);
   useLayoutEffect(() => {
     const node = list.current;
     // A hidden rail (too little room, too few prompts) unmounts its list, and the next one mounts at
@@ -1060,6 +1107,39 @@ export function ThreadMinimap({
     // The commit that added older turns placed the list itself, around the band.
     if (scrubbing || holding.current || (railBrowsing.current && railBrowsing.current.sessionId === sessionId)) return;
     railBrowsing.current = undefined;
+    // While the chat flings, the list stays where it is: its offset write here was the frame's first
+    // forced layout after the transcript mounted its new rows, so it paid their style and layout inside
+    // this effect, on every fling frame (bench/transcript-scroll-up.bench.ts: 95 s of a 222 s profile).
+    // Nothing here writes or reads the list's geometry then (followPointer reads a rect); the band
+    // still lights its ticks, and the list catches up once, at rest, where railScrollTop puts it.
+    const was = bandMotion.current;
+    // A wheel in the chat shown before is not this chat's fling.
+    if (was && was.sessionId !== sessionId) wheelAt.current = Number.NEGATIVE_INFINITY;
+    if (!was || was.sessionId !== sessionId || was.first !== onScreen.first || was.last !== onScreen.last) {
+      const now = performance.now();
+      const reader = live.current.top;
+      const since = was && was.sessionId === sessionId ? now - was.at : Infinity;
+      const fast =
+        was &&
+        since < FLING_REST_MS &&
+        now - wheelAt.current < FLING_REST_MS &&
+        Math.abs(reader - was.top) >= FLING_SPEED * Math.max(1, since)
+          ? was.fast + 1
+          : 0;
+      bandMotion.current = { first: onScreen.first, last: onScreen.last, top: reader, at: now, fast, sessionId };
+      if (fast >= FLING_MOVES) {
+        if (restTimer.current !== undefined) clearTimeout(restTimer.current);
+        restTimer.current = setTimeout(() => {
+          restTimer.current = undefined;
+          setRested((count) => count + 1);
+        }, FLING_REST_MS);
+        return;
+      }
+    }
+    if (restTimer.current !== undefined) {
+      clearTimeout(restTimer.current);
+      restTimer.current = undefined;
+    }
     const current = listOffset.current;
     const next = railScrollTop({ first: onScreen.first, last: onScreen.last }, turns.length, height, current, rowPitch);
     if (Math.abs(next - current) < 0.5) return;
@@ -1079,6 +1159,7 @@ export function ThreadMinimap({
     followPointer,
     sessionId,
     rowPitch,
+    rested,
   ]);
 
   // A key moved focus to a row that was not drawn: it is now, so it takes focus (and the browser
