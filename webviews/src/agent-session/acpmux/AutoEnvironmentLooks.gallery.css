@@ -15,14 +15,27 @@
 .auto-env-menus { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
 .auto-env-cell { margin: 0; display: flex; flex-direction: column; gap: 6px; }
 .auto-env-cell figcaption { font-size: 10px; color: var(--agent-muted); letter-spacing: 0.02em; }
+/* The menu as its popup draws it (a Popover's positioner carries these in the app). */
+.auto-env-board {
+  --acpmux-base: var(--agent-accent-text, Canvas);
+  --acpmux-menu-bg: color-mix(in srgb, var(--agent-text) 9%, var(--agent-page-bg, var(--acpmux-base)));
+  --acpmux-menu-hover: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  --acpmux-pill-hover: color-mix(in srgb, var(--agent-text) 11%, transparent);
+}
 .auto-env-menu.acpmux-menu {
   position: static;
   width: 236px;
   max-height: none;
+  padding: 4px;
+  background: var(--acpmux-menu-bg);
+  box-shadow:
+    0 0 0 0.5px color-mix(in srgb, var(--agent-text) 22%, transparent),
+    0 8px 24px color-mix(in srgb, #000 18%, transparent);
 }
 
 /* The hover state, held for the board (the pointer can rest on one cell only). */
-.auto-env-board .acpmux-location-button[data-gallery-hover] { background: var(--agent-control-hover, var(--agent-soft)); color: var(--agent-text); }
+.auto-env-board .acpmux-location-button[data-gallery-hover] { background: var(--acpmux-pill-hover); color: var(--agent-text); }
+.auto-env-menu .acpmux-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); }
 
 /* The hint: muted, on Auto's own line, never a second line. */
 .auto-env-hint { white-space: nowrap; color: var(--agent-muted); font-size: inherit; }
