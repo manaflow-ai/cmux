@@ -4,19 +4,23 @@
 // on every frame, with no jump to the top; a reader scrolled up keeps their place. Sampled on every
 // animation frame (rAF) while the draft grows, at a narrow and a wide pane.
 //
-// Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+// Real WebKit from Playwright (the app is WKWebView); ANCHOR_ENGINE=chromium runs Chromium instead.
+// CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, webkit, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { COMPOSER_MD_FIELD } from "../src/agent-session/acpmux/composerSelectors";
 
 type Frame = { box: number; t: number; scrollTop: number; fromEnd: number; gap: number };
 
+const ENGINE_NAME = process.env.ANCHOR_ENGINE === "chromium" ? "chromium" : "webkit";
+const ENGINE = ENGINE_NAME === "chromium" ? chromium : webkit;
+
 await requireBrowserLane("transcript-composer-grow-anchor.test.ts", async () => {
-  if (!(await probeEngineOrSkip("transcript-composer-grow-anchor", "chromium", chromium))) return;
+  if (!(await probeEngineOrSkip("transcript-composer-grow-anchor", ENGINE_NAME, ENGINE))) return;
   setDefaultTimeout(180_000);
   const ENTRY = "agent-pane.transcript-composer-grow";
   const shots = process.env.ANCHOR_SHOTS;
@@ -31,7 +35,7 @@ await requireBrowserLane("transcript-composer-grow-anchor.test.ts", async () => 
       logLevel: "error",
     });
     await vite.listen();
-    browser = await chromium.launch({ headless: true });
+    browser = await ENGINE.launch({ headless: true });
     await warmGalleryFrame(vite, ENTRY, { browser, params: { variant: "bottom-one-line" } });
   });
   afterAll(async () => {
