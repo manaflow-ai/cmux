@@ -224,7 +224,9 @@ import Testing
             let next = SubagentFollow.offset(offset, anchor: anchor, old: height, new: height + growth)
             let shift = abs(next - offset)
             #expect(shift <= 0.5, "a measured row moved the reader's row \(shift) pt (anchor \(anchor))")
-            #expect(!follow.changed(atEnd: false, grew: true, scrolling: false, running: false), "a finished transcript never scrolls to its end")
+            // Mutating calls stay outside #expect (its expansion takes the value immutably).
+            let scrolls = follow.changed(atEnd: false, grew: true, scrolling: false, running: false)
+            #expect(!scrolls, "a finished transcript never scrolls to its end")
             offset = next
             height += growth
         }
@@ -240,7 +242,8 @@ import Testing
         // Scrolled away by the reader, growth moves nothing.
         _ = follow.changed(atEnd: false, grew: false, scrolling: true, running: true)
         #expect(follow.sizeChangeAnchor(running: true) == .top)
-        #expect(!follow.changed(atEnd: false, grew: true, scrolling: false, running: true))
+        let scrolls = follow.changed(atEnd: false, grew: true, scrolling: false, running: true)
+        #expect(!scrolls)
     }
 
     @Test func aStateChangeRebuildsTheRows() throws {
