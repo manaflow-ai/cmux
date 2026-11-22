@@ -218,6 +218,24 @@ class OwnedIdleTests(unittest.TestCase):
         self.assertEqual(snapshot["pools"][self.LABEL]["busy"], 1)
         self.assertEqual(snapshot["owned_runners"]["read_at"], "2026-09-22T17:00:00Z")
 
+    def test_reads_a_pool_of_700_runners_whole(self) -> None:
+        # Review F1 on cmux#49556: the roster's default 5 pages (500 runners) made the idle count of a ~700-runner
+        # pool a sample in arbitrary order, so busy pages alone could read as "full" beside hundreds idle.
+        runners = [self.runner(busy=True) for _ in range(500)] + [self.runner(busy=False) for _ in range(200)]
+        snapshot = {"pools": {self.LABEL: {"queued": 19, "running": 500, "oldest_queued_minutes": 12}}}
+
+        def fetch(path: str):
+            if "runner-groups?" in path:
+                return {"runner_groups": [{"id": 7}]}
+            if "runner-groups/7/runners" in path:
+                page = int(path.rsplit("page=", 1)[1])
+                return {"runners": runners[(page - 1) * 100:page * 100]}
+            return {"runners": []}
+
+        janitor.attach_owned_idle(snapshot, None, "manaflow-ai/cmux", now=NOW, fetch=fetch)
+        self.assertEqual(snapshot["pools"][self.LABEL]["online"], 700)
+        self.assertEqual(snapshot["pools"][self.LABEL]["idle"], 200)
+
     def test_an_unread_roster_leaves_no_idle_reading(self) -> None:
         for token, fetch in ((None, None), ("t", mock.Mock(side_effect=RuntimeError("HTTP 500")))):
             with self.subTest(token=token):

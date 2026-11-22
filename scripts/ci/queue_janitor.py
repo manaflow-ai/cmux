@@ -759,6 +759,9 @@ def owned_linux_label(job: Mapping[str, Any]) -> str | None:
 # available runners, and the queue alone moved every x64 pool to Blacksmith. An entry without `idle` (no token,
 # a refused or failed read) keeps the queue-only rule.
 OWNED_RUNNERS_KEY = "owned_runners"
+# Pages a roster listing may read here (100 runners a page): the owned pool holds about 700 runners and has held
+# 3,900, and the roster's default 5 pages would make the idle count a sample in arbitrary order.
+OWNED_ROSTER_MAX_PAGES = 50
 
 
 def owned_linux_idle(runners: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, int]]:
@@ -787,7 +790,8 @@ def attach_owned_idle(snapshot: dict[str, Any], token: str | None, repo: str, *,
         snapshot[OWNED_RUNNERS_KEY] = {"error": "no ROUTE_TOKEN"}
         return
     try:
-        counts = owned_linux_idle(roster.roster(fetch or roster.gh_fetch(str(token)), repo))
+        counts = owned_linux_idle(roster.roster(fetch or roster.gh_fetch(str(token)), repo,
+                                                 max_pages=OWNED_ROSTER_MAX_PAGES))
     except Exception as error:  # noqa: BLE001 - an unread roster keeps the queue-only rule
         snapshot[OWNED_RUNNERS_KEY] = {"error": str(error)[:300]}
         print(f"queue-janitor: owned runner roster: {error}", file=sys.stderr)
