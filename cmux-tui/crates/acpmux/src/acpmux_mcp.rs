@@ -225,6 +225,16 @@ fn base_tools() -> Value {
                 },
                 "required": ["query"]
             }
+        },
+        {
+            "name": "chat_recap",
+            "description": "Read this chat's rows since your persisted last-seen mark so you can recount what happened since you were here. A never-focused chat returns no history. The result is bounded and does not advance the mark.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "maxBytes": {"type": "integer", "minimum": 1, "maximum": 1048576, "description": "Maximum returned row bytes (default 262144)."}
+                }
+            }
         }
     ]);
     if let Some(list) = all.as_array_mut() {
@@ -386,6 +396,9 @@ fn served_with(
                 if name == "search" {
                     return search_tool(&daemon, &session, &args).await;
                 }
+                if name == "chat_recap" {
+                    return chat_recap(&daemon, &session, &args).await;
+                }
                 if name == "machine_info" {
                     return machine_info(&daemon, &session).await;
                 }
@@ -430,6 +443,7 @@ async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> V
     }
     match params["name"].as_str().unwrap_or_default() {
         "send" => send::send(daemon, &args, sub).await,
+        "chat_recap" => chat_recap(daemon, "", &args).await,
         "team_send" => team_send(daemon, &args).await,
         "team_inbox" => team_inbox(daemon, &args).await,
         "team_ack" => team_ack(daemon, &args).await,
@@ -518,6 +532,33 @@ fn team_result_text(result: &Value) -> String {
         result.as_str().unwrap_or_default().to_owned()
     } else {
         serde_json::to_string_pretty(result).unwrap_or_else(|_| result.to_string())
+    }
+}
+
+/// Read the authenticated chat's rows after its persisted since-you-were-here mark.
+async fn chat_recap(daemon: &Arc<Client>, session: &str, args: &Value) -> Value {
+    if session.is_empty() {
+        return error_result("this server runs in no acpmux chat".to_owned());
+    }
+    let max_bytes = args
+        .get("maxBytes")
+        .and_then(Value::as_u64)
+        .unwrap_or(256 * 1024)
+        .clamp(1, 1024 * 1024);
+    let params = json!({"sessionId": session, "maxBytes": max_bytes});
+    match daemon.request(method::MUX_SINCE, params).await {
+        Ok(result) => {
+            let rows = result.get("rows").and_then(Value::as_array).map_or(0, Vec::len);
+            let text = if result.get("neverFocused").and_then(Value::as_bool) == Some(true) {
+                "This chat has not been focused before, so there is no recap yet.".to_owned()
+            } else if rows == 0 {
+                "Nothing has arrived since you were here.".to_owned()
+            } else {
+                format!("{rows} row{} since you were here.", if rows == 1 { "" } else { "s" })
+            };
+            ok(text, result)
+        }
+        Err(e) => refusal(e),
     }
 }
 

@@ -345,6 +345,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::QueueDeclineParams>(method::MUX_QUEUE_DECLINE, Request),
         untyped(method::MUX_QUEUE_TEXT, Request),
         untyped(method::MUX_ROWS, Request),
+        untyped(method::MUX_SINCE, Request),
         untyped(method::MUX_ROWS_PATCH, Notification),
         untyped(method::MUX_ROWS_LAGGED, Notification),
         keyed::<params::QueueGetParams>(method::MUX_QUEUE_GET, Request),
