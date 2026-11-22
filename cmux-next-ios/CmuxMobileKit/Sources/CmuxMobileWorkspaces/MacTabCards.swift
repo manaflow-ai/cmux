@@ -289,12 +289,12 @@ public final class MacTabCards {
     @discardableResult
     private func fill(_ keys: [TabSnapshotKey], macID: String) -> Task<Void, Never>? {
         let held = held[macID] ?? []
-        var parts: [Part] = []
+        var wanted: [Part] = []
         for key in keys {
             guard let entry = entries[key], let info = entry.info else { continue }
             func want(_ hash: String?, shown: String?, _ slot: Part.Slot) {
                 guard let hash, hash != shown, held.contains(hash) else { return }
-                parts.append(Part(key: key, slot: slot, hash: hash, capturedAtMs: info.capturedAtMs, bytes: arriving[hash]))
+                wanted.append(Part(key: key, slot: slot, hash: hash, capturedAtMs: info.capturedAtMs, bytes: arriving[hash]))
             }
             if info.faviconHash == nil, entry.favicon != nil { entry.favicon = nil; entry.shownFavicon = nil }
             if info.screenHash == nil, entry.screen != nil { entry.screen = nil; entry.shownScreen = nil }
@@ -302,7 +302,8 @@ public final class MacTabCards {
             want(info.screenHash, shown: entry.shownScreen, .screen)
             want(info.thumbHash, shown: entry.shownThumb, .thumb)
         }
-        guard !parts.isEmpty else { return nil }
+        guard !wanted.isEmpty else { return nil }
+        let parts = wanted
         let store = store
         // task-owner: this store; ends when the parts are shown.
         return Task { [weak self] in
