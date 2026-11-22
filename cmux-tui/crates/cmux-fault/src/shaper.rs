@@ -401,7 +401,7 @@ async fn connection(
     epoch: watch::Receiver<u64>,
 ) {
     let ready = lock(&link).connect_at(Instant::now());
-    tokio::time::sleep_until(ready).await;
+    crate::timer::sleep_until(ready).await;
     let Ok(far) = TcpStream::connect(upstream).await else { return };
     let _ = near.set_nodelay(true);
     let _ = far.set_nodelay(true);
@@ -444,7 +444,7 @@ async fn direction(
     let writer_link = link.clone();
     let writer = async move {
         while let Some((at, segment)) = receive.recv().await {
-            tokio::time::sleep_until(at).await;
+            crate::timer::sleep_until(at).await;
             // Still on the air when the address changed: it goes to the old address too.
             if index < lock(&writer_link).orphaned_below {
                 continue;

@@ -19,7 +19,9 @@ use cmux_fault::Trace;
 use cmux_fault::shaper::{Counters, ProfileFile, Shaper, UdpShaper};
 use cmux_mobile_host::paint_latency;
 use cmux_mobile_host::phone_frames;
-use cmux_mobile_host::viewport_sync::{self, Config, UDP_MAX_DATAGRAM, ViewportSync};
+use cmux_mobile_host::viewport_sync::{
+    self, Config, Path, SelectorConfig, StreamOut, UDP_MAX_DATAGRAM, ViewportSync,
+};
 use cmux_mobile_link::ChannelEvent;
 use cmux_mobile_link::frame::epoch_us;
 use cmux_mobile_link::link::{Link, LinkConfig, Role};
@@ -31,6 +33,32 @@ use tokio::sync::{mpsc, oneshot};
 fn output_line(vt: &[u8]) -> Vec<u8> {
     let data = base64::engine::general_purpose::STANDARD.encode(vt);
     format!("{{\"data\":\"{data}\",\"event\":\"output\",\"surface\":1}}\n").into_bytes()
+}
+
+/// The phone's model of the screen, headless: the projection the phone's terminal is painted
+/// from, at the host grid. Fed a stream line, it is the grid ready to paint.
+struct PhoneGrid {
+    projection: cmux_terminal_projection::Projection,
+}
+
+impl PhoneGrid {
+    fn new(load: &Load) -> Self {
+        let mut projection = cmux_terminal_projection::Projection::new(
+            usize::from(load.cols),
+            usize::from(load.rows),
+            cmux_terminal_projection::DEFAULT_HISTORY_LIMIT,
+        );
+        projection.set_viewport(usize::from(load.cols), usize::from(load.rows));
+        Self { projection }
+    }
+
+    /// An output (or history) line: its PTY bytes into the projection, painted.
+    fn feed_line(&mut self, line: &[u8]) {
+        let value: serde_json::Value = serde_json::from_slice(line).expect("a JSON line");
+        let data = value["data"].as_str().expect("its data");
+        let vt = base64::engine::general_purpose::STANDARD.decode(data).expect("base64");
+        std::hint::black_box(self.projection.feed(&vt, true));
+    }
 }
 
 /// A load: the PTY reads, one every 16 ms, at a host grid.
@@ -136,6 +164,7 @@ async fn run(
     let mut terminal = phone.open("terminal", serde_json::json!({})).await.unwrap();
     let mut samples = Vec::new();
     let mut pending = Vec::new();
+    let mut grid = PhoneGrid::new(load);
     while samples.len() < lines as usize {
         let Some(ChannelEvent::Data(bytes)) =
             tokio::time::timeout(Duration::from_secs(60), terminal.recv()).await.unwrap()
@@ -147,8 +176,10 @@ async fn run(
         while let Some(end) = pending.iter().position(|b| *b == b'\n') {
             let line: Vec<u8> = pending.drain(..=end).collect();
             let seq = paint_latency::trailing_seq(&line).expect("a stamped line");
-            // No screen here: painted when received, so (c) reads 0 and the sim gives it.
-            samples.push([seq as f64, rx, rx]);
+            // No screen here: (c) is the receive to the phone's grid ready (the projection
+            // fed, headless); the simulator's present comes after it.
+            grid.feed_line(&line);
+            samples.push([seq as f64, rx, epoch_us() as f64 / 1000.0]);
         }
     }
     // The redraws' bytes, before the paint reports go up.
@@ -205,6 +236,62 @@ struct DatagramRow {
     rate: f64,
     /// After quiescence the phone acked the last state and its screen is the host's capture.
     converged: bool,
+    /// Where a redraw's time goes, p50/p95 ms per stage.
+    stages: Vec<(&'static str, f64, f64)>,
+}
+
+/// The phone side of the datagram path: a `SyncReceiver` acking every datagram, and each state
+/// it took: (seq, when held, how long the apply took, held epoch ms).
+fn spawn_sync_phone(
+    phone: UdpSocket,
+    stopped: oneshot::Receiver<()>,
+) -> tokio::task::JoinHandle<(SyncReceiver, Vec<Held>)> {
+    tokio::spawn(async move {
+        let mut receiver = SyncReceiver::new();
+        let mut held: Vec<Held> = Vec::new();
+        let mut buffer = vec![0_u8; 64 * 1024];
+        let mut stopped = stopped;
+        loop {
+            tokio::select! {
+                received = phone.recv(&mut buffer) => {
+                    let Ok(n) = received else { continue };
+                    let before = receiver.seq();
+                    let started = Instant::now();
+                    let ack = receiver.on_datagram(&buffer[..n]);
+                    if receiver.seq() > before {
+                        let at = Instant::now();
+                        held.push(Held { seq: receiver.seq(), at, apply: at - started, epoch_ms: epoch_us() as f64 / 1000.0 });
+                    }
+                    if let Some(ack) = ack {
+                        let _ = phone.send(&ack).await;
+                    }
+                }
+                _ = &mut stopped => return (receiver, held),
+            }
+        }
+    })
+}
+
+/// A state the phone took.
+#[derive(Clone, Copy)]
+struct Held {
+    seq: u64,
+    at: Instant,
+    apply: Duration,
+    epoch_ms: f64,
+}
+
+fn ms(duration: Duration) -> f64 {
+    duration.as_secs_f64() * 1000.0
+}
+
+/// p50 and p95 of `values` (ms), sorted here.
+fn p50_p95(mut values: Vec<f64>) -> (f64, f64) {
+    if values.is_empty() {
+        return (f64::NAN, f64::NAN);
+    }
+    values.sort_by(f64::total_cmp);
+    (percentile(&values, 0.50), percentile(&values, 0.95))
 }
 
 /// Nearest rank.
@@ -233,28 +320,7 @@ async fn run_datagram(profile: &str, load: &Load, every: Duration) -> DatagramRo
     tokio::time::sleep(Duration::from_millis(20)).await;
 
     let (stop, stopped) = oneshot::channel::<()>();
-    let phone_task = tokio::spawn(async move {
-        let mut receiver = SyncReceiver::new();
-        let mut held: Vec<(u64, Instant)> = Vec::new();
-        let mut buffer = vec![0_u8; 64 * 1024];
-        let mut stopped = stopped;
-        loop {
-            tokio::select! {
-                received = phone.recv(&mut buffer) => {
-                    let Ok(n) = received else { continue };
-                    let before = receiver.seq();
-                    let ack = receiver.on_datagram(&buffer[..n]);
-                    if receiver.seq() > before {
-                        held.push((receiver.seq(), Instant::now()));
-                    }
-                    if let Some(ack) = ack {
-                        let _ = phone.send(&ack).await;
-                    }
-                }
-                _ = &mut stopped => return (receiver, held),
-            }
-        }
-    });
+    let phone_task = spawn_sync_phone(phone, stopped);
 
     let peer = shaper.phone_addr_at_host().unwrap();
     let mut sync =
@@ -283,10 +349,14 @@ async fn run_datagram(profile: &str, load: &Load, every: Duration) -> DatagramRo
         sync.settled() && receiver.seq() == sync.latest_seq() && receiver.screen() == Some(&sync.capture());
 
     let captures = sync.captures();
+    let feeds = sync.feeds();
     let mut latencies = Vec::with_capacity(lines as usize);
     let mut superseded = 0;
     let mut coalesced = 0;
     let mut previous_seq = None;
+    let names =
+        ["write to feed", "feed to capture", "capture cpu", "encode cpu", "send to held", "phone apply"];
+    let mut stages: Vec<Vec<f64>> = vec![Vec::new(); names.len()];
     for (i, wrote) in written.iter().enumerate() {
         let batch = i as u64 + 1;
         let capture = captures.iter().find(|capture| capture.batches >= batch).expect("a capture covers it");
@@ -294,26 +364,282 @@ async fn run_datagram(profile: &str, load: &Load, every: Duration) -> DatagramRo
             coalesced += 1;
         }
         previous_seq = Some(capture.seq);
-        let Some((seq, at)) = held.iter().find(|(seq, _)| *seq >= capture.seq).copied() else {
+        let fed = feeds[i].0;
+        stages[0].push(ms(fed.saturating_duration_since(*wrote)));
+        stages[1].push(ms(capture.at.saturating_duration_since(fed)));
+        stages[2].push(ms(capture.capture));
+        stages[3].push(ms(capture.encode));
+        let Some(held) = held.iter().find(|held| held.seq >= capture.seq).copied() else {
             // Never held: counted at the end of the run.
-            latencies.push((started + elapsed).saturating_duration_since(*wrote).as_secs_f64() * 1000.0);
+            latencies.push(ms((started + elapsed).saturating_duration_since(*wrote)));
             continue;
         };
-        if seq != capture.seq {
+        stages[4].push(ms(held.at.saturating_duration_since(capture.at)));
+        stages[5].push(ms(held.apply));
+        if held.seq != capture.seq {
             superseded += 1;
         }
-        latencies.push(at.saturating_duration_since(*wrote).as_secs_f64() * 1000.0);
+        latencies.push(ms(held.at.saturating_duration_since(*wrote)));
     }
-    latencies.sort_by(f64::total_cmp);
+    let stages = names
+        .iter()
+        .zip(stages)
+        .map(|(name, values)| {
+            let (p50, p95) = p50_p95(values);
+            (*name, p50, p95)
+        })
+        .collect();
+    let (p50_ms, p95_ms) = p50_p95(latencies);
     DatagramRow {
-        p50_ms: percentile(&latencies, 0.50),
-        p95_ms: percentile(&latencies, 0.95),
+        p50_ms,
+        p95_ms,
         down_per_min: per_min(counters.down_bytes, elapsed),
         up_per_min: per_min(counters.up_bytes, elapsed),
         superseded,
         coalesced,
         rate: sync.rate(),
         converged,
+        stages,
+    }
+}
+
+/// The selected run's row: each redraw went by the path the selector was on when it came.
+struct SelectedRow {
+    p50_ms: f64,
+    p95_ms: f64,
+    stream_frames: usize,
+    datagram_frames: usize,
+    /// The path at the end, and each switch (ms after the run started, to which path).
+    path: &'static str,
+    switches: Vec<(f64, &'static str)>,
+    warmup: Duration,
+    /// The phone's receive to its grid ready (stream: the projection fed; datagram: the state
+    /// applied), p50/p95 ms.
+    grid_ready: (f64, f64),
+    /// hostd's line in phone-frames.jsonl for this run's report.
+    jsonl: String,
+}
+
+/// A frame the phone's stream took: its stamp, received and grid ready (instants, epoch ms).
+struct StreamFrame {
+    pseq: u64,
+    rx: Instant,
+    rx_ms: f64,
+    ready_ms: f64,
+}
+
+/// The path selector on a link: today's stream (a link channel through cmux-fault's `Shaper`)
+/// and the datagrams (through its `UdpShaper`) side by side, the same profile on both. The
+/// driver is `viewport_sync::run_selected`: probes while idle for a warmup (so the selector
+/// has judged the link), then the redraws, each on the path it is on. A redraw's latency is
+/// its write to the phone's receive (stream) or to the phone holding its state (datagram), as
+/// in the two runs above. The phone's paint report carries the path of each frame.
+async fn run_selected(profile: &str, load: &Load, every: Duration) -> SelectedRow {
+    let link_profile = ProfileFile::builtin().get(profile).cloned().expect("profile");
+    let warmup = Duration::from_millis(4 * link_profile.rtt_ms + 2 * link_profile.jitter_ms + 300);
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let tcp_shaper =
+        Shaper::start(listener.local_addr().unwrap(), link_profile.clone(), 7, &Trace::new()).await.unwrap();
+    let host = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let udp_shaper =
+        UdpShaper::start(host.local_addr().unwrap(), link_profile, 7, &Trace::new()).await.unwrap();
+    let phone_udp = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    phone_udp.connect(udp_shaper.addr()).await.unwrap();
+    phone_udp.send(b"hello").await.unwrap();
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("phone-frames.jsonl");
+
+    // The Mac: the stream's writer takes what the driver hands it.
+    let (stream_out, mut stream_in) = mpsc::channel::<StreamOut>(4096);
+    let stamped: Arc<std::sync::Mutex<Vec<(u64, u64)>>> = Arc::default();
+    let mac = tokio::spawn({
+        let path = path.clone();
+        let stamped = stamped.clone();
+        async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            stream.set_nodelay(true).unwrap();
+            let mac = Link::new(stream, Role::Mac, LinkConfig::default(), None);
+            let terminal = mac.accept().await.expect("terminal channel");
+            let (sender, _receiver) = terminal.channel.split();
+            let writer = tokio::spawn(async move {
+                while let Some(out) = stream_in.recv().await {
+                    match out {
+                        StreamOut::Output { batch, bytes } => {
+                            let (line, mark) = paint_latency::stamp_line(output_line(&bytes));
+                            let pseq = paint_latency::trailing_seq(&line).expect("a stamped line");
+                            stamped.lock().unwrap().push((pseq, batch));
+                            sender.send_marked(Bytes::from(line), mark).await.unwrap();
+                        }
+                        StreamOut::History(rows) => {
+                            let data = base64::engine::general_purpose::STANDARD.encode(&rows);
+                            let line =
+                                format!("{{\"data\":\"{data}\",\"event\":\"history\",\"surface\":1}}\n");
+                            sender.send_marked(Bytes::from(line), None).await.unwrap();
+                        }
+                        StreamOut::Switched(_) => {}
+                    }
+                }
+                sender
+            });
+            let frames = mac.accept().await.expect("phone-frames channel");
+            let (frames_sender, frames_receiver) = frames.channel.split();
+            phone_frames::serve("phone-1", &path, &frames_sender, frames_receiver).await.unwrap();
+            let _sender = writer.await.unwrap();
+            mac
+        }
+    });
+
+    // The phone: its stream into the grid, its datagrams into a `SyncReceiver`.
+    let stream = TcpStream::connect(tcp_shaper.addr()).await.unwrap();
+    stream.set_nodelay(true).unwrap();
+    let phone = Link::new(stream, Role::Phone, LinkConfig::default(), None);
+    let mut terminal = phone.open("terminal", serde_json::json!({})).await.unwrap();
+    let expected = Arc::new(std::sync::atomic::AtomicUsize::new(usize::MAX));
+    let stream_phone = tokio::spawn({
+        let expected = expected.clone();
+        let mut grid = PhoneGrid::new(load);
+        async move {
+            let mut frames = Vec::new();
+            let mut pending = Vec::new();
+            let deadline = Instant::now() + Duration::from_secs(300);
+            while frames.len() < expected.load(std::sync::atomic::Ordering::SeqCst)
+                && Instant::now() < deadline
+            {
+                let Ok(event) = tokio::time::timeout(Duration::from_millis(20), terminal.recv()).await else {
+                    continue;
+                };
+                let Some(ChannelEvent::Data(bytes)) = event else { break };
+                let rx = Instant::now();
+                let rx_ms = epoch_us() as f64 / 1000.0;
+                pending.extend_from_slice(&bytes);
+                while let Some(end) = pending.iter().position(|b| *b == b'\n') {
+                    let line: Vec<u8> = pending.drain(..=end).collect();
+                    grid.feed_line(&line);
+                    if let Some(pseq) = paint_latency::trailing_seq(&line) {
+                        frames.push(StreamFrame { pseq, rx, rx_ms, ready_ms: epoch_us() as f64 / 1000.0 });
+                    }
+                }
+            }
+            (terminal, frames)
+        }
+    });
+    let (stop, stopped) = oneshot::channel::<()>();
+    let sync_phone = spawn_sync_phone(phone_udp, stopped);
+
+    let peer = udp_shaper.phone_addr_at_host().unwrap();
+    let mut sync =
+        ViewportSync::new(load.cols, load.rows, UDP_MAX_DATAGRAM, Config::default(), Instant::now());
+    sync.select_path(SelectorConfig::default());
+    sync.record_captures();
+    let (output, batches) = mpsc::channel(1024);
+    let started = Instant::now();
+    let host_task = tokio::spawn(viewport_sync::run_selected(
+        sync,
+        host,
+        Some(peer),
+        batches,
+        stream_out,
+        Duration::from_secs(60),
+    ));
+    tokio::time::sleep(warmup).await;
+    let mut written = Vec::with_capacity(load.reads.len());
+    let mut tick = tokio::time::interval(every);
+    for read in load.reads.iter() {
+        tick.tick().await;
+        written.push(Instant::now());
+        output.send(read.clone()).await.unwrap();
+    }
+    drop(output);
+    let sync = host_task.await.unwrap().unwrap();
+    let ended = Instant::now();
+    let feeds = sync.feeds().to_vec();
+    let on_stream = feeds.iter().filter(|(_, path)| *path == Path::Stream).count();
+    expected.store(on_stream, std::sync::atomic::Ordering::SeqCst);
+    let (terminal, frames) = stream_phone.await.unwrap();
+    // Late datagram acks are not waited for: the driver returned once settled or on the stream.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    stop.send(()).unwrap();
+    let (_receiver, held) = sync_phone.await.unwrap();
+    drop(terminal);
+
+    let stamped = stamped.lock().unwrap().clone();
+    let captures = sync.captures();
+    let mut latencies = Vec::with_capacity(written.len());
+    let mut samples = Vec::with_capacity(written.len());
+    let mut transports = Vec::with_capacity(written.len());
+    let mut grid_ready = Vec::new();
+    for (i, wrote) in written.iter().enumerate() {
+        let batch = i as u64 + 1;
+        match feeds[i].1 {
+            Path::Stream => {
+                let frame = stamped
+                    .iter()
+                    .find(|(_, b)| *b == batch)
+                    .and_then(|(pseq, _)| frames.iter().find(|frame| frame.pseq == *pseq));
+                let Some(frame) = frame else {
+                    latencies.push(ms(ended.saturating_duration_since(*wrote)));
+                    continue;
+                };
+                latencies.push(ms(frame.rx.saturating_duration_since(*wrote)));
+                grid_ready.push(frame.ready_ms - frame.rx_ms);
+                samples.push([frame.pseq as f64, frame.rx_ms, frame.ready_ms]);
+                transports.push(Path::Stream.name());
+            }
+            Path::Datagram => {
+                let held = captures
+                    .iter()
+                    .find(|capture| capture.batches >= batch)
+                    .and_then(|capture| held.iter().find(|held| held.seq >= capture.seq));
+                let Some(held) = held else {
+                    latencies.push(ms(ended.saturating_duration_since(*wrote)));
+                    continue;
+                };
+                latencies.push(ms(held.at.saturating_duration_since(*wrote)));
+                grid_ready.push(ms(held.apply));
+                // No hostd stamp on a datagram: seq 0 joins nothing, its phone part still counts.
+                samples.push([0.0, held.epoch_ms - ms(held.apply), held.epoch_ms]);
+                transports.push(Path::Datagram.name());
+            }
+        }
+    }
+
+    // The paint report, as the phone sends it: each frame with the path that painted it.
+    let mut report = phone.open("phone-frames", serde_json::json!({})).await.unwrap();
+    let mut clock = Vec::new();
+    for _ in 0..8 {
+        let t0 = epoch_us() as f64 / 1000.0;
+        report.send(Bytes::from(serde_json::json!({"kind": "clock", "t0": t0}).to_string())).await.unwrap();
+        let Some(ChannelEvent::Data(answer)) = report.recv().await else { panic!("no clock answer") };
+        let t3 = epoch_us() as f64 / 1000.0;
+        let answer: serde_json::Value = serde_json::from_slice(&answer).unwrap();
+        clock.push([t0, answer["t1"].as_f64().unwrap(), answer["t2"].as_f64().unwrap(), t3]);
+    }
+    for (chunk, kinds) in samples.chunks(200).zip(transports.chunks(200)) {
+        let line = serde_json::json!({"v": 1, "kind": "paint", "program": "claude", "load": profile,
+            "samples": chunk, "clock": clock, "transports": kinds});
+        report.send(Bytes::from(line.to_string())).await.unwrap();
+    }
+    report.close("done", "").await;
+    let _mac = tokio::time::timeout(Duration::from_secs(60), mac).await.unwrap().unwrap();
+    let jsonl = std::fs::read_to_string(&path).unwrap();
+
+    let (p50_ms, p95_ms) = p50_p95(latencies);
+    let switches = sync
+        .switches()
+        .iter()
+        .map(|switch| (ms(switch.at.saturating_duration_since(started)), switch.to.name()))
+        .collect();
+    SelectedRow {
+        p50_ms,
+        p95_ms,
+        stream_frames: on_stream,
+        datagram_frames: feeds.len() - on_stream,
+        path: sync.path().name(),
+        switches,
+        warmup,
+        grid_ready: p50_p95(grid_ready),
+        jsonl,
     }
 }
 
@@ -334,8 +660,9 @@ async fn mac_redraw_to_phone_receive_under_wifi_lte_and_lossy_3() {
             let mac = summary.mac.expect("mac part");
             let estimated = summary.wire.expect("wire part");
             let wire = truth.wire.expect("wire part");
+            let grid = truth.phone_paint.expect("phone part");
             println!(
-                "PAINT-ROW {name}{profile}: a mac p50 {} p95 {} | b wire p50 {} p95 {} (offset estimated {:?} from a {:?} ms probe: p50 {} p95 {}) | n {}",
+                "PAINT-ROW {name}{profile}: a mac p50 {} p95 {} | b wire p50 {} p95 {} (offset estimated {:?} from a {:?} ms probe: p50 {} p95 {}) | c receive to grid ready (headless) p50 {} p95 {} | n {}",
                 mac.p50_ms,
                 mac.p95_ms,
                 wire.p50_ms,
@@ -344,6 +671,8 @@ async fn mac_redraw_to_phone_receive_under_wifi_lte_and_lossy_3() {
                 summary.clock_rtt_ms,
                 estimated.p50_ms,
                 estimated.p95_ms,
+                grid.p50_ms,
+                grid.p95_ms,
                 wire.n
             );
             assert!(
@@ -367,6 +696,41 @@ async fn mac_redraw_to_phone_receive_under_wifi_lte_and_lossy_3() {
                 datagram.coalesced,
                 datagram.rate,
                 if datagram.p95_ms <= 2.0 * one_way { "yes" } else { "no" },
+            );
+            let stages: Vec<String> = datagram
+                .stages
+                .iter()
+                .map(|(stage, p50, p95)| format!("{stage} {p50:.2}/{p95:.2}"))
+                .collect();
+            println!("STAGES {name}{profile}: datagram p50/p95 ms: {}", stages.join(" | "));
+            let selected = run_selected(profile, &load, Duration::from_millis(16)).await;
+            for line in selected.jsonl.lines() {
+                println!("SELECTED-JSONL {name}{profile}: {line}");
+            }
+            let switches: Vec<String> =
+                selected.switches.iter().map(|(at, to)| format!("{to} at {at:.0} ms")).collect();
+            // Slower than today's stream: its p95 above the stream run's by more than 1 ms
+            // (two runs of the same path differ by about that).
+            let slower = selected.p95_ms > wire.p95_ms + 1.0;
+            println!(
+                "SELECTED-ROW {name}{profile}: selected p50 {:.1} p95 {:.1} | path {} (switches: {}; warmup {} ms) | frames {} stream / {} datagram | phone receive to grid ready p50 {:.2} p95 {:.2} | stream p95 {:.1} datagram p95 {:.1} | one-way {one_way} | slower than stream: {} | p95 <= 2x one-way: {}",
+                selected.p50_ms,
+                selected.p95_ms,
+                selected.path,
+                if switches.is_empty() { "none".to_owned() } else { switches.join(", ") },
+                selected.warmup.as_millis(),
+                selected.stream_frames,
+                selected.datagram_frames,
+                selected.grid_ready.0,
+                selected.grid_ready.1,
+                wire.p95_ms,
+                datagram.p95_ms,
+                if slower { "yes" } else { "no" },
+                if selected.p95_ms <= 2.0 * one_way { "yes" } else { "no" },
+            );
+            assert!(
+                selected.jsonl.contains("\"transports\""),
+                "{profile}: the report says which path painted"
             );
             rows.push((profile, mac, wire));
             converged.push((name, profile, datagram.converged));

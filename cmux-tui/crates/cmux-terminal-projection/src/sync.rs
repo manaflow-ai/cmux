@@ -994,6 +994,9 @@ fn varint_len(mut v: u64) -> usize {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Header {
     pub epoch: u32,
+    /// The send's stamp (0: none), set per send by [`stamp_datagram`]; the ack echoes it, so
+    /// the host times every datagram's round trip and counts the ones that never came back.
+    pub stamp: u32,
     pub seq: u64,
     pub base: u64,
     pub index: u64,
@@ -1007,6 +1010,7 @@ pub fn parse_diff_datagram(datagram: &[u8]) -> Option<(Header, &[u8])> {
         return None;
     }
     let epoch = u32::from_le_bytes(r.array::<4>().ok()?);
+    let stamp = u32::from_le_bytes(r.array::<4>().ok()?);
     let seq = r.varint().ok()?;
     let base = r.varint().ok()?;
     let index = r.varint().ok()?;
@@ -1015,34 +1019,69 @@ pub fn parse_diff_datagram(datagram: &[u8]) -> Option<(Header, &[u8])> {
         return None;
     }
     let rest = datagram.get(r.pos..)?;
-    Some((Header { epoch, seq, base, index, count }, rest))
+    Some((Header { epoch, stamp, seq, base, index, count }, rest))
 }
 
-/// An ack datagram: the sender's epoch and the newest seq the phone holds.
+/// Where a diff datagram's stamp sits: after the magic, the kind and the epoch.
+pub const STAMP_OFFSET: usize = 7;
+
+/// Sets a diff datagram's stamp (the sender's per-send number); false for anything else.
+pub fn stamp_datagram(datagram: &mut [u8], stamp: u32) -> bool {
+    if datagram.get(..3) != Some(&[MAGIC[0], MAGIC[1], KIND_DIFF][..]) {
+        return false;
+    }
+    match datagram.get_mut(STAMP_OFFSET..STAMP_OFFSET + 4) {
+        Some(slot) => {
+            slot.copy_from_slice(&stamp.to_le_bytes());
+            true
+        }
+        None => false,
+    }
+}
+
+/// An ack datagram: the sender's epoch and the newest seq the phone holds (stamp 0).
 pub fn ack_datagram(epoch: u32, seq: u64) -> Vec<u8> {
-    let mut out = Vec::with_capacity(16);
+    ack_datagram_stamped(epoch, seq, 0)
+}
+
+/// An ack datagram echoing the stamp of the diff datagram it answers.
+pub fn ack_datagram_stamped(epoch: u32, seq: u64, stamp: u32) -> Vec<u8> {
+    let mut out = Vec::with_capacity(20);
     out.extend_from_slice(&MAGIC);
     out.push(KIND_ACK);
     out.extend_from_slice(&epoch.to_le_bytes());
     put_varint(&mut out, seq);
+    out.extend_from_slice(&stamp.to_le_bytes());
     out
 }
 
-/// Parses an ack datagram: (epoch, seq).
-pub fn parse_ack_datagram(datagram: &[u8]) -> Option<(u32, u64)> {
+/// Parses an ack datagram: (epoch, seq, stamp).
+fn parse_ack(datagram: &[u8]) -> Option<(u32, u64, u32)> {
     let mut r = Reader::new(datagram);
     if r.array::<2>().ok()? != MAGIC || r.u8().ok()? != KIND_ACK {
         return None;
     }
     let epoch = u32::from_le_bytes(r.array::<4>().ok()?);
     let seq = r.varint().ok()?;
-    (r.remaining() == 0).then_some((epoch, seq))
+    let stamp = u32::from_le_bytes(r.array::<4>().ok()?);
+    (r.remaining() == 0).then_some((epoch, seq, stamp))
+}
+
+/// Parses an ack datagram: (epoch, seq).
+pub fn parse_ack_datagram(datagram: &[u8]) -> Option<(u32, u64)> {
+    parse_ack(datagram).map(|(epoch, seq, _)| (epoch, seq))
+}
+
+/// The stamp an ack echoes (0: the diff it answers had none).
+pub fn parse_ack_stamp(datagram: &[u8]) -> Option<u32> {
+    parse_ack(datagram).map(|(_, _, stamp)| stamp)
 }
 
 fn diff_header(out: &mut Vec<u8>, epoch: u32, seq: u64, base: u64, index: u64, count: u64) {
     out.extend_from_slice(&MAGIC);
     out.push(KIND_DIFF);
     out.extend_from_slice(&epoch.to_le_bytes());
+    out.extend_from_slice(&0_u32.to_le_bytes());
     put_varint(out, seq);
     put_varint(out, base);
     put_varint(out, index);
@@ -1054,7 +1093,7 @@ fn fragment(payload: &[u8], max_datagram: usize, epoch: u32, seq: u64, base: u64
     // The header at its largest for this payload (index and count both
     // bounded by the payload's length).
     let bound = payload.len() as u64 + 1;
-    let header = 2 + 1 + 4 + varint_len(seq) + varint_len(base) + 2 * varint_len(bound);
+    let header = 2 + 1 + 4 + 4 + varint_len(seq) + varint_len(base) + 2 * varint_len(bound);
     let chunk = max_datagram.saturating_sub(header).max(1);
     let count = payload.len().div_ceil(chunk).max(1);
     let mut out = Vec::with_capacity(count);
@@ -1313,7 +1352,7 @@ impl SyncReceiver {
         let (h, data) = parse_diff_datagram(datagram)?;
         let same_epoch = self.epoch == Some(h.epoch);
         let held_seq = if same_epoch { self.seq } else { 0 };
-        let ack = |seq| Some(ack_datagram(h.epoch, seq));
+        let ack = |seq| Some(ack_datagram_stamped(h.epoch, seq, h.stamp));
         if h.seq <= held_seq {
             return ack(held_seq);
         }
@@ -2066,6 +2105,28 @@ mod tests {
         }
         assert_eq!(rx.screen(), s.last());
         assert!(rx.partials.iter().all(|p| p.seq > rx.seq()));
+    }
+
+    #[test]
+    fn an_ack_echoes_the_stamp_of_the_datagram_it_answers() {
+        let s = states(2);
+        let mut tx = SyncSender::with_epoch(1200, 3);
+        let mut rx = SyncReceiver::new();
+        tx.update(s[0].clone());
+        let mut d = tx.datagrams();
+        assert_eq!(d.len(), 1);
+        assert_eq!(parse_diff_datagram(&d[0]).unwrap().0.stamp, 0);
+        assert!(stamp_datagram(&mut d[0], 77));
+        assert_eq!(parse_diff_datagram(&d[0]).unwrap().0.stamp, 77);
+        let ack = rx.on_datagram(&d[0]).unwrap();
+        assert_eq!(parse_ack_stamp(&ack), Some(77));
+        assert_eq!(parse_ack_datagram(&ack), Some((3, 1)));
+        assert!(!stamp_datagram(&mut ack.clone(), 1));
+        // A stale copy is acked with its own stamp and the seq held.
+        assert!(stamp_datagram(&mut d[0], 78));
+        let again = rx.on_datagram(&d[0]).unwrap();
+        assert_eq!(parse_ack_stamp(&again), Some(78));
+        assert_eq!(parse_ack_datagram(&again), Some((3, 1)));
     }
 
     #[test]
