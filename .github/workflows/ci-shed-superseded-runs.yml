@@ -5,8 +5,12 @@ name: CI shed superseded runs
 # push on the same branch had already replaced. The other janitors run on Blacksmith labels, so they queue
 # behind the backlog they would cancel. This one runs on an owned runner (CI_CONTROL_RUNNER, else the
 # reserved cmux-gcp-nightly-x64 label), never Blacksmith or GitHub-hosted, and reads the whole queue:
-# scripts/ci/shed_superseded_runs.py has the policy (queued attempt-1 push/pull_request runs whose commit is
-# no longer its branch tip, or whose branch is gone). in_progress is never touched.
+# scripts/ci/shed_superseded_runs.py has the policy: attempt-1 runs whose commit is no longer its branch tip, or
+# whose branch is gone, that are queued or have nothing running (only jobs that never started are stopped). Lane
+# branches: push, pull_request and workflow_run runs. main and feat-cmux-next: push runs only, never a nightly,
+# DEV, promote, release or publishing workflow, and never the tip's own run (Leo, 2026-11-19: "if we can cut ci by
+# 50% and we need an extra fix forward on 5%, that's ok"). A schedule runs only from the default branch, so this
+# file must be on main for the sweep to run every 10 minutes.
 
 on:
   schedule:
@@ -54,4 +58,5 @@ jobs:
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
           SHED_MAX_CANCELS: ${{ vars.CI_SHED_MAX_CANCELS || '1500' }}
           SHED_CANCEL_SPACING_SECONDS: ${{ vars.CI_SHED_CANCEL_SPACING_SECONDS || '0.2' }}
+          SHED_MAX_JOB_READS: ${{ vars.CI_SHED_MAX_JOB_READS || '300' }}
         run: python3 scripts/ci/shed_superseded_runs.py
