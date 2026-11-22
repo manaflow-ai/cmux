@@ -402,8 +402,9 @@ the conversation, the memory, the schedules and the approvals; the brain runs
 one turn at a time from a home the Chief owns (`optchat/brains/<family>`,
 `HERMES_HOME`/`OPENCLAW_HOME` through acpmux's built-in
 `optchat-chief-<brain>-<home id>` preset), never the person's own, with its
-models through the team gateway (`--brain-base-url`, default the team
-subrouter) and its own cron, memory and logins off. OpenClaw runs only in
+models through the gateway the person sets (`chief engine set
+--brain-base-url URL` or `OPTCHAT_BRAIN_BASE_URL`; no built-in default: without
+one the brain is unavailable and the default harness answers) and its own cron, memory and logins off. OpenClaw runs only in
 sandbox mode `all` (Docker or Podman needed), with no skills, and gets cmux's
 MCP servers in its own config (its ACP bridge takes none per session); the
 host runs its Gateway on loopback. A brain that cannot run a turn (not
@@ -571,8 +572,8 @@ replies).
 | `ACPMUX_SOCKET`, `ACPMUX_HOME` | `~/.acpmux/acpmux.sock` | the acpmux daemon |
 | `ACPMUX_BIN` | none | started as `$ACPMUX_BIN daemon run` when the socket does not answer |
 | `CMUX_SOCKET_PATH` | none | the app's control socket, passed to the turn's tools |
-| `OPTCHAT_ANTHROPIC_BASE_URL` | `http://cmux-lawrences-mac-mini:31415` | the Messages API of the native engine, and of the compactor's `api` route (team subrouter) |
-| `OPTCHAT_ANTHROPIC_API_KEY` | none | `x-api-key`; else `ANTHROPIC_API_KEY` for any base URL but the subrouter; else `subrouter` |
+| `OPTCHAT_ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | the Messages API of the native engine, and of the compactor's `api` route (a gateway is the person's own setting) |
+| `OPTCHAT_ANTHROPIC_API_KEY` | none | `x-api-key` for that URL; else `ANTHROPIC_API_KEY` for the official API only, or for another URL with `OPTCHAT_SEND_KEY_TO_BASE_URL=1`; else `subrouter` (no real key) |
 | `OPTCHAT_COMPACTOR` | `acpmux` | how summaries are built; `api` only when set (see Compactor routes) |
 | `OPTCHAT_COMPACTOR_HARNESS` | the Chief's harness | acpmux route: the harness of the compactor sessions |
 | `OPTCHAT_COMPACTOR_MODEL` | `claude-sonnet-5-5` on a Claude harness, else the harness's default | acpmux route: their model (the refusal fallback `claude-sonnet-5` exists on a Claude harness only) |

@@ -1,0 +1,23 @@
+/* The Codex app's chat, dark: white prose on #151515, gray activity lines, your prompt in a #262626
+   bubble, a rounded #1f1f1f composer with a hairline #333333 edge. Paint only: no size or spacing
+   changes, so nothing moves when this applies or comes off. */
+:root {
+  --cv-text: #ededed;
+  --cv-text-muted: #8f8f8f;
+  --cv-activity-text: #8f8f8f;
+  --cv-bubble: #262626;
+  --cv-link: #ededed;
+  --cv-code-bg: #222222;
+}
+:root .acpmux-shell,
+:root[data-borders] .acpmux-shell {
+  --acpmux-composer-bg: #1f1f1f;
+  --acpmux-composer-edge: #333333;
+  --acpmux-composer-hover: #242424;
+  --acpmux-composer-placeholder: #8f8f8f;
+  --acpmux-composer-dim: #8f8f8f;
+}
+:root .acpmux-composer-box {
+  --acpmux-composer-radius: 18px;
+  --acpmux-card-ring: inset 0 0 0 1px var(--acpmux-composer-edge);
+}
