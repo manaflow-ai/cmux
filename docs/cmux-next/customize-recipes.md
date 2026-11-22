@@ -50,7 +50,7 @@ To put glass behind a piece of a view of your own, see [glass.md](glass.md).
 
 ### Lamina
 
-A layered, translucent desktop look in four variants, each dark and light. Pick one; each turns on a theme file and a chat stylesheet of its own (`themes/NAME.json`, `agent-pane/theme.css`). See `examples/looks/lamina/README.md`.
+A layered, translucent desktop look in four variants, each dark and light. Pick one; each turns on a theme file and a chat stylesheet of its own (`themes/NAME.json`, `agent-pane/theme.css`). Each variant is also a whole look, `examples/looks/lamina`, `lamina-mist`, `lamina-slate` and `lamina-tide` (`cmux setup install github.com/manaflow-ai/cmux/examples/looks/NAME@feat-cmux-next`); their READMEs list what each surface gets.
 
 #### Lamina
 
