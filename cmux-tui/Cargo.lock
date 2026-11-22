@@ -22,6 +22,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "clap",
+ "cmux-agent-customize",
  "cmux-agent-pane-policy",
  "cmux-build-space",
  "cmux-chat-index",
@@ -35,6 +36,7 @@ dependencies = [
  "cmux-config",
  "cmux-device-kind",
  "cmux-embed",
+ "cmux-fault",
  "cmux-file-lock",
  "cmux-git",
  "cmux-host",
@@ -60,9 +62,11 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-source-scan",
+ "cmux-stack-auth",
  "cmux-supervise-core",
  "cmux-tailnet",
  "cmux-transport",
+ "cmux-tui-hooks",
  "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-usage-patterns",
@@ -1282,15 +1286,18 @@ name = "cmux-agent-customize"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cmux-config",
  "cmux-process",
  "cmux-tui-hooks",
  "cmux-tui-platform",
  "indexmap",
+ "libc",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
  "toml_edit 0.22.27",
+ "yaml-rust",
 ]
 
 [[package]]
@@ -1753,6 +1760,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-deadline"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-device-kind"
 version = "0.1.0"
 dependencies = [
@@ -1798,6 +1813,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-fault"
+version = "0.1.0"
+dependencies = [
+ "cmux-scope",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-feed-core"
 version = "0.1.0"
 dependencies = [
@@ -1840,6 +1866,14 @@ dependencies = [
  "serde",
  "serde_json",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "cmux-follow-cam"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2079,6 +2113,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "objc2-app-kit",
+ "png",
  "windows-sys 0.61.2",
 ]
 
@@ -2158,9 +2193,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bincode",
+ "cmux-process",
  "fuser",
  "libc",
  "serde",
+ "sha1",
  "tempfile",
  "zstd",
 ]
@@ -2215,6 +2252,7 @@ dependencies = [
 name = "cmux-rd-link"
 version = "0.1.0"
 dependencies = [
+ "cmux-rd-proto",
  "cmux-transport",
  "hmac",
  "libc",
@@ -2261,6 +2299,8 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-build-identity",
+ "cmux-deadline",
+ "cmux-fault",
  "cmux-json",
  "cmux-link",
  "cmux-netwatch",
@@ -2593,6 +2633,7 @@ dependencies = [
  "cmux-customize",
  "cmux-customize-recipes",
  "cmux-device-kind",
+ "cmux-fault",
  "cmux-file-lock",
  "cmux-focus-core",
  "cmux-git",
@@ -2639,6 +2680,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.4",
  "ghostty-vt",
+ "ghostty-vt-sys",
  "glob",
  "libc",
  "notify",
@@ -2788,6 +2830,7 @@ dependencies = [
  "sha2 0.10.9",
  "socket2",
  "subsecond",
+ "tar",
  "tokio",
  "tokio-tungstenite",
  "toml",
