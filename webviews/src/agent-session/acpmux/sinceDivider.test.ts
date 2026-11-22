@@ -2,7 +2,15 @@
 // that event's rows and the next one's, wherever the rows around it came from (OrderedRows.placeAfter, setAt).
 import { expect, test } from "bun:test";
 import { OrderedRows } from "./direct";
-import { SINCE_DIVIDER, layoutConversation, type AcpmuxRow } from "./model";
+import {
+  LANE_NOTICE_BATCH,
+  MESSAGE_RUN,
+  PENDING_MESSAGES,
+  QUEUED_MESSAGE,
+  SINCE_DIVIDER,
+  layoutConversation,
+  type AcpmuxRow,
+} from "./model";
 import { sessionEntry } from "./sessionList";
 import { SINCE_NEWS_REACH, isNews, sinceNews } from "./conversation/sinceNews";
 import { SUBAGENT_STARTED } from "./subagents/subagentRows";
@@ -146,6 +154,27 @@ test("a line over status lines and the person's own prompts has nothing new unde
   expect(sinceNews([reply(1), recapped, started("s1")], 1)).toBe(true);
   // Not a line at that index: nothing.
   expect(sinceNews([reply(1), divider(1, 1)], 0)).toBe(false);
+});
+
+// A running turn folds the messages that started it (or that arrived during it) into its own rows;
+// they are still news, so the line shows over them.
+test("messages folded into a run, a batch, the queue or the turn's prompt are news", () => {
+  const row = (kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+    id: kind,
+    version: 1,
+    at: 1,
+    kind,
+    ...extra,
+  });
+  const run = (received: number): AcpmuxRow =>
+    row(MESSAGE_RUN, { messageRun: { sent: 1, received, work: [], failed: 0, running: false, rows: [] } });
+  expect(isNews(run(2))).toBe(true);
+  expect(isNews(run(0))).toBe(false);
+  expect(isNews(row(LANE_NOTICE_BATCH))).toBe(true);
+  expect(isNews(row(QUEUED_MESSAGE))).toBe(true);
+  expect(isNews(row(PENDING_MESSAGES))).toBe(true);
+  expect(isNews({ ...started("s1"), foldedPrompt: message("m1") })).toBe(true);
+  expect(isNews({ ...started("s1"), foldedPrompt: prompt("p1") })).toBe(false);
 });
 
 test("the news scan is bounded: a run of status lines past its reach counts as news", () => {

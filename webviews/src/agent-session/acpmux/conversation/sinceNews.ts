@@ -4,11 +4,20 @@
 // write can be one status line: a subagent's "started working" drew the line over nothing (Leo,
 // 2026-11-22: "this is a bad new. it shouldnt just do this like this when there's nothing").
 //
-// News is what the reader reads: a reply with words, another agent's message to this chat, and a
-// question or permission the agent asks. Not news: status lines (a subagent starting or ending, a
-// background task, a tool run, a compaction), the turn's own chrome (Working for, Worked for, the
-// footer) and the person's own prompts. A recap on the line is news too (it is content).
-import { type AcpmuxRow, SINCE_DIVIDER } from "../model";
+// News is what the reader reads: a reply with words, another agent's message to this chat (on its
+// own, in a batch, in a "Received N messages" run, waiting in the queue, or folded under the turn's
+// Working for line as the prompt that started it), and a question or permission the agent asks.
+// Not news: status lines (a subagent starting or ending, a background task, a tool run, a
+// compaction), the turn's own chrome (Working for, Worked for, the footer) and the person's own
+// prompts. A recap on the line is news too (it is content).
+import {
+  type AcpmuxRow,
+  LANE_NOTICE_BATCH,
+  MESSAGE_RUN,
+  PENDING_MESSAGES,
+  QUEUED_MESSAGE,
+  SINCE_DIVIDER,
+} from "../model";
 import { PERMISSION_RECORD } from "../permissions/record";
 import { QUESTION_RECORD } from "../question/record";
 
@@ -18,7 +27,10 @@ export const SINCE_NEWS_REACH = 256;
 
 /// Whether `row` is something new to read.
 export function isNews(row: AcpmuxRow): boolean {
+  if (row.foldedPrompt && isNews(row.foldedPrompt)) return true;
   if (row.kind === "assistant") return (row.text ?? "").trim().length > 0;
+  if (row.kind === MESSAGE_RUN) return (row.messageRun?.received ?? 0) > 0;
+  if (row.kind === LANE_NOTICE_BATCH || row.kind === QUEUED_MESSAGE || row.kind === PENDING_MESSAGES) return true;
   if (row.kind === "user") {
     const kind = row.incoming?.kind;
     return kind === "message" || kind === "notice" || kind === "inbox";
