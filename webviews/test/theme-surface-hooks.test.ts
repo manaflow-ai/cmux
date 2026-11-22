@@ -21,6 +21,18 @@ interface Hook {
 
 const HOOKS: Hook[] = [
   {
+    file: "agent-session/acpmux/composerStates.css",
+    property: "--acpmux-stack-shadow",
+    token: "--cmux-composer-hat-shadow",
+    today: "inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge)",
+  },
+  {
+    file: "agent-session/acpmux/composerStates.css",
+    property: "--acpmux-stack-shadow",
+    token: "--cmux-composer-hat-shadow",
+    today: "var(--glass-material-rim), inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge)",
+  },
+  {
     file: "agent-session/acpmux/styles.css",
     property: "--acpmux-composer-radius",
     token: "--cmux-composer-radius",

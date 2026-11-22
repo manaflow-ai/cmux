@@ -179,12 +179,15 @@
   /* glass-opaque-allow: the Reduce Transparency fill only */
   --glass-opaque: var(--acpmux-composer-solid);
   --glass-underlay: 0%;
-  --acpmux-stack-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
+  --acpmux-stack-shadow: var(--cmux-composer-hat-shadow, inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge));
 }
 @media not (prefers-reduced-transparency: reduce) {
   :root:not([data-reduce-transparency]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
     .acpmux-stack-material {
-    --acpmux-stack-shadow: var(--glass-material-rim), inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
+    --acpmux-stack-shadow: var(
+      --cmux-composer-hat-shadow,
+      var(--glass-material-rim), inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge)
+    );
   }
 }
 /* The card and the queued prompts are the liquid glass (.ui-glass, ui/glass/glass.css;
