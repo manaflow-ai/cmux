@@ -23,18 +23,18 @@ public struct HomeFilterPlaygroundSection {
 
     /// The playground section: the filter off, the filter on, the empty filtered list.
     public func section() -> SidebarStatesPlaygroundSection {
-        SidebarStatesPlaygroundSection(title: String(localized: "home.filterPlayground.title", defaultValue: "Home filter", bundle: .module), looks: [
-            SidebarStatesPlaygroundLook(title: String(localized: "home.filterPlayground.off", defaultValue: "Unread filter off", bundle: .module)) { root in
+        SidebarStatesPlaygroundSection(title: String(localized: "home.filterPlayground.title", defaultValue: "Home filter", bundle: .localizedModule), looks: [
+            SidebarStatesPlaygroundLook(title: String(localized: "home.filterPlayground.off", defaultValue: "Unread filter off", bundle: .localizedModule)) { root in
                 let (home, parts) = stage(in: root, unread: false)
                 return header(home, parts, in: root)
             },
             SidebarStatesPlaygroundLook(title: String(localized: "home.filterPlayground.on", defaultValue: "Unread filter on (lit button, Unread × chip)",
-                                                      bundle: .module)) { root in
+                                                      bundle: .localizedModule)) { root in
                 let (home, parts) = stage(in: root, unread: true)
                 return header(home, parts, in: root)
             },
             SidebarStatesPlaygroundLook(title: String(localized: "home.filterPlayground.empty", defaultValue: "No Unread Chats, Show All",
-                                                      bundle: .module)) { root in
+                                                      bundle: .localizedModule)) { root in
                 let (home, parts) = stage(in: root, unread: true)
                 return root.convert(parts.emptyList, from: home).intersection(root.bounds)
             },

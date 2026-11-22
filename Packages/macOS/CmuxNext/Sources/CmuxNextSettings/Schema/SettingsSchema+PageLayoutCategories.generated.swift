@@ -21,6 +21,7 @@ extension SettingsPageLayout {
     private static let generalCategory = CategorySpec(
         id: "general", title: section(.general), symbol: "gearshape",
         groups: [
+            GroupSpec(group: "settings.group.language"),
             GroupSpec(group: "settings.group.window"),
             GroupSpec(group: "settings.group.quit"),
             GroupSpec(group: "settings.group.history"),

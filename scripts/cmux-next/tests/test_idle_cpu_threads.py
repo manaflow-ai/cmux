@@ -26,5 +26,44 @@ class AppThreads(unittest.TestCase):
         self.assertTrue(idle_cpu.app_threads(before, after, 1.0))
 
 
+class PageActivity(unittest.TestCase):
+    def test_shown_cmux_pages_get_the_probe_and_metrics_per_second(self):
+        import json
+        idle_cpu.time.sleep, sleep = (lambda s: None), idle_cpu.time.sleep
+        try:
+            calls, task = [], iter([1.0, 3.0])
+
+            def call(method, params=None):
+                calls.append((method, (params or {}).get("method")))
+                if method == "debug.cef_pages":
+                    return {"pages": [{"browser": 2, "origin": "cmux-page://cmux.agent", "path": "/"},
+                                      {"browser": 3, "origin": "cmux-page://cmux.agent", "hidden": True},
+                                      {"browser": 4, "origin": "https://example.com"}]}
+                if params["method"] == "Runtime.evaluate":
+                    value = json.dumps({"animation_count": 1, "animations": [{"name": "spin"}], "active": "DIV"})
+                    return {"result": json.dumps({"result": {"value": value}})}
+                if params["method"] == "Performance.getMetrics":
+                    return {"result": json.dumps({"metrics": [{"name": "TaskDuration", "value": next(task)}]})}
+                return {"result": "{}"}
+
+            pages = idle_cpu.page_activity(call, seconds=10)
+        finally:
+            idle_cpu.time.sleep = sleep
+        self.assertEqual([p["browser"] for p in pages], [2])  # hidden and web pages are not probed
+        self.assertEqual(pages[0]["animation_count"], 1)
+        self.assertEqual(pages[0]["metrics_per_s"], {"TaskDuration": 0.2})
+        self.assertIn(("debug.cef_page_devtools", "Performance.disable"), calls)
+
+    def test_a_failed_devtools_call_keeps_its_error(self):
+        idle_cpu.time.sleep, sleep = (lambda s: None), idle_cpu.time.sleep
+        try:
+            pages = idle_cpu.page_activity(lambda m, p=None: {"pages": [{"browser": 1, "origin": "cmux-page://x"}]}
+                                           if m == "debug.cef_pages" else {"error": "gone"})
+        finally:
+            idle_cpu.time.sleep = sleep
+        self.assertIn("probe_error", pages[0])
+        self.assertNotIn("metrics_per_s", pages[0])
+
+
 if __name__ == "__main__":
     unittest.main()
