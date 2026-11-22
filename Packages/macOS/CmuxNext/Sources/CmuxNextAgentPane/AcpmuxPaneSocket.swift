@@ -421,7 +421,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             .flatMap { $0 as? [String: Any] }
             .flatMap { c -> AcpmuxPersonChallenge? in
                 guard let nonce = c["nonce"] as? String, let connection = c["connection"] as? String else { return nil }
-                return AcpmuxPersonChallenge(nonce: nonce, connection: connection)
+                return AcpmuxPersonChallenge(nonce: nonce, connection: connection, reprove: c["reprove"] as? Bool ?? false)
             }
         resolveChallenge(challenge)
     }

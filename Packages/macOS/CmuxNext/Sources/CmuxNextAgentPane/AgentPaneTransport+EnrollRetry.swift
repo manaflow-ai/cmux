@@ -69,9 +69,11 @@ extension AgentPaneTransport {
 
 /// The pane's own person proof (acpmux `hub/person.rs`): a connection that did not prove the
 /// person is told to the pane and recovered, never left to send the person's prompts as an
-/// unverified sender's (Leo, 2026-11-10: "Oh, it's turned me into an unverified sender."). The
-/// proof is the second request of a connection only, so recovery gets the key to the daemon
-/// (``recoverPersonProof``) and then reconnects, and the new connection proves.
+/// unverified sender's (Leo, 2026-11-10: "Oh, it's turned me into an unverified sender."). Recovery
+/// gets the key to the daemon (``recoverPersonProof``), then proves again on the same connection
+/// when the daemon takes a later proof (`personChallenge.reprove`), else reconnects and the new
+/// connection proves. A daemon with no key yet holds the first proof until the app's enroll lands
+/// (acpmux `PROVE_HOLD`), so the race of a pane's connect with that enroll needs no recovery.
 extension AgentPaneTransport {
     func personProofSettled(_ proven: Bool, connection: Int) {
         guard connection == current else { return }
@@ -98,6 +100,15 @@ extension AgentPaneTransport {
                 guard await recover() else { continue }
                 guard !Task.isCancelled, connection == self.current else { return }
                 self.personRecoveries += 1
+                // A daemon that takes a proof at any point (acpmux `hub/person.rs`, `reprove`):
+                // prove again on this connection, so the pane never drops what it shows.
+                if let socket = self.socket, !socket.isClosed, let ids = self.requestIds,
+                   await socket.personChallenge()?.reprove == true,
+                   !Task.isCancelled, connection == self.current, self.socket === socket {
+                    Self.logger.info("agent pane transport: person key given again; proving on this connection")
+                    await self.provePerson(socket: socket, ids: ids)
+                    return
+                }
                 Self.logger.info("agent pane transport: person key given again; reconnecting to prove it")
                 self.close(connection: connection)
                 return

@@ -1378,7 +1378,7 @@ async fn dispatch_request_with_identity(
                 "callerSessionId": conn.caller(),
                 // The challenge a local connection proves the person key against.
                 "personChallenge": if conn.challengeable() {
-                    json!({"nonce": conn.nonce, "connection": conn.id})
+                    json!({"nonce": conn.nonce, "connection": conn.id, crate::hub::person::REPROVE_FIELD: true})
                 } else {
                     Value::Null
                 },
@@ -1466,14 +1466,15 @@ async fn dispatch_request_with_identity(
             hub.github_app.set(&params)
         }
         method::MUX_GITHUB_ACTION => crate::github_broker::handle(hub, conn, params).await,
-        // Decided in order in `Conn::bind_person`; this only reports it.
+        // Decided in order in `Conn::bind_person`; a proof that came before this run's key waits
+        // for it here (`Conn::settle_prove`).
         method::MUX_PERSON_PROVE => {
-            if conn.is_person() {
+            if conn.settle_prove(hub, &params).await {
                 Ok(json!({"person": true}))
             } else {
                 Err(RpcError::new(
                     -32000,
-                    "the person proof does not answer this connection's challenge (it must be the second request, after initialize)",
+                    "the person proof does not answer this connection's challenge under this daemon's key (it comes after initialize)",
                 )
                 .with_data(json!({"reason": crate::hub::person::PROOF_REFUSED})))
             }

@@ -29,12 +29,19 @@
 //!   listens on the socket path could be a squatter. Each unix socket or
 //!   proven LocalApp connection gets a random nonce. Its FIRST request must
 //!   be `initialize`, whose result carries `_meta.acpmux.personChallenge`
-//!   `{nonce, connection}`. Its SECOND request may be
-//!   `_acpmux/person_prove {proof}` with `proof` = lowercase hex
+//!   `{nonce, connection, reprove: true}`. Any later request may be
+//!   `_acpmux/person_prove {proof}` (at most [`PROVES_PER_CONNECTION`]; the
+//!   second request as before, or later, so a pane whose key reached a
+//!   restarted daemon after it connected proves on the same connection, with
+//!   no reconnect and nothing shown) with `proof` = lowercase hex
 //!   HMAC-SHA256(key, "acpmux-person-v1" 0 transport 0 nonce 0 connection
 //!   id), where transport is `unix` or `app` as the client knows it
 //!   ([`person_proof`]), compared in constant time. A match makes the
-//!   connection the person for its whole life. The proof is bound to the
+//!   connection the person for its whole life (from that request on: one
+//!   handled before it was not the person's). A prove on a run that holds no
+//!   key yet waits for the app's enroll, at most [`PROVE_HOLD`]
+//!   ([`PersonGate::proves_once_keyed`]), so the order of the app's enroll and
+//!   a pane's first connection does not matter. The proof is bound to the
 //!   nonce and the connection id, so a proof captured anywhere else (a
 //!   squatter that relayed the challenge, another connection) proves
 //!   nothing. A `personKey` field is stripped and never read. Web and Peer
@@ -349,6 +356,20 @@ pub const HOLDS_LIMIT: &str = "person.holds_limit";
 /// `_acpmux/person_holds` answers per connection. Not a security bound: the
 /// answers count only in their own HMAC domain.
 pub const HOLDS_PER_CONNECTION: u32 = 8;
+/// `_acpmux/person_prove` calls per connection. Not a security bound (the proof is a 256-bit
+/// HMAC bound to the connection's own nonce and id): it keeps a client from parking a held
+/// prove ([`PROVE_HOLD`]) per request.
+pub const PROVES_PER_CONNECTION: u32 = 8;
+/// How long a `_acpmux/person_prove` on a run with no key yet waits for the app's enroll
+/// ([`PersonGate::proves_once_keyed`]). The app enrolls a daemon it finds right after its status
+/// answers, so a pane that raced it waits milliseconds; the bound only ends the wait on a daemon
+/// no app ever keys.
+// timeout: the hold of a proof that came before its key; past it the proof proves nothing.
+pub const PROVE_HOLD: std::time::Duration = std::time::Duration::from_secs(5);
+/// `personChallenge.reprove`: this daemon takes `_acpmux/person_prove` at any point of a
+/// challenged connection's life, so a client that proved nothing (its key reached the daemon
+/// late) proves again on the same connection instead of reconnecting.
+pub const REPROVE_FIELD: &str = "reprove";
 
 /// At most this many spent decision nonces are kept.
 pub const SPENT_LIMIT: usize = 4096;
@@ -410,6 +431,9 @@ pub enum PersonVerdict {
 #[derive(Default)]
 pub struct PersonGate {
     key: StdMutex<Option<String>>,
+    /// Woken at each key this run takes, so a proof that came before it is checked again
+    /// ([`PersonGate::proves_once_keyed`]).
+    keyed: tokio::sync::Notify,
     /// Set by `--person-key-fd`: a running unsigned daemon takes no other.
     from_spawn: AtomicBool,
     /// This daemon run's id, which a decision proof binds.
@@ -743,7 +767,9 @@ impl PersonGate {
             return Err("this daemon already has a person key".into());
         }
         *slot = Some(key.to_owned());
+        drop(slot);
         self.from_spawn.store(true, Ordering::SeqCst);
+        self.keyed.notify_waiters();
         Ok(())
     }
 
@@ -759,6 +785,7 @@ impl PersonGate {
         }
         *self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(key.to_owned());
         self.from_spawn.store(true, Ordering::SeqCst);
+        self.keyed.notify_waiters();
         Ok(json!({"enrolled": true, "via": "provisioner", "personInstance": self.instance()}))
     }
 
@@ -768,6 +795,39 @@ impl PersonGate {
         let key = self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
         key.and_then(|k| person_proof(&k, transport, nonce, connection))
             .is_some_and(|expected| cmux_local_auth::tokens_match(proof, &expected))
+    }
+
+    /// [`PersonGate::proves`], held while this run has no key yet, at most `hold`: a daemon that
+    /// just restarted (an update's take-over, `acpmux daemon restart`) takes the app's key by
+    /// `_acpmux/person_enroll` only after it is up, and the app's pane may connect and prove in
+    /// between. The proof is checked again at each key this run takes until `hold` ends; then it
+    /// proves nothing. A run that holds a key refuses a wrong proof at once (no wait for a key
+    /// that may never come).
+    pub async fn proves_once_keyed(
+        &self,
+        transport: &str,
+        nonce: &str,
+        connection: &str,
+        proof: &str,
+        hold: std::time::Duration,
+    ) -> bool {
+        let deadline = tokio::time::Instant::now() + hold;
+        loop {
+            let keyed = self.keyed.notified();
+            tokio::pin!(keyed);
+            // Registered before the check, so a key taken between the check and the wait wakes it.
+            keyed.as_mut().enable();
+            if self.proves(transport, nonce, connection, proof) {
+                return true;
+            }
+            if self.has_key() {
+                return false;
+            }
+            // timeout: PROVE_HOLD, the bound on a proof that came before its key (person.rs).
+            if tokio::time::timeout_at(deadline, keyed).await.is_err() {
+                return self.proves(transport, nonce, connection, proof);
+            }
+        }
     }
 
     /// Whether `presented` is this launch's key (constant time).
@@ -789,6 +849,7 @@ impl PersonGate {
         if app_verified {
             *self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                 Some(key.to_owned());
+            self.keyed.notify_waiters();
             return Ok(json!({"enrolled": true, "via": "signature"}));
         }
         if self.from_spawn.load(Ordering::SeqCst) && self.matches(key) {

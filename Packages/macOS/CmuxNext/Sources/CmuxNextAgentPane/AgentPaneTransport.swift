@@ -245,7 +245,7 @@ import CmuxNextCompat
     /// connection may prove; the transport then reconnects. Nil: the pane only says it is unproven.
     public var recoverPersonProof: (@MainActor () async -> Bool)?
     /// The waits between identity recoveries of one unproven connection (``personProofSettled``).
-    public var personRecoveryDelays: [Duration] = [.seconds(1), .seconds(5), .seconds(15), .seconds(30), .seconds(60)]
+    public var personRecoveryDelays: [Duration] = [.zero, .seconds(5), .seconds(15), .seconds(30), .seconds(60)]
     /// Reconnects made for the person proof since one last proved; bounded so a daemon that can
     /// never take the key does not reconnect the pane forever.
     var personRecoveries = 0

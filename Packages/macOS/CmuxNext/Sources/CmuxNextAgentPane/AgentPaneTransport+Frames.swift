@@ -276,7 +276,7 @@ extension AgentPaneTransport {
     /// prompt typed here as an unverified sender's, and the agent reads it as not the person's
     /// (Leo, 2026-11-10: "Oh, it's turned me into an unverified sender."). That is never silent: the
     /// pane says so (``onPersonProof``) and gets the key to the daemon again (``recoverPersonProof``).
-    private func provePerson(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async {
+    func provePerson(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async {
         guard let socketPath else { return }
         guard let challenge = await socket.personChallenge() else { return }
         guard self.socket === socket else { return }

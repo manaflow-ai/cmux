@@ -232,6 +232,9 @@ pub struct Conn {
     trigger: StdMutex<Option<TriggerScope>>,
     /// `_acpmux/person_holds` calls on this connection (`hub/person.rs`).
     pub(super) holds_calls: std::sync::atomic::AtomicU32,
+    /// `_acpmux/person_prove` calls on this connection (`hub/person.rs`, at most
+    /// `PROVES_PER_CONNECTION`).
+    pub(super) prove_calls: std::sync::atomic::AtomicU32,
     /// The acpmux session it runs in, proven at its first `initialize` (`hub/person.rs` (a)).
     caller: std::sync::OnceLock<String>,
     /// The session a first unix `initialize` named with a token that did not prove it.
@@ -550,8 +553,11 @@ impl Conn {
     /// The person binding (`hub/person.rs`), in order before the request
     /// runs. A `personKey` in any request is stripped and never read. A
     /// local connection whose FIRST request is `initialize` is challenged;
-    /// its SECOND request, `_acpmux/person_prove`, makes it the person when
-    /// the proof matches its own nonce and id. Nothing else ever does.
+    /// a later `_acpmux/person_prove` (the second request, or any after it, at most
+    /// `PROVES_PER_CONNECTION`) makes it the person when the proof matches its own nonce and
+    /// id. Nothing else ever does. A proof checked here, in order, makes the person before the
+    /// next request is bound; one that came before this run's key is checked again by its
+    /// handler once the key comes (`requests.rs`, `PersonGate::proves_once_keyed`).
     fn bind_person(&self, hub: &Hub, m: &str, params: &mut Option<Value>) {
         let _ = params.as_mut().and_then(crate::hub::person::take_key);
         // Stripped from every request; read from a first unix `initialize` only (person.rs (a)).
@@ -570,16 +576,62 @@ impl Conn {
             let proven = hub.proven_caller((id.clone(), token)).is_some();
             let _ = if proven { &self.caller } else { &self.unproven_caller }.set(id);
         }
-        if n == 2 && m == method::MUX_PERSON_PROVE && self.challenged.load(Ordering::SeqCst) {
+        if n >= 2 && m == method::MUX_PERSON_PROVE && self.may_prove() {
             let proof = params.as_ref().and_then(|p| p.get("proof")).and_then(Value::as_str);
-            let transport = match self.origin {
-                Origin::LocalApp => crate::hub::person::TRANSPORT_APP,
-                _ => crate::hub::person::TRANSPORT_UNIX,
-            };
-            if proof.is_some_and(|p| hub.person.proves(transport, &self.nonce, &self.id, p)) {
+            if proof.is_some_and(|p| {
+                hub.person.proves(self.person_transport(), &self.nonce, &self.id, p)
+            }) {
                 self.person.store(true, Ordering::SeqCst);
             }
         }
+    }
+
+    /// Whether this connection may still try `_acpmux/person_prove`: it was challenged and has
+    /// used fewer than `PROVES_PER_CONNECTION` tries. Counts this try.
+    fn may_prove(&self) -> bool {
+        self.challenged.load(Ordering::SeqCst)
+            && self.prove_calls.fetch_add(1, Ordering::SeqCst)
+                < crate::hub::person::PROVES_PER_CONNECTION
+    }
+
+    /// The transport a person proof on this connection names (`hub/person.rs`).
+    pub(super) fn person_transport(&self) -> &'static str {
+        match self.origin {
+            Origin::LocalApp => crate::hub::person::TRANSPORT_APP,
+            _ => crate::hub::person::TRANSPORT_UNIX,
+        }
+    }
+
+    /// `_acpmux/person_prove`'s answer: whether this connection is the person now. A proof that
+    /// `bind_person` could not check because this run holds no key yet waits for the app's
+    /// enroll, at most `PROVE_HOLD`; a match makes the connection the person from here on.
+    pub(super) async fn settle_prove(&self, hub: &Hub, params: &Value) -> bool {
+        if self.is_person() {
+            return true;
+        }
+        let tried = self.prove_calls.load(Ordering::SeqCst);
+        if !self.challenged.load(Ordering::SeqCst)
+            || tried == 0
+            || tried > crate::hub::person::PROVES_PER_CONNECTION
+            || hub.person.has_key()
+        {
+            return false;
+        }
+        let Some(proof) = params.get("proof").and_then(Value::as_str) else { return false };
+        let proven = hub
+            .person
+            .proves_once_keyed(
+                self.person_transport(),
+                &self.nonce,
+                &self.id,
+                proof,
+                crate::hub::person::PROVE_HOLD,
+            )
+            .await;
+        if proven {
+            self.person.store(true, Ordering::SeqCst);
+        }
+        self.is_person()
     }
 
     /// Hold `lease` until this connection closes; ended now if it already did.
@@ -1808,6 +1860,7 @@ async fn serve_connection_from(
         person: AtomicBool::new(false),
         trigger: StdMutex::new(None),
         holds_calls: std::sync::atomic::AtomicU32::new(0),
+        prove_calls: std::sync::atomic::AtomicU32::new(0),
         caller: std::sync::OnceLock::new(),
         unproven_caller: std::sync::OnceLock::new(),
         declared: std::sync::OnceLock::new(),
@@ -2527,6 +2580,9 @@ mod in_flight;
 #[cfg(test)]
 #[path = "latency_gauges_tests.rs"]
 mod latency_gauges_tests;
+#[cfg(test)]
+#[path = "person_prove_tests.rs"]
+mod person_prove_tests;
 pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
 mod change_kind;
