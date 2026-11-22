@@ -103,6 +103,6 @@ describe("fold fuzz flags", () => {
   });
 
   test("the drift threshold sits in the widest gap of the data", () => {
-    expect(driftThreshold([0, 0.3, 1, 1.5, 2, 2, 120, 200, 300])).toBeCloseTo(Math.round(Math.sqrt(2 * 120) * 10) / 10);
+    expect(driftThreshold([0, 0.3, 1, 1.5, 2, 2, 40, 60, 300])).toBeCloseTo(Math.round(Math.sqrt(2 * 40) * 10) / 10);
   });
 });

@@ -68,6 +68,8 @@ export const CELLS: Cell[] = [
   cell("recap-long", "a long recap card", { wrapUp: "long" }),
   cell("recap-up", "the recap card, the reader scrolled up", { wrapUp: "short", viewport: "up" }),
   cell("recap-long-up", "a long recap card, the reader scrolled up", { wrapUp: "long", viewport: "up" }),
+  cell("ends-on-tool", "the turn ends right after its last call, no answer", { ending: "tool" }),
+  cell("last-output", "the last call prints 12 lines just before the answer", { ending: "output" }),
   cell("split-half", "half split (360 x 640)", {}, 360, 640),
   cell("split-third", "third split (240 x 640)", {}, 240, 640),
   cell("split-quarter", "quarter split (360 x 320)", {}, 360, 320),
@@ -224,6 +226,13 @@ export function table(cells: Cell[], looks: string[], results: Record<string, Re
       const arrival = (n as { recapArrival?: { neighbourStepPx: number; cardStepPx: number } }).recapArrival;
       return arrival ? `${arrival.neighbourStepPx} / ${arrival.cardStepPx}` : "-";
     }),
+    metric(
+      "False grow: the turn's calls taller than at its end, before they fold / the answer's own growth (px)",
+      (n) => {
+        const grow = (n as { turnGrow?: { blockPx: number; answerPx: number } }).turnGrow;
+        return grow ? `${grow.blockPx} / ${grow.answerPx}` : "-";
+      },
+    ),
     metric("Duration (ms)", (n) => `${n.durationMs}`),
     metric("Gap (px past the gap at rest)", (n) => `${n.gashPx}`),
   ].join("\n");

@@ -118,27 +118,33 @@ export function analyze(run: FuzzRun, spec?: Pick<FuzzSpec, "viewport">) {
   });
   const t = (index: number) => Math.round(samples[index]!.t - turnEnd.t);
 
-  // (a) Grow: per row, the biggest bump (a rise, then a fall, by the smaller of the two).
-  let grow = { key: "", px: 0, at: 0 };
-  const heights = new Map<string, { h: number; index: number }[]>();
-  for (let index = from; index < samples.length; index += 1)
-    for (const row of samples[index]!.rows) {
-      if (!seen(row)) continue;
-      const list = heights.get(row[0]) ?? [];
-      list.push({ h: shownHeight(row), index });
-      heights.set(row[0], list);
+  // (a) Grow: per row, the biggest bump (a rise, then a fall, by the smaller of the two) of its laid-out
+  // height; and apart, of the height a fold's clip shows of it (a crop that closes and opens again).
+  const bumpOf = (height: (row: Row) => number) => {
+    let worst = { key: "", px: 0, at: 0 };
+    const heights = new Map<string, { h: number; index: number }[]>();
+    for (let index = from; index < samples.length; index += 1)
+      for (const row of samples[index]!.rows) {
+        if (!seen(row)) continue;
+        const list = heights.get(row[0]) ?? [];
+        list.push({ h: height(row), index });
+        heights.set(row[0], list);
+      }
+    for (const [key, list] of heights) {
+      const lowAfter: number[] = new Array(list.length);
+      for (let index = list.length - 1, low = Infinity; index >= 0; index -= 1)
+        lowAfter[index] = low = Math.min(low, list[index]!.h);
+      let lowBefore = Infinity;
+      list.forEach(({ h, index }, at) => {
+        lowBefore = Math.min(lowBefore, h);
+        const bump = Math.min(h - lowBefore, h - lowAfter[at]!);
+        if (bump > worst.px) worst = { key, px: bump, at: t(index) };
+      });
     }
-  for (const [key, list] of heights) {
-    const lowAfter: number[] = new Array(list.length);
-    for (let index = list.length - 1, low = Infinity; index >= 0; index -= 1)
-      lowAfter[index] = low = Math.min(low, list[index]!.h);
-    let lowBefore = Infinity;
-    list.forEach(({ h, index }, at) => {
-      lowBefore = Math.min(lowBefore, h);
-      const bump = Math.min(h - lowBefore, h - lowAfter[at]!);
-      if (bump > grow.px) grow = { key, px: bump, at: t(index) };
-    });
-  }
+    return worst;
+  };
+  const grow = bumpOf((row) => row[2]);
+  const clip = bumpOf(shownHeight);
   // The transcript's whole height, from the turn's end to the fold's first frame (or the last frame).
   const until = foldIndex >= 0 ? foldIndex : samples.length - 1;
   let totalRise = 0;
@@ -156,30 +162,32 @@ export function analyze(run: FuzzRun, spec?: Pick<FuzzSpec, "viewport">) {
     (mark) => mark.t >= turnEnd.t && (mark.label.startsWith("prompt:") || mark.label.startsWith("steer")),
   );
 
-  // (c) The anchor. Scrolled up: the kept row under the view's center at the turn's end, by its top.
-  // Following the end: the kept row nearest the view's bottom, by its bottom edge (follow pins the end).
+  // (c) The anchor: the kept row under the view's center at the turn's end (a folded row is not one; the
+  // nearest kept row is), and how far its top lands from where it was. Following the end, the same for the
+  // kept row nearest the view's bottom, by its bottom edge (what follow holds), reported beside it.
   const before = samples[start]!;
   const last = samples.at(-1)!;
   const kept = new Map(last.rows.map((row) => [row[0], row]));
   const view = run.view || before.view;
-  // The seed says whether the reader scrolled up; else the scroller's own end (less its dock padding).
+  // The seed says whether the reader scrolled up; else the scroller's own end.
   const following = spec
     ? spec.viewport === "bottom"
     : before.scrollTop + view >= before.scrollHeight - FOLLOW_SLACK_PX;
-  const line = following ? view : view / 2;
-  const anchor = before.rows
-    .filter((row) => kept.has(row[0]) && !transient(row[0]) && seen(row))
-    .map((row) => ({
-      row,
-      off:
-        row[1] <= line && line <= row[1] + row[2]
-          ? 0
-          : Math.min(Math.abs(row[1] - line), Math.abs(row[1] + row[2] - line)),
-    }))
-    .sort((a, b) => a.off - b.off)[0]?.row;
-  const landed = anchor && kept.get(anchor[0])!;
-  const drift =
-    !anchor || !landed ? 0 : following ? landed[1] + landed[2] - (anchor[1] + anchor[2]) : landed[1] - anchor[1];
+  const nearest = (line: number) =>
+    before.rows
+      .filter((row) => kept.has(row[0]) && !transient(row[0]) && seen(row))
+      .map((row) => ({
+        row,
+        off:
+          row[1] <= line && line <= row[1] + row[2]
+            ? 0
+            : Math.min(Math.abs(row[1] - line), Math.abs(row[1] + row[2] - line)),
+      }))
+      .sort((a, b) => a.off - b.off)[0]?.row;
+  const anchor = nearest(view / 2);
+  const drift = anchor ? kept.get(anchor[0])![1] - anchor[1] : 0;
+  const endRow = following ? nearest(view) : undefined;
+  const endDrift = endRow ? kept.get(endRow[0])![1] + kept.get(endRow[0])![2] - (endRow[1] + endRow[2]) : undefined;
   // A phase the person set off: one that starts after their next message landed (a mid-fold steer).
   const personAt = marks.find(
     (mark) => mark.t >= turnEnd.t && (mark.label.startsWith("prompt:") || mark.label.startsWith("steer")),
@@ -201,12 +209,15 @@ export function analyze(run: FuzzRun, spec?: Pick<FuzzSpec, "viewport">) {
     growPx: round(grow.px),
     growRow: grow.key,
     growAtMs: grow.at,
+    clipWobblePx: round(clip.px),
+    clipWobbleRow: clip.key,
     totalRisePx: round(totalRise),
     totalBumpPx: round(totalBump),
     personSpoke: prompted,
     anchorRow: anchor?.[0],
     anchorMode: following ? ("bottom" as const) : ("center" as const),
     anchorDriftPx: round(drift),
+    endDriftPx: endDrift === undefined ? undefined : round(endDrift),
     overflowAnchor: run.overflowAnchor,
   };
 }
@@ -214,32 +225,40 @@ export function analyze(run: FuzzRun, spec?: Pick<FuzzSpec, "viewport">) {
 type Ok = Exclude<FuzzNumbers, { error: string }>;
 const ok = (n: FuzzNumbers | undefined): n is Ok => !!n && !("error" in n);
 
-/** The seed's flags, given the anchor threshold. */
-export function flagsOf(n: Ok, driftPx: number) {
+/**
+ * The seed's flags, given the anchor threshold. With the control's drift for the seed (`none`: the same turn,
+ * no fold), (c) is the drift the fold adds; the turn's end moves rows by itself (its view reorders and
+ * collapses), and that is not the fold's.
+ */
+export function flagsOf(n: Ok, driftPx: number, control?: number) {
   return {
     grow: n.growPx > GROW_PX || (n.totalBumpPx > GROW_PX && !n.personSpoke),
     // Phases of the fold's own: the ones the person's next message set off are counted apart.
     phases: n.phases.filter((phase) => !phase.person).length > 1,
-    drift: Math.abs(n.anchorDriftPx) > driftPx,
+    drift: Math.abs(n.anchorDriftPx - (control ?? 0)) > driftPx,
   };
 }
 
 /** How bad a seed is, to rank the worst: each flag counts, then by how much. */
-export function severity(n: Ok, driftPx: number) {
-  const flags = flagsOf(n, driftPx);
+export function severity(n: Ok, driftPx: number, control?: number) {
+  const flags = flagsOf(n, driftPx, control);
   return (
     (flags.grow ? 1000 + Math.max(n.growPx, n.totalBumpPx) : 0) +
     (flags.phases ? 1000 + (n.phases.filter((phase) => !phase.person).length - 1) * 100 : 0) +
-    (flags.drift ? 1000 + Math.abs(n.anchorDriftPx) : 0)
+    (flags.drift ? 1000 + Math.abs(n.anchorDriftPx - (control ?? 0)) : 0)
   );
 }
 
-/** The drift threshold from the data: the widest gap in log scale between sorted drifts above 1 px. */
-export function driftThreshold(drifts: number[]) {
-  const values = [...new Set(drifts.map((value) => Math.abs(value)).filter((value) => value >= 1))].sort(
-    (a, b) => a - b,
-  );
-  let best = { gap: 0, at: 8 };
+/**
+ * The drift threshold from the data: the widest gap, in log scale, between two neighbouring drifts (each
+ * seed's |drift|, 0.5 px and up, every look), up to a quarter of the shortest pane (`cap`). Drift is mostly
+ * 0 or several lines; the gap between the two is where layout rounding ends and a move begins. Never under 2.
+ */
+export function driftThreshold(drifts: number[], cap = SPLITS.quarter.height / 4) {
+  const values = [
+    ...new Set(drifts.map((value) => Math.abs(value)).filter((value) => value >= 0.5 && value <= cap)),
+  ].sort((a, b) => a - b);
+  let best = { gap: 0, at: 2 };
   for (let index = 1; index < values.length; index += 1) {
     const gap = Math.log(values[index]!) - Math.log(values[index - 1]!);
     if (gap > best.gap) best = { gap, at: Math.sqrt(values[index]! * values[index - 1]!) };
@@ -278,7 +297,15 @@ async function playSeed(page: Page, look: string, seed: number): Promise<FuzzRun
   )) as FuzzRun;
 }
 
-type Result = { seed: number; look: string; spec: FuzzSpec; numbers: FuzzNumbers; replayed?: boolean };
+/** One seed with one look; `control` is the same seed's drift with no fold, when `none` ran too. */
+type Result = {
+  seed: number;
+  look: string;
+  spec: FuzzSpec;
+  numbers: FuzzNumbers;
+  replayed?: boolean;
+  control?: number;
+};
 
 /** Every seed of every look, `jobs` pages at a time; a run with late frames plays again alone. */
 async function fuzz(
@@ -295,7 +322,8 @@ async function fuzz(
   const total = queue.length;
   /** A worker's page, opened on its first seed and opened again after a failure. */
   type Slot = { page?: Page };
-  const pageOf = async (slot: Slot) => (slot.page ??= await openPage(browser, port).catch(() => openPage(browser, port)));
+  const pageOf = async (slot: Slot) =>
+    (slot.page ??= await openPage(browser, port).catch(() => openPage(browser, port)));
   const one = async ({ look, seed }: { look: string; seed: number }, slot: Slot, again = false) => {
     const file = keepSamples && path.join(keepSamples, `${look}-${seed}.samples.json`);
     // `--resume`: a run already on disk is read, not played (and the numbers come from today's analysis).
@@ -326,7 +354,9 @@ async function fuzz(
   const lateRuns = results.filter((result) => !ok(result.numbers) || result.numbers.lateFrames > 0.05);
   if (lateRuns.length) console.log(`${lateRuns.length} runs with late frames or errors: again, one at a time`);
   for (const result of lateRuns) {
-    result.numbers = await one(result, slots[0]!, true).catch((error: unknown) => ({ error: String(error) }) as FuzzNumbers);
+    result.numbers = await one(result, slots[0]!, true).catch(
+      (error: unknown) => ({ error: String(error) }) as FuzzNumbers,
+    );
     result.replayed = true;
   }
   await Promise.all(slots.map((slot) => slot.page?.close().catch(() => {})));
@@ -344,22 +374,34 @@ export function report(results: Result[], looks: string[], driftPx: number, wors
     `Seeds: ${new Set(results.map((r) => r.seed)).size}; drift threshold ${driftPx} px (from the data); ` +
       `scroll anchoring: overflow-anchor ${[...new Set(results.map((r) => (ok(r.numbers) ? r.numbers.overflowAnchor : "")))].filter(Boolean).join(", ")}.`,
     "",
-    "| look | seeds | (a) grow | (b) >1 motion phase | (b) counting the person's next message | (c) drift, scrolled up | (c) drift, at the end | any flag | no motion at all | late-frame runs | errors |",
-    "|---|---|---|---|---|---|---|---|---|---|---|",
+    "| look | seeds | (a) grow | (a) clip wobble, not layout | (b) >1 motion phase | (b) counting the person's next message | (c) drift, scrolled up | (c) drift, at the end | (c) drift the fold adds (vs `none`) | any flag | a flag the control lacks | no motion at all | late-frame runs | errors |",
+    "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
   ];
+  // The control's flags per seed: what the same turn shows with no fold.
+  const controlFlags = new Map(
+    results.filter((r) => r.look === "none" && ok(r.numbers)).map((r) => [r.seed, flagsOf(r.numbers as Ok, driftPx)]),
+  );
   for (const look of looks) {
     const mine = results.filter((r) => r.look === look);
-    const good = mine.map((r) => r.numbers).filter(ok);
-    const flags = good.map((n) => flagsOf(n, driftPx));
+    const kept = mine.filter((r) => ok(r.numbers));
+    const good = kept.map((r) => r.numbers as Ok);
+    const flags = kept.map((r) => flagsOf(r.numbers as Ok, driftPx, r.control));
     const count = (pick: (f: ReturnType<typeof flagsOf>) => boolean) => flags.filter(pick).length;
+    const raw = good.map((n) => Math.abs(n.anchorDriftPx) > driftPx);
+    const controlled = kept.some((r) => r.control !== undefined);
+    const fresh = kept.filter((r, i) => {
+      const mine = flags[i]!;
+      const theirs = controlFlags.get(r.seed);
+      return theirs && ((mine.grow && !theirs.grow) || (mine.phases && !theirs.phases) || mine.drift);
+    }).length;
     lines.push(
-      `| ${look} | ${mine.length} | ${count((f) => f.grow)} | ${count((f) => f.phases)} | ${
+      `| ${look} | ${mine.length} | ${count((f) => f.grow)} | ${good.filter((n) => n.clipWobblePx > GROW_PX && n.growPx <= GROW_PX).length} | ${count((f) => f.phases)} | ${
         good.filter((n) => n.phases.length > 1).length
-      } | ${good.filter((n, i) => flags[i]!.drift && n.anchorMode === "center").length} | ${
-        good.filter((n, i) => flags[i]!.drift && n.anchorMode === "bottom").length
-      } | ${count(
+      } | ${good.filter((n, i) => raw[i] && n.anchorMode === "center").length} | ${
+        good.filter((n, i) => raw[i] && n.anchorMode === "bottom").length
+      } | ${controlled ? count((f) => f.drift) : "no control"} | ${count(
         (f) => f.grow || f.phases || f.drift,
-      )} | ${good.filter((n) => n.phases.length === 0).length} | ${good.filter((n) => n.lateFrames > 0.05).length} | ${
+      )} | ${controlFlags.size ? fresh : "no control"} | ${good.filter((n) => n.phases.length === 0).length} | ${good.filter((n) => n.lateFrames > 0.05).length} | ${
         mine.length - good.length
       } |`,
     );
@@ -367,7 +409,7 @@ export function report(results: Result[], looks: string[], driftPx: number, wors
   for (const look of looks) {
     const ranked = results
       .filter((r) => r.look === look && ok(r.numbers))
-      .map((r) => ({ r, n: r.numbers as Ok, score: severity(r.numbers as Ok, driftPx) }))
+      .map((r) => ({ r, n: r.numbers as Ok, score: severity(r.numbers as Ok, driftPx, r.control) }))
       .filter((x) => x.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, worst);
@@ -377,7 +419,7 @@ export function report(results: Result[], looks: string[], driftPx: number, wors
       continue;
     }
     lines.push(
-      "| seed | scenario | grow px (row) | total grow-collapse px (rise before the fold) | phases (ms from turn end: set off by) | drift px |",
+      "| seed | scenario | grow px (row) | total grow-collapse px (rise before the fold) | phases (ms from turn end: set off by) | drift px (anchor; the control's) |",
       "|---|---|---|---|---|---|",
     );
     for (const { r, n } of ranked)
@@ -389,7 +431,9 @@ export function report(results: Result[], looks: string[], driftPx: number, wors
             (p) =>
               `${p.person ? "(person) " : ""}${p.fromMs}-${p.toMs}${p.after.length ? `: ${p.after.join(", ").slice(0, 60)}` : ""}`,
           )
-          .join("; ")} | ${n.anchorDriftPx} (${n.anchorMode}) |`,
+          .join(
+            "; ",
+          )} | ${n.anchorDriftPx} (${n.anchorMode}${r.control === undefined ? "" : `; no fold ${r.control}`}) |`,
       );
   }
   return lines.join("\n");
@@ -453,6 +497,11 @@ if (import.meta.main) {
   const keep = path.join(out, "samples");
   mkdirSync(keep, { recursive: true });
   const results = await fuzz(recorder.browser, recorder.port, looks, seeds, jobs, keep, args.includes("--resume"));
+  // The control: what the turn's end alone does to each seed's anchor.
+  const control = new Map(
+    results.filter((r) => r.look === "none" && ok(r.numbers)).map((r) => [r.seed, (r.numbers as Ok).anchorDriftPx]),
+  );
+  for (const r of results) r.control = control.get(r.seed);
   const drifts = results
     .map((r) => r.numbers)
     .filter(ok)
@@ -461,11 +510,8 @@ if (import.meta.main) {
   const table = report(results, looks, driftPx);
   const summary = Object.fromEntries(
     looks.map((look) => {
-      const good = results
-        .filter((r) => r.look === look)
-        .map((r) => r.numbers)
-        .filter(ok);
-      const flags = good.map((n) => flagsOf(n, driftPx));
+      const good = results.filter((r) => r.look === look && ok(r.numbers));
+      const flags = good.map((r) => flagsOf(r.numbers as Ok, driftPx, r.control));
       return [
         look,
         {
@@ -499,7 +545,7 @@ if (import.meta.main) {
     const after = value("--after") ?? looks.at(-1)!;
     const worst = results
       .filter((r) => r.look === before && ok(r.numbers))
-      .sort((a, b) => severity(b.numbers as Ok, driftPx) - severity(a.numbers as Ok, driftPx))
+      .sort((a, b) => severity(b.numbers as Ok, driftPx, b.control) - severity(a.numbers as Ok, driftPx, a.control))
       .slice(0, gallery);
     const dir = path.join(out, "gallery");
     mkdirSync(dir, { recursive: true });

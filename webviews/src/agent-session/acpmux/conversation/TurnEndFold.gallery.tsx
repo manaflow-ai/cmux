@@ -4,7 +4,9 @@
 // overarching fold at the very end"). Run the turn: its calls arrive one by one, each in sight, a
 // short note between two runs on its own row; then the answer lands and the work folds under
 // "Worked for" on the house settle (turnEndFold.ts). The arms compare how the rows that fold go
-// (`data-turn-end-fold`): `fade`, shipped, fades each where it was while the answer and the rows
+// (`data-turn-end-fold`): `wipe`, shipped (the fold matrix's pick, scripts/fold-matrix.ts), slides nothing:
+// an edge runs down from the Worked for line, the new frame above it and the old below; `snapshot`
+// cross-dissolves the two frames in place; `fade` fades each where it was while the answer and the rows
 // above slide to the folded line; `tuck` slides them up under the line as they fade; `stagger` fades
 // them from the last up. `live` stops before the end: the work in sight, nothing folded. The `-long`
 // states run a longer turn (a third run of calls) whose fold moves the answer far: it still ends with
@@ -303,5 +305,9 @@ export default componentEntry<{ variant: Variant; long?: boolean; lead?: ExitLea
     "edge-long": { props: { variant: "edge", long: true }, play: runToFold },
     anchored: { props: { variant: "anchored" }, play: runToFold },
     "anchored-long": { props: { variant: "anchored", long: true }, play: runToFold },
+    wipe: { props: { variant: "wipe" }, play: runToFold },
+    "wipe-long": { props: { variant: "wipe", long: true }, play: runToFold },
+    snapshot: { props: { variant: "snapshot" }, play: runToFold },
+    "snapshot-long": { props: { variant: "snapshot", long: true }, play: runToFold },
   },
 });
