@@ -38,15 +38,22 @@ pub(super) struct Rig {
 }
 
 pub(super) async fn rig(policy: PermissionPolicy) -> Rig {
-    rig_in(policy, false).await
+    rig_in(policy, false, &[]).await
+}
+
+/// A rig whose fake harness keeps Codex's own conversation store (fake_agent.py's
+/// FAKE_CODEX_STORE): `session/load` finds the stored conversation by its id or fails, and
+/// "history-probe" answers with the prompts and session ids it holds.
+pub(super) async fn rig_with_store(policy: PermissionPolicy) -> Rig {
+    rig_in(policy, false, &[("FAKE_CODEX_STORE", "1")]).await
 }
 
 /// A rig whose store is on disk, so `Rig::restart` brings its chats back in a new daemon.
 pub(super) async fn rig_on_disk(policy: PermissionPolicy) -> Rig {
-    rig_in(policy, true).await
+    rig_in(policy, true, &[]).await
 }
 
-async fn rig_in(policy: PermissionPolicy, on_disk: bool) -> Rig {
+async fn rig_in(policy: PermissionPolicy, on_disk: bool, env: &[(&str, &str)]) -> Rig {
     let dir = std::env::temp_dir().join(format!("acpmux-hibernate-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&dir).unwrap();
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
@@ -57,7 +64,10 @@ async fn rig_in(policy: PermissionPolicy, on_disk: bool) -> Rig {
     let profile = HarnessProfile {
         kind: Default::default(),
         argv: argv.iter().map(|a| a.to_string()).collect(),
-        env: BTreeMap::from([("CODEX_HOME".to_owned(), dir.to_string_lossy().into_owned())]),
+        env: [("CODEX_HOME".to_owned(), dir.to_string_lossy().into_owned())]
+            .into_iter()
+            .chain(env.iter().map(|(k, v)| (k.to_string(), v.to_string())))
+            .collect(),
         description: None,
         fallback: None,
         family: Some("codex".into()),
@@ -140,7 +150,7 @@ impl Rig {
         .await;
     }
 
-    fn texts(&self, id: &str, kind: &str) -> Vec<String> {
+    pub(super) fn texts(&self, id: &str, kind: &str) -> Vec<String> {
         let events = self.hub.events(id, 0, 10_000).unwrap();
         events
             .iter()

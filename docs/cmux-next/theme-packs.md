@@ -84,7 +84,6 @@ rest of the pack still applies.
 | A `file:` or `folder:` value that leaves `assets/` (`../`, an absolute path, a link out), points at a missing file, or is too big or the wrong kind | That key |
 | An unknown slot, or a variant the slot doesn't have | That slot. It keeps its default. |
 | A font file that leaves `assets/`, is missing, too big, not a font kind, or whose first bytes aren't a font's | That file. The look falls back to the next family in its list. |
-| A font file that leaves `assets/`, is missing, too big, not a font kind, or whose first bytes aren't a font's | That file. The look falls back to the next family in its list. |
 | An unknown top-level key | Skipped |
 | A bad `id` | Replaced by `local/FOLDER` |
 | A `capabilities` entry that isn't a capability name, or a `capabilities` that isn't a list | That entry, or the list (so the pack changes nothing) |

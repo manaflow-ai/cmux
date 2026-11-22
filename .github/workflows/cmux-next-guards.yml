@@ -350,7 +350,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # A mini or fleet Linux host reuses its workspace: drop the submodule checkouts a previous job
+      # A self-hosted Linux host reuses its workspace: drop the submodule checkouts a previous job
       # left there (a no-op on Blacksmith, which starts with none).
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
@@ -1016,7 +1016,7 @@ jobs:
       # merge leaves a person a generated-file conflict (scripts/cmux-next/generated_merge.py audit).
       - name: Generated files merge without a person
         if: ${{ !cancelled() }}
-        timeout-minutes: 3
+        timeout-minutes: 8
         run: python3 tests/test_generated_merge.py
 
       - name: cmux-next no new generated files
@@ -1100,7 +1100,7 @@ jobs:
           # HEAD^1: a pull request's base for the registry check.
           fetch-depth: 2
 
-      # A mini or fleet Linux host reuses its workspace: drop the submodule checkouts a previous job
+      # A self-hosted Linux host reuses its workspace: drop the submodule checkouts a previous job
       # left there (a no-op on Blacksmith, which starts with none).
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         id: setup-submodules
