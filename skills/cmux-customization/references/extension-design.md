@@ -79,13 +79,17 @@ color such as `#ff0000` or a CSS name such as `"blue"` gets a warning.
 Use `accent` for the one thing to look at and `secondary` for the rest. Keep `success`,
 `warning` and `danger` for state (done, low, failed).
 
+`WidgetTitle` is tinted `accent` by default, so it uses one of the two. A view that shows
+two states at once (a passed build in `success` next to a failed one in `danger`) has no
+accent left for the title: write `WidgetTitle("CI", { symbol: "hammer", tint: "secondary" })`.
+
 ## Components
 
 The widget helpers, all exported by `cmux-extension-sdk`:
 
 | Helper | What it draws |
 |---|---|
-| `widget((ctx) => View)` | The export the manifest names for `cmux.widget/1`. `ctx` has `size` (`small`, `medium`, `large`), `place` (`newtab`, `sidebar`), `now()`, `settings`, and `preview` (true in the Add Widget gallery: show sample data and write nothing) |
+| `widget((ctx) => View)` | The export the manifest names for `cmux.widget/1`. `ctx` has `size` (`small`, `medium`, `large`), `place` (`newtab`, `sidebar`), `now()` (the clock in Unix milliseconds, a number: `new Date(ctx.now()).getHours()`; there is no `Intl`), `settings`, and `preview` (true in the Add Widget gallery: show sample data and write nothing) |
 | `WidgetFrame([...], { place: ctx.place })` | The tile: a leading-aligned column with the standard inset. Put a `Spacer()` in it to push the value to the bottom |
 | `WidgetTitle("Name", { symbol: "clock" })` | The header: an SF Symbol and a short name, in `accent` |
 | `BigNumber(() => value)` | The value. Its digits roll when it changes |
@@ -162,7 +166,7 @@ export const renderWidget = widget((ctx) => {
 | `line-limit` | A widget `Text` with no line limit | Use a role helper (which sets one), or `.lineLimit(1)` |
 | `spacing` | A gap or padding off the scale | The step the fix names, written as a `SPACE` key |
 | `color` | A hex color, or a name cmux does not know | A color role |
-| `accents` | More than two accent colors in one view | `accent` for the one thing; `secondary` for the rest |
+| `accents` | More than two accent colors in one view (`WidgetTitle`'s default `accent` counts) | `accent` for the one thing, `secondary` for the rest; with two state colors, `WidgetTitle(..., { tint: "secondary" })` |
 | `contrast` | Text too faint on light or dark | `primary` or `secondary` |
 | `system` | `cmux-design.json` does not read | The field and fix it names; until then, cmux's system is the one checked |
 | `scene` | A recorded scene has no root | Record it again with `cmux ext shot --record` |

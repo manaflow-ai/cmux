@@ -483,3 +483,41 @@ fn a_recorded_widget_scene_is_checked_as_a_widget() {
     let checks: Vec<&str> = review.scenes[0].1.iter().map(|f| f.check).collect();
     assert_eq!(checks, vec!["line-limit"], "{:?}", review.scenes[0].1);
 }
+
+/// The cold-model test (DESIGN.md section 12): widgets a small model wrote from
+/// skills/cmux-customization/references/extension-design.md alone, recorded by
+/// `cmux-app-host/tools/cold-model.ts`, pass registry review's design check with no warning.
+#[test]
+fn cold_model_widgets_pass_the_design_check() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/cli/ext/cold_model");
+    let mut dirs: Vec<_> = std::fs::read_dir(&root)
+        .expect("the cold-model runs")
+        .map(|entry| entry.expect("an entry").path())
+        .filter(|path| path.is_dir())
+        .collect();
+    dirs.sort();
+    assert!(dirs.len() >= 5, "five cold-model widgets, found {}", dirs.len());
+    for dir in dirs {
+        let manifest: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("cmux-app.json")).expect("a manifest"),
+        )
+        .expect("the manifest reads");
+        let review = super::design::listing(&dir, &manifest);
+        assert!(
+            review.ok() && review.warnings() == 0,
+            "{}: {}\n{}",
+            dir.display(),
+            review.summary(),
+            review.details().join("\n")
+        );
+        // Both sizes the manifest offers were drawn and checked as a widget.
+        let mut names: Vec<_> = review.scenes.iter().map(|(name, _)| name.as_str()).collect();
+        names.sort();
+        assert_eq!(
+            names,
+            ["preview/scenes.json:cmux.widget/1 medium", "preview/scenes.json:cmux.widget/1 small"],
+            "{}",
+            dir.display()
+        );
+    }
+}
