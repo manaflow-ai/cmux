@@ -107,6 +107,7 @@ on:
       - "docs/chief-setup-prompts.md"
       - "docs/cmux-next/customize-recipes.md"
       - "examples/looks/claude-code/notification-levels/cmux-setup.json"
+      - "examples/looks/hairline/**"
       - "docs/cmux-next/sidebar-customization/**"
       - "docs/remote-agents-and-cloud.md"
       - "examples/extensions/web-pane/**"
@@ -180,6 +181,7 @@ on:
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
       - "examples/looks/claude-code/notification-levels/cmux-setup.json"
+      - "examples/looks/hairline/**"
       - "schemas/settings/source/mcp-servers.json"
       - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
       - "skills/cmux-customization/templates/clock-weather/main.js"
@@ -284,6 +286,7 @@ on:
       - "docs/chief-setup-prompts.md"
       - "docs/cmux-next/customize-recipes.md"
       - "examples/looks/claude-code/notification-levels/cmux-setup.json"
+      - "examples/looks/hairline/**"
       - "docs/cmux-next/sidebar-customization/**"
       - "docs/remote-agents-and-cloud.md"
       - "examples/extensions/web-pane/**"
@@ -357,6 +360,7 @@ on:
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
       - "examples/looks/claude-code/notification-levels/cmux-setup.json"
+      - "examples/looks/hairline/**"
       - "schemas/settings/source/mcp-servers.json"
       - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
       - "skills/cmux-customization/templates/clock-weather/main.js"
