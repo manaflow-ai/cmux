@@ -46,7 +46,8 @@ public protocol ChiefComputerHost: AnyObject, Sendable {
 /// The Chief's computer, wired to a ``ChiefComputerHost``: what the expanded page, the settings popover's
 /// profile and the chat's popup share.
 @MainActor
-public enum ChiefComputerWiring {
+public struct ChiefComputerWiring {
+    public init() {}
     public static let toggleActionID: ActionID = "chief.toggleComputer"
     static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "chief.computer")
 
