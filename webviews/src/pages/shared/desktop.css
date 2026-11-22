@@ -146,7 +146,7 @@ body {
   /* glass content: a card in the content layer (.ui-glass-content: a permission ask, a turn error, a Settings card): the theme surface at this share with no backdrop-filter, since it scrolls with the content; near-solid, under the glass rule's 90% cap, so a wallpaper behind a see-through page shows only faintly (design/glass-system.md, rule 2) */
   --ds-glass-content-tint: 88%;
   /* glass ink: the secondary ink on glass (design/glass-system.md, rule 5): the theme's text at this share over the glass, so a hint, a placeholder or a detail line keeps 3:1 over the glass laid on pure black, pure white and a busy wallpaper at every floating level, without raising the tint; every glass surface's secondary tokens (--cmux-text-secondary, --agent-muted, the composer placeholder) read it while glass draws; status is the share of a status hue (red, amber, green) in a status word on glass, the rest the theme's text, so the word keeps 3:1 under dark glass on a white page (the page's hues are fitted to the opaque page) */
-  --ds-glass-ink-secondary: 64%;
+  --ds-glass-ink-secondary: 68%;
   --ds-glass-ink-status: 65%;
   /* glass underlay: the theme surface a floating glass lays under its tint in a see-through Chromium page where the page cannot blur itself: the menu's 80% over 40% covers 88%, not 93% (design/glass-system.md, rule 6) */
   --ds-glass-underlay: 40%;
@@ -259,8 +259,9 @@ body {
    in dimmer ink; the numbers are the native ones (CmuxNextDesign/Tooltip/TooltipMetrics.swift,
    test/tooltip-metrics.test.ts holds the two in step). It shows and goes in one frame, with no fade
    and no rise, as do hover cards (.ui-card, the context window card) on the same surface (Leo,
-   2026-11-11: "the fade-in, the fade-out, is just so stupid... It's just sluggish."). Truncated text
-   wraps inside the same compact bubble. */
+   2026-11-11: "the fade-in, the fade-out, is just so stupid... It's just sluggish."). A tooltip is one
+   line, as the native one (Chief, 2026-11-21; TooltipContentView.swift): past the widest tooltip its
+   text ends in an ellipsis. A hover card (.ui-card) wraps. */
 .ui-tooltip,
 .ui-title-tooltip {
   box-sizing: border-box;
@@ -285,9 +286,23 @@ body {
   font-size: var(--tooltip-font-size);
   line-height: var(--tooltip-line-height);
   font-weight: var(--weight-regular);
-  /* Wraps between words; only a word wider than the whole tooltip (a long path) breaks. */
+  /* A hover card's text wraps between words; only a word wider than the whole card (a long path)
+     breaks. A tooltip's never wraps (below). */
   overflow-wrap: break-word;
   pointer-events: none;
+}
+
+/* One line: the text ends in an ellipsis at the widest tooltip, after the floated keycap. */
+.ui-tooltip:not(.ui-card),
+.ui-title-tooltip {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+:is(.ui-tooltip:not(.ui-card), .ui-title-tooltip) .ui-tooltip-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Closing: nothing of it draws from the frame its close starts (its content, glass and backdrop),
@@ -348,16 +363,8 @@ body {
 .ui-title-tooltip {
   position: fixed;
   z-index: var(--layer-tooltip);
-  white-space: pre-line;
 }
 
-/* A wrapped tooltip's lines come out even, never a word or two alone on the last line, and the box
-   then narrows to its widest line (ui/tooltipFit.ts; Leo, 2026-11-07: "why is this even so wide in
-   the first place?"). A hover card's own text keeps its layout. */
-.ui-tooltip:not(.ui-card),
-.ui-title-tooltip {
-  text-wrap: balance;
-}
 
 /* A detail line under the text, in the secondary ink. */
 .ui-tooltip-detail {
