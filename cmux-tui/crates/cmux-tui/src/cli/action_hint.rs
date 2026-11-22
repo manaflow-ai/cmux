@@ -102,7 +102,8 @@ pub(super) fn builtin_first_word(word: &str) -> bool {
     static FIRST: OnceLock<std::collections::HashSet<String>> = OnceLock::new();
     FIRST
         .get_or_init(|| {
-            let doc: Value = serde_json::from_str(ACTIONS_JSON).unwrap_or(Value::Null);
+            let doc: Value =
+                serde_json::from_str(&ACTION_SURFACES.inflate()).unwrap_or(Value::Null);
             let mut words: std::collections::HashSet<String> = doc["actions"]
                 .as_array()
                 .into_iter()
