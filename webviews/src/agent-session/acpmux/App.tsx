@@ -10544,6 +10544,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     quoteReply,
     inheritedFolderRef,
     pendingPaneDraw,
+    chrome,
   ]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
