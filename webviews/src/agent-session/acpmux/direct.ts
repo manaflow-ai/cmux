@@ -118,6 +118,7 @@ import {
   SETTLED_ATTACH_CAPABILITY,
   USAGE_KIND,
   attachedDetail,
+  forwardAttachRefused,
   plainAttach,
   settledAttachFailed,
 } from "./attachParams";
@@ -6626,7 +6627,9 @@ export class AcpmuxDirectClient {
     const sessionId = this.selectedSessionId;
     if (this.closed || !sessionId || !pageShown()) return;
     this.syncView();
-    if (readerHere()) this.markSeen(sessionId);
+    // A return by hand to the chat on screen: "New since you looked" over rows already in front of
+    // the reader does not draw (conversation/unreadState.ts `noteUnreadSide`).
+    if (readerHere()) this.markSeen(sessionId, true);
   };
 
   private cameOnline = (): void => {
@@ -6752,12 +6755,12 @@ export class AcpmuxDirectClient {
   /// to it by hand after stepping away (`attentionChanged`). Turns that ended since the person last
   /// left it or stepped away put "New since you looked" after what they had seen; it stays until
   /// the next return moves it or another chat is selected, so it never goes while the reader is on it.
-  private markSeen(sessionId: string): void {
+  private markSeen(sessionId: string, inPlace = false): void {
     const listed = this.sessions.find((session) => session.sessionId === sessionId);
     const turns = listed?.unreadTurns;
     const seq = listed?.seenSeq;
     if (typeof turns === "number" && turns > 0 && typeof seq === "number") {
-      this.since = { sessionId, seq, turns };
+      this.since = { sessionId, seq, turns, ...(inPlace && { inPlace: true as const }) };
       this.placeSince();
     } else if (this.since?.sessionId !== sessionId) this.since = returnOf(sessionId, listed?.lastReturn);
     this.sessions = this.sessions.map((session) =>
@@ -6800,7 +6803,8 @@ export class AcpmuxDirectClient {
       !this.sinceStale &&
       drawn?.since?.seq === since.seq &&
       drawn.since.turns === since.turns &&
-      drawn.since.recap === since.recap
+      drawn.since.recap === since.recap &&
+      drawn.since.inPlace === since.inPlace
     )
       return;
     this.sinceStale = false;
@@ -6814,6 +6818,7 @@ export class AcpmuxDirectClient {
         seq: since.seq,
         turns: since.turns,
         ...(since.recap && { recap: since.recap }),
+        ...(since.inPlace && { inPlace: true as const }),
       },
     });
   }
@@ -7728,21 +7733,38 @@ export class AcpmuxDirectClient {
   private sendAttach(sessionId: string, generation: number, reads: boolean, afterSeq?: number): SentAttach {
     const visible = readerHere();
     const hold = this.chatRows.holds(sessionId) ? holdAttach(sessionId, visible) : undefined;
-    const ask = (settled: boolean) =>
+    // `forward: false` drops `afterSeq` (an `undefined` argument would take the default back).
+    const ask = (settled: boolean, forward = true) =>
       this.typed(
         "_acpmux/attach",
         hold ??
-          plainAttach(sessionId, { settled, visible, local: this.localOrigin, maxBytes: OPEN_PAGE_BYTES, afterSeq }),
+          plainAttach(sessionId, {
+            settled,
+            visible,
+            local: this.localOrigin,
+            maxBytes: OPEN_PAGE_BYTES,
+            afterSeq: forward ? afterSeq : undefined,
+          }),
       );
     // acpmux answers a settled view it cannot read with a plain page; one that fails the attach over
     // it instead (its error names `settled`) is asked once more without it, so the chat still opens.
+    // So too a reconnect's forward attach that a host refuses as malformed (a relay whose params rule
+    // does not take `afterSeq`, as every one before Leo's 2026-11-22 report): asked again for the
+    // newest page, as every reconnect did before #47119, which `attachWatched` lays as that page. A
+    // reconnect is recoverable, never "cmux blocked opening this chat" over the composer.
     const attaching =
       this.capabilities?.has(SETTLED_ATTACH_CAPABILITY) && !hold && afterSeq === undefined
         ? ask(true).catch((error: unknown) => {
             if (!settledAttachFailed(error)) throw error;
             return ask(false);
           })
-        : ask(false);
+        : !hold && afterSeq !== undefined
+          ? ask(false).catch((error: unknown) => {
+              if (!forwardAttachRefused(error)) throw error;
+              this.wire.lifecycle("forward attach refused, asked the newest page", { sessionId, afterSeq });
+              return ask(false, false);
+            })
+          : ask(false);
     const out = { sessionId };
     this.attachOut = out;
     const settled = () => {
@@ -15308,7 +15330,7 @@ export class AcpmuxDirectClient {
     rememberRecapDismissed(key);
     if (this.latestRecap?.recap?.key === key) this.latestRecap = { ...this.latestRecap, recap: undefined };
     if (rowId === SINCE_DIVIDER && this.since?.recap?.key === key) {
-      this.since = { sessionId: this.since.sessionId, seq: this.since.seq, turns: this.since.turns };
+      this.since = { ...this.since, recap: undefined };
       this.placeSince();
       this.emit();
       return;
