@@ -323,6 +323,10 @@ path = "tests/test_install_zig_ci_reviewed_version.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_instrument_tokens.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_intent_familiar_warning.py"
 lane = "linux-guard"
 

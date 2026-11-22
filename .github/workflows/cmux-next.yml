@@ -203,6 +203,11 @@ on:
       - tests/test_ui_font.py
       - scripts/cmux-next/check-fixture-host-names.py
       - tests/test_cmux_next_fixture_host_names.py
+      - schemas/instrument/**
+      - scripts/cmux-next/gen-instrument-tokens.py
+      - tests/test_instrument_tokens.py
+      - schemas/design-scale/design-scale.json
+      - schemas/surface-roles/surface-roles.json
       - schemas/layout-grid/layout-grid.json
       - schemas/layout-grid/settled-spacing.json
       - scripts/cmux-next/gen-layout-grid.py
@@ -573,6 +578,11 @@ on:
       - tests/test_ui_font.py
       - scripts/cmux-next/check-fixture-host-names.py
       - tests/test_cmux_next_fixture_host_names.py
+      - schemas/instrument/**
+      - scripts/cmux-next/gen-instrument-tokens.py
+      - tests/test_instrument_tokens.py
+      - schemas/design-scale/design-scale.json
+      - schemas/surface-roles/surface-roles.json
       - schemas/layout-grid/layout-grid.json
       - schemas/layout-grid/settled-spacing.json
       - scripts/cmux-next/gen-layout-grid.py
@@ -2033,6 +2043,13 @@ jobs:
         continue-on-error: true
         run: python3 -I tests/test_layout_grid.py && python3 -I scripts/cmux-next/gen-layout-grid.py --check
 
+      # Instrument's one token file (schemas/instrument/instrument.json): today's values still match their
+      # sources, and the pending list only shrinks (pending-baseline.json).
+      - name: Instrument tokens
+        id: instrument-tokens
+        continue-on-error: true
+        run: python3 -I tests/test_instrument_tokens.py && python3 -I scripts/cmux-next/gen-instrument-tokens.py --check
+
       # Why: docs/ci/cmux-next-workflow-notes.md#note-28
       - name: UI font (the system font)
         id: ui-font
@@ -2413,6 +2430,7 @@ jobs:
             ${{ steps.conn-notices.outcome }}|Connection notices
             ${{ steps.type-scale.outcome }}|Type scale
             ${{ steps.layout-grid.outcome }}|Layout grid
+            ${{ steps.instrument-tokens.outcome }}|Instrument tokens
             ${{ steps.ui-font.outcome }}|UI font (the system font)
             ${{ steps.motion-scale.outcome }}|Motion scale
             ${{ steps.motion-tokens.outcome }}|Motion and colour tokens
