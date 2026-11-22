@@ -22,6 +22,7 @@ ap.add_argument("--display", default=":99")
 ap.add_argument("--out", default="")
 ap.add_argument("--label", default="")
 ap.add_argument("--public-ip", default="136.67.132.155")
+ap.add_argument("--fwd-only", action="store_true", help="m2l: give the Mac host only the forwarder's candidate")
 ap.add_argument("--fwd", action="store_true",
                 help="m2l: carry the link through punchfwd.py (public 4105, local 4106)")
 argv = sys.argv[1:]
@@ -203,7 +204,9 @@ else:
             if m.get("_eof"):
                 log("viewer ended")
                 break
-            if "candidate" in m:
+            if "candidate" in m and a.fwd_only:
+                log("viewer candidate kept back (--fwd-only)", m["candidate"])
+            elif "candidate" in m:
                 ch.send({"in": json.dumps(m)})
                 log("viewer candidate ->host", m["candidate"])
                 port = m["candidate"].rsplit(":", 1)[1]
