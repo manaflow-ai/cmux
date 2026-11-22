@@ -67,7 +67,7 @@ function OldPill() {
     borderRadius: 999,
     background: "var(--cv-surface-raised, #8882)",
     color: "var(--agent-muted)",
-    fontSize: 12,
+    fontSize: "var(--text-caption)",
     whiteSpace: "nowrap",
   };
   return (
@@ -138,7 +138,14 @@ export default componentEntry<Props>({
     const pane = (label: string, children: ReactNode, width: number) => (
       <section
         data-pane={label}
-        style={{ width, flex: "none", display: "flex", flexDirection: "column", minHeight: 0 }}
+        style={{
+          width,
+          flex: "none",
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0,
+          borderInlineEnd: "1px solid var(--agent-border, #8884)",
+        }}
       >
         <div className="acpmux-main" style={{ height: 260, display: "flex", flexDirection: "column" }}>
           {children}
@@ -158,7 +165,7 @@ export default componentEntry<Props>({
       return (
         <SubagentNavContext.Provider value={() => {}}>
           <TurnActionsContext.Provider value={actions}>
-            <div className="acpmux-shell" style={{ display: "flex", gap: 1, background: "var(--agent-border, #8884)" }}>
+            <div className="acpmux-shell" style={{ display: "flex" }}>
               {pane(
                 "chat",
                 <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
