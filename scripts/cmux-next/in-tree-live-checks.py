@@ -275,14 +275,15 @@ def opener_chooser(tab, label):
     after, now_sheets = (shown if shown else (file_dialogs(), sheets()))
     if label == "first":
         rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "file-after-popup-opener-sheet.png")})
-    rpc("debug.key", {"key": "escape"})
+    # Escape to the sheet itself (target dialog: the window's attached sheet), as a person's Escape in the panel.
+    escape = rpc("debug.key", {"key": "escape", "target": "dialog"})
     cancelled = wait(lambda: "cancel" in page_list("__file", tab), 4)
     if not cancelled and any(w["visible"] for w in sheets()):
-        rpc("debug.key", {"key": "escape"})  # a second Escape, so a later step starts with no sheet
+        rpc("debug.key", {"key": "escape", "target": "dialog"})  # again, so a later step starts with no sheet
     return {"sheet_shown": bool(shown), "request_reached_app": after["received"] > before["received"],
             "page_got_cancel": bool(cancelled), "received": [before["received"], after["received"]],
             "answered": file_dialogs().get("answered"), "last": after.get("last"), "input_events": page_list("__file", tab),
-            "sheets": now_sheets, "fired": fired}
+            "sheets": now_sheets, "fired": fired, "escape": escape}
 
 
 def file_after_popup(tab):
