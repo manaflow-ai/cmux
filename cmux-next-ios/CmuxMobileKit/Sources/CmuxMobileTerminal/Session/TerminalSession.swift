@@ -98,6 +98,19 @@ public enum TerminalConnectionState: Sendable, Equatable {
         }
     }
 
+    /// The title pill's subtitle once an outage lasted
+    /// `QuietStatusGate.threshold` (nil: attached). A few words in place of
+    /// the working directory: the page itself gets no status row.
+    public var pillSubtitle: String? {
+        switch self {
+        case .connecting: return "Connecting…"
+        case .reattaching: return "Reattaching…"
+        case .offline: return "Mac offline"
+        case .failed: return "Can't connect"
+        case .attached: return nil
+        }
+    }
+
     /// A dropped tab (reattaching, or its Mac offline): a warm surface keeps
     /// its last frame live and readable under no overlay; the title pill says
     /// what is going on.

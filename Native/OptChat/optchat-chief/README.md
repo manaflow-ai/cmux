@@ -128,7 +128,13 @@ an error ("refused by the conversation, nothing was posted (agent_budget)")
 when the owner refuses it at once, `outcome: queued` while it still waits in
 the outbox (the gap, an upload, link previews), and `outcome: done. sent`
 only when the owner took it; a later refusal (a queued send, a turn reply)
-is told on the Chief's next `send`. A page shows "Chiefs paused" for
+is told on the Chief's next `send`. An `agent_budget` refusal in the Chief's
+conversation also starts the hold (`brain/budget_hold.rs`): while the guard
+refuses, `stop` and `sleep` are not refused for untold landed work, and the
+`[untold]` and `[no text]` notes wait instead of starting turns that could post
+nothing. The person's next message ends the hold, and its turn carries a
+`<held-news>` block naming the owed outcomes and silent starts; a Chief message
+the owner takes ends it too. A page shows "Chiefs paused" for
 a thread when `thread_agent_streak` of its newest messages is at the budget. `every` adds a constant
 "Channels" paragraph to the system prompt: the Chief acts on its own when a
 message concerns its role, and a reply of exactly `NO_REPLY` posts nothing.
