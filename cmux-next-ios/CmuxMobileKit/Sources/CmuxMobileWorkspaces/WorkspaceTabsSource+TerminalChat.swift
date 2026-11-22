@@ -290,8 +290,10 @@ extension WorkspaceTabsSource {
     func placeKeyBarChatToggle(_ tab: WorkspaceTab, in workspace: Workspace, offered: Bool) {
         let placement = TerminalChatTogglePlacement.current
         let tabID = tab.id
-        let action: (@MainActor () -> Void)? = offered && placement != .toolbar
-            ? { [weak self] in self?.swapTerminalChat(tabID, to: .chat) } : nil
+        var action: (@MainActor () -> Void)?
+        if offered && placement != .toolbar {
+            action = { [weak self] in self?.swapTerminalChat(tabID, to: .chat) }
+        }
         terminal.setKeyBarChatToggle(placement.keyBarSlot ?? .pinned, action: action, for: tab, in: workspace)
     }
 
