@@ -67,6 +67,18 @@ impl Hub {
             let hub = self.clone();
             tokio::spawn(async move { hub.auto_update_harnesses().await });
         }
+        // Each row with its typed readiness (`harness_health/readiness.rs`), computed now: the
+        // page renders it and never guesses a state from absent fields.
+        let readiness = self.health.readiness(&rows);
+        let rows: Vec<Value> = rows
+            .iter()
+            .zip(readiness)
+            .map(|(row, readiness)| {
+                let mut value = json!(row);
+                value.set("readiness", json!(readiness));
+                value
+            })
+            .collect();
         Ok(json!({"harnesses": rows}))
     }
 
