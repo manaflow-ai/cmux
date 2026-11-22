@@ -31,6 +31,10 @@ struct CmuxMobileApp: App {
         // setting (mock data, a scripted demo, relay only) an earlier Debug
         // or Demo install left in this container, before anything reads them.
         DeveloperOptions.removeStoredValues()
+        #else
+        // A UI test's `-cmuxMobile.setupComplete NO` starts setup; setup's
+        // own last page must still be able to finish it.
+        DeveloperOptions.seedLaunchArguments()
         #endif
         // The build's dev tag (Info.plist CmuxMobileDevTag, Debug configuration only): its cloud
         // requests carry `X-Cmux-Build-Space: dev:<slug>` so dev builds never share cloud data. A
@@ -78,6 +82,8 @@ struct CmuxMobileApp: App {
                 ShellScreenSharingLink()
             } else if TerminalFloodBenchRoot.isRequested {
                 TerminalFloodBenchRoot()
+            } else if TerminalHistoryWindowDemoRoot.isRequested {
+                TerminalHistoryWindowDemoRoot()
             } else if TerminalResizeDemoRoot.isRequested {
                 TerminalResizeDemoRoot()
             } else if AgentCLIHybridBenchRoot.isRequested {
