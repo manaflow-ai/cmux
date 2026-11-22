@@ -8,8 +8,8 @@ import Testing
 /// FUCKING HIDE IT"; its constraint: "you're foregrounding shit", so the panel never takes focus.
 @MainActor
 struct ComputerUseFloatingPreviewTests {
-    static func line(_ session: String, done: Bool? = false) -> JSONValue {
-        var line: [String: JSONValue] = ["session": .string(session), "surface": .object(["chat": .string("c1")])]
+    static func line(_ session: String, done: Bool? = false) -> CmuxNextDaemon.JSONValue {
+        var line: [String: CmuxNextDaemon.JSONValue] = ["session": .string(session), "surface": .object(["chat": .string("c1")])]
         if let done {
             line["card"] = .object([
                 "session": .string(session), "app": .string("Notes"), "done": .bool(done),
