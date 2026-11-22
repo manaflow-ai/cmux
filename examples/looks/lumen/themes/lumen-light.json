@@ -6,14 +6,15 @@
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",
-  // background: the one neutral tint of both materials. foreground: the text. selection: a pale accent, the text at 12.3:1
-  // on it.
+  // background: the one neutral tint of both materials. foreground: the text, dark enough that the app's
+  // own muted ink (a mix of text and background) holds 4.5:1 on this page. selection: a pale accent, the
+  // text at 14.1:1 on it.
   // accent: links, focus and Send. The terminal palette is quiet and neutral, each colour solved in
   // OKLCH so 1 to 7 and 9 to 15 hold 4.5:1 or more (8, the dim gray, 3:1) over the content plane
   // drawn at 0.96 over a pure black and a pure white backdrop (minimum 4.71:1).
   "colors": {
     "background": "#f4f5f7",
-    "foreground": "#1b1c1f",
+    "foreground": "#0c0d0f",
     "selection": "#cfdcf5",
     "accent": "#1a56c4",
     "0": "#292a2d",
