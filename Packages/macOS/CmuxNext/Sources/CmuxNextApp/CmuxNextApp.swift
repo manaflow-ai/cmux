@@ -17,7 +17,7 @@ import CmuxNextWakeups
 @_cdecl("cmux_next_app_main") public func cmuxNextAppMain() { CmuxNextApp().main() }
 public struct CmuxNextApp {
     public func main() {
-        if StagedUpdatePrewarm.isPrewarm(CommandLine.arguments) { exit(0) }; DebugTimings.markLaunch("main_start") // a pre-warm needs only exec and dyld
+        if StagedUpdatePrewarm.isPrewarm(CommandLine.arguments) { _exit(0) }; DebugTimings.markLaunch("main_start") // a pre-warm needs only exec and dyld; `_exit` skips atexit handlers and static destructors
         if StagedUpdatePrewarm.isChromiumPrewarm(CommandLine.arguments) { _ = cmux_early_malloc_zone_registration(); _exit(CEFStagedPrewarm().run(application: CmuxApplication.shared).rawValue) } // _exit: no static destructors under Chromium's threads
         if case let epoch = cmux_next_first_initializer_epoch(), epoch > 0 { DebugTimings.markLaunch("premain.first_initializer", at: Date(timeIntervalSince1970: epoch)) } // process start to here: exec and dyld; to main_start: static initializers
         announceBenchHooksBuild()
