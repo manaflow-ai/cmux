@@ -4932,7 +4932,8 @@ function TranscriptView({
   // hand-over's arrival timing), in place of a :has() that restyled the whole view on every row
   // mount or unmount.
   const liveLineMounted = mountedRanges.some(({ first, last }) => {
-    for (let index = first; index < last && index < rows.length; index++) if (rows[index]?.id === LIVE_THINKING) return true;
+    for (let index = first; index < last && index < rows.length; index++)
+      if (rows[index]?.id === LIVE_THINKING) return true;
     return false;
   });
   const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
