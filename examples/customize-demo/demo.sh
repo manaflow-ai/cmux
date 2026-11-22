@@ -45,7 +45,7 @@ title() {
 }
 
 reset() {
-  "$cli" customize discard && "$cli" action run newTab.page && "$cli" customize library status
+  "$cli" customize discard && "$cli" action run newTab.page --focus && "$cli" customize library status
 }
 
 finish() {
@@ -129,7 +129,7 @@ for file in "${list[@]}"; do
   "$cli" customize use "$here/$file"
   # An already open page belongs to the previous profile. Show this one's page: newTab.page, not
   # newTab.default, which gives the CLI a tab of the selected tab's kind (a terminal here), never the page.
-  "$cli" action run newTab.page
+  "$cli" action run newTab.page --focus
   if [[ -n "$auto" ]]; then
     sleep "$auto"
   elif [[ $n -lt ${#list[@]} ]]; then

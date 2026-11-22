@@ -20,8 +20,9 @@ public import CmuxNextWakeups
 ///
 /// A resize (a split, a window resize) or a file removed while hidden saves again as soon as the terminal is quiet,
 /// with no ``interval``: the launch refuses a frame of another size, so an old one is as good as none.
-/// Worst-case staleness at a kill: ``interval`` + ``busyWait`` + one encode while a terminal keeps changing (6 s and
-/// the encode); after its last change, at most ``interval`` + ``idle`` (``idle`` when its last save is older). The
+/// Worst-case staleness at a kill: ``interval`` + ``busyWait`` + one encode while a terminal starts changing (6 s and
+/// the encode), backing off to ``busiestInterval`` + ``busyWait`` while it keeps changing
+/// (``interval(afterBusySaves:)``); after its last change, at most the interval it reached + ``idle``. The
 /// quit path still saves every visible frame fresh (and stops the keeper first).
 /// It keeps the app's rendered frame for the window's first frame only; the text itself is the daemon's.
 @MainActor
@@ -32,6 +33,21 @@ final class TerminalLaunchFrameKeeper {
     nonisolated static let interval: Duration = .seconds(5)
     /// How long a due save waits for a still-changing terminal to go quiet before it saves anyway.
     nonisolated static let busyWait: Duration = .seconds(1)
+    /// The longest time between two saves of a terminal that never goes quiet (an agent streaming in it).
+    nonisolated static let busiestInterval: Duration = .seconds(60)
+
+    /// The time between saves after `streak` saves in a row taken while the terminal was still changing: ``interval``,
+    /// doubled per such save up to ``busiestInterval``. A save taken quiet ends the streak.
+    ///
+    /// Leo's NIGHTLY, 2026-11-21 (load 164-228 on 15 cores): the CPU lane encoded a 4642 x 2576 px PNG (46-57 ms) about
+    /// once a second, every visible terminal that kept printing saved again each ``interval`` + ``busyWait``, and its
+    /// pixels had always changed. A terminal that keeps changing has no settled frame to keep: its saves now back off
+    /// (saves 6 s apart, then 11, 21, 41, and every 61 s), and its first quiet check saves the frame that stays.
+    nonisolated static func interval(afterBusySaves streak: Int) -> Duration {
+        guard streak > 0 else { return interval }
+        let doubled = interval * (1 << min(streak, 4))
+        return doubled < busiestInterval ? doubled : busiestInterval
+    }
 
     /// Encodes and writes the frames as deltas, latest wins per terminal.
     private let writer: TerminalLaunchFrameWriter
@@ -75,6 +91,8 @@ final class TerminalLaunchFrameKeeper {
         /// The size the previous check saw: a size still changing (a drag, a spring) waits for quiet.
         var seenSize: CGSize?
         var onDisk = false
+        /// Saves in a row taken while the terminal was still changing (``interval(afterBusySaves:)``).
+        var busySaves = 0
     }
 
     init(directory: URL, work: BackgroundWork,
@@ -159,9 +177,10 @@ final class TerminalLaunchFrameKeeper {
         if changedSinceCheck { notDrawnChecks[key] = nil } // a few checks per change, not per terminal
         // Nothing usable on disk (removed while hidden, or saved at another size): save as soon as it is quiet.
         let stale = !entry.onDisk || entry.savedSize != session.surfaceView.bounds.size
-        if !stale, let last = entry.lastSave, now - last < Self.interval {
+        let interval = Self.interval(afterBusySaves: entry.busySaves)
+        if !stale, let last = entry.lastSave, now - last < interval {
             kept[key] = entry
-            entry.timer.schedule(after: Self.interval - (now - last)) { @MainActor [weak self] in await self?.check(key) }
+            entry.timer.schedule(after: interval - (now - last)) { @MainActor [weak self] in await self?.check(key) }
             return
         }
         if changedSinceCheck, entry.lastSave != nil {
@@ -177,6 +196,8 @@ final class TerminalLaunchFrameKeeper {
         }
         // From here a new change tells the keeper again.
         let taken = entry.changes.take()
+        // Still changing (its busy wait ran out): the next save waits longer. Quiet, a resize or a first save: the streak ends.
+        entry.busySaves = changedSinceCheck && !stale && entry.lastSave != nil ? entry.busySaves + 1 : 0
         entry.lastSave = now
         entry.waitingSince = nil
         kept[key] = entry
