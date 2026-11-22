@@ -1,0 +1,1708 @@
+{
+ "small": {
+  "size": "small",
+  "ops": [
+   {
+    "op": "create",
+    "id": "n1",
+    "type": "Panel",
+    "props": {
+     "style": "card",
+     "spacing": 8,
+     "menu": [
+      {
+       "title": "Size",
+       "children": [
+        {
+         "title": "✓ Small"
+        },
+        {
+         "title": "Medium"
+        },
+        {
+         "title": "Large"
+        }
+       ]
+      },
+      {
+       "title": "Clear ticked"
+      }
+     ]
+    }
+   },
+   {
+    "op": "create",
+    "id": "n2",
+    "type": "HStack",
+    "props": {
+     "spacing": 6
+    }
+   },
+   {
+    "op": "create",
+    "id": "n3",
+    "type": "Icon",
+    "props": {
+     "symbol": "checklist",
+     "color": "accent"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n4",
+    "type": "Text",
+    "props": {
+     "text": "To-do",
+     "font": "headline",
+     "color": "accent"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n5",
+    "type": "Spacer",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n6",
+    "type": "Text",
+    "props": {
+     "weight": "semibold",
+     "text": "5",
+     "font": "title"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n7",
+    "type": "ForEach",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n13",
+    "type": "HStack",
+    "props": {
+     "spacing": 8,
+     "opacity": 1,
+     "menu": [
+      {
+       "title": "Edit"
+      },
+      {
+       "title": "Move to top"
+      },
+      {
+       "title": "Remove",
+       "destructive": true
+      }
+     ]
+    }
+   },
+   {
+    "op": "create",
+    "id": "n14",
+    "type": "Icon",
+    "props": {
+     "onTap": true,
+     "symbol": "circle",
+     "font": "caption",
+     "color": "tertiary",
+     "help": "Tick"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n15",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n16",
+    "type": "Text",
+    "props": {
+     "lineLimit": 1,
+     "text": "Reply to the design thread",
+     "font": "caption",
+     "color": "primary"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n17",
+    "type": "Spacer",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n18",
+    "type": "HStack",
+    "props": {
+     "spacing": 8,
+     "opacity": 1,
+     "menu": [
+      {
+       "title": "Edit"
+      },
+      {
+       "title": "Move to top"
+      },
+      {
+       "title": "Remove",
+       "destructive": true
+      }
+     ]
+    }
+   },
+   {
+    "op": "create",
+    "id": "n19",
+    "type": "Icon",
+    "props": {
+     "onTap": true,
+     "symbol": "circle",
+     "font": "caption",
+     "color": "tertiary",
+     "help": "Tick"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n20",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n21",
+    "type": "Text",
+    "props": {
+     "lineLimit": 1,
+     "text": "Book flights",
+     "font": "caption",
+     "color": "primary"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n22",
+    "type": "Spacer",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n23",
+    "type": "HStack",
+    "props": {
+     "spacing": 8,
+     "opacity": 1,
+     "menu": [
+      {
+       "title": "Edit"
+      },
+      {
+       "title": "Move to top"
+      },
+      {
+       "title": "Remove",
+       "destructive": true
+      }
+     ]
+    }
+   },
+   {
+    "op": "create",
+    "id": "n24",
+    "type": "Icon",
+    "props": {
+     "onTap": true,
+     "symbol": "circle",
+     "font": "caption",
+     "color": "tertiary",
+     "help": "Tick"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n25",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n26",
+    "type": "Text",
+    "props": {
+     "lineLimit": 1,
+     "text": "Water the plants",
+     "font": "caption",
+     "color": "primary"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n27",
+    "type": "Spacer",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n8",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n9",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n28",
+    "type": "Text",
+    "props": {
+     "font": "caption",
+     "color": "secondary",
+     "text": "2 more"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n10",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n11",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n12",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "children",
+    "id": "n1",
+    "children": [
+     "n2",
+     "n7",
+     "n8",
+     "n9",
+     "n10",
+     "n11",
+     "n12"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n2",
+    "children": [
+     "n3",
+     "n4",
+     "n5",
+     "n6"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n7",
+    "children": [
+     "n13",
+     "n18",
+     "n23"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n13",
+    "children": [
+     "n14",
+     "n15",
+     "n17"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n15",
+    "children": [
+     "n16"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n18",
+    "children": [
+     "n19",
+     "n20",
+     "n22"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n20",
+    "children": [
+     "n21"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n23",
+    "children": [
+     "n24",
+     "n25",
+     "n27"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n25",
+    "children": [
+     "n26"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n9",
+    "children": [
+     "n28"
+    ]
+   },
+   {
+    "op": "root",
+    "id": "n1"
+   }
+  ]
+ },
+ "medium": {
+  "size": "medium",
+  "ops": [
+   {
+    "op": "create",
+    "id": "n1",
+    "type": "Panel",
+    "props": {
+     "style": "card",
+     "spacing": 8,
+     "menu": [
+      {
+       "title": "Size",
+       "children": [
+        {
+         "title": "Small"
+        },
+        {
+         "title": "✓ Medium"
+        },
+        {
+         "title": "Large"
+        }
+       ]
+      },
+      {
+       "title": "Clear ticked"
+      }
+     ]
+    }
+   },
+   {
+    "op": "create",
+    "id": "n2",
+    "type": "HStack",
+    "props": {
+     "spacing": 6
+    }
+   },
+   {
+    "op": "create",
+    "id": "n3",
+    "type": "Icon",
+    "props": {
+     "symbol": "checklist",
+     "color": "accent"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n4",
+    "type": "Text",
+    "props": {
+     "text": "To-do",
+     "font": "headline",
+     "color": "accent"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n5",
+    "type": "Spacer",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n6",
+    "type": "Text",
+    "props": {
+     "weight": "semibold",
+     "text": "5",
+     "font": "title3"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n7",
+    "type": "ForEach",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n14",
+    "type": "HStack",
+    "props": {
+     "spacing": 8,
+     "opacity": 1,
+     "menu": [
+      {
+       "title": "Edit"
+      },
+      {
+       "title": "Move to top"
+      },
+      {
+       "title": "Remove",
+       "destructive": true
+      }
+     ]
+    }
+   },
+   {
+    "op": "create",
+    "id": "n15",
+    "type": "Icon",
+    "props": {
+     "onTap": true,
+     "symbol": "circle",
+     "font": "body",
+     "color": "tertiary",
+     "help": "Tick"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n16",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n17",
+    "type": "Text",
+    "props": {
+     "lineLimit": 1,
+     "text": "Reply to the design thread",
+     "font": "subheadline",
+     "color": "primary"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n18",
+    "type": "Spacer",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n19",
+    "type": "HStack",
+    "props": {
+     "spacing": 8,
+     "opacity": 1,
+     "menu": [
+      {
+       "title": "Edit"
+      },
+      {
+       "title": "Move to top"
+      },
+      {
+       "title": "Remove",
+       "destructive": true
+      }
+     ]
+    }
+   },
+   {
+    "op": "create",
+    "id": "n20",
+    "type": "Icon",
+    "props": {
+     "onTap": true,
+     "symbol": "circle",
+     "font": "body",
+     "color": "tertiary",
+     "help": "Tick"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n21",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n22",
+    "type": "Text",
+    "props": {
+     "lineLimit": 1,
+     "text": "Book flights",
+     "font": "subheadline",
+     "color": "primary"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n23",
+    "type": "Spacer",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n24",
+    "type": "HStack",
+    "props": {
+     "spacing": 8,
+     "opacity": 1,
+     "menu": [
+      {
+       "title": "Edit"
+      },
+      {
+       "title": "Move to top"
+      },
+      {
+       "title": "Remove",
+       "destructive": true
+      }
+     ]
+    }
+   },
+   {
+    "op": "create",
+    "id": "n25",
+    "type": "Icon",
+    "props": {
+     "onTap": true,
+     "symbol": "circle",
+     "font": "body",
+     "color": "tertiary",
+     "help": "Tick"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n26",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n27",
+    "type": "Text",
+    "props": {
+     "lineLimit": 1,
+     "text": "Water the plants",
+     "font": "subheadline",
+     "color": "primary"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n28",
+    "type": "Spacer",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n29",
+    "type": "HStack",
+    "props": {
+     "spacing": 8,
+     "opacity": 1,
+     "menu": [
+      {
+       "title": "Edit"
+      },
+      {
+       "title": "Move to top"
+      },
+      {
+       "title": "Remove",
+       "destructive": true
+      }
+     ]
+    }
+   },
+   {
+    "op": "create",
+    "id": "n30",
+    "type": "Icon",
+    "props": {
+     "onTap": true,
+     "symbol": "circle",
+     "font": "body",
+     "color": "tertiary",
+     "help": "Tick"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n31",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n32",
+    "type": "Text",
+    "props": {
+     "lineLimit": 1,
+     "text": "Renew passport",
+     "font": "subheadline",
+     "color": "primary"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n33",
+    "type": "Spacer",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n8",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n9",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n34",
+    "type": "Text",
+    "props": {
+     "font": "caption",
+     "color": "secondary",
+     "text": "1 more"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n10",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n11",
+    "type": "TextField",
+    "props": {
+     "placeholder": "New to-do",
+     "autofocus": false,
+     "onSubmit": true,
+     "onEdit": true,
+     "text": ""
+    }
+   },
+   {
+    "op": "create",
+    "id": "n12",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n13",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "children",
+    "id": "n1",
+    "children": [
+     "n2",
+     "n7",
+     "n8",
+     "n9",
+     "n10",
+     "n12",
+     "n13"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n2",
+    "children": [
+     "n3",
+     "n4",
+     "n5",
+     "n6"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n7",
+    "children": [
+     "n14",
+     "n19",
+     "n24",
+     "n29"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n14",
+    "children": [
+     "n15",
+     "n16",
+     "n18"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n16",
+    "children": [
+     "n17"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n19",
+    "children": [
+     "n20",
+     "n21",
+     "n23"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n21",
+    "children": [
+     "n22"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n24",
+    "children": [
+     "n25",
+     "n26",
+     "n28"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n26",
+    "children": [
+     "n27"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n29",
+    "children": [
+     "n30",
+     "n31",
+     "n33"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n31",
+    "children": [
+     "n32"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n9",
+    "children": [
+     "n34"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n10",
+    "children": [
+     "n11"
+    ]
+   },
+   {
+    "op": "root",
+    "id": "n1"
+   }
+  ]
+ },
+ "large": {
+  "size": "large",
+  "ops": [
+   {
+    "op": "create",
+    "id": "n1",
+    "type": "Panel",
+    "props": {
+     "style": "card",
+     "spacing": 8,
+     "menu": [
+      {
+       "title": "Size",
+       "children": [
+        {
+         "title": "Small"
+        },
+        {
+         "title": "Medium"
+        },
+        {
+         "title": "✓ Large"
+        }
+       ]
+      },
+      {
+       "title": "Clear ticked"
+      }
+     ]
+    }
+   },
+   {
+    "op": "create",
+    "id": "n2",
+    "type": "HStack",
+    "props": {
+     "spacing": 6
+    }
+   },
+   {
+    "op": "create",
+    "id": "n3",
+    "type": "Icon",
+    "props": {
+     "symbol": "checklist",
+     "color": "accent"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n4",
+    "type": "Text",
+    "props": {
+     "text": "To-do",
+     "font": "headline",
+     "color": "accent"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n5",
+    "type": "Spacer",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n6",
+    "type": "Text",
+    "props": {
+     "weight": "semibold",
+     "text": "5",
+     "font": "title3"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n7",
+    "type": "ForEach",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n14",
+    "type": "HStack",
+    "props": {
+     "spacing": 8,
+     "opacity": 1,
+     "menu": [
+      {
+       "title": "Edit"
+      },
+      {
+       "title": "Move to top"
+      },
+      {
+       "title": "Remove",
+       "destructive": true
+      }
+     ]
+    }
+   },
+   {
+    "op": "create",
+    "id": "n15",
+    "type": "Icon",
+    "props": {
+     "onTap": true,
+     "symbol": "circle",
+     "font": "body",
+     "color": "tertiary",
+     "help": "Tick"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n16",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n17",
+    "type": "Text",
+    "props": {
+     "lineLimit": 1,
+     "text": "Reply to the design thread",
+     "font": "subheadline",
+     "color": "primary"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n18",
+    "type": "Spacer",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n19",
+    "type": "HStack",
+    "props": {
+     "spacing": 8,
+     "opacity": 1,
+     "menu": [
+      {
+       "title": "Edit"
+      },
+      {
+       "title": "Move to top"
+      },
+      {
+       "title": "Remove",
+       "destructive": true
+      }
+     ]
+    }
+   },
+   {
+    "op": "create",
+    "id": "n20",
+    "type": "Icon",
+    "props": {
+     "onTap": true,
+     "symbol": "circle",
+     "font": "body",
+     "color": "tertiary",
+     "help": "Tick"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n21",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n22",
+    "type": "Text",
+    "props": {
+     "lineLimit": 1,
+     "text": "Book flights",
+     "font": "subheadline",
+     "color": "primary"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n23",
+    "type": "Spacer",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n24",
+    "type": "HStack",
+    "props": {
+     "spacing": 8,
+     "opacity": 1,
+     "menu": [
+      {
+       "title": "Edit"
+      },
+      {
+       "title": "Move to top"
+      },
+      {
+       "title": "Remove",
+       "destructive": true
+      }
+     ]
+    }
+   },
+   {
+    "op": "create",
+    "id": "n25",
+    "type": "Icon",
+    "props": {
+     "onTap": true,
+     "symbol": "circle",
+     "font": "body",
+     "color": "tertiary",
+     "help": "Tick"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n26",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n27",
+    "type": "Text",
+    "props": {
+     "lineLimit": 1,
+     "text": "Water the plants",
+     "font": "subheadline",
+     "color": "primary"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n28",
+    "type": "Spacer",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n29",
+    "type": "HStack",
+    "props": {
+     "spacing": 8,
+     "opacity": 1,
+     "menu": [
+      {
+       "title": "Edit"
+      },
+      {
+       "title": "Move to top"
+      },
+      {
+       "title": "Remove",
+       "destructive": true
+      }
+     ]
+    }
+   },
+   {
+    "op": "create",
+    "id": "n30",
+    "type": "Icon",
+    "props": {
+     "onTap": true,
+     "symbol": "circle",
+     "font": "body",
+     "color": "tertiary",
+     "help": "Tick"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n31",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n32",
+    "type": "Text",
+    "props": {
+     "lineLimit": 1,
+     "text": "Renew passport",
+     "font": "subheadline",
+     "color": "primary"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n33",
+    "type": "Spacer",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n34",
+    "type": "HStack",
+    "props": {
+     "spacing": 8,
+     "opacity": 1,
+     "menu": [
+      {
+       "title": "Edit"
+      },
+      {
+       "title": "Move to top"
+      },
+      {
+       "title": "Remove",
+       "destructive": true
+      }
+     ]
+    }
+   },
+   {
+    "op": "create",
+    "id": "n35",
+    "type": "Icon",
+    "props": {
+     "onTap": true,
+     "symbol": "circle",
+     "font": "body",
+     "color": "tertiary",
+     "help": "Tick"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n36",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n37",
+    "type": "Text",
+    "props": {
+     "lineLimit": 1,
+     "text": "Call the bank",
+     "font": "subheadline",
+     "color": "primary"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n38",
+    "type": "Spacer",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n8",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n9",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n10",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n11",
+    "type": "TextField",
+    "props": {
+     "placeholder": "New to-do",
+     "autofocus": false,
+     "onSubmit": true,
+     "onEdit": true,
+     "text": ""
+    }
+   },
+   {
+    "op": "create",
+    "id": "n12",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n39",
+    "type": "VStack",
+    "props": {
+     "spacing": 6
+    }
+   },
+   {
+    "op": "create",
+    "id": "n40",
+    "type": "HStack",
+    "props": {
+     "spacing": 6
+    }
+   },
+   {
+    "op": "create",
+    "id": "n41",
+    "type": "Text",
+    "props": {
+     "text": "Done",
+     "font": "caption",
+     "weight": "semibold",
+     "color": "secondary"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n42",
+    "type": "Spacer",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n43",
+    "type": "Button",
+    "props": {
+     "title": "Clear",
+     "onTap": true
+    }
+   },
+   {
+    "op": "create",
+    "id": "n44",
+    "type": "ForEach",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n45",
+    "type": "HStack",
+    "props": {
+     "spacing": 8,
+     "opacity": 0.6,
+     "menu": [
+      {
+       "title": "Edit"
+      },
+      {
+       "title": "Move to top"
+      },
+      {
+       "title": "Remove",
+       "destructive": true
+      }
+     ]
+    }
+   },
+   {
+    "op": "create",
+    "id": "n46",
+    "type": "Icon",
+    "props": {
+     "onTap": true,
+     "symbol": "checkmark.circle.fill",
+     "font": "body",
+     "color": "accent",
+     "help": "Untick"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n47",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n48",
+    "type": "Text",
+    "props": {
+     "lineLimit": 1,
+     "text": "Review the widget PR",
+     "font": "subheadline",
+     "color": "secondary"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n49",
+    "type": "Spacer",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n13",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "children",
+    "id": "n1",
+    "children": [
+     "n2",
+     "n7",
+     "n8",
+     "n9",
+     "n10",
+     "n12",
+     "n13"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n2",
+    "children": [
+     "n3",
+     "n4",
+     "n5",
+     "n6"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n7",
+    "children": [
+     "n14",
+     "n19",
+     "n24",
+     "n29",
+     "n34"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n14",
+    "children": [
+     "n15",
+     "n16",
+     "n18"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n16",
+    "children": [
+     "n17"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n19",
+    "children": [
+     "n20",
+     "n21",
+     "n23"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n21",
+    "children": [
+     "n22"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n24",
+    "children": [
+     "n25",
+     "n26",
+     "n28"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n26",
+    "children": [
+     "n27"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n29",
+    "children": [
+     "n30",
+     "n31",
+     "n33"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n31",
+    "children": [
+     "n32"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n34",
+    "children": [
+     "n35",
+     "n36",
+     "n38"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n36",
+    "children": [
+     "n37"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n10",
+    "children": [
+     "n11"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n12",
+    "children": [
+     "n39"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n39",
+    "children": [
+     "n40",
+     "n44"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n40",
+    "children": [
+     "n41",
+     "n42",
+     "n43"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n44",
+    "children": [
+     "n45"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n45",
+    "children": [
+     "n46",
+     "n47",
+     "n49"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n47",
+    "children": [
+     "n48"
+    ]
+   },
+   {
+    "op": "root",
+    "id": "n1"
+   }
+  ]
+ },
+ "medium-empty": {
+  "size": "medium",
+  "ops": [
+   {
+    "op": "create",
+    "id": "n1",
+    "type": "Panel",
+    "props": {
+     "style": "card",
+     "spacing": 8,
+     "menu": [
+      {
+       "title": "Size",
+       "children": [
+        {
+         "title": "Small"
+        },
+        {
+         "title": "✓ Medium"
+        },
+        {
+         "title": "Large"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "op": "create",
+    "id": "n2",
+    "type": "HStack",
+    "props": {
+     "spacing": 6
+    }
+   },
+   {
+    "op": "create",
+    "id": "n3",
+    "type": "Icon",
+    "props": {
+     "symbol": "checklist",
+     "color": "accent"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n4",
+    "type": "Text",
+    "props": {
+     "text": "To-do",
+     "font": "headline",
+     "color": "accent"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n5",
+    "type": "Spacer",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n6",
+    "type": "Text",
+    "props": {
+     "weight": "semibold",
+     "text": "0",
+     "font": "title3"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n7",
+    "type": "ForEach",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n8",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n14",
+    "type": "Text",
+    "props": {
+     "text": "Nothing to do",
+     "font": "subheadline",
+     "color": "secondary"
+    }
+   },
+   {
+    "op": "create",
+    "id": "n9",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n10",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n11",
+    "type": "TextField",
+    "props": {
+     "placeholder": "New to-do",
+     "autofocus": false,
+     "onSubmit": true,
+     "onEdit": true,
+     "text": ""
+    }
+   },
+   {
+    "op": "create",
+    "id": "n12",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "create",
+    "id": "n13",
+    "type": "Group",
+    "props": {}
+   },
+   {
+    "op": "children",
+    "id": "n1",
+    "children": [
+     "n2",
+     "n7",
+     "n8",
+     "n9",
+     "n10",
+     "n12",
+     "n13"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n2",
+    "children": [
+     "n3",
+     "n4",
+     "n5",
+     "n6"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n8",
+    "children": [
+     "n14"
+    ]
+   },
+   {
+    "op": "children",
+    "id": "n10",
+    "children": [
+     "n11"
+    ]
+   },
+   {
+    "op": "root",
+    "id": "n1"
+   }
+  ]
+ }
+}
