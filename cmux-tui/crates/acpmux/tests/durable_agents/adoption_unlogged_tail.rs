@@ -8,18 +8,20 @@ use super::*;
 
 #[tokio::test]
 async fn adoption_does_not_wait_for_entries_the_log_keeps_nowhere() {
-    let mut daemon = Daemon::claude_router("unlogged-tail", &[]);
+    // Each turn's result asks Claude Code for its /context; the answer is kept nowhere (its
+    // translated breakdown is), so an idle chat's last host entry is one the log does not hold.
+    let mut daemon = Daemon::claude_router("unlogged-tail", &[("FAKE_CLAUDE_CONTEXT", "1")]);
     let session = new_session(&daemon).await;
     let mut client = daemon.rpc().await;
-    // "slow-stop" streams one delta ("working", no `message_start` before it, so not logged)
-    // and runs on until an interrupt: the host's last entry is that delta.
     client
-        .send(
+        .call(
             "session/prompt",
-            json!({"sessionId": session, "prompt": [{"type": "text", "text": "slow-stop"}]}),
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "hello"}]}),
         )
         .await;
-    daemon.wait_event(&session, "the turn's words", |e| chunk(e, "working"));
+    daemon.wait_event(&session, "the turn's context breakdown", |e| {
+        !e["msg"]["params"]["update"]["_meta"]["acpmux"]["contextBreakdown"].is_null()
+    });
     // The daemon acks what it read; give the ack time to reach the host.
     std::thread::sleep(Duration::from_secs(1));
     daemon.sigkill();
