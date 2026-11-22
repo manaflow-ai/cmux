@@ -133,6 +133,10 @@ fn run_with_code(ctx: &Context<'_>, args: &[String]) -> u8 {
                 messages.explain(&e.message).map(|text| format!(": {text}")).unwrap_or_default();
             fail(false, &Error::new(e.kind, format!("{}{reason} ({})", messages.failed, e.message)))
         }
+        Err(e) if parsed.verb.first().is_some_and(|verb| verb == "unpair") && !parsed.json => {
+            let messages = crate::pairing::messages::current();
+            fail(false, &Error::new(e.kind, format!("{} ({})", messages.unpair_failed, e.message)))
+        }
         Err(e) => fail(parsed.json, &e),
     }
 }
@@ -181,6 +185,7 @@ pub fn dispatch(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     match verb.as_slice() {
         ["pair"] => pairing::begin(ctx, args),
         ["pair", "status"] => pairing::status(ctx),
+        ["unpair"] => pairing::unpair(ctx, args),
         ["install"] => lifecycle::install(ctx, args),
         ["uninstall"] => lifecycle::uninstall(ctx, args),
         ["status"] => lifecycle::status(ctx, args),
