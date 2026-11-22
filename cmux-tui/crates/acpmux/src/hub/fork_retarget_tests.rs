@@ -234,6 +234,9 @@ fn lister_hub(calls: &std::path::Path) -> Arc<Hub> {
     let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}, "lister": lister,
                                    "nofork": nofork, "lister2": lister2},
                      "defaultHarness": "fake",
+                     // New chats start in full access, the default a person has: a fork must
+                     // still start at its chat's own level.
+                     "defaultPermissionMode": "fullAccess",
                      "titles": {"generate": false}});
     let mut cfg: Config = serde_json::from_value(cfg).unwrap();
     cfg.store.mode = StoreMode::Memory;
@@ -478,23 +481,34 @@ async fn a_transcript_fork_and_its_fork_run_the_chats_model() {
     hub.prompt(&parent, vec![json!({"type":"text", "text":"ONE"})], "test", false).await.unwrap();
     hub.set_model(&parent, "claude-opus-5-5").await.unwrap();
 
-    let turn = working(&hub, &parent).await;
-    let fork = hub.fork(&parent, None, None, Default::default(), None, None, false).await.unwrap();
-    hub.cancel(&parent).await.unwrap();
-    let _ = turn.await;
-    let sid = fork.meta().agent_session_id.expect("its agent started");
-    assert_ne!(Some(sid.clone()), parent.meta().agent_session_id, "a transcript fork");
-    assert_eq!(last_model_set(&calls, &sid).as_deref(), Some("claude-opus-5-5"));
-    assert_eq!(model_option(&fork).as_deref(), Some("claude-opus-5-5"));
-
-    let turn = working(&hub, &fork).await;
-    let fork2 = hub.fork(&fork, None, None, Default::default(), None, None, false).await.unwrap();
-    hub.cancel(&fork).await.unwrap();
-    let _ = turn.await;
-    let sid2 = fork2.meta().agent_session_id.expect("its agent started");
-    assert_eq!(last_model_set(&calls, &sid2).as_deref(), Some("claude-opus-5-5"));
-    assert_eq!(model_option(&fork2).as_deref(), Some("claude-opus-5-5"));
+    let mut chat = parent.clone();
+    for step in ["TWO", "THREE"] {
+        let turn = working(&hub, &chat).await;
+        let fork =
+            hub.fork(&chat, None, None, Default::default(), None, None, false).await.unwrap();
+        hub.cancel(&chat).await.unwrap();
+        let _ = turn.await;
+        assert_eq!(forked_from(&hub, &fork).as_deref(), Some("transcript"), "{step}");
+        // The model its own agent runs, as its turn reports it.
+        hub.prompt(&fork, vec![json!({"type":"text", "text": step})], "test", false).await.unwrap();
+        assert_eq!(turn_model(&hub, &fork).as_deref(), Some("claude-opus-5-5"), "{step}");
+        chat = fork;
+    }
     hub.shutdown_all().await;
+}
+
+/// How `fork` was made (its `forked` record's `from`).
+fn forked_from(hub: &Hub, fork: &Session) -> Option<String> {
+    let events = hub.events(&fork.id, 0, 10_000).unwrap();
+    let forked = events.iter().find(|e| e.kind == "forked")?;
+    forked.msg.get("from").and_then(Value::as_str).map(str::to_owned)
+}
+
+/// The model `session`'s last turn ran, as its agent reported it.
+fn turn_model(hub: &Hub, session: &Session) -> Option<String> {
+    let events = hub.events(&session.id, 0, 10_000).unwrap();
+    let last = events.iter().rev().find(|e| e.kind == "turn_result")?;
+    last.msg.get("model").and_then(Value::as_str).map(str::to_owned)
 }
 
 /// A switch onto another harness starts at the chat's own permission level: in the chat's mode
