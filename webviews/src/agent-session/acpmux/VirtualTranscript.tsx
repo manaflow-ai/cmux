@@ -4796,8 +4796,20 @@ function TranscriptView({
   const followHeld =
     jumpTarget.current !== undefined ||
     (scroller !== null && userScrollIntent(scroller).isHeld() && !followRequest.current?.());
-  const projectedTop =
-    sessionSwitched || placedBefore === layout || draggedHeight !== undefined
+  // A chat that opens at its latest row (no reader place to reopen at among its rows) is drawn there
+  // in its first commit: the placement pass scrolls it to that end before paint, and drawing that
+  // commit at offset 0 built the transcript's top rows only for the pass to move off them, a second
+  // render of the whole view and a second forced page layout before the first frame (CMUX-571:
+  // commit 1 drew 8 top rows at offset 0, commit 2 the 74 at the end).
+  const opensAtEnd =
+    sessionSwitched &&
+    draggedHeight === undefined &&
+    height > 0 &&
+    layout.totalHeight > height &&
+    !(openAt !== undefined && rows.some((row) => row.id === openAt.rowId));
+  const projectedTop = opensAtEnd
+    ? Math.max(0, layout.totalHeight - height)
+    : sessionSwitched || placedBefore === layout || draggedHeight !== undefined
       ? undefined
       : followingRef.current
         ? openedAtLatest && !followHeld

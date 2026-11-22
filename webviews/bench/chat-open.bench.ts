@@ -459,6 +459,94 @@ try {
             }
           };
           requestAnimationFrame(frame);
+          // Each React commit (a devtools hook, as React DOM looks for one at load): how many components
+          // rendered, the busiest by count, and every state hook whose value changed, by component: what
+          // asked for the commit. Only the commits that mount or update transcript rows' parents matter here,
+          // so the first 40 commits are logged.
+          type Fiber = {
+            tag: number;
+            type: unknown;
+            flags: number;
+            alternate: Fiber | null;
+            child: Fiber | null;
+            sibling: Fiber | null;
+            memoizedState: unknown;
+          };
+          type Hook = { memoizedState: unknown; queue: unknown; next: Hook | null };
+          const nameOf = (fiber: Fiber): string => {
+            let type = fiber.type as { displayName?: string; name?: string; type?: unknown; render?: unknown } | null;
+            if (type && typeof type === "object" && "type" in type) type = type.type as typeof type;
+            if (type && typeof type === "object" && "render" in type) type = type.render as typeof type;
+            return (type && (type.displayName || type.name)) || "?";
+          };
+          let commits = 0;
+          (window as unknown as { __REACT_DEVTOOLS_GLOBAL_HOOK__: unknown }).__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+            isDisabled: false,
+            supportsFiber: true,
+            renderers: new Map(),
+            inject: () => 1,
+            onScheduleFiberRoot: () => {},
+            onCommitFiberUnmount: () => {},
+            onPostCommitFiberRoot: () => {},
+            onCommitFiberRoot: (_id: number, root: { current: Fiber }) => {
+              if (commits++ >= 40) return;
+              const rendered = new Map<string, number>();
+              const changed: string[] = [];
+              const walk = (fiber: Fiber | null) => {
+                for (let at = fiber; at; at = at.sibling) {
+                  const component = at.tag === 0 || at.tag === 1 || at.tag === 11 || at.tag === 14 || at.tag === 15;
+                  // PerformedWork (1): this fiber rendered in this commit.
+                  if (component && (at.flags & 1 || !at.alternate)) {
+                    const name = nameOf(at);
+                    rendered.set(name, (rendered.get(name) ?? 0) + 1);
+                    if (at.alternate && at.tag !== 1) {
+                      let hook = at.memoizedState as Hook | null;
+                      let was = at.alternate.memoizedState as Hook | null;
+                      let index = 0;
+                      while (hook && was) {
+                        if (
+                          hook.queue &&
+                          hook.memoizedState !== was.memoizedState &&
+                          typeof hook.memoizedState !== "function"
+                        )
+                          changed.push(
+                            /^(TranscriptView|ThreadMinimapView|ThreadMinimap)$/.test(name)
+                              ? `${name}#${index}=${String(JSON.stringify(was.memoizedState) ?? was.memoizedState).slice(0, 40)}->${String(JSON.stringify(hook.memoizedState) ?? hook.memoizedState).slice(0, 40)}`
+                              : `${name}#${index}`,
+                          );
+                        hook = hook.next;
+                        was = was.next;
+                        index += 1;
+                      }
+                    }
+                  }
+                  // A subtree React skipped keeps the fibers (and flags) of the commit that last rendered it:
+                  // its children are the same objects as the alternate's, so it is not walked.
+                  if (!at.alternate || at.child !== at.alternate.child) walk(at.child);
+                }
+              };
+              walk(root.current.child);
+              let total = 0;
+              for (const count of rendered.values()) total += count;
+              const busiest = [...rendered]
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 6)
+                .map(([n, c]) => `${n}x${c}`);
+              trace.push(
+                `${performance.now().toFixed(1)} commit ${commits}: ${total} rendered (${busiest.join(" ")}); state changed: ${
+                  [
+                    ...changed.reduce(
+                      (counts, key) => counts.set(key, (counts.get(key) ?? 0) + 1),
+                      new Map<string, number>(),
+                    ),
+                  ]
+                    .map(([key, count]) => (count > 1 ? `${key}x${count}` : key))
+                    .slice(0, 24)
+                    .join(" ") || "-"
+                }`,
+              );
+            },
+          };
         }
         const state = {
           firstRow: 0,
