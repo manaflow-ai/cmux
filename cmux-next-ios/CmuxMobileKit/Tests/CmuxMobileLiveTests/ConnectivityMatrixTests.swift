@@ -286,9 +286,9 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
 
     // MARK: App state
 
-    /// Backgrounded for 1 min or 8 h (god), then active: the link kept across
-    /// suspension is replaced at once, not probed first. Reconnected within
-    /// one dial; 8 h within 1.2x of 1 min.
+    /// Backgrounded for 1 min or 8 h (god), then active: the redial starts at
+    /// once, not after a probe; the link kept across suspension stays only if
+    /// it answers first. Reconnected within one dial; 8 h within 1.2x of 1 min.
     @Test func cellAppBackgroundThenForeground() {
         var results: [Duration] = []
         for (variant, away) in [("small-1min", Duration.seconds(60)), ("god-8h", Duration.seconds(8 * 3600))] {

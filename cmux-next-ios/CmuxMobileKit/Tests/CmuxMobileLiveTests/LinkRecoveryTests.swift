@@ -48,8 +48,12 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
     init(immediatelyConnected: Bool = true) {
         first = RecoveryLink(immediatelyConnected: immediatelyConnected)
     }
+    /// Redials after the first never land (a slow dial on a cold path), so
+    /// whatever answers first is the link kept across the background.
+    var holdsRedials = false
     func dial(_ endpoint: LinkEndpoint, transport: TransportKind, accessToken: String) async throws -> any MacLink {
         let number = lock.withLock { count += 1; return count }
+        if number > 1, holdsRedials { try await Task.sleep(for: .seconds(600)) }
         return number == 1 ? first : RecoveryLink(immediatelyConnected: true)
     }
 }
@@ -98,8 +102,32 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         controller.send(.resume)
         #expect(controller.phase == .connecting(.wireGuard, attempt: 1))
         #expect(controller.dialGeneration > oldGeneration)
+        // The redial went out at once; the silent link was only kept beside
+        // it, and closes when the redial lands.
         try await eventually { dialer.dials == 2 && dialer.first.isClosed }
-        #expect(dialer.first.probeCount == 1, "No probe of the stale link before redial")
+        try await eventually { controller.phase.isConnected }
+        #expect(controller.link !== dialer.first)
+    }
+
+    /// A second in another app: the link still answers, so it stays the link
+    /// (the same object, every channel on it as it was) and the redial is
+    /// dropped. Before, every return closed it and reattached everything
+    /// (Leo, 2026-11-22: "there's lag when coming back").
+    @Test func resumeKeepsALinkThatStillAnswers() async throws {
+        let dialer = RecoveryDialer()
+        dialer.holdsRedials = true
+        let clock = LinkTestClock()
+        let controller = controller(dialer, clock: clock)
+        defer { controller.send(.target(nil)); clock.stop() }
+        try await eventually { dialer.first.probeCount == 1 }
+        controller.send(.background)
+        controller.send(.resume)
+        #expect(controller.phase == .connecting(.wireGuard, attempt: 1), "The redial starts without waiting for a probe")
+        try await eventually { controller.phase.isConnected }
+        #expect(controller.link === dialer.first)
+        #expect(!dialer.first.isClosed)
+        #expect(dialer.dials == 2)
+        #expect(controller.standbyLink == nil)
     }
 
     @Test func backgroundBacksOffHeartbeatAndCloseStopsIt() async throws {
@@ -175,6 +203,24 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         #expect(machine.handle(.resume) == [.close, .dial(generation: 2, macID: "m", transport: .wireGuard)])
         #expect(machine.handle(.dialSucceeded(generation: 1, path: .direct)) == [])
         #expect(machine.phase == .connecting(.wireGuard, attempt: 1))
+    }
+
+    @Test func connectedLinkIsKeptBesideTheResumeRedial() {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(.init(macID: "m", name: "Mac", isOnline: true)))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
+        _ = machine.handle(.background)
+        #expect(machine.handle(.resume) == [.keepStandby, .dial(generation: 2, macID: "m", transport: .wireGuard)])
+        #expect(machine.standby == 1)
+        // It answers first: it is the link again, the redial dropped.
+        #expect(machine.handle(.standbyAlive(generation: 1, path: .direct, rttMillis: 20)) == [.promoteStandby(generation: 3)])
+        #expect(machine.phase == .connected(.wireGuard, .direct, rttMillis: 20))
+        #expect(machine.handle(.dialSucceeded(generation: 2, path: .direct)) == [])
+        // Stale after a long suspension: the redial lands first and the old link closes.
+        _ = machine.handle(.background)
+        #expect(machine.handle(.resume) == [.keepStandby, .dial(generation: 4, macID: "m", transport: .wireGuard)])
+        #expect(machine.handle(.dialSucceeded(generation: 4, path: .turn)) == [.closeStandby])
+        #expect(machine.standby == nil)
     }
 
     @Test func inactiveForegroundOnlyProbesAndIdleResumeDoesNotDial() {

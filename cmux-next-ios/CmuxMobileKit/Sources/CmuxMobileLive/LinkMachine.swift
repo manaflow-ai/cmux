@@ -69,7 +69,9 @@ public struct LinkMachine: Sendable {
         /// The scene actually entered the background; links may go stale
         /// while iOS suspends the process. Inactive scenes do not count.
         case background
-        /// The scene became active. Replace any link kept across suspension.
+        /// The scene became active. Redial at once; a connected link kept
+        /// across suspension stays beside the redial (``Effect/keepStandby``)
+        /// and stays the link if it answers first.
         case resume
         case probeFailed(generation: Int, reason: String)
         /// A presence frame says the target Mac's signaling socket is up
@@ -161,6 +163,20 @@ public struct LinkMachine: Sendable {
         case .resume:
             let wasBackgrounded = isBackgrounded
             isBackgrounded = false
+            // A connected link may have gone stale while iOS suspended the
+            // process, or may be fine (a second in another app). Make before
+            // break: keep it beside the redial and probe it; a live one
+            // answers in a round trip and stays the link with every channel
+            // as it was, so nothing reattaches (Leo, 2026-11-22: "shit
+            // shouldnt somehow instantly dissipate after i navigate away for
+            // like one second"). A dead one stays silent and the redial,
+            // started now, replaces it as before.
+            if wasBackgrounded, keepsStandby, case .connected = phase {
+                let kept = generation
+                let effects = dropStandby() + [.keepStandby] + dial(attempt: 1, closing: false)
+                standby = kept
+                return effects
+            }
             if wasBackgrounded, isActive {
                 return dial(attempt: 1, closing: true)
             }
