@@ -1822,3 +1822,7 @@ mod forward_projection_tests {
 #[cfg(test)]
 #[path = "outbox_relay_tests.rs"]
 mod relay_tests;
+
+#[cfg(test)]
+#[path = "outbox_hub_queue_tests.rs"]
+mod hub_queue_tests;
