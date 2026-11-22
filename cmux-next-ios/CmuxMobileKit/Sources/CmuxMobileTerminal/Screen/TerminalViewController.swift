@@ -346,6 +346,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The launch marks' first typed key and its echo on screen (`LaunchMarks`).
     private var firstEcho = TerminalFirstEcho()
+    #if DEBUG
+    /// Every typed key's echo (`InputLatencyTrace`, `terminal_key_echo`): one key
+    /// in flight at a time, given up after 2 s (a key that echoes nothing).
+    private var echoMeter = TerminalFirstEcho()
+    private var echoStart: CFTimeInterval = 0
+    #endif
 
     #if DEBUG
     /// Rig echo probe and text export (`-CmuxMobileTermProbe`, G-08/G-09).
@@ -763,6 +769,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                    firstEcho.sent(data) {
                     LaunchMarks.shared.mark("terminal_key_sent")
                 }
+                #if DEBUG
+                if InputLatencyTrace.isEnabled, model.connectionState.isAttached, !inputRefused {
+                    let now = CACurrentMediaTime()
+                    if echoMeter.step != .idle, now - echoStart > 2 { echoMeter = TerminalFirstEcho() }
+                    if echoMeter.sent(data) { echoStart = now }
+                }
+                #endif
             } else {
                 model.session.sendReply(data)
                 // A scroll or a tap is still the person's: this phone is the active device.
@@ -807,6 +820,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         center.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardDidShow(_:)), name: UIResponder.keyboardDidShowNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardDidHide(_:)), name: UIResponder.keyboardDidHideNotification, object: nil)
+        // A keyboard that went with no hide notification (while the app was in
+        // the background) is forgotten by the tracker: settle as after a hide.
+        keyboardTracker.subscribeToDrops(self) { [weak self] in self?.keyboardDropped() }
         #if DEBUG
         if TerminalFlickerTrace.isRequested {
             flickerTrace = TerminalFlickerTrace(host: view) { [weak self] in self?.flickerSample() }
@@ -885,6 +901,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // the page was away was laid out against stale geometry. Recompute
         // the document and, when following, rest the last row above the
         // composer on the first frame (Codex QA F8).
+        // The keyboard may have come or gone while the page was away; a
+        // keyboard on record that nothing owns now is gone (no inset for it).
+        keyboardTracker.dropKeyboardWithoutOwner()
         view.setNeedsLayout()
         view.layoutIfNeeded()
         outputSinceProbe = true
@@ -1672,6 +1691,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 model.scanOutput(data)
                 firstEcho.fed(data)
                 #if DEBUG
+                echoMeter.fed(data)
                 devProbe?.fed(data)
                 #endif
                 let transform: (@Sendable (Data) -> Data)?
@@ -1838,6 +1858,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// deadline and the held frame's cap leave the pending place alone until
     /// it does (a restore then would find the rows still missing).
     private var olderRowsAsked = false
+    /// Flings a reset stopped to place the reader (demo and bench readout,
+    /// `historyfling`).
+    private(set) var flingsStoppedByReset = 0
+    /// A fling reached within a screen of the oldest row held: the older
+    /// rows are asked for when it ends. Their replay starts with a reset,
+    /// and a reset stops a fling to place the reader, so asking mid-fling
+    /// cut the first fling up short (Leo, 2026-11-21: "this claude code cli
+    /// is often slow to scroll up and down from ios").
+    private var olderRowsWanted = false
     /// A place is waiting to be put back (the held frame stays for it).
     private var restorePending: Bool { readingMark != nil || pendingRestore != nil }
     /// A place is waiting and the replay that places it is in (or overdue).
@@ -1945,6 +1974,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return
         }
         if scrollView.isDecelerating || fling != nil {
+            flingsStoppedByReset += 1
             fling?.stop()
             fling = nil
             stopGlide()
@@ -1995,6 +2025,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         firstEcho.processed()
         #if DEBUG
+        echoMeter.processed()
         devProbe?.processed()
         // Every parsed byte, the reset and replay the gate holds included:
         // the bench's echo and drain offsets count them (fleet bench
@@ -2244,6 +2275,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 ? view.snapshotView(afterScreenUpdates: false) : nil
             return
         }
+        // Back in the foreground: UIKit posted no hide for a keyboard that
+        // went while the app was away, so the dock may still hold its inset.
+        keyboardTracker.dropKeyboardWithoutOwner()
         let still = backgroundStill
         backgroundStill = nil
         guard let still, freezeView == nil, view.window != nil, hostLayout.differsFromPhone else { return }
@@ -2577,6 +2611,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// last report, the last request), and the best match places it.
     private func surfacePresented() {
         if firstEcho.presented() { LaunchMarks.shared.mark("terminal_echo_presented") }
+        #if DEBUG
+        if echoMeter.presented() {
+            InputLatencyTrace.shared?.sample("terminal_key_echo", since: echoStart)
+            echoMeter = TerminalFirstEcho()
+        }
+        #endif
         if model.connectionState.isAttached { LaunchMarks.shared.mark("terminal_ready") }
         #if DEBUG
         if let probe = TerminalBenchProbe.shared {
@@ -2984,9 +3024,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The reader moved to within a screen of the oldest row held: a Mac
         // terminal that attached with its latest screen first brings older
         // rows (never for the page's own placement or a short document).
-        if scrollView.isTracking || scrollView.isDecelerating,
-           scrollView.contentOffset.y < -scrollView.contentInset.top + scrollView.bounds.height {
-            model.session.loadOlderHistory()
+        // A finger on the page asks at once; a fling asks when it ends
+        // (`olderRowsWanted`), since the replay's reset would stop it.
+        if scrollView.contentOffset.y < -scrollView.contentInset.top + scrollView.bounds.height {
+            if scrollView.isTracking {
+                model.session.loadOlderHistory()
+            } else if scrollView.isDecelerating || fling != nil {
+                olderRowsWanted = true
+            }
         }
         // A fling that reaches the bottom follows from there: while output
         // streams the deceleration would otherwise run on against a growing
@@ -3030,6 +3075,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         fling?.stop()
         fling = nil
         stopGlide()
+        // A finger caught the fling: it asks for older rows itself if it
+        // drags near the top.
+        olderRowsWanted = false
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -3068,7 +3116,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         scrollMeter = ScrollMeter()
         #endif
+        let olderWanted = olderRowsWanted
+        olderRowsWanted = false
         guard !model.isTUI, cell.height > 0 else { return }
+        if olderWanted, scrollView.contentOffset.y < -scrollView.contentInset.top + scrollView.bounds.height {
+            model.session.loadOlderHistory()
+        }
         scroll.settled(offsetY: scrollView.contentOffset.y, bottomOffsetY: maxOffsetY, layout: document, rowHeight: cell.height)
         if measureAfterGesture {
             measureAfterGesture = false
@@ -3202,6 +3255,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         fling = animator
         animator.start()
+    }
+
+    /// DEBUG demo: a fling up from here that runs out half a screen below the
+    /// top of the rows held, slowing through the last screen the way a
+    /// reader's fling into the top does (`historyfling`). The demo fling
+    /// keeps `velocity * 0.998^ms`, so it travels `velocity / 2.002` points.
+    func flingToNearTop() {
+        let distance = scrollView.contentOffset.y + scrollView.contentInset.top - scrollView.bounds.height / 2
+        guard distance > 0 else { return }
+        fling(velocity: -distance * 2.002)
     }
 
     // MARK: Keyboard
@@ -3690,6 +3753,18 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     @objc private func keyboardDidShow(_ note: Notification) {
         // A show a newer hide interrupted (the keyboard key pressed twice).
         guard !isStale(note), !endsOnScreen(note, onScreen: false) else { return }
+        keyboardStopped()
+        keyboardDidChange()
+    }
+
+    /// The tracker forgot a keyboard nothing owns (UIKit never posted its
+    /// hide): the dock's guide is already back at rest; the key row's
+    /// keyboard glyph, a TUI's rows and the saved frame follow as after a hide.
+    private func keyboardDropped() {
+        dock.keyboardWillHide()
+        dock.keyboardDidHide()
+        if model.keyboardVisible { model.keyboardVisible = false }
+        // As keyboardDidHide: output held while the keyboard moved goes out.
         keyboardStopped()
         keyboardDidChange()
     }
