@@ -38,6 +38,10 @@ const NOTICE_TAIL: u64 = 4 << 10;
 const SENDER: &str = "acpmux";
 /// A notice's prompt id starts with this, then the task's id.
 pub(super) const PROMPT_PREFIX: &str = "bg-done-";
+/// A watch thread's stack: it only blocks in `flock` and hands a future to the runtime, so a
+/// small stack keeps each watched task's cost to this plus one descriptor, with no count cap
+/// on how many tasks a chat runs (the default stack is 2 MiB of address space per thread).
+const WATCH_STACK: usize = 128 << 10;
 
 impl Hub {
     /// Watches task `record` of folder `dir` and sends its end to its chat ([`Hub::bg_notify`])
@@ -49,14 +53,17 @@ impl Hub {
         let session = record.session_id.clone();
         // Weak: a watch never keeps a dropped hub alive, and a dropped hub sends nothing.
         let hub = Arc::downgrade(self);
-        let spawned = std::thread::Builder::new().name("acpmux-bg-watch".into()).spawn(move || {
-            wait_unlocked(&lock);
-            handle.spawn(async move {
-                if let Some(hub) = hub.upgrade() {
-                    hub.bg_notify(&dir, &session, &id).await;
-                }
+        let spawned = std::thread::Builder::new()
+            .name("acpmux-bg-watch".into())
+            .stack_size(WATCH_STACK)
+            .spawn(move || {
+                wait_unlocked(&lock);
+                handle.spawn(async move {
+                    if let Some(hub) = hub.upgrade() {
+                        hub.bg_notify(&dir, &session, &id).await;
+                    }
+                });
             });
-        });
         if let Err(e) = spawned {
             tracing::warn!(task = %record.id, "a background task's end cannot be watched: {e}");
         }
