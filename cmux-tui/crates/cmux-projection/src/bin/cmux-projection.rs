@@ -2,7 +2,8 @@
 //!
 //! ```text
 //! cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH [--keep DIR] [--fresh]
-//!                           [--name NAME] [--ready-file FILE] [--lazy [--sizes LISTING]]
+//!                           [--name NAME] [--ready-file FILE]
+//!                           [--lazy [--sizes LISTING]... [--sizes-from STORE]...]
 //! cmux-projection git-unmount --at PATH
 //! ```
 //!
@@ -19,9 +20,14 @@
 //! mount first fetches every blob the commit names, a full checkout's bytes. With `--lazy` it
 //! fetches only the links' blobs, and each file's blob (with its folder's other small missing
 //! files, in one request) on first read: a machine with no copy of the repo mounts it after one
-//! tree-only clone. A lazy mount needs the missing blobs' sizes without their bytes: from LISTING
-//! (`git ls-tree -r -l -z REV`, made where the blobs are), else from origin's protocol v2
-//! `object-info` (served when origin sets `transfer.advertiseObjectInfo`).
+//! tree-only clone. A lazy mount needs the missing blobs' sizes without their bytes. It takes
+//! them from, in order: each LISTING (`git ls-tree -r -l -z REV`, or `git cat-file
+//! --batch-all-objects --batch-check='%(objectname) %(objecttype) %(objectsize)'`, made where the
+//! blobs are), each STORE (another git dir on this machine that has blobs, an image's full clone),
+//! origin's protocol v2 `object-info` (served when origin sets `transfer.advertiseObjectInfo`;
+//! GitHub does not), and last by fetching the blobs no source sized, in one request. Sizes are
+//! keyed by blob id, so a listing or store from an older commit leaves only the blobs added since
+//! to fetch. The ready line counts the blobs each source sized (`sizes`).
 
 #[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
@@ -52,7 +58,7 @@ mod linux {
 
     const USAGE: &str = "usage: cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH \
                          [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE] \
-                         [--lazy [--sizes LISTING]]\n       \
+                         [--lazy [--sizes LISTING]... [--sizes-from STORE]...]\n       \
                          cmux-projection git-unmount --at PATH";
 
     #[derive(Default)]
@@ -65,7 +71,8 @@ mod linux {
         ready_file: Option<PathBuf>,
         fresh: bool,
         lazy: bool,
-        sizes: Option<PathBuf>,
+        sizes: Vec<PathBuf>,
+        sizes_from: Vec<PathBuf>,
     }
 
     fn parse(args: &[String]) -> anyhow::Result<Args> {
@@ -92,7 +99,8 @@ mod linux {
                 "--keep" => parsed.keep = Some(value.into()),
                 "--name" => parsed.name = Some(value.clone()),
                 "--ready-file" => parsed.ready_file = Some(value.into()),
-                "--sizes" => parsed.sizes = Some(value.into()),
+                "--sizes" => parsed.sizes.push(value.into()),
+                "--sizes-from" => parsed.sizes_from.push(value.into()),
                 _ => anyhow::bail!("unknown flag {flag}\n{USAGE}"),
             }
             at += 2;
@@ -149,15 +157,19 @@ mod linux {
 
         let phase = Instant::now();
         let (commit, commit_s) = git::resolve(&git_dir, &rev)?;
-        let (items, missing, fetched) = if args.lazy {
-            let listing = args.sizes.as_ref().map(std::fs::read).transpose()?;
-            let tree = git::lazy_tree(&git_dir, &commit, listing.as_deref())?;
-            (Some(tree.items), tree.missing, tree.links_fetched)
+        let (items, missing, fetched, sized) = if args.lazy {
+            let sources = git::SizeSources {
+                listings: args.sizes.iter().map(std::fs::read).collect::<Result<_, _>>()?,
+                stores: args.sizes_from.clone(),
+            };
+            let tree = git::lazy_tree(&git_dir, &commit, &sources)?;
+            let fetched = tree.links_fetched + tree.sizes.fetched;
+            (Some(tree.items), tree.missing, fetched, tree.sizes)
         } else {
             let missing = git::missing(&git_dir, &commit)?;
             git::fetch_missing(&git_dir, &missing)?;
             let fetched = missing.len();
-            (None, Vec::new(), fetched)
+            (None, Vec::new(), fetched, git::SizeCounts::default())
         };
         let fetch_ms = ms(phase);
 
@@ -219,9 +231,18 @@ mod linux {
         mount::serve(overlay, &at, move || {
             let line = format!(
                 "{{\"commit\":\"{commit}\",\"entries\":{entries},\"files\":{files},\
-                 \"missing_fetched\":{fetched},\"missing_deferred\":{deferred},\"fetch_ms\":{fetch_ms},\"ls_tree_ms\":{ls_tree_ms},\
+                 \"missing_fetched\":{fetched},\"missing_deferred\":{deferred},\
+                 \"sizes\":{{\"local\":{},\"listed\":{},\"stores\":{},\"remote\":{},\
+                 \"fetched\":{},\"fetched_bytes\":{}}},\
+                 \"fetch_ms\":{fetch_ms},\"ls_tree_ms\":{ls_tree_ms},\
                  \"build_ms\":{build_ms},\"index_ms\":{index_ms},\"mount_ms\":{},\
                  \"total_ms\":{}}}",
+                sized.local,
+                sized.listed,
+                sized.stores,
+                sized.remote,
+                sized.fetched,
+                sized.fetched_bytes,
                 ms(phase),
                 ms(started),
             );

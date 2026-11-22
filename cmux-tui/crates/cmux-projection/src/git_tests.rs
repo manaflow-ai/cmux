@@ -237,7 +237,7 @@ fn a_lazy_tree_is_sized_without_fetching_a_file_blob() {
     let (dir, mirror, commit) = blobless(true);
     let files = 6; // README.md, a-b, a/c, crate/Cargo.lock, crate/src/main.rs, run.sh
     assert_eq!(missing_count(&mirror, &commit), files + 1, "the clone holds no blob");
-    let tree = lazy_tree(&mirror, &commit, None).unwrap();
+    let tree = lazy_tree(&mirror, &commit, &SizeSources::default()).unwrap();
     assert_eq!(tree.links_fetched, 1, "only the link's text is fetched");
     assert_eq!(tree.missing.len(), files);
     assert_eq!(missing_count(&mirror, &commit), files, "no file blob was fetched to size it");
@@ -248,7 +248,6 @@ fn a_lazy_tree_is_sized_without_fetching_a_file_blob() {
 #[test]
 fn a_lazy_tree_takes_sizes_from_a_listing_when_origin_cannot_say() {
     let (dir, mirror, commit) = blobless(false);
-    assert!(lazy_tree(&mirror, &commit, None).is_err(), "no object-info, no listing: an error");
     let work = dir.path().join("work");
     let listing = Command::new("git")
         .args(["ls-tree", "-r", "-l", "-z", "--full-tree", &commit])
@@ -256,15 +255,101 @@ fn a_lazy_tree_takes_sizes_from_a_listing_when_origin_cannot_say() {
         .output()
         .unwrap()
         .stdout;
-    let tree = lazy_tree(&mirror, &commit, Some(&listing)).unwrap();
+    let sources = SizeSources { listings: vec![listing], ..SizeSources::default() };
+    let tree = lazy_tree(&mirror, &commit, &sources).unwrap();
     assert_eq!(tree.items, ls_tree(&work.join(".git"), &commit).unwrap());
-    assert_eq!(missing_count(&mirror, &commit), 6);
+    assert_eq!(tree.sizes.listed, 6);
+    assert_eq!((tree.sizes.remote, tree.sizes.fetched), (0, 0));
+    assert_eq!(missing_count(&mirror, &commit), 6, "no file blob was fetched");
+}
+
+#[test]
+fn with_no_source_and_no_object_info_a_lazy_tree_fetches_the_blobs_to_size_them() {
+    let (dir, mirror, commit) = blobless(false);
+    let tree = lazy_tree(&mirror, &commit, &SizeSources::default()).unwrap();
+    assert_eq!(tree.items, ls_tree(&dir.path().join("work/.git"), &commit).unwrap());
+    assert_eq!(tree.sizes.fetched, 6, "GitHub's case with nothing saved: the mount still works");
+    assert_eq!(tree.sizes.fetched_bytes, 6 + 5 + 6 + 7 + 13 + 10);
+    assert!(tree.missing.is_empty());
+    assert_eq!(missing_count(&mirror, &commit), 0);
+}
+
+/// A second commit on `repo()`'s origin that changes one file and adds one; returns it.
+fn second_commit(dir: &Path) -> String {
+    let work = dir.join("work");
+    std::fs::write(work.join("crate/src/main.rs"), "fn main() { two() }\n").unwrap();
+    std::fs::write(work.join("a/new"), "new file\n").unwrap();
+    run(&work, &["add", "-A"]);
+    run(&work, &["commit", "-q", "-m", "two"]);
+    let origin = dir.join("origin.git");
+    run(&work, &["push", "-q", origin.to_str().unwrap(), "HEAD:refs/heads/next"]);
+    run(
+        dir,
+        &["--git-dir", dir.join("mirror.git").to_str().unwrap(), "fetch", "-q", "origin", "next"],
+    );
+    run(&work, &["rev-parse", "HEAD"]).trim().to_owned()
+}
+
+#[test]
+fn a_listing_of_an_older_commit_leaves_only_the_new_blobs_to_fetch() {
+    let (dir, mirror, first) = blobless(false);
+    // Saved at the first commit, as an image saves it, in cat-file's format.
+    let work = dir.path().join("work");
+    let oids = run(&work, &["rev-list", "--objects", "--no-walk", &first]);
+    let mut check = Command::new("git")
+        .args(["cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"])
+        .current_dir(&work)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let ids: String =
+        oids.lines().filter_map(|l| l.split(' ').next()).map(|o| format!("{o}\n")).collect();
+    check.stdin.take().unwrap().write_all(ids.as_bytes()).unwrap();
+    let listing = check.wait_with_output().unwrap().stdout;
+    let second = second_commit(dir.path());
+    let sources = SizeSources { listings: vec![listing], ..SizeSources::default() };
+    let tree = lazy_tree(&mirror, &second, &sources).unwrap();
+    assert_eq!(tree.items, ls_tree(&work.join(".git"), &second).unwrap());
+    assert_eq!(tree.sizes.listed, 5, "the five blobs both commits share");
+    assert_eq!(tree.sizes.fetched, 2, "main.rs's new blob and a/new");
+    assert_eq!(missing_count(&mirror, &second), 5);
+}
+
+#[test]
+fn a_lazy_tree_sizes_blobs_from_another_store_on_the_machine() {
+    let (dir, mirror, first) = blobless(false);
+    // An image's full clone, at the first commit.
+    let image = dir.path().join("image.git");
+    let work = dir.path().join("work");
+    run(dir.path(), &["clone", "-q", "--bare", work.to_str().unwrap(), image.to_str().unwrap()]);
+    let second = second_commit(dir.path());
+    let sources = SizeSources { stores: vec![image], ..SizeSources::default() };
+    let tree = lazy_tree(&mirror, &second, &sources).unwrap();
+    assert_eq!(tree.items, ls_tree(&work.join(".git"), &second).unwrap());
+    assert_eq!((tree.sizes.stores, tree.sizes.fetched), (5, 2));
+    let _ = first;
+}
+
+#[test]
+fn listing_sizes_reads_both_formats_and_keeps_only_wanted_blobs() {
+    let a = "a".repeat(40);
+    let b = "b".repeat(40);
+    let c = "c".repeat(40);
+    let listing = format!(
+        "100644 blob {a}      12\tpath with spaces\0{b} blob 7\n{c} 9\n{a} tree 3\nnoise\n"
+    );
+    let wanted: BTreeSet<&str> = [a.as_str(), b.as_str()].into_iter().collect();
+    let sizes = listing_sizes(listing.as_bytes(), &wanted);
+    assert_eq!(sizes.len(), 2);
+    assert_eq!(sizes[&a], 12);
+    assert_eq!(sizes[&b], 7);
 }
 
 #[test]
 fn a_lazy_read_fetches_its_folder_in_one_request_and_nothing_else() {
     let (_dir, mirror, commit) = blobless(true);
-    let tree = lazy_tree(&mirror, &commit, None).unwrap();
+    let tree = lazy_tree(&mirror, &commit, &SizeSources::default()).unwrap();
     let mut book = Book::default();
     let links = link_texts(&mirror, &tree.items).unwrap();
     let layout = Layout {
@@ -305,7 +390,7 @@ fn a_lazy_mount_of_a_bare_blobless_mirror_is_a_clean_worktree_that_fetches_what_
     run(&mirror, &["config", "extensions.worktreeConfig", "true"]);
     let at = dir.path().join("mnt");
     std::fs::create_dir_all(&at).unwrap();
-    let tree = lazy_tree(&mirror, &commit, None).unwrap();
+    let tree = lazy_tree(&mirror, &commit, &SizeSources::default()).unwrap();
     let links = link_texts(&mirror, &tree.items).unwrap();
     let admin = mirror.join("worktrees").join("projected");
     let real_root = dir.path().join("real");
