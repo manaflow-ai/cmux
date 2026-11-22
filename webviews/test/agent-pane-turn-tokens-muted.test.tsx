@@ -22,7 +22,9 @@ for (const [name, line] of Object.entries(tokenLines))
     expect(html).not.toContain("cv-worked__tokens");
     expect(html).not.toContain("cv-worked__sep");
     expect(html).not.toContain("679.9K");
-    expect(html).toMatch(/<span class="cv-worked__(label-)?time">35s<\/span>/);
+    expect(html).toMatch(
+      /<span class="(?:ui-clock )?cv-worked__(label-)?time"(?: data-clock-size="[^"]*")?>35s<\/span>/,
+    );
   });
 
 test("the count takes the theme's tertiary text token, in tabular numerals, never a literal color", () => {
@@ -43,5 +45,7 @@ for (const [name, line] of Object.entries(tokenLines))
     expect(html).not.toContain("cv-worked__sep");
     expect(html).not.toContain('title="Output');
     expect(html).not.toMatch(/↓|↑|12\.4K|60K/);
-    expect(html).toMatch(/<span class="cv-worked__(label-)?time">35s<\/span>/);
+    expect(html).toMatch(
+      /<span class="(?:ui-clock )?cv-worked__(label-)?time"(?: data-clock-size="[^"]*")?>35s<\/span>/,
+    );
   });
