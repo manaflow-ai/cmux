@@ -7,6 +7,13 @@ import { gridLength, TRANSCRIPT_FOOTER_CONTROL } from "../src/agent-session/acpm
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
+const rowSeq = (page: Page) =>
+  page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>(".acpmux-row")].map((n) => {
+      const r = n.getBoundingClientRect();
+      return `${n.dataset.rowId ?? ""}|${n.className}|${Math.round(r.top)}-${Math.round(r.bottom)}|${(n.textContent ?? "").trim().slice(0, 50)}`;
+    }),
+  ); // DIAG-TEMP
 await requireBrowserLane("transcript-continuation-spacing.test.ts", async () => {
   setDefaultTimeout(120_000);
   const { createServer } = await import("vite");
@@ -81,6 +88,7 @@ await requireBrowserLane("transcript-continuation-spacing.test.ts", async () => 
       () => document.querySelector('[data-row-id="continuation-b"]')!.getBoundingClientRect().top > 0,
     );
     const actual = await measure(page);
+    console.log("ROWSEQ", JSON.stringify(await rowSeq(page), null, 1), JSON.stringify(actual)); // DIAG-TEMP
     expect(actual.same).toBeCloseTo(gridLength("gap-block"), 1);
     expect(actual.rowUnderReply).toBeCloseTo(gridLength("gap-footer"), 1);
     expect(actual.replyFooters).toEqual([

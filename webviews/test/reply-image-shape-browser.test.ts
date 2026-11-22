@@ -12,6 +12,7 @@ import { mkdir } from "node:fs/promises";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { SENT_IMAGE_HEIGHT } from "../src/agent-session/acpmux/conversation/userBubbleModel";
 
 await requireBrowserLane("reply-image-shape-browser.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -129,10 +130,10 @@ await requireBrowserLane("reply-image-shape-browser.test.ts", async () => {
         }
       });
 
-  // A sent video's poster keeps its tile (SentVideoTile.tsx): 120px tall at the tile's width, cropped
-  // to fill, loaded or still loading. The images' new sizing must not reach it.
+  // A sent video's poster keeps its tile (SentVideoTile.tsx): a sent image's height (SENT_IMAGE_HEIGHT,
+  // 160px since #48558) at the tile's width, loaded or still loading.
   for (const variant of ["video-only", "video-loading"])
-    test(`agent-pane.sent-video ${variant}: the poster keeps its 120px tile`, async () => {
+    test(`agent-pane.sent-video ${variant}: the poster keeps its sent-image-height tile`, async () => {
       const page = await browser!.newPage({ viewport: { width: 760, height: 720 }, deviceScaleFactor: 2 });
       try {
         const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
@@ -153,7 +154,7 @@ await requireBrowserLane("reply-image-shape-browser.test.ts", async () => {
         expect(tiles.length).toBeGreaterThan(0);
         for (const { tile, poster } of tiles) {
           expect(poster).toBeDefined();
-          expect(Math.abs(poster!.height - 120)).toBeLessThan(1);
+          expect(Math.abs(poster!.height - SENT_IMAGE_HEIGHT)).toBeLessThan(1);
           expect(Math.abs(poster!.width - tile.width)).toBeLessThan(1);
         }
       } finally {
