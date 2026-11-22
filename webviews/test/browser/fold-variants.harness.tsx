@@ -24,7 +24,7 @@ import { TURN_FOLD_GHOST } from "../../src/agent-session/acpmux/conversation/tur
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import { runSimulationAsync } from "../../src/agent-session/acpmux/sim/run";
 import { parseRecords } from "../../src/agent-session/acpmux/sim/sanitize";
-import { replayScenario, sim, type SimScenario } from "../../src/agent-session/acpmux/sim/script";
+import { replayScenario, sim, SIM_START, type SimScenario } from "../../src/agent-session/acpmux/sim/script";
 import strings from "../../src/agent-session/acpmux/generated/strings.json";
 import "../../src/pages/shared/desktop.css";
 import "../../src/ui/popupSurface.css";
@@ -53,6 +53,9 @@ type PaneState = {
 };
 let show: (next: PaneState) => void = () => {};
 const expanded = new Set<string>();
+/// The sim's clock runs from SIM_START: offset to this page's, every row the chat plays happened after it
+/// opened, so live rows enter (the recap card among them) as they do in a live chat.
+const SIM_CLOCK_OFFSET = Date.now() - SIM_START;
 
 function Pane() {
   const [state, setState] = useState<PaneState>({ rows: [], working: false, sends: 0 });
@@ -71,6 +74,7 @@ function Pane() {
           <VirtualTranscript
             rows={state.rows as AcpmuxRow[]}
             sessionId="fold-variants"
+            clockOffset={SIM_CLOCK_OFFSET}
             working={state.working}
             sends={state.sends}
             onToggleActivity={() => {}}

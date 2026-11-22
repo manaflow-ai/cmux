@@ -184,7 +184,31 @@ export function measure(run: Run) {
     }
     return { maxStepPx: round(step), fullInkMs: fullAt === undefined ? undefined : Math.round(fullAt), minInkOnceDrawn: round(lowest) };
   };
+  // The recap card's live arrival (before the fold): from the frame it is first in the page, how long
+  // until it is at full ink, its biggest step between frames, and the biggest step of any other inked
+  // row then (the card's arrival moving its neighbours).
+  const arrival = (() => {
+    const at = samples.findIndex((sample) => sample.rows.some((row) => row[0].startsWith("nextStep")));
+    if (at < 1) return undefined;
+    let step = 0;
+    let others = 0;
+    let fullAt: number | undefined;
+    for (let index = at; index < Math.min(samples.length, first); index += 1) {
+      const prior = new Map(samples[index - 1]!.rows.map((row) => [row[0], row]));
+      for (const row of samples[index]!.rows) {
+        const was = prior.get(row[0]);
+        if (!was || !seen(was[3]) || !seen(row[3])) continue;
+        const moved = Math.abs(row[1] - was[1]) + Math.abs(row[2] - was[2]);
+        if (row[0].startsWith("nextStep")) step = Math.max(step, moved);
+        else others = Math.max(others, Math.abs(row[1] - was[1]));
+      }
+      const card = samples[index]!.rows.find((row) => row[0].startsWith("nextStep"));
+      if (fullAt === undefined && card && card[3] >= 0.99) fullAt = samples[index]!.t - samples[at]!.t;
+    }
+    return { fullInkMs: fullAt === undefined ? undefined : Math.round(fullAt), cardStepPx: round(step), neighbourStepPx: round(others) };
+  })();
   return {
+    recapArrival: arrival,
     maxJumpPx: round(maxJump),
     maxJumpAnyInkPx: Math.round(maxJumpRaw * 10) / 10,
     worstFrameMs: Math.round(worstAt),

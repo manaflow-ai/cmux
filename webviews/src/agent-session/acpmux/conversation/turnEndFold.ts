@@ -280,6 +280,14 @@ export function turnEndRecap(node: Element): TurnEndRecap {
   return TURN_END_RECAPS.includes(arm) ? arm : "hold";
 }
 
+/// The attribute a recap card that arrives live carries: its entrance (conversation.css plays it).
+export const RECAP_ENTRANCE_ATTR = "data-recap-entrance";
+
+/// Marks `row` with its recap entrance when it is the recap card, before its entrance's style resolves.
+export function markRecapEntrance(row: Element): void {
+  if (row.classList.contains(`acpmux-${NEXT_STEP}`)) row.setAttribute(RECAP_ENTRANCE_ATTR, turnEndRecap(row));
+}
+
 /// The subagent block's fold set over `node`, else the dev setting's, else the shipped `slide`.
 export function turnEndSubagent(node: Element): TurnEndSubagent {
   const set = node.closest(`[${TURN_END_SUBAGENT_ATTR}]`)?.getAttribute(TURN_END_SUBAGENT_ATTR);
