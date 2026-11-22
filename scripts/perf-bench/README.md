@@ -41,6 +41,24 @@ Local, against bundles you have: `python3 scripts/perf-bench/xbench.py run --out
 --app cmux=/path/cmux.app --app chrome=/path/Chrome.app --browsers cmux-chromium,chrome`,
 then `xbench.py report --out /tmp/xb --md BENCH.md --json results.json`.
 
+## Idle tabs against Edge (`suite=tabs`)
+
+Leo, 2026-11-20 (ask-9176875aef): "we hadn't quite benchmarked the whole like idle RAM, idle CPU, idle GPU type
+stuff". `--arg=suite=tabs` runs only `xbench.py --scenario idle-tabs`: cmux NEXT (a Chromium tab) and Microsoft
+Edge (Microsoft's stable package, unpacked with `pkgutil --expand-full`, never installed) by default; any other
+browser with `--arg=browsers=`. Per round, one launch per browser; tabs open in one window to each count of
+`--arg=idle_tabs=` (default `1,10,50`), the same local idle page in every tab (each tab its own renderer:
+Chromium never shares one for an IP address), the newest shown. At each count, after `settle` seconds: the
+instance's physical footprint, then `idle` seconds of CPU and wakeups over every process, the CPU of its GPU
+process, and the Mac's GPU Device Utilization (ioreg IOAccelerator, `bench_memory.py`'s GpuSampler, as
+`perf-10x-idle.sh`'s axes). BENCH.md gets an "Idle cost as tabs grow" table; rows are `tabsN-memory`,
+`tabsN-cpu`, `tabsN-wakeups`, `tabsN-gpu-cpu`, `tabsN-gpu-util` in results.json.
+
+```sh
+cmux-ci run --class exclusive --measurement --label bench --script scripts/measure/perf-bench.sh --ref <sha> \
+  --arg=suite=tabs --arg=cmux=nightly --artifact artifacts/perf-bench/results.json
+```
+
 ## Resource budget (`cmux-budget`)
 
 The idle cost of cmux NEXT with hidden work, against fixed budgets (`budgets.json`), rather than
@@ -172,7 +190,7 @@ Follows Ardia's `docs/perf/vs-browsers.md` so the numbers compare:
 ## Chrome parity (`suite=parity`)
 
 The CHROME PARITY BENCH (m91): one table of cmux NEXT against the host's own Google Chrome stable for every
-interaction a person feels, each light and under load, at 120 Hz. It is a bench, never a CI gate or perf-gate row.
+interaction a person feels, each light and under load, at 120 Hz. It is a bench, not a CI gate or perf-gate row.
 
 ```
 cmux-ci run --class exclusive --display --measurement --target-worker cmux22 \
