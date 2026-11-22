@@ -375,6 +375,17 @@ public final class CloudSpareReadiness {
         Task { await link.end() }
     }
 
+    /// Whether the account scope `now` (the App's `"user\0team"`, nil signed out) is a sign-in after `previous` (the scope
+    /// before it, `.none` before the first): the person's spare is warmed then, as an activation signed in warms it, so
+    /// it is keyed and linked from the sign-in on. An activation that came while signed out (a launch whose sign-in
+    /// lands a few seconds later) warmed nothing, and the first start's own warm was the first: its key ahead (a status
+    /// read, the keyed restart and its proof, 3 to 4.5 s from the warm's answer) then ended 1 to 2 s after the claim
+    /// connected, and the start's approvals step waited it out.
+    public nonisolated static func warmsAtSignIn(previous: String??, now: String?) -> Bool {
+        guard let now else { return false }
+        return (previous ?? nil) != now
+    }
+
     /// A scope with a user: signed in (the team may be unset).
     private static func signedIn(_ scope: Scope) -> Bool { (scope.first ?? nil)?.isEmpty == false }
 }
