@@ -469,6 +469,58 @@ async fn hub_carrier_a_machine_the_platform_does_not_name_is_refused_in_the_hand
     assert!(!reached.load(Ordering::SeqCst), "a refused circuit reached B's listener");
 }
 
+/// A dial to a machine whose carrier is not serving (nothing registered its slot) fails at
+/// once with a message that names that and the fix, not after the caller's own timeout.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hub_carrier_a_dial_to_a_machine_whose_carrier_is_off_says_so_fast() {
+    let _ = HERMETIC;
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let (key_a, key_b) = (random_key(), random_key());
+    let dialer = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: format!("relay+ws://{relay_address}"),
+            peers: vec![public(&key_b)],
+            asked: AtomicU64::new(0),
+        }),
+        key_a,
+        Timings { peer_join: Duration::from_millis(800), ..Timings::default() },
+    );
+    // B never serves: no carrier registered its slot.
+    let started = std::time::Instant::now();
+    let said =
+        match dialer.dial_service(&public(&key_b), CircuitService::CmuxTui { port: 7781 }).await {
+            Ok(_) => panic!("a dial reached a machine whose carrier is off"),
+            Err(said) => said,
+        };
+    assert!(started.elapsed() < Duration::from_secs(5), "the dial waited {:?}", started.elapsed());
+    assert!(said.contains("hub carrier is off"), "{said}");
+    assert!(said.contains("carrier.not_serving"), "{said}");
+    // The hub's own 404 (`machine.not_found`: FixedTickets knows no such machine) ends the same
+    // way, at once: it is no relay wait at all.
+    let started = std::time::Instant::now();
+    let said = match dialer
+        .dial_service(&public(&random_key()), CircuitService::CmuxTui { port: 7781 })
+        .await
+    {
+        Ok(_) => panic!("a dial reached a machine the hub does not know"),
+        Err(said) => said,
+    };
+    assert!(started.elapsed() < Duration::from_secs(2), "the dial waited {:?}", started.elapsed());
+    assert!(said.contains("carrier.not_serving"), "{said}");
+    // The hub scopes the ticket to the caller's team: the words name it, not the far carrier.
+    assert!(said.contains("another of your teams"), "{said}");
+}
+
 /// The node key is WireGuard's static key and the carrier's Noise static key; the acpmux owner
 /// allows that only while both protocols hash with BLAKE2s (`hub_carrier.rs` condition 1).
 #[test]
@@ -568,6 +620,7 @@ async fn hub_carrier_a_rotated_node_key_keeps_the_slot_under_the_new_key() {
         control: Duration::from_secs(5),
         handshake: Duration::from_secs(5),
         key_check: Duration::from_millis(50),
+        ..Timings::default()
     };
     // The machine's node key file, as B's key check reads it.
     let file = Arc::new(std::sync::Mutex::new(public(&old)));
