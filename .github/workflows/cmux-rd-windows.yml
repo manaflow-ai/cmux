@@ -17,6 +17,7 @@ on:
       - "!**/README.md"
       - "!**/COORDINATION.md"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [feat-cmux-next]
     paths:
       - "cmux-tui/crates/cmux-rd-host/**"
@@ -36,10 +37,14 @@ concurrency:
   group: cmux-rd-windows-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   host:
     name: Windows capture and encode selftest${{ github.event_name == 'pull_request' && ' (advisory)' || '' }}
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || fromJSON(vars.RUNNER_POOLS).windows }}
     timeout-minutes: 20
     # A runs-on expression hides the OS from actionlint; the steps are PowerShell, the Windows default.
@@ -134,7 +139,7 @@ jobs:
     name: Windows live host (tailnet)
     # Never on a pull request today; the same-repo guard and RD_WINDOWS_PR_TAILNET say so to the tailnet gate
     # (tests/test_ci_workflow_tailnet_oidc_pr_gate.py) and keep a later PR trigger off the identity until it admits PRs.
-    if: (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.RD_WINDOWS_PR_TAILNET == 'true')
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.RD_WINDOWS_PR_TAILNET == 'true')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || fromJSON(vars.RUNNER_POOLS).windows }}
     timeout-minutes: 15
     defaults:
@@ -218,7 +223,7 @@ jobs:
     name: macOS live viewer (tailnet)
     # Never on a pull request today; the same-repo guard and RD_WINDOWS_PR_TAILNET say so to the tailnet gate
     # (tests/test_ci_workflow_tailnet_oidc_pr_gate.py) and keep a later PR trigger off the identity until it admits PRs.
-    if: (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.RD_WINDOWS_PR_TAILNET == 'true')
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.RD_WINDOWS_PR_TAILNET == 'true')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 15
     environment: ios-e2e
