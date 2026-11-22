@@ -397,6 +397,28 @@ function spaceAfterPastedLink(view: EditorView, from: number) {
   view.dispatch(view.state.tr.insert($head.pos, view.state.schema.text(" ")).scrollIntoView());
 }
 
+/** Ends the field's current undo group: the next edit starts its own. */
+function endUndoStep(view: EditorView) {
+  if (!view.isDestroyed) view.dispatch(closeHistory(view.state.tr));
+}
+
+/** A paste as one undo step of its own (https://github.com/manaflow-ai/cmux/issues/49644): three
+ * screenshots pasted one after another went out on one ⌘Z, because the history joins adjacent edits
+ * made within its group delay and each pasted node lands right after the one before it. The group
+ * ends before the paste and again once its event is done (a microtask: ProseMirror inserts a paste
+ * it is left after the handlers return), so neither the words typed before it nor the next paste or
+ * key joins it. `open` is set for that event, so the edits it makes (text and attachments together)
+ * stay one step. */
+function beginPasteStep(view: EditorView, open: { current: boolean }) {
+  if (open.current) return;
+  open.current = true;
+  endUndoStep(view);
+  queueMicrotask(() => {
+    open.current = false;
+    endUndoStep(view);
+  });
+}
+
 /** A paste's plain text inserted as `insertPlain` does, then `spaceAfterPastedLink`. */
 function insertPasted(view: EditorView, text: string) {
   const { from } = view.state.selection;
@@ -747,6 +769,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const literalNow = useRef(literal);
   // When Paste as Plain Text last started (⌘⇧V or `plainPaste`): the next paste goes in plain.
   const plainPasteAt = useRef(-Infinity);
+  // Set during a paste event: its edits are its one undo step (`beginPasteStep`).
+  const inPasteStep = useRef(false);
   literalNow.current = literal;
   const plainInputNow = useRef(plainInput || literal);
   plainInputNow.current = plainInput || literal;
@@ -1144,6 +1168,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   // A copy made in a composer goes back in by the surface's own plan; a link it ends
                   // in gets the space every pasted link gets.
                   const pasteFrom = editorView.state.selection.from;
+                  beginPasteStep(editorView, inPasteStep);
                   if (latest.current.onPasteFirst?.(event)) {
                     event.preventDefault();
                     spaceAfterPastedLink(editorView, pasteFrom);
@@ -1189,6 +1214,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               },
               handleTextInput: (editorView, _from, _to, text) => beforeInput(editorView, text),
               handlePaste: (editorView, event, slice) => {
+                beginPasteStep(editorView, inPasteStep);
                 if (literalNow.current) {
                   const data = event.clipboardData;
                   const text = data?.getData("text/plain") || htmlText(data?.getData("text/html") ?? "");
@@ -1700,9 +1726,18 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           insertPlain(view.current, text);
         },
         insertInline: (ids, replace, at) => {
-          if (!view.current) return false;
+          const current = view.current;
+          if (!current) return false;
           refocus.current = null;
-          return insertInline(view.current, ids, replace, at);
+          // Attachments placed outside a paste event (a pasted or dropped picture, once read) are an
+          // undo step of their own too: one ⌘Z takes out the last ones, never the ones before them
+          // or the words typed before them (https://github.com/manaflow-ai/cmux/issues/49644).
+          // "restore" makes no step.
+          if (at === "restore" || inPasteStep.current) return insertInline(current, ids, replace, at);
+          endUndoStep(current);
+          const went = insertInline(current, ids, replace, at);
+          endUndoStep(current);
+          return went;
         },
         removeInline: (id, caret) => {
           if (view.current) removeInline(view.current, id, caret);
