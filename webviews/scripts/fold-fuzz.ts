@@ -287,14 +287,26 @@ async function openPage(browser: Browser, port: number) {
 async function playSeed(page: Page, look: string, seed: number): Promise<FuzzRun> {
   const { width, height } = SPLITS[fuzzSpec(seed).split];
   await page.setViewportSize({ width, height });
-  return (await page.evaluate(
+  // A page that stops drawing never answers: give up on it after a bound, so one hung page cannot stall the run.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const bound = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`no answer in ${RUN_BOUND_MS / 1000} s`)), RUN_BOUND_MS);
+  });
+  return Promise.race([played(page, look, seed, width, height), bound]).finally(() => clearTimeout(timer));
+}
+
+/** The longest one seed may play before its page is taken for hung. */
+const RUN_BOUND_MS = 180_000;
+
+function played(page: Page, look: string, seed: number, width: number, height: number) {
+  return page.evaluate(
     ([look, name, width, height]) => {
       const fold = (window as unknown as FoldWindow).__fold;
       fold.size(width, height);
       return fold.run(look, name);
     },
     [look, `fuzz:${seed}`, width, height] as const,
-  )) as FuzzRun;
+  ) as Promise<FuzzRun>;
 }
 
 /** One seed with one look; `control` is the same seed's drift with no fold, when `none` ran too. */
