@@ -38,7 +38,7 @@ export function dedupe(findings: MapFinding[]): MapFinding[] {
 
 /// The model run of `scenario` with every rule; [] when it holds.
 export function runMapScenario(entry: StreamScenario, scenario: SimScenario = entry.make!()): MapFinding[] {
-  const sim = createSimulation(scenario, { rowsInTraceUpTo: 0 });
+  const sim = createSimulation(scenario, { rowsInTraceUpTo: 0, exemptIntegrity: entry.exempt });
   const findings: MapFinding[] = [];
   const exempt = new Set(entry.exempt ?? []);
   let rows: readonly AcpmuxRow[] | undefined;

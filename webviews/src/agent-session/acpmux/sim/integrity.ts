@@ -26,7 +26,7 @@ export type IntegrityFinding = { rule: IntegrityRule; rowId: string; detail: str
 /** Rows that draw no reply text and may stand between two halves of a split reply. */
 const BETWEEN = new Set(["worked", "working", "typing", "thinking", "since", "sinceDivider", "turnSummary"]);
 const isReply = (row: AcpmuxRow) => row.kind === "assistant" && typeof row.text === "string" && row.text.trim() !== "";
-const opensTurn = (row: AcpmuxRow) =>
+export const opensTurn = (row: AcpmuxRow) =>
   row.kind === "user" && !(row as { steer?: unknown }).steer && row.incoming?.kind !== "hidden";
 
 /** Text with inline and fenced code taken out, so a `**` inside code does not count. */
@@ -34,11 +34,14 @@ function prose(text: string): string {
   return text.replace(/```[\s\S]*?(```|$)/g, "").replace(/`[^`\n]*`/g, "");
 }
 
-/** The Markdown spans `text` leaves open at its end: `**`, a ``` fence, `$$`. */
+/** The Markdown spans `text` leaves open at its end: `**`, a ``` fence, an inline backtick, `$$`. */
 export function openSpans(text: string): string[] {
   const open: string[] = [];
   const fences = text.split("\n").filter((line) => /^\s*```/.test(line)).length;
   if (fences % 2 === 1) open.push("```");
+  // An inline code span left open on the text's last line (fences taken out): a cut inside `code`.
+  const unfenced = text.replace(/```[\s\S]*?(```|$)/g, "");
+  if (((unfenced.split("\n").at(-1)!.match(/`/g) ?? []).length & 1) === 1) open.push("`");
   const outside = prose(text);
   if (((outside.match(/\*\*/g) ?? []).length & 1) === 1) open.push("**");
   if (((outside.match(/\$\$/g) ?? []).length & 1) === 1) open.push("$$");
