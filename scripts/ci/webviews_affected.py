@@ -98,6 +98,36 @@ RUNTIME_LOADS = {
     WEB + "test/support/domTeardown.ts":
         "bc39e128441ba75445140da45a75078d5f2659612ca1be66c36cb6730e9b1ec5",
 }
+# Undo: the repository variable CI_WEBVIEWS_PAGE_CLOSURE=0 (ci-web.yml hands it to every job) puts every browser
+# test back among the always-run files (PageMap below).
+PAGE_CLOSURE = os.environ.get("CI_WEBVIEWS_PAGE_CLOSURE", "1") != "0"
+# Browser test helpers whose only loads the graph cannot follow are the browser itself, Vite on a config the test (or
+# the helper) names, and the gallery's entry lookup (galleryFrame.ts reads the *.gallery files for the one that defines
+# an id; entries.ts is that list). Each is under test/support/ or dev-server/, so its own edit runs every file
+# (test/support/ is a build input; dev-server/ is in every config's closure, below).
+BROWSER_HELPERS = frozenset(WEB + f for f in (
+    "test/support/systemChrome.ts", "test/support/requireBrowserLane.ts", "test/support/warmDevServer.ts",
+    "test/support/galleryFrame.ts", "test/support/paintedFrames.ts", "test/support/papercutChat.ts",
+    "test/support/liveTurnRuns.ts", "test/support/focusByKey.ts", "test/support/pinArms.ts",
+    "test/support/frames120.ts", "test/support/transcriptDragStays.ts", "test/support/compactModelMenu.ts",
+    "test/support/openRunningTray.ts", "scripts/gallery/entries.ts", "dev-server/goldenLooks.ts",
+    "dev-server/galleryHost.ts"))
+# What a browser test may do itself that the graph cannot follow: import Playwright or Vite, start Vite, take the
+# browser lane. Anything else (a file read, a spawn, a glob, a computed import) leaves it always-run.
+BROWSER_OWN = re.compile(
+    r"""(?:\bfrom\s*|\bimport\s*\(\s*)["'](?:playwright|vite)["']|\bcreateServer\(|\brequireBrowserLane\b""")
+# A test that walks every gallery entry, or builds a stage URL by hand, opens what no literal names.
+WHOLE_GALLERY = re.compile(r"loadEntrySources|galleryFiles\(|frame\.html|entryPath|import\.meta\.glob|/live\b")
+VITE_CONFIG = re.compile(r"\bvite\.config[\w.-]*\.(?:ts|mjs)\b")
+HTML_PAGE = re.compile(r"[\w./-]*[\w-]+\.html\b")
+GALLERY_ID = re.compile(r"""^\s*id:\s*"([^"\n]+)",?\s*$""", re.M)
+LITERAL = re.compile(r""""([^"\\\n]{2,})"|'([^'\\\n]{2,})'|`([^`$\\\n]{2,})`""")
+PAGE_SCRIPT = re.compile(r"""<(?:script|link)\b[^>]*\b(?:src|href)=["']([^"':?#]+)""")
+# A repo path a dev server reads outside webviews/ (`path.join(repoRoot, "Resources/ghostty/themes")`): its literal.
+REPO_LITERAL = re.compile(r"""["'`]([A-Z][\w.-]*(?:/[\w.@-]+)*|[a-z][\w-]*/[\w.@/-]+)["'`]""")
+GALLERY_FILE = re.compile(r"\.gallery\.(?:ts|tsx)$")
+GALLERY_FRAME = WEB + "src/gallery/frame.html"
+
 # An import specifier that ends in a module's name, with or without its extension or a query.
 SPECIFIER = r"""["'`][^"'`\n]*/{}(?:\.[\w.]+)?(?:\?[^"'`\n]*)?["'`]"""
 
@@ -123,6 +153,20 @@ class Selector:
                     and hashlib.sha256((root / f).read_bytes()).hexdigest() == digest}
         self.always = {t for t in self.graph.tests if self.closure(t) & (untracked - reviewed)}
         self.preload = self.closure(PRELOAD)
+        # Browser tests tied to the pages they open (PageMap): out of the always-run set, selected by their inputs.
+        self.pages: dict[str, PageInputs] = {}
+        self.by_input: dict[str, set[str]] = {}
+        if PAGE_CLOSURE:
+            try:
+                self.pages = PageMap(self, untracked - reviewed).build()
+            except Exception as err:  # noqa: BLE001 - any failure keeps every browser test always-run
+                print(f"webviews affected: page map failed ({type(err).__name__}: {err}); browser tests always run",
+                      file=sys.stderr)
+                self.pages = {}
+        for test, page in self.pages.items():
+            for f in page.inputs:
+                self.by_input.setdefault(f, set()).add(test)
+        self.always -= set(self.pages)
 
     def closure(self, path: str) -> set[str]:
         """`path` and every module it imports, transitively."""
@@ -133,7 +177,29 @@ class Selector:
         return seen
 
     def reaching(self, path: str) -> set[str]:
-        return {t for _, t in self.graph.for_file(path)}
+        return {t for _, t in self.graph.for_file(path)} | self.by_input.get(path, set())
+
+    def page_tests(self, files: list[str]) -> set[str]:
+        """The page-mapped browser tests a change reaches beyond their imports (PageMap's rules for a change)."""
+        out: set[str] = set()
+        for f in files:
+            if f in self.graph.tests:
+                continue
+            if f.startswith(WEB):
+                if not f.endswith(ft.EXTENSIONS) or not (self.root / f).exists():
+                    # CSS, HTML, JSON, an image or fixture, a deleted file: a dev server or a stylesheet may load it
+                    # with no import edge (a CSS @import, a plugin's read, a glob). Every page-mapped test runs.
+                    return set(self.pages)
+                out |= self.by_input.get(f, set())
+                if GALLERY_FILE.search(f):
+                    # galleryFrame.ts finds an entry's file by its `id:` line in every gallery file: a file that
+                    # now (or also) defines a named id changes which file a stage loads.
+                    ids = set(GALLERY_ID.findall(self.text.get(f, "")))
+                    out |= {t for t, page in self.pages.items() if page.ids & ids}
+                continue
+            out |= {t for t, page in self.pages.items()
+                    if any(f == root or f.startswith(root.rstrip("/") + "/") for root in page.roots)}
+        return out
 
     def named_by(self, path: str) -> set[str] | None:
         name = Path(path).name
@@ -207,7 +273,199 @@ class Selector:
             if f.startswith(WEB) and not named and not f.endswith(ft.EXTENSIONS):
                 return None, f"no rule maps {f}"
             out |= named
-        return out | self.always, ""
+        return out | self.always | self.page_tests(files), ""
+
+
+class PageInputs:
+    """What a page-mapped browser test can load: webviews files (`inputs`), repo paths outside webviews/ its dev
+    server reads (`roots`), and the gallery entry ids it opens (`ids`)."""
+
+    def __init__(self, inputs: set[str], roots: set[str], ids: set[str]):
+        self.inputs, self.roots, self.ids = inputs, roots, ids
+
+
+class PageMap:
+    """Ties each browser test to the pages it opens, so a pull request runs it only when its change can reach them.
+
+    The always-run set was nearly all browser tests (2026-11-22: 782 of 1,266 files, 41.6k of the suite's 45.8k
+    manifest test-seconds), each always-run only because it starts Vite and Playwright. What it can load is:
+      - its own import closure (helpers included);
+      - every Vite config it or a helper names (`configFile: ".../vite.config.gallery-dev.ts"`), with each config's
+        closure (dev-server/ plugins, the React compiler, postcss) and the repo paths outside webviews/ those modules
+        quote (`path.join(repoRoot, "Resources/ghostty/themes")`, schemas/gallery/fixtures.json's roots);
+      - the pages it names: each `.html` literal (every webviews page whose path ends in it), the config root's
+        index.html when the config has its own root (the agent pane's `/`), each page's <script>/<link> closure;
+      - for a gallery stage (galleryFrame/warmGalleryFrame with an entry id literal): the stage frame and the gallery
+        file that defines each id the test quotes (galleryFrame narrows the frame to that file: entryPath).
+    A test stays always-run when anything else is in doubt: an untracked module outside BROWSER_HELPERS, its own file
+    read, spawn or computed import, no config named, a config whose root it cannot read, a webviews-rooted config with
+    no page named, an .html literal no page matches, a gallery test with no known id or a whole-gallery walk
+    (WHOLE_GALLERY), or a page whose closure holds an untracked module other than the gallery registry's glob.
+    A change selects a mapped test when it touches the test or any input (`reaching`), defines a quoted gallery id,
+    falls under a read root, or is any non-code or deleted file under webviews/ (`page_tests`).
+    """
+
+    GALLERY_REGISTRY = WEB + "src/gallery/registry.ts"  # its glob; entryPath narrows the stage to one file
+
+    def __init__(self, selector: "Selector", untracked: set[str]):
+        self.s, self.untracked = selector, untracked
+        self.html = {f for f in selector.graph.known if f.startswith(WEB) and f.endswith(".html")}
+        self.ids: dict[str, set[str]] = {}
+        for f, text in selector.text.items():
+            if GALLERY_FILE.search(f):
+                for i in GALLERY_ID.findall(text):
+                    self.ids.setdefault(i, set()).add(f)
+        self.top = {p.split("/", 1)[0] for p in ft.tracked(selector.root, "")} - {"webviews"} \
+            if hasattr(ft, "tracked") else set()
+        self._configs: dict[str, tuple[set[str], set[str], str | None] | None] = {}
+        self._pages: dict[str, set[str] | None] = {}
+        self.why: dict[str, str] = {}
+
+    def miss(self, t: str, why: str) -> None:
+        self.why[t] = why
+        return None
+
+    def build(self) -> dict[str, PageInputs]:
+        out = {}
+        for t in sorted(self.s.always):
+            page = self.test(t)
+            if page is not None:
+                out[t] = page
+        return out
+
+    def roots(self, files: set[str]) -> set[str]:
+        """Repo paths outside webviews/ that these modules quote."""
+        out: set[str] = set()
+        for f in files:
+            for lit in REPO_LITERAL.findall(self.s.text.get(f, "")):
+                if lit.split("/", 1)[0] in self.top:
+                    out.add(lit.rstrip("/"))
+        if any("schemas/gallery/fixtures.json" in self.s.text.get(f, "") for f in files):
+            index = self.s.root / "schemas/gallery/fixtures.json"
+            try:
+                import json
+                out |= {str(r).strip("/") for r in json.loads(index.read_text()).get("roots", [])}
+            except (OSError, ValueError, AttributeError):
+                out.add("schemas")  # unreadable: the fixtures' whole folder stands for them
+        return out
+
+    def config(self, name: str) -> tuple[set[str], set[str], str | None] | None:
+        """(the config's closure, its read roots, its own root dir or None for webviews/), or None if unreadable."""
+        if name in self._configs:
+            return self._configs[name]
+        path = WEB + name
+        result = None
+        if path in self.s.text:
+            text = self.s.text[path]
+            closure = self.s.closure(path)
+            for shared in ("reactCompiler.mjs", "postcss.config.mjs"):
+                if WEB + shared in self.s.text:
+                    closure |= self.s.closure(WEB + shared)
+            for base in list(closure):
+                if base.startswith(WEB) and "/" not in base.removeprefix(WEB) and VITE_CONFIG.search(base):
+                    closure |= self.s.closure(base)  # a config that spreads another (`...base`)
+            root: str | None = None
+            m = re.search(r"^\s*root:\s*([\w$]+|path\.(?:join|resolve)\([^)]*\))\s*,", text, re.M)
+            ok = True
+            if m:
+                expr = m.group(1)
+                if not expr.startswith("path."):
+                    d = re.search(rf"\bconst\s+{re.escape(expr)}\s*=\s*(path\.(?:join|resolve)\([^)]*\))", text)
+                    expr = d.group(1) if d else ""
+                lits = re.findall(r"""["']([^"']+)["']""", expr)
+                if expr.startswith("path.") and "webviewsRoot" in expr and len(lits) == 1:
+                    root = WEB + lits[0].strip("/").removeprefix("./")
+                else:
+                    ok = False
+            result = (closure, self.roots(closure), root) if ok else None
+        self._configs[name] = result
+        return result
+
+    def page(self, html: str, root: str | None) -> set[str] | None:
+        """The page and every module its <script>/<link> tags load, or None when one is untracked or unresolved."""
+        if html in self._pages:
+            return self._pages[html]
+        out = {html}
+        result: set[str] | None = out
+        text = (self.s.root / html).read_text(encoding="utf-8", errors="replace")
+        for src in PAGE_SCRIPT.findall(text):
+            if src.startswith(("http", "//")):
+                continue
+            if src.startswith("/"):
+                candidates = [os.path.normpath((root or WEB.rstrip("/")) + src), os.path.normpath(WEB + src)]
+            else:
+                candidates = [os.path.normpath(os.path.join(os.path.dirname(html), src))]
+            hit = next((c for c in candidates if c in self.s.graph.known), None)
+            if hit is None:
+                if src.startswith("/@"):
+                    continue  # Vite's own client
+                result = None
+                break
+            closure = self.s.closure(hit)
+            if (closure & self.untracked) - {self.GALLERY_REGISTRY}:
+                result = None
+                break
+            out |= closure
+        self._pages[html] = result
+        return result
+
+    def test(self, t: str) -> PageInputs | None:
+        s = self.s
+        closure = s.closure(t)
+        if (closure & self.untracked) - BROWSER_HELPERS - {t}:
+            return self.miss(t, "1")
+        own = BROWSER_OWN.sub("", s.text[t])
+        if UNTRACKED.search(own) or UNTRACKED_OUTSIDE_SRC.search(own):
+            return self.miss(t, "2")
+        named = [f for f in closure if f == t or f.startswith(WEB + "test/")]
+        helpers_ok = {WEB + "test/support/galleryFrame.ts"}
+        texts = [s.text.get(f, "") for f in named]
+        if any(WHOLE_GALLERY.search(s.text.get(f, "")) for f in named if f not in helpers_ok):
+            return self.miss(t, "3")
+        configs = {c for text in texts for c in VITE_CONFIG.findall(text)}
+        if not configs:
+            return self.miss(t, "4")
+        inputs, roots = set(closure), self.roots(closure)
+        own_root_index: set[str] = set()
+        webviews_rooted = False
+        for name in configs:
+            got = self.config(name)
+            if got is None:
+                return self.miss(t, "5")
+            c_closure, c_roots, root = got
+            inputs |= c_closure
+            roots |= c_roots
+            if root is None:
+                webviews_rooted = True
+            elif root + "/index.html" in self.html:
+                own_root_index.add(root + "/index.html")
+        pages = set(own_root_index)
+        for text in texts:
+            for lit in HTML_PAGE.findall(text):
+                tail = lit.lstrip("./")
+                hits = {h for h in self.html if h == WEB + tail or h.endswith("/" + tail)}
+                if not hits:
+                    return self.miss(t, "6")
+                pages |= hits
+        ids: set[str] = set()
+        gallery = any(re.search(r"\b(?:warmGalleryFrame|galleryFrame)\(", s.text.get(f, ""))
+                      for f in named if f not in helpers_ok)
+        if gallery:
+            ids = {lit for text in texts for m in LITERAL.findall(text) for lit in m if lit in self.ids}
+            if not ids:
+                return self.miss(t, "7")
+            pages.add(GALLERY_FRAME)
+            for i in ids:
+                for f in self.ids[i]:
+                    inputs |= s.closure(f)
+        if webviews_rooted and not (pages - own_root_index):
+            return self.miss(t, "8")
+        for html in pages:
+            got = self.page(html, None)
+            if got is None:
+                return self.miss(t, "9")
+            inputs |= got
+        return PageInputs(inputs, roots, ids)
 
 
 def changed(root: Path, base: str, head: str) -> list[str]:
