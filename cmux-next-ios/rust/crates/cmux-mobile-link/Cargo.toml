@@ -19,6 +19,7 @@ testing = ["dep:rcgen"]
 async-trait = "0.1"
 base64.workspace = true
 bytes.workspace = true
+cmux-build-space.workspace = true
 cmux-rd-core.workspace = true
 cmux-rd-proto.workspace = true
 cmux-transport.workspace = true

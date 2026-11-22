@@ -3,7 +3,7 @@
   "operations": [
     {
       "name": "{{NS}}.hello",
-      "owner": "app:local/{{NAME}}",
+      "owner": "app:{{ID}}",
       "class": "read",
       "risk": "read",
       "idempotency": "forbidden",

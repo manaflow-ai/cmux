@@ -391,6 +391,12 @@ pub enum Event {
         /// signature (the app checks and burns it; hostd only forwards it). Absent without one.
         #[serde(skip_serializing_if = "Option::is_none")]
         pair_token: Option<String>,
+        /// The phone app's bundle id as the phone states it at `auth` (`bundleId`), e.g.
+        /// `dev.cmux.mobile.<tag>` for a tagged dev build; the app's DEBUG-only dev auto-approve
+        /// pairs a same-tag phone with it (cmux-next-ios/SECURITY.md "Dev auto-approve"). A claim,
+        /// not a proof. Absent from an older phone, a malformed one and every machine.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bundle_id: Option<String>,
         /// What asks: `phone` (omitted, as before) or a machine (`mac`, `linux`), which the
         /// app approves with grants (docs/multi-machine-sessions.md).
         #[serde(skip_serializing_if = "is_phone")]
@@ -843,6 +849,7 @@ mod tests {
             approval_key: "04".into(),
             registered_at_ms,
             pair_token,
+            bundle_id: None,
             kind: crate::peer::PeerKind::Phone,
         };
         let request = |registered_at_ms| request_with(registered_at_ms, None);
@@ -857,6 +864,21 @@ mod tests {
             serde_json::to_string(&scanned).unwrap(),
             r#"{"type":"pair_request","phone_device_id":"p","name":"n","identity_key":"04","approval_key":"04","pair_token":"AbC-dEf_0123456789"}"#
         );
+        let tagged = Event::PairRequest {
+            phone_device_id: "p".into(),
+            name: "n".into(),
+            identity_key: "04".into(),
+            approval_key: "04".into(),
+            registered_at_ms: None,
+            pair_token: None,
+            bundle_id: Some("dev.cmux.mobile.my-tag".into()),
+            kind: crate::peer::PeerKind::Phone,
+        };
+        assert_eq!(
+            serde_json::to_string(&tagged).unwrap(),
+            r#"{"type":"pair_request","phone_device_id":"p","name":"n","identity_key":"04","approval_key":"04","bundle_id":"dev.cmux.mobile.my-tag"}"#
+        );
+        assert!(!serde_json::to_string(&request(None)).unwrap().contains("bundle_id"));
         assert_eq!(serde_json::to_string(&Event::Removed).unwrap(), r#"{"type":"removed"}"#);
         assert_eq!(
             serde_json::to_string(&Event::NeedBrowser {

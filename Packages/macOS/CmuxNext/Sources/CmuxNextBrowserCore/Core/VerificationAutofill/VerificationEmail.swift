@@ -21,6 +21,9 @@ public nonisolated struct VerificationEmail: Sendable, Hashable, Identifiable {
     /// found by the parser.
     public let links: [URL]
     public let receivedAt: Date
+    /// The mailbox address it was delivered to (lowercased), when the source knows it: only mail
+    /// of an account the person opted in is offered.
+    public let account: String?
 
     /// - Parameters:
     ///   - id: The source's message id.
@@ -30,7 +33,10 @@ public nonisolated struct VerificationEmail: Sendable, Hashable, Identifiable {
     ///   - body: The plain-text body.
     ///   - links: The HTML body's link targets.
     ///   - receivedAt: When the mailbox received it.
-    public init(id: String, senderAddress: String, senderAuthenticated: Bool?, subject: String, body: String, links: [URL], receivedAt: Date) {
+    ///   - account: The mailbox address it was delivered to.
+    public init(id: String, senderAddress: String, senderAuthenticated: Bool?, subject: String, body: String, links: [URL], receivedAt: Date,
+                account: String? = nil) {
+        self.account = account?.lowercased()
         self.id = id
         self.senderAddress = senderAddress
         self.senderAuthenticated = senderAuthenticated

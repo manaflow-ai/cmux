@@ -488,6 +488,14 @@ def _mirror_errors(root: Path) -> list[str]:
             continue
         if mirror.resolve() != expected_target:
             errors.append(f"{mirror}: resolves to {mirror.resolve()}, expected {expected_target}")
+    # Claude Code finds a repo skill only through .claude/skills/<name>; cmux-hot-loop and cmux-live
+    # shipped without one, so Claude agents never saw them.
+    for skill_file in sorted(canonical.glob("*/SKILL.md")):
+        name = skill_file.parent.name
+        mirror = root / ".claude" / "skills" / name
+        if not mirror.is_symlink() or mirror.resolve() != skill_file.parent:
+            errors.append(f"{mirror}: Claude Code cannot find skills/{name}; add it with "
+                          f"`ln -s ../../skills/{name} .claude/skills/{name}`")
     return errors
 
 
