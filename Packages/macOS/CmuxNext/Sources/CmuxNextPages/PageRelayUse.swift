@@ -40,7 +40,8 @@ public final class PageRelayUse {
 }
 
 /// The page a relay connection serves (`page-router-v1`).
-public enum PageRelayPage {
+public struct PageRelayPage {
+    public init() {}
     /// The daemon page id of a descriptor id (`cmux.history` -> `history`), or nil when it is not
     /// one (1-64 of `a-z 0-9 -`, a letter first): such a relay serves no page and may call nothing.
     public static func id(_ descriptor: String) -> String? {
