@@ -203,7 +203,10 @@ export async function loadRun(
     if (!streamDone) {
       const line = document.querySelector(".cv-worked--live");
       if (!line) liveLineMissing += 1;
-      else if (line.matches("[data-streaming]:not(.is-quiet)") || (!line.matches(".is-quiet") && /\bWriting\b/.test(line.textContent ?? "")))
+      else if (
+        line.matches("[data-streaming]:not(.is-quiet)") ||
+        (!line.matches(".is-quiet") && /\bWriting\b/.test(line.textContent ?? ""))
+      )
         liveLineWriting += 1;
     }
     const blankNow = isBlank(acpmuxPerf.mounted, scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight);
