@@ -155,17 +155,14 @@ class PublishedReceipts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output, record = Path(directory) / "out", Path(directory) / "receipt"
             env = {**ENV, "GITHUB_OUTPUT": str(output), "ADMISSION_RECEIPT_PATH": str(record)}
-            with mock.patch.object(reader, "read", side_effect=reader.MissingReceipt), \
-                 mock.patch.object(admission, "read_minis") as minis:
+            with mock.patch.object(reader, "read", side_effect=reader.MissingReceipt):
                 self.assertEqual(admission.main(env), 1)
-            minis.assert_not_called()
             self.assertEqual(output.read_text(), "admission_ready=false\n")
             self.assertEqual(json.loads(record.read_text())["runners"], {})
 
-    def test_verified_overflow_survives_failed_optional_mini_read(self):
+    def test_verified_overflow_takes_the_declared_overflow(self):
         receipt = reader.select(payload(check("overflow")), REQUEST)
         with mock.patch.object(reader, "read", return_value=receipt), \
-             mock.patch.object(admission, "read_minis", side_effect=TimeoutError), \
              mock.patch.object(admission, "write") as write:
             self.assertEqual(admission.main(ENV), 0)
         self.assertEqual(set(write.call_args.args[1].values()), {ENV["OVERFLOW_LINUX"]})
