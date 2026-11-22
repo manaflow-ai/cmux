@@ -237,3 +237,29 @@ fn target_admits_only_with_its_owners_signed_in_machines_consent() {
     assert!(!granted.covers(&Asker { device: ASKER, account: "user_other" }));
     assert!(!granted.covers(&Asker { device: ASKER, account: "" }));
 }
+
+/// The iPhone's tap (hq#18912 cut 1): the approval the phone builds with the shared asker half
+/// (`ShareApproval::asked`, cmux-mobile-link-ffi `share_approval`), signed by its device key and
+/// read back from the wire, is admitted under the owner's paired device grant with no consent on
+/// this Mac. Unsigned (no tap), it never is.
+#[test]
+fn target_admits_the_iphones_tapped_approval_under_owner_paired_device() {
+    let phone = DeviceKey::new();
+    let keys = Keys(vec![(ASKER, phone.public())]);
+    let owner = OwnerPairedDevice { account: ACCOUNT };
+    let asked = ShareApproval::asked(
+        Device { id: TARGET, name: "Studio" },
+        Device { id: ASKER, name: "iPhone" },
+        ACCOUNT,
+        NOW - 2,
+        "tap-nonce-1",
+    )
+    .unwrap();
+    let untapped: ShareApproval = serde_json::from_value(asked.wire()).unwrap();
+    assert_eq!(
+        admit(&untapped, &target(), &owner, &keys, &mut HashSet::new()).unwrap_err().code,
+        "share.bad_signature"
+    );
+    let tapped: ShareApproval = serde_json::from_value(phone.sign(asked).wire()).unwrap();
+    assert_eq!(admit(&tapped, &target(), &owner, &keys, &mut HashSet::new()), Ok(()));
+}
