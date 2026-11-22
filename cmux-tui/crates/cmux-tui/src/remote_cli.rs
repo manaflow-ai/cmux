@@ -797,7 +797,7 @@ fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRun
                 .ok()
                 .and_then(|known| known.via_machine),
         };
-        implied_hub_route(carried, enroll::local_hub_route().as_deref())
+        implied_hub_route(carried, local_hub_route().as_deref())
     } else {
         None
     };
