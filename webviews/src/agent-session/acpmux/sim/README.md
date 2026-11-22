@@ -85,10 +85,10 @@ rest, as the rule checks do. The page's entry is `window.__chatSim.watch({ name 
 in `test/browser/chat-sim.harness.tsx` (the page is handed the records, so any file works); `run` and `at`
 are unchanged.
 
-Like the browser lane it needs Chrome, so not on a Mac: run it on a lane VM, or through the fleet:
+Like the browser lane it needs Chrome, so not on a Mac: run it on a Linux VM with Chrome, or through the fleet:
 
 ```sh
-reach gcp-agent-lane-N 'cd ~/cmux/webviews && bun scripts/chat-sim-watch.ts --long 3 --video /tmp/long.webm --shots /tmp/long-shots'
+cd webviews && bun scripts/chat-sim-watch.ts --long 3 --video /tmp/long.webm --shots /tmp/long-shots   # on the VM
 cmux-ci test --setup playwright --not-tests --artifact webviews/sim-out -- 'cd webviews && bun scripts/chat-sim-watch.ts --long 3 --video sim-out/long.webm --shots sim-out/long'
 ```
 
