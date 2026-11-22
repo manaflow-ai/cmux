@@ -114,7 +114,7 @@ Or ask: "make cmux look like Lamina Slate, neutral, flatter and denser, light"
 
 #### Lamina Tide
 
-Lamina with the accent forward: teal marks, a tray sidebar and a thicker status ring.
+Lamina with the accent forward: teal marks, carded sidebar sections and a thicker status ring.
 
 ```sh
 cmux customize use ~/.local/state/cmux/customize/recipes/lamina-tide.json
@@ -124,7 +124,7 @@ Or ask: "make cmux look like Lamina Tide, accent-forward teal"
 
 #### Lamina Tide light
 
-Lamina with the accent forward: teal marks, a tray sidebar and a thicker status ring. Light.
+Lamina with the accent forward: teal marks, carded sidebar sections and a thicker status ring. Light.
 
 ```sh
 cmux customize use ~/.local/state/cmux/customize/recipes/lamina-tide-light.json

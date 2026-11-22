@@ -69,7 +69,7 @@
   // Sidebar: compact rows, a one-point edge, the accent on the selected row.
   "sidebar.border": true,
   "sidebar.borderWidth": 1,
-  "sidebar.sectionLook": "tray",
+  "sidebar.sectionLook": "card",
   "sidebar.density": "compact",
   "sidebar.groupHeader.background": "sections",
 
