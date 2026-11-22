@@ -48,6 +48,17 @@ final class FeedParkedSpareUITests: XCTestCase {
             }
         }
         for (id, count) in ids where count > 1 { found.append("\(id) is \(count) accessibility elements") }
+        // The parked spare's own identifier: never an element.
+        let parked = app.descendants(matching: .any).matching(identifier: "feed.spare.parked")
+        if parked.count > 0 { found.append("the parked spare is \(parked.count) accessibility element(s) at \(parked.firstMatch.frame)") }
+        // Two row elements on top of each other (a spare over a row).
+        let frames = elements.allElementsBoundByIndex.map { ($0.identifier, $0.frame) }
+        for (i, a) in frames.enumerated() {
+            for b in frames[(i + 1)...] {
+                let overlap = a.1.intersection(b.1)
+                if !overlap.isNull, overlap.height > 1, overlap.width > 1 { found.append("\(a.0) and \(b.0) overlap by \(overlap.height) pt") }
+            }
+        }
         if elements.count != seen.count { found.append("accessibility elements \(elements.count) vs the list's rows \(seen.count)") }
         return found
     }

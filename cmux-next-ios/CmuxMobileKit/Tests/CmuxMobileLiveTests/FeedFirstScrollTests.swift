@@ -88,6 +88,7 @@ import UIKit
         // Parked: not in the table, off the window, and nothing VoiceOver or a UI test reads.
         let holder = try #require(controller.parkedHolder, "the spare has no holder")
         #expect(parked.superview === holder)
+        #expect(parked.accessibilityIdentifier == FeedListController.parkedSpareID, "the parked spare answers to a row's identifier")
         #expect(!parked.isDescendant(of: feed), "the parked spare is in the table")
         #expect(holder.accessibilityElementsHidden)
         #expect(!holder.isUserInteractionEnabled)

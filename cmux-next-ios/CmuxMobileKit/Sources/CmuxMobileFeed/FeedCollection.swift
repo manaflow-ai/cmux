@@ -554,6 +554,9 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private(set) var newCellsBeforeSpare = 0
     /// The spare once a row took it (tests: it shows that row, whatever row it was built with).
     private(set) weak var spareGiven: FeedRowCell?
+    /// The identifier a parked spare answers to (no row has it).
+    static let parkedSpareID = "feed.spare.parked"
+
     /// The parked spare and its holder (tests: hidden from accessibility, off screen, not in the table).
     var parkedSpare: FeedRowCell? { spare }
     var parkedHolder: UIView? { parkHolder }
@@ -669,19 +672,19 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         // stay accessibility elements: FeedParkedSpareUITests saw one at y 1419): in a holder off
         // the window's bounds, hidden from accessibility and touches, its layers drawn at the next
         // commit as any view in the window.
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_SPARE_MUTANT"] == "visible" {
-            // Red for FeedParkedSpareUITests: parked in the table at a row's frame, readable.
-            cell.frame = CGRect(x: 0, y: 200, width: CGFloat(layout.key.width), height: layout.height)
-            view.addSubview(cell)
-            cell.layoutIfNeeded()
-            spare = cell
-            sparesMade += 1
-            return
-        }
-        #endif
+        // While parked it answers to its own identifier, which no row has: a UI test that finds it
+        // has found a parked spare (the row that takes it sets its own in `apply`).
+        cell.accessibilityIdentifier = Self.parkedSpareID
         let holder = sparePark(beside: view)
         holder.frame = CGRect(x: -CGFloat(layout.key.width) - 1000, y: 0, width: CGFloat(layout.key.width), height: layout.height)
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_SPARE_MUTANT"] == "visible" {
+            // Red for FeedParkedSpareUITests: the way parking could go wrong, the holder on screen
+            // over the rows with accessibility on.
+            holder.frame = CGRect(x: 0, y: 200, width: CGFloat(layout.key.width), height: layout.height)
+            holder.accessibilityElementsHidden = false
+        }
+        #endif
         holder.addSubview(cell)
         cell.layoutIfNeeded()
         spare = cell
