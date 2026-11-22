@@ -171,7 +171,10 @@ fn new_pacer(profile: EncodeProfile, wire_bps: u64) -> Pacer {
 /// (ScreenCaptureKit's display time, usually a few ms after `arrived_us`);
 /// `arrived_us`, when the capture handed it over; `damage_us`, when the session first saw damage
 /// since the last frame; `release_us`, when the engine's gate released the frame's request;
-/// `capture_us`, the frame's `t_capture_us` (the capture ended; also on the viewer's frame);
+/// `capture_start_us`, when the encode thread began the capture (Linux: the XShm readback and
+/// I420 conversion run from here to `capture_us`; macOS: taking the newest ScreenCaptureKit
+/// frame); `capture_us`, the frame's `t_capture_us` (the capture ended; also on the viewer's
+/// frame);
 /// `encode_start_us`, when the encoder was handed the picture; `encoded_us`, when the encode
 /// ended; `first_sent_us` and `sent_us`, when the pacer handed its first and last datagram to the
 /// carrier (the times a `ledger` viewer gets in the frame's `FrameTimes`). Every injected
@@ -189,6 +192,7 @@ struct Timing {
 /// What [`Timing::frame`] logs besides the frame's [`FrameTimes`].
 struct FrameLog {
     shown: Option<(u64, u64)>,
+    capture_start_us: u64,
     capture_us: u64,
     release_us: u64,
     encoded_bytes: usize,
@@ -216,6 +220,7 @@ impl Timing {
             "arrived_us": log.shown.map(|t| t.1),
             "damage_us": self.damage_us.take(),
             "release_us": log.release_us,
+            "capture_start_us": log.capture_start_us,
             "capture_us": log.capture_us,
             "encode_start_us": times.encode_start_us,
             "encoded_us": times.encoded_us,
@@ -643,6 +648,7 @@ impl MediaSession {
         };
         let logged = self.timing.is_some().then_some(FrameLog {
             shown: frame.picked_times,
+            capture_start_us: frame.capture_start_us,
             capture_us: frame.t_capture_us,
             release_us: frame.released_us,
             encoded_bytes: frame.access_unit.len(),
