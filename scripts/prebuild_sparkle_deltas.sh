@@ -80,6 +80,13 @@ copy_app() {
     log "could not copy the app out of $(basename "$dmg")"
     return 1
   fi
+  # Detach now: only the copy is diffed, and a run stopped mid-diff (background_build.py stop: SIGTERM, then
+  # SIGKILL 2 s later) must not leave images mounted for the EXIT trap to race.
+  if hdiutil detach "$mountpoint" -quiet >/dev/null 2>&1; then
+    local kept=() mount
+    for mount in "${mounts[@]}"; do [[ "$mount" == "$mountpoint" ]] || kept+=("$mount"); done
+    mounts=(${kept[@]+"${kept[@]}"})
+  fi
   APP="$dest"
 }
 
