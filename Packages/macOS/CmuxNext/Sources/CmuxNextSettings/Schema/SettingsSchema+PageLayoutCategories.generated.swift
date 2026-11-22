@@ -6,11 +6,11 @@ extension SettingsPageLayout {
     public static let sidebarSections: [SidebarSection] = [
         SidebarSection(id: "app", title: nil, categories: [generalCategory, updatesCategory]),
         SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [appearanceCategory, sidebarCategory, tabsCategory]),
-        SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory, extensionsCategory]),
+        SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
         SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, chiefCategory, modelsCategory]),
         SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory]),
         SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, mobileCategory]),
-        SidebarSection(id: "more", title: SettingsText.keyed("settings.sidebarSection.more", "More"), categories: [newTabCategory, menusCategory, computerUseCategory, mcpServersCategory, cloudCategory, keysCategory, devicesCategory, importCategory, privacyCategory, advancedCategory, experimentalCategory, developmentCategory], collapsed: true),
+        SidebarSection(id: "more", title: SettingsText.keyed("settings.sidebarSection.more", "More"), categories: [newTabCategory, menusCategory, computerUseCategory, mcpServersCategory, extensionsCategory, cloudCategory, keysCategory, devicesCategory, importCategory, privacyCategory, advancedCategory, experimentalCategory, developmentCategory], collapsed: true),
     ]
 
     private static func section(_ section: SettingsSection) -> SettingText {
@@ -145,13 +145,6 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.remote"),
         ],
         trail: [.browserProfiles], actions: [.browser], aliases: [.browser]
-    )
-
-    /// Each installed extension's own settings, drawn from its manifest's `settings` schema (apps.settings.list); a change reaches the running extension at once (settings.changed).
-    private static let extensionsCategory = CategorySpec(
-        id: "extensions", title: SettingsText.keyed("settings.group.extensions", "Extensions"), symbol: "puzzlepiece.extension",
-        groups: [],
-        lead: [.extensions]
     )
 
     /// How the agent chat looks and reads. Agents keeps what the agents may do.
@@ -298,6 +291,13 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.mcpServers"),
         ],
         lead: [.mcpServers]
+    )
+
+    /// Each installed extension's own settings, drawn from its manifest's `settings` schema (apps.settings.list); a change reaches the running extension at once (settings.changed).
+    private static let extensionsCategory = CategorySpec(
+        id: "extensions", title: SettingsText.keyed("settings.group.extensions", "Extensions"), symbol: "puzzlepiece.extension",
+        groups: [],
+        lead: [.extensions]
     )
 
     /// Everything Cloud chats need in one place (owner, 2026-11-12: "we should have this setup stuff in CLOUD in the settings"): Models for Cloud says plainly whether Claude, ChatGPT and an API key are set up for Cloud and opens the same setup steps as Settings > Models; then the team's Cloud Environments and the Cloud Workspaces rows (both moved here from Accounts). cmux://settings/cloud opens it; the Set up Cloud card opens it on the row it needs (focus=cloud.claude, cloud.chatgpt, cloud.apiKey).

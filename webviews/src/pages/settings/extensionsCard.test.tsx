@@ -157,7 +157,7 @@ test("the Extensions category draws the card", () => {
 });
 
 test("a DEV-only setting shows only in a DEV build", async () => {
-  const addVariant = (provider: Parameters<NonNullable<Parameters<typeof renderCard>[1]>>[0]) => {
+  const addVariant = (provider: Parameters<NonNullable<NonNullable<Parameters<typeof renderCard>[1]>["setup"]>>[0]) => {
     provider.extensionApps[0]!.schema.properties.variant = {
       type: "string",
       title: "Design variant",

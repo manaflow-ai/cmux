@@ -274,14 +274,6 @@
           "trail": ["browserProfiles"],
           "actions": ["browser"],
           "aliases": ["browser"]
-        },
-        {
-          "id": "extensions",
-          "title": {"key": "settings.group.extensions", "text": "Extensions"},
-          "symbol": "puzzlepiece.extension",
-          "note": "Each installed extension's own settings, drawn from its manifest's `settings` schema (apps.settings.list); a change reaches the running extension at once (settings.changed).",
-          "groups": [],
-          "lead": ["extensions"]
         }
       ]
     },
@@ -485,6 +477,14 @@
             {"group": "settings.group.mcpServers", "note": "Whether new agent chats get the saved servers (agents.mcpServers.enabled)."}
           ],
           "lead": ["mcpServers"]
+        },
+        {
+          "id": "extensions",
+          "title": {"key": "settings.group.extensions", "text": "Extensions"},
+          "symbol": "puzzlepiece.extension",
+          "note": "Each installed extension's own settings, drawn from its manifest's `settings` schema (apps.settings.list); a change reaches the running extension at once (settings.changed).",
+          "groups": [],
+          "lead": ["extensions"]
         },
         {
           "id": "cloud",

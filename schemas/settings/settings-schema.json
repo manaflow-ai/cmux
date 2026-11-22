@@ -1183,29 +1183,6 @@
 
         ],
         "groups" : [
-
-        ],
-        "id" : "extensions",
-        "lead" : [
-          "extensions"
-        ],
-        "symbol" : "puzzlepiece.extension",
-        "title" : {
-          "key" : "settings.group.extensions",
-          "text" : "Extensions"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
           {
             "key" : "chat.0",
             "rows" : [
@@ -2041,6 +2018,29 @@
 
         ],
         "groups" : [
+
+        ],
+        "id" : "extensions",
+        "lead" : [
+          "extensions"
+        ],
+        "symbol" : "puzzlepiece.extension",
+        "title" : {
+          "key" : "settings.group.extensions",
+          "text" : "Extensions"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
           {
             "key" : "settings.group.cloudWorkspaces",
             "rows" : [
@@ -2389,8 +2389,7 @@
         "categories" : [
           "terminal",
           "editor",
-          "browser",
-          "extensions"
+          "browser"
         ],
         "id" : "tools",
         "title" : {
@@ -2439,6 +2438,7 @@
           "menus",
           "computerUse",
           "mcpServers",
+          "extensions",
           "cloud",
           "keys",
           "devices",
