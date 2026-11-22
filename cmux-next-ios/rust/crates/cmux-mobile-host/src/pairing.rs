@@ -207,6 +207,9 @@ pub struct Pairing {
     pub spent_replies: Arc<crate::mailbox::SpentReplies>,
     /// What other machines did here (`activity.rs`).
     pub activity: Arc<crate::activity::Activity>,
+    /// The requests this hostd asked the app about and still waits on, which another of the
+    /// person's paired devices may answer (`pair_requests.rs`).
+    pub waiting: Arc<crate::pair_requests::Waiting>,
 }
 
 impl Pairing {
@@ -226,6 +229,7 @@ impl Pairing {
             push_keys: Arc::new(crate::push_keys::PushKeys::memory()),
             spent_replies: Arc::new(crate::mailbox::SpentReplies::memory()),
             activity: Arc::new(crate::activity::Activity::memory()),
+            waiting: Arc::default(),
         }
     }
 
@@ -793,6 +797,9 @@ async fn authenticate(
         Err(_) => return Err(("unavailable", "the Mac app has not loaded its paired iPhones yet".into())),
     }
     let mut asked = false;
+    // Held while this `auth` waits for the answer, so another paired device may give it
+    // (`pair_requests.rs`); dropped however the wait ends.
+    let mut held = None;
     let result = tokio::time::timeout(APPROVAL_WAIT, async {
         loop {
             let current = trust.borrow_and_update().clone().unwrap_or_default();
@@ -837,6 +844,14 @@ async fn authenticate(
                     bundle_id: bundle_id.clone(),
                     kind,
                 });
+                held = Some(pairing.waiting.hold(crate::pair_requests::WaitingRequest {
+                    device_id: phone.to_owned(),
+                    name: name.clone(),
+                    kind,
+                    identity_key: identity_key.to_owned(),
+                    approval_key: approval_key.to_owned(),
+                    since: Instant::now(),
+                }));
                 send(sender, json!({"pending": true})).await;
             }
             if trust.changed().await.is_err() {
@@ -845,6 +860,7 @@ async fn authenticate(
         }
     })
     .await;
+    drop(held);
     match result {
         Ok(Ok(())) => {
             if let Some(push_key) = push_key {

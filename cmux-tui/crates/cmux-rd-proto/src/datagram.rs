@@ -56,6 +56,10 @@ pub enum DatagramKind {
     /// upstream media frame, viewer to host: microphone, camera or screen
     /// share (rd change C4; cap `up_media`).
     UpMedia = 11,
+    /// One frame's host times for the stage ledger ([`crate::FrameTimes`]), sent after the
+    /// frame's last shard; the header names its stream and frame (host to viewer; cap
+    /// `ledger`).
+    FrameTimes = 12,
 }
 
 impl DatagramKind {
@@ -73,6 +77,7 @@ impl DatagramKind {
             9 => Self::ClockPing,
             10 => Self::ClockPong,
             11 => Self::UpMedia,
+            12 => Self::FrameTimes,
             other => return Err(DecodeError::Kind(other)),
         })
     }
@@ -99,6 +104,23 @@ pub struct DatagramHeader {
     pub fec_count: u16,
     /// Sender-wide sequence number for transport-wide feedback.
     pub transport_seq: u16,
+}
+
+/// Maximum undrained local socket receipts per carrier. Overflow is counted;
+/// it never backpressures media or creates a second media queue.
+pub const MAX_DEPARTURE_RECEIPTS: usize = 8192;
+
+/// Local observation of one datagram accepted by the transport socket.
+/// This is not a wire format and does not claim physical NIC transmission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DatagramDeparture {
+    /// Parsed before link encryption; includes frame/shard and transport sequence.
+    pub header: DatagramHeader,
+    /// CLOCK_MONOTONIC microseconds, the host frame-ledger clock domain.
+    pub departed_us: u64,
+    /// Accepted socket payload bytes, including encryption/relay or stream framing,
+    /// but excluding IP/UDP/TCP headers and any outer tunnel encapsulation.
+    pub wire_bytes: usize,
 }
 
 impl DatagramHeader {

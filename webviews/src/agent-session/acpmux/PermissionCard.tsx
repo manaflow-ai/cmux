@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
+import { playResize } from "./conversation/fold";
 import { ChevronDown } from "./conversation/icons";
 import { Markdown } from "./conversation/Markdown";
 import { toolIcon } from "./conversation/toolRowModel";
@@ -299,6 +300,17 @@ export function PermissionCard({
   const [expanded, setExpanded] = useState<string>();
   const showFull = expanded === permission.permissionId;
   const fullId = React.useId();
+  // The command's box grows to the full command (and back) on the fold's clock (fold.ts `playResize`)
+  // from the height it was drawn at before the toggle, so the stack's top and the transcript's rows
+  // over it travel together instead of the card growing in one frame.
+  const commandRef = useRef<HTMLDivElement>(null);
+  const commandFrom = useRef<number | undefined>(undefined);
+  useLayoutEffect(() => {
+    const node = commandRef.current;
+    const from = commandFrom.current;
+    commandFrom.current = undefined;
+    if (node && from !== undefined) playResize(node, from);
+  }, [showFull]);
   // A one-line command longer than the two lines the preview holds is cut off: measured, so "Show
   // full command" is offered whenever the preview does not show all of it.
   const previewRef = useRef<HTMLElement>(null);
@@ -547,7 +559,7 @@ export function PermissionCard({
   };
 
   const commandBlock = command && (
-    <div className="acpmux-permission-command" data-expanded={showFull || undefined}>
+    <div ref={commandRef} className="acpmux-permission-command" data-expanded={showFull || undefined}>
       {showFull ? (
         <pre id={fullId} className="acpmux-permission-command-full">
           <code>{command}</code>
@@ -563,7 +575,10 @@ export function PermissionCard({
           className="acpmux-permission-command-toggle"
           aria-expanded={showFull}
           aria-controls={showFull ? fullId : undefined}
-          onClick={() => setExpanded(showFull ? undefined : permission.permissionId)}
+          onClick={() => {
+            commandFrom.current = commandRef.current?.getBoundingClientRect().height;
+            setExpanded(showFull ? undefined : permission.permissionId);
+          }}
         >
           {showFull ? t("permission.hideFullCommand") : t("permission.showFullCommand")}
         </button>
@@ -571,7 +586,7 @@ export function PermissionCard({
     </div>
   );
   const scopeBlock = !writing && scopeLine && (
-    <p className="acpmux-permission-scope" data-scope-kind={permission.scope?.kind} title={scopeLine}>
+    <p className="acpmux-permission-scope" data-scope-kind={permission.scope?.kind}>
       {scopeText && <span id={targetId}>{scopeText}</span>}
       {scopeText && alwaysScope && " · "}
       {alwaysScope && <span id={ruleId}>{alwaysScope}</span>}
@@ -579,7 +594,12 @@ export function PermissionCard({
   );
 
   return (
-    <PermissionCardFrame ref={group} className="acpmux-permission-ask ui-glass" ariaLabel={title} focusable>
+    <PermissionCardFrame
+      ref={group}
+      className="acpmux-permission-ask ui-glass ui-glass-content"
+      ariaLabel={title}
+      focusable
+    >
       <div className="acpmux-permission-request" data-harness={harness || undefined}>
         <div className="acpmux-permission-request-head">
           <span className="acpmux-permission-request-icon" aria-hidden="true">
