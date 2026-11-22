@@ -81,7 +81,7 @@ public final class WebDevOverrideWatcher {
         if let refusal = value.refusal {
             Logger(subsystem: "com.cmuxterm.app.next", category: "web-dev").notice("overlay refused: \(refusal, privacy: .public)")
         }
-        Self.reloadPages()
+        Self.reloadPages(background: value.background)
     }
 
     /// Reloads every page and agent pane from where the override now says, in both engines: the
@@ -95,18 +95,32 @@ public final class WebDevOverrideWatcher {
     ///   - pages: The open pages (nil: every live one, ``PageRegistry``).
     ///   - served: The WebKit views the scheme handlers served.
     ///   - watcher: The watcher whose reload count supersedes earlier engine moves (tests pass their own).
+    ///   - background: The change came on its own (``WebDevOverride/background``): a page in sight
+    ///     never swaps under the eye; it takes the change once it is out of sight (``WebSwapDeferred``).
+    ///     An asked change swaps every page at once, in place (``PageWebView/swapReload()``).
+    ///   - deferred: Where pages in sight wait for a background change (tests pass their own).
     /// - Returns: The work still running for pages that change engine or swap in place, nil for none (tests wait on it).
     @discardableResult
     static func reloadPages(live: Bool = WebDevOverride.current.isActive,
                             hosting: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
                             pages: [PageWebView]? = nil,
                             served: WebBundleServedViews = .shared,
-                            watcher: WebDevOverrideWatcher = .shared) -> Task<Void, Never>? {
+                            watcher: WebDevOverrideWatcher = .shared,
+                            background: Bool = false,
+                            deferred: WebSwapDeferred = .shared) -> Task<Void, Never>? {
         watcher.reloadGeneration &+= 1
         let chromiumLive = live && (hosting?.setLivePages(true) ?? false)
         if !live { _ = hosting?.setLivePages(false) }
-        served.reloadServed()
         let pages = pages ?? PageRegistry.pages()
+        // A background change waits out a page in sight (WebSwapGate's sight half, as a web update does).
+        let holds = { (page: PageWebView) in background && deferred.inSight(page) }
+        let shown = served.shown
+        let held = shown.compactMap { view in pages.first { $0.webKitView === view }.flatMap { holds($0) ? $0 : nil } }
+        let heldViews = Set(held.map { ObjectIdentifier($0.webKitView) })
+        served.reload(shown.filter { !heldViews.contains(ObjectIdentifier($0)) }, to: WebBundleOverlay.shared.activeTree)
+        for page in held {
+            deferred.hold(page) { page in served.reload([page.webKitView], to: WebBundleOverlay.shared.activeTree) }
+        }
         defer { watcher.chromiumServedLive = chromiumLive }
         // The loop is on and this Chromium cannot serve it: its open pages show only their bundled
         // files, so each one the engine policy now puts on WebKit reopens there at once, at its route
@@ -128,7 +142,12 @@ public final class WebDevOverrideWatcher {
         guard chromiumLive || watcher.chromiumServedLive else { return nil }
         // Each in place with no visible reload (``PageWebView/swapReload()``).
         // task-owner: one swap per page; each ends with its page's restored frame or its cover limit
-        let swaps = pages.filter { $0.chromiumPage != nil }.map { page in Task { await page.swapReload() } }
+        let chromium = pages.filter { $0.chromiumPage != nil }
+        for page in chromium where holds(page) {
+            // task-owner: one swap when the page leaves sight; it ends with its restored frame or cover limit
+            deferred.hold(page) { page in Task { await page.swapReload() } }
+        }
+        let swaps = chromium.filter { !holds($0) }.map { page in Task { await page.swapReload() } }
         guard !swaps.isEmpty else { return nil }
         return Task { // task-owner: waits for this reload's swaps (tests wait on it)
             for swap in swaps { await swap.value }
