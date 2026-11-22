@@ -1,6 +1,5 @@
 # check-connection-notices.py allowlist: unit<TAB>surface<TAB>owner<TAB>reason. It only shrinks: a PR that fixes
 # a unit (a bound, or one action) removes its row in the same change; a stale row fails the check.
-Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI/MacConversationWindow.swift::MacToolbarTitleView	ios:CmuxConversationMacUI	conn-quiet-ios	on feat-cmux-next when the check landed (2026-11-14): says 'conversation.header.connecting' with no bound or action
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/AgentChatStore.swift::AgentTurn	ios:CmuxMobileAgentChat	conn-quiet-ios	on feat-cmux-next when the check landed (2026-11-14): says 'Retrying (\\(count), error \\($0))' with no bound or action
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/AgentSessionSource.swift::DisconnectedAgentSource	ios:CmuxMobileAgentChat	conn-quiet-ios	on feat-cmux-next when the check landed (2026-11-14): says 'Mac offline. Not sent.' with no bound or action
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/Subagents.swift::AgentSubagent	ios:CmuxMobileAgentChat	conn-quiet-ios	on feat-cmux-next when the check landed (2026-11-14): says 'Disconnected' with no bound or action
