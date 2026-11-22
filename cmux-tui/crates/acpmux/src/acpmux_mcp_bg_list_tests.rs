@@ -29,11 +29,7 @@ fn a_bare_list_is_the_newest_thirty_compact_lines() {
     let (structured, text) = page(json!({})).apply(listed(1000), NOW);
     let lines: Vec<&str> = text.lines().collect();
     assert_eq!(lines.len(), 31, "{text}");
-    assert!(
-        lines[0].starts_with("t999  [running]  started 2h ago  cargo test x"),
-        "{}",
-        lines[0]
-    );
+    assert!(lines[0].starts_with("t999  [running]  started 2h ago  cargo test x"), "{}", lines[0]);
     assert!(lines[1].starts_with("t998  [exited (exit 2)]  ended 1m ago  "), "{}", lines[1]);
     assert!(lines[..30].iter().all(|l| l.chars().count() < 180), "{text}");
     assert!(
@@ -83,22 +79,13 @@ fn offset_limit_state_and_full_pick_the_page() {
 /// which does not read it either, so the call answered an unfiltered page.
 #[test]
 fn status_picks_the_page_state_picks_and_says_so() {
-    let (by_status, text) =
-        page(json!({"status": "running", "limit": 5})).apply(listed(10), NOW);
+    let (by_status, text) = page(json!({"status": "running", "limit": 5})).apply(listed(10), NOW);
     let (by_state, _) = page(json!({"state": "running", "limit": 5})).apply(listed(10), NOW);
     assert_eq!(by_status, by_state);
-    let ids: Vec<&str> = by_status["tasks"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|t| t["id"].as_str().unwrap())
-        .collect();
+    let ids: Vec<&str> =
+        by_status["tasks"].as_array().unwrap().iter().map(|t| t["id"].as_str().unwrap()).collect();
     assert_eq!(ids, ["t9", "t7", "t5", "t3", "t1"]);
-    assert_eq!(
-        by_status["total"],
-        json!(5),
-        "the filter ran, so the page is not the whole list"
-    );
+    assert_eq!(by_status["total"], json!(5), "the filter ran, so the page is not the whole list");
     assert!(text.ends_with("(key \"status\" read as \"state\")"), "{text}");
     // A near-miss key takes the state's own near-miss reading too, and both are said.
     let (s, text) = page(json!({"status": "runing"})).apply(listed(4), NOW);

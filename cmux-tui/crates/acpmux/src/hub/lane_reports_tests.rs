@@ -752,8 +752,7 @@ fn a_still_waiting_report_is_held_and_folded_into_the_next() {
     assert!(due_report(&mut l, 1).is_none(), "a reported pull request made it news");
     // A still-waiting turn naming a pull request the queued news does not replaces it as
     // news, under its own turn (F2); one naming none leaves the news queued.
-    let kept =
-        replace_ready(Report { interim: true, ..report(7, &[pr]) }, Some(report(4, &[])));
+    let kept = replace_ready(Report { interim: true, ..report(7, &[pr]) }, Some(report(4, &[])));
     assert_eq!(
         (kept.turn, kept.interim, kept.prs.as_slice()),
         (7, false, [pr.to_owned()].as_slice())

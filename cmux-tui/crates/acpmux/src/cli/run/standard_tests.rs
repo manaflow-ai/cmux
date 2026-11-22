@@ -24,9 +24,7 @@ fn relay_flags_are_the_relay_record_the_daemon_reads() {
         json!({"fromRelay": {"by": "lane-gh", "machine": "vm-1", "session": "lane"}, "fromHarness": "codex"})
     );
     // A relay names where the message came from, or it is no relay.
-    assert!(
-        Cli::try_parse_from(["acpmux", "send", "--relay", "lane-gh", "coord", "-"]).is_err()
-    );
+    assert!(Cli::try_parse_from(["acpmux", "send", "--relay", "lane-gh", "coord", "-"]).is_err());
 }
 
 #[test]
@@ -62,8 +60,7 @@ async fn a_fanout_note_is_read_only_if_already_answered() {
 #[test]
 fn an_agents_or_classed_send_is_queued_unless_it_waits_for_the_reply() {
     use super::{SendWait, send_queues};
-    let w =
-        |no_wait, wait, classed, agent| send_queues(SendWait { no_wait, wait, classed, agent });
+    let w = |no_wait, wait, classed, agent| send_queues(SendWait { no_wait, wait, classed, agent });
     assert!(!w(false, false, false, false), "the person's plain send streams the reply");
     assert!(w(true, false, false, false), "--no-wait queues");
     assert!(w(false, false, true, false), "--class queues");

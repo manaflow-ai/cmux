@@ -66,8 +66,7 @@ fn gate_writer_sources() -> Vec<PathBuf> {
 /// next such quote. A `\`-continued literal spans its lines.
 fn literal_around(text: &str, at: usize) -> &str {
     let bytes = text.as_bytes();
-    let is_quote =
-        |index: usize| bytes[index] == b'"' && (index == 0 || bytes[index - 1] != b'\\');
+    let is_quote = |index: usize| bytes[index] == b'"' && (index == 0 || bytes[index - 1] != b'\\');
     let start = (0..at).rev().find(|index| is_quote(*index)).map_or(0, |index| index + 1);
     let end = (at..bytes.len()).find(|index| is_quote(*index)).unwrap_or(bytes.len());
     &text[start..end]
@@ -152,10 +151,7 @@ fn closing_brace(text: &str, open: usize) -> Option<usize> {
 /// The gate lines a source spells as a `json!` object with a `"name": "v2.` key: how many it
 /// read, those of them that lack `small_p95` or `god_p95`, and those nested inside another
 /// `json!` value, which it cannot place; each with the file and line its name is on.
-fn json_lines_without_the_home_shape(
-    file: &Path,
-    text: &str,
-) -> (usize, Vec<String>, Vec<String>) {
+fn json_lines_without_the_home_shape(file: &Path, text: &str) -> (usize, Vec<String>, Vec<String>) {
     let name = regex::Regex::new(r#""name"\s*:\s*"v2\."#).unwrap();
     let (mut lines, mut found, mut unplaced) = (0, Vec::new(), Vec::new());
     for at in name.find_iter(text).map(|m| m.start()) {
@@ -235,8 +231,7 @@ fn the_json_line_check_reads_the_whole_object() {
         r#"    "name": "v2.pr06.client_chat_held", "capped": {"p95": 1}, "unit": "bytes""#,
         "\n}));"
     );
-    let (lines, found, unplaced) =
-        json_lines_without_the_home_shape(Path::new("a.rs"), without);
+    let (lines, found, unplaced) = json_lines_without_the_home_shape(Path::new("a.rs"), without);
     assert_eq!((lines, found.len(), unplaced.len()), (1, 1, 0), "{found:?}");
     assert!(found[0].contains("small_p95") && found[0].contains("god_p95"), "{found:?}");
     let with = concat!(
@@ -262,8 +257,7 @@ fn the_json_line_check_names_a_line_it_cannot_place() {
         r#"    "rows": [{"name": "v2.pr06.client_chat_held", "capped": {"p95": 1}}]"#,
         "\n}));"
     );
-    let (lines, found, unplaced) =
-        json_lines_without_the_home_shape(Path::new("a.rs"), in_array);
+    let (lines, found, unplaced) = json_lines_without_the_home_shape(Path::new("a.rs"), in_array);
     assert_eq!((lines, found.len()), (0, 0), "{found:?}");
     assert_eq!(unplaced, vec![r#""a.rs":2"#.to_string()]);
     let in_object = concat!(
@@ -359,8 +353,7 @@ type Function = (String, usize, usize);
 /// runner's name and one word runs that target's tests whose names hold the word.
 fn gate_script_filters(script: &str) -> Vec<(Target, String)> {
     let opened = regex::Regex::new(r"^(run_[a-z_]+)\(\) \{$").unwrap();
-    let cargo =
-        regex::Regex::new(r#"cargo test .*-p (\S+) (?:--lib|--test (\S+)) "\$1""#).unwrap();
+    let cargo = regex::Regex::new(r#"cargo test .*-p (\S+) (?:--lib|--test (\S+)) "\$1""#).unwrap();
     let mut runners: HashMap<&str, Target> = HashMap::new();
     let mut current = None;
     let mut filters = Vec::new();
@@ -413,8 +406,7 @@ impl<'a> Source<'a> {
     fn read(text: &'a str) -> Self {
         let lines: Vec<&'a str> = text.lines().collect();
         let opened =
-            regex::Regex::new(r"^( *)(?:pub(?:\([a-z:]+\))? )?(?:async )?fn ([a-z0-9_]+)")
-                .unwrap();
+            regex::Regex::new(r"^( *)(?:pub(?:\([a-z:]+\))? )?(?:async )?fn ([a-z0-9_]+)").unwrap();
         let name = regex::Regex::new(NAME_IN_SOURCE).unwrap();
         let mut functions = Vec::new();
         let mut names = Vec::new();
@@ -501,9 +493,7 @@ impl<'a> Source<'a> {
     fn reports_rounds(&self, functions: &HashSet<String>) -> bool {
         self.functions.iter().filter(|(function, _, _)| functions.contains(function)).any(
             |(_, first, last)| {
-                self.lines[*first..=*last]
-                    .iter()
-                    .any(|line| line.contains("gate_rounds::report("))
+                self.lines[*first..=*last].iter().any(|line| line.contains("gate_rounds::report("))
             },
         )
     }
@@ -511,9 +501,10 @@ impl<'a> Source<'a> {
     /// Whether one of `functions` calls the function `callee`.
     fn calls(&self, functions: &HashSet<String>, callee: &str) -> bool {
         let call = regex::Regex::new(&format!(r"\b{callee}\(")).unwrap();
-        self.functions.iter().filter(|(function, _, _)| functions.contains(function)).any(
-            |(_, first, last)| self.lines[*first + 1..=*last].iter().any(|l| call.is_match(l)),
-        )
+        self.functions
+            .iter()
+            .filter(|(function, _, _)| functions.contains(function))
+            .any(|(_, first, last)| self.lines[*first + 1..=*last].iter().any(|l| call.is_match(l)))
     }
 }
 
@@ -562,8 +553,7 @@ fn a_best_of_rounds_row_reports_its_rounds() {
         );
     }
     let registry_home = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/v2_gate_home.rs");
-    let mut files: Vec<PathBuf> =
-        names_in_sources().into_iter().map(|(_, file)| file).collect();
+    let mut files: Vec<PathBuf> = names_in_sources().into_iter().map(|(_, file)| file).collect();
     files.sort();
     files.dedup();
     let (mut checked, mut shared) = (0, 0);
@@ -587,8 +577,7 @@ fn a_best_of_rounds_row_reports_its_rounds() {
             if calls_a_shared_writer(&source, &called) {
                 shared += 1;
             }
-            let reports =
-                source.reports_rounds(&called) || calls_a_shared_writer(&source, &called);
+            let reports = source.reports_rounds(&called) || calls_a_shared_writer(&source, &called);
             if !exempt && !reports {
                 silent.push(format!("{} in {file:?}", row.name));
             }
@@ -693,9 +682,9 @@ fn gate_lines() -> Vec<(String, Target, String)> {
             let [group, filter] = words[..] else {
                 panic!("{file:?}:{}: a gate line is GROUP FILTER: {line:?}", number + 1)
             };
-            let runner = groups.get(group).unwrap_or_else(|| {
-                panic!("{file:?}:{}: {group} is not a gate group", number + 1)
-            });
+            let runner = groups
+                .get(group)
+                .unwrap_or_else(|| panic!("{file:?}:{}: {group} is not a gate group", number + 1));
             lines.push((prefix.to_owned(), runner.clone(), filter.to_owned()));
         }
     }
@@ -712,8 +701,7 @@ fn gate_lines() -> Vec<(String, Target, String)> {
 
 /// Every source that names a gate, with its text.
 fn gate_sources() -> Vec<(PathBuf, String)> {
-    let mut files: Vec<PathBuf> =
-        names_in_sources().into_iter().map(|(_, file)| file).collect();
+    let mut files: Vec<PathBuf> = names_in_sources().into_iter().map(|(_, file)| file).collect();
     files.sort();
     files.dedup();
     files
@@ -778,9 +766,7 @@ fn a_gate_line_runs_a_test_that_writes_a_row_of_its_files_prefix() {
     let sources: Vec<(&Path, Source<'_>)> =
         texts.iter().map(|(file, text)| (file.as_path(), Source::read(text))).collect();
     let spelled = |filter: &str, prefix: &str| {
-        regex::Regex::new(&format!(r"(^|[^a-z0-9]){prefix}($|[^a-z0-9])"))
-            .unwrap()
-            .is_match(filter)
+        regex::Regex::new(&format!(r"(^|[^a-z0-9]){prefix}($|[^a-z0-9])")).unwrap().is_match(filter)
     };
     for (prefix, target, filter) in gate_lines() {
         let rows = rows::GROUPS
@@ -869,10 +855,7 @@ fn a_gate_script_line_is_read_with_its_runners_crate_and_target() {
     };
     assert_eq!(
         gate_script_filters(&script),
-        [
-            line("acpmux-book", "lib", "first_gate"),
-            line("acpmux", "v2_connection", "second_gate")
-        ]
+        [line("acpmux-book", "lib", "first_gate"), line("acpmux", "v2_connection", "second_gate")]
     );
 }
 
@@ -948,10 +931,8 @@ fn best_of_rounds_rows_require_the_all_sample_measure() {
 #[test]
 fn page_byte_rows_enforce_block_ratio_and_absolute_read_budget() {
     for name in ["first", "middle", "last"] {
-        let row = GATE_ROWS
-            .iter()
-            .find(|row| row.name == format!("v2.pr05b.page_{name}_bytes"))
-            .unwrap();
+        let row =
+            GATE_ROWS.iter().find(|row| row.name == format!("v2.pr05b.page_{name}_bytes")).unwrap();
         let measure = |small, god| Measure {
             name: row.name.to_owned(),
             small_p95: small,
@@ -972,18 +953,9 @@ fn page_byte_rows_enforce_block_ratio_and_absolute_read_budget() {
 fn terminal_page_rows_enforce_phase_ratio_and_absolute_time_budget() {
     for name in ["v2.pr05b.page_last", "v2.pr05b.page_last_filter"] {
         let row = GATE_ROWS.iter().find(|row| row.name == name).unwrap();
-        assert_eq!(
-            measured_row(row, &sample(1000.0, 14_900.0, Some(24_800.0)))["status"],
-            "ok"
-        );
-        assert_eq!(
-            measured_row(row, &sample(1000.0, 14_901.0, Some(24_800.0)))["status"],
-            "red"
-        );
-        assert_eq!(
-            measured_row(row, &sample(1000.0, 14_900.0, Some(24_801.0)))["status"],
-            "red"
-        );
+        assert_eq!(measured_row(row, &sample(1000.0, 14_900.0, Some(24_800.0)))["status"], "ok");
+        assert_eq!(measured_row(row, &sample(1000.0, 14_901.0, Some(24_800.0)))["status"], "red");
+        assert_eq!(measured_row(row, &sample(1000.0, 14_900.0, Some(24_801.0)))["status"], "red");
         assert_eq!(
             measured_row(row, &sample(100_000.0, 400_001.0, Some(400_001.0)))["status"],
             "red"
