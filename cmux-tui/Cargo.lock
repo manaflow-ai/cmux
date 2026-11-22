@@ -2258,6 +2258,7 @@ dependencies = [
 name = "cmux-rd-link"
 version = "0.1.0"
 dependencies = [
+ "cmux-rd-proto",
  "cmux-transport",
  "hmac",
  "libc",
@@ -2834,6 +2835,7 @@ dependencies = [
  "sha2 0.10.9",
  "socket2",
  "subsecond",
+ "tar",
  "tokio",
  "tokio-tungstenite",
  "toml",

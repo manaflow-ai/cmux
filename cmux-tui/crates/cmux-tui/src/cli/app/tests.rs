@@ -1209,6 +1209,7 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
         | AppCommand::Renderers { .. }
+        | AppCommand::RendererProfile { .. }
         | AppCommand::ChatPerf { .. }
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
