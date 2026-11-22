@@ -284,9 +284,9 @@ fn refresh_detached(cache: &Path) {
         let Ok(exe) = std::env::current_exe() else { return };
         let mut cmd = cmux_process::Command::new(exe);
         cmd.args(["ls", "--refresh-relay-cache"])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stdin(cmux_process::Stdio::null())
+            .stdout(cmux_process::Stdio::null())
+            .stderr(cmux_process::Stdio::null())
             .process_group(0);
         if let Ok(mut child) = cmd.spawn() {
             child.detach(

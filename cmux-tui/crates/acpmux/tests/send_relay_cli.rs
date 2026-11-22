@@ -398,3 +398,90 @@ fn a_row_the_relay_lists_is_reached_through_the_relay() {
     let said = String::from_utf8_lossy(&last.stderr);
     assert!(said.contains("send relay") && said.contains("acpmux send"), "{}", text(&last));
 }
+
+/// gcp-agent-lane-5, 2026-11-22 (Leo: "we need it to be able to run blazingly fast under
+/// duress"): `acpmux ls` ran the relay's `lsArgv` inside its 15 s bound and, with `lane-gh
+/// sessions` stalled, took 15 s and exited 1 blaming machine "local". With a relay listing that
+/// sleeps 30 s, `ls` (text and `--json`) lists this daemon's session, exits 0 and takes under
+/// 2 s each time, says on stderr what is not listed, and a cached listing is served stale. The
+/// wall times print as p50/p99 (the PR's before/after numbers come from this test).
+#[test]
+fn a_stalled_relay_listing_never_holds_or_fails_ls() {
+    let dir = scratch("stall");
+    let _shutdown = Shutdown(&dir);
+    let made = cli(&dir, &["run", "-n", "lane", "warm up"]);
+    assert!(made.status.success(), "the session: {}", text(&made));
+    let listing = dir.join("relay-ls");
+    fs::write(&listing, "#!/bin/sh\nsleep 30\n").unwrap();
+    fs::set_permissions(&listing, fs::Permissions::from_mode(0o755)).unwrap();
+    let mut config: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.join("config.json")).unwrap()).unwrap();
+    config["sendRelay"]["lsArgv"] = json!([listing.display().to_string()]);
+    fs::write(dir.join("config.json"), config.to_string()).unwrap();
+
+    let runs: usize =
+        std::env::var("ACPMUX_LS_STALL_RUNS").ok().and_then(|n| n.parse().ok()).unwrap_or(5);
+    let mut times = Vec::new();
+    let mut failures = Vec::new();
+    for n in 0..runs * 2 {
+        let json_out = n % 2 == 1;
+        let args: &[&str] = if json_out { &["--json", "ls"] } else { &["ls", "--all"] };
+        let started = Instant::now();
+        let ls = cli(&dir, args);
+        let took = started.elapsed();
+        times.push(took);
+        let out = String::from_utf8_lossy(&ls.stdout);
+        if !ls.status.success() || !out.contains("lane") {
+            failures.push(format!("{args:?} after {took:?}: {}", text(&ls)));
+        } else if json_out {
+            let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+            assert_eq!(v["remote"]["state"], "missing", "{v}");
+        } else {
+            let said = String::from_utf8_lossy(&ls.stderr);
+            assert!(said.contains("not read within 1.5s; not listed"), "{}", text(&ls));
+        }
+    }
+    let mut sorted = times.clone();
+    sorted.sort();
+    let at = |q: f64| sorted[((sorted.len() as f64 - 1.0) * q).round() as usize];
+    eprintln!(
+        "ls with a stalled relay: {} runs, p50 {:?}, p99 {:?}, max {:?}, {} failed",
+        sorted.len(),
+        at(0.5),
+        at(0.99),
+        sorted.last().unwrap(),
+        failures.len()
+    );
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    assert!(*sorted.last().unwrap() < Duration::from_secs(2), "{times:?}");
+
+    // A kept listing is listed, marked stale.
+    let row = json!({"sessionId": "01far-kept", "name": "kept", "peer": "far", "status": "idle",
+        "updatedAt": 1_794_884_348_976_u64});
+    fs::write(
+        dir.join("relay-ls-cache.json"),
+        json!({"version": 1, "readAtMs": now_ms() - 60_000, "source": "relay-ls", "sessions": [row]})
+            .to_string(),
+    )
+    .unwrap();
+    let ls = cli(&dir, &["--json", "ls"]);
+    assert!(ls.status.success(), "{}", text(&ls));
+    let v: serde_json::Value = serde_json::from_slice(&ls.stdout).unwrap();
+    assert_eq!(v["remote"]["state"], "stale", "{v}");
+    let kept: Vec<&serde_json::Value> = v["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["sessionId"] == "01far-kept")
+        .collect();
+    assert_eq!(kept.len(), 1, "{v}");
+    assert_eq!(kept[0]["stale"], true, "{v}");
+    assert!(String::from_utf8_lossy(&ls.stderr).contains("listed as of 1m ago"), "{}", text(&ls));
+}
+
+fn now_ms() -> u64 {
+    u64::try_from(
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),
+    )
+    .unwrap()
+}
