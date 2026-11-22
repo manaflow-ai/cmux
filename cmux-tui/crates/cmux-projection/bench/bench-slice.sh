@@ -145,7 +145,7 @@ start_mount() {
   local at=$1 state=$2 out=$3 start
   rm -rf "$state"; mkdir -p "$state" "$at"
   start=$(now)
-  "$BIN" mount "127.0.0.1:$P2" "$at" "$state" >"$out" 2>"$out.err" &
+  env ${ASK_LOG:+SLICE_ASK_LOG="$ASK_LOG"} "$BIN" mount "127.0.0.1:$P2" "$at" "$state" >"$out" 2>"$out.err" &
   MOUNT_PID=$!
   PIDS+=("$MOUNT_PID")
   MOUNTS+=("$at")
