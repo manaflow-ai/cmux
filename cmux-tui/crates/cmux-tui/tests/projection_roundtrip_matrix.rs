@@ -1385,12 +1385,11 @@ mod repositories {
 
     /// A submodule's folder reaches the machine and `git status` agrees.
     #[test]
-    #[ignore = "follow-up: a submodule's folder is not projected; the machine's git status reads it deleted"]
     fn a_repository_with_a_submodule_round_trips_both_ways() {
         round_trip("repo-submodule", From::Made(with_submodule));
     }
 
-    /// The same for a copied chat: whether the submodule gap is projection's alone.
+    /// The same for a copied chat.
     #[test]
     fn a_copied_repository_with_a_submodule_round_trips_both_ways() {
         round_trip_as("repo-submodule-copy", false, From::Made(with_submodule));
