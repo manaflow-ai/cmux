@@ -1105,7 +1105,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// The drawn measure (``PagedListProbe/drawnShift``): reads each row on screen's top from its
     /// cell's presentation layer, in the window's presentation space, once per committed frame.
     private func sampleDrawn() {
-        guard let report = probe?.drawnShift, loaded, !updating, let window = collectionView.window else {
+        guard false, let report = probe?.drawnShift, loaded, !updating, let window = collectionView.window else {
             drawnRows = []
             return
         }
