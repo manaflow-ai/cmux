@@ -49,7 +49,7 @@ pub fn install(s: &Services<'_>, restart: bool) -> Result<ServiceReport> {
     let logs = fsx::local(&s.layout.logs());
     fsx::ensure_dir(&logs, 0o700)?;
     private_log(&logs)?;
-    let changed = fsx::write_if_changed(&plist, text.as_bytes(), 0o644)?;
+    let changed = fsx::write_fresh(&plist, text.as_bytes(), 0o644)?;
     s.wrote(&[(plist.clone(), text)])?;
     let mut report = ServiceReport { unit: plist.clone(), changed, ..ServiceReport::default() };
     let was_loaded = loaded(s);
@@ -85,7 +85,7 @@ pub fn check_log(log: &Path) -> Result<()> {
             log.display()
         )));
     }
-    Ok(())
+    super::check_no_acl_grants(log, "the service log")
 }
 
 /// Makes the service log folder 0700 and creates `server.log` in it, or
@@ -124,6 +124,9 @@ fn private_log(logs: &Path) -> Result<()> {
     }
     dir.set_permissions(std::fs::Permissions::from_mode(0o700))
         .map_err(|e| Error::io(logs.display(), e))?;
+    // The mode does not reach macOS ACL entries: drop any that allow
+    // another account to write here (crate::acl).
+    crate::acl::strip_write_grants(&dir).map_err(|e| Error::io(logs.display(), e))?;
     let log = logs.join("server.log");
     // SAFETY: a valid descriptor and a constant C string.
     let log_fd = unsafe {
@@ -150,6 +153,7 @@ fn private_log(logs: &Path) -> Result<()> {
     }
     file.set_permissions(std::fs::Permissions::from_mode(0o600))
         .map_err(|e| Error::io(log.display(), e))?;
+    crate::acl::strip_write_grants(&file).map_err(|e| Error::io(log.display(), e))?;
     Ok(())
 }
 
@@ -160,6 +164,11 @@ fn private_log(_logs: &Path) -> Result<()> {
 
 /// `launchctl print`'s exit code for a job launchd has not loaded.
 const NOT_LOADED: i32 = 113;
+
+/// How long uninstall waits for launchd to drop the job it booted out: 50
+/// checks, 100 ms apart.
+const BOOTOUT_WAIT_POLLS: u32 = 50;
+const BOOTOUT_WAIT_POLL: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// Refuses a `com.cmux.server` job launchd runs from another plist than
 /// the one cmux writes (or from none it names): install would replace it
@@ -186,7 +195,7 @@ pub fn check_source(s: &Services<'_>) -> Result<()> {
         return Ok(());
     }
     Err(Error::rejected(format!(
-        "launchd runs {LAUNCHD_LABEL} from {}, not from {} (the plist cmux writes), so cmux leaves it, and everything it may use, alone; nothing was changed. Remove that job yourself (launchctl bootout {}), then run the command again",
+        "launchd runs {LAUNCHD_LABEL} from {}, not from {} (the plist cmux writes), so cmux leaves it, and everything it may use, alone. Remove that job yourself (launchctl bootout {}), then run the command again",
         path.unwrap_or("a plist it does not name"),
         ours.display(),
         target(s)
@@ -216,7 +225,35 @@ pub fn stop(s: &Services<'_>) -> Result<()> {
 }
 
 pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {
+    // launchd has no bootout bound to a plist (`bootout DOMAIN PATH` reads
+    // the label from the file and unloads by label): check the job's source
+    // right before the bootout by label, so the gap is that one command
+    // (Codex R-005). Only root or this same account can load another job in
+    // its gui domain, and no other cmux command runs meanwhile (the service
+    // lock, `Services::lock`).
+    check_source(s).map_err(|e| super::outcome(e, "nothing was changed"))?;
     let _ = s.runner.run(&launchctl().args(["bootout", &target(s)]));
+    // A bootout that failed must not let uninstall remove what the job
+    // still uses: launchd must say it has no such job now. `bootout`
+    // returns before launchd drops the job (macOS 27 on a fleet Mac: still
+    // listed right after, gone 2 s later), so give it a moment.
+    let print = launchctl().args(["print", &target(s)]);
+    let mut out = s.runner.run(&print).map_err(|e| Error::io(print.display(), e))?;
+    for _ in 0..BOOTOUT_WAIT_POLLS {
+        if out.code == Some(NOT_LOADED) {
+            break;
+        }
+        std::thread::sleep(BOOTOUT_WAIT_POLL);
+        out = s.runner.run(&print).map_err(|e| Error::io(print.display(), e))?;
+    }
+    if out.code != Some(NOT_LOADED) {
+        return Err(Error::rejected(format!(
+            "launchd still has {LAUNCHD_LABEL} after cmux booted it out (`{}` exited {}), so cmux removed nothing it may still use. Boot it out (`launchctl bootout {}`), then run the command again",
+            print.display(),
+            out.code.map_or_else(|| "by a signal".to_owned(), |c| c.to_string()),
+            target(s)
+        )));
+    }
     s.remove_unit_files()
 }
 

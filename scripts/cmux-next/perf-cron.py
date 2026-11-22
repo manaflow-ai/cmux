@@ -196,6 +196,13 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "workspace-scaling", "run_seconds": 3600},
     {"name": "home-idle", "args": [*MEASURE, "--suite=budgets", "--only=home,idle"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
+    # Wakeups and threads per process kind at idle (scripts/cmux-next/idle-budget.py, its `light` session: the launch
+    # window and its terminal, Home's pages in Chromium; 60 s settle, 60 s window): idle_budget.light.<kind>.<field>,
+    # judged against idle-budget.json. Chromium's GPU, renderer and utility processes each get <= 1 wakeup/s there
+    # (plans/cmux-next/idle-wakeups.md section 7); before this part their wakeups were in no stored row.
+    # run_seconds: its first run (2026-11-19, cmux21, cold build) took 2060 s, about 1850 s of it the build.
+    {"name": "idle-budget", "args": [*MEASURE, "--suite=idle-budget", "--sessions=light"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "idle-budget", "run_seconds": 2400},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
@@ -215,6 +222,16 @@ PARTS = [
     {"name": "throughput", "args": [*MEASURE, "--config=bench", "--suite=terminal-throughput"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput",
      "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
+    # Power (scripts/cmux-next/power-cron.py, bench_power.py): the app and every process it owns in mW, idle with one
+    # terminal, idle with one Chromium page and scrolling a page, and standalone Ghostty idle in the same step. The
+    # terminal row's budget is that Ghostty number; the page rows' are the best other browser's in the checked-in
+    # xbench baseline. The bench configuration, as for throughput: power of a Debug build is not the app's.
+    {"name": "power", "args": [*MEASURE, "--config=bench", "--suite=power"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "power",
+     # Measured 2026-11-19 (step bb11176fe4ba, a macOS 27 measure Mac with no cached app): 2738 s, of which the cold
+     # bench build took about 2100 s and the scenarios plus the comparison about 640 s. A cached build runs in about
+     # 11 minutes; the cap holds the cold case with about 20 % to spare.
+     "run_seconds": 3300},
     # Quit and reopen with the chats restored (relaunch-wake-cron.py): the window and the shown chat drawn and live
     # again, warm and after an in-place update. Budgets in that file, each with its source. Its rows
     # (launch.relaunch.*) and the wake part's (launch.wake_proxy.*) are in the launch family, whose target is each
@@ -272,12 +289,26 @@ PARTS = [
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
     {"name": "chat-disk", "where": "linux", "kind": "webui", "needs": "chat-disk"},
+    # Terminal scroll integrity (scripts/measure/terminal-scroll-stress-linux.sh, goal terminal-scroll-integrity in
+    # cmuxterm-hq's NOW): blank rows, missing rows and viewport jumps while scrolled back, on a local daemon and over
+    # a loopback sshd, in the byte client's own mirror and in the daemon's render viewport. Counts, target 0. Its
+    # rows keep their own names (terminal.scroll.*), not webui.*.
+    {"name": "terminal-scroll", "where": "linux", "kind": "webui", "needs": "terminal-scroll", "row_prefix": ""},
     # The daemon's restart to a non-empty chat attach (scripts/measure/daemon-restart-linux.sh, goal restart-to-chat's
     # daemon half in cmuxterm-hq's NOW, row restart_chat_attach_daemon_ms, target 178 ms): god_daemon.rs's small and god
     # homes, up to three runs in 15 minutes after the build (the job's 40-minute cap holds setup, a cold build of about
     # 15 minutes and this), each home's median restartChatAttachMs (daemon_restart.<shape>_home.chat_attach_ms). No god
     # home reading gives no metric, so the small home never stands in for the worst of both.
     {"name": "daemon-restart", "where": "linux", "kind": "webui", "needs": "daemon-restart"},
+    # Coordinator load (scripts/measure/coord-sim-linux.sh, crate cmux-tui/crates/coord-sim): 3 synthetic coordinator
+    # chats shaped like the heaviest real ones (histograms only) streamed at 10x into a release acpmux at once, with
+    # readers attached: event delivery p50/p95/p99, lost and duplicated events, attach and first paint under load, a
+    # reader paging history, prompt to ack and echo, the daemon's RSS, its slope (the leak signal) and memory and
+    # CPU per chat (`coord-sim report`, schema coord-sim-run.v1). Then the fan-in ramp at 50 and 200 sessions (goal
+    # sessions-2000-attached; 2,000 needs more than this runner and cap): attach through one controller, the fleet
+    # listing, fan-out p50/p95/max, controller CPU and RSS per session and their slope over N. Its rows are
+    # webui.coord_sim.*.
+    {"name": "coord-sim", "where": "linux", "kind": "webui", "needs": "coord-sim"},
 ]
 PART_BY_NAME = {p["name"]: p for p in PARTS}
 # Which part measures a row (bisect re-measures only the parts of the regressed rows).
@@ -285,10 +316,11 @@ ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
-    (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"),
+    (r"^memory\.app_agents\.", "memory-agents"), (r"^idle_budget\.", "idle-budget"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"),
     (r"^launch\.cold\.", "launch-cold"),
     (r"^launch\.relaunch\.", "relaunch"), (r"^launch\.wake_proxy\.", "wake"), (r"^launch\.", "launch"),
-    (r"^terminal\.throughput\.", "throughput"),
+    (r"^terminal\.throughput\.", "throughput"), (r"^terminal\.scroll\.", "terminal-scroll"),
+    (r"^power\.", "power"),
     (r"^chat_size\.", "chat-size"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
@@ -301,6 +333,7 @@ ROW_PARTS = [
     (r"^webui\.composer_typing\.", "web-ui-typing"),
     (r"^webui\.chat_disk\.", "chat-disk"),
     (r"^webui\.daemon_restart\.", "daemon-restart"),
+    (r"^webui\.coord_sim\.", "coord-sim"),
     (r"^webui\.", "web-ui"),
 ]
 # Rows that are stored and shown but never judged: higher is better there (MB/s, a ratio to Ghostty), and every rule
@@ -311,10 +344,13 @@ ROW_PARTS = [
 # same echo with nothing frozen: the floor under the judged wake row, shown only. The chat-open paired rounds'
 # attach_to_latest ms (webui.chat_open_paired[.god].<rail>.attach_to_latest) is shown against cmuxterm-hq's ms target
 # but tracks the runner (100 to 185 ms for the same code, goal chat-attach-p95); attach_per_dcl beside it, the same
-# rounds over each load's own DOMContentLoaded, is the row judged, so a slow runner opens no regression.
+# rounds over each load's own DOMContentLoaded, is the row judged, so a slow runner opens no regression. The power
+# part's Ghostty idle mW and the app's ratio to it are the terminal row's comparison: shown, not judged (that row has
+# Ghostty's mW as budget).
 REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\."
                                 r"|acp\.[^.]+\.typing\.(to_listener|to_work)$|launch\.wake_proxy\.awake_echo_ms$"
-                                r"|webui\.chat_open_paired\.(god\.)?[a-z0-9_]+\.attach_to_latest$)")
+                                r"|webui\.chat_open_paired\.(god\.)?[a-z0-9_]+\.attach_to_latest$"
+                                r"|power\.idle\.terminal\.(ghostty_mw|vs_ghostty)$)")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
                 "diff.stream.p95": 250.0}
@@ -685,7 +721,7 @@ def rows_of_part(part, report, budgets_mod, budgets):
     elif part["kind"] == "webui":
         # web-ui-suite.ts's rows (webviews/bench/perfRow.ts): its target is the row's budget, its floor the noise on
         # a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule).
-        out.update(webui_rows(report.get("rows")))
+        out.update(webui_rows(report.get("rows"), part.get("row_prefix", "webui.")))
         if part.get("name") == "web-ui-god":
             # The ordinary twins ran here only to pair at one commit on one runner; the web-ui part owns their rows.
             ratios = god_ratio_rows(out)
@@ -698,9 +734,10 @@ def rows_of_part(part, report, budgets_mod, budgets):
     return out
 
 
-def webui_rows(rows):
+def webui_rows(rows, prefix="webui."):
     """{webui.<name>: row} of a list of PERF_ROW objects (pure): a row's target is its budget, its floor the noise on
-    a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule)."""
+    a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule). A part
+    with its own row_prefix ("" for terminal-scroll) names its rows with that instead of webui."""
     out = {}
     for r in rows or []:
         name, p95 = r.get("name") if isinstance(r, dict) else None, r.get("p95") if isinstance(r, dict) else None
@@ -708,7 +745,7 @@ def webui_rows(rows):
             continue
         p50 = r.get("p50") if isinstance(r.get("p50"), (int, float)) else p95
         floor = r.get("floor") if isinstance(r.get("floor"), (int, float)) else max(round(0.1 * p95, 4), 0.0001)
-        out[f"webui.{name}"] = {"p50": p50, "p95": p95, "unit": r.get("unit") or "ms",
+        out[f"{prefix}{name}"] = {"p50": p50, "p95": p95, "unit": r.get("unit") or "ms",
                                 "budget": r.get("target") if isinstance(r.get("target"), (int, float)) else None,
                                 "floor": floor,
                                 "measure_version": r["version"] if isinstance(r.get("version"), int) else DIFF_LEGACY_VERSION}
@@ -1025,8 +1062,14 @@ def linux_bench_runs(root, part="diff-viewer"):
                           os.path.join(root, "webviews"), {})}
     if part == "web-ui-typing":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"], os.path.join(root, "webviews"), {})}
-    if part == "chat-disk":
-        script = os.path.join(root, CHAT_DISK)
+    if part == "coord-sim":
+        # The release builds first, in a run of their own (each run has its own 30-minute cap), then 300 s of load.
+        script = os.path.join(root, COORD_SIM)
+        return {"build": (["bash", script, "build-only"], root or ".", {}),
+                "suite": (["bash", script, "coordinators=3", "rate=10", "seconds=300", "fanin=50,200", "fanin_window=60"],
+                          root or ".", {})}
+    if part == "chat-disk" or part == "terminal-scroll":
+        script = os.path.join(root, CHAT_DISK if part == "chat-disk" else TERMINAL_SCROLL)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
     if part == "daemon-restart":
         script = os.path.join(root, DAEMON_RESTART)
@@ -2015,8 +2058,17 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{INFINITE_ITEMS}"], capture_output=True).returncode == 0
         elif need == "chat-disk":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_DISK}"], capture_output=True).returncode == 0
+        elif need == "terminal-scroll":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{TERMINAL_SCROLL}"],
+                                capture_output=True).returncode == 0
         elif need == "daemon-restart":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{DAEMON_RESTART}"], capture_output=True).returncode == 0
+        elif need == "coord-sim":
+            # The harness, and a driver that is built (the crate landed with stub subcommands first).
+            drive = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:{COORD_SIM_DRIVE}"], capture_output=True, text=True)
+            ok = coord_sim_ready(subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{COORD_SIM}"],
+                                                capture_output=True).returncode == 0,
+                                 drive.stdout if drive.returncode == 0 else None)
         elif need == "terminal-throughput":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
@@ -2033,10 +2085,15 @@ def supported_parts_at(sha):
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
                                    capture_output=True, text=True).stdout
             ok = "--suite=launch" in text and '"--fresh-copy"' in bench and '"--ready-mark"' in bench
-        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "chat-size"):
+        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "power", "chat-size"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text
+        elif need == "idle-budget":
+            # Its report's perf-cron rows (cron_report): an older idle-budget.py writes none.
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/idle-budget.py"],
+                                  capture_output=True, text=True).stdout
+            ok = "def cron_report(" in text
         elif need == "workspace-scaling":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
@@ -2079,7 +2136,17 @@ FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
 COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
+TERMINAL_SCROLL = "scripts/measure/terminal-scroll-stress-linux.sh"
 DAEMON_RESTART = "scripts/measure/daemon-restart-linux.sh"
+COORD_SIM = "scripts/measure/coord-sim-linux.sh"
+COORD_SIM_DRIVE = "cmux-tui/crates/coord-sim/src/drive.rs"
+COORD_SIM_STUB = "not built yet"
+
+
+def coord_sim_ready(has_script, drive_source):
+    """Whether a commit can run the coord-sim part (pure): it has the harness and a drive subcommand past its stub."""
+    return bool(has_script) and isinstance(drive_source, str) and COORD_SIM_STUB not in drive_source
+
 # The web-ui-god part: the benches that take FIXTURE=god (web-ui-suite.ts lists each as NAME and NAME-god) and the
 # shared fixture a commit needs for the part. A god row is webui.<prefix>.god.<rest>; its ordinary twin drops `.god`.
 GOD_FIXTURE = "webviews/bench/godFixture.ts"
