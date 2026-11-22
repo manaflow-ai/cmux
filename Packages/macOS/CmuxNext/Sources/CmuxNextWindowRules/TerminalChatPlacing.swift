@@ -31,14 +31,14 @@ public struct TerminalChatPlacing {
 
     public let chat: (any TogglePlaceChat)?
     public let terminal: (any TogglePlaceTerminal)?
-    let rules: WindowRules
+    let rules: TogglePlaceRules
     let rowCap: Int
 
     public init(chat: (any TogglePlaceChat)?, terminal: (any TogglePlaceTerminal)?, rules: WindowRules = WindowRules(),
                 rows: Int = Self.rows) {
         self.chat = chat
         self.terminal = terminal
-        self.rules = rules
+        self.rules = TogglePlaceRules(rules: rules)
         rowCap = rows
     }
 
@@ -58,8 +58,7 @@ public struct TerminalChatPlacing {
         let base = max(0, viewport.total - rowCap)
         if base > 0 { terminal.togglePlaceScroll(toRow: base) }
         let place = terminal.togglePlaceRead(fromViewportTop: base > 0, throughViewportBottom: false).flatMap { screen in
-            TogglePlaceRules.terminalPlace(.init(prompts: read.prompts, at: read.at, screen: screen.screen, base: base, columns: screen.columns),
-                                           rules: rules)
+            rules.terminalPlace(.init(prompts: read.prompts, at: read.at, screen: screen.screen, base: base, columns: screen.columns))
         }
         switch place {
         case .row(let row)?: terminal.togglePlaceScroll(toRow: row)
@@ -85,7 +84,7 @@ public struct TerminalChatPlacing {
               let screen = terminal.togglePlaceRead(fromViewportTop: fromTop, throughViewportBottom: !fromTop) else { return }
         let facts = TogglePlaceRules.ToChatPlace(prompts: read.prompts, screen: screen.screen, base: fromTop ? viewport.top : 0,
                                             columns: screen.columns, top: viewport.top, atBottom: false)
-        switch TogglePlaceRules.chatPlace(facts, rules: rules) {
+        switch rules.chatPlace(facts) {
         case .latest?: if read.at != nil { await chat.togglePlaceShow(prompt: nil, by: deadline) }
         case .turn(let index)? where index != read.at: await chat.togglePlaceShow(prompt: index, by: deadline)
         case .turn?, .stay?, nil: break
