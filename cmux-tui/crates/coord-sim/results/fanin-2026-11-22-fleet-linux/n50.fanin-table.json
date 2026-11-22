@@ -1,0 +1,109 @@
+{
+  "agent_hosts": false,
+  "attach_failed": 0,
+  "attach_ms": {
+    "max": 7.893,
+    "n": 50,
+    "p50": 4.892,
+    "p95": 7.728,
+    "p99": 7.893
+  },
+  "attach_one_ms": {
+    "max": 45.076,
+    "n": 60,
+    "p50": 4.927,
+    "p95": 7.147,
+    "p99": 8.263
+  },
+  "client_methods": {
+    "_acpmux/event": 1250,
+    "_acpmux/prompt_accepted": 47,
+    "catalog.changed": 1,
+    "session/update": 5146
+  },
+  "controller": {
+    "cpu_basis": "whole life",
+    "cpu_pct": 0.531,
+    "cpu_pct_per_session": 0.011,
+    "cpu_s_life": 1.7,
+    "hosts_cpu_s_life": 3.48,
+    "life_s": 320.347,
+    "rss_kb": 156232,
+    "rss_kb_baseline": 48908,
+    "rss_kb_peak": 150060,
+    "rss_kb_per_session": 2146.48,
+    "rss_kb_window_max": 156232
+  },
+  "create_failed": 0,
+  "events": {
+    "client_lagged": 0,
+    "dup": 0,
+    "emitted": 4837,
+    "fanout_dup": 0,
+    "fanout_lost": 0,
+    "fanout_sent": 150,
+    "lost": 0
+  },
+  "fanin_ms": {
+    "max": 54.343,
+    "n": 4837,
+    "p50": 0.388,
+    "p95": 0.606,
+    "p99": 1.994
+  },
+  "fanout_back_ms": {
+    "max": 133.387,
+    "n": 150,
+    "p50": 77.117,
+    "p95": 126.509,
+    "p99": 133.35
+  },
+  "fanout_ms": {
+    "max": 77.255,
+    "n": 150,
+    "p50": 17.165,
+    "p95": 74.262,
+    "p99": 76.118
+  },
+  "gaps": [],
+  "gauges": {
+    "attach_p95_ms": 6.342,
+    "fanout_p95_ms": 0.064
+  },
+  "hosts": 10,
+  "hosts_rss_kb": {
+    "max": 141308.0,
+    "mean": 134543.6
+  },
+  "latency_ms": 0,
+  "list": {
+    "paged_ms_at_rest": 1.203,
+    "pages": 1,
+    "rows": 50,
+    "whole_ms_at_rest": 1.433,
+    "whole_ms_window": {
+      "max": 2.363,
+      "n": 19,
+      "p50": 1.417,
+      "p95": 2.341,
+      "p99": 2.363
+    }
+  },
+  "n": 50,
+  "prompt_ms": {
+    "max": 110.349,
+    "n": 150,
+    "p50": 67.037,
+    "p95": 110.344,
+    "p99": 110.348
+  },
+  "rate_per_session": 0.333,
+  "schema": "fanin-table.v1",
+  "setup_ms": {
+    "attach_all": 9,
+    "controller_ready": 283,
+    "create": 190,
+    "hosts": 75
+  },
+  "window_s": 300.037
+}

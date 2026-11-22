@@ -1695,9 +1695,10 @@ class Excusing(unittest.TestCase):
                 self.assertFalse([route for route in self.gh.routes if "/runs/70" in route and "/jobs?" in route])
 
     def test_tree_jobs_are_jobs_of_the_suites_that_defer_them(self):
-        # Only a tip daemon suite or base tier run defers its tree jobs; a name outside them skips nothing.
+        # Only a tip daemon suite or base tier run defers its tree jobs; a name outside them skips nothing. The
+        # checks job runs in the first run itself (cmux-next.yml checks skips a same-tree run), never deferred.
         self.assertLessEqual(excuse.TREE_JOBS, excuse.SUITES["cmux-next base tier · "])
-        self.assertLessEqual(excuse.SUITES["cmux-next tip daemon suite · "], excuse.TREE_JOBS)
+        self.assertLessEqual(excuse.SUITES["cmux-next tip daemon suite · "] - {excuse.CHECKS_JOB_NAME}, excuse.TREE_JOBS)
 
     def test_a_first_run_still_counts_for_the_jobs_it_runs_itself(self):
         # Generated files run in the first run itself (path routing's generated_host), never in its
@@ -15466,8 +15467,6 @@ SCANNERS = {
     "base_red_excuse.github_quota_only": lambda f: (excuse.github_quota_only(f.view),
                                                    excuse.github_quota_only(f.base_view)),
     "base_red_excuse.tree_handoff_quota_only": lambda f: excuse.tree_handoff_quota_only(f.job, f.log),
-    "base_red_excuse.ws_check_step": lambda f: excuse.ws_check_step(
-        [*f.lines[:-1], "##[group]Tests", *f.lines[-1:]], len(f.lines), "Tests"),
     "base_red_excuse.gallery_replay_crash": lambda f: excuse.gallery_replay_crash(f.job, f.log),
     "test_reds.spliced_pass": lambda f: TR.spliced_pass("t1", f.log),
     "test_reds.echoed": lambda f: TR.echoed(f.lines),
@@ -15530,6 +15529,8 @@ NOT_SWEPT = {
     "base_red_excuse.compare_window": "compares a head's view with base windows through signature, step_errors and "
                                       "test_reds.classify_web_window, each swept",
     "test_reds._kept": "the parse cache: it calls the reader it is given",
+    "base_red_excuse.ws_check_step": "counted, not timed (WsCheckStepIsLinear): on HostileLog it reads no section, so "
+                                     "the sweep timed only a list copy, whose CPU time grows past 8x on a runner",
 }
 
 
@@ -15583,6 +15584,63 @@ class PrLogReadersScale(unittest.TestCase):
                             pass  # a refusal is an answer: it is timed like one
                     return run
                 assert_scales(self, build, self.N, name)
+
+
+def traced_steps(run):
+    """How many Python lines under scripts/ci RUN executes (sys.settrace line events; a loop's turn is one each): a
+    count of operations, the same on every host and under any load, where a CPU-time ratio of a call this small is
+    not (base_red_excuse.ws_check_step read 9.6x at 4x the input, three times, on a runner, from a list copy)."""
+    ci = str(ROOT / "scripts" / "ci")
+    count = 0
+
+    def local(frame, event, arg):
+        nonlocal count
+        if event == "line":
+            count += 1
+        return local
+
+    def tracer(frame, event, arg):
+        return local if frame.f_code.co_filename.startswith(ci) else None
+    old = sys.gettrace()
+    sys.settrace(tracer)
+    try:
+        run()
+    finally:
+        sys.settrace(old)
+    return count
+
+
+class WsCheckStepIsLinear(unittest.TestCase):
+    """ws_check_step reads a red step's whole section (its unittest failures, summaries and ws-check lines), and a PR's
+    test output sets how long that is: its work at 4N blocks is under SCALING_LIMIT times its work at N, counted in
+    lines run (traced_steps), never timed."""
+    N = 150
+
+    @staticmethod
+    def step_lines(n):
+        lines = ["##[group]Tests"]
+        for i in range(n):
+            lines += [f"FAIL: test_{i} (a.B)", "-" * 70, "Traceback (most recent call last):",
+                      f'  File "/home/runner/_work/_temp/lw/tests/test_a.py", line {i}, in test_{i}',
+                      f"AssertionError: boom {i}", "", f"ws-check: tests/test_a.py red at block {i}", "FAILED (failures=1)"]
+        return [*lines, "##[endgroup]", "ws-check step FAILED: Tests (exit 1, ran 4, skipped 0, gh calls 0)"]
+
+    def steps(self, n):
+        lines = self.step_lines(n)
+        found = {}
+
+        def run():
+            found["red"] = excuse.ws_check_step(lines, len(lines) - 1, "Tests")
+        count = traced_steps(run)
+        self.assertEqual(len(found["red"]["tests"]), n)  # it read every block: nothing was refused or skipped
+        return count
+
+    def test_its_work_grows_linearly_with_the_section(self):
+        small, large = self.steps(self.N), self.steps(4 * self.N)
+        self.assertGreater(small, self.N)
+        self.assertLess(large / small, SCALING_LIMIT,
+                        f"ws_check_step ran {small:,} lines at {self.N:,} blocks and {large:,} at {4 * self.N:,}: "
+                        "linear is about 4x and quadratic 16x")
 
 
 # The characters an opener (regex_openers) tries for a character class, in order: the first the class takes.

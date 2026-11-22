@@ -2161,19 +2161,12 @@
   padding-inline-start: 6px;
 }
 /* Pierre's box scrolls sideways, its scrollbar `--cv-lane` tall (`--diffs-scrollbar-gutter-override`
-   above; 0 while wrapped): this box scrolls the same way, so it keeps the same lane in the same
-   engines. */
+   above; 0 while wrapped): this box scrolls the same way with the shared scroller (SCROLLBARS-THIN)
+   and keeps the same lane as bottom padding, so the box is as tall as the one it stands in for. */
 .cv-edit-diff__loading-lines {
-  overflow-x: scroll;
+  overflow-x: auto;
   overflow-y: hidden;
-}
-.cv-edit-diff__loading-lines::-webkit-scrollbar {
-  width: 0;
-  height: var(--cv-lane);
-}
-.cv-edit-diff__loading-lines::-webkit-scrollbar-thumb,
-.cv-edit-diff__loading-lines::-webkit-scrollbar-track {
-  background: transparent;
+  padding-bottom: var(--cv-lane);
 }
 .cv-edit-diff__loading-line {
   min-height: var(--cv-loading-line-height);

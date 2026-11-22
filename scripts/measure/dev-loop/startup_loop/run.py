@@ -23,6 +23,7 @@ STAGES = ["compile", "link", "sign", "quit", "launch", "ready"]
 GRAPH = {"compile": [], "link": ["compile"], "sign": ["link"], "quit": [], "launch": ["sign", "quit"], "ready": ["launch"]}
 ANCHOR = 'defer { DebugTimings.markLaunch("did_finish_launching_end") }'
 IDLE_S = 15  # after a launch: time for the window, the typed key's echo and the app to go idle before the next step
+LAUNCH_WAIT_S = 180  # LaunchServices' open to the app's process: a few s; 60 s once ran out (step a8b4d181c32ad2c06b3a0126)
 
 
 def now_ms():
@@ -347,7 +348,7 @@ class Loop:
                               str(settle), os.path.join(self.sock_dir, "app.sock"), "type"], cwd=self.repo,
                              stdout=open(outp, "w"), stderr=open(outp + ".err", "w"), env=env)
         self.launches.append(p)
-        exe, pid, end = self.executable(), None, time.time() + 60
+        exe, pid, end = self.executable(), None, time.time() + LAUNCH_WAIT_S
         while time.time() < end and pid is None:
             rec = self.watch.find(exe, t)
             pid = rec["pid"] if rec else None
@@ -355,7 +356,16 @@ class Loop:
                 break
             time.sleep(0.05)
         if pid is None:
-            raise RuntimeError("launch %s: no app process within 60 s (%s)" % (label, open(outp + ".err").read()[-800:]))
+            # 2026-11-22 step a8b4d181c32ad2c06b3a0126: "launch floor3: no app process within 60 s ()": launch-ready's
+            # stderr was empty, and its own failure ("open: ...") goes to stdout. Say both, and what of the app ran.
+            with self.watch.lock:
+                live = sorted("%d %s" % (r["pid"], os.path.basename(r["path"])) for r in self.watch.procs.values()
+                              if r["end"] is None and r["path"].startswith(self.app + "/"))
+            tails = " | ".join("%s: %s" % (os.path.basename(f), open(f, errors="replace").read()[-600:].strip())
+                               for f in (outp, outp + ".err") if os.path.exists(f))
+            raise RuntimeError("launch %s: no app process within %d s (launch-ready %s; %s; app processes live: %s)"
+                               % (label, LAUNCH_WAIT_S, "running" if p.poll() is None else "exited %s" % p.returncode,
+                                  tails or "no output", ", ".join(live) or "none"))
         return p, outp, t, pid
 
     def finish_launch(self, label, p, outp):
