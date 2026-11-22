@@ -1210,17 +1210,17 @@ final class PendingAgentSource: AgentSessionSource {
 @Observable
 final class UnboundAgentSource: AgentSessionSource {
     private(set) var summary: AgentSessionSummary
-    private let start: (@MainActor () async throws -> AcpmuxSessionSource)?
+    private let start: (@MainActor () async throws -> any AgentSessionSource)?
     private let nameAgent: (@MainActor () async -> AgentHarnessChoice?)?
     @ObservationIgnored private var continuations: [AsyncStream<AgentSessionEvent>.Continuation] = []
     /// The started chat's source: every event and intent goes through it.
-    private(set) var started: AcpmuxSessionSource?
+    private(set) var started: (any AgentSessionSource)?
     /// The first message is starting the chat (`session/new`, the bind).
     private(set) var starting = false
     /// Intents sent while the chat starts, in order.
     @ObservationIgnored private var held: [AgentClientIntent] = []
 
-    init(summary: AgentSessionSummary, start: (@MainActor () async throws -> AcpmuxSessionSource)?,
+    init(summary: AgentSessionSummary, start: (@MainActor () async throws -> any AgentSessionSource)?,
          nameAgent: (@MainActor () async -> AgentHarnessChoice?)? = nil) {
         self.summary = summary
         self.start = start
@@ -1277,7 +1277,7 @@ final class UnboundAgentSource: AgentSessionSource {
     }
 
     /// The chat started: this store's readers follow its session, and what was sent meanwhile goes.
-    private func began(_ source: AcpmuxSessionSource) {
+    private func began(_ source: any AgentSessionSource) {
         started = source
         let readers = continuations
         continuations = []
@@ -1323,11 +1323,14 @@ final class UnboundAgentSource: AgentSessionSource {
     func attachmentData(_ attachment: AgentAttachment) async -> Data? { await started?.attachmentData(attachment) }
     func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate? { await started?.fullToolOutput(cut) }
 
-    private func running() throws -> AcpmuxSessionSource {
+    private func running() throws -> any AgentSessionSource {
         guard let started else { throw AgentFeatureUnavailable("Send a first message to start this chat.") }
         return started
     }
 
+    var supportsCheckpoints: Bool { started?.supportsCheckpoints ?? false }
+    func checkpoints() async throws -> [AgentCheckpoint] { try await started?.checkpoints() ?? [] }
+    func restore(_ checkpoint: AgentCheckpoint) async throws -> String { try await running().restore(checkpoint) }
     func sessionStatus() async throws -> AgentSessionStatus { try await running().sessionStatus() }
     func sessionDetails() async throws -> AgentSessionDetails { try await running().sessionDetails() }
     func bookmarks() async throws -> [Int] { try await started?.bookmarks() ?? [] }
