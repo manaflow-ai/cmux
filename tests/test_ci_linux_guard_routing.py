@@ -559,6 +559,16 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                 result = run_guard_status(results={JOBS["submodule_forward_only"]: outcome})
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(f"{JOBS['submodule_forward_only']}: {outcome}", result.stderr)
+        # A feat-cmux-next pull request runs it as the ci/steps.toml step: only there is its skip fine.
+        job = JOBS["submodule_forward_only"]
+        self.assertEqual(run_guard_status(results={job: "skipped"}, event="pull_request",
+                                          base_ref="feat-cmux-next").returncode, 0)
+        for event, base_ref in (("pull_request", "main"), ("push", ""), ("workflow_dispatch", "")):
+            with self.subTest(event=event, base_ref=base_ref):
+                self.assertNotEqual(run_guard_status(results={job: "skipped"}, event=event,
+                                                     base_ref=base_ref).returncode, 0)
+        self.assertNotEqual(run_guard_status(results={job: "failure"}, event="pull_request",
+                                             base_ref="feat-cmux-next").returncode, 0)
 
         for route_name, job in REUSABLE_GUARDS.items():
             for outcome in ("skipped", "failure", "cancelled"):
