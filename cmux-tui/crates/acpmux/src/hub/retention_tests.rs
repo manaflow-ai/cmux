@@ -315,6 +315,16 @@ async fn an_unread_only_pass_drops_the_replays_and_keeps_the_chat() {
     let pass = hub.retention_pass(plain).await.unwrap();
     assert_eq!((&pass["chats"], &pass["skipped"]["open"]), (&json!(0), &json!(1)), "{pass}");
 
+    // A dry run measures what the pass will remove, and changes nothing.
+    let dry = RetentionRequest {
+        unread_only: true,
+        dry_run: true,
+        only: Some("codex".into()),
+        ..Default::default()
+    };
+    let measured = hub.retention_pass(dry).await.unwrap();
+    assert_eq!(hub.events("codex", 0, usize::MAX).unwrap().len(), before.len());
+
     let req = RetentionRequest {
         unread_only: true,
         archive: Some(archive.clone()),
@@ -323,6 +333,11 @@ async fn an_unread_only_pass_drops_the_replays_and_keeps_the_chat() {
     };
     let pass = hub.retention_pass(req).await.unwrap();
     assert_eq!(pass["chats"], 1, "{pass}");
+    assert_eq!(
+        (&measured["bytesBefore"], &measured["bytesAfter"]),
+        (&pass["bytesBefore"], &pass["bytesAfter"]),
+        "the dry run measured this pass: {measured} {pass}"
+    );
     let (bytes_before, bytes_after) =
         (pass["bytesBefore"].as_u64().unwrap(), pass["bytesAfter"].as_u64().unwrap());
     println!("unread-only pass: {bytes_before} -> {bytes_after} bytes");
