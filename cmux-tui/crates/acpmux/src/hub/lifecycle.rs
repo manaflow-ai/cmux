@@ -11,6 +11,8 @@ pub(super) use super::new_request::profile_takes_model_at_spawn;
 use super::resolve::{Draft, Resolved, draft_meta};
 use super::start_watch::{StartWatch, start_deadline_exceeded, start_hung};
 
+/// The one session env key a chat may carry and still take a pooled agent (`new_session`).
+const WORKSPACE_ENV: &str = "CMUX_WORKSPACE_ID";
 /// How often the person's agent start that is still under way says so (`person_start`).
 const START_PROGRESS: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -309,9 +311,9 @@ impl Hub {
             .off
             .extend(disallowed_tools.iter().map(|t| format!("{}{t}", super::tools::BUILT_IN)));
         // A pooled session of exactly this shape (`pool/`) gives the session its id; `ensure_child`
-        // then takes it instead of starting cold. Never with this session's own env, route or
-        // disallowed tools, nor in a folder a sub-session start checked: a pooled harness started
-        // wherever the path led. Never for an agent's create (`starter`): the warm agent is kept
+        // then takes it instead of starting cold. Never with this session's own env (but its
+        // workspace, `WORKSPACE_ENV`), route or disallowed tools, nor in a folder a sub-session
+        // start checked: a pooled harness started wherever the path led. Never for an agent's create (`starter`): the warm agent is kept
         // for the person's next chat, which never waits behind a lane's start. A Claude Code chat
         // only the person made: a pooled one started for the person (`pool/start.rs`) and asked
         // for a next-prompt suggestion after every turn, which Claude Code decides once, at
@@ -321,7 +323,7 @@ impl Hub {
             && starter.is_none()
             && (profile.kind != crate::config::HarnessKind::ClaudeStdio
                 || super::host_level::made_for_a_person(meta.created_by.as_ref(), person))
-            && meta.session_env.is_empty()
+            && meta.session_env.keys().all(|k| k == WORKSPACE_ENV)
             && route.is_none()
             && meta.tools.off.is_empty()
             && meta.additional_directories.is_empty()
@@ -332,7 +334,20 @@ impl Hub {
         // fingerprint hashes the credentialed spawn env, so another credential, or none, misses.
         let mut asked = None;
         let pooled = if shaped {
-            self.pool_claim(&meta, &profile, &defaults.env, credential.as_ref(), &mut asked).await
+            // A chat that names its workspace in its env (`cmux chat --on here`, chat_control.rs
+            // `session_meta`) is keyed as one with no env: a spare starts before any chat names a
+            // workspace. The meta keeps the env (`_acpmux/info` `sessionEnv`, the agent-message
+            // hold, route bindings, every respawn); only the claimed agent's first run lacks
+            // the variable, as every chat the app's pane starts (`_meta.acpmux.workspaceId`,
+            // no env) does: its `cmux` calls are placed by `CMUX_AGENT_SESSION`.
+            let unplaced;
+            let keyed = if meta.session_env.is_empty() {
+                &meta
+            } else {
+                unplaced = SessionMeta { session_env: Default::default(), ..meta.clone() };
+                &unplaced
+            };
+            self.pool_claim(keyed, &profile, &defaults.env, credential.as_ref(), &mut asked).await
         } else {
             None
         };

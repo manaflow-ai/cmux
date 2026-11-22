@@ -529,6 +529,39 @@ async fn a_hinted_switch_takes_a_hidden_session_that_was_never_listed() {
     assert_runs_on_pooled_host(&daemon, &third, &pooled_fake);
 }
 
+/// `cmux chat --on here` names its workspace in the session env (`CMUX_WORKSPACE_ID`): it takes
+/// the warm agent and keeps the env on the session; any other session env still starts cold.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chat_that_names_only_its_workspace_takes_the_warm_agent() {
+    let daemon = Daemon::new("ws-env", 0);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let workspace = "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0";
+    let start = |env: Value| json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeb", "env": env}}});
+
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let pooled = daemon.pool_records()[0].clone();
+    let created = rpc.call("session/new", start(json!({"CMUX_WORKSPACE_ID": workspace}))).await;
+    let chat = created["sessionId"].as_str().expect("session id").to_owned();
+    assert_eq!(chat, pooled["session_id"].as_str().unwrap(), "the chat takes the pooled id");
+    assert!(taken(&daemon, &chat));
+    assert_runs_on_pooled_host(&daemon, &chat, &pooled);
+    let info = rpc.call("_acpmux/info", json!({"sessionId": chat})).await;
+    assert_eq!(info["sessionEnv"]["CMUX_WORKSPACE_ID"], workspace, "{info}");
+
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let other = json!({"CMUX_WORKSPACE_ID": workspace, "CMUX_CHIEF_PARTICIPANT": "agent_x"});
+    let created = rpc.call("session/new", start(other)).await;
+    let cold = created["sessionId"].as_str().expect("session id").to_owned();
+    assert!(!taken(&daemon, &cold), "a chat with another session env starts cold");
+}
+
 /// The one pooled host's record, once an ended entry's record is gone (a read of the pool's
 /// folder lists them in no order).
 async fn one_pool_record(daemon: &Daemon) -> Value {

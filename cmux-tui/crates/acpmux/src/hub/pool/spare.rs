@@ -26,7 +26,8 @@
 //! (`restore_spares`). A spare whose agent died is removed at the pool's next
 //! RSS tick (`spare_replace_dead`) and started again by the spare worker, in its
 //! harness's newest shape. Only a session that could have taken a pooled agent
-//! (no env, route, disallowed tools or extra folders of its own) is remembered,
+//! (no env but its workspace, no route, disallowed tools or extra folders of its
+//! own; `cmux chat --on here` sends only `CMUX_WORKSPACE_ID`) is remembered,
 //! with its model request. Off with `pool.spare: false` or
 //! `ACPMUX_SPARE_HARNESS=0` in the daemon's environment.
 
