@@ -3826,9 +3826,12 @@ function TranscriptView({
   const closingHeld = heldWorkedClosing?.current === true && rows !== rowsBefore;
   const turnEnds = endsTurn(rowsBefore, rows);
   // The reply still revealing after its stream ended shows the rest in this commit, so the fold
-  // below carries its last lines in the same motion (revealedMarkdownModel.ts `TurnEndCut`).
-  const turnEndCut = useRef(0);
-  if (sameChat && turnEnds) turnEndCut.current += 1;
+  // below carries its last lines in the same motion (revealedMarkdownModel.ts `TurnEndCut`). It is
+  // the rows the turn ended on, set in render beside the capture it pairs with: an effect would reach
+  // the rows one commit after the fold read them. Assigned, not counted, so a render React runs again
+  // or throws away leaves the same mark as the one it commits.
+  const turnEndCut = useRef<readonly AcpmuxRow[] | undefined>(undefined);
+  if (sameChat && turnEnds) turnEndCut.current = rows;
   if (sameChat && (turnEnds || closingHeld) && !pageAway())
     turnEndCapture.current = captureTurnEnd(thread.current, ref.current, rows, sessionId, !turnEnds);
   else if (!sameChat) turnEndCapture.current = undefined;

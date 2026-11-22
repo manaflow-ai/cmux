@@ -449,10 +449,12 @@ test("the turn's end shows the rest of a reply still revealing in the same commi
   // fold that had just settled the turn. The render that ends the turn (TurnEndCut) shows them all.
   root = createRoot(container);
   const text = "The answer has a first sentence. And a second one that is still waiting to show.";
-  const draw = (streaming: boolean, cut: number, body = text) =>
+  // The rows each turn ended on (VirtualTranscript): only their identity matters.
+  const ended = [undefined, [], []] as const;
+  const draw = (streaming: boolean, turn: 0 | 1 | 2, body = text) =>
     act(() => {
       root!.render(
-        <TurnEndCut.Provider value={cut}>
+        <TurnEndCut.Provider value={ended[turn]}>
           <RevealedMarkdown text={body} streaming={streaming} artifactIdentity="assistant-1" />
         </TurnEndCut.Provider>,
       );

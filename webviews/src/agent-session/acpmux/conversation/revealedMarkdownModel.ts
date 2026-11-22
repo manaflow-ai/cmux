@@ -4,9 +4,9 @@ import { StreamReveal, wordEdge } from "../streamReveal";
 import { pageAway } from "../../shared/pageReveal";
 import { MOTION_MS } from "../../../motion/scale.generated";
 
-/// Bumped in the render that ends a turn (VirtualTranscript): a reply still revealing after its stream
-/// ended shows the rest in that commit, so it lands in the turn end's fold.
-export const TurnEndCut = createContext(0);
+/// The rows a turn last ended on, set in the render that ends it (VirtualTranscript): a reply still
+/// revealing after its stream ended shows the rest in that commit, so it lands in the turn end's fold.
+export const TurnEndCut = createContext<readonly unknown[] | undefined>(undefined);
 
 /// The display frames the reveal runs on (tests drive their own).
 export const revealFrames = {
@@ -82,7 +82,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
   // Text there when the row mounts shows at once; only what arrives after it flows in.
   reveal.current ??= new StreamReveal({ initial: displayText, reduceMotion: reduce.current });
   const [shown, setShown] = useState<Shown>(() => ({ length: displayText.length, fresh: [], now: 0 }));
-  // The turn ended (VirtualTranscript bumps TurnEndCut in the render that folds it): what is left
+  // The turn ended (VirtualTranscript sets TurnEndCut in the render that folds it): what is left
   // of a reply the stream already ended shows in this commit, so it lands in the fold's own frame. Paced over the frames after it, each line grew the reply under the fold that had
   // just settled the turn, a second motion after it (cmux#50299; Leo 2026-11-22: "false grow then
   // collapse with the tool calls on the end of turn folding").
