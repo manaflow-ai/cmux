@@ -9,9 +9,22 @@ import XCTest
 ///
 /// Each case keeps its measurement as `PAGEDLIST STRESS-<direction>-<speed>-<load>` (the
 /// `ios-pagedlist` bench's rows) and fails when a row the reader was looking at moved in any frame
-/// for a reason other than the scroll itself (`frameShift` over half a point), or when scrolling
-/// hitched more than 10 ms a second (not with the busy main thread, which is measured, not judged).
-final class PagedListStressUITests: XCTestCase {
+/// for a reason other than the scroll itself (`frameShift` over half a point).
+///
+/// Two runs of the same cases at the same commit, because the measure of what moved costs frames:
+/// - this suite, the shift run: the lab's frame-shift probe on (committed-frame, pass and drawn
+///   samples, the HUD written every frame). It judges frame shift and the drawn measure; its hitch
+///   numbers are recorded but not judged (the probe cost a busy main thread 63-78 ms/s against 0.24
+///   without it, leased steps 1acec64d..e2be86e7 against cf873f4d..57d7183b).
+/// - ``PagedListStressHitchUITests``, the timing run: the same cases with
+///   `-cmux-mobile-paged-lab-noprobe` (the probe keeps only the hitch meter's hooks, as the app has
+///   none). It judges hitches (more than 10 ms a second; not with the busy main thread, which is
+///   measured, not judged) and records hitch, worst frame and frames; it does not judge frame shift.
+/// Timing numbers count only from a leased host with nothing else on it.
+class PagedListStressUITests: XCTestCase {
+    /// The timing run (``PagedListStressHitchUITests``): the probe off, hitches judged, shift not.
+    class var timing: Bool { false }
+
     override func setUp() {
         // Every case is measured and recorded, also after an assertion fails.
         continueAfterFailure = true
@@ -65,10 +78,12 @@ final class PagedListStressUITests: XCTestCase {
     @MainActor
     private func stress(_ direction: String, _ speed: PagedLabDriver.Speed, _ load: String,
                         window: Int? = nil, judgeHitches: Bool = true) {
+        let timing = Self.timing
         var extra = ["-cmux-mobile-paged-lab-stress", load]
+        if timing { extra.append("-cmux-mobile-paged-lab-noprobe") }
         if let window { extra += ["-cmux-mobile-paged-lab-window", String(window)] }
         let lab = PagedLabDriver.launch("\(direction):normal", extra: extra, test: self)
-        let name = "STRESS-\(direction)-\(speed.rawValue)-\(load)"
+        let name = (timing ? "STRESSHITCH-" : "STRESS-") + "\(direction)-\(speed.rawValue)-\(load)"
         // Any row: under a flood or inserts the first row read can already be off screen.
         XCTAssertTrue(lab.list.cells.firstMatch.waitForExistence(timeout: 20), "\(name): no rows")
         let gestures = speed == .slow ? 14 : 12
@@ -79,18 +94,28 @@ final class PagedListStressUITests: XCTestCase {
         lab.attach("\(name)-back")
         let reading = lab.reading
         let windowJSON = window.map(String.init) ?? "null"
-        lab.record(name, #"{"direction":"\#(direction)","speed":"\#(speed.rawValue)","load":"\#(load)","window":\#(windowJSON),"hud":\#(reading.json)}"#)
+        lab.record(name, #"{"direction":"\#(direction)","speed":"\#(speed.rawValue)","load":"\#(load)","window":\#(windowJSON),"probe":\#(!timing),"hud":\#(reading.json)}"#)
         XCTAssertEqual(lab.app.state, .runningForeground, "\(name): the app stopped")
-        XCTAssertGreaterThan(reading.samples, 30, "\(name): the frame-shift measure sampled \(reading.samples) layout passes")
         XCTAssertGreaterThan(reading.changes, 0, "\(name): the load changed nothing")
-        XCTAssertLessThanOrEqual(reading.frameShift, 0.5,
-                                 "\(name): a row being read moved \(reading.frameShift) pt in a frame the scroll does not explain (\(reading.shiftedFrames) frames)")
-        XCTAssertLessThanOrEqual(reading.maxShift, 0.5, "\(name): a landing page moved the reader \(reading.maxShift) pt")
-        if judgeHitches {
-            XCTAssertLessThanOrEqual(reading.hitchMsPerS, 10, "\(name): scrolling hitched \(reading.hitchMsPerS) ms a second")
-        }
         if let window {
             XCTAssertLessThanOrEqual(reading.inMemory, window + 150, "\(name): \(reading.inMemory) row values in memory with a window of \(window)")
         }
+        if timing {
+            XCTAssertLessThanOrEqual(reading.maxShift, 0.5, "\(name): a landing page moved the reader \(reading.maxShift) pt")
+            if judgeHitches {
+                XCTAssertLessThanOrEqual(reading.hitchMsPerS, 10, "\(name): scrolling hitched \(reading.hitchMsPerS) ms a second")
+            }
+            return
+        }
+        XCTAssertGreaterThan(reading.samples, 30, "\(name): the frame-shift measure sampled \(reading.samples) layout passes")
+        XCTAssertLessThanOrEqual(reading.frameShift, 0.5,
+                                 "\(name): a row being read moved \(reading.frameShift) pt in a frame the scroll does not explain (\(reading.shiftedFrames) frames)")
+        XCTAssertLessThanOrEqual(reading.maxShift, 0.5, "\(name): a landing page moved the reader \(reading.maxShift) pt")
     }
+}
+
+/// The stress bench's timing run: every case of ``PagedListStressUITests`` at the same commit with
+/// the lab's frame-shift probe off (`-cmux-mobile-paged-lab-noprobe`). It judges hitches only.
+final class PagedListStressHitchUITests: PagedListStressUITests {
+    override class var timing: Bool { true }
 }

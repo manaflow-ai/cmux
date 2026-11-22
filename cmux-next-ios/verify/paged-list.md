@@ -145,8 +145,18 @@ measure read it (`c` correction, `o` the list's own move, `U`/`L`/`S` inside an 
 or the layer's layout, `p` a layout adjustment UIKit announced, `d`/`t`/`u` a drag, a resting finger
 or a fling, `K` UIKit moving the offset further inside the finger's or the fling's own set of it (it
 sizes rows above as they come into view and moves the content by as much: nothing moves on screen),
-`n` none of these; `A` is an adjustment announced, `^` one made inside another scroll callback). A case fails above 0.5 pt in any frame, or above
-10 ms of hitches per second. The landing measure (`landing_shift_pt`) judges a landing at rest only: when the finger, a fling or the list's slide moved the offset before it is read, the per-frame measure judges it. Each case prints `PAGEDLIST STRESS-<direction>-<speed>-<load> {…}`;
+`n` none of these; `A` is an adjustment announced, `^` one made inside another scroll callback). A case fails above 0.5 pt in any frame.
+
+The measure costs frames (a busy main thread hitched 63–78 ms/s with it on and 0.24 ms/s with it off,
+the same commit's list, leased steps 1acec64d–e2be86e7 against cf873f4d–57d7183b), and the app never
+turns it on. So every case runs twice at the same commit:
+
+| Run | Suite | Probe | Judges | Records |
+|---|---|---|---|---|
+| Shift | `PagedListStressUITests` | on | frame shift, drawn shift, landing shift | everything (its hitch numbers are not read) |
+| Timing | `PagedListStressHitchUITests` | off (`-cmux-mobile-paged-lab-noprobe`) | above 10 ms of hitches per second (not `busy`), landing shift | hitch, worst frame, frames (`PAGEDLIST STRESSHITCH-…`) |
+
+Hitch, worst-frame and CPU numbers come only from the timing run on a leased host with nothing else on it. The landing measure (`landing_shift_pt`) judges a landing at rest only: when the finger, a fling or the list's slide moved the offset before it is read, the per-frame measure judges it. Each case prints `PAGEDLIST STRESS-<direction>-<speed>-<load> {…}`;
 `scripts/bench/cmux-bench ios-pagedlist --host fleet --arg ref=SHA` runs the suite on a fleet
 simulator and records the rows (frame_shift_pt, shifted_frames, landing_shift_pt, hitch_ms_per_s,
 worst_frame_ms, dropped_frames, in_memory_rows, disk_bytes).

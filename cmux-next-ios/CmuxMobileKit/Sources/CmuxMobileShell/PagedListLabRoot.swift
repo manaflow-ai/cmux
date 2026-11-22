@@ -27,6 +27,12 @@ public struct PagedListLabRoot: View {
     let scenario: PagedLabScenario
     let scheme: ColorScheme?
     let clean: Bool
+    /// `-cmux-mobile-paged-lab-noprobe`: the timing runs (PagedListStressHitchUITests). The probe
+    /// keeps only what the hitch meter and the HUD's landing and slide counts need: no frame-shift,
+    /// pass or drawn sampling, no detail, no per-frame HUD write. Those cost a busy main thread its
+    /// frames (up-fast-busy 63-78 ms/s with them, 0.24 without, leased steps cf873f4d..57d7183b), and
+    /// the app never sets them.
+    let noProbe: Bool
     /// `agentchats:SCENARIO`: the Chats list itself (``AgentChatsGallery``) instead of the lab's rows.
     let agentChats: String?
     @State private var model: PagedListModel<PagedLabItem>
@@ -54,6 +60,7 @@ public struct PagedListLabRoot: View {
         let look = value("-cmux-mobile-gallery-appearance")
         scheme = look == "dark" ? .dark : look == "light" ? .light : nil
         clean = arguments.contains("-cmux-mobile-paged-lab-clean")
+        noProbe = arguments.contains("-cmux-mobile-paged-lab-noprobe")
         // `-cmux-mobile-paged-lab-window N`: keep about N rows in memory, the rest on disk.
         let memory = value("-cmux-mobile-paged-lab-window").flatMap(Int.init).map(PagedListMemory.window) ?? .unbounded
         let source = PagedLabSource(scenario: scenario)
@@ -122,11 +129,13 @@ public struct PagedListLabRoot: View {
         .task {
             probe.pageLanded = { [hud] shift, rows in hud.landed(shift: shift, rows: rows) }
             probe.scrolling = { [hud] moving in hud.scrolling(moving) }
-            probe.frameShift = { [hud] shift in hud.sampled(shift) }
-            probe.passFrameShift = { [hud] shift, mid, detail in hud.passSampled(shift, midPlacement: mid, detail: detail) }
-            probe.samplerCost = { [hud] ms in hud.samplerCost(ms) }
-            probe.drawnShift = { [hud] shift, detail in hud.drawnSampled(shift, detail) }
-            probe.shiftDetail = { [hud] shift, detail in hud.shifted(shift, detail) }
+            if !noProbe {
+                probe.frameShift = { [hud] shift in hud.sampled(shift) }
+                probe.passFrameShift = { [hud] shift, mid, detail in hud.passSampled(shift, midPlacement: mid, detail: detail) }
+                probe.samplerCost = { [hud] ms in hud.samplerCost(ms) }
+                probe.drawnShift = { [hud] shift, detail in hud.drawnSampled(shift, detail) }
+                probe.shiftDetail = { [hud] shift, detail in hud.shifted(shift, detail) }
+            }
             probe.slid = { [hud] frames in hud.slid(frames) }
             probe.held = { [hud] rows in hud.hold(rows) }
             await model.loadFirst()
