@@ -51,6 +51,8 @@ fn receipt(read: &setup::Setup, installed: &setup::Installed, name: &str) -> Rec
         prior_actions: installed.prior_actions.clone(),
         extensions: Vec::new(),
         installed_ms: 10,
+        on: true,
+        layer: installed.layer.clone(),
     }
 }
 
