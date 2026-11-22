@@ -351,6 +351,10 @@ public final class MainThreadWatchdog: Sendable {
         beatCPUNanos.store(cpu, ordering: .releasing)
         beatNanos.store(now, ordering: .releasing)
         beatSequence.store(beat &+ 1, ordering: .releasing)
+        // The stall's log work runs on the new beat while the loop still reads as awake (a stall
+        // exists only when it was awake): the watchdog watches that work as a turn of its own, and
+        // a slow sink there is still a hang it reports, not time it takes for sleep.
+        if let stall { finishStall(stall) }
         let asleep = activity == .beforeWaiting
         mainAsleep.store(asleep, ordering: .releasing)
         if wasAsleep, !asleep {
@@ -361,7 +365,6 @@ public final class MainThreadWatchdog: Sendable {
         } else if asleep, !wasAsleep {
             alarm.disarm()
         }
-        if let stall { finishStall(stall) }
     }
 
     /// A finished stall between ``endStall(start:nanos:cpuNanos:beat:)`` and ``finishStall(_:)``.

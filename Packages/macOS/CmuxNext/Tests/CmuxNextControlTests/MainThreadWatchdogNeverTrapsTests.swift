@@ -46,7 +46,8 @@ import Testing
 
     /// The watchdog thread must see a stall as over while the main thread logs it: by the time
     /// ``MainThreadWatchdog/onStall`` runs (the end of the stall's bookkeeping), the next heartbeat
-    /// is published, so the log's own work never counts as more of the same stall.
+    /// is published, so the log's own work never counts as more of the same stall; and the loop
+    /// still reads as awake, so a slow sink is watched as a turn of its own, not taken for sleep.
     @MainActor
     @Test func theNextHeartbeatIsPublishedBeforeTheStallIsLogged() {
         let clock = ManualUptime()
@@ -58,10 +59,14 @@ import Testing
         watchdog.onStall = { [weak watchdog] _ in
             guard let watchdog else { return }
             seen.values.withLock { $0.append(watchdog.beatSequence.load(ordering: .acquiring)) }
+            // Still awake: a slow sink here is a turn the watchdog watches, not time asleep.
+            if watchdog.mainAsleep.load(ordering: .acquiring) { seen.asleepDuringLog.store(true, ordering: .relaxed) }
         }
         clock.advance(by: .seconds(3))
         watchdog.heartbeat(.beforeWaiting)
         #expect(seen.values.withLock { $0 } == [stallBeat &+ 1], "onStall ran before the stall's heartbeat moved on")
+        #expect(!seen.asleepDuringLog.load(ordering: .relaxed), "onStall ran after the loop was published asleep")
+        #expect(watchdog.mainAsleep.load(ordering: .acquiring), "the before-waiting heartbeat left the loop awake")
         // The ended hang's exact length is still there for its file.
         #expect(watchdog.closeEpisode(beat: stallBeat, lastElapsedNanos: 2_100_000_000) == 3_000_000_000)
     }
@@ -70,4 +75,5 @@ import Testing
 /// Heartbeat sequences `onStall` saw (a class: `Mutex` cannot be captured).
 final class SeenBeats: Sendable {
     let values = Mutex<[UInt64]>([])
+    let asleepDuringLog = Atomic(false)
 }
