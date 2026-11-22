@@ -212,14 +212,19 @@ public nonisolated enum MotionTunables {
     package static var launchDelays: [Tunable<Double>] { [launchMarkDelay, launchTextDelay] }
 
     /// Every Motion tunable, for the catalog.
+    /// Built by appends: Xcode 27 cannot type-check the one `+` chain in reasonable time.
     public static var all: [TunableDescriptor] {
-        MotionSpring.allCases.compactMap { springs[$0]?.descriptor }
-            + MotionFade.allCases.compactMap { fades[$0]?.descriptor }
-            + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
-            + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,
-               tooltipDelay, tooltipWarm, hoverCardGrace, hoverCardAim].map(\.descriptor)
-            + [panelOpenScale, panelCloseScale, popupOpenScale, popupCloseScale].map(\.descriptor)
-            + [agentCursorGlideScale, agentCursorGlideMax].map(\.descriptor)
+        var descriptors: [TunableDescriptor] = MotionSpring.allCases.compactMap { springs[$0]?.descriptor }
+        descriptors += MotionFade.allCases.compactMap { fades[$0]?.descriptor }
+        descriptors += MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
+        let numbers: [Tunable<Double>] = [
+            marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,
+            tooltipDelay, tooltipWarm, hoverCardGrace, hoverCardAim,
+            panelOpenScale, panelCloseScale, popupOpenScale, popupCloseScale,
+            agentCursorGlideScale, agentCursorGlideMax,
+        ]
+        descriptors += numbers.map(\.descriptor)
+        return descriptors
     }
 }
 
