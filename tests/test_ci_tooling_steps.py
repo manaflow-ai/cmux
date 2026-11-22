@@ -186,6 +186,16 @@ class FixtureRepo(unittest.TestCase):
             self.assertTrue(decision.all, changed)
             self.assertTrue(all(s.run for s in decision.steps), changed)
 
+    def test_a_bash_env_command_substitution_still_names_its_file(self):
+        # The API call log's BASH_ENV is one $( ) that echoes the checkout's file or a fetched copy (2026-11-21).
+        path = self.root / WORKFLOW
+        path.write_text(path.read_text().replace(
+            "BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/env.sh",
+            "BASH_ENV: '$({ w=\"${GITHUB_WORKSPACE:-/nonexistent}/scripts/env.sh\"; [ -f \"$w\" ] && echo \"$w\"; } 2>/dev/null)'"))
+        decision = self.route(["webviews/src/pane.tsx", "scripts/env.sh"])
+        self.assertTrue(decision.all)
+        self.assertFalse(self.route(["webviews/src/pane.tsx"]).all)
+
     def test_a_non_pull_request_event_or_no_list_runs_every_step(self):
         self.assertTrue(self.route(["webviews/src/pane.tsx"], event="push").all)
         self.assertTrue(self.route(None).all)
