@@ -83,8 +83,13 @@ export type ThreadTransaction = {
   sources: () => readonly string[];
 };
 
-/// Whether this page runs the transaction (the experiment's arm), read once per call site.
-export const transactionOn = (): boolean => experimentArm(compoundMotion) === "transaction";
+/// The attribute a host sets to pick the arm for the chats under it (the gallery's before and after
+/// side by side); else the page's arm of compound-motion.
+export const COMPOUND_MOTION_ATTR = "data-compound-motion";
+/// Whether the thread runs the transaction. One `closest` walk per move.
+export const transactionOn = (thread: Element): boolean =>
+  (thread.closest(`[${COMPOUND_MOTION_ATTR}]`)?.getAttribute(COMPOUND_MOTION_ATTR) ?? experimentArm(compoundMotion)) ===
+  "transaction";
 
 const transactions = new WeakMap<HTMLElement, ThreadTransaction>();
 

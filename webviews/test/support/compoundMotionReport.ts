@@ -4,34 +4,6 @@
 // by a still frame or a turn of direction. One cohesive motion is one phase; Leo's "one-two" is two.
 import type { Sample } from "../browser/compound-motion.harness";
 
-export type Scenario =
-  | "control"
-  | "send-1"
-  | "send-5"
-  | "send-15"
-  | "steer"
-  | "fold-stream"
-  | "resize-fold"
-  | "growth-stream"
-  | "stack-stream"
-  | "subagent-land"
-  | "recap-end";
-
-/// The step each scenario's event starts in (the map's window starts there).
-export const EVENT_STEP: Record<Scenario, string> = {
-  control: "rest",
-  "send-1": "send",
-  "send-5": "send",
-  "send-15": "send",
-  steer: "steer",
-  "fold-stream": "open",
-  "resize-fold": "open",
-  "growth-stream": "grow",
-  "stack-stream": "queue",
-  "subagent-land": "land",
-  "recap-end": "end",
-};
-
 /// A frame moves the anchor when it shifts it more than this, px.
 export const MOVING_PX = 0.25;
 

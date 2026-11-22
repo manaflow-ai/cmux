@@ -13,13 +13,11 @@ import path from "node:path";
 import { chromium } from "playwright";
 import type { Sample } from "./browser/compound-motion.harness";
 import {
-  analyzeRun,
+  COMPOUND_CASES,
   EVENT_STEP,
-  summarize,
-  type CaseReport,
-  type RunReport,
-  type Scenario,
-} from "./support/compoundMotionReport";
+  type CompoundCase as Scenario,
+} from "../src/agent-session/acpmux/conversation/compoundCases";
+import { analyzeRun, summarize, type CaseReport, type RunReport } from "./support/compoundMotionReport";
 import { FramesUnsupported, open120Hz } from "./support/frames120";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -69,17 +67,7 @@ await requireBrowserLane("compound-motion.test.ts", async () => {
   const RUNS = Number(process.env.CMUX_COMPOUND_RUNS) || 3;
   const ARMS = ["separate", "transaction"] as const;
   const CASES: Scenario[] = (process.env.CMUX_COMPOUND_CASES?.split(",") as Scenario[] | undefined) ?? [
-    "control",
-    "send-1",
-    "send-5",
-    "send-15",
-    "steer",
-    "fold-stream",
-    "resize-fold",
-    "growth-stream",
-    "stack-stream",
-    "subagent-land",
-    "recap-end",
+    ...COMPOUND_CASES,
   ];
 
   async function once(arm: string, scenario: Scenario): Promise<RunReport | undefined> {
