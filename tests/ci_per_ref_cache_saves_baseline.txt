@@ -2,25 +2,9 @@
 # tests/test_ci_no_run_scoped_cache_keys.py's per-ref rule (2026-11-18). Each saves a copy per ref that
 # only that ref reads again. Shrink this list (limit the save to a feat-cmux-next push); never grow it.
 backend.yml: test: Cache Bun package cache
-billing.yml: billing: Cache Bun package cache
 billing.yml: ios-billing: Cache cargo
 build-ghosttykit.yml: build-ghosttykit: Cache Zig packages
 chief-evals.yml: evals: Swatinem/rust-cache
-ci-web.yml: agent-pane-real-acpmux: Cache Bun package cache
-ci-web.yml: diff-sidecar-check: Cache Bun package cache
-ci-web.yml: react-apps-base-check: Cache Bun package cache
-ci-web.yml: react-apps-base-check: Cache Playwright browsers
-ci-web.yml: react-apps-base-early: Cache Bun package cache
-ci-web.yml: react-apps-base-early: Cache Playwright browsers
-ci-web.yml: react-apps-check-shard: Cache Bun package cache
-ci-web.yml: react-apps-check-shard: Cache Playwright browsers
-ci-web.yml: react-doctor: Cache Bun package cache
-ci-web.yml: web-db-migrations: Cache Bun package cache
-ci-web.yml: web-instant-navigation: Cache Bun package cache
-ci-web.yml: web-instant-navigation: Cache Playwright browsers
-ci-web.yml: web-production-build: Cache Bun package cache
-ci-web.yml: web-tests: Cache Bun package cache
-ci-web.yml: web-typecheck: Cache Bun package cache
 ci-web.yml: webviews-test-durations: Save the duration manifest
 cloud-vm-image-bake.yml: bake: Cache Bun package cache
 cmux-mobile-ffi.yml: android: Cache cargo

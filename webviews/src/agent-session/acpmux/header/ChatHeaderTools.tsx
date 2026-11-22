@@ -1,7 +1,7 @@
 // The chat header's top right: the quick actions (quickActions.ts: which show, in which order, and
 // whether each toggles or opens; by default Changes, while it applies, then Terminal and Browser, which
-// split the pane in the chat's folder and toggle, as in T3 Chat and ChatGPT; Browser opens the chat's
-// local page when there is one, the job of the Preview button a person can still show); the
+// split the pane in the chat's folder and toggle, as in T3 Chat and ChatGPT; Browser always opens a
+// blank browser, and the chat's local page is Preview's, a button or a "..." row); the
 // summary (Sources) button, whose popover also opens the last turn's changes; and the "..." chat menu,
 // which starts with the quick actions not shown as buttons ([+] New tab, which reads Hide tabs in place,
 // Files and Split Down; each while it applies). Before them, the chat branch's pull request with its
@@ -331,13 +331,9 @@ function ChatHeaderToolsView({
         shortcutAction: HEADER_ACTIONS.changes,
         onSelect: () => onChanges("toggle"),
       });
-    // Browser opens the chat's page itself, so Preview folds only without a Browser button.
-    if (
-      onPreview &&
-      !shownIds.has("preview") &&
-      !shownIds.has("browser") &&
-      (previewUrl || lit.includes(HEADER_ACTIONS.preview))
-    )
+    // Preview folds whenever it is not a button: Browser always opens a blank browser
+    // (https://github.com/manaflow-ai/cmux/issues/49623).
+    if (onPreview && !shownIds.has("preview") && (previewUrl || lit.includes(HEADER_ACTIONS.preview)))
       folded.push({
         key: "quick-preview",
         label: t("header.preview"),
