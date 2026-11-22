@@ -12,7 +12,7 @@ extension TerminalSurfaceView {
     /// `debug.motion` `trace_*` sampler (FRAME OWNER S4 defect (a): which present path drew each terminal frame in a
     /// drag): per display frame, each shown terminal surface as `terminal`:
     /// `[x, y, width, height, shown width px, shown height px, frames, off-main presents, fresh presents,
-    /// display passes, main draws, late presents, owned, presenter, host frame, id]`.
+    /// display passes, main draws, late presents, owned, presenter, host frame, id, size asks]`.
     /// The rect is what shows of the surface layer (cut by each ancestor that clips: its pane's clip) in window points
     /// with a top-left origin (the committed model); a surface none of which shows has no row; `shown` is the
     /// IOSurface the layer shows (0 before the first frame); the counters are Ghostty's render counters, cumulative
@@ -20,7 +20,8 @@ extension TerminalSurfaceView {
     /// `owned` is 1 once its window's commit owns its frame (every made surface, cmux-ad m19); `presenter` is
     /// ``TerminalFramePresenter/debugState(of:)`` (request, watch, commit or -); `host frame` is what
     /// `ghostty_surface_host_frame` answers now without presenting (owned only, else "-"); `id` names the surface for
-    /// the trace's life (a terminal that moves to another pane is one mover). It reads only while the trace
+    /// the trace's life (a terminal that moves to another pane is one mover); `size asks` are the sizes asked of it or given
+    /// to it since the last sample, each with its calls (``noteSizeAskForTrace(_:_:)``). It reads only while the trace
     /// records; nothing runs when it does not.
     static func motionSample(_ view: NSView) -> [String: [Any]]? {
         guard let surfaceView = view as? TerminalSurfaceView else { return nil }
@@ -48,8 +49,20 @@ extension TerminalSurfaceView {
                           counters.frames, counters.host_off_main_presents, counters.host_fresh_presents,
                           counters.host_display_passes, counters.host_main_draws, counters.host_late_presents,
                           owned ? 1 : 0, presenter, owned ? Self.name(surfaceView.hostFrame(present: false)) : "-",
-                          String(UInt(bitPattern: ObjectIdentifier(surfaceView).hashValue), radix: 16)]
+                          String(UInt(bitPattern: ObjectIdentifier(surfaceView).hashValue), radix: 16),
+                          surfaceView.frameOwnership.debugSizeAsks]
+        surfaceView.frameOwnership.debugSizeAsks = []
         return ["terminal": [row]]
+    }
+
+    /// Notes a size asked of this view or given to it while a trace runs (`kind`: `place`, `frame` set outside a landing,
+    /// `land`), with the calls that made it; the next sample's row carries the notes since the last one.
+    func noteSizeAskForTrace(_ kind: String, _ size: CGSize) {
+        let stack = Thread.callStackSymbols.dropFirst(2).prefix(16).map { line in
+            line.split(separator: " ", omittingEmptySubsequences: true).dropFirst(3).prefix(1).joined()
+        }.joined(separator: "<")
+        let note = "\(kind) \(Int(size.width))x\(Int(size.height)) @\(Int(CACurrentMediaTime() * 1000)): \(stack)"
+        frameOwnership.debugSizeAsks = Array((frameOwnership.debugSizeAsks + [note]).suffix(8))
     }
 
     private static func name(_ state: ghostty_host_frame_e) -> String {
