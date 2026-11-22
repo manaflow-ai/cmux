@@ -24,6 +24,23 @@ extension SidebarStyle {
     }
 }
 
+extension SidebarStyle {
+    /// The side a favicon's ink fills on a row (a page's, an app's, an agent's icon): the tab's favicon box
+    /// (`Metrics.tabIconSize`) grown with the sidebar's text size as the glyphs are, so a row's favicon is the size the
+    /// same favicon has on its horizontal tab. A pack glyph (Home's house, the Chief's crown, a pin) shows 11 of 16 of
+    /// that box, as it does on a tab, so the two keep the tab bar's balance. https://github.com/manaflow-ai/cmux/issues/49583
+    /// (user, 2026-11-22): "the icon sizes should be the same size as the horizontal tabs"; fitting a favicon's ink to
+    /// the glyphs' optical side drew it about 1.4x smaller than on its tab.
+    static var rowFaviconOpticalSide: CGFloat {
+        let glyphInk = Metrics.densityToken("sidebarGlyphInk") ?? Metrics.tabIconSize * 11 / 16
+        return (rowGlyphOpticalSide * Metrics.tabIconSize / max(1, glyphInk) * 2).rounded() / 2
+    }
+    /// ``rowGlyphOptics`` at the favicon's side.
+    static var rowFaviconOptics: SidebarOpticalGlyph {
+        SidebarOpticalGlyph(target: rowFaviconOpticalSide, box: rowGlyphOptics.box.map { max($0, rowFaviconOpticalSide) })
+    }
+}
+
 extension SidebarIconButton {
     /// A row's trailing control (Pin, Unpin, ✕, the tree's chevron, the speaker): its glyph at `rowSymbolSide`, in a
     /// `controlSize` square the row frames on its center line.

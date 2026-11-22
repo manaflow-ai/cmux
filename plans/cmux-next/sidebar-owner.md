@@ -2683,3 +2683,9 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   Sidebar-Look: "are all of these the same size icons wise… look at the top left one… fix the problem"
   2026-11-22: `rowSymbolSide` never goes under the pack's `iconFloor` (12 pt), which every glyph clamps to (Ultra-compact
   computed 11.5).
+  2026-11-22 (scope add): a row's favicon (a page's, an app's or an agent's icon) draws at its horizontal tab's size,
+  `SidebarStyle.rowFaviconOpticalSide`: the tab's favicon box (`Metrics.tabIconSize`) grown with the sidebar's text size.
+  Pack glyphs (Home, the Chief's crown, pins) keep `rowGlyphOpticalSide`, 11/16 of that box, the share a glyph shows
+  on a tab, so the row keeps the tab bar's balance. Fitting every favicon's ink to the glyphs' side had drawn it about
+  1.4x smaller than on its tab.
+  Sidebar-Look: "the icon sizes should be the same size as the horizontal tabs... the icon sizes need to be kind of standardized"
