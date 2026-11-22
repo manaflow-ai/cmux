@@ -25,7 +25,7 @@ struct FieldCheckingSpan {
     /// The furthest the span widens to reach a word boundary.
     let wordSlack: Int
 
-    init(longParagraph: Int = 1024, radius: Int = 256, wordSlack: Int = 64) {
+    init(longParagraph: Int = 1024, radius: Int = 128, wordSlack: Int = 64) {
         self.longParagraph = longParagraph
         self.radius = radius
         self.wordSlack = wordSlack
