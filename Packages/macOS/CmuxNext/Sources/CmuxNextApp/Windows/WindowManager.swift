@@ -236,10 +236,10 @@ final class WindowManager {
             makeController(for: WindowRegistry.Window(id: id, frame: services.daemon.launchSnapshotWindows?.lastFrame?.rect,
                                                       display: services.daemon.launchSnapshotWindows?.lastDisplay))
         }
-        let store = services.daemon.store
+        let store = services.daemon.store; DebugTimings.markLaunch("window.restore_wait_start") // the wait on the daemon's first tree
         loadObservation = Task { [weak self] in
             for await loaded in ObservationStream({ store.isLoaded }) where loaded {
-                await self?.restore()
+                DebugTimings.markLaunch("window.restore_wait_end"); await self?.restore()
                 return
             }
         }
@@ -350,8 +350,10 @@ final class WindowManager {
         services.onboarding.chief.begin(freshInstall: isFirstRun && ChiefIntroStore(defaults: .standard).welcomePending)
         Task {
             await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace)
-            // One step at a time: Agents, then Bring your history once its window closed.
+            // One step at a time: the Set Up cmux card, or the first-run windows one after another.
             await services.onboarding.showFirstRunSteps(isFirstRun: isFirstRun)
+            // A new person's first launch: a new agent chat, ready to type (cmux#48416).
+            await services.onboarding.openFirstChat(isFirstRun: isFirstRun)
             // Then, once per channel: `cmux` in Terminal that would not run this app.
             await CLIInstallHandlers.offerAtLaunch(skipsOnboarding: services.environment.launchSteps.skipsFirstRun)
         }
@@ -413,14 +415,14 @@ final class WindowManager {
     /// Creates the controller of registered window `id`.
     @discardableResult
     func makeController(for window: WindowRegistry.Window) -> WindowController {
-        let state = state(for: window.id)
+        DebugTimings.markLaunch("window.make_start"); let state = state(for: window.id) // the first window's marks (startup-tti)
         var frame = (window.frame ?? pendingFrames.removeValue(forKey: window.id)).map { WindowPlacementFallback.visible($0, display: window.display) }
         let placement = services.environment.testWindow
         if let placement, let placed = placement.windowFrame(ordinal: placedWindows, visibleFrames: NSScreen.screens.map(\.visibleFrame)) {
             frame = placed
             placedWindows += 1
         }
-        let controller = WindowController(state: state, services: services, frame: frame)
+        let controller = WindowController(state: state, services: services, frame: frame); DebugTimings.markLaunch("window.init_done")
         controller.window?.animationBehavior = Motion.panes.windowOpenBehavior(restoring: restoresSession(window.id)) // REOPEN-F2: a restore shows in place; a new window opens like one (#38128)
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
@@ -482,7 +484,7 @@ final class WindowManager {
             // A restored window shown alone comes forward without key; the order keeps its saved place.
             let kept = keepsOrder
             keepsOrder = restacks
-            WindowActivation.show(window, restacks ? .bringForward : behind ? .presentBehind : .present)
+            WindowActivation.show(window, restacks ? .bringForward : behind ? .presentBehind : .present); DebugTimings.markLaunch("window.ordered_front")
             keepsOrder = kept
         }
         onPresent?(controller)

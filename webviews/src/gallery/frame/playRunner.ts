@@ -334,7 +334,12 @@ function measurePopups(): PopupMeasure[] {
     return rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== "hidden";
   });
   const outermost = found.filter((element) => !found.some((other) => other !== element && other.contains(element)));
-  return outermost.map((popup) => {
+  // A tooltip draws no hit target (pointer-events: none), so elementFromPoint sees what is under it;
+  // each takes hits for the sampling only, to tell a covered tooltip from one on top. Every popup is
+  // switched before any is read and restored after, so the sampling forces one layout, not one each.
+  const hitTestable = outermost.map((popup) => (popup as HTMLElement).style.pointerEvents);
+  for (const popup of outermost) (popup as HTMLElement).style.pointerEvents = "auto";
+  const measures = outermost.map((popup) => {
     const rect = popup.getBoundingClientRect();
     const inset = 3;
     const points: [string, number, number][] = [
@@ -378,6 +383,8 @@ function measurePopups(): PopupMeasure[] {
       clippedBy,
     };
   });
+  outermost.forEach((popup, index) => ((popup as HTMLElement).style.pointerEvents = hitTestable[index]!));
+  return measures;
 }
 
 /**

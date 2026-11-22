@@ -166,6 +166,16 @@ fn kind_schema(row: &Row) -> Value {
         Validation::Domain(DomainKind::BackdropLocation) => {
             return json!({ "type": "string", "pattern": super::backdrop::LOCATION_PATTERN });
         }
+        Validation::Domain(DomainKind::BackdropMemory) => {
+            let folder = json!({ "type": "string", "pattern": "^folder:/." });
+            let rotate = json!({ "anyOf": [{ "const": "daily" }, folder] });
+            let off = json!({ "anyOf": [{ "const": "none" }, picture()] });
+            return json!({
+                "type": "object",
+                "properties": { "rotate": rotate, "folder": folder, "off": off },
+                "additionalProperties": false,
+            });
+        }
         Validation::Domain(DomainKind::ChatRoots) => {
             return json!({ "type": "array", "items": { "type": "string", "pattern": "^/" } });
         }
@@ -200,6 +210,24 @@ fn kind_schema(row: &Row) -> Value {
                 },
             });
             return json!({ "type": "array", "items": { "anyOf": [name, rule] } });
+        }
+        Validation::Domain(DomainKind::TranscriptTokens) => {
+            // One property per token of schemas/transcript-look/transcript-look.json, so an editor
+            // completes and checks a theme file's tokens.
+            let mut properties = Map::new();
+            for token in &crate::transcript_look::spec().tokens {
+                let schema = match token.kind {
+                    crate::transcript_look::TokenKind::Choice => {
+                        json!({ "enum": token.choices, "description": token.description })
+                    }
+                    crate::transcript_look::TokenKind::Number => json!({
+                        "type": "number", "minimum": token.min, "maximum": token.max,
+                        "description": token.description,
+                    }),
+                };
+                properties.insert(token.name.clone(), schema);
+            }
+            return json!({ "type": "object", "properties": properties, "additionalProperties": false });
         }
         Validation::Domain(DomainKind::AppId) => {
             // The manifest's own id pattern, read from its schema.

@@ -148,6 +148,77 @@ export function scoreBoxFrames(
   return { score: Math.round(score * 1e5) / 1e5, moves };
 }
 
+/** How far the transcript's rows drifted over a run in which nothing new may move them. */
+export type HeldDrift = {
+  /** The largest distance, CSS px, of any row from where it was when first seen (0 when all held). */
+  worst: number;
+  /** The row that drifted furthest, and in which frame. */
+  label?: string;
+  frame?: number;
+  /** Frames in which some row was off its first place by more than `MOVE_SLACK`. */
+  driftFrames: number;
+};
+
+/**
+ * The held-bottom detector (Leo, 2026-11-18, his chat sat at the bottom while clocks ticked and the
+ * transcript bounced 30–70 px every second or so: "did we fix this scroll bounce at the bottom
+ * yet?"). For a run in which nothing new arrives (a wait on a chat whose rows do not change: a
+ * ticking status line, a running command's clock, the same snapshot sent again), every transcript row
+ * must stay exactly where it was first seen, every frame. Unlike the box score and the follow judge,
+ * nothing is exempt as a follow: a shared translation of every row that goes away and comes back over
+ * a few hundred ms is a bounce, though the follow judge's reversal window (`REVERSE_FRAMES`) is too
+ * short to see it. Rows a keyframe animation moves are skipped (an entrance); a row that leaves the
+ * view and comes back is judged against where it first was.
+ */
+export function heldRowDrift(frames: readonly BoxFrame[]): HeldDrift {
+  const first = new Map<number, number>();
+  let worst = 0;
+  let label: string | undefined;
+  let frame: number | undefined;
+  let driftFrames = 0;
+  frames.forEach((current, index) => {
+    let drifted = false;
+    for (const [id, sample] of current) {
+      if (!sample.row || sample.animating) continue;
+      const y = sample.box.y;
+      const at = first.get(id);
+      if (at === undefined) {
+        first.set(id, y);
+        continue;
+      }
+      const off = Math.abs(y - at);
+      if (off <= MOVE_SLACK) continue;
+      drifted = true;
+      if (off > worst) {
+        worst = off;
+        label = sample.label;
+        frame = index;
+      }
+    }
+    if (drifted) driftFrames++;
+  });
+  return { worst: Math.round(worst * 10) / 10, driftFrames, ...(label ? { label, frame } : {}) };
+}
+
+/** Samples the page's boxes after every painted frame until `stop`, which judges them as a held run
+ *  (`heldRowDrift`): for a play step that waits on a chat nothing new reaches. */
+export function startHeldTracker(doc: Document): { stop(): HeldDrift } {
+  const frames: BoxFrame[] = [];
+  const view = doc.defaultView!;
+  const sample = () => {
+    if (frames.length < MAX_FRAMES) frames.push(sampleBoxes(doc, null));
+  };
+  sample();
+  const stopSampling = afterEachPaint(windowPaintClock(view), sample);
+  return {
+    stop() {
+      stopSampling();
+      sample();
+      return heldRowDrift(frames);
+    },
+  };
+}
+
 /** A source of a browser layout-shift entry (`LayoutShift.sources`): the node and its rects. */
 export type LayoutShiftSource = {
   node?: Node | null;

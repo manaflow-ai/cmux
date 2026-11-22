@@ -122,7 +122,7 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// listed: the others, and this Mac with `sidebar.showLocalMachine`. Empty with one machine,
     /// where a mark would tell nothing.
     public var machines: [MachineID: SidebarMachine] = [:]
-    /// The Cloud machines listed: their rows draw a cloud mark beside the name (``WorkspaceRowContent/runsInCloud``)
+    /// The Cloud machines listed: their rows draw a small muted cloud in the trailing status cluster (``WorkspaceRowContent/runsInCloud``)
     /// and never their machine's name.
     public var cloudMachines: Set<MachineID> = []
     /// Keep the active workspace visible beneath a collapsed group so the
@@ -232,6 +232,11 @@ nonisolated extension SidebarLayoutOptions {
         // keeps its height, so rows do not grow and shrink as agents start and stop.
         if content.detail != nil, let step = ws.agentStep {
             (content.now, content.detail) = (step, step)
+        }
+        // Steps left in the agent's task list: a quiet "3/7" where a one-line status would sit, never
+        // over a status or an expanded row's age, and never a line of its own.
+        if let tasks = ws.taskProgress, content.trailingStatus == nil, content.time == nil {
+            (content.tasks, content.trailingStatus) = (tasks, tasks.countText)
         }
         return content
     }
