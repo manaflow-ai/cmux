@@ -23,6 +23,7 @@
 //! What the code changes that a running app cannot take (Swift, resources,
 //! Rust the app links) is listed on the entry as "needs a build".
 
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
