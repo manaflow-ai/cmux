@@ -1125,13 +1125,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         guard !drawnRows.isEmpty else { return }
         // The row being read last frame when it is still drawn, else the first row drawn in both
         // frames (a row swapped out of the list is not followed out of it).
-        let was: (id: CellID, y: CGFloat)?
-        if let id = drawnReading, let row = drawnRows.first(where: { $0.id == id }), rows.contains(where: { $0.id == id }) {
-            was = row
-        } else {
-            was = drawnRows.first { old in rows.contains { $0.id == old.id } }
-        }
-        guard let was, let now = rows.first(where: { $0.id == was.id }) else { return }
+        guard let id = drawnReading, let place = drawnRows.firstIndex(where: { $0.id == id }), place < rows.count else { return }
+        let was = drawnRows[place]
+        let now = rows[place]
         let shift = (now.y - was.y) + explained
         let detail = abs(shift) > 0.5 && probe?.shiftDetail != nil
             ? String(format: "drawn moved=%.1f explained=%.1f row=%@ followed=%@", now.y - was.y, explained,
