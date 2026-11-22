@@ -29,7 +29,6 @@ import {
 } from "./permissions/prompt";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 import { focusRoute } from "../../ui/focusRoute";
-import { Button } from "../../ui/Button";
 import { cx } from "../../ui/cx";
 import { Surface } from "../../ui/surface/Surface";
 
@@ -55,6 +54,7 @@ export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, Permiss
     return (
       <Surface
         as="fieldset"
+        // oxlint-disable-next-line jsx-a11y/aria-role -- the Surface role, not an ARIA role
         role="ask"
         ref={ref}
         className={cx("acpmux-permission-card", className)}

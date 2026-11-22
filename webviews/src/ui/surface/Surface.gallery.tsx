@@ -32,6 +32,7 @@ const COPY: Record<SurfaceRole, string> = {
 function Specimen({ role }: { role: SurfaceRole }) {
   if (role === "ask")
     return (
+      // oxlint-disable-next-line jsx-a11y/aria-role -- the Surface role, not an ARIA role
       <Surface as="fieldset" role="ask" aria-label="Confirm base unchanged for edited files">
         <Surface.Header icon={<Terminal />}>Confirm base unchanged for edited files</Surface.Header>
         <Surface.Body>
@@ -61,6 +62,7 @@ function Specimen({ role }: { role: SurfaceRole }) {
     );
   if (role === "pill")
     return (
+      // oxlint-disable-next-line jsx-a11y/aria-role -- the Surface role, not an ARIA role
       <Surface role="pill">
         <Surface.Header>main · 3 ahead</Surface.Header>
       </Surface>
