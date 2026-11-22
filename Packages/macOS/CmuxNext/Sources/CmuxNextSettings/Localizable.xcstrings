@@ -1,6 +1,530 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.notifications.delivery.permissionRequest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permission Request"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلب إذن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zahtjev za dozvolu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmodning om tilladelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berechtigungsanfrage"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solicitud de permiso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demande d’autorisation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Richiesta di autorizzazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "権限のリクエスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សំណើសុំការអនុញ្ញាត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "권한 요청"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forespørsel om tillatelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prośba o uprawnienie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solicitação de permissão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запрос разрешения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำขอสิทธิ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İzin İsteği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запит дозволу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yêu cầu quyền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "权限请求"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "權限要求"
+          }
+        }
+      }
+    },
+    "settings.notifications.delivery.question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Question"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سؤال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pitanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spørgsmål"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frage"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pregunta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Question posée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domanda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "質問"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សំណួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "질문"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spørsmål"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pytanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pergunta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вопрос"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soru"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запитання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Câu hỏi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "问题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "問題"
+          }
+        }
+      }
+    },
+    "settings.notifications.delivery.taskComplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task Complete"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اكتملت المهمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadatak završen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opgave fuldført"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgabe abgeschlossen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarea completada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tâche terminée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attività completata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスク完了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កិច្ចការបានបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 완료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgave fullført"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadanie ukończone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarefa concluída"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Задача завершена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "งานเสร็จสมบูรณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Görev Tamamlandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завдання завершено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác vụ hoàn tất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任务完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作完成"
+          }
+        }
+      }
+    },
+    "settings.notifications.delivery.banner": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Banner"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لافتة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baner"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifikationsbanner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mitteilungsbanner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tira"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bannière"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Banner di notifica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バナー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បដា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배너"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varslingsbanner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baner"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faixa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Баннер"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบนเนอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildirim Başlığı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Банер"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biểu ngữ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "横幅"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "橫幅"
+          }
+        }
+      }
+    },
     "settings.sidebarSection.more": {
       "comment": "Settings window sidebar: the header of the last section, which starts closed and holds the pages a person opens less often (New Tab, Menus, Keys, Privacy, Advanced, ...). A click opens or closes it.",
       "extractionState": "manual",
@@ -5294,6 +5818,330 @@
             "value": "按右鍵點聊天並選擇「聊天顏色」可單獨設定。"
           }
         }
+      }
+    },
+    "settings.appearance.twoTone": {
+      "comment": "Settings > Theme > Two-Tone: title of the setting (appearance.twoTone) that gives the sidebar and tab bar one tone and the panes another",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Two-Tone"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "ثنائي اللون"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dvobojno"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Totonet"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Zweifarbig"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Bicolor"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Bicolore"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Bicolore"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ツートーン"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពីរពណ៌"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "투톤"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Totonet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Dwukolorowy"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Duas cores"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Двухцветный"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "สองโทน"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "İki ton"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Двоколірний"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hai tông màu"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "双色"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "雙色"}}
+      }
+    },
+    "settings.appearance.twoTone.help": {
+      "comment": "Settings > Theme > Two-Tone: help",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "الشريط الجانبي وشريط الألسنة بلون، واللوحات بلون آخر. يعمل مع كل نمط نافذة وكل سمة."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Bočna traka i traka kartica u jednom tonu, okna u drugom. Radi sa svakim stilom prozora i temom."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Sidepanelet og fanebjælken i én tone, ruderne i en anden. Virker med alle vinduesstile og temaer."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Seitenleiste und Tableiste in einem Ton, die Bereiche in einem anderen. Funktioniert mit jedem Fensterstil und Theme."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La barra lateral y la barra de pestañas en un tono, los paneles en otro. Funciona con cualquier estilo de ventana y tema."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La barre latérale et la barre d'onglets dans un ton, les panneaux dans un autre. Fonctionne avec tous les styles de fenêtre et thèmes."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "La barra laterale e la barra delle schede in un tono, i riquadri in un altro. Funziona con ogni stile di finestra e tema."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーとタブバーを一つのトーン、ペインを別のトーンにします。すべてのウインドウスタイルとテーマで使えます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "របារចំហៀង និងរបារផ្ទាំងក្នុងពណ៌មួយ ផ្ទាំងក្នុងពណ៌មួយទៀត។ ដំណើរការជាមួយរចនាបថបង្អួច និងស្បែកទាំងអស់។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바와 탭 막대는 한 가지 톤으로, 패널은 다른 톤으로 표시합니다. 모든 윈도우 스타일과 테마에서 작동합니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Sidepanelet og fanelinjen i én tone, rutene i en annen. Fungerer med alle vindusstiler og temaer."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pasek boczny i pasek kart w jednym tonie, panele w innym. Działa z każdym stylem okna i motywem."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A barra lateral e a barra de abas em um tom, os painéis em outro. Funciona com qualquer estilo de janela e tema."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Боковая панель и панель вкладок в одном тоне, панели — в другом. Работает с любым стилем окна и темой."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แถบด้านข้างและแถบแท็บเป็นโทนหนึ่ง แผงเป็นอีกโทนหนึ่ง ใช้ได้กับทุกสไตล์หน้าต่างและธีม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu ve sekme çubuğu bir tonda, bölmeler başka bir tonda. Her pencere stili ve temayla çalışır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Бічна панель і панель вкладок в одному тоні, панелі — в іншому. Працює з будь-яким стилем вікна й темою."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thanh bên và thanh thẻ một tông màu, các khung một tông khác. Dùng được với mọi kiểu cửa sổ và chủ đề."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "侧边栏和标签栏用一种色调，窗格用另一种。适用于所有窗口样式和主题。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄和標籤列用一種色調，窗格用另一種。適用於所有視窗樣式和主題。"}}
+      }
+    },
+    "settings.appearance.twoTone.summary": {
+      "comment": "Settings > Theme > Two-Tone: one-line summary",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "A second tone for the sidebar and tab bar"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لون ثانٍ للشريط الجانبي وشريط الألسنة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Drugi ton za bočnu traku i traku kartica"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "En anden tone til sidepanelet og fanebjælken"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ein zweiter Ton für Seitenleiste und Tableiste"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Un segundo tono para la barra lateral y la barra de pestañas"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Un second ton pour la barre latérale et la barre d'onglets"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Un secondo tono per la barra laterale e la barra delle schede"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーとタブバーに別のトーン"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពណ៌ទីពីរសម្រាប់របារចំហៀង និងរបារផ្ទាំង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바와 탭 막대용 두 번째 톤"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "En annen tone for sidepanelet og fanelinjen"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Drugi ton dla paska bocznego i paska kart"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Um segundo tom para a barra lateral e a barra de abas"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Второй тон для боковой панели и панели вкладок"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "โทนที่สองสำหรับแถบด้านข้างและแถบแท็บ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu ve sekme çubuğu için ikinci bir ton"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Другий тон для бічної панелі й панелі вкладок"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tông màu thứ hai cho thanh bên và thanh thẻ"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "为侧边栏和标签栏使用第二种色调"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "為側邊欄和標籤列使用第二種色調"}}
+      }
+    },
+    "settings.choice.twoTone.auto": {
+      "comment": "Settings > Theme > Two-Tone: choice that derives the second tone from the current theme",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "From Theme"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "من السمة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Iz teme"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Fra tema"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Aus dem Theme"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Del tema"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Depuis le thème"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Dal tema"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "テーマから"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពីស្បែក"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "테마에서"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Fra tema"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Z motywu"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Do tema"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Из темы"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "จากธีม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Temadan"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "З теми"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Theo chủ đề"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "来自主题"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "來自主題"}}
+      }
+    },
+    "settings.choice.twoTone.inkSakura": {
+      "comment": "Settings > Theme > Two-Tone: the curated pairing Ink & Sakura",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Ink & Sakura"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "حبر وساكورا"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Tinta i sakura"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Blæk og sakura"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Tinte & Sakura"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Tinta y sakura"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Encre et sakura"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Inchiostro e sakura"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "墨と桜"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ទឹកខ្មៅ និងសាគូរ៉ា"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "먹과 벚꽃"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Blekk og sakura"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Atrament i sakura"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Tinta e sakura"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Чернила и сакура"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "หมึกและซากุระ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Mürekkep ve sakura"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Чорнило й сакура"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Mực và anh đào"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "墨与樱"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "墨與櫻"}}
+      }
+    },
+    "settings.choice.twoTone.charcoalRose": {
+      "comment": "Settings > Theme > Two-Tone: the curated pairing Charcoal & Rose",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Charcoal & Rose"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "فحمي ووردي"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Ugljen i ruža"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Trækul og rosa"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Anthrazit & Rosé"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Carbón y rosa"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Charbon et rose"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Carbone e rosa"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "チャコールとローズ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ធ្យូង និងផ្កាកុលាប"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "차콜과 로즈"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Kull og rosa"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Grafit i róż"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Carvão e rosa"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Уголь и роза"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ถ่านและกุหลาบ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kömür ve gül"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Вугілля й троянда"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Than chì và hồng"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "炭灰与玫瑰"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "炭灰與玫瑰"}}
+      }
+    },
+    "settings.choice.twoTone.inkMagenta": {
+      "comment": "Settings > Theme > Two-Tone: the curated pairing Ink Blue & Magenta",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Ink Blue & Magenta"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "أزرق حبري وأرجواني"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Tintno plava i magenta"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Blækblå og magenta"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Tintenblau & Magenta"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Azul tinta y magenta"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Bleu encre et magenta"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Blu inchiostro e magenta"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "インクブルーとマゼンタ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ខៀវទឹកខ្មៅ និងស្វាយក្រហម"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "잉크 블루와 마젠타"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Blekkblå og magenta"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Atramentowy błękit i magenta"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Azul-tinta e magenta"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Чернильно-синий и пурпурный"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "น้ำเงินหมึกและม่วงแดง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Mürekkep mavisi ve eflatun"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Чорнильно-синій і пурпуровий"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Xanh mực và đỏ tía"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "墨蓝与品红"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "墨藍與洋紅"}}
+      }
+    },
+    "settings.choice.twoTone.creamForest": {
+      "comment": "Settings > Theme > Two-Tone: the curated pairing Cream & Forest",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Cream & Forest"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "كريمي وأخضر غابي"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Krem i šumska"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Creme og skovgrøn"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Creme & Waldgrün"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Crema y bosque"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Crème et forêt"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Crema e foresta"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "クリームとフォレスト"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ក្រែម និងបៃតងព្រៃ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "크림과 포레스트"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Krem og skoggrønn"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Krem i leśna zieleń"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Creme e floresta"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Сливочный и лесной"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ครีมและเขียวป่า"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Krem ve orman"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Вершковий і лісовий"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Kem và xanh rừng"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "奶油与森林"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "奶油與森林"}}
+      }
+    },
+    "settings.choice.twoTone.navySand": {
+      "comment": "Settings > Theme > Two-Tone: the curated pairing Navy & Sand",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Navy & Sand"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "كحلي ورملي"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Mornarska i pijesak"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Marineblå og sand"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Marine & Sand"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Marino y arena"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Marine et sable"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Blu navy e sabbia"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ネイビーとサンド"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ខៀវចាស់ និងខ្សាច់"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "네이비와 샌드"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Marineblå og sand"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Granat i piasek"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Marinho e areia"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Тёмно-синий и песочный"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "กรมท่าและทราย"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Lacivert ve kum"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Темно-синій і пісочний"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Xanh navy và cát"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "海军蓝与沙色"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "海軍藍與沙色"}}
+      }
+    },
+    "settings.choice.twoTone.boneOxblood": {
+      "comment": "Settings > Theme > Two-Tone: the curated pairing Bone & Oxblood",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Bone & Oxblood"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "عاجي وأحمر داكن"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Kost i volovska krv"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Ben og okseblod"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Knochenweiß & Ochsenblut"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Hueso y sangre de buey"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Os et sang-de-bœuf"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Avorio e sangue di bue"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ボーンとオックスブラッド"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពណ៌ឆ្អឹង និងក្រហមចាស់"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "본과 옥스블러드"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bein og oksblod"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Kość słoniowa i bordo"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Osso e sangue-de-boi"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Костяной и бычья кровь"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "สีกระดูกและแดงเลือดหมู"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kemik ve öküz kanı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Кістяний і бичача кров"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Màu xương và đỏ sẫm"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "骨白与牛血红"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "骨白與牛血紅"}}
+      }
+    },
+    "settings.choice.twoTone.slateMatcha": {
+      "comment": "Settings > Theme > Two-Tone: the curated pairing Slate & Matcha",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Slate & Matcha"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "أردوازي وماتشا"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Škriljac i matcha"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Skifer og matcha"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Schiefer & Matcha"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Pizarra y matcha"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ardoise et matcha"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Ardesia e matcha"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "スレートと抹茶"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ថ្មស្លេត និងម៉ាចា"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "슬레이트와 말차"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Skifer og matcha"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Łupek i matcha"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ardósia e matcha"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Сланцевый и матча"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "หินชนวนและมัทฉะ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Arduvaz ve matcha"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Сланцевий і матча"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Đá phiến và matcha"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "石板灰与抹茶"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "石板灰與抹茶"}}
+      }
+    },
+    "settings.choice.twoTone.plumAmber": {
+      "comment": "Settings > Theme > Two-Tone: the curated pairing Plum & Amber",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Plum & Amber"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "برقوقي وكهرماني"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Šljiva i jantar"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Blomme og rav"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Pflaume & Bernstein"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Ciruela y ámbar"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Prune et ambre"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Prugna e ambra"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "プラムとアンバー"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្លែព្រូន និងអាំប៊ឺ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "플럼과 앰버"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Plomme og rav"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Śliwka i bursztyn"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ameixa e âmbar"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Сливовый и янтарный"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "พลัมและอำพัน"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Erik ve kehribar"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Сливовий і бурштиновий"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Mận và hổ phách"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "梅紫与琥珀"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "梅紫與琥珀"}}
       }
     },
     "settings.appearance.themeFile": {
@@ -189851,6 +190699,137 @@
         }
       }
     },
+    "settings.group.notificationDelivery": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التسليم حسب الحدث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isporuka po događaju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Levering efter hændelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zustellung nach Ereignis"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delivery by Event"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrega por evento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distribution par événement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recapito per evento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イベント別の通知方法"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្ញើតាមព្រឹត្តិការណ៍"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이벤트별 알림 방식"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Levering per hendelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostarczanie według zdarzenia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrega por evento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доставка по типу события"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแจ้งเตือนตามเหตุการณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Olaya göre iletim"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доставка за типом події"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cách gửi theo sự kiện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按事件设置通知方式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依事件設定通知方式"
+          }
+        }
+      }
+    },
     "settings.group.sounds": {
       "comment": "Settings > Notifications: the group of notification sound rows",
       "extractionState": "manual",
@@ -221272,6 +222251,114 @@
         }
       }
     },
+    "settings.group.language": {
+      "comment": "Settings group title: the Language card in General.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Language"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "اللغة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Jezik"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Sprog"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Sprache"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Idioma"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Langue"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Lingua"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "言語"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ភាសា"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "언어"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Språk"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Język"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Idioma"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Язык"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ภาษา"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Dil"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Мова"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Ngôn ngữ"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "语言"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "語言"}}
+      }
+    },
+    "settings.app.language": {
+      "comment": "Settings row title: the language cmux shows its text in.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Language"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "اللغة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Jezik"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Sprog"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Sprache"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Idioma"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Langue"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Lingua"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "言語"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ភាសា"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "언어"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Språk"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Język"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Idioma"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Язык"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ภาษา"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Dil"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Мова"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Ngôn ngữ"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "语言"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "語言"}}
+      }
+    },
+    "settings.app.language.help": {
+      "comment": "Settings row help for the Language row.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The language of cmux's menus, pages and messages."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لغة قوائم cmux وصفحاته ورسائله."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Jezik menija, stranica i poruka u cmuxu."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Sproget i cmux' menuer, sider og beskeder."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Sprache von cmux-Menüs, -Seiten und -Meldungen."}},
+        "es": {"stringUnit": {"state": "translated", "value": "El idioma de los menús, páginas y mensajes de cmux."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La langue des menus, pages et messages de cmux."}},
+        "it": {"stringUnit": {"state": "translated", "value": "La lingua di menu, pagine e messaggi di cmux."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "cmux のメニュー、ページ、メッセージの言語。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ភាសានៃម៉ឺនុយ ទំព័រ និងសាររបស់ cmux។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "cmux 메뉴, 페이지, 메시지의 언어입니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Språket i menyene, sidene og meldingene i cmux."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Język menu, stron i komunikatów cmux."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "O idioma dos menus, páginas e mensagens do cmux."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Язык меню, страниц и сообщений cmux."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ภาษาของเมนู หน้า และข้อความใน cmux"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "cmux menülerinin, sayfalarının ve iletilerinin dili."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Мова меню, сторінок і повідомлень cmux."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Ngôn ngữ của menu, trang và thông báo trong cmux."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "cmux 菜单、页面和消息使用的语言。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "cmux 選單、頁面和訊息使用的語言。"}}
+      }
+    },
+    "settings.app.language.system": {
+      "comment": "Settings choice: follow the macOS language order.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "System"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "النظام"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Sistem"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Følg systemet"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Systemsprache"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Sistema"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Système"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Sistema"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "システム"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រព័ន្ធ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "시스템"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Følg systemet"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Systemowy"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Sistema"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Системный"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ระบบ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Sistem"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Системна"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hệ thống"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "跟随系统"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "跟隨系統"}}
+      }
+    },
     "settings.appearance.cornerFlush": {
       "comment": "Title of the Appearance choice of how the selected tab meets the content below it (pill, flush or goo).",
       "extractionState": "manual",
@@ -228605,6 +229692,923 @@
         }
       }
     },
+    "settings.chats.archiveInactive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive Inactive Chats"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرشفة الدردشات غير النشطة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arhiviraj neaktivne razgovore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arkivér inaktive chats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktive Chats archivieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivar chats inactivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archiver les discussions inactives"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivia chat inattive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非アクティブなチャットをアーカイブ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទុកការជជែកដែលអសកម្មក្នុងបណ្ណសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비활성 채팅 보관"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arkiver inaktive chatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archiwizuj nieaktywne czaty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arquivar conversas inativas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Архивировать неактивные чаты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เก็บถาวรแชทที่ไม่มีความเคลื่อนไหว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etkin olmayan sohbetleri arşivle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Архівувати неактивні чати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lưu trữ cuộc trò chuyện không hoạt động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "归档不活跃的聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "封存不活躍的聊天"
+          }
+        }
+      }
+    },
+    "settings.chats.archiveInactive.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archives chats after a period of no activity. Chats that are running or have background work never are."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يؤرشف الدردشات بعد فترة من عدم النشاط. لا تُؤرشف أبدًا الدردشات قيد التشغيل أو التي لديها عمل في الخلفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arhivira razgovore nakon perioda bez aktivnosti. Razgovori koji rade ili imaju posao u pozadini nikad se ne arhiviraju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arkiverer chats efter en periode uden aktivitet. Chats, der kører eller har baggrundsarbejde, arkiveres aldrig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archiviert Chats nach einer Zeit ohne Aktivität. Chats, die laufen oder Hintergrundarbeit haben, nie."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archiva los chats tras un periodo sin actividad. Los chats en ejecución o con trabajo en segundo plano nunca se archivan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive les discussions après une période sans activité. Les discussions en cours ou avec un travail en arrière-plan ne le sont jamais."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivia le chat dopo un periodo senza attività. Le chat in esecuzione o con lavoro in background non vengono mai archiviate."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一定期間アクティビティのないチャットをアーカイブします。実行中またはバックグラウンド処理のあるチャットはアーカイブされません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទុកការជជែកក្នុងបណ្ណសារបន្ទាប់ពីរយៈពេលគ្មានសកម្មភាព។ ការជជែកដែលកំពុងដំណើរការ ឬមានការងារផ្ទៃខាងក្រោយ មិនដែលត្រូវបានទុកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일정 기간 활동이 없는 채팅을 보관합니다. 실행 중이거나 백그라운드 작업이 있는 채팅은 보관하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arkiverer chatter etter en periode uten aktivitet. Chatter som kjører eller har bakgrunnsarbeid, arkiveres aldri."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archiwizuje czaty po okresie bez aktywności. Czaty, które działają lub mają pracę w tle, nigdy nie są archiwizowane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arquiva conversas após um período sem atividade. Conversas em execução ou com trabalho em segundo plano nunca são arquivadas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Архивирует чаты после периода без активности. Запущенные чаты и чаты с фоновой работой не архивируются."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เก็บถาวรแชทหลังจากไม่มีความเคลื่อนไหวช่วงหนึ่ง แชทที่กำลังทำงานหรือมีงานเบื้องหลังจะไม่ถูกเก็บถาวร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir süre etkinlik olmayan sohbetleri arşivler. Çalışan veya arka planda işi olan sohbetler asla arşivlenmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Архівує чати після періоду без активності. Запущені чати та чати з фоновою роботою не архівуються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lưu trữ cuộc trò chuyện sau một thời gian không hoạt động. Cuộc trò chuyện đang chạy hoặc có việc nền thì không bao giờ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在一段时间无活动后归档聊天。正在运行或有后台任务的聊天不会被归档。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在一段時間無活動後封存聊天。正在執行或有背景工作的聊天不會被封存。"
+          }
+        }
+      }
+    },
+    "settings.choice.archiveInactiveNever": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أبدًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nikad"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aldrig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nunca"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jamais"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mai"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "しない"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនដែល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "안 함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aldri"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nigdy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nunca"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Никогда"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่เลย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ніколи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không bao giờ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "永不"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "永不"
+          }
+        }
+      }
+    },
+    "settings.choice.archiveInactiveOneDay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After 1 Day"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعد 1 يوم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nakon 1 dana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efter 1 dag"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach 1 Tag"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Después de 1 día"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après 1 jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo 1 giorno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1日後"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ទាប់ពី 1 ថ្ងៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1일 후"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etter 1 dag"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po 1 dniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Após 1 dia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Через 1 день"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หลังจาก 1 วัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 gün sonra"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Через 1 день"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sau 1 ngày"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 天后"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 天後"
+          }
+        }
+      }
+    },
+    "settings.choice.archiveInactiveThreeDays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After 3 Days"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعد 3 أيام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nakon 3 dana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efter 3 dage"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach 3 Tagen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Después de 3 días"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après 3 jours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo 3 giorni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3日後"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ទាប់ពី 3 ថ្ងៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3일 후"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etter 3 dager"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po 3 dniach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Após 3 dias"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Через 3 дня"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หลังจาก 3 วัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 gün sonra"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Через 3 дні"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sau 3 ngày"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 天后"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 天後"
+          }
+        }
+      }
+    },
+    "settings.choice.archiveInactiveSevenDays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After 7 Days"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعد 7 أيام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nakon 7 dana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efter 7 dage"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach 7 Tagen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Después de 7 días"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après 7 jours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo 7 giorni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7日後"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ទាប់ពី 7 ថ្ងៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7일 후"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etter 7 dager"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po 7 dniach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Após 7 dias"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Через 7 дней"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หลังจาก 7 วัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7 gün sonra"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Через 7 днів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sau 7 ngày"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7 天后"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7 天後"
+          }
+        }
+      }
+    },
+    "settings.choice.archiveInactiveThirtyDays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After 30 Days"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعد 30 يومًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nakon 30 dana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efter 30 dage"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach 30 Tagen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Después de 30 días"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après 30 jours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo 30 giorni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30日後"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ទាប់ពី 30 ថ្ងៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30일 후"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etter 30 dager"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po 30 dniach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Após 30 dias"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Через 30 дней"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หลังจาก 30 วัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30 gün sonra"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Через 30 днів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sau 30 ngày"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30 天后"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30 天後"
+          }
+        }
+      }
+    },
     "settings.appearance.sidebarRowHeight": {
       "extractionState": "manual",
       "localizations": {
@@ -233275,6 +235279,534 @@
           "stringUnit": {
             "state": "translated",
             "value": "玻璃質感的訊息框，帶有模式標籤、提及標籤和圓形傳送按鈕。仍在打磨中。"
+          }
+        }
+      }
+    },
+    "settings.experiments.agentBadges": {
+      "comment": "Settings > Advanced > Experiments: the title of the Agent Badges switch (taste prototype, off by default)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Badges"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شارات الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oznake agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentmærker"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Badges"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insignias de agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Badges d’agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Badge dell’agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントバッジ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្លាកភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 배지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentmerker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plakietki agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selos do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значки агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ป้ายเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan rozetleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значки агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Huy hiệu tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体徽章"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式徽章"
+          }
+        }
+      }
+    },
+    "settings.experiments.agentBadges.help": {
+      "comment": "Settings > Advanced > Experiments: the help line under the Agent Badges switch. Running, Needs approval and Done are the pill's three labels.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعرض علامات تبويب الوكيل عدد الرسائل غير المقروءة والموافقات، وتعرض صفوف الشريط الجانبي شارة حالة: قيد التشغيل أو بانتظار الموافقة أو تم."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartice agenta prikazuju broj nepročitanih poruka i odobrenja, a redovi bočne trake oznaku stanja: Radi, Čeka odobrenje ili Gotovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentfaner viser et antal ulæste beskeder og godkendelser, og rækker i sidebjælken viser en status: Kører, Afventer godkendelse eller Færdig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Tabs zeigen die Zahl ungelesener Nachrichten und Freigaben, Seitenleistenzeilen eine Status-Pille: Läuft, Freigabe nötig oder Fertig."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las pestañas de agente muestran un recuento de mensajes sin leer y aprobaciones, y las filas de la barra lateral un estado: En curso, Requiere aprobación o Listo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les onglets d’agent affichent le nombre de messages non lus et d’approbations, et les lignes de la barre latérale un statut : En cours, Approbation requise ou Terminé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le schede dell’agente mostrano il numero di messaggi non letti e approvazioni, e le righe della barra laterale uno stato: In corso, Serve approvazione o Fatto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのタブに未読メッセージと承認待ちの数を、サイドバーの行に状態(実行中、承認が必要、完了)を表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងភ្នាក់ងារបង្ហាញចំនួនសារមិនទាន់អាន និងការអនុម័ត ហើយជួរនៅរបារចំហៀងបង្ហាញស្ថានភាព៖ កំពុងដំណើរការ ត្រូវការការអនុម័ត ឬរួចរាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 탭에 읽지 않은 메시지와 승인 수를, 사이드바 행에 상태(실행 중, 승인 필요, 완료)를 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentfaner viser antall uleste meldinger og godkjenninger, og rader i sidefeltet viser en status: Kjører, Trenger godkjenning eller Ferdig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karty agenta pokazują liczbę nieprzeczytanych wiadomości i zatwierdzeń, a wiersze paska bocznego stan: Działa, Wymaga zatwierdzenia lub Gotowe."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As abas do agente mostram a contagem de mensagens não lidas e aprovações, e as linhas da barra lateral um status: Em execução, Precisa de aprovação ou Concluído."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки агента показывают число непрочитанных сообщений и запросов на одобрение, а строки боковой панели — статус: Работает, Нужно одобрение или Готово."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บเอเจนต์แสดงจำนวนข้อความที่ยังไม่อ่านและการอนุมัติ และแถวในแถบข้างแสดงสถานะ: กำลังทำงาน ต้องอนุมัติ หรือเสร็จแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan sekmeleri okunmamış mesaj ve onay sayısını, kenar çubuğu satırları bir durum gösterir: Çalışıyor, Onay gerekiyor veya Bitti."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки агента показують кількість непрочитаних повідомлень і запитів на схвалення, а рядки бічної панелі — статус: Працює, Потрібне схвалення або Готово."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các tab tác tử hiện số tin nhắn chưa đọc và yêu cầu phê duyệt, còn các hàng ở thanh bên hiện trạng thái: Đang chạy, Cần phê duyệt hoặc Xong."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体标签页显示未读消息和待批准的数量,侧边栏行显示状态:运行中、需要批准或已完成。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式分頁顯示未讀訊息與待核准的數量,側邊欄列顯示狀態:執行中、需要核准或已完成。"
+          }
+        }
+      }
+    },
+    "settings.experiments.agentBadgesBeam": {
+      "comment": "Settings > Advanced > Experiments: the title of the Agent Badges variant switch, a light that runs along a working sidebar row's edge",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Badges: Running Beam"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شارات الوكيل: شعاع التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oznake agenta: svjetlo rada"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentmærker: lysstribe under kørsel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Badges: Lichtstreifen beim Laufen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insignias de agente: haz en curso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Badges d’agent : faisceau en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Badge dell’agente: fascio in corso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントバッジ: 実行中の光"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្លាកភ្នាក់ងារ៖ ពន្លឺពេលដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 배지: 실행 중 빛"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentmerker: lysstripe under kjøring"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plakietki agenta: światło pracy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selos do agente: feixe em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значки агента: луч во время работы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ป้ายเอเจนต์: แสงขณะทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan rozetleri: çalışma ışığı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значки агента: промінь під час роботи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Huy hiệu tác tử: vệt sáng khi chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体徽章:运行光带"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式徽章:執行光帶"
+          }
+        }
+      }
+    },
+    "settings.experiments.agentBadgesBeam.help": {
+      "comment": "Settings > Advanced > Experiments: the help line under the Agent Badges running-beam switch",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With Agent Badges on, a thin light travels along a sidebar row's edge while its agent runs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند تشغيل شارات الوكيل، يتحرك ضوء رفيع على حافة صف الشريط الجانبي أثناء عمل وكيله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kad su oznake agenta uključene, tanko svjetlo putuje rubom reda bočne trake dok njegov agent radi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Med agentmærker slået til løber et tyndt lys langs kanten af en række i sidebjælken, mens dens agent kører."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei aktiven Agent-Badges läuft ein feines Licht am Rand einer Seitenleistenzeile entlang, solange ihr Agent arbeitet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con las insignias de agente activadas, una luz fina recorre el borde de una fila de la barra lateral mientras su agente trabaja."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avec les badges d’agent activés, une fine lumière parcourt le bord d’une ligne de la barre latérale pendant que son agent travaille."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con i badge dell’agente attivi, una luce sottile scorre lungo il bordo di una riga della barra laterale mentre il suo agente lavora."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントバッジがオンのとき、エージェントの実行中はサイドバーの行の縁を細い光が流れます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលបើកស្លាកភ្នាក់ងារ ពន្លឺស្តើងរត់តាមគែមជួរនៅរបារចំហៀង ខណៈភ្នាក់ងាររបស់វាកំពុងដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 배지가 켜져 있으면 에이전트가 실행되는 동안 사이드바 행의 가장자리를 따라 가는 빛이 흐릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Med agentmerker på går et tynt lys langs kanten av en rad i sidefeltet mens agenten kjører."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy plakietki agenta są włączone, cienkie światło biegnie wzdłuż krawędzi wiersza paska bocznego, dopóki agent pracuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Com os selos do agente ativados, uma luz fina percorre a borda de uma linha da barra lateral enquanto o agente trabalha."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда значки агента включены, вдоль края строки боковой панели бежит тонкий свет, пока работает её агент."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเปิดป้ายเอเจนต์ แสงบางๆ จะวิ่งไปตามขอบแถวในแถบข้างขณะที่เอเจนต์ของแถวนั้นทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan rozetleri açıkken, ajanı çalıştığı sürece kenar çubuğu satırının kenarında ince bir ışık dolaşır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли значки агента ввімкнено, уздовж краю рядка бічної панелі біжить тонке світло, поки працює його агент."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi bật huy hiệu tác tử, một vệt sáng mảnh chạy dọc mép hàng ở thanh bên trong lúc tác tử của hàng đó chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启智能体徽章后,智能体运行期间,一道细光会沿侧边栏行的边缘移动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟代理程式徽章後,代理程式執行期間,一道細光會沿側邊欄列的邊緣移動。"
           }
         }
       }
