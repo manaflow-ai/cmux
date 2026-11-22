@@ -33,11 +33,10 @@ enum SurfaceDiagnosticsReport {
                 object["workspace"] = .string(row.window.content?.workspace.id ?? "")
                 object["focused"] = .bool(row.pane.isFocusedInWorkspace)
                 if let tab = row.status.selectedTab { object["phase"] = .string(services.cache.phase(of: tab).rawValue) }
-                // A web page tab has no terminal lifecycle: report its paint state, not `restoring`.
-                if case .page(let view)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)),
-                   let page = view.content as? PageWebView {
-                    object["phase"] = .string(page.hasPainted ? "painted" : "loading")
-                }
+                // A web page or chat tab has no terminal lifecycle: report its paint state, not `restoring` (a chat's: launch_tti_check).
+                let content = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:))
+                if case .page(let view)? = content, let page = view.content as? PageWebView { object["phase"] = .string(page.hasPainted ? "painted" : "loading") }
+                if case .agent(let view)? = content { object["phase"] = .string(view.model.hasPainted ? "painted" : "loading") }
                 #if DEBUG || CMUX_BENCH_HOOKS
                 // A web page tab's current address (the live engine's, else the tab record's), so a script can tell
                 // which page a pane shows.
