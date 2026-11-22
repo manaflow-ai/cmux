@@ -1,3 +1,4 @@
+import CmuxMobileDesign
 import Foundation
 import Observation
 
@@ -222,6 +223,15 @@ public final class CloudMachinesModel {
     public var showsDetail = false
     /// The last action's refusal, for an alert.
     public var failure: String?
+    /// A refresh that could not reach cmux Cloud while the page keeps its rows: said only once the
+    /// outage has lasted ``QuietStatusGate/threshold`` (Leo, 2026-11-16: "obviously if it isn't
+    /// interactive im not connected"). A refusal the person must act on stays in ``failure``, at once.
+    @ObservationIgnored let unreachedQuiet = QuietStatusGate()
+    private var unreached: String?
+    /// The alert's text: an action's refusal at once, a refresh that could not reach the service
+    /// only past the hold.
+    public var shownFailure: String? { failure ?? (unreachedQuiet.isShown ? unreached : nil) }
+    public func dismissFailure() { failure = nil; unreached = nil }
     /// The last action's note ("Waiting for your approval in the Feed.").
     public var notice: String?
 
@@ -276,11 +286,20 @@ public final class CloudMachinesModel {
             plan = (try? await planned).flatMap(CloudMachinePlan.parse) ?? plan
             if let value = try? await saved { snapshots = CloudMachineSnapshot.list(value) }
             phase = .loaded
+            unreached = nil
+            unreachedQuiet.update(down: false)
         } catch is CancellationError {
             phase = before
         } catch {
             let message = Self.message(error)
-            if machines.isEmpty { phase = .failed(message) } else { failure = message }
+            if machines.isEmpty {
+                phase = .failed(message)
+            } else if AccountCloud.isUnreachable(error) {
+                unreached = message
+                unreachedQuiet.update(down: true)
+            } else {
+                failure = message
+            }
         }
     }
 

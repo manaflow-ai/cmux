@@ -91,6 +91,15 @@ extension AccountCloudTests {
         #expect(model.failure == nil)
     }
 
+    /// "Couldn't reach cmux Cloud" heals on its own, so a page with cached rows holds it
+    /// (``QuietStatusGate/threshold``); a refusal the person must act on is said at once.
+    @Test func onlyAnUnreachableCloudIsHeld() {
+        #expect(AccountCloud.isUnreachable(AccountCloud.Failure.unreachable))
+        #expect(AccountCloud.isUnreachable(URLError(.notConnectedToInternet)))
+        #expect(!AccountCloud.isUnreachable(AccountCloud.Failure.refused(status: 409, code: "cloud.quota.exceeded", message: "limit")))
+        #expect(!AccountCloud.isUnreachable(AccountCloud.Failure.badReply))
+    }
+
     @Test func aRefusedCloudMachineStartRollsBackAndSaysWhy() async throws {
         var answers = Machines.reads
         answers["cloud.machine.start"] = (409, #"{"error":{"code":"cloud.quota.exceeded","message":"limit"}}"#)

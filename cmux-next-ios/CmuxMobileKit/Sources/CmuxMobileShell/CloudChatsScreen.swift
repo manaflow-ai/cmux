@@ -153,28 +153,23 @@ struct CloudChatsConnectMac: View {
     }
 }
 
-/// A Cloud list's or machine's wait, drawn only once it has lasted `cloudComingUpDelay`: a connect
-/// that answers inside it goes straight from nothing to the list (Leo, 2026-11-14: "i also want all
-/// our connectivity stuff to shut up and load faster/percievably load faster"). A failure, which
-/// has Retry, never waits: it is its own view. One timer per wait, ended with the view.
+/// A Cloud list's or machine's wait, drawn only once it has lasted ``QuietStatusGate/threshold``
+/// (the shared 10 s `connectionQuietMs` of schemas/notice-timing): a connect that answers inside it
+/// goes straight from nothing to the list (Leo, 2026-11-14: "i also want all our connectivity stuff
+/// to shut up and load faster/percievably load faster"). A failure, which has Retry, never waits:
+/// it is its own view. One gate per wait, ended with the view.
 struct CloudChatsComingUp<Content: View>: View {
     @ViewBuilder let content: () -> Content
-    @State private var due = false
+    @State private var gate = QuietStatusGate()
 
     var body: some View {
         Group {
-            if due { content() } else { Color.clear.frame(height: 1).accessibilityHidden(true) }
+            if gate.isShown { content() } else { Color.clear.frame(height: 1).accessibilityHidden(true) }
         }
-        .task {
-            try? await Task.sleep(for: cloudComingUpDelay)
-            due = !Task.isCancelled
-        }
+        .onAppear { gate.update(down: true) }
+        .onDisappear { gate.update(down: false) }
     }
 }
-
-/// How long a Cloud wait the person cannot act on stays unsaid as it comes up: the app's shared
-/// coming-up bound (macOS `TerminalStatusBanner.startingRevealDelay`, 1 s).
-let cloudComingUpDelay: Duration = .seconds(1)
 
 /// How long the phone waits for a Cloud machine's chats before it says why it
 /// stopped: the paired link's 20 s (`cloudLink`) plus the chat channel's first
