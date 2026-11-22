@@ -154,7 +154,6 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
                 Err((reason, detail)) => Verdict::fail(reason, detail),
             }
         }));
-        let socket = socket.clone();
         checks.push(timed("chat", CHAT_DEADLINE, || match default_harness.as_deref() {
             None => Verdict::fail("chat.no_harness", "no default harness to start a chat with"),
             Some(harness) => match acp::doctor(&socket, harness, CHAT_DEADLINE) {
