@@ -38,7 +38,7 @@ def row(side, label, front=None, marks=None, first=None, **extra):
 def run(rows, case="kept", seeded="", keys=False):
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        result = module.summarize(rows, case, seeded, keys)
+        result = module.summarize(rows, case, seeded, keys=keys)
     return result, out.getvalue().splitlines()
 
 
