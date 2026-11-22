@@ -470,6 +470,8 @@ pub enum ResourceOperation {
     KeybindingsRemove,
     #[serde(rename = "keybindings.reset")]
     KeybindingsReset,
+    #[serde(rename = "language_packs.ensure")]
+    LanguagePacksEnsure,
     #[serde(rename = "window_record.list")]
     WindowRecordList,
     #[serde(rename = "window_record.put")]

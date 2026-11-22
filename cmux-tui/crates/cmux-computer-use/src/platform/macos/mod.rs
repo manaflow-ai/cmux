@@ -12,6 +12,7 @@ mod activation;
 mod ax;
 mod capture;
 mod cgwindows;
+mod displays;
 mod input;
 mod key_focus;
 mod keymap;
@@ -306,6 +307,18 @@ impl Target {
     }
 }
 
+/// The desktop's own lock check, under the engine's ([`crate::locked`]): a
+/// screen that locked after the engine read it still gets nothing at the
+/// system-wide input queue, no launch and no activation.
+pub(super) fn refuse_if_locked(what: &str) -> DResult<()> {
+    if crate::locked::session_screen_locked() {
+        return Err(DesktopError::Locked(format!(
+            "This Mac is locked, so {what} was not done: on a locked Mac it would reach the lock screen. Ask the person to unlock it."
+        )));
+    }
+    Ok(())
+}
+
 fn grant(granted: bool) -> Grant {
     if granted { Grant::Granted } else { Grant::Denied }
 }
@@ -482,10 +495,19 @@ impl Desktop for MacDesktop {
         PlatformInfo { os: "macos".into(), display_server: "quartz".into(), detail }
     }
 
+    fn screen_locked(&self) -> bool {
+        crate::locked::session_screen_locked()
+    }
+
     fn permissions(&self) -> Permissions {
         Permissions {
             accessibility: grant(ax::trusted()),
-            screen_capture: grant(capture::screen_capture_granted()),
+            screen_capture: grant(
+                self.host
+                    .as_ref()
+                    .and_then(|h| h.screen_capture_granted())
+                    .unwrap_or_else(capture::screen_capture_granted),
+            ),
             input: grant(post_event_granted()),
         }
     }
@@ -650,6 +672,18 @@ impl Desktop for MacDesktop {
         }
     }
 
+    fn frame_encoder(
+        &self,
+        width: u32,
+        height: u32,
+        fps: u32,
+    ) -> DResult<Box<dyn crate::record::FrameEncoder>> {
+        match &self.host {
+            Some(host) => host.frame_encoder(width, height, fps),
+            None => Err(DesktopError::Unsupported("no capture host".into())),
+        }
+    }
+
     fn capture_display_excluding(
         &self,
         display: Option<&str>,
@@ -774,6 +808,7 @@ impl Desktop for MacDesktop {
     /// passes that one bundle id here, so it launches what policy saw; a
     /// name passed here is resolved the same way, and must name one app.
     fn launch_app(&self, app_id: &str) -> DResult<App> {
+        refuse_if_locked("launching an app")?;
         let bundle_id = if workspace::bundle_installed(app_id) {
             app_id.to_string()
         } else {
@@ -820,6 +855,8 @@ impl Desktop for MacDesktop {
     /// else). True when the requests were accepted; activation completes
     /// asynchronously, and the engine checks again after the settle wait.
     fn restore_focus(&self, prior: &FocusSnapshot) -> DResult<bool> {
+        // No app is activated on a locked screen ([`crate::locked`]).
+        refuse_if_locked("putting the person's app back in front")?;
         let pid = prior.pid as i32;
         let app = Ax::application(pid)
             .ok_or_else(|| DesktopError::TargetNotFound(format!("app {}", prior.app_id)))?;
@@ -859,5 +896,9 @@ impl Desktop for MacDesktop {
             }
         }
         self.request_direct(which)
+    }
+
+    fn displays(&self) -> DResult<Vec<crate::displays::Display>> {
+        displays::list()
     }
 }

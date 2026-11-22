@@ -2,11 +2,13 @@ import { memo, useId, type ReactNode, type Ref } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { useRowState, useStore, type RowState } from "../context";
 import { Editor } from "../editors/Editor";
+import { FONT_PREVIEWS } from "../fontPreviewModel";
 import { Icon } from "../icons";
 import { revealRow } from "../keyboard";
 import { rowsByKey, type SchemaRow } from "../schema";
 import { managedText, type SettingsStore } from "../store";
 import { t, text } from "../strings";
+import { FontPreview } from "./FontPreview";
 import { Highlight } from "./Highlight";
 import { RowNotes } from "./RowNotes";
 import { RowNotice } from "./RowNotice";
@@ -95,6 +97,7 @@ export const SettingRow = memo(function SettingRow({
           </div>
         </ContextMenu>
       </div>
+      {FONT_PREVIEWS[row.key] && <FontPreview row={row} value={state.value} disabled={disabled} />}
     </RowFrame>
   );
 });

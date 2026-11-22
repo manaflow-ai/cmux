@@ -38,6 +38,19 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "home.meetChief",
+        group: GROUP,
+        title: t("HomeActions", "action.home.meetChief", "Meet Chief"),
+        keywords: &["chief", "meet", "onboarding", "intro", "introduction", "welcome", "tour", "first run", "getting started", "permissions", "density", "text size"],
+        category: "window",
+        symbol: "sparkles",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action home-meet-chief",
+        focuses: true,
+        ..Action::DEFAULT
+    },
+    Action {
         id: "home.openChief",
         group: GROUP,
         title: t("HomeActions", "action.home.openChief", "Open Chief"),

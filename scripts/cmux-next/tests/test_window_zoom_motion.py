@@ -60,7 +60,7 @@ def measured(values=None, *, name="window-zoom", refresh=PERIOD, monitor_refresh
             return frames
         return {}
 
-    namespace = {"math": math, "opts": SimpleNamespace(browser=False), "time": SimpleNamespace(sleep=lambda _: None),
+    namespace = {"math": math, "opts": SimpleNamespace(browser=False), "time": SimpleNamespace(sleep=lambda _: None, time=lambda: 0.0),
                  "rpc": rpc, "perform": lambda _: action_error,
                  # measure() records background daemon CPU (bench_background); a stub, so the test runs no ps
                  "bench_background": SimpleNamespace(sample=lambda: {}, delta=lambda _before: {"by_name": {}, "total_s": 0.0,

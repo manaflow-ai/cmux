@@ -41,6 +41,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use super::agent_notification_delivery::{AgentEvent, Delivery};
 use super::{Mux, NotificationLevel, NotificationSource};
 use crate::resource::ContentPublicId;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
@@ -227,6 +228,7 @@ fn cache_ttl_scheduler(mux: &Weak<Mux>, receiver: mpsc::Receiver<CacheTtlCommand
                 let Some(live) = mux.upgrade() else { return };
                 for entry in queue.take_due(Instant::now()) {
                     let notice = Notice {
+                        event: None,
                         key: format!("cache-ttl-{}-{}", entry.spec.id, entry.target.idle_since),
                         title: format!("{} cache ready", entry.target.name),
                         subtitle: Some(format!(
@@ -324,6 +326,10 @@ impl Mux {
     }
 
     fn post_agent_chat_notice(&self, session: &str, notice: &Notice) {
+        let delivery = self.agent_notification_delivery(notice.event);
+        if delivery == Delivery::Off {
+            return;
+        }
         // One wait, one notice: a daemon restart mid-wait sees the wait again
         // under a newer sequence, and the tab still holds the first notice.
         // The question it asks tells it from a new wait.
@@ -353,7 +359,8 @@ impl Mux {
         // Hashed: an adopted session's id is the agent's own, of any length.
         let digest = Sha256::digest(format!("{session}\n{}\n{content}", notice.key));
         let key = format!("acpmux-{digest:x}");
-        let posted = self.create_durable_notification(
+        // Badge: the unread record and its ring, with no desktop banner.
+        let posted = self.create_durable_notification_with(
             &Actor::Daemon,
             &key,
             notice.title.clone(),
@@ -362,6 +369,7 @@ impl Mux {
             notice.level,
             Some(*surface),
             NotificationSource::Agent,
+            delivery == Delivery::Banner,
         );
         if posted.is_err() {
             self.report_internal_diagnostic("agent chat notification not posted");
@@ -737,6 +745,51 @@ fn follows(initialized: &Value) -> bool {
         .is_some_and(|ids| ids.iter().any(|id| id == ACPMUX_LIST_FOLLOW))
 }
 
+/// The rows of the peer batches (`_acpmux/peer_rows_changed`, acpmux `hub/list_guard.rs`
+/// `send_remote_batch`) no list or follow read on this connection holds yet: the position before
+/// the first of them (`after`) and the last (`through`). acpmux sends a batch only to a client
+/// that asked in its `initialize` (`peerRowBatches`), in place of a `session_changed` per row: a
+/// peer's list of 400 rows was 400 notices ahead of every reply on the connection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct OwedRows {
+    after: u64,
+    through: u64,
+}
+
+impl OwedRows {
+    /// The rows owed once the batch `params` came too.
+    fn with(owed: Option<Self>, params: &Value) -> Option<Self> {
+        let (Some(after), Some(through)) = (
+            params.get("afterSeq").and_then(Value::as_u64),
+            params.get("listSeq").and_then(Value::as_u64),
+        ) else {
+            return owed;
+        };
+        Some(match owed {
+            Some(o) => Self { after: o.after.min(after), through: o.through.max(through) },
+            None => Self { after, through },
+        })
+    }
+
+    /// The rows owed after a reply current to `seq` came in, for a read of the rows changed after
+    /// `from` (0 for a whole list): it holds the owed rows up to `seq` as they are now when it
+    /// started at or below them, and none are owed once that reaches the last.
+    fn after_read(owed: Option<Self>, from: u64, seq: u64) -> Option<Self> {
+        match owed {
+            Some(o) if from <= o.after => {
+                let after = o.after.max(seq);
+                (after < o.through).then_some(Self { after, through: o.through })
+            }
+            other => other,
+        }
+    }
+
+    /// A cursor position kept below the rows owed, so a follow from it reads them.
+    fn cap(owed: Option<Self>, seq: u64) -> u64 {
+        owed.map_or(seq, |o| seq.min(o.after))
+    }
+}
+
 /// Whether a `session_changed` is older than what the watch holds: its list position is lower
 /// than the one the row came with, or than `floor`, the position of the list or follow last read
 /// on this connection. That reply holds every change up to it, a chat's removal too, so a late
@@ -771,11 +824,13 @@ fn read_watch(
     let mut writer = stream.try_clone()?;
     // `observer`: this connection only watches, so it keeps no acpmux daemon whose app has quit
     // (acpmux `daemon/unused_exit.rs`); this daemon outlives the app while it holds shells.
+    // `peerRowBatches`: a peer's list comes as one `_acpmux/peer_rows_changed`, read by a follow
+    // ([`OwedRows`]); an acpmux before it ignores the key and sends each row.
     let initialize = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
         "protocolVersion": 1,
         "clientInfo": {"name": "cmux-tui-agent-chat-notices", "version": "1"},
         "clientCapabilities": {},
-        "_meta": {"acpmux": {"observer": true}},
+        "_meta": {"acpmux": {"observer": true, "peerRowBatches": true}},
     }});
     // A cursor is only kept from an acpmux that follows; one that no longer does ignores it.
     let watch = watch_request(2, cursor.as_ref());
@@ -810,6 +865,10 @@ fn read_watch(
     let mut gate = false;
     // acpmux dropped pushes while a list or follow was out: follow again once it is in.
     let mut relist = false;
+    // Peer batch rows no read on this connection holds yet.
+    let mut owed: Option<OwedRows> = None;
+    // The cursor the read out now follows from (0: a whole list), for [`OwedRows::after_read`].
+    let mut asked_from = cursor.as_ref().map_or(0, |at| at.seq);
     loop {
         // A whole line however long: acpmux sends none past its largest message.
         let mut line = Vec::new();
@@ -850,6 +909,10 @@ fn read_watch(
                         capable = true;
                         list_seq = seq;
                         gate = true;
+                        // A whole list (also a follow acpmux reset) holds every row as of `seq`.
+                        owed =
+                            OwedRows::after_read(owed, if followed { asked_from } else { 0 }, seq);
+                        let seq = OwedRows::cap(owed, seq);
                         let at = ListCursor { epoch: epoch.to_owned(), seq };
                         if followed {
                             // A follow's rows are applied whole, in order, up to `seq`.
@@ -930,6 +993,7 @@ fn read_watch(
                 if result["more"] == true
                     && let Some(at) = cursor.as_ref()
                 {
+                    asked_from = at.seq;
                     page = Some(ask_follow(&mut writer, &mut last_id, at)?);
                     continue;
                 }
@@ -961,7 +1025,10 @@ fn read_watch(
                         unlisted.clear();
                         mux.change_chats(super::chat_index::Chats::end);
                         whole.get_or_insert_with(Instant::now);
-                        *cursor = pending.take();
+                        // Kept below the peer rows no read holds yet ([`OwedRows`]).
+                        *cursor = pending
+                            .take()
+                            .map(|at| ListCursor { seq: OwedRows::cap(owed, at.seq), ..at });
                         None
                     }
                     _ => {
@@ -972,9 +1039,24 @@ fn read_watch(
                 };
             }
             if page.is_none()
-                && std::mem::take(&mut relist)
+                && (std::mem::take(&mut relist) | owed.is_some())
                 && let Some(at) = cursor.as_ref()
             {
+                asked_from = at.seq;
+                page = Some(ask_follow(&mut writer, &mut last_id, at)?);
+                page_is_watch = true;
+            }
+        } else if message.get("method").and_then(Value::as_str) == Some("_acpmux/peer_rows_changed")
+        {
+            // One peer's rows changed at once (its list), told once instead of row by row: the
+            // watch follows its cursor for them, kept below them until a read holds them.
+            owed = OwedRows::with(owed, message.get("params").unwrap_or(&Value::Null));
+            for at in [cursor.as_mut(), pending.as_mut()].into_iter().flatten() {
+                at.seq = OwedRows::cap(owed, at.seq);
+            }
+            // A list or follow out now: the follow after it reads them (`owed`).
+            if let (None, Some(at)) = (page, cursor.as_ref()) {
+                asked_from = at.seq;
                 page = Some(ask_follow(&mut writer, &mut last_id, at)?);
                 page_is_watch = true;
             }
@@ -986,6 +1068,7 @@ fn read_watch(
             }
             match (page, cursor.as_ref()) {
                 (None, Some(at)) => {
+                    asked_from = at.seq;
                     page = Some(ask_follow(&mut writer, &mut last_id, at)?);
                     page_is_watch = true;
                 }
@@ -1012,7 +1095,7 @@ fn read_watch(
                 if page.is_none()
                     && let (Some(at), Some(seq)) = (cursor.as_mut(), params["listSeq"].as_u64())
                 {
-                    at.seq = at.seq.max(seq);
+                    at.seq = OwedRows::cap(owed, at.seq.max(seq));
                 }
                 mux.change_chats(|chats| chats.push(params));
             }
@@ -1120,6 +1203,7 @@ struct Chat {
     name: String,
     kind: String,
     indicator: String,
+    waiting_on: Option<AgentEvent>,
     idle_since: Option<u64>,
     unread: bool,
     /// Muted from its tab's menu ([`MUTE_TAG`]).
@@ -1143,6 +1227,7 @@ struct Chat {
 }
 
 struct Notice {
+    event: Option<AgentEvent>,
     /// Unique per chat; the notification's idempotency key.
     key: String,
     title: String,
@@ -1184,6 +1269,11 @@ impl Chat {
             session,
             name,
             kind,
+            waiting_on: match text("waitingOn") {
+                Some("question") => Some(AgentEvent::Question),
+                Some("permission") => Some(AgentEvent::PermissionRequest),
+                _ => None,
+            },
             indicator: summary["indicator"].as_str().unwrap_or_default().to_owned(),
             idle_since,
             unread: summary["unread"].as_bool() == Some(true),
@@ -1223,6 +1313,20 @@ impl Chat {
             return None;
         }
         Some(Notice {
+            // The summary can describe another pending question. Classify this
+            // specific request using acpmux's normalized question shape.
+            event: Some(
+                if ask
+                    .pointer("/request/toolCall/_meta/acpmux/question/items")
+                    .is_some_and(Value::is_array)
+                    || ask.pointer("/request/toolCall/_meta/claude/tool").and_then(Value::as_str)
+                        == Some("AskUserQuestion")
+                {
+                    AgentEvent::Question
+                } else {
+                    AgentEvent::PermissionRequest
+                },
+            ),
             key: format!("input-{}", ask["seq"].as_u64().unwrap_or(self.last_seq)),
             title: format!("{} needs input", self.name),
             subtitle: None,
@@ -1261,6 +1365,7 @@ impl Chat {
             self.notified_turn = Some(turn.clone());
             match status.as_str() {
                 "completed" => notices.push(Notice {
+                    event: Some(AgentEvent::TaskComplete),
                     key: format!("done-{turn}"),
                     title: format!("{name} finished"),
                     subtitle: None,
@@ -1269,6 +1374,7 @@ impl Chat {
                     restated: false,
                 }),
                 "failed" => notices.push(Notice {
+                    event: None,
                     key: format!("failed-{turn}"),
                     title: format!("{name} failed"),
                     subtitle: None,
@@ -1285,6 +1391,7 @@ impl Chat {
         let was = before.map_or("", |chat| chat.indicator.as_str());
         if self.indicator == "input" && was != "input" {
             notices.push(Notice {
+                event: self.waiting_on,
                 // The record it waits on: the same key while it still waits.
                 key: format!("input-{}", self.last_seq),
                 title: format!("{name} needs input"),
@@ -1296,6 +1403,7 @@ impl Chat {
         }
         if self.indicator == "lost" && was != "lost" {
             notices.push(Notice {
+                event: None,
                 key: format!("lost-{}", self.last_seq),
                 title: format!("{name} stopped responding"),
                 subtitle: None,

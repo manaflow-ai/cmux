@@ -17,7 +17,7 @@ full counts, and the hook must stay under 1 s on a 30-file push and on a warm 80
 (which reads no file twice: the facts cache). The installed-hook path (install-git-hooks.sh
 copying arch_rules/, guardrails running the ratchet) is in tests/test_cmux_next_guardrails.py.
 
-Not a CI job (Lawrence 2026-10-23: no new CI gates): run it yourself after a change to the ratchet:
+Not a CI job (Lawrence 2026-10-23: no new CI gates, lifted 2026-11-18): run it yourself after a change to the ratchet:
   python3 -I scripts/cmux-next/tests/test_arch_ratchet.py
 """
 

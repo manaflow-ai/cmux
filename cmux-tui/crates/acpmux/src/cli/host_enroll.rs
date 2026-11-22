@@ -204,6 +204,18 @@ pub(crate) fn pick_target(peers: &[Value], target: &str) -> (String, String, Opt
         .unwrap_or_else(|| (hosts::short_name(target), target.to_owned(), None))
 }
 
+/// A line for `doctor NAME` when the hub already carries NAME: its chats work over the hub, and
+/// the ssh steps that follow test a direct route from this machine, which the hub makes optional.
+pub(crate) fn hub_route_note(peers: &[Value], name: &str) -> Option<String> {
+    let row = peers.iter().find(|p| p.get("name").and_then(Value::as_str) == Some(name))?;
+    let connected = row.get("state").and_then(Value::as_str) == Some("connected");
+    (connected && row.get("via").and_then(Value::as_str) == Some("hub")).then(|| {
+        format!(
+            "note   route     {name} is connected through the hub (cmux Remote), so its chats work without ssh from here. The steps below test a direct ssh route from this machine; a failure there does not mean the hub link is down."
+        )
+    })
+}
+
 /// How a running daemon stays current: [`update_step::update`], given the
 /// path of cmux's own acpmux when that is what runs there.
 type UpdateStep<'a> = &'a dyn Fn(&dyn Remote, bool, Option<&str>) -> StepResult;
@@ -512,7 +524,7 @@ const PROBE_BINS: &str = r#"seen=; for b in "$(command -v acpmux 2>/dev/null)" ~
 /// starts there runs in (`linux_sandbox::bwrap::probe`'s flags): `ok`,
 /// `broken` (installed, but too old or user namespaces are off), `missing`,
 /// or `n/a` off Linux.
-const PROBE_BWRAP: &str = r#"printf 'bwrap\t%s\n' "$(if [ "$(uname -s)" != Linux ]; then echo n/a; elif /usr/bin/bwrap --unshare-user --unshare-net --disable-userns --ro-bind / / true >/dev/null 2>&1; then echo ok; elif [ -x /usr/bin/bwrap ]; then echo broken; else echo missing; fi)"; "#;
+const PROBE_BWRAP: &str = super::host_sandbox::PROBE;
 
 /// [`PROBE_BWRAP`], [`PROBE_BINS`], then the remote daemon config.
 fn probe_script() -> String {
