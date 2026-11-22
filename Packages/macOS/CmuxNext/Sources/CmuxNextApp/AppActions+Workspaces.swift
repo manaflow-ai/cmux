@@ -60,7 +60,7 @@ extension AppActions {
         // The native Home tab (HomePageTab), the channels Home tab (HomeChannelsPageTab) and in DEBUG the Home
         // fixture: registered at launch so a restored tab finds its provider (not blank).
         services.pages.register(HomePageTab(services: services))
-        registry.bind("home.tab", invoke: { _ = HomePageTab.open(services, focus: $0.allowsViewChange) })
+        for (id, side) in [("home.tab", nil), ("home.tabLeft", "left"), ("home.tabRight", "right")] as [(ActionID, String?)] { registry.bindEffect(id) { HomePageTab.open(services, focus: $0.allowsViewChange, direction: side); return .done } }
         services.pages.register(HomeChannelsPageTab.make(services))
         // The docked Home's tab (HomeDockTab): the Messages or Channels view (the sidebar's Home or Channels entry).
         services.pages.register(HomeDockTab(services: services))

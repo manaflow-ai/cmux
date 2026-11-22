@@ -75,6 +75,30 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "home.tabLeft",
+        group: GROUP,
+        title: t("HomeActions", "action.home.tabLeft", "Open Chief on the Left"),
+        keywords: &["home", "chief", "chat", "left", "beside", "split", "pane", "tab", "side by side"],
+        category: "window",
+        symbol: "rectangle.split.2x1",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "home tab-left",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "home.tabRight",
+        group: GROUP,
+        title: t("HomeActions", "action.home.tabRight", "Open Chief on the Right"),
+        keywords: &["home", "chief", "chat", "right", "beside", "split", "pane", "tab", "side by side"],
+        category: "window",
+        symbol: "rectangle.split.2x1",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "home tab-right",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "home.channels",
         group: GROUP,
         title: t("HomeActions", "action.home.channels", "Open Channels"),
