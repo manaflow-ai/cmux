@@ -25,10 +25,10 @@ enum WhatsNewPage {
         return ChangelogPageTab.open(services, focus: true, from: from?.description, to: center.current?.description)
     }
 
-    /// A click on a client-only sidebar item: the Channels entry switches Home to Channels; a
-    /// Chief subagent row opens its chat. Other machines' chats draw no rows (`RemoteMachinesSidebar` is not bound).
+    /// A click on a client-only sidebar item: the Channels entry switches Home to Channels; a Chief subagent row
+    /// opens its chat; a nav block row runs its action. Other machines' chats draw no rows (`RemoteMachinesSidebar` is not bound).
     static func activateClientItem(_ id: LayoutItemID, services: AppServices, in state: WindowState?) {
-        if ChiefSidebar.shared.activate(id, registry: services.registry) { return }
+        if ChiefSidebar.shared.activate(id, registry: services.registry) || SidebarTransientItem.activateNav(id, registry: services.registry) { return }
         // The Channels entry after Home (cx-frn2y): the one Home view path, as a person's click.
         if id == SidebarTransientItem.channelsID { _ = services.registry.perform("home.switchView", invocation: .init(arguments: ["view": .string("channels")], origin: .user)) }
     }
