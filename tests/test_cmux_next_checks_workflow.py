@@ -2466,6 +2466,29 @@ class FastTierStartsWarm(unittest.TestCase):
         self.assertEqual(set(pools), {"blacksmith"}, "no GitHub-hosted seed pool")
         self.assertEqual(pools["blacksmith"]["workspace"], "/Users/runner/_work/cmux/cmux")
 
+    def test_a_seed_key_names_the_path_its_restore_writes(self):
+        """fast-tier-cache-key.sh keys the path in CMUX_FAST_CACHE_WORKSPACE (else GITHUB_WORKSPACE); its ROOT
+        argument only says which tree to read. A job that restores the seed at the owned seed root must key that
+        root, or the key holds the runner's checkout path and no restore matches: generated files passed the root
+        as SEED_KEY_WORKSPACE and built cold on every mini (r2 "no entry", 2026-11-22)."""
+        root = "${{ steps.spm-root.outputs.root || github.workspace }}"
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        checked = []
+        for name, job in jobs.items():
+            steps = job.get("steps") or []
+            keys = [s for s in steps if "scripts/cmux-next/fast-tier-cache-key.sh" in str(s.get("run", ""))]
+            at_root = any(is_cache_restore(s) and "steps.spm-root.outputs.root" in str(s.get("with", {}).get("path", ""))
+                          for s in steps)
+            for step in keys:
+                if not at_root:
+                    continue
+                checked.append(name)
+                with self.subTest(job=name):
+                    self.assertEqual(step.get("env", {}).get("CMUX_FAST_CACHE_WORKSPACE"), root,
+                                     "the key's place is the root the restore writes, not the runner's checkout")
+        self.assertIn("generated-files", checked)
+        self.assertIn("fast-tier", checked)
+
     def test_seed_key_matches_the_fast_tier_key_for_one_tree(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "repo"
