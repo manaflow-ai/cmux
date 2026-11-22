@@ -266,7 +266,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca879855
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "d64e8033eaf144531902718534ff02be4e0042eb8b8908e18a46e405724753af"
+EXPECTED_GUARD_SCRIPT_DIGEST = "62c251ad39e2b71f8b66d5efffe87fb775f4948ab6ebaf11a85bbc6ae5c589cc"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -1183,7 +1183,7 @@ def run_pull_request_metadata_regression_matrix!
     actual = begin
       validated_base_sha(
         payload, pr_number: "50878", repository: repository,
-        repository_id: repository_id, head_sha: head_sha, expected_base_sha: base_sha
+        repository_id: repository_id, head_sha: head_sha
       )
     rescue MetadataError
       nil
@@ -1407,7 +1407,17 @@ def git_snapshots(repository, shas, paths)
 end
 
 # The base revision to validate against, from the live pull request.
-def validated_base_sha(live_pr, pr_number:, repository:, repository_id:, head_sha:, expected_base_sha:)
+#
+# The base branch moves while the guard runs: GitHub advances a pull request's
+# base.sha as main lands commits, and a re-run replays an event payload whose
+# base.sha is frozen at the moment the run was first queued, so the payload's
+# sha and the live sha differ routinely with nothing wrong and no one at fault.
+# Every revision of the protected repository's main is trusted, and each
+# revision is read at its own sha, so the guard validates against the live base
+# instead of refusing a pull request for that drift. The head sha stays pinned
+# to the exact revision the run was queued for: that one is candidate-controlled
+# and an equality check there is the pin that matters.
+def validated_base_sha(live_pr, pr_number:, repository:, repository_id:, head_sha:)
   refuse_metadata!("pull request metadata is malformed") unless live_pr.is_a?(Hash)
   base = live_pr["base"]
   head = live_pr["head"]
@@ -1418,7 +1428,8 @@ def validated_base_sha(live_pr, pr_number:, repository:, repository_id:, head_sh
     live_pr["state"] == "open" &&
     base.is_a?(Hash) &&
     base["ref"] == "main" &&
-    base["sha"] == expected_base_sha &&
+    base["sha"].is_a?(String) &&
+    base["sha"].match?(SHA) &&
     base_repo.is_a?(Hash) &&
     base_repo["full_name"].to_s.downcase == repository.downcase &&
     base_repo["id"] == repository_id &&
@@ -3885,10 +3896,13 @@ begin
   end
   assert_positive_integer(repository_id, "base repository ID")
   live_pr = api_json(repository, "repos/#{repository}/pulls/#{pr_number}")
+  queued_base_sha = base_sha
   base_sha = validated_base_sha(
     live_pr, pr_number: pr_number, repository: repository,
-    repository_id: repository_id, head_sha: head_sha, expected_base_sha: base_sha
+    repository_id: repository_id, head_sha: head_sha
   )
+  puts "NOTE: base branch moved since this run was queued (#{queued_base_sha} -> #{base_sha})" unless
+    base_sha == queued_base_sha
   live_author = live_pr["user"]
   refuse_metadata!("pull request author metadata is malformed") unless
     live_author.is_a?(Hash) && live_author["id"].is_a?(Integer) && live_author["id"].positive?
