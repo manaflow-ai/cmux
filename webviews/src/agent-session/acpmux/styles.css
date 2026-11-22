@@ -448,12 +448,12 @@
 .acpmux-host-slot .acpmux-host-line{padding-bottom:var(--ds-space-2)}
 .acpmux-host-slot>.acpmux-host-line-group>.acpmux-host-line:first-child{padding-bottom:var(--ds-space-2)}
 .acpmux-host-slot .acpmux-host-line-message{background:color-mix(in srgb,var(--agent-surface,var(--ds-surface-inset)) 92%,transparent);border-radius:var(--ds-radius-control);padding:0 var(--ds-space-1)}
-/* The chip: a dot and one word, small and muted, in the composer column's end. */
-.acpmux-host-slot>.acpmux-host-chip{pointer-events:none;left:auto;--acpmux-host-chip-end:var(--cv-inset-end,var(--cv-inset,max(18px,calc((100% - 760px)/2))));right:calc(var(--acpmux-host-chip-end) - var(--acpmux-stack-outset,0px));bottom:var(--ds-space-2);width:max-content;max-width:calc(100% - var(--ds-space-5));align-items:center;gap:var(--ds-space-1);height:20px;padding:0 var(--ds-space-2);border-radius:999px;background:color-mix(in srgb,var(--agent-surface,var(--ds-surface-inset)) 92%,transparent);color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing);white-space:nowrap}
+/* The chip: a dot and one word, small and muted, in the composer column's end; a small-radius rect, not a capsule (POLISH.md). */
+.acpmux-host-slot>.acpmux-host-chip{pointer-events:none;left:auto;--acpmux-host-chip-end:var(--cv-inset-end,var(--cv-inset,max(18px,calc((100% - 760px)/2))));right:calc(var(--acpmux-host-chip-end) - var(--acpmux-stack-outset,0px));bottom:var(--ds-space-2);width:max-content;max-width:calc(100% - var(--ds-space-5));align-items:center;gap:var(--ds-space-1);height:20px;padding:0 var(--ds-space-2);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-surface,var(--ds-surface-inset)) 92%,transparent);color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing);white-space:nowrap}
 .acpmux-host-chip-dot{--acpmux-host-chip-dot:6px;flex:none;width:var(--acpmux-host-chip-dot);height:var(--acpmux-host-chip-dot);border-radius:50%;background:currentColor;opacity:.7}
 .acpmux-host-chip-words{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-host-chip[data-chip="dot"]{padding:0;width:20px;justify-content:center}
-.acpmux-host-slot>.acpmux-host-chip[data-chip="dot"]{width:20px}
+.acpmux-host-slot>.acpmux-host-chip[data-chip="dot"]{width:20px;border-radius:50%}
 /* corner: the chip fixed in the pane's top end corner, away from the composer. */
 .acpmux-host-slot>.acpmux-host-chip[data-chip="corner"]{position:fixed;inset:8px 12px auto auto;bottom:auto;left:auto}
 /* A Fork Conversation acpmux has not answered (ForkPendingLine.tsx): the host line's look, with its

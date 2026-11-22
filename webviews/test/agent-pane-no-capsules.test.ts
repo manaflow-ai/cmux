@@ -64,6 +64,18 @@ const SHAPES = new Set([
   // The tucked running tray's pull tab (subagents/TrayPullTab.tsx): its needs-you dot is a circle
   // sized square through --acpmux-tray-pull-dot, which this reader does not resolve.
   ".acpmux-tray-pull__dot",
+  // A browser pick's number badge (BrowserPickChip.tsx): a circle, 16 high with a 16 min-width, as
+  // the numbered pin it matches on the page; this reader does not read min-width as a side.
+  ".acpmux-browser-pick-number",
+  // The hat's agent faces (subagents/HatFaces): each a circle around a square icon, and the fan arm's
+  // backing behind the spread faces, which holds no text and takes no clicks.
+  ".acpmux-hat-face",
+  '.acpmux-hat-faces[data-hat-faces="fan"]:hover .acpmux-hat-faces__row::before',
+  // The glass toolbar groups experiment (#47172, Settings > Experiments, off by default): its design
+  // groups the header's actions by shape, round glass buttons and one glass capsule, with keycaps.
+  "[data-glass-toolbar] .acpmux-header-tool",
+  "[data-glass-toolbar] .acpmux-glass-capsule",
+  ".acpmux-glass-keycap",
   // Costs' share bars (ledger/LedgerScreen.tsx): a progress bar under each row, 4 px tall, and the
   // unpriced source mark, a 2 px dash. Neither holds text or takes clicks.
   '.cst-row[data-look="table"] .cst-bar',

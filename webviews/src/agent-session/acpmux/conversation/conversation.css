@@ -1207,7 +1207,7 @@
 }
 /* The switcher's two slots (VersionSwitcher.tsx): the footer's is shown, the head's is not, unless the
    page asks for another look (`data-fork-switcher-look`, the gallery's variants; Leo, 2026-11-21).
-   Shipped (B, the capsule): the footer's arrows and count in a quiet capsule with the count in full ink,
+   Shipped (B): the footer's arrows and count in a quiet small-radius rect (POLISH.md: no capsule pills) with the count in full ink,
    so three small glyphs read as one control. It is the footer's own 24 high, 8 wider than the bare
    arrows, so nothing moves when a prompt gains a version. */
 .cv-user__versions[data-version-slot="head"] {
@@ -1216,7 +1216,7 @@
 .cv-user__versions[data-version-slot="footer"] {
   margin-inline-end: var(--grid-base);
   padding-inline: var(--grid-half-step);
-  border-radius: 999px;
+  border-radius: var(--ds-radius-control);
   background: var(--ds-surface-inset);
 }
 .cv-user__versions .cv-user__version-count {
@@ -1266,7 +1266,7 @@
 }
 :root[data-fork-switcher-look="head-pill"] .cv-user__versions[data-version-slot="head"] {
   padding-inline: var(--grid-half-step);
-  border-radius: 999px;
+  border-radius: var(--ds-radius-control);
   background: var(--ds-surface-inset);
 }
 /* The switcher's two slots (VersionSwitcher.tsx): the footer's is shown, the head's is not, unless the
@@ -1282,7 +1282,7 @@
 :root[data-fork-switcher-look="pill"] .cv-user__versions[data-version-slot="footer"] {
   margin-inline-end: var(--grid-base);
   padding-inline: var(--grid-half-step);
-  border-radius: 999px;
+  border-radius: var(--ds-radius-control);
   background: var(--ds-surface-inset);
 }
 :root[data-fork-switcher-look="pill"] .cv-user__versions .cv-user__version-count {
@@ -1293,7 +1293,7 @@
 :root[data-fork-switcher-look="outline"] .cv-user__versions[data-version-slot="footer"] {
   margin-inline-end: var(--grid-base);
   padding-inline: var(--grid-half-step);
-  border-radius: 999px;
+  border-radius: var(--ds-radius-control);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cv-text) 16%, transparent);
 }
 :root[data-fork-switcher-look="outline"] .cv-user__versions .cv-user__version-count {
@@ -1305,7 +1305,7 @@
 :root[data-fork-switcher-look="roomy"] .cv-user__versions[data-version-slot="footer"] {
   margin-inline-end: var(--grid-base);
   padding-inline: var(--grid-base);
-  border-radius: 999px;
+  border-radius: var(--ds-radius-control);
   background: var(--ds-surface-inset);
 }
 :root[data-fork-switcher-look="roomy"] .cv-user__versions .cv-user__version-count {
@@ -1321,7 +1321,7 @@
 }
 :root[data-fork-switcher-look="head-pill"] .cv-user__versions[data-version-slot="head"] {
   padding-inline: var(--grid-half-step);
-  border-radius: 999px;
+  border-radius: var(--ds-radius-control);
   background: var(--ds-surface-inset);
 }
 :root[data-fork-switcher-look="head-pill"] .cv-user__versions .cv-user__version-count {
