@@ -257,7 +257,8 @@ fn ok(global: &GlobalArgs, value: &Value, human: &str) -> i32 {
 }
 
 /// `cmux theme check DIR` on a theme or snippet repository folder: the
-/// marker, every theme file, and the art (type, size and count).
+/// marker, every theme file, the art (type, size and count), and the font
+/// pack (license, license text, each face's type and size, each face key).
 pub(super) fn check_dir(global: &GlobalArgs, dir: &Path) -> i32 {
     match community::read_package(dir) {
         Ok(package) => {
@@ -269,6 +270,13 @@ pub(super) fn check_dir(global: &GlobalArgs, dir: &Path) -> i32 {
                 package.themes.join(", "),
                 package.art.images.len()
             );
+            if !package.fonts.files.is_empty() {
+                human.push_str(&format!(
+                    "; {} font files ({})",
+                    package.fonts.files.len(),
+                    package.fonts.license.as_deref().unwrap_or_default()
+                ));
+            }
             if !package.art.pending.is_empty() {
                 human.push_str(&format!(
                     "\n  not applied yet (no cmux setting): {}",
@@ -281,6 +289,8 @@ pub(super) fn check_dir(global: &GlobalArgs, dir: &Path) -> i32 {
                 "id": package.id,
                 "themes": package.themes,
                 "images": package.art.images,
+                "fonts": package.fonts.files,
+                "fontLicense": package.fonts.license,
                 "pending": package.art.pending,
             });
             ok(global, &value, &human)
@@ -501,6 +511,9 @@ fn install(
         if !package.art.images.is_empty() {
             human.push_str(&format!("; {} images", package.art.images.len()));
         }
+        if !package.fonts.files.is_empty() {
+            human.push_str(&format!("; {} font files", package.fonts.files.len()));
+        }
         if !package.art.pending.is_empty() {
             human.push_str(&format!(
                 "\n  not applied yet (no cmux setting): {}",
@@ -521,6 +534,7 @@ fn install(
         "receipt": receipt,
         "themes": package.themes,
         "images": package.art.images.len(),
+        "fonts": package.fonts.files.len(),
         "pending": package.art.pending,
         "change": change,
     });
@@ -801,12 +815,18 @@ impl Git {
                 || relative
                     .strip_prefix("themes/")
                     .is_some_and(|name| !name.contains('/') && name.ends_with(".json"))
-                || community::art::is_art_path(relative);
+                || community::art::is_art_path(relative)
+                || community::fonts::is_fonts_path(relative);
             if installs {
                 wanted.push((relative.to_owned(), size.parse().unwrap_or(u64::MAX)));
             }
         }
-        let most = community::MAX_THEMES + SNIPPET_FILES.len() + 2 + community::art::MAX_IMAGES;
+        let most = community::MAX_THEMES
+            + SNIPPET_FILES.len()
+            + 2
+            + community::art::MAX_IMAGES
+            + cmux_config::font_faces::MAX_FACES
+            + community::fonts::MAX_LICENSE_FILES;
         if wanted.len() > most {
             return Err(format!(
                 "{}: too many files to be a theme or snippet",
@@ -826,6 +846,10 @@ impl Git {
                     ));
                 }
                 community::art::MAX_IMAGE_BYTES
+            } else if community::fonts::is_font_path(&relative) {
+                cmux_config::font_faces::MAX_FACE_BYTES
+            } else if community::fonts::is_license_path(&relative) {
+                community::fonts::MAX_LICENSE_BYTES
             } else {
                 community::MAX_MARKER_BYTES
             };
