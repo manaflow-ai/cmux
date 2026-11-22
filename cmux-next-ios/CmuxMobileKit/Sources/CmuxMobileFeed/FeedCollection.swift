@@ -5,6 +5,7 @@ import CmuxMobileDesign
 import CmuxMobileMarkdown
 import CmuxMobileModel
 import Observation
+import OSLog
 import SwiftUI
 import UIKit
 
@@ -217,7 +218,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
                     return cell
                 }
                 let row = (tableView.dequeueReusableCell(withIdentifier: FeedRowCell.reuseID) as? FeedRowCell)
-                    ?? self?.takeSpare() ?? FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
+                    ?? self?.takeSpare() ?? self?.newRowCell() ?? FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
                 guard let self, let layout = self.layout(for: id) else { return row }
                 row.delegate = self
                 row.apply(layout, item: self.items[id], settled: self.rowsSettled)
@@ -628,6 +629,20 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     }
 
     private(set) var sparesTaken = 0
+    /// Row cells the cell provider had to make itself: no reused cell and no spare (tests: none in
+    /// a scroll once the Feed has been idle).
+    private(set) var newCells = 0
+
+    private func newRowCell() -> FeedRowCell {
+        newCells += 1
+        #if DEBUG
+        if FeedStressRig.shared.config.isActive {
+            Logger(subsystem: "dev.cmux.mobile", category: "frames").notice(
+                "FRAMELOG feed-cell new=\(self.newCells, privacy: .public) spares=\(self.spares.count, privacy: .public) taken=\(self.sparesTaken, privacy: .public) made=\(self.sparesMade, privacy: .public) warmed=\(self.warmedLayouts.count, privacy: .public)")
+        }
+        #endif
+        return FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
+    }
 
     /// One spare row cell with every warmed shape's parts built (one per idle run-loop turn).
     private func makeSpare() {

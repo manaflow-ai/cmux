@@ -3,7 +3,7 @@ import XCTest
 /// The Feed makes spare row cells while idle and the first scroll takes them (FeedListController
 /// `spares`). A spare was last filled with a warm-up row: each row it shows after the scroll must
 /// be its own event, never a warm-up's or another row's. A quoted stress event carries its own
-/// number in its quote ("Request N: …", `FeedStore.stressItem`), so a row whose cell shows another
+/// number in its quote ("In reply to your message: Request N: …", `FeedStore.stressItem`), so a row whose cell shows another
 /// number's quote is a stale cell.
 final class FeedSpareCellsUITests: XCTestCase {
     override func setUp() {
@@ -35,9 +35,11 @@ final class FeedSpareCellsUITests: XCTestCase {
             for cell in list.cells.matching(NSPredicate(format: "identifier BEGINSWITH 'feed.row.stress-'")).allElementsBoundByIndex
             where cell.isHittable {
                 guard let number = Int(cell.identifier.dropFirst("feed.row.stress-".count)) else { continue }
-                let quotes = cell.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Request '")).allElementsBoundByIndex.map(\.label)
+                // The quote is one button-like element: "In reply to your message: Request N: …".
+                let quotes = cell.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Request '"))
+                    .allElementsBoundByIndex.map(\.label)
                 for quote in quotes {
-                    XCTAssertTrue(quote.hasPrefix("Request \(number):"),
+                    XCTAssertTrue(quote.contains("Request \(number):"),
                                   "row stress-\(number) shows another event's quote after scroll step \(step): \(quote)")
                     checked += 1
                 }

@@ -42,14 +42,18 @@ import UIKit
         let feed = try #require(list, "the Feed's table")
         // Idle: the warm-up draws each shape and makes the spare cells, one per run-loop turn.
         for _ in 0..<60 { settle() }
-        let made = FeedRowCell.made
+        let controller = try #require(feed.delegate as? FeedListController, "the Feed's controller")
+        #expect(controller.sparesMade > 0, "no spare cells were made while idle")
+        let made = controller.newCells
         // A slow scroll through the first 40 rows, a frame's worth at a time.
         for _ in 0..<240 {
             feed.contentOffset.y += 40
             feed.layoutIfNeeded()
             settle(0.005)
         }
-        #expect(FeedRowCell.made - made == 0, "the scroll made \(FeedRowCell.made - made) row cells")
+        // Cells made by the provider during the scroll (spares made in idle turns are not counted).
+        #expect(controller.newCells - made == 0,
+                "the scroll made \(controller.newCells - made) row cells (spares made \(controller.sparesMade), taken \(controller.sparesTaken))")
     }
 
     @Test func aQuoteBubbleOfAKnownSizeIsNotComputedAgain() {
