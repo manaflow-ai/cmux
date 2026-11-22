@@ -768,6 +768,7 @@ const HIDDEN_MS = Number(process.env.HIDDEN_MS ?? 1500);
 const FOLDS = Number(process.env.FOLDS ?? 0);
 let wakeFoldsKept: unknown;
 const foldsOpenAtEnd: number[] = [];
+const foldsCarriedHeld: string[] = [];
 const spareNodes: number[] = [];
 const OUTSIDE = new Set(["(idle)", "(program)", "(root)"]);
 type ProfileNode = CpuProfile["nodes"][number];
@@ -1447,10 +1448,20 @@ try {
             )
           ).join("\n  ")}`,
         );
-      if (FOLDS > 0)
+      if (FOLDS > 0) {
         foldsOpenAtEnd.push(
           await page.evaluate(() => document.querySelectorAll('#root [aria-expanded="true"]').length),
         );
+        // The adopted page's own wake state names the folds it holds open: the carried ones must be among them.
+        const held = (await page.evaluate(async () => {
+          const actions = (window as { cmuxAcpmuxActions?: Record<string, (args: unknown) => Promise<unknown>> })
+            .cmuxAcpmuxActions;
+          return (await actions?.["pane.wakeState"]?.({})) ?? null;
+        })) as { folds?: { expanded?: string[] } } | null;
+        const carried = (wakeFoldsKept as { expanded?: string[] } | undefined)?.expanded ?? [];
+        const kept = carried.filter((id) => held?.folds?.expanded?.includes(id)).length;
+        foldsCarriedHeld.push(`${kept}/${carried.length}`);
+      }
       const frames = got.frames
         .filter((frame) => frame.t >= start.at)
         .map((frame) => ({ ...frame, t: frame.t - start.at }));
@@ -2047,6 +2058,10 @@ try {
   if (FOLDS > 0) {
     console.log(`reopen-spare folds open at the end of each round (FOLDS=${FOLDS}): ${foldsOpenAtEnd.join(", ")}`);
     json.foldsOpenAtEnd = foldsOpenAtEnd;
+    console.log(
+      `reopen-spare carried folds the adopted page holds open (its pane.wakeState): ${foldsCarriedHeld.join(", ")}`,
+    );
+    json.foldsCarriedHeld = foldsCarriedHeld;
   }
   console.log(`HIDDEN_RESHOW_JSON ${JSON.stringify(json)}`);
   printProfile();
