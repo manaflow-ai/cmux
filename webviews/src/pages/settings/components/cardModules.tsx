@@ -98,6 +98,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./LooksGalleryCard").then(({ LooksGalleryCard }) => (_focus, _workspace, reveal) => (
       <LooksGalleryCard reveal={reveal} />
     )),
+  customizeChecklist: () =>
+    import("./CustomizeChecklist").then(({ CustomizeChecklistCard }) => () => <CustomizeChecklistCard />),
   keys: () =>
     import("./KeysCard").then(({ KeysCard }) => (_focus, _workspace, reveal) => <KeysCard reveal={reveal} />),
   mcpServers: () =>
