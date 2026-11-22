@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime};
 
 use serde_json::json;
-use sha2::{Digest as _, Sha256};
+use sha2::Sha256;
 
 use super::*;
 
@@ -165,7 +165,7 @@ fn a_manifest_is_version_1_with_well_formed_packs() {
 
 #[test]
 fn a_pack_names_a_downloadable_chromium_locale_and_carries_something() {
-    let pack = |extra: serde_json::Value| {
+    let pack = |extra: Value| {
         let mut pack = json!({"url": "https://files-next.cmux.com/language-packs/x/sv.tar.zst",
             "sha256": SHA_A, "size": 10});
         pack.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());

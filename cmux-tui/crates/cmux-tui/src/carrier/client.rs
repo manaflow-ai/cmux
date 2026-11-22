@@ -718,7 +718,7 @@ impl ResumeHooks for Resume {
         let outcome = result.err().map(resume_outcome);
         let detail = result.err().map(ToString::to_string);
         (self.log)(route_line(&self.machine, Phase::Resume, outcome, detail.as_deref(), elapsed));
-        let carrier = Some(self.current.get()).filter(|_| outcome.is_none());
+        let carrier = outcome.is_none().then_some(self.current.get());
         let said = detail.as_deref().and_then(ssh_stderr_of);
         (self.phases)(routes_line(&self.machine, Phase::Resume, None, carrier, outcome, said));
     }

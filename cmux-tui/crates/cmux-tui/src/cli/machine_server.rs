@@ -84,7 +84,7 @@ pub(super) fn args_for(
     }
     let (global, command_args) = match super::parse_globals(args) {
         Ok(parsed) => parsed,
-        Err(failure) => return Some(Err(failure)).filter(|_| names_server(args)),
+        Err(failure) => return names_server(args).then_some(Err(failure)),
     };
     let (first, rest) = command_args.split_first()?;
     if first != "server" && first != PAIR_VERB {

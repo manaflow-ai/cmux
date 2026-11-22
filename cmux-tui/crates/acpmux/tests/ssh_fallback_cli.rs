@@ -320,14 +320,14 @@ fn a_send_to_a_down_ssh_peer_is_delivered_once_over_ssh_and_not_again_on_reconne
     assert_eq!(delivered["accepted"]["via"], "ssh", "{delivered}");
     assert_eq!(delivered["accepted"]["host"], "box", "{delivered}");
     assert!(delivered["accepted"]["sshDeliveryId"].is_string(), "{delivered}");
-    within(30, "B ran the message", || Some(()).filter(|_| pair.turns() > before));
+    within(30, "B ran the message", || (pair.turns() > before).then_some(()));
     assert_eq!(pair.calls("carry"), 1);
     let log = pair.log();
     assert!(log.contains("ssh carry") && log.contains(&id), "{log}");
 
     // The link comes back: nothing is sent to B again.
     fs::write(pair.dir.join("up"), "").unwrap();
-    within(60, "the link is back", || Some(()).filter(|_| pair.peer_state() == "connected"));
+    within(60, "the link is back", || (pair.peer_state() == "connected").then_some(()));
     std::thread::sleep(Duration::from_secs(5));
     assert_eq!(pair.turns(), before + 1, "B ran it once");
     assert_eq!(pair.calls("carry"), 1);
@@ -374,5 +374,5 @@ fn an_ssh_that_cannot_log_in_leaves_the_delivery_queued_until_it_can() {
         (v["status"] == "delivered").then_some(v)
     });
     assert_eq!(delivered["accepted"]["via"], "ssh", "{delivered}");
-    within(30, "B ran the message", || Some(()).filter(|_| pair.turns() > before));
+    within(30, "B ran the message", || (pair.turns() > before).then_some(()));
 }
