@@ -81,6 +81,21 @@ records) draws 74 rows and 9 `a-head-gap` violations sanitized, and 77 rows and 
 Some of the pane's text parsing (an incoming message's sender, a background task's summary) reads words the
 sanitizer replaces. Compare the two with `--replay DIR` and `--replay DIR --sanitize OUT` when it matters.
 
+## Start at the interesting part
+
+```sh
+bun scripts/chat-sim.ts --replay test/fixtures/chat-sim/replay-lane-session.ndjson --start-at 50
+bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --seek-to-event 4200 --lead 2
+```
+
+`--start-at S` starts S seconds of virtual time into the scenario; `--seek-to-event SEQ --lead S` starts S
+seconds before the first record at or after SEQ. Every step before the start is still applied (the reducer
+and turn view see every record, so the chat there is exact, not a fast-forward); the trace and the
+violations begin at the start. `seekPlan` (sim/seek.ts) is the split: the steps to apply at once and the
+rest's delays. In Chrome, `window.__chatSim.seek(name, { startAtMs } | { seekToSeq, leadMs })` applies the
+prefix, draws that state in one frame and returns `start`, so a recorder plays from there and a clip shows
+only the part that differs (keep proof clips under about 15 s).
+
 ## Write a scenario
 
 ```ts

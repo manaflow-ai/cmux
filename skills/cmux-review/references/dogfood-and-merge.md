@@ -36,6 +36,16 @@ python3 scripts/media/media_polish.py trim clip.mov --out fold.mp4 --event-start
 - Capture before, after and every variant with the same crop, so `pair` and
   `grid` take them as they are; `--fit` letterboxes (never stretches) and says so.
 - Cut each clip to the event under test (`trim`: about 300 ms either side).
+- Start a scripted or replayed scenario at its interesting state, not at its
+  beginning: the chat simulator's `--start-at S` (seconds into the scenario) or
+  `--seek-to-event SEQ --lead S` (S seconds before record SEQ) applies every
+  earlier step at once, so the state there is exact, then plays the rest at its
+  recorded pace (`webviews/src/agent-session/acpmux/sim/seek.ts`; the browser
+  page's `window.__chatSim.seek(name, options)` draws that state for a recorder).
+  A before/after pair then becomes one labeled side-by-side clip:
+  `python3 scripts/media/media_polish.py sbs BEFORE AFTER --out X.mp4` trims both
+  to where they diverge with 2 s of lead. Keep proof clips under about 15 s; a
+  minute-long clip whose difference is in its last 10 s does not show it.
 - Crop so sidebars with machine or account names are outside the frame;
   `redact --rect` is the fallback. `scan` reads no text and refuses nothing: the
   privacy check (`scripts/ci/pr_media_privacy.py check`, which `pr-media.py` runs

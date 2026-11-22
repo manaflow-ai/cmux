@@ -11,6 +11,7 @@
 //   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> [--from SEQ --to SEQ --limit N]
 //   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --sanitize out.ndjson   (a fixture safe to commit)
 //   bun scripts/chat-sim.ts --replay test/fixtures/chat-sim/<name>.ndjson
+//   ... --start-at S | --seek-to-event SEQ [--lead S]   (apply the steps before at once; trace from there)
 //
 // Exit status: 0 with no violations, 1 with any (2: bad arguments).
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync, appendFileSync } from "node:fs";
@@ -19,6 +20,7 @@ import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { runSimulation, summarize, type SimResult } from "../src/agent-session/acpmux/sim/run";
 import { parseRecords, sanitizeRecords } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, type SimScenario } from "../src/agent-session/acpmux/sim/script";
+import { seekFromArgs, seekPlan } from "../src/agent-session/acpmux/sim/seek";
 import { SCENARIOS, longRun, scenarioNames } from "../src/agent-session/acpmux/sim/scenarios";
 
 const args = process.argv.slice(2);
@@ -33,7 +35,7 @@ function usage(code: number): never {
   console.log(
     readFileSync(import.meta.path, "utf8")
       .split("\n")
-      .slice(1, 15)
+      .slice(1, 16)
       .map((line) => line.replace(/^\/\/ ?/, ""))
       .join("\n"),
   );
@@ -81,7 +83,7 @@ if (replay) {
 } else if (flag("--all")) {
   for (const name of scenarioNames()) scenarios.push(SCENARIOS[name]!());
 } else {
-  const name = args.find((arg) => !arg.startsWith("--"));
+  const name = args.find((arg, at) => !arg.startsWith("--") && !args[at - 1]?.startsWith("--"));
   if (!name || !SCENARIOS[name]) usage(2);
   scenarios.push(SCENARIOS[name]!());
 }
@@ -89,13 +91,24 @@ if (replay) {
 const tracePath = value("--trace");
 if (tracePath) writeFileSync(tracePath, "");
 const results: SimResult[] = [];
+const seek = seekFromArgs(value);
 for (const scenario of scenarios) {
-  const result = runSimulation(scenario, {
+  // A seek still runs every step (the state at the start is exact); the trace and the violations start there.
+  const start = seek ? seekPlan(scenario.steps, seek).start : 0;
+  if (seek)
+    console.log(
+      `seek: ${start} steps applied at once, from step ${start} (+${(((scenario.steps[start]?.at ?? 0) - (scenario.steps[0]?.at ?? 0)) / 1000).toFixed(1)} s)`,
+    );
+  const ran = runSimulation(scenario, {
     rowsInTraceUpTo: number("--rows-up-to"),
     onStep: tracePath
-      ? (trace) => appendFileSync(tracePath, JSON.stringify({ scenario: scenario.name, ...trace }) + "\n")
+      ? (trace) => {
+          if (trace.step >= start)
+            appendFileSync(tracePath, JSON.stringify({ scenario: scenario.name, ...trace }) + "\n");
+        }
       : undefined,
   });
+  const result = start ? { ...ran, violations: ran.violations.filter((violation) => violation.step >= start) } : ran;
   results.push(result);
   console.log(summarize(result));
   // One line per distinct violation (the same row breaking the same rule at many steps prints once).
