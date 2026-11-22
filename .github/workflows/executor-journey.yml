@@ -10,9 +10,17 @@ name: Executor journey (staging)
 # Same-repo pull requests that change the journey's files, and manual runs (`gh workflow run executor-journey.yml
 # --ref feat-cmux-next`); the daily schedule lives on main (executor-journey-nightly-dispatch.yml).
 
+# The daily dispatcher on main finds its own run by the request_id at the end of the run name.
+run-name: Executor journey (staging) ${{ inputs.request_id || github.event.pull_request.title || github.ref_name }}
+
 on:
   workflow_dispatch:
     inputs:
+      request_id:
+        description: "Dispatcher's id for this run (executor_journey_dispatch.mjs on main); any text"
+        required: false
+        type: string
+        default: ""
       executor_version:
         description: "Executor release to install (empty: its newest beta)"
         required: false
