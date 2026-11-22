@@ -119,6 +119,24 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         #expect(controller.link != nil)
     }
 
+    @Test func shortResumeOnADeadLinkKeepsItBesideARedialWithinTheQuickProbe() async throws {
+        let dialer = RecoveryDialer()
+        let clock = LinkTestClock()
+        let controller = controller(dialer, clock: clock)
+        defer { controller.send(.target(nil)); clock.stop() }
+        let driver = LinkClockDriver(clock: clock, controller: controller, probeAnswers: { _ in false })
+        try await eventually { dialer.first.probeCount == 1 }
+        controller.send(.background)
+        dialer.first.dropSilently()
+        controller.send(.resumed(after: .seconds(1)))
+        #expect(controller.lastProbeTimeout == LinkController.presenceProbeTimeout)
+        #expect(dialer.dials == 1)
+        try await driver.advance(by: LinkController.presenceProbeTimeout + LinkController.probeGrace + .milliseconds(100),
+                                 until: { dialer.dials == 2 })
+        try await eventually { dialer.dials == 2 }
+        #expect(controller.standbyLink != nil, "The silent link stays beside the redial")
+    }
+
     @Test func backgroundBacksOffHeartbeatAndCloseStopsIt() async throws {
         let dialer = RecoveryDialer()
         let clock = LinkTestClock()
