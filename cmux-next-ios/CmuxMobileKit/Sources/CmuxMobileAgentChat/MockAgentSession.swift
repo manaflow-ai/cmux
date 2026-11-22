@@ -61,8 +61,10 @@ public final class MockAgentSession: AgentSessionSource {
 
     public func send(_ intent: AgentClientIntent) {
         switch intent {
-        case .prompt(let text, let attachments, let steer, _, _):
-            let promptID = UUID().uuidString
+        case .prompt(let text, let attachments, let steer, let sentID, _):
+            // The client's id comes back on the echo, as acpmux does: the store
+            // matches its send to it (`chat_send_acked`, a resend's dedupe).
+            let promptID = sentID.isEmpty ? UUID().uuidString : sentID
             if running != nil, !steer {
                 queued.append((promptID, text, attachments))
                 emit(.queued(text: text, promptId: promptID, position: queued.count))
