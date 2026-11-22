@@ -10,7 +10,11 @@
 // added or removed, text, an attribute other than `style`: the records a step applies, a stream's reveal),
 // or it mounted. It is the popup recorder's attribution (popupStill.ts, cmux#49879) per element: input
 // excuses only what it was given to, and a step excuses only the elements it changed. A move made by
-// writing `style` from script is no touch: it is a move, and it is judged as one.
+// writing `style` from script is no touch: it is a move, and it is judged as one. An element whose inline
+// `translate` or `transform` script writes on three or more frames running is a script animation (the
+// follow chase, followChase.ts, draws the thread so): the elements it holds count as animated while it
+// runs, and the run itself is judged (`off-curve` when it turns back, a bounce). A one-frame write (a
+// placement jump) is no animation.
 //
 // The node side (`transcriptMoves`, pure) names, frame by frame:
 // - `move`: an element no step touched (in this frame or the one before) and no animation moves, that is
@@ -19,7 +23,8 @@
 // - `resize`: the same element's box more than 1 px taller, shorter, wider or narrower.
 // - `off-curve`: a running animation that moves geometry (transform, translate, a height, a clip) on
 //   another easing than the house's (motion/scale.generated.ts: the settle, the send curve, the ease-out,
-//   the spring, the follow's arrival step) or longer than the scale's ceiling (MOTION_MS.large).
+//   the spring, the follow's arrival step) or longer than the scale's ceiling (MOTION_MS.large); or a
+//   script animation that turns back on itself.
 // Each flag names what landed just before it (the step's marks) and what grew beside it in the same frame
 // (its cause), so a table can say which steps make the jumps.
 //
@@ -39,6 +44,8 @@ export const INPUT_MS = 250;
 export const HOUSE_EASINGS = [MOTION_SETTLE, MOTION_EASE_OUT, MOTION_SPRING, ARRIVAL_EASE];
 /** The ceiling of any house move (ms): "no house move outlasts the large step" (scale.generated.ts). */
 export const HOUSE_MAX_MS = MOTION_MS.large;
+/** Frames running on which script writes an element's translate before it counts as an animation. */
+export const SCRIPT_RUN_FRAMES = 3;
 
 export type Box = [x: number, y: number, w: number, h: number];
 export type MotionFrameRecord = {
@@ -55,6 +62,9 @@ export type MotionFrameRecord = {
   animated: string[];
   /** Marks (steps, input) since the last frame. */
   marks: string[];
+  /** Elements whose inline translate or transform script wrote since the last frame: id -> [its y
+   *  offset (px), the tracked keys it holds in view]. */
+  driven?: Record<string, [y: number, keys: string[]]>;
 };
 export type AnimationSeen = {
   /** The animated element: a tracked key, or `tag.class` for a container (the thread, the stack). */
@@ -129,10 +139,25 @@ export function defineTranscriptMotion(options: TranscriptMotionOptions) {
   let inputs: number[] = [];
   let touched = new Set<string>();
   let marks: string[] = [];
+  let styled = new Set<Element>();
+  const driverIds = new WeakMap<Element, string>();
+  const driverOf = (element: Element) => {
+    let id = driverIds.get(element);
+    if (!id) {
+      id = element.matches(selectorAll)
+        ? keyOf(element)
+        : `${element.tagName.toLowerCase()}.${[...element.classList].slice(0, 2).join(".")}#${(nextId += 1)}`;
+      driverIds.set(element, id);
+    }
+    return id;
+  };
   const observer = new MutationObserver((list) => {
     if (!recording) return;
     for (const mutation of list) {
-      if (mutation.type === "attributes" && mutation.attributeName === "style") continue;
+      if (mutation.type === "attributes" && mutation.attributeName === "style") {
+        if (mutation.target instanceof Element) styled.add(mutation.target);
+        continue;
+      }
       const owner = holder(mutation.target);
       if (owner) touched.add(keyOf(owner));
       for (const node of mutation.addedNodes) {
@@ -190,6 +215,7 @@ export function defineTranscriptMotion(options: TranscriptMotionOptions) {
       });
     }
     const els: MotionFrameRecord["els"] = {};
+    const inView: [string, Element][] = [];
     const animated: string[] = [];
     for (const element of document.querySelectorAll<HTMLElement>(selectorAll)) {
       const box = element.getBoundingClientRect();
@@ -198,9 +224,23 @@ export function defineTranscriptMotion(options: TranscriptMotionOptions) {
       // Rows count while any part of them is in the scroller's view; the dock and composer always.
       if (entry.kind === "row" && view && (box.bottom <= view.top || box.top >= view.bottom)) continue;
       const key = keyOf(element);
+      inView.push([key, element]);
       els[key] = [[round(box.left), round(box.top), round(box.width), round(box.height)], entry.kind];
       if (movers.some((mover) => mover === element || mover.contains(element))) animated.push(key);
     }
+    // Script's own moves: an inline translate or transform written this frame, and what it holds.
+    const driven: NonNullable<MotionFrameRecord["driven"]> = {};
+    for (const element of styled) {
+      const style = (element as HTMLElement).style;
+      if (!style || (!style.translate && !style.transform && !driverIds.has(element))) continue;
+      const y = Number.parseFloat((style.translate || "0 0").split(" ")[1] ?? "0") || 0;
+      const call = /translate(Y|3d)?\(([^)]*)\)/.exec(style.transform);
+      const args = call?.[2]?.split(",") ?? [];
+      const ty = Number.parseFloat((call?.[1] === "Y" ? args[0] : args[1]) ?? "0") || 0;
+      const keys = inView.filter(([, held]) => held === element || element.contains(held)).map(([key]) => key);
+      driven[driverOf(element)] = [round(y + ty), keys];
+    }
+    styled = new Set();
     frames.push({
       t: round(performance.now() - origin),
       scrollTop: round(scroller?.scrollTop ?? 0),
@@ -210,6 +250,7 @@ export function defineTranscriptMotion(options: TranscriptMotionOptions) {
       touched: [...touched],
       animated,
       marks,
+      ...(Object.keys(driven).length && { driven }),
     });
     touched = new Set();
     marks = [];
@@ -288,11 +329,24 @@ export function transcriptMoves(record: MotionRecord): MotionFlag[] {
   const { frames } = record;
   const recentMarks = (index: number) =>
     frames.slice(Math.max(0, index - 2), index + 1).flatMap((frame) => frame.marks);
+  const { animatedAt, bounces } = scriptRuns(frames);
+  for (const bounce of bounces)
+    flags.push({
+      kind: "off-curve",
+      key: bounce.driver,
+      of: "script",
+      frame: bounce.frame,
+      t: frames[bounce.frame]?.t ?? 0,
+      px: bounce.px,
+      after: recentMarks(bounce.frame),
+      cause: [],
+      detail: `script translate run of ${bounce.ms} ms turned back ${bounce.px} px (${bounce.row})`,
+    });
   for (let index = 1; index < frames.length; index += 1) {
     const was = frames[index - 1]!;
     const now = frames[index]!;
     const touched = new Set([...was.touched, ...now.touched]);
-    const animated = new Set([...was.animated, ...now.animated]);
+    const animated = new Set([...was.animated, ...now.animated, ...(animatedAt.get(index) ?? [])]);
     // The reader's scroll: the rows ride it, so it is taken out of their move.
     const input = record.inputs.some((at) => at <= now.t && now.t - at <= INPUT_MS);
     const scrolled = input ? now.scrollTop - was.scrollTop : 0;
@@ -340,6 +394,62 @@ export function transcriptMoves(record: MotionRecord): MotionFlag[] {
     });
   }
   return flags.sort((a, b) => a.frame - b.frame);
+}
+
+/** Script animations: each element script wrote a translate on for SCRIPT_RUN_FRAMES frames running (a
+ *  gap of one frame does not end a run). What it holds counts as animated from the frame before the run to
+ *  the frame after; a run whose held row's drawn top turns back by more than STILL_PX is a bounce. */
+export function scriptRuns(frames: readonly MotionFrameRecord[]) {
+  const seen = new Map<string, number[]>();
+  frames.forEach((frame, index) => {
+    for (const driver of Object.keys(frame.driven ?? {})) seen.set(driver, [...(seen.get(driver) ?? []), index]);
+  });
+  const animatedAt = new Map<number, Set<string>>();
+  const bounces: { driver: string; frame: number; px: number; ms: number; row: string }[] = [];
+  for (const [driver, indices] of seen) {
+    const runs: number[][] = [];
+    for (const index of indices) {
+      const run = runs.at(-1);
+      if (run && index - run.at(-1)! <= 2) run.push(index);
+      else runs.push([index]);
+    }
+    for (const run of runs) {
+      if (run.length < SCRIPT_RUN_FRAMES) continue;
+      const first = run[0]!;
+      const last = run.at(-1)!;
+      const keys = new Set(run.flatMap((index) => frames[index]!.driven![driver]![1]));
+      for (let index = Math.max(0, first - 1); index <= Math.min(frames.length - 1, last + 1); index += 1) {
+        const set = animatedAt.get(index) ?? new Set<string>();
+        for (const key of keys) set.add(key);
+        animatedAt.set(index, set);
+      }
+      // The drawn top of a row the run holds throughout, frame by frame: it must go one way.
+      const row = [...keys].find((key) => run.every((index) => frames[index]!.els[key]));
+      if (!row) continue;
+      let direction = 0;
+      let turn = 0;
+      let at = first;
+      for (let i = 1; i < run.length; i += 1) {
+        const delta = frames[run[i]!]!.els[row]![0][1] - frames[run[i - 1]!]!.els[row]![0][1];
+        if (Math.abs(delta) <= STILL_PX) continue;
+        const sign = Math.sign(delta);
+        if (direction && sign !== direction && Math.abs(delta) > turn) {
+          turn = Math.abs(delta);
+          at = run[i]!;
+        }
+        direction = sign;
+      }
+      if (turn > STILL_PX)
+        bounces.push({
+          driver,
+          frame: at,
+          px: Math.round(turn * 10) / 10,
+          ms: Math.round(frames[last]!.t - frames[first]!.t),
+          row,
+        });
+    }
+  }
+  return { animatedAt, bounces };
 }
 
 /** The step a flag came after, as a class for the table: turn end, stream, steer, send, notice, ... */

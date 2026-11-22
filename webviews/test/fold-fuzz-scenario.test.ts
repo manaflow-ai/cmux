@@ -158,6 +158,42 @@ describe("the transcript motion detector", () => {
     expect(onHouseCurve({ easing: "cubic-bezier(0.16,1,0.3,1)", duration: 480 })).toBe(false);
   });
 
+  test("a script translate run (the follow chase) moves its rows on a curve; turning back is a bounce", () => {
+    const glide = [100, 90, 80, 72, 66, 62];
+    const smooth: MotionRecord = {
+      frames: glide.map((y, i) =>
+        frame(
+          i * 16,
+          { "row:a": row(y), "row:b": row(y + 40) },
+          { driven: { "thread:0": [y - 100, ["row:a", "row:b"]] } },
+        ),
+      ),
+      animations: [],
+      inputs: [],
+    };
+    expect(transcriptMoves(smooth)).toEqual([]);
+    const back = [100, 90, 80, 90, 85, 80];
+    const bounce: MotionRecord = {
+      ...smooth,
+      frames: back.map((y, i) =>
+        frame(
+          i * 16,
+          { "row:a": row(y), "row:b": row(y + 40) },
+          { driven: { "thread:0": [y - 100, ["row:a", "row:b"]] } },
+        ),
+      ),
+    };
+    expect(transcriptMoves(bounce).map((f) => [f.kind, f.key, f.of, f.px])).toEqual([
+      ["off-curve", "thread:0", "script", 10],
+    ]);
+    // Two frames are not a run: the rows they moved are moves.
+    const short: MotionRecord = { ...smooth, frames: smooth.frames.slice(0, 2) };
+    expect(transcriptMoves(short).map((f) => [f.kind, f.key])).toEqual([
+      ["move", "row:a"],
+      ["move", "row:b"],
+    ]);
+  });
+
   test("the reader's own scroll moves the rows and nothing is flagged; the dock moving with it is", () => {
     const record: MotionRecord = {
       frames: [
