@@ -1347,6 +1347,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-apps"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-auth-coordinator"
 version = "0.1.0"
 
@@ -1933,6 +1943,7 @@ name = "cmux-host"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-apps",
  "cmux-cloud-environment",
  "cmux-file-lock",
  "cmux-json",
@@ -2033,6 +2044,7 @@ dependencies = [
 name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
+ "cmux-action-catalog",
  "cmux-motion",
  "proptest",
  "serde",
@@ -2231,7 +2243,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "cc",
  "cmux-encode",
@@ -2616,6 +2628,7 @@ dependencies = [
  "cmux-api-compat",
  "cmux-app-host",
  "cmux-app-manifest",
+ "cmux-apps",
  "cmux-automations",
  "cmux-browser-host",
  "cmux-build-identity",
