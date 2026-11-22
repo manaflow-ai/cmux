@@ -24,6 +24,7 @@ cmux-build-space.workspace = true
 cmux-rd-core.workspace = true
 cmux-rd-proto.workspace = true
 cmux-transport.workspace = true
+cmux-web-pieces.workspace = true
 cmux-wg.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
@@ -48,6 +49,9 @@ x25519-dalek.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+# Sign the test kill switch files (pieces_tests.rs).
+cmux-signed-envelope.workspace = true
+ring = "0.17"
 cmux-mobile-link = { path = ".", features = ["testing"] }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true
