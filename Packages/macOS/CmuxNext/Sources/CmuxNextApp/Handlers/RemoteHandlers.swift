@@ -33,11 +33,11 @@ enum RemoteHandlers {
                 let session = try ssh.connect(destination: text, session: invocation["session"]?.stringValue,
                                               binary: invocation["binary"]?.stringValue, stateDir: invocation["stateDir"]?.stringValue,
                                               offerInstall: interactive, byPerson: invocation.isPersonsRequest)
+                // `--name` (server install --label): the sidebar name, as Add Machine's Name field sets it.
+                if let name = invocation["name"]?.stringValue, session.host.label != name { session.host = session.host.named(name); ssh.rememberHost(session) }
                 if interactive { showWhenConnected(session, context) }
             }
-            if let text = invocation["destination"]?.stringValue {
-                return try connect(text)
-            }
+            if let text = invocation["destination"]?.stringValue { return try connect(text) }
             // The host as a Cmd-Shift-P step; Return runs this again with it.
             registry.ask("remote.connect", invocation, ActionArgumentAsk(argument: "destination"))
         }

@@ -58,7 +58,7 @@ final class DrivenLinkBackend: ConversationBackend, @unchecked Sendable {
         // An empty kept conversation is not shown on its own (``MacConversationScreen/shownKept``):
         // past the bound it must become the loader's session, or the screen keeps its spinner.
         let loader = MacConversationLoader(quiet: .milliseconds(30))
-        let kept = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
+        let kept = ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
         let (gate, open) = AsyncStream<Void>.makeStream()
         let load = Task { @MainActor in
             await loader.load({

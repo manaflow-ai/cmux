@@ -8,6 +8,7 @@
 use crate::stream::SessionCfg;
 use crate::Res;
 use cmux_rd_core::flow::Rect;
+use cmux_rd_core::profile::EncodeProfile;
 use cmux_rd_proto::InputEvent;
 use std::os::fd::RawFd;
 
@@ -25,8 +26,23 @@ pub trait FrameSource: Send {
     /// Encodes the captured picture into `out` as Annex-B. Returns true for an IDR.
     fn encode(&mut self, force_idr: bool, pts_us: i64, out: &mut Vec<u8>) -> Res<bool>;
     fn set_bitrate(&mut self, kbps: u32);
+    /// The encoder profile for the next frame, and whether that frame refines a still screen
+    /// (ultra). An encoder without an ultra mode keeps its settings.
+    fn set_profile(&mut self, _profile: EncodeProfile, _refine: bool) {}
+    /// Whether [`FrameSource::set_profile`] changes the encoder's settings. A source without an
+    /// ultra mode says no, and the stats line then names no profile rather than one it never ran.
+    fn applies_profile(&self) -> bool {
+        false
+    }
+    /// Pixels of damage in the next frame (ultra's frame-size guard sizes the frame from it).
+    fn set_changed_pixels(&mut self, _pixels: u64) {}
     fn kbps(&self) -> u32;
     fn encoder_name(&self) -> String;
+    /// Why the last [`FrameSource::encode`] made an IDR it was not asked for (the encoder's
+    /// [`cmux_encode::VideoEncoder::idr_cause`]).
+    fn idr_cause(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 /// Both halves of one opened desktop.
@@ -161,14 +177,15 @@ fn synthetic_size() -> Option<(u32, u32)> {
     None
 }
 
-/// The displays a viewer may pick, and the current one (macOS). A synthetic source is one
-/// display of its own size, listed without asking ScreenCaptureKit (which needs the grant).
+/// The displays a viewer may pick, the index of the one `which` picks, and their
+/// CGDirectDisplayIDs (macOS). A synthetic source is one display of its own size, listed without
+/// asking ScreenCaptureKit (which needs the grant), with no id.
 #[cfg_attr(not(feature = "link"), allow(dead_code))]
 #[cfg(target_os = "macos")]
-pub fn displays() -> Res<(Vec<(u32, u32)>, usize)> {
+pub fn displays(which: &str) -> Res<crate::mac::capture::Displays> {
     match synthetic_size() {
-        Some(size) => Ok((vec![size], 0)),
-        None => crate::mac::capture::displays(),
+        Some(size) => Ok((vec![size], 0, Vec::new())),
+        None => crate::mac::capture::displays(which),
     }
 }
 

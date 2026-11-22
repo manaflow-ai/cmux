@@ -120,6 +120,13 @@ on:
         required: false
         default: false
         type: boolean
+      # cmux-tui-artifacts.yml's shipped build only (cmux-tui-build-profiles.json shipped): cmux-rd,
+      # the screen host a joined Linux machine's join line installs from the files.cmux.com channel.
+      build_cmux_rd:
+        description: "On the Linux musl legs, also build cmux-rd (glibc) and stage it as cmux-tui-rd-<gnu target> with cmux-tui-rd-notices-<gnu target>.md; optional: a failed cmux-rd build leaves them out"
+        required: false
+        default: false
+        type: boolean
       # MACOS-CROSS-COMPILE-ON-LINUX. `mac` builds the two macOS targets on
       # macOS runners. `linux` builds them on a Linux runner without an Apple
       # SDK (scripts/ci/macos-cross.sh: Zig's darwin headers and libSystem stub,
@@ -160,13 +167,17 @@ env:
   # tests in cmux-tui-artifacts.yml (cmuxterm-hq#1279 item 1).
   CARGO_NET_RETRY: "10"
   CARGO_HTTP_TIMEOUT: "120"
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   plan-build:
     name: select binary targets
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
+    # Called by cmux-tui-artifacts.yml on the nightly path, attempt 1 takes the owned GCP pool
+    # first (that workflow's jobs: comment explains); package distributions does the same.
+    # Otherwise a few seconds of Python with no checkout takes the one-minute control pool: on
+    # 16 vCPU it queued a median 16.8 min on 2026-11-18 (2 vCPU: 4.0) in front of every build leg.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-nightly-x64' || github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && github.ref == 'refs/heads/feat-cmux-next' && 'cmux-gcp-lane-build-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && (github.ref == 'refs/heads/feat-cmux-next' || vars.LINUX_RUNNER != 'cmux-gcp-lane-build-x64') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
@@ -187,10 +198,17 @@ jobs:
           # 8 (macOS cross) vCPU a leg took 20-46 min (runs 39336743829, 39337840188),
           # on 32 4.6-6.0 min (2026-10-30/31). 32 vCPU held the room of two 16 vCPU legs
           # under Blacksmith's vCPU cap (.github/runners.json linux_sizes).
-          LINUX_DARWIN_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
-          LINUX_BUILD_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_build_runner != '' && inputs.linux_build_runner || inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_BUILD_RUNNER || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16)) }}
+          # A nightly-next push or tree request's macOS leg takes the nightly-only runners too: on the shared
+          # build lane (vars.LINUX_RUNNER_DARWIN_CROSS) newer PR legs kept starving it (2026-11-19).
+          LINUX_DARWIN_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-nightly-x64' || (github.ref == 'refs/heads/feat-cmux-next' || vars.LINUX_RUNNER_DARWIN_CROSS != 'cmux-gcp-lane-build-x64') && vars.LINUX_RUNNER_DARWIN_CROSS || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && (github.ref == 'refs/heads/feat-cmux-next' || vars.LINUX_RUNNER != 'cmux-gcp-lane-build-x64') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
+          # cmux-gcp-lane-build-x64 is the feat-cmux-next tree's reserved label: a repo variable naming
+          # it must not send every branch's build there too (2026-11-20 20:58Z: 152 of its 294 queued jobs were branch
+          # aarch64-apple-darwin builds while feat's tree preflights waited, and the cloud channel lag passed 400 min).
+          LINUX_BUILD_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_build_runner != '' && inputs.linux_build_runner || inputs.linux_runner != '' && inputs.linux_runner || github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-nightly-x64' || github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && github.ref == 'refs/heads/feat-cmux-next' && 'cmux-gcp-lane-build-x64' || (github.ref == 'refs/heads/feat-cmux-next' || vars.LINUX_BUILD_RUNNER != 'cmux-gcp-lane-build-x64') && vars.LINUX_BUILD_RUNNER || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && (github.ref == 'refs/heads/feat-cmux-next' || vars.LINUX_RUNNER != 'cmux-gcp-lane-build-x64') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16)) }}
           MACOS_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (inputs.macos_runner != '' && inputs.macos_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || fromJSON(vars.RUNNER_POOLS).macos_15)) }}
-          LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16)) }}
+          # Like LINUX_BUILD_RUNNER: an empty census (inputs.linux_runner) on attempt 1 of the tree path keeps the owned
+          # GCP label, never Blacksmith from one reading (tests/test_ci_owned_first_not_census_frozen.py).
+          LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-nightly-x64' || github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && github.ref == 'refs/heads/feat-cmux-next' && 'cmux-gcp-lane-build-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && (github.ref == 'refs/heads/feat-cmux-next' || vars.LINUX_RUNNER != 'cmux-gcp-lane-build-x64') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16)) }}
           LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || (inputs.linux_arm64_runner != '' && inputs.linux_arm64_runner || vars.LINUX_ARM64_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404-arm' || fromJSON(vars.RUNNER_POOLS).linux_arm64)) }}
           VERIFY_LINUX_ARM64: ${{ inputs.verify_linux_arm64 }}
           LTO: ${{ inputs.lto }}
@@ -342,7 +360,14 @@ jobs:
     needs: plan-build
     # target_set=windows selects no Unix target (an empty matrix is an error).
     if: needs.plan-build.outputs.unix_targets == 'true'
-    runs-on: ${{ github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && !matrix.darwin_on_linux && inputs.macos_retry_runner || matrix.runner }}
+    # A re-run never re-plans: "re-run failed jobs" keeps plan-build's matrix, runner and all, from the
+    # attempt that ran it. On 2026-11-18 the pool writer's release valve held linux_16 at 2 vCPU for hours;
+    # every run planned then kept that label, and its re-runs (cmux-tui-artifacts-retry, rerun-deferred-commits)
+    # OOMed in the fat-LTO link for days after the pool came back (run 44293740637: attempts 1-3 on 2 vCPU;
+    # 2026-11-19: 72 failed re-run legs, 1,544 runner-min, 63 of them on 2 vCPU). A re-run leg whose stored
+    # label is a 2 or 4 vCPU Blacksmith Linux runner reads the pool again; linux_16 never goes under 8 vCPU (#46366).
+    # A fork's plan never holds such a label (it takes a fixed 8 or 16 vCPU one); its legs keep matrix.runner.
+    runs-on: ${{ github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && !matrix.darwin_on_linux && inputs.macos_retry_runner || github.run_attempt > 1 && github.repository_owner == 'manaflow-ai' && startsWith(matrix.runner, 'blacksmith-') && contains(matrix.runner, '-ubuntu-') && (contains(matrix.runner, '-2vcpu-') || contains(matrix.runner, '-4vcpu-')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON(vars.RUNNER_POOLS).linux_16 || matrix.runner }}
     # 60 fit the 16 vCPU Blacksmith legs with a warm sticky disk; a 4 vCPU
     # GitHub-hosted runner builds every fat-LTO cargo group cold (see "Make
     # room on a GitHub-hosted Linux runner").
@@ -359,17 +384,26 @@ jobs:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
 
+      # A persistent self-hosted runner (the owned GCP build lanes) reuses the workspace. After an
+      # earlier job's sparse checkout, actions/checkout's `sparse-checkout disable` leaves stale index
+      # stat data and its `checkout --force` stops at "not uptodate; will not remove from working
+      # tree" with HEAD already at the requested commit but files missing (run 44395720799: no
+      # scripts/ci/init-submodule.sh, no .github/actions/zig-global-cache). Writing every tracked
+      # file of HEAD again repairs it; an ephemeral runner starts clean and skips this.
       - name: Init ghostty submodule
         shell: bash
         run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ "$RUNNER_OS" = Linux ]; then
+            git sparse-checkout disable 2>/dev/null || true
+            git reset -q --hard HEAD
+          fi
           bash scripts/ci/init-submodule.sh ghostty
           bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y binutils clang libclang-dev musl-tools pkg-config
+          bash scripts/ci/apt-ensure.sh binutils clang libclang-dev musl-tools pkg-config
 
       # A GitHub-hosted Linux runner (4 vCPU, 16 GB, about 20 GB free on /) is
       # far smaller than the Blacksmith legs this job was sized on, and it gets
@@ -430,6 +464,21 @@ jobs:
         with:
           save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
+      - name: Set up Node for the shipped browser pane
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Give the pane builder its pinned Bun
+        run: scripts/cmux-next/private-bun.sh
+
+      - name: Build the production pane into the daemon package
+        shell: bash
+        run: |
+          pane="$RUNNER_TEMP/acpmux-agent-pane"
+          scripts/cmux-next/build-agent-pane-web.sh --out "$pane"
+          echo "ACPMUX_BUNDLED_APP_ASSETS_DIR=$pane" >> "$GITHUB_ENV"
+
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
@@ -481,22 +530,9 @@ jobs:
           if [[ "$RUNNER_OS" == macOS ]]; then
             export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
           fi
-          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
-          # The terminal holder (std and libc only), its own invocation so its
-          # features do not unify with the daemon's. The daemon starts every
-          # holder from a copy of it found beside its own executable.
-          cargo build -p cmux-holder --bin cmux-holder --release --locked --target ${{ matrix.build_target }}
-          # The app host runs each app's JS next to the daemon, which finds it
-          # beside its own executable (cmux-tui-core::apps). Unix only.
-          cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
-          cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
-          cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
-          # The script prints one `--features=...` argument or nothing.
-          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }} acpmux)"
-          cargo build -p acpmux-standalone --bin acpmux-standalone --release --locked --target ${{ matrix.build_target }} \
-            ${acpmux_features:+"$acpmux_features"}
-          # As the Linux legs: the build id only in this binary, staged as acpmux.
-          cp "target/${{ matrix.build_target }}/release/acpmux-standalone" "target/${{ matrix.build_target }}/release/acpmux"
+          # Six cargo builds, at once with 40 GiB of memory or more, else one after another
+          # (a 16 GB mini ran out of memory building them at once).
+          ../scripts/ci/cmux-tui-mac-cargo-builds.sh ${{ matrix.build_target }}
 
       # Warm start for the shipped fat-LTO legs on feat-cmux-next pushes (both musl targets and
       # the macOS targets built on Linux): the previous build's whole target dir and cargo
@@ -554,7 +590,7 @@ jobs:
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-linux-${{ matrix.target }}${{ inputs.lto == 'thin' && '-thin' || '' }}
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.event_name != 'pull_request' }}
 
       # Warm start for the Cloud machine channel's legs (lto=thin): the previous build's whole
       # target dir and cargo registry on a Blacksmith sticky disk, one per target, and
@@ -607,6 +643,7 @@ jobs:
           CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
           PACKAGE_NPM: ${{ inputs.package_npm }}
           LTO: ${{ inputs.lto }}
+          BUILD_CMUX_RD: ${{ inputs.build_cmux_rd }}
         working-directory: cmux-tui
         shell: bash
         run: |
@@ -659,13 +696,23 @@ jobs:
           # The shipping features (hub carrier) for acpmux-standalone, which passes them to acpmux.
           # The script prints one `--features=...` argument or nothing.
           acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml "$t")"
+          # With build_cmux_rd, cmux-rd (its own Cargo workspace) is one more group: a glibc
+          # binary for the leg's gnu triple (it loads Cisco's OpenH264 with dlopen) with the
+          # release features, and its notices (crates/cmux-rd-host/scripts/build-channel.sh).
+          # Optional: a failed cmux-rd build is a warning, and the leg stages no cmux-rd, so
+          # the tree and the channel carry none and every other binary still ships.
+          rd=()
+          if [[ "$BUILD_CMUX_RD" == true ]]; then
+            rd=("?cmux-rd ?cmux-rd-notices.md" "CARGO_ZIGBUILD_CACHE_DIR=$RUNNER_TEMP/cargo-zigbuild-7 crates/cmux-rd-host/scripts/build-channel.sh $t || echo '::warning title=no cmux-rd::the cmux-rd build failed (its cargo group log above); this leg stages no cmux-rd'")
+          fi
           ../scripts/ci/cargo-groups.sh "$PWD/target" "$t" \
             "cmux-tui cmux-tui-hook cmux-tui-host" "$(zb 1) -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
             "cmux-app-host" "$(zb 2) -p cmux-app-host --bin cmux-app-host" \
             "cmux-relay" "$(zb 3) -p cmux-relay --bin cmux-relay" \
             "chatmux-relay" "$(zb 4) -p chatmux-relay --bin chatmux-relay" \
             "acpmux-standalone" "$(zb 5) -p acpmux-standalone --bin acpmux-standalone $acpmux_features" \
-            "cmux-agent-screen-detection" "$(zb 6) --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml"
+            "cmux-agent-screen-detection" "$(zb 6) --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml" \
+            ${rd[@]+"${rd[@]}"}
           # acpmux-standalone is the acpmux program with its build id stamped in the binary
           # only: `-p acpmux` stamps the acpmux lib, and every new commit recompiled it, 209 s
           # of a warm leg (run 43497362002). "Stage binary" reads it as acpmux.
@@ -695,22 +742,9 @@ jobs:
           if [[ "$RUNNER_OS" == macOS ]]; then
             export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
           fi
-          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
-          # The terminal holder (std and libc only), its own invocation so its
-          # features do not unify with the daemon's. The daemon starts every
-          # holder from a copy of it found beside its own executable.
-          cargo build -p cmux-holder --bin cmux-holder --release --locked --target ${{ matrix.build_target }}
-          # The app host runs each app's JS next to the daemon, which finds it
-          # beside its own executable (cmux-tui-core::apps). Unix only.
-          cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
-          cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
-          cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
-          # The script prints one `--features=...` argument or nothing.
-          acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux/Cargo.toml ${{ matrix.build_target }} acpmux)"
-          cargo build -p acpmux-standalone --bin acpmux-standalone --release --locked --target ${{ matrix.build_target }} \
-            ${acpmux_features:+"$acpmux_features"}
-          # As the Linux legs: the build id only in this binary, staged as acpmux.
-          cp "target/${{ matrix.build_target }}/release/acpmux-standalone" "target/${{ matrix.build_target }}/release/acpmux"
+          # Six cargo builds, at once with 40 GiB of memory or more, else one after another
+          # (a 16 GB mini ran out of memory building them at once).
+          ../scripts/ci/cmux-tui-mac-cargo-builds.sh ${{ matrix.build_target }}
 
       - name: Build cmux-cloud app server
         # The first-party Cloud app server (cmux/cloud) is its own Cargo
@@ -793,10 +827,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get install -y clang-19 lld-19 llvm-19
+          bash scripts/ci/apt-ensure.sh clang-19 lld-19 llvm-19
           key="$({ clang-19 --version | head -1; ld.lld-19 --version; zig version; echo "sdk $XC_SDK_VERSION"; } | sha256sum | cut -c1-16)"
           { echo "sdk=$XC_SDK_VERSION"; echo "key=$key"; } >> "$GITHUB_OUTPUT"
 
+      # Saved by every feat-cmux-next build, not only pushes: feat-cmux-next builds these legs from
+      # workflow_dispatch (cmux-next dispatches each tree), and its pushes mostly skip them, so a
+      # push-only save-if never wrote an entry and every leg, base and pull request, built cold
+      # ("No cache found", cargo 18-22 min; jobs 136816451772, 137080163013, 2026-11-21/22).
       - name: Restore the macOS-on-Linux cargo cache
         if: matrix.darwin_on_linux && steps.fat-warm-darwin-aarch64.outcome != 'success'
         continue-on-error: true
@@ -806,7 +844,7 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-darwin-on-linux-${{ matrix.target }}
           key: ${{ steps.darwin-cross.outputs.key }}-${{ hashFiles('scripts/ci/macos-cross.sh', 'scripts/ci/macos-stubs/**', 'first-party-apps/cloud/server/Cargo.lock', 'cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.lock') }}
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.event_name != 'pull_request' }}
 
       - name: Build the macOS binaries on Linux (no Apple SDK)
         # Every binary the macOS legs below build (cmux-tui, cmux-tui-hook, cmux-tui-host,
@@ -869,6 +907,7 @@ jobs:
       - name: Stage binary
         env:
           BUILD_AGENT_PLUGIN: ${{ inputs.build_agent_plugin }}
+          BUILD_CMUX_RD: ${{ inputs.build_cmux_rd }}
           STAGE_TARGET: ${{ matrix.target }}
         shell: bash
         run: |
@@ -931,6 +970,13 @@ jobs:
           # the attested cmux-tui manifest pins it for the macOS app bundle.
           acpmux_binary="dist/cmux-tui-acpmux-${{ matrix.target }}${{ matrix.ext }}"
           cp "cmux-tui/target/${{ matrix.target }}/release/acpmux${{ matrix.ext }}" "$acpmux_binary"
+          # cmux-rd (build_cmux_rd, Linux musl legs) is glibc, so it rides the cmux-tui artifact
+          # under the gnu name only, with its notices: cmux-tui-rd-<gnu target> and
+          # cmux-tui-rd-notices-<gnu target>.md. Its group is optional: none when it failed.
+          if [[ "$BUILD_CMUX_RD" == true && "$STAGE_TARGET" == *-unknown-linux-musl && -f "cmux-tui/target/$STAGE_TARGET/release/cmux-rd" ]]; then
+            cp "cmux-tui/target/$STAGE_TARGET/release/cmux-rd" "dist/cmux-tui-rd-${{ matrix.compatibility_target }}"
+            cp "cmux-tui/target/$STAGE_TARGET/release/cmux-rd-notices.md" "dist/cmux-tui-rd-notices-${{ matrix.compatibility_target }}.md"
+          fi
           if [[ "$BUILD_AGENT_PLUGIN" == "true" && "${{ runner.os }}" != "Windows" ]]; then
             cp "cmux-tui/target/${{ matrix.target }}/release/cmux-agent-screen-detection${{ matrix.ext }}" \
               "dist/cmux-agent-screen-detection-${{ matrix.target }}${{ matrix.ext }}"
@@ -1326,12 +1372,12 @@ jobs:
       - build-windows
     if: >-
       ${{
-        always() &&
+        !cancelled() &&
         (inputs.package_npm || inputs.package_pypi) &&
         needs.build.result == 'success' &&
         (!inputs.include_windows || needs.build-windows.result == 'success')
       }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-nightly-x64' || github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && github.ref == 'refs/heads/feat-cmux-next' && 'cmux-gcp-lane-build-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && (github.ref == 'refs/heads/feat-cmux-next' || vars.LINUX_RUNNER != 'cmux-gcp-lane-build-x64') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -1344,6 +1390,16 @@ jobs:
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
+
+      # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
+      - name: Repair a reused self-hosted checkout
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            git sparse-checkout disable 2>/dev/null || true
+            git reset -q --hard HEAD
+          fi
 
       - name: Download darwin arm64 binary
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -1598,7 +1654,7 @@ jobs:
     # a release tag with no fresh attestations for its own commit.
     if: >-
       ${{
-        always() &&
+        !cancelled() &&
         (inputs.package_npm || inputs.package_pypi) &&
         needs.plan-build.result == 'success' &&
         needs.package.result == 'success'
@@ -1667,7 +1723,7 @@ jobs:
     # must not skip attestations because an optional Windows build skipped.
     if: >-
       ${{
-        always() &&
+        !cancelled() &&
         inputs.attest_packages &&
         inputs.package_npm &&
         needs.package.result == 'success' &&
@@ -1675,7 +1731,7 @@ jobs:
       }}
     # GitHub-hosted OIDC is required for artifact attestations; this job is
     # intentionally exempt from the self-hosted runner routing guard.
-    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-latest' || fromJSON(vars.RUNNER_POOLS).provenance }} # github-hosted-required: artifact attestations need GitHub OIDC
     timeout-minutes: 15
     permissions:
       contents: read

@@ -34,6 +34,7 @@ final class DeclarativePopupHost {
         self.isAppActive = isAppActive
         panel.isAppActive = isAppActive
         popup = NativePopupHost(panel: panel)
+        popup.followsOpeningPress = true
         let scroll = OverlayScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true

@@ -486,6 +486,11 @@ export class SubagentFold {
     return this.runs.has(call);
   }
 
+  /// Whether `call` spawned a subagent acpmux named (its record's `toolCallId`): Claude Code's Agent call.
+  isSpawnCall(call: string): boolean {
+    return this.spawnCalls.has(call);
+  }
+
   /// A call becomes a session card only after `reduceChild` receives its explicit child-session
   /// record. Parsing a command only locates a possible parent call; ordinary Bash stays a tool.
   private reduceRun(event: Event, update: any): boolean {

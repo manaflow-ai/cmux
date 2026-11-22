@@ -24,11 +24,13 @@ cockpit, tiling, right-handed, focus, ide), start from
 | Idea | Place | Built on | Today |
 |---|---|---|---|
 | The time, the date and the weather | sidebar section | `cmux.timer`, `cmux.net.fetch` (Open-Meteo, no key) | Template `clock-weather` |
+| Widget cards in three sizes: clock, weather, calendar (your next events), to-do list | sidebar section, one per widget | `cmux.time.zone`, `cmux.net.fetch`, `cmux.system_calendar.events`, `cmux.storage` | Example `examples/extensions/widgets` (install.sh adds all four) |
 | Design links: Figma, FigJam, Linear, Notion, opened in a cmux tab beside the code | sidebar section | `cmux.storage`, `openBrowser` | Template `design-links` |
 | Buttons for the commands I run all day | sidebar section | `cmux.actions.run("cmuxConfig.<name>")` | Template `command-button` |
 | A scratch checklist | pane + sidebar row | `cmux.pane/1`, `cmux.storage` | Template `pane` |
 | A focus timer with a slider | sidebar section | `Slider`, `cmux.timer`, `cmux.toast` | [Recipe](local-app-views.md#matching-the-app) |
 | Quote, word or photo of the day | sidebar section | `cmux.net.fetch` | Buildable now |
+| A gacha: pull a chief from a reel that spins, slows and lands with a glow; the ones you have are kept | sidebar section | signals stepped by chained `cmux.timer.after` frames, `rotation`, `opacity`, `cmux.storage` | Showcase [`collection`](../../../examples/customize-showcase/collection/customize/main.js) |
 | A radio player: the song on now, play, previous, next, favorites | sidebar section | `cmux.net.fetch` (SomaFM, no key), `openBrowser` | Template `media-player` |
 | The same widgets on the new tab page | new tab page | a new-tab widget interface | Missing: see [Gaps](#gaps); a start page as a pane is Template `start-page` |
 
@@ -37,11 +39,12 @@ cockpit, tiling, right-handed, focus, ide), start from
 | Idea | Place | Built on | Today |
 |---|---|---|---|
 | My PRs and the reviews I owe, in the order I keep them, read again when an agent changes | sidebar section | `cmux.integrations.github` (else `net:api.github.com`), `agent_chat.changed`, `cmux.storage` | Template `my-prs` |
+| Usage left on every Claude and Codex account, with the pace and extra spend | sidebar section | `cmux.call("usage_app.status", { accounts: true })` with `usage_app:read` | Showcase [`collection`](../../../examples/customize-showcase/collection/customize/main.js) |
 | PRs of this chat's branch | Session Info section | `cmux.session.info.section/1` | Sample `samples/apps/session-prs` |
 | My agent chats as threads, needs-you first | sidebar section | `agent_chat.list`, `agent_chat.changed` | Template `threads` |
 | The tabs of the workspace I am in | sidebar section | `cmux.events.on("tab.changed")` | Template `sidebar-section` |
 | CI status of my branch, deploy status, on-call | sidebar section | `cmux.net.fetch` with `net:<host>`, `cmux.timer.every` | Buildable now |
-| Calendar: next meeting and a Join button | sidebar section | `cmux.net.fetch`, `openBrowser` | Buildable now (needs the person's own token) |
+| Calendar: my next events from the calendars on this Mac | sidebar section | `cmux.system_calendar.events`, `cmux.system_calendar.request_access` (scope `system_calendar:read`) | Example `examples/extensions/widget-calendar` |
 | Linear or Jira issues assigned to me | sidebar section | `cmux.net.fetch` | Buildable now |
 | A card under an agent's tool call (PR, deploy, poll) | agent chat, under the call | `cmux.chat.widget/1` (`options.tools` names the tools it answers) | Example `examples/extensions/pr-card`; the transcript drawing lands separately |
 
@@ -60,7 +63,7 @@ cockpit, tiling, right-handed, focus, ide), start from
 ## Gaps
 
 These are the pieces between what people asked for and what an extension can do today.
-All five are tracked in https://github.com/manaflow-ai/cmux/issues/40249; until each lands, the workaround is in the last column.
+The first five are tracked in https://github.com/manaflow-ai/cmux/issues/40249; until each lands, the workaround is in the last column.
 
 | Gap | Asked for | Until then |
 |---|---|---|
@@ -69,3 +72,5 @@ All five are tracked in https://github.com/manaflow-ai/cmux/issues/40249; until 
 | `render: web` panes for the customize app, with no build step | Figma and other web tools as a pane | `openBrowser` into a cmux browser tab (`design-links`) |
 | Push instead of a timer for GitHub (a `github.changed` event from the integration) | "real time or close enough" | a 60 s read plus a read when an agent chat changes (`my-prs`) |
 | Share and install someone else's view: `cmux apps install <git url or folder>` for a local view, and more than one view per customize app | "I'd want to use somebody else's thing" | copy their folder into `~/.config/cmux/customize` |
+| An animation primitive: a transition on a prop change (rotation, opacity, a number) that the renderer draws at display rate, gated by `ui.animationSpeed` and Reduce Motion | a gacha reel, a meter counting up, "properly animated" | chain `cmux.timer.after` frames (50 ms floor; repeating timers fire at most once a second), as `collection` does |
+| Token counts per chat (input, output, cache) in `agent_chat.list` or a signal | "the token counter" across every chat | the Usage app's percent left per account (`usage_app.status`), not tokens |

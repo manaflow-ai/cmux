@@ -20,6 +20,7 @@
     { "pattern": "^[a-z][a-z0-9_.-]{0,160}:input$", "class": "restricted", "gates": "input to a family other than terminal (manifest scopes the schema allows; no catalog op needs one yet)" },
     { "pattern": "^[a-z][a-z0-9_.-]{0,160}:keys$", "class": "restricted", "$comment": "create and revoke credentials of the family, for example coderouter:keys", "gates": "provider ops the Mac app answers (coderouter:keys); they are not in scopes.json yet" },
     { "pattern": "^page:read$", "class": "sensitive", "$comment": "the text and links of the browser page the person has open (page.read, reader mode): any site, signed in, so it is highlighted on the consent sheet, not granted silently like other reads" },
+    { "pattern": "^system_calendar:read$", "class": "sensitive", "$comment": "the events of the person's system calendar on the Mac (system_calendar.events, system_calendar.request_access): titles, places and times of their meetings, so it is highlighted on the consent sheet, not granted silently like other reads" },
     { "pattern": "^integration:read$", "class": "standard", "$comment": "listing the team's connections and policy (integration.list); without this rule the generic :read rule and the provider rule integration:<provider> both match, and only their order made it standard. A provider cannot be named read." },
     { "pattern": "^[a-z][a-z0-9_.-]{0,160}:read$", "class": "standard" },
     { "pattern": "^integration:[a-z0-9-]{1,32}:read$", "class": "standard" },

@@ -92,7 +92,7 @@ elif [[ "$SPARKLE_VERSION" == "2.8.1" ]]; then
   tools_dir="$work_dir/Sparkle/bin"
 else
   echo "Cloning Sparkle ${SPARKLE_VERSION}..."
-  git clone --depth 1 --branch "$SPARKLE_VERSION" https://github.com/sparkle-project/Sparkle "$work_dir/Sparkle"
+  GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=120 git clone --depth 1 --branch "$SPARKLE_VERSION" https://github.com/sparkle-project/Sparkle "$work_dir/Sparkle"
   for scheme in generate_appcast sign_update BinaryDelta; do
     echo "Building Sparkle $scheme tool..."
     xcodebuild \
