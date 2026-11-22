@@ -1,4 +1,4 @@
-import { cliOnlyCommand } from "./cliOnlyCommands";
+import { cliOnlyCommand, withoutCliOnly, type CliOnlyUse } from "./cliOnlyCommands";
 import { commandPlace } from "./commandPlace";
 import { cloudChatHome } from "./folderlessCloud";
 import type { StringKey } from "./i18n";
@@ -181,15 +181,17 @@ const PASS_THROUGH_FALLBACKS: readonly CmuxCommand[] = [
 
 /** cmux commands come first, while a harness keeps the order it advertised. A command of the
  *  harness's own with a cmux name gives way to cmux's; a skill or prompt with one stays: mid-prompt
- *  it is the only meaning (slashCommands.ts goesAsText), and at the start cmux's still runs. */
+ *  it is the only meaning (slashCommands.ts goesAsText), and at the start cmux's still runs.
+ *  A harness command that runs only in its terminal (cliOnlyCommands.ts) is left out. */
 export function mergedCommands(
   agent: readonly SlashCommand[] | undefined,
   enabledCmuxActions: ReadonlySet<CmuxCommand["action"]> = new Set(CMUX_COMMANDS.map((command) => command.action)),
+  harness?: string,
 ): SlashCommand[] {
   const seen = new Set<string>();
   const merged = [
     ...CMUX_COMMANDS.filter((command) => enabledCmuxActions.has(command.action)),
-    ...(agent ?? []),
+    ...withoutCliOnly(agent ?? [], harness),
   ].filter((command) => {
     const name = command.name.trim().toLowerCase();
     const key = `${goesAsText(command) ? "text" : "run"}:${name}`;
@@ -270,10 +272,10 @@ export function composerCommand(
   attachmentCount = 0,
 ):
   | { kind: "cmux"; command: CmuxCommand; args: string }
-  | { kind: "cliOnly"; key: StringKey; name: string }
+  | { kind: "cliOnly"; use: CliOnlyUse; name: string }
   | undefined {
   const cliOnly = attachmentCount === 0 ? cliOnlyCommand(text, harness) : undefined;
-  if (cliOnly) return { kind: "cliOnly", key: `composer.cliOnly.${cliOnly.use}`, name: cliOnly.name };
+  if (cliOnly) return { kind: "cliOnly", use: cliOnly.use, name: cliOnly.name };
   for (const command of CMUX_COMMANDS) {
     const args = commandArgs(text, command);
     if (args !== undefined) return { kind: "cmux", command, args };
