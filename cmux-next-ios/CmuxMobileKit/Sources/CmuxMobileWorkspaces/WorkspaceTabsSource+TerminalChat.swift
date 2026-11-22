@@ -433,6 +433,7 @@ struct ShowTerminalKey: View {
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .accessibilityLabel("Show Terminal")
+        .accessibilityIdentifier("terminal.key.showTerminal")
         .accessibilityIdentifier("terminal.chat.showTerminal")
     }
 }
