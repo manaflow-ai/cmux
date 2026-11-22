@@ -7,6 +7,9 @@
 #   SA_TOOLS_DIR      where pinned tool binaries live (default ~/.cache/static-analysis/bin)
 #   FAST_CHECKS_OUT   report directory (default ${TMPDIR:-/tmp}/static-analysis-out)
 #   ZIZMOR_PERSONA    regular (default) | pedantic | auditor
+#   ZIZMOR_TREE       audit the workflow and action files under this directory instead of
+#                     the checkout's tracked ones, each by its path there (ratchet.py's base
+#                     and head copies of the files a change touches)
 #   GH_TOKEN          if set, zizmor also runs its online audits (impostor commits,
 #                     known-vulnerable actions, ref confusion); otherwise offline only.
 set -uo pipefail
@@ -54,11 +57,17 @@ install_zizmor() {
 
 ZIZMOR="$(install_zizmor)" || { echo "zizmor.sh: install failed" >&2; exit 3; }
 
-# Inputs: every workflow dir and every composite action (action.yml) tracked in git.
+config="$ROOT/scripts/static-analysis/zizmor/zizmor.yml"
+# Inputs: every workflow dir and every composite action (action.yml) tracked in git, or under ZIZMOR_TREE.
 inputs=()
+if [ -n "${ZIZMOR_TREE:-}" ]; then
+  cd "$ZIZMOR_TREE" || exit 2
+  list_inputs() { find . -type f \( -name '*.yml' -o -name '*.yaml' \) | sed 's|^\./||'; }
+else
+  list_inputs() { git ls-files -- '.github/workflows/*.yml' '.github/workflows/*.yaml' '*action.yml' '*action.yaml'; }
+fi
 while IFS= read -r f; do inputs+=("$f"); done < <(
-  git ls-files -- '.github/workflows/*.yml' '.github/workflows/*.yaml' '*action.yml' '*action.yaml' \
-    | grep -E '(^\.github/workflows/[^/]+\.ya?ml$|(^|/)action\.ya?ml$)' | sort -u)
+  list_inputs | grep -E '(^\.github/workflows/[^/]+\.ya?ml$|(^|/)action\.ya?ml$)' | sort -u)
 
 json="$OUT_DIR/zizmor.json"
 txt="$OUT_DIR/zizmor.txt"
@@ -68,7 +77,7 @@ if [ "${#inputs[@]}" -eq 0 ]; then
 fi
 
 args=(--persona "${ZIZMOR_PERSONA:-regular}" --no-progress)
-[ -f scripts/static-analysis/zizmor/zizmor.yml ] && args+=(--config scripts/static-analysis/zizmor/zizmor.yml)
+[ -f "$config" ] && args+=(--config "$config")
 [ -n "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ] || args+=(--offline)
 
 # zizmor exit codes: 0 clean, 10-14 findings by max severity, anything else a

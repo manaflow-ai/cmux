@@ -102,8 +102,8 @@ FAST_GROUPS = ("ci",)
 LINUX_ONLY_STEPS = {
     "Validate CMUX workload profile contract",
     # Their pinned zizmor and gitleaks release binaries are Linux builds (scripts/static-analysis/).
-    "Hold zizmor's workflow findings at their baseline",
-    "Scan this change's commits for secrets (gitleaks)",
+    "Fail on a workflow security hole this change adds (zizmor)",
+    "Fail on a secret this change commits (gitleaks)",
 }
 # Linux-only wrappers whose payload is portable: off Linux, run the payload.
 # The workload profile runner refuses macOS, but ci-guard.sh's commands (the
