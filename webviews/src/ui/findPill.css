@@ -48,6 +48,20 @@
   letter-spacing: var(--text-body--letter-spacing);
 }
 
+/* Chromium over a see-through window (ui/glass/glass.css, CHROMIUM OVER THE WINDOW GLASS): its
+   backdrop copy is mostly clear, so the transcript under the pill read crisp behind the query and
+   "1 of 2" (fleet capture, text-inputs-glass chat-find on art). The pill is not a .ui-glass, so it
+   lays its tint over the theme surface at --glass-underlay itself, as floating glass there does. */
+@media not (prefers-reduced-transparency: reduce) {
+  @supports not (-webkit-backdrop-filter: none) {
+    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]) .find-pill {
+      background:
+        linear-gradient(var(--tooltip-tint, var(--cmux-card-tint, transparent)), var(--tooltip-tint, var(--cmux-card-tint, transparent))),
+        color-mix(in srgb, var(--glass-surface, var(--surface-popup, Canvas)) var(--glass-underlay, 70%), transparent);
+    }
+  }
+}
+
 /* Reduce Transparency: the opaque popup surface, no blur and no material rim (desktop.css also swaps the tint tokens). */
 @media (prefers-reduced-transparency: reduce) {
   .find-pill {
@@ -159,7 +173,7 @@
   background: color-mix(in srgb, currentColor 9%, transparent);
 }
 .find-pill__button:disabled {
-  opacity: 0.4;
+  opacity: var(--ds-disabled-opacity, 0.6);
 }
 .find-pill__button:focus-visible {
   outline: 2px solid var(--agent-accent, var(--cmux-accent));

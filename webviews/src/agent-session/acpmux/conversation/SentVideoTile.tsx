@@ -128,7 +128,11 @@ function SentVideoTilePreview({ video: sent, width, height }: SentVideoTileProps
         {video.poster ? (
           <Poster video={video} width={width} height={height} />
         ) : (
-          <span className="cv-user__image-placeholder" aria-hidden="true" style={{ width, height, flexBasis: width }} />
+          <span
+            className="cv-user__image-placeholder"
+            aria-hidden="true"
+            style={{ width, aspectRatio: `${width} / ${height}`, flexBasis: width }}
+          />
         )}
         {unplayable ? (
           <output className="cv-user__video-unplayable" data-video-glyph="">
@@ -215,7 +219,11 @@ function Poster({ video, width, height }: { video: SentVideo; width: number; hei
   const shown = useStableImage(image.src ? { src: image.src } : { id: image.id, read: promptImage }, video);
   if (shown.src === undefined)
     return (
-      <span className="cv-user__image-placeholder" aria-hidden="true" style={{ width, height, flexBasis: width }} />
+      <span
+        className="cv-user__image-placeholder"
+        aria-hidden="true"
+        style={{ width, aspectRatio: `${width} / ${height}`, flexBasis: width }}
+      />
     );
   return (
     <img
@@ -225,7 +233,8 @@ function Poster({ video, width, height }: { video: SentVideo; width: number; hei
       decoding={shown.decoded ? "sync" : "async"}
       width={video.width}
       height={video.height}
-      style={{ width, height }}
+      // Its own shape at its width: a narrow column scales the poster down whole, never squeezed.
+      style={{ width, aspectRatio: `${width} / ${height}` }}
       onLoad={shown.onLoad}
     />
   );

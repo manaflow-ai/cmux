@@ -4315,6 +4315,7 @@
       "nextSpaces": "Spaces and columns",
       "nextPalette": "Command palette",
       "nextRemote": "Remote machines and Tailscale",
+      "nextServer": "cmux server",
       "nextPlans": "Plans and credits",
       "nextSettings": "Settings reference",
       "nextArchitecture": "Architecture",
@@ -5035,7 +5036,8 @@
       "darkArt": "Dark Art",
       "museumIcons": "Museum Icons",
       "calm": "Calm",
-      "dore": "Doré"
+      "dore": "Doré",
+      "eastAsian": "East Asian Painting"
     }
   },
   "testimonials": {

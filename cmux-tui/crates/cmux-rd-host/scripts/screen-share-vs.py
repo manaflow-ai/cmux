@@ -305,20 +305,55 @@ def ledger_stages(ledger):
     return out
 
 
+def summary_stages(summary):
+    """A bench's run stage ledger summary (`stage_ledger`, schema cmux.rd-stage-ledger/1) as
+    {row: {"p50", "p95", "n"}} for the stages it measured; {} for anything else."""
+    if not isinstance(summary, dict) or summary.get("schema") != LEDGER_SCHEMA:
+        return {}
+    out = {}
+    for st in summary.get("stages") or []:
+        if not isinstance(st, dict) or not isinstance(st.get("n"), int) or st["n"] <= 0:
+            continue
+        if st.get("p50_ms") is None or st.get("p95_ms") is None:
+            continue
+        out[st.get("stage")] = {"p50": round(st["p50_ms"], 2), "p95": round(st["p95_ms"], 2),
+                                "n": st["n"]}
+    return out
+
+
+def from_summaries(row, summaries):
+    """ROW from the trials' run summaries: the trial with the most frames for it (percentiles of
+    separate trials do not pool), or None. Never Total: the summary's runs display time ->
+    presented, not key press -> frame."""
+    if row == "Total":
+        return None
+    cells = [s[row] for s in (summary_stages(x) for x in summaries or []) if row in s]
+    if not cells:
+        return None
+    best = max(cells, key=lambda c: c["n"])
+    return dict(best, source="ledger", of="run summary: the trial with the most frames",
+                trials=len(cells))
+
+
 def null(why):
     return {"null": why}
 
 
-def cmux_cells(rows, ledgers, presented, synthetic=False):
+def cmux_cells(rows, ledgers, presented, synthetic=False, summaries=None):
     """The cmux column: {row: cell}. ROWS are the key-to-frame breakdown rows, LEDGERS per-sample
-    ledger stage dicts (ledger_stages), PRESENTED cmux-rd observe's latencies in ms or None."""
+    ledger stage dicts (ledger_stages), PRESENTED cmux-rd observe's latencies in ms or None,
+    SUMMARIES the trials' run stage ledgers (the bench's `stage_ledger`), read for a row no
+    per-sample ledger fills."""
     cells = {}
     decoded_total = stat(sample_sums(rows, ("total",)))
     pres = stat(presented or [])
     for row, _, _, keys in BUDGET_ROWS:
         from_ledger = stat([s.get(row) for s in ledgers])
+        from_summary = None if from_ledger else from_summaries(row, summaries)
         if from_ledger:
             cells[row] = dict(from_ledger, source="ledger")
+        elif from_summary:
+            cells[row] = from_summary
         elif row == "Total" and pres:
             cells[row] = dict(pres, source="cmux-rd observe", to="presented")
         elif row == "Total" and decoded_total:
@@ -389,7 +424,7 @@ def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=Non
         c_quality = {"frame_score": null(cmux["skipped"]), "text_cer": null(cmux["skipped"])}
     else:
         c_cells = cmux_cells(cmux.get("rows") or [], cmux.get("ledgers") or [], cmux.get("presented"),
-                             synthetic=source == "synthetic")
+                             synthetic=source == "synthetic", summaries=cmux.get("summaries"))
         c_mbps = motion_mbps(cmux.get("motion_rows") or []) or null("no motion trial finished")
         c_quality = quality_summary(cmux.get("scores") or [],
                                     cmux.get("quality_null") or "no motion trial finished")
@@ -1128,6 +1163,10 @@ class Remote:
     def argv(self, cmd):
         if self.via == "ssh":
             return ["ssh", "-o", "BatchMode=yes", self.name, cmd]
+        if self.via == "local":
+            # The orchestrator runs on the Mac itself: a lane VM's reach relay carries no stdin,
+            # and the session's signaling goes over the host's and viewer's stdin.
+            return ["/bin/bash", "-c", cmd]
         return ["reach", self.name, cmd]
 
     def run(self, cmd, timeout=120, stdin=None):
@@ -1189,6 +1228,7 @@ class Orchestrator:
         self.synthetic = args.source == "synthetic"
         self.scores = []  # frame-score results of the motion trials' last decoded frames
         self.ledgers = []  # per-sample stage ledger rows (ledger_stages), when the build has them
+        self.summaries = []  # each counted trial's run stage ledger (the bench's stage_ledger)
         self.presented = None  # cmux-rd observe's latencies (ms) through a visible viewer pane
         self.geometry = None  # the marker's motion-geometry, read from the shared Mac
         self.quality_null = None
@@ -1317,6 +1357,8 @@ class Orchestrator:
             setup = {"session": session, "peer_key": viewer_key, "scope": "control", "stun": [],
                      "display": "main", "max_fps": self.a.max_fps,
                      "viewer": {"user": "viewer", "install": "screen-share-vs"}}
+            if self.a.encode_profile:
+                setup["encode_profile"] = self.a.encode_profile
             host.stdin.write(json.dumps(setup) + "\n")
             host.stdin.flush()
             host_key, cands = None, []
@@ -1365,6 +1407,8 @@ class Orchestrator:
             rep = rec.pop("report", None)
             if rep:
                 rec["ok"] = True
+                if isinstance(rep.get("stage_ledger"), dict):
+                    rec["stage_ledger"] = rep["stage_ledger"]
                 rec["first_frame_ms"] = rep.get("first_frame_ms")
                 if mode == "key":
                     rec["g2g_ms"] = rep.get("g2g_ms")
@@ -1408,7 +1452,7 @@ class Orchestrator:
         """connect -> first decoded frame, split with the host's log (ms, viewer clock)."""
         t = rec.get("first_frame_times")
         opened = next((x for x in timing if "open_us" in x), None)
-        f = next((x for x in timing if t and x.get("release_us") == t.get("capture_us")), None)
+        f = next((x for x in timing if t and x.get("capture_us", x.get("release_us")) == t.get("capture_us")), None)
         if not (t and opened and f):
             return None
         off_us = offset_ns / 1000.0
@@ -1425,8 +1469,8 @@ class Orchestrator:
             "capture_start": ms(opened["desktop_ready_us"] - opened["open_us"]),
             # the capture's first frame arrives
             "first_capture": ms(arrived - opened["desktop_ready_us"]) if arrived else None,
-            "gate": ms(f["release_us"] - arrived) if arrived else None,
-            "encode": ms(f["encoded_us"] - f["release_us"]),
+            "gate": ms(f.get("encode_start_us", f["release_us"]) - arrived) if arrived else None,
+            "encode": ms(f["encoded_us"] - f.get("encode_start_us", f["release_us"])),
             "send": ms(f["sent_us"] - f["encoded_us"]),
             "down": ms(t["complete_ns"] / 1000.0 - (f["sent_us"] - off_us)),
             "decode": ms((t["decoded_ns"] - t["complete_ns"]) / 1000.0),
@@ -1443,7 +1487,7 @@ class Orchestrator:
             if "inject_us" in line:
                 injects.append(line)
             elif "release_us" in line:
-                frames[line["release_us"]] = line
+                frames[line.get("capture_us", line["release_us"])] = line
         injects.sort(key=lambda x: x["inject_us"])
         rows = []
         off_us = offset_ns / 1000.0
@@ -1468,8 +1512,8 @@ class Orchestrator:
                 "inject": ms(inj["inject_us"] - inj["recv_us"]),
                 "draw": ms(shown - inj["inject_us"]) if shown else None,
                 "sck": ms(arrived - shown) if shown and arrived else None,
-                "gate": ms(f["release_us"] - arrived) if arrived else None,
-                "encode": ms(f["encoded_us"] - f["release_us"]),
+                "gate": ms(f.get("encode_start_us", f["release_us"]) - arrived) if arrived else None,
+                "encode": ms(f["encoded_us"] - f.get("encode_start_us", f["release_us"])),
                 "send": ms(f["sent_us"] - f["encoded_us"]),
                 "first_packet": ms(s["first_rx_ns"] / 1000.0 - v(f["sent_us"])),
                 "down": ms(s["complete_ns"] / 1000.0 - v(f["sent_us"])),
@@ -1540,6 +1584,8 @@ class Orchestrator:
                 # A build with the stage ledger hands one per sample; every row then reads it.
                 self.ledgers += [ledger_stages(s["ledger"]) for s in rec.get("sample_times") or []
                                  if s.get("ledger")]
+                if rec.get("stage_ledger"):
+                    self.summaries.append(rec["stage_ledger"])
                 rec["breakdown"] = self.breakdown(rec, timing, clock["offset_ns"])
                 rows += rec["breakdown"]
                 ff = self.first_frame_breakdown(rec, timing, clock["offset_ns"])
@@ -1563,6 +1609,9 @@ class Orchestrator:
                                                for x in lines if x.get("release_us") is not None]
             if rec["ok"]:
                 fps.append(rec["marker_fps"])
+                # Motion trials release every frame, so their ledger holds the most frames.
+                if rec.get("stage_ledger"):
+                    self.summaries.append(rec["stage_ledger"])
                 self.motion_rows.append(rec)
                 if geo:
                     rec["quality"] = self.frame_score(snap, geo, origin)
@@ -1707,7 +1756,8 @@ class Orchestrator:
         """The design's budget table, printed and written as one {"budget"} line."""
         cmux = apple = None
         if "cmux" in stacks:
-            cmux = {"rows": rows, "ledgers": self.ledgers, "presented": self.presented,
+            cmux = {"rows": rows, "ledgers": self.ledgers, "summaries": self.summaries,
+                    "presented": self.presented,
                     "motion_rows": self.motion_rows, "scores": self.scores,
                     "quality_null": self.quality_null}
         if "apple" in stacks:
@@ -1790,7 +1840,8 @@ def main():
     r.add_argument("--link", default="wired", help="a label for the table")
     r.add_argument("--link-bind", help="bind the shared Mac's link socket to this address (its "
                    "Wi-Fi address when Ethernet shares the subnet), so both directions use it")
-    r.add_argument("--via", choices=["reach", "ssh"], default="reach")
+    r.add_argument("--via", choices=["reach", "ssh", "local"], default="reach",
+                   help="local: both Macs are this one (run the orchestrator on the shared Mac)")
     r.add_argument("--root", default="cmux-rd-test", help="relative to the remote home")
     r.add_argument("--python", default="/usr/bin/python3")
     r.add_argument("--bin", help="local cmux-rd (macOS arm64, features bench,link) to install")
@@ -1815,6 +1866,9 @@ def main():
     r.add_argument("--samples", type=int, default=30)
     r.add_argument("--fps-seconds", type=int, default=10)
     r.add_argument("--max-fps", type=int, default=60)
+    r.add_argument("--encode-profile", choices=("standard", "ultra"),
+                   help="the cmux stack's profile, asked in the setup line as the app's viewer "
+                        "asks it (default: none sent, so the host runs standard)")
     r.add_argument("--clock-count", type=int, default=200)
     r.add_argument("--timeout", type=float, default=120)
     r.add_argument("--vnc-user", default=os.environ.get("VNC_USERNAME"))

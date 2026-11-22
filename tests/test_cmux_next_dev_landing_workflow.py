@@ -98,11 +98,24 @@ class WorkflowTests(unittest.TestCase):
     def test_a_dev_daily_compile_is_placed_on_the_nearest_cache_first(self):
         job = self.jobs["dev-daily-place"]
         for clause in ("github.event_name == 'workflow_dispatch'", "inputs.dev_daily == true",
-                       "github.repository == 'manaflow-ai/cmux'", "github.run_attempt == 1",
+                       "github.repository == 'manaflow-ai/cmux'",
                        "vars.CMUX_NEXT_DEV_COMPILE_AFFINITY", "!cancelled()"):
             self.assertIn(clause, job["if"])
+        # Every attempt is placed: run 44941204257's rescue re-run (attempt 2, 2026-11-21) skipped placement and fell
+        # to the side label's tail behind about 130 PR jobs.
+        self.assertNotIn("run_attempt", job["if"])
+        place_env = {s.get("id"): s for s in job["steps"]}["place"]["env"]
+        self.assertEqual(place_env["NIGHTLY_LABEL"],
+                         "${{ vars.CI_DEV_COMPILE_NIGHTLY_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}")
+        runs_on = self.jobs["cmux-scheme-compile"]["runs-on"]
+        self.assertIn("needs.dev-daily-place.outputs.runs_on != '' && fromJSON(needs.dev-daily-place.outputs.runs_on)", runs_on)
+        self.assertNotIn("github.run_attempt == 1 && needs.dev-daily-place", runs_on)
+        env_runner = self.jobs["cmux-scheme-compile"]["env"]["CMUX_NEXT_RUNNER"]
+        self.assertNotIn("github.run_attempt == 1 && needs.dev-daily-place", env_runner)
         # Only when the compile runs: its own tree condition, word for word.
         compile_if = self.jobs["cmux-scheme-compile"]["if"]
+        # The label guard (tests/test_ci_label_events_skip_full_ci.py) ends every if; the tree comes before it.
+        compile_if = compile_if[:compile_if.rindex(") && !(github.event_name == 'pull_request'")] + " }}"
         tree = compile_if[compile_if.index("((inputs.same_tree_sha == ''"):].rstrip(" }")[:-2]
         self.assertIn(tree, job["if"])
         # Only a run whose DEV Release app gets built: the Release step's dispatch condition, word for word

@@ -90,9 +90,11 @@ extension CloudGitHubApp {
 extension CloudOwnerAPIClient {
     /// `GET /v1/integrations/github/status?team=`: the App's state for `team` and, when ready, which
     /// repositories it reaches. Never throws: a check that does not answer is ``CloudGitHubApp/unknown``.
-    public func gitHubAppStatus(team: String) async -> (app: CloudGitHubApp, reposScope: String?) {
-        guard let path = CloudGitHubApp.path(team: team), let answer = await person(path) else { return (.unknown, nil) }
-        return (CloudGitHubApp(status: answer.status, body: answer.body), CloudGitHubApp.reposScope(status: answer.status, body: answer.body))
+    /// `reauthDetail` is the server's reason a ``CloudGitHubApp/needsReauth`` connection gave, when it gave one.
+    public func gitHubAppStatus(team: String) async -> (app: CloudGitHubApp, reposScope: String?, reauthDetail: String?) {
+        guard let path = CloudGitHubApp.path(team: team), let answer = await person(path) else { return (.unknown, nil, nil) }
+        return (CloudGitHubApp(status: answer.status, body: answer.body), CloudGitHubApp.reposScope(status: answer.status, body: answer.body),
+                CloudGitHubApp.reauthDetail(status: answer.status, body: answer.body))
     }
 
     /// Where Settings' Reconfigure opens for `team`'s ready GitHub connection (``CloudGitHubApp/reconfigureURL(status:body:)``);
@@ -140,13 +142,15 @@ extension CloudOwnerAPIClient {
     }
 
     /// One GET of `path` (a POST of `post` in ``teamID``'s team when given) with only Authorization (the Worker's
-    /// invocation log masks it); nil when it did not answer.
+    /// invocation log masks it) and the build space (the build's public tag); nil when it did not answer, or when a
+    /// misconfigured dev build has no space to send.
     func person(_ path: String, post: Data? = nil) async -> (status: Int, body: Data)? {
         guard let url = URL(string: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + path),
               let access = try? await accessToken() else { return nil }
         var request = URLRequest(url: url, timeoutInterval: 15)
         request.httpMethod = post == nil ? "GET" : "POST"
         request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
+        guard (try? buildSpace.apply(to: &request)) != nil else { return nil }
         if let post {
             request.httpBody = post
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -246,7 +250,7 @@ public struct CloudGitHubPicker {
               let team = MacInstallIdentity.team(ofToken: token) else { return nil }
         let auth = auth
         let access: CloudOwnerAPIClient.AccessToken = { try await auth.tokens().access }
-        return (CloudOwnerAPIClient(baseURL: auth.configuration.ownerAPIBaseURL(), accessToken: access, teamID: { team }), team)
+        return (CloudOwnerAPIClient(baseURL: auth.configuration.ownerAPIBaseURL(), accessToken: access, teamID: { team }, buildSpace: auth.configuration.buildSpace), team)
     }
 
     /// `github.status`: ready, not connected, or unavailable and why.
@@ -254,32 +258,59 @@ public struct CloudGitHubPicker {
         // A saved sign-in still being restored is not signed out: no sign-in to start for it.
         guard auth.isSignedIn else { return .unavailable(auth.isRestoring ? .unreachable : .signedOut) }
         guard let owner = await owner() else { return .unavailable(.unreachable) }
-        let (app, scope) = await owner.client.gitHubAppStatus(team: owner.team)
-        return Status(app, reposScope: scope)
+        let (app, scope, detail) = await owner.client.gitHubAppStatus(team: owner.team)
+        let status = Status(app, reposScope: scope, reauthDetail: detail)
+        // A completion the API refused is the last word on a team that is still not connected: say so where Connect is.
+        if case .notConnected = status, let refusal = auth.gitHubChanges.refusal { return .linkRefused(reason: refusal.reason) }
+        return status
     }
 
-    /// `github.status`'s `state`, `repos_scope` and, when unavailable, its `reason`.
+    /// `github.status`'s `state`, `repos_scope` and, when unavailable, its `reason`. Every case but `ready` and
+    /// `unavailable` is a state with a Connect GitHub: the wire `state` stays `not_connected`, and ``problem`` and the
+    /// page's words (`AgentPaneGitHubRequest.statusReply`) say which.
     public enum Status: Equatable, Sendable {
         case ready(reposScope: String?)
         case notConnected
+        /// Linked, but GitHub no longer honors it (suspended or uninstalled); `detail` is the server's reason, if any.
+        case needsReauth(detail: String?)
+        /// A link is under way: the person has not finished on GitHub.
+        case linking
+        /// The connection is in the server's `error` state.
+        case error
+        /// The last completion the API refused (an expired state, a non-owner's request); `reason` is the API's, if any.
+        case linkRefused(reason: String?)
         case unavailable(Unavailable)
 
         /// The status route's answer for a signed-in person.
-        public init(_ app: CloudGitHubApp, reposScope: String?) {
+        public init(_ app: CloudGitHubApp, reposScope: String?, reauthDetail: String? = nil) {
             switch app {
             case .ready: self = .ready(reposScope: reposScope)
             case .notConnected: self = .notConnected
+            case .needsReauth: self = .needsReauth(detail: reauthDetail)
+            case .linking: self = .linking
+            case .error: self = .error
             case .notConfigured: self = .unavailable(.notConfigured)
             case .unknown: self = .unavailable(.unreachable)
             }
         }
 
-        /// `ready`, `not_connected` or `unavailable`.
+        /// `ready`, `not_connected` or `unavailable`: the folder menu's three, which every Connect state shares.
         public var state: String {
             switch self {
             case .ready: "ready"
-            case .notConnected: "not_connected"
+            case .notConnected, .needsReauth, .linking, .error, .linkRefused: "not_connected"
             case .unavailable: "unavailable"
+            }
+        }
+
+        /// Which kind of not connected: `needs_reauth`, `linking`, `error` or `link_refused`; nil for any other state.
+        public var problem: String? {
+            switch self {
+            case .needsReauth: "needs_reauth"
+            case .linking: "linking"
+            case .error: "error"
+            case .linkRefused: "link_refused"
+            case .ready, .notConnected, .unavailable: nil
             }
         }
 
@@ -318,7 +349,9 @@ public struct CloudGitHubPicker {
     nonisolated static func connectFromStatus(status: Int, body: Data) -> Connect? {
         switch CloudGitHubApp(status: status, body: body) {
         case .ready: CloudGitHubApp.configureURL(status: status, body: body).map(Connect.open) ?? .connected
-        case .notConnected: nil
+        // A suspended install is fixed on its settings page; with none named (or uninstalled) Connect is the fix.
+        case .needsReauth: CloudGitHubApp.configureURL(status: status, body: body).map(Connect.open)
+        case .linking, .notConnected, .error: nil
         case .notConfigured: .unavailable(.notConfigured)
         case .unknown: .unavailable(.unreachable)
         }
@@ -344,6 +377,7 @@ public struct CloudGitHubPicker {
     public func connect() async -> Connect {
         // A saved sign-in still being restored is not signed out: no sign-in to start for it.
         guard auth.isSignedIn else { return .unavailable(auth.isRestoring ? .unreachable : .signedOut) }
+        auth.gitHubChanges.forgetRefusal() // a new Connect starts over: the last refused link no longer applies
         guard let owner = await owner(), let path = CloudGitHubApp.path(team: owner.team),
               let status = await owner.client.person(path) else { return .unavailable(.unreachable) }
         if let known = Self.connectFromStatus(status: status.status, body: status.body) { return known }

@@ -303,6 +303,14 @@ const LIBRARY_GLOBALS: ReadonlyMap<string, string> = new Map([
   ["__SEROVAL_REFS__", "library global created once at first evaluation, bounded"],
 ]);
 
+/// A global that held `undefined` as a plain value reads the same once deleted (`globalThis.window`,
+/// `typeof window`): an earlier file put `window` back as `undefined`, this one deleted it, and nothing
+/// a later file can see changed. The usual teardown (`if (value === undefined) delete scope[key]`) does
+/// exactly that, so counting it failed SelectionReply and readerStateEstimates by file order alone.
+function heldNothing(descriptor: PropertyDescriptor | undefined): boolean {
+  return !!descriptor && "value" in descriptor && descriptor.value === undefined;
+}
+
 function leakedGlobals(start: FileStart): string[] {
   const leaks: string[] = [];
   const now = new Set(globalKeys());
@@ -312,8 +320,8 @@ function leakedGlobals(start: FileStart): string[] {
     } else if (!sameDescriptor(start.globals.get(key), Object.getOwnPropertyDescriptor(globalThis, key)))
       leaks.push(`global: \`${key}\` was replaced and not restored`);
   }
-  for (const key of start.globals.keys())
-    if (!now.has(key)) leaks.push(`global: \`${key}\` was deleted and not restored`);
+  for (const [key, before] of start.globals)
+    if (!now.has(key) && !heldNothing(before)) leaks.push(`global: \`${key}\` was deleted and not restored`);
   // A document the file started with and that is still reachable: what the file defined on it stays.
   for (const doc of globalDocuments()) {
     const before = start.documents.get(doc);

@@ -1,5 +1,5 @@
 {
-  "$comment": "Settings rows of this Mac's machines, phones, Cloud and connectors (Computer Use, free model, SSH links, Cloud workspaces, iPhone, Mac Screen, cmux Remote, Device Hub, iMessage). Each list is one run of rows in SettingsSchema.all; gen-settings-sources.py writes the Swift (SettingsSchema+Machines*.generated.swift).",
+  "$comment": "Settings rows of this Mac's machines, phones, Cloud and connectors (Computer Use, free model, SSH links, Cloud workspaces, worktree and build cache cleanup, iPhone, Mac Screen, cmux Remote, Device Hub, iMessage). Each list is one run of rows in SettingsSchema.all; gen-settings-sources.py writes the Swift (SettingsSchema+Machines*.generated.swift).",
   "lists": [
     {
       "name": "computerUse",
@@ -638,6 +638,64 @@
       ]
     },
     {
+      "name": "storage",
+      "section": "general",
+      "group": {
+        "key": "settings.group.storage",
+        "text": "Storage"
+      },
+      "rows": [
+        {
+          "key": "worktrees.autoCleanup",
+          "name": "autoCleanup",
+          "note": "On by default. The acpmux daemon archives and removes the worktrees agents finished with and trims the build output of idle ones; unpushed work stays in git and comes back when the chat reopens (cmux-tui acpmux hub/worktree_care.rs, auto_cleanup_enabled, read from the settings file at each pass).",
+          "title": {
+            "key": "settings.worktrees.autoCleanup",
+            "text": "Clean Up Agent Worktrees"
+          },
+          "help": {
+            "key": "settings.worktrees.autoCleanup.help",
+            "text": "Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "disk",
+            "storage",
+            "cleanup",
+            "worktree",
+            "cache",
+            "DerivedData",
+            "free space"
+          ]
+        },
+        {
+          "key": "worktrees.cleanBuildCaches",
+          "name": "cleanBuildCaches",
+          "note": "Off by default. On: machine cleanup also removes this Mac's build caches nobody used lately (Xcode DerivedData and the like); package caches only when the disk is nearly full (cmux-tui cmux-worktree-care).",
+          "title": {
+            "key": "settings.worktrees.cleanBuildCaches",
+            "text": "Clean Up Build Caches"
+          },
+          "help": {
+            "key": "settings.worktrees.cleanBuildCaches.help",
+            "text": "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "disk",
+            "storage",
+            "cleanup",
+            "worktree",
+            "cache",
+            "DerivedData",
+            "free space"
+          ]
+        }
+      ]
+    },
+    {
       "name": "mobile",
       "section": "accounts",
       "group": {
@@ -790,6 +848,31 @@
             "keyboard",
             "accessibility"
           ]
+        },
+        {
+          "key": "macScreen.shareWithoutAsking",
+          "title": {
+            "key": "settings.macScreen.shareWithoutAsking",
+            "text": "Share This Mac Without Asking"
+          },
+          "help": {
+            "key": "settings.macScreen.shareWithoutAsking.help",
+            "text": "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies."
+          },
+          "summary": {
+            "key": "settings.macScreen.shareWithoutAsking.summary",
+            "text": "Sharing turns on without asking"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "mac screen",
+            "remote",
+            "screen sharing",
+            "share this mac",
+            "confirm",
+            "ask"
+          ]
         }
       ]
     },
@@ -920,6 +1003,58 @@
           ],
           "swift_enum": {
             "name": "UltraConnectionMode"
+          }
+        },
+        {
+          "key": "remote.screenSharingProfile",
+          "name": "screenSharingProfile",
+          "note": "Read by MacScreenSession: ultra puts a=cmux-rd-encode-profile:ultra in the viewer's cmux.rd offer and the host's cmux-rd serve setup gets \"encode_profile\": \"ultra\"; balanced (the default) sends nothing. Not remote.ultra, which repairs loss on the WireGuard tunnel.",
+          "title": {
+            "key": "settings.remote.screenSharingProfile",
+            "text": "Screen Sharing Profile"
+          },
+          "help": {
+            "key": "settings.remote.screenSharingProfile.help",
+            "text": "Ultra spends the link on a fast direct connection when viewing another Mac: up to 120 fps, up to 150 Mbps, near-lossless text. Balanced is the default. Not Ultra Connection Mode, which repairs a lossy network."
+          },
+          "summary": {
+            "key": "settings.remote.screenSharingProfile.summary",
+            "text": "Picture quality and bandwidth when viewing another Mac"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "balanced",
+              "title": {
+                "key": "settings.remote.screenSharingProfile.balanced",
+                "text": "Balanced"
+              },
+              "note": "Today's stream; the viewer asks for nothing extra."
+            },
+            {
+              "value": "ultra",
+              "title": {
+                "key": "settings.remote.screenSharingProfile.ultra",
+                "text": "Ultra"
+              },
+              "note": "Up to 120 fps and 150 Mbps, near-lossless text, on a fast direct link."
+            }
+          ],
+          "default": "balanced",
+          "keywords": [
+            "screen sharing",
+            "mac screen",
+            "profile",
+            "quality",
+            "ultra",
+            "bandwidth",
+            "fps",
+            "frame rate",
+            "bitrate",
+            "text"
+          ],
+          "swift_enum": {
+            "name": "ScreenSharingProfile"
           }
         }
       ]

@@ -318,12 +318,28 @@ export type MachineStatus = Wire.CloudMachineStatus | "unknown";
 /** A machine size. Create and resize send at least one field; the plan decides which are allowed. */
 export type MachineSize = Wire.CloudMachineSize;
 
+/** A VM's latest guest disk report. Values are MiB and `observed_at` is epoch milliseconds. */
+export interface CloudDiskHealth {
+  /** Computed by the Cloud API after validating capacity fields. */
+  readonly state?: "healthy" | "warning" | "unknown";
+  readonly free_mb: number;
+  readonly used_mb: number;
+  readonly total_mb: number;
+  readonly floor_mb: number;
+  readonly top_users: ReadonlyArray<{ readonly path: string; readonly used_mb: number }>;
+  readonly observed_at: number;
+}
+
 /**
  * `CloudMachine` as the catalog declares it (the generated wire is the only machine type), with the
  * status widened to the page's `unknown`. Owner: the team's CloudDO. The page still reads optional
  * parts defensively (`?.`, `??`), since an older server relays records with fields left out.
  */
-export type CloudMachine = Omit<Wire.CloudMachine, "status"> & { readonly status: MachineStatus };
+export type CloudMachine = Omit<Wire.CloudMachine, "status"> & {
+  readonly status: MachineStatus;
+  /** Optional until the Cloud projection receives a VM health report. */
+  readonly disk_health?: CloudDiskHealth | null;
+};
 
 export interface MachineListResult {
   machines: CloudMachine[];

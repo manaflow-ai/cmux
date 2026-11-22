@@ -60,6 +60,28 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "new-workspace-menu", args: Self.list) { app in
                 C.longPress(C.any(app, "workspaces.new"), "New Workspace button")
             },
+            // Its submenus (2026-11-18 reorganize): each folder list once, behind one row.
+            Scene(group: g, id: "new-workspace-menu-live-mac", args: Self.list + ["-cmux-mobile-agent-chats"]) { app in
+                C.longPress(C.any(app, "workspaces.new"), "New Workspace button")
+            },
+            Scene(group: g, id: "new-workspace-menu-agent-chat", args: Self.list + ["-cmux-mobile-agent-chats"]) { app in
+                C.steps([
+                    { C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
+                    { C.tap(C.any(app, "workspaces.newAgentChatOn"), "New Agent Chat") },
+                ])
+            },
+            Scene(group: g, id: "new-workspace-menu-open-recent", args: Self.list) { app in
+                C.steps([
+                    { C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
+                    { C.tap(C.any(app, "workspaces.openRecent"), "Open Recent") },
+                ])
+            },
+            Scene(group: g, id: "new-workspace-menu-agent-workspace", args: Self.list) { app in
+                C.steps([
+                    { C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
+                    { C.tap(C.any(app, "workspaces.newAgentWorkspace"), "New Agent Workspace") },
+                ])
+            },
             Scene(group: g, id: "new-workspace-creating", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
                 C.tap(C.any(app, "workspaces.new"), "New Workspace button")
             },

@@ -72,7 +72,7 @@ copy of /bin/bash> --args job.sh`; `open` does not pass the environment: write i
 print the scheduler priority of the supervisor (`sched_pri`): 31 is right, 20 means the ssh ceiling.
 The caller's duty: stop it before the job ends, run `cooldown` inside the same hold, then check `status` = live 0.
 
-A bench tool: never a CI gate, job, step or perf-gate row. Python 3.9 standard library only.
+A bench tool: not a CI gate, job, step or perf-gate row. Python 3.9 standard library only.
 """
 from __future__ import annotations
 

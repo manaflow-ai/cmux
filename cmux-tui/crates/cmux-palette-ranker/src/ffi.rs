@@ -153,6 +153,16 @@ pub unsafe extern "C" fn cmux_palette_ranker_rank(
             Ok(request) => request,
             Err(error) => return (ERR_INVALID, error.to_string().into_bytes()),
         };
+        if request.operation == "filter" {
+            // The query's filter tokens alone (`crate::filter`): for the host's own searches
+            // beside the ranker (agent chats), so they keep and drop the same sections.
+            let names = request.section_names.as_deref().unwrap_or_default();
+            let parsed = crate::filter::parse(request.query.as_deref().unwrap_or(""), names);
+            return match serde_json::to_vec(&parsed) {
+                Ok(bytes) => (OK, bytes),
+                Err(error) => (ERR_INVALID, error.to_string().into_bytes()),
+            };
+        }
         match handle.ranker.rank(&request) {
             Ok(sections) => match serde_json::to_vec(&sections) {
                 Ok(bytes) => (OK, bytes),

@@ -9,7 +9,6 @@ import { failureCopy, failureKind, failureRecovery, offersOwnRoute } from "../sr
 import { codeRouterOffer, ownRouteOf, readChatAccounts } from "../src/agent-session/acpmux/chatAccounts";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 
-import { cloudCredentialRecovery } from "../src/agent-session/acpmux/cloudCredentialRecovery";
 import { teardownDom } from "./support/domTeardown";
 
 const t = translatorFor("en");
@@ -227,17 +226,13 @@ test("a turn the folder's trust held offers Trust folder from its card, where th
   }
 });
 
-test("cloud credential transfer retries only the failed prompt after a successful transfer", async () => {
-  const calls: string[] = [];
+test("a Cloud 401 names the rejected credentials, never the machine's host", async () => {
   await act(async () =>
     root.render(
       <TurnActionsContext.Provider
         value={{
           route: { name: "Claude Code", harness: "claude", hostKind: "cloud", host: "private.internal" },
-          transferCloudCredentials: async (rowId, prompt) => {
-            calls.push(`transfer:${rowId}:${prompt}`);
-          },
-          retry: (rowId, prompt) => calls.push(`retry:${rowId}:${prompt}`),
+          retry: () => undefined,
         }}
       >
         <TurnFooter row={failed("HTTP 401 Unauthorized")} />
@@ -248,13 +243,6 @@ test("cloud credential transfer retries only the failed prompt after a successfu
     "The provider rejected Claude Code’s credentials on this Cloud machine (HTTP 401). Set them up again to continue.",
   );
   expect(card().textContent).not.toContain("private.internal");
-  const transferButton = [...host.querySelectorAll("button")].find(
-    (element) => element.textContent === "Set up Claude Code credentials",
-  );
-  expect(transferButton).toBeDefined();
-  await act(async () => transferButton!.click());
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(calls).toEqual(["transfer:user-1:Run the sidebar tests and fix what fails"]);
 });
 
 test("capacity puts Retry first, Switch model after it", async () => {
@@ -758,121 +746,4 @@ test("a failed turn with no prompt row to send again offers no Retry", async () 
   );
   expect(card().getAttribute("data-failure-kind")).toBe("agent-exited");
   expect(button("Retry")).toBeUndefined();
-});
-
-test("Cloud recovery reserves its prompt before login and retries once with that ticket", async () => {
-  const calls: Record<string, unknown>[] = [];
-  const sent: unknown[][] = [];
-  let granted = true,
-    current = true,
-    switchDuringRestore = false;
-  const client = {
-    selectedSession: "chat-1",
-    resendPrompt: async (_row: string, input: string) => {
-      if (switchDuringRestore) current = false;
-      return { input, attachments: [] };
-    },
-    send: async (...args: Parameters<import("../src/agent-session/acpmux/direct").AcpmuxDirectClient["send"]>) => {
-      sent.push(args);
-      return undefined;
-    },
-  };
-  const call = async (method: string, params: Record<string, unknown>) => {
-    calls.push({ method, ...params });
-    return { transferred: granted, promptId: params.retryPromptId, ticket: "reserved-ticket" };
-  };
-  const isCurrent = () => current;
-  const getClient = () => client;
-  const recover = cloudCredentialRecovery(
-    true,
-    "provider-vm-1",
-    "chat-1",
-    "claude",
-    call,
-    isCurrent,
-    getClient,
-    new Set(),
-  )!;
-  const pending = recover("row-1", "retry text");
-  // Duplicate clicks while native confirmation is open cannot reserve another prompt.
-  await recover("row-1", "retry text");
-  await pending;
-  expect(calls).toHaveLength(1);
-  expect(calls[0]).toMatchObject({
-    method: "chat.cloudCredentialTransfer",
-    provider: "claude",
-    machineID: "provider-vm-1",
-    sessionId: "chat-1",
-  });
-  expect(sent).toEqual([["retry text", [], calls[0]!.retryPromptId, undefined, "reserved-ticket"]]);
-  granted = false;
-  await recover("row-1", "retry text");
-  expect(sent).toHaveLength(1);
-  granted = true;
-  switchDuringRestore = true;
-  await recover("row-1", "retry text");
-  expect(sent).toHaveLength(1);
-  const count = calls.length;
-  await recover("row-1", "retry text");
-  expect(calls).toHaveLength(count);
-  expect(
-    cloudCredentialRecovery(true, undefined, "chat-1", "claude", call, isCurrent, getClient, new Set()),
-  ).toBeUndefined();
-  expect(
-    cloudCredentialRecovery(false, "vm", "chat-1", "claude", call, isCurrent, getClient, new Set()),
-  ).toBeUndefined();
-  expect(
-    cloudCredentialRecovery(true, "vm", "chat-1", "opencode", call, isCurrent, getClient, new Set()),
-  ).toBeUndefined();
-});
-
-test("Cloud recovery maps named harness profiles to the provider sent to native", async () => {
-  const providers: unknown[] = [];
-  const call = async (_method: string, params: Record<string, unknown>) => {
-    providers.push(params.provider);
-    return { transferred: false };
-  };
-  const client = {
-    selectedSession: "chat-1",
-    resendPrompt: async (_row: string, input: string) => ({ input, attachments: [] }),
-    send: async () => undefined,
-  };
-  for (const id of [
-    "claude",
-    "claude-sr2",
-    "Claude_work",
-    "providers/claude-personal",
-    "codex",
-    "codex-work",
-    "Codex_personal",
-    "providers/codex-team",
-  ]) {
-    const recover = cloudCredentialRecovery(
-      true,
-      "vm",
-      "chat-1",
-      id,
-      call,
-      () => true,
-      () => client,
-      new Set(),
-    );
-    expect(recover).toBeDefined();
-    await recover!("row-1", "retry");
-  }
-  expect(providers).toEqual(["claude", "claude", "claude", "claude", "codex", "codex", "codex", "codex"]);
-  for (const id of [undefined, "", "opencode", "claudelike", "my-claude", "codex/"]) {
-    expect(
-      cloudCredentialRecovery(
-        true,
-        "vm",
-        "chat-1",
-        id,
-        call,
-        () => true,
-        () => client,
-        new Set(),
-      ),
-    ).toBeUndefined();
-  }
 });

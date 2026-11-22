@@ -38,6 +38,9 @@ public struct SystemKeychainProbe: KeychainProbing {
             kSecReturnData as String: true,
         ]
         var result: CFTypeRef?
+        // Only `CredentialResolver` reads this, on the person's Connect: the prompt for Codex's own item is
+        // their consent.
+        // keychain-prompt: consent
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else { return nil }
         return result as? Data
     }
