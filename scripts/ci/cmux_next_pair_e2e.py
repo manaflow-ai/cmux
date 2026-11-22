@@ -654,13 +654,22 @@ def discovery_ask(mac_log, phone_log, since, status, rpc, note):
     return ok
 
 
+def host_state_directory(support):
+    """The Mac's MobileHostStateDirectory: under the bundle's support folder, or under its account
+    namespace's subfolder there (IPhoneHostService stateRoot/<storageNamespace>/cmux-mobile-host), as
+    collect() finds paired-devices.json. The one holding paired-devices.json wins; None when absent."""
+    found = [d for d in glob.glob(os.path.join(support, "**/cmux-mobile-host"), recursive=True) if os.path.isdir(d)]
+    found.sort(key=lambda d: (not os.path.exists(os.path.join(d, "paired-devices.json")), d.count(os.sep), d))
+    return found[0] if found else None
+
+
 def discovery_restart(app, exe, env, out, support, status, phone_log, streams, phone_shot, note):
     """The paired Mac quits; a second identity key is put in its fallback file (what a refused Keychain
     read used to mint) while the phone stays open; the Mac starts again. The phone reconnects by
     itself, the Mac keeps its Keychain key (no `mac_identity_changed`) and sets the file key aside."""
-    state = os.path.join(support, "cmux-mobile-host")  # MobileHostStateDirectory
-    if not os.path.isdir(state):
-        note(f"- discovery, restart: no state directory {state} -> FAIL")
+    state = host_state_directory(support)
+    if state is None:
+        note(f"- discovery, restart: no cmux-mobile-host state directory under {support} -> FAIL")
         return app, False
     app.terminate()  # the exact PID this script started
     try:

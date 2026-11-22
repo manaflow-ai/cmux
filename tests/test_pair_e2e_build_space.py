@@ -49,3 +49,28 @@ class SharedBuildSpaceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HostStateDirectoryTests(unittest.TestCase):
+    """The restart leg finds hostd's state folder where the Mac writes it: under the account namespace's
+    subfolder (IPhoneHostService stateRoot/<storageNamespace>/cmux-mobile-host). VM run 45063909078 paired,
+    then failed "no state directory .../cmux-mobile-host" because the leg looked only one level down."""
+
+    def test_namespaced_folder_with_paired_devices_wins(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as support:
+            self.assertIsNone(pair.host_state_directory(support))
+            os.makedirs(os.path.join(support, "cmux-mobile-host"))
+            nested = os.path.join(support, "staging", "cmux-mobile-host")
+            os.makedirs(nested)
+            open(os.path.join(nested, "paired-devices.json"), "w").close()
+            self.assertEqual(pair.host_state_directory(support), nested)
+
+    def test_top_level_folder_when_no_namespace(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as support:
+            top = os.path.join(support, "cmux-mobile-host")
+            os.makedirs(top)
+            self.assertEqual(pair.host_state_directory(support), top)
