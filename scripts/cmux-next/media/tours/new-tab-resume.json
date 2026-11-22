@@ -80,11 +80,7 @@
      "text": "/resume 5a7e5a7e-0000-4000-8000-000000003000"
     }
    },
-   "wait": 2.5,
-   "shot": {
-    "name": "light-resume-id",
-    "dismiss": false
-   }
+   "wait": 2.5
   },
   {
    "title": "Light: a pasted session id",
@@ -95,11 +91,7 @@
      "text": "5a7e5a7e-0000-4000-8000-000000003000"
     }
    },
-   "wait": 2.5,
-   "shot": {
-    "name": "light-pasted-id",
-    "dismiss": false
-   }
+   "wait": 2.5
   },
   {
    "title": "Light: claude -r <id>",
@@ -110,11 +102,7 @@
      "text": "claude -r 5a7e5a7e-0000-4000-8000-000000003000"
     }
    },
-   "wait": 2.5,
-   "shot": {
-    "name": "light-claude-r",
-    "dismiss": false
-   }
+   "wait": 2.5
   },
   {
    "title": "Light: /resume with an id no chat has",
@@ -125,11 +113,7 @@
      "text": "/resume deadbeef-0000-4000-8000-000000000000"
     }
    },
-   "wait": 2.5,
-   "shot": {
-    "name": "light-unknown-typed",
-    "dismiss": false
-   }
+   "wait": 2.5
   },
   {
    "title": "Light: Return on the unknown id",
@@ -140,11 +124,7 @@
      "target": "page"
     }
    },
-   "wait": 4,
-   "shot": {
-    "name": "light-unknown-return",
-    "dismiss": false
-   }
+   "wait": 4
   },
   {
    "title": "Dark",
@@ -166,11 +146,7 @@
      "text": "/resume 5a7e5a7e-0000-4000-8000-000000003000"
     }
    },
-   "wait": 2.5,
-   "shot": {
-    "name": "dark-resume-id",
-    "dismiss": false
-   }
+   "wait": 2.5
   },
   {
    "title": "Dark: Return resumes the chat with its history",
@@ -181,11 +157,7 @@
      "target": "page"
     }
    },
-   "wait": 10,
-   "shot": {
-    "name": "dark-resumed-chat",
-    "dismiss": false
-   }
+   "wait": 10
   },
   {
    "title": "Light again",

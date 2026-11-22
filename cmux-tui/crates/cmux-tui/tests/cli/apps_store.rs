@@ -1198,6 +1198,7 @@ fn the_customize_folder_installs_when_its_missing_parent_is_made_later() {
 #[test]
 fn the_documented_customize_template_installs_as_is() {
     let apps = Apps::new("customize-template");
+    // affected-reads: docs/cmux-next/sidebar-customization samples/apps
     let template =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/cmux-next/sidebar-customization");
     let target = apps.dir.join("customize");
@@ -1238,6 +1239,7 @@ fn the_documented_customize_template_installs_as_is() {
 /// with a `STORE` marker, the folder the Mac app hands its daemon as
 /// `CMUX_APPS_DIRS`) into `root`; returns their app ids.
 fn copy_store_examples(root: &Path) -> Vec<String> {
+    // affected-reads: samples/apps
     let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../samples/apps");
     let mut ids = Vec::new();
     for entry in std::fs::read_dir(&samples).unwrap() {
@@ -1326,6 +1328,7 @@ fn the_store_examples_list_and_install_for_the_user() {
 #[test]
 fn a_first_party_store_app_built_into_the_store_folder_is_listed_not_installed() {
     let apps = Apps::new("fp-store");
+    // affected-reads: samples/apps
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let quick_links = repo.join("samples/apps/quick-links");
     let first_party = apps.dir.join("fp-src");
