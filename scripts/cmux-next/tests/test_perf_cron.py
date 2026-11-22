@@ -155,6 +155,50 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(d["sha"], "b" * 40)
         self.assertEqual(state["history"][-1]["status"], "abandoned")
 
+    def test_a_tip_at_its_bound_with_a_part_done_finishes_with_what_it_has(self):
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, "a" * 40, None, lambda sha: ["motion", "stress"], None)
+        cron.record_part(state["current"], "build", {"state": "done"}, "r", at(1))
+        cron.record_part(state["current"], "motion", {"state": "done"}, "r", at(2))
+        d = cron.decide(state, at(cron.ABANDON_HOURS + 1), "b" * 40, None, lambda sha: ["motion", "stress"], None)
+        self.assertEqual((d["action"], d["sha"]), ("finish", "a" * 40), "not abandoned: its rows get judged")
+        self.assertEqual(state["current"]["parts"]["stress"]["state"], "not_run")
+        self.assertIn("bound", state["current"]["parts"]["stress"]["reason"])
+        self.assertEqual(state["current"]["parts_todo"], [])
+        self.assertFalse(any(e.get("status") == "abandoned" for e in state.get("history", [])))
+        cron.finish_measurement(state, {}, 8.33, None, "r", at(cron.ABANDON_HOURS + 1), None)
+        self.assertEqual(state["history"][-1]["failed_parts"], ["stress"])
+        self.assertIn("bound", state["history"][-1]["failed_why"]["stress"])
+
+    def test_a_closed_tip_that_never_finishes_is_abandoned_after_the_grace(self):
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, "a" * 40, None, lambda sha: ["motion", "stress"], None)
+        cron.record_part(state["current"], "build", {"state": "done"}, "r", at(1))
+        cron.decide(state, at(cron.ABANDON_HOURS + 1), None, None, lambda sha: ["motion", "stress"], None)
+        self.assertEqual(state["current"]["sha"], "a" * 40)
+        d = cron.decide(state, at(cron.ABANDON_HOURS + 2 + cron.CLOSE_GRACE_HOURS), "b" * 40, None,
+                        lambda sha: ["motion", "stress"], None)
+        self.assertEqual(d["sha"], "b" * 40)
+        self.assertEqual(state["history"][-1]["status"], "abandoned")
+
+    def test_a_bisect_step_at_its_bound_is_still_abandoned(self):
+        state = cron.empty_state(T0)
+        rng = {"good": "a" * 40, "bad": "e" * 40, "skip": [], "steps": 0}
+        rows = ["sidebar.400.scroll.frame"]
+        cron.decide(state, T0, None, {"sha": "c" * 40, "range": rng, "rows": rows}, lambda sha: ALL, None)
+        self.assertEqual(state["current"]["kind"], "bisect")
+        cron.record_part(state["current"], "build", {"state": "done"}, "r", at(1))
+        cron.decide(state, at(cron.ABANDON_HOURS + 1), None, None, lambda sha: ALL, None)
+        self.assertIsNone(state["current"])
+        self.assertEqual(state["history"][-1]["status"], "abandoned")
+
+    def test_a_part_with_no_stored_rows_goes_before_the_stale_ones(self):
+        state = cron.empty_state(T0)
+        state["part_stored"] = {"motion": {"at": cron.iso(T0)}, "stress": {"at": cron.iso(at(1))}}
+        t = at(cron.PART_STALE_HOURS + 2)
+        self.assertEqual(cron.part_order(state, ["build", "motion", "stress", "fresh"], t),
+                         ["build", "fresh", "motion", "stress"])
+
     def test_bisect_runs_only_the_parts_of_the_regressed_rows(self):
         state = cron.empty_state(T0)
         rng = {"good": "a" * 40, "bad": "e" * 40, "skip": [], "steps": 0}
@@ -1833,7 +1877,9 @@ class Review2Tests(OneRunRule):
             state = self.report(d, state, [self.part_dir(d, "stress", {"state": "done", "worker": cron.BENCH_WORKER},
                                                          self.STRESS)])
             self.assertTrue(os.listdir(os.path.join(d, "parts")))
-            # A is abandoned; the plan starts B and deletes A's part files.
+            # A's stress part counts as failed, so A has no part done and is abandoned at its bound (close_at_bound
+            # finishes only a measurement with a part done); the plan starts B and deletes A's part files.
+            state["current"]["parts"]["stress"]["state"] = "failed"
             plan = PlanReportTests()
             with open(os.path.join(d, "state.json"), "w") as f:
                 json.dump(state, f)
@@ -1977,9 +2023,9 @@ class Review2Tests(OneRunRule):
         self.assertEqual(d["worker"], cron.BENCH_WORKER)
         cron.record_part(state["current"], "build", {"state": "done"}, "r", at(cron.ABANDON_HOURS + 7))
         self.assertAlmostEqual(state["current"]["yield_hours"], cron.ABANDON_HOURS + 6)
-        cron.decide(state, at(cron.ABANDON_WALL_HOURS + 1), "b" * 40, None, lambda sha: ["motion"], "nightly.yml waits")
-        self.assertEqual(state["current"]["sha"], "b" * 40, "the wall-clock cap still ends it")
-        self.assertEqual(state["history"][-1]["status"], "abandoned")
+        d = cron.decide(state, at(cron.ABANDON_WALL_HOURS + 1), "b" * 40, None, lambda sha: ["motion"], "nightly.yml waits")
+        self.assertEqual((d["action"], d["sha"]), ("finish", "a" * 40), "the wall-clock cap still ends it")
+        self.assertEqual(state["current"]["parts"]["motion"]["state"], "not_run")
 
 
 class RefreshRebaseTests(OneRunRule):
@@ -2934,9 +2980,10 @@ class HostWaitTests(unittest.TestCase):
         self.assertEqual(self.state["current"]["sha"], "c" * 40, "the wait for the controller is not active time")
         cron.record_part(self.state["current"], "build", {"state": "done", "worker": BENCH}, "r", at(cron.ABANDON_HOURS + 2))
         self.assertNotIn("yield_since", self.state["current"])
-        cron.decide(self.state, at(cron.ABANDON_WALL_HOURS + 1), None, None, lambda sha: ["motion"], None,
-                    controller_route=True)
-        self.assertIsNone(self.state["current"], "the wall-clock cap still ends it")
+        d = cron.decide(self.state, at(cron.ABANDON_WALL_HOURS + 1), None, None, lambda sha: ["motion"], None,
+                        controller_route=True)
+        self.assertEqual(d["action"], "finish", "the wall-clock cap still ends it, with the build it has")
+        self.assertEqual(self.state["current"]["parts"]["motion"]["state"], "not_run")
 
     def test_a_pinned_tip_gives_up_a_host_that_takes_no_part(self):
         self.regression_on(X)
