@@ -291,13 +291,14 @@ async fn fetch_npm(
     let scripts =
         version.as_ref().and_then(|version| body.versions.as_ref()?.get(version)?.scripts.as_ref());
     let created = body.time.as_ref().and_then(|time| time.get("created"));
+    let weekly_downloads = npm_downloads(client, &package.name).await;
     PackageMetadata {
         ecosystem: package.ecosystem,
         name: package.name,
         status: "ok",
         version,
         age_days: created.and_then(|value| age_days(value)),
-        weekly_downloads: npm_downloads(client, &package.name).await,
+        weekly_downloads,
         maintainers: body.maintainers.map_or(0, |maintainers| maintainers.len() as u64),
         install_scripts: scripts.is_some_and(|scripts| {
             scripts
