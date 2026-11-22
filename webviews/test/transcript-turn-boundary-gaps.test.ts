@@ -231,7 +231,8 @@ await requireBrowserLane("transcript-turn-boundary-gaps.test.ts", async () => {
     });
     await page.evaluate(() => document.fonts.ready);
     await installPaintedFrames(page);
-    await page.waitForSelector(".cv-since[data-shown]", { timeout: 10_000 });
+    // The row is 0 px tall (it takes no height), so wait for it attached, not "visible".
+    await page.waitForSelector(".cv-since[data-shown]", { state: "attached", timeout: 10_000 });
     // Sample every painted frame: the line's opacity and every row's top.
     type Sample = { opacity: number; tops: Record<string, number>; focused: boolean; at: number };
     const sampling = page.evaluate(

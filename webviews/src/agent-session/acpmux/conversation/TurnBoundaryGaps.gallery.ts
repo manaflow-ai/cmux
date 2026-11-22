@@ -105,6 +105,8 @@ const working = (rows: AcpmuxRow[]) => {
   const base = chat(rows, { title: "Origin chores for product lanes" });
   return {
     ...base,
+    // As the client names the line's mark with its row (direct.ts snapshot `sinceKey`).
+    ...(rows.some((row) => row.kind === SINCE_DIVIDER) && { sinceKey: BOUNDARY_SINCE_KEY }),
     isWorking: true,
     sessions: base.sessions.map((session) => ({
       ...session,
