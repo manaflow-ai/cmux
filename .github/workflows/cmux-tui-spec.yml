@@ -56,6 +56,7 @@ on:
       - "schemas/settings/source/trust.json"
       - "schemas/theme/slots.json"
       - "schemas/theme/theme-ink-vectors.json"
+      - "schemas/transcript-look/transcript-look.json"
       - "scripts/measure/screen-stream-eval/wifi-away-holds.json"
       - "skills/cmux-acpmux/SKILL.md"
       - "skills/cmux-browser/**"
