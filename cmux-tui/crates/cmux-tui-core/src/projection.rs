@@ -325,6 +325,7 @@ fn way_back<W: Write, F: Write>(
         WayBackBody::Bytes(bytes) => body_writer.write_all(&bytes),
         WayBackBody::Files(state, paths) => {
             cmux_projection::layer::send_files(&state, &paths, &mut body_writer)
+                .map(|_| ())
                 .map_err(std::io::Error::other)
         }
     };
