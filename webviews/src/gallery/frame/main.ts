@@ -181,6 +181,8 @@ startGalleryLoad(env.load);
 if (env.load) root.dataset.galleryLoad = env.load;
 root.dataset.galleryEntry = entry.id;
 root.dataset.galleryVariant = variantName;
+// Every variant of the entry, for a tool that renders them all (scripts/gallery/proof-clip.mjs).
+root.dataset.galleryVariants = Object.keys(entry.variants).join(",");
 root.dataset.gallerySource = entryState?.path ?? "";
 root.dataset.galleryEntryVersion = String(entryState?.version ?? "");
 root.dataset.galleryRevision = revision.sha;
@@ -316,6 +318,13 @@ async function playThenReady(): Promise<void> {
   if (experiment && experimentRunner) experimentRunner.announceReady(experiment);
 }
 
+/**
+ * A stage that never goes still (a ticking or animated component) is ready after this many ms anyway. `?settle=MS`
+ * shortens it for a tool that seeks the animations itself (scripts/gallery/proof-clip.mjs): without it every load
+ * of such a stage waited the whole 4 s.
+ */
+const settleCapMs = Number(params.get("settle")) > 0 ? Number(params.get("settle")) : 4000;
+
 /** Ready once the page has painted and its DOM has been still for a moment (fonts loaded). */
 function markReadyWhenStill(): void {
   let timer = 0;
@@ -332,7 +341,7 @@ function markReadyWhenStill(): void {
   };
   const arm = () => {
     clearTimeout(timer);
-    timer = window.setTimeout(done, performance.now() - started > 4000 ? 0 : 250);
+    timer = window.setTimeout(done, performance.now() - started > settleCapMs ? 0 : Math.min(250, settleCapMs));
   };
   const waitForImages = async () => {
     const pending = [...document.images]

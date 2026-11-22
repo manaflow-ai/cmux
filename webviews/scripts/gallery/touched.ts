@@ -78,8 +78,32 @@ export function hostStylesheets(
   return host === "agent-pane" ? [...reached, ...paneStylesheets()] : reached;
 }
 
+/** Each `read`'s resolved imports, per file: a call's walks share them (memoRead makes one `read` per call). */
+const importCache = new WeakMap<(file: string) => string | undefined, Map<string, string[]>>();
+
+/** `read`, each file read once: 766 entries each walk the same ~1200-file graph, which read and parsed every file
+ *  for every entry (128 s for one PR's change; about 1 s with this). */
+function memoRead(read: (file: string) => string | undefined): (file: string) => string | undefined {
+  const texts = new Map<string, string | undefined>();
+  const memo = (file: string) => {
+    if (!texts.has(file)) texts.set(file, read(file));
+    return texts.get(file);
+  };
+  importCache.set(memo, new Map());
+  return memo;
+}
+
 /** The relative imports of one source file, resolved to files that exist. */
 export function importsOf(file: string, read: (file: string) => string | undefined = readSource): string[] {
+  const cache = importCache.get(read);
+  const known = cache?.get(file);
+  if (known) return known;
+  const out = parseImports(file, read);
+  cache?.set(file, out);
+  return out;
+}
+
+function parseImports(file: string, read: (file: string) => string | undefined): string[] {
   const text = read(file);
   if (text === undefined) return [];
   const out: string[] = [];
@@ -179,7 +203,7 @@ export function touchedEntries(
 ): TouchedEntries {
   const src = options.src ?? SRC;
   const repoRoot = options.repoRoot ?? path.resolve(src, "../..");
-  const read = options.read ?? readSource;
+  const read = memoRead(options.read ?? readSource);
   const paneStylesheets = options.paneStylesheets ?? (() => agentPaneStylesheets());
   const ids = entries.map((entry) => entry.id).sort();
   const broad = changed.filter((file) => EVERYTHING.some((pattern) => pattern.test(file)));
