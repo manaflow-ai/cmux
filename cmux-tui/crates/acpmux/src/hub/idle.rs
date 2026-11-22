@@ -321,28 +321,9 @@ impl Hub {
             self.touch(&session);
             return;
         }
-        session.hibernated_at.store(self.clock_now().max(1), Ordering::SeqCst);
-        if session.last_active.load(Ordering::SeqCst) != seen {
-            self.clear_hibernation(&session);
+        if !self.hibernate_held(&session, link_lost, Some(seen)).await {
             return;
         }
-        self.detach_child(&session).await;
-        if link_lost {
-            self.end_unadopted_host(&session).await;
-        }
-        // Stopped meanwhile (`kill` clears the mark): its next start is no wake, and this
-        // was no hibernation. The leases stay held through the stored mark, so no Stop (it
-        // takes `harness_use`) and no wake (it takes `spawn_lock`) clears it in between.
-        if session.status() == SessionStatus::Closed
-            || session.hibernated_at.load(Ordering::SeqCst) == 0
-        {
-            self.clear_hibernation(&session);
-            tracing::info!(session = %session.id, "stopped while the idle exit ended it: not hibernated");
-            return;
-        }
-        session.meta.lock().unwrap_or_else(|e| e.into_inner()).hibernated_ms =
-            crate::store::now_ms().max(1);
-        self.save_meta(&session);
         if moving {
             self.host_move_settled(&session);
         }
@@ -356,6 +337,45 @@ impl Hub {
              servers running under it; the harness and its MCP servers exited and the session \
              wakes on its next prompt"
         );
+    }
+
+    /// Ends `session`'s harness as a hibernation, under the `turn_lock`, `harness_use` and
+    /// `spawn_lock` leases the caller holds (the idle pass, `pause.rs`): marked first, so typing or
+    /// a click while it ends wakes it again (its start waits for the spawn lock the caller holds),
+    /// then the harness ends and the stored mark keeps it hibernated across a daemon restart. The
+    /// record and the agent session id stay: its next start resumes the conversation. `seen`: the
+    /// activity the caller read; one that moved since keeps the session up. `link_lost`: a hosted
+    /// harness whose link is closed, whose host is ended with the nonce proof. False when it did
+    /// not hibernate.
+    pub(super) async fn hibernate_held(
+        &self,
+        session: &Arc<Session>,
+        link_lost: bool,
+        seen: Option<u64>,
+    ) -> bool {
+        session.hibernated_at.store(self.clock_now().max(1), Ordering::SeqCst);
+        if seen.is_some_and(|seen| session.last_active.load(Ordering::SeqCst) != seen) {
+            self.clear_hibernation(session);
+            return false;
+        }
+        self.detach_child(session).await;
+        if link_lost {
+            self.end_unadopted_host(session).await;
+        }
+        // Stopped meanwhile (`kill` clears the mark): its next start is no wake, and this
+        // was no hibernation. The leases stay held through the stored mark, so no Stop (it
+        // takes `harness_use`) and no wake (it takes `spawn_lock`) clears it in between.
+        if session.status() == SessionStatus::Closed
+            || session.hibernated_at.load(Ordering::SeqCst) == 0
+        {
+            self.clear_hibernation(session);
+            tracing::info!(session = %session.id, "stopped while its harness ended: not hibernated");
+            return false;
+        }
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).hibernated_ms =
+            crate::store::now_ms().max(1);
+        self.save_meta(session);
+        true
     }
 
     /// `session` is no longer hibernated (woken, stopped, or its hibernation given up): its
