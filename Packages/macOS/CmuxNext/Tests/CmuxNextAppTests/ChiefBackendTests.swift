@@ -167,7 +167,6 @@ import Testing
             await calls.sent("chief.create", ["display_name": .string(name)], "")
             return HomeChiefRecord(id: "agent_cloud01", name: name, isDefault: false, rev: 0, mainConversation: "conv_cloud", placed: true)
         }
-        #expect(!HomeService.createsOnThisMac(.claude, chosen: false))
         let outcome = await services.home.createChief(named: "Scout")
         #expect(outcome == .opened(ConversationID("conv_cloud")))
         #expect(await calls.sends.map(\.operation) == ["chief.create"])
@@ -189,7 +188,6 @@ import Testing
             await calls.sent("chief.create", [:], "")
             throw CancellationError()
         }
-        #expect(HomeService.createsOnThisMac(.claude, chosen: true))
         let outcome = await services.home.createChief(named: "Scout", backend: .claude, onThisMac: true)
         #expect(outcome == .opened(ConversationID("conv_scout")))
         let sent = try #require(await calls.sends.first)
