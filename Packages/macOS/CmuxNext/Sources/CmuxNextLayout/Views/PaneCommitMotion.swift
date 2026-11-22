@@ -307,14 +307,14 @@ final class PaneCommitMotion {
     /// change that waits for its frame: the pass that shows that change ends the motion or adds to it
     /// (``panesPlaced(on:)``). The frame clock steps before that pass, and a change can wait for its panes' surfaces,
     /// so without this the first act's panes would show at rest for those ticks: a zoom's covered panes with no dim
-    /// and each ring. The motion stays as long as a change can wait (`ScreenContentView.commitBound` ticks and the
+    /// and each ring. The motion stays as long as a change can wait (`ScreenContentView.longestCommitWait` ticks and the
     /// tick that shows it), then its time ends it: a change whose pass never comes keeps no motion.
     func step(_ dt: Double) {
         guard remaining > 0 else { return }
         // A probe's count while `debug.motion` records: one sample for each frame tick with a move in flight (the
         // layout's springs give none in a move: no pane is on one), its value the animations on the layers.
         if MotionTrace.isEnabled { MotionTrace.sample("layout.commit", Double(moved.count)) }
-        if armed != nil, remaining - dt <= PaneZoomDim.spent, overtime <= ScreenContentView.commitBound {
+        if armed != nil, remaining - dt <= PaneZoomDim.spent, overtime <= ScreenContentView.longestCommitWait {
             overtime += 1
             return
         }

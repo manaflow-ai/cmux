@@ -27,8 +27,10 @@ pub use superseded::{Superseded, starts_prompt};
 mod kind_heads;
 mod kind_index;
 mod segment_starts;
+mod segment_table;
 pub use kind_heads::KindHead;
 pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS};
+use segment_table::SegmentList;
 mod fork_view;
 pub use fork_view::{
     ForkView, HISTORY_KINDS, HistoryFence, HistoryRef, HistoryWriter, fence_history,
@@ -82,6 +84,16 @@ pub struct EventRecord {
     /// that adopts the host resumes after it (agent hosts, durable sessions).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_seq: Option<u64>,
+}
+
+/// Where a read of a log's newest records starts ([`Store::newest_window`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NewestWindow {
+    /// The seq after which the newest records lie: 0 when the log holds no more than asked for,
+    /// else the seq of the newest record left out, so records `1..=after` are the older ones.
+    pub after: u64,
+    /// The newest record's seq (0 for an empty log): the count of records the chat has logged.
+    pub newest: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy)]
@@ -467,6 +479,13 @@ pub struct SessionMeta {
     /// with "No conversation found with session ID".
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub claude_unstored: bool,
+    /// The agent of the unstored conversation (`claude_unstored`) did work in a turn that did
+    /// not end Ok: it said something, thought or called a tool (`Hub::unstored_turn_worked`). Only
+    /// such a conversation is kept awake (`idle.rs`) and refused by `stop --if-idle`; one whose
+    /// turns only ever got agent errors (a 503, an exhausted account) wakes as the same fresh
+    /// conversation with its transcript restored either way (cmux#48917).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub claude_unstored_work: bool,
     /// Its creator asked every start of its agent to wait on the harness rather than a wall
     /// clock (`_meta.acpmux.waitStart`, `Session::wait_start`; the Chief's own sessions). Kept on
     /// disk, so a wake after hibernation or a daemon restart waits as its first start did: on
@@ -1025,6 +1044,13 @@ impl SessionMeta {
 
     /// The Claude store this session's harness reads when it spawns on a
     /// profile with `env`.
+    /// A Claude chat whose conversation is not stored (`claude_unstored`) and whose agent did
+    /// work in it (`claude_unstored_work`): hibernating or stopping it would lose that work's
+    /// context, so `idle.rs` keeps it awake and `stop --if-idle` refuses it (`unstored`).
+    pub fn keeps_unstored_awake(&self) -> bool {
+        self.claude_unstored && self.claude_unstored_work && self.turn_count > 0
+    }
+
     pub fn claude_store(&self, env: &BTreeMap<String, String>) -> PathBuf {
         let mut env = env.clone();
         self.apply_chat_store(&mut env);
@@ -1349,6 +1375,13 @@ pub trait Store: Send + Sync {
         })?;
         Ok((count, last))
     }
+    /// Where the newest `n` records before seq `before` start ([`NewestWindow`]): a replay that
+    /// may send only `n` records sends the newest ones (`session/load`), not the oldest. A file
+    /// store reads the lines' seqs back from the end and parses none, so the answer costs `n`
+    /// lines however long the log is.
+    fn newest_window(&self, id: &str, before: u64, n: u64) -> Result<NewestWindow> {
+        newest_window_by_scan(self, id, before, n)
+    }
     /// `scan` from the start, visiting only records whose `kind` is in `kinds`. A file store
     /// parses no other line (the queue restore at daemon start reads its few kinds out of
     /// logs that are mostly agent output).
@@ -1642,6 +1675,27 @@ pub trait Store: Send + Sync {
     }
 }
 
+/// [`Store::newest_window`] by `scan_back`, for a store with no cheaper read of its seqs.
+pub(crate) fn newest_window_by_scan<S: Store + ?Sized>(
+    store: &S,
+    id: &str,
+    before: u64,
+    n: u64,
+) -> Result<NewestWindow> {
+    let mut window = NewestWindow::default();
+    let mut seen = 0u64;
+    store.scan_back(id, 0, before, &|_, _| false, &mut |rec| {
+        window.newest = window.newest.max(rec.seq);
+        seen += 1;
+        if seen > n {
+            window.after = rec.seq;
+            return false;
+        }
+        true
+    })?;
+    Ok(window)
+}
+
 mod log_line;
 pub use log_line::RecordHead;
 
@@ -1725,6 +1779,7 @@ pub struct LocalStore {
     kind_heads: kind_heads::KindHeads,
     /// Each segment's first seq, once read (`store/segment_starts.rs`).
     pub(crate) segment_starts: segment_starts::SegmentStarts,
+    segment_table: segment_table::SegmentTable,
     #[cfg(test)]
     pub(crate) meta_saves: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
@@ -1786,6 +1841,7 @@ impl LocalStore {
             parts: Default::default(),
             kind_heads: Default::default(),
             segment_starts: Default::default(),
+            segment_table: Default::default(),
             #[cfg(test)]
             meta_saves: Default::default(),
         })
@@ -1812,7 +1868,7 @@ impl LocalStore {
     /// listing. The listing is taken again whatever `rehydrate` answers: another thread's
     /// rehydrate may have put the log back since the first, and this one then answers false
     /// (review of #39141: an append went on in `000001` of a log that ran on past it).
-    fn segments(&self, id: &str) -> Result<Vec<(u32, PathBuf)>> {
+    fn segments(&self, id: &str) -> Result<SegmentList> {
         let (segments, cut_pending) = self.list_segments(id)?;
         if !cut_pending {
             return Ok(segments);
@@ -1828,7 +1884,7 @@ impl LocalStore {
     /// The log's segments, in order, as the folder lists them, and whether a cut's intent
     /// (`store/compact.rs` `CUT`) is beside them: read in the same listing, so it costs nothing.
     /// A cold archive's log is rehydrated first (`store/cold.rs`).
-    fn list_segments(&self, id: &str) -> Result<(Vec<(u32, PathBuf)>, bool)> {
+    fn list_segments(&self, id: &str) -> Result<(SegmentList, bool)> {
         let listed = self.listed_files(id)?;
         if listed.0.is_empty() {
             self.rehydrate(id)?;
@@ -1838,31 +1894,13 @@ impl LocalStore {
     }
 
     /// The segments on the disk now, never rehydrated.
-    fn segment_files(&self, id: &str) -> Result<Vec<(u32, PathBuf)>> {
+    fn segment_files(&self, id: &str) -> Result<SegmentList> {
         Ok(self.listed_files(id)?.0)
     }
 
     /// [`Self::segment_files`], and whether a cut's intent is beside them.
-    fn listed_files(&self, id: &str) -> Result<(Vec<(u32, PathBuf)>, bool)> {
-        let dir = self.dir(id).join("events");
-        let mut out = Vec::new();
-        let mut cut_pending = false;
-        let Ok(rd) = std::fs::read_dir(&dir) else {
-            return Ok((out, false));
-        };
-        for entry in rd {
-            let entry = entry?;
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if name == compact::CUT {
-                cut_pending = true;
-            } else if let Some(stem) = name.strip_suffix(".ndjson")
-                && let Ok(idx) = stem.parse::<u32>()
-            {
-                out.push((idx, entry.path()));
-            }
-        }
-        out.sort();
-        Ok((out, cut_pending))
+    fn listed_files(&self, id: &str) -> Result<(SegmentList, bool)> {
+        self.segment_table.list(id, &self.dir(id).join("events"))
     }
 
     fn list_entry(
@@ -2406,6 +2444,7 @@ impl Store for LocalStore {
     /// for, or a line whose head does not read.
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         let mut line = Vec::new();
+        let mut pass = crate::perf_watch::LogPass::start(id, true);
         for (_, path) in self.segments(id)? {
             let mut reader =
                 BufReader::with_capacity(256 * 1024, crate::config::private_state_file(&path)?);
@@ -2414,6 +2453,7 @@ impl Store for LocalStore {
                 if reader.read_until(b'\n', &mut line)? == 0 {
                     break;
                 }
+                crate::perf_watch::LogPass::line(&mut pass, line.len());
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }
@@ -2470,6 +2510,42 @@ impl Store for LocalStore {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.scan_kinds_in(id, kinds, true, visit)
+    }
+
+    /// Back from the end of the records before `before`, segment by segment, reading each line's
+    /// seq from its first bytes: no line is parsed but one whose header does not read.
+    fn newest_window(&self, id: &str, before: u64, n: u64) -> Result<NewestWindow> {
+        let mut window = NewestWindow::default();
+        let mut seen = 0u64;
+        let mut done = false;
+        for (_, path) in self.segments(id)?.into_iter().rev() {
+            if first_seq(&path)?.is_some_and(|first| first >= before) {
+                continue;
+            }
+            let mut file = crate::config::private_state_file(&path)?;
+            let end = offset_of_seq(&mut file, before)?;
+            for_each_line_rev_from(&mut file, end, &mut |line| {
+                let Some(seq) = record_seq(line).or_else(|| parse_record(line).ok().map(|r| r.seq))
+                else {
+                    return true;
+                };
+                if seq >= before {
+                    return true;
+                }
+                window.newest = window.newest.max(seq);
+                seen += 1;
+                if seen > n {
+                    window.after = seq;
+                    done = true;
+                    return false;
+                }
+                true
+            })?;
+            if done {
+                break;
+            }
+        }
+        Ok(window)
     }
 
     /// Through the copies of the kinds (`store/kind_index.rs`), past `after`: a scan of the log
@@ -2729,6 +2805,7 @@ impl Store for LocalStore {
         self.writers.lock_or_recover().open.remove(id);
         self.kind_heads.forget(id);
         self.segment_starts.forget(id);
+        self.segment_table.forget(id);
         let dir = self.dir(id);
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
         let mut last = None;
@@ -2878,6 +2955,7 @@ impl LocalStore {
         }
         let segments = self.segments(id)?;
         let mut line = Vec::new();
+        let mut pass = crate::perf_watch::LogPass::start(id, after == 0);
         // The segment that holds `after + 1`, found from the segments' kept first seqs: the read
         // opens only the segments it reads (`store/segment_starts.rs`).
         let start = self.segment_starts.start(id, &segments, after)?;
@@ -2889,6 +2967,7 @@ impl LocalStore {
                 if reader.read_until(b'\n', &mut line)? == 0 {
                     break;
                 }
+                crate::perf_watch::LogPass::line(&mut pass, line.len());
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }

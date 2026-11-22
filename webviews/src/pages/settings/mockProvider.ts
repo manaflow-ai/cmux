@@ -537,6 +537,11 @@ export class MockSettingsProvider {
         ({
           general: [{ id: "palette.makeDefaultTerminal", title: "Make cmux the Default Terminal", enabled: true }],
           advanced: [{ id: "reloadConfiguration", title: "Reload Configuration", enabled: true }],
+          appearance: [
+            { id: "space.setTheme", title: "Set Space Theme…", enabled: true },
+            { id: "workspace.setTheme", title: "Set Workspace Theme…", enabled: true },
+          ],
+          rooms: [{ id: "space.new", title: "New Space", enabled: true }],
         })[String((params as { section: string }).section)] ?? [],
       "cmux.settings.backdrop.choose_image": () => ({ id: null }),
       "cmux.settings.backdrop.wallpaper_settings": () => ({}),

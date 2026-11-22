@@ -15,6 +15,8 @@ pub(super) const SWITCH_OR_VALUE_FLAGS: &[&str] = &["fit"];
 
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
+    // `app publish --include-dirty`: without this it would swallow a following `--json`.
+    "include-dirty",
     // `terminal <t> screen read --details`: the screen record's fields, not its text alone.
     "details",
     // `cloud kill-machine --confirm`: without this it would swallow a following `--json`.

@@ -3921,6 +3921,12 @@ class RollupsFromNeeds(unittest.TestCase):
             "workflow-guard-submodule-forward-only": {
                 "route": None, "exact": ["workflow-guard-submodule-forward-only"], "prefixes": []},
             "workflow-guard-tests": {"route": "linux_guard_tests", "exact": [], "prefixes": ["workflow-guard-tests / "]}})
+        # A job a feat-cmux-next pull request runs as a ci/steps.toml step skips only there: still no route input.
+        skips = self.derive(guards=GUARDS_YML.replace(
+            "workflow-guard-submodule-forward-only: {name: workflow-guard-submodule-forward-only,",
+            f"workflow-guard-submodule-forward-only: {{if: \"{excuse.STEP_TABLE_SKIP_IF}\", "
+            "name: workflow-guard-submodule-forward-only,"))
+        self.assertEqual(skips["routed"]["Guard status"], got["routed"]["Guard status"])
 
     def test_any_shape_it_does_not_know_is_refused(self):
         tests_if = "if: ${{ inputs.linux_guard_tests == 'true' }}"
@@ -7154,6 +7160,63 @@ class LostRunnerIsInfra(unittest.TestCase):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
         self.assertNotIsInstance(caught.exception, excuse.Infra)
         self.assertIn("somethingNew", str(caught.exception))
+
+class RunnerShutDownUnderAJobIsInfra(unittest.TestCase):
+    """The same shutdown read from the log instead of an annotation. GitHub sends the job's process group SIGTERM and
+    then prints its notice, so the step it was in *fails* with exit 143 and the "a job with a failed step keeps its
+    verdict" rule read the shutdown as the change's own crash: 2026-11-22 cmux#49751's
+    `build / build x86_64-unknown-linux-musl` (run 44986426867, job 137098396057) was refused as "the test process
+    crashed (signal 15)" in a build job that runs no tests at all, and cmux#49030 (exit 137) and cmuxterm-hq#17509 sat
+    on the same reading. Both halves are required, so neither phrase alone, nor a fault signal, loses its verdict."""
+
+    BUILD = "build x86_64-unknown-linux-musl"
+    STEP = "Build the musl binary"
+    NOTICE = ("The runner has received a shutdown signal. This can happen when the runner service is stopped, "
+              "or a manually started runner is canceled.")
+
+    def shut_down(self, *lines, name=None):
+        return TR.runner_shut_down(log(name or self.BUILD, self.STEP, *lines))
+
+    def test_the_notice_above_a_sent_signal_exit_is_the_runner_going_away(self):
+        why = self.shut_down("##[error]Process completed with exit code 143.", self.NOTICE)
+        self.assertIsNotNone(why)
+        self.assertIn("the runner was shut down under it", why)
+        self.assertIn("128 + signal 15", why)
+        # Every exit a signal nobody raises on itself leaves behind, in either annotation form.
+        for code, number in ((129, 1), (130, 2), (131, 3), (137, 9), (143, 15)):
+            for marker in ("##[error]", "::error::"):
+                said = self.shut_down(f"{marker}Process completed with exit code {code}.", self.NOTICE)
+                self.assertIn(f"128 + signal {number}", said or "", f"{marker}{code}")
+
+    def test_neither_half_alone_takes_a_verdict_away(self):
+        self.assertIsNone(self.shut_down("##[error]Process completed with exit code 143."))
+        self.assertIsNone(self.shut_down(self.NOTICE))
+        # A test quoting the notice cannot make the exit annotation: PROCESS_EXIT reads the runner's line only.
+        self.assertIsNone(self.shut_down(f"✘ Test shutdownNotice() recorded an issue: {self.NOTICE}",
+                                         "Process completed with exit code 143."))
+
+    def test_a_fault_signal_keeps_its_verdict_even_under_the_notice(self):
+        # 139 = 128 + SIGSEGV, 134 = SIGABRT, 135 = SIGBUS, 132 = SIGILL, 136 = SIGFPE, 133 = SIGTRAP: the process
+        # raised it on itself, so the crash is the change's wherever the line appears.
+        for code in (132, 133, 134, 135, 136, 139):
+            self.assertIsNone(self.shut_down(f"##[error]Process completed with exit code {code}.", self.NOTICE),
+                              f"exit {code}")
+
+    def judge(self, *lines):
+        github = FakeGitHub()
+        github.jobs[1] = failed_job(1, 10, HEAD, name=self.BUILD, step=self.STEP)
+        github.logs[1] = log(self.BUILD, self.STEP, *lines)
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_a_shut_down_job_is_infra_through_a_log_that_reads(self):
+        with self.assertRaisesRegex(excuse.Infra, "the runner was shut down under it.*needs a re-run"):
+            self.judge("##[error]Process completed with exit code 143.", self.NOTICE)
+
+    def test_a_crash_of_its_own_is_still_its_verdict(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge("##[error]Process completed with exit code 139.")
+        self.assertNotIsInstance(caught.exception, excuse.Infra)
+
 
 class PullRequestOnlyRerunAskIsInfra(unittest.TestCase):
     """A pull-request-only check (language-boundaries) has no base run. Its red that only asks for a re-run (cmux#41500
@@ -15467,8 +15530,6 @@ SCANNERS = {
     "base_red_excuse.github_quota_only": lambda f: (excuse.github_quota_only(f.view),
                                                    excuse.github_quota_only(f.base_view)),
     "base_red_excuse.tree_handoff_quota_only": lambda f: excuse.tree_handoff_quota_only(f.job, f.log),
-    "base_red_excuse.ws_check_step": lambda f: excuse.ws_check_step(
-        [*f.lines[:-1], "##[group]Tests", *f.lines[-1:]], len(f.lines), "Tests"),
     "base_red_excuse.gallery_replay_crash": lambda f: excuse.gallery_replay_crash(f.job, f.log),
     "test_reds.spliced_pass": lambda f: TR.spliced_pass("t1", f.log),
     "test_reds.echoed": lambda f: TR.echoed(f.lines),
@@ -15502,6 +15563,7 @@ SCANNERS = {
     "test_reds.read": lambda f: TR.read(f.log),
     "test_reds.parse_log": lambda f: TR.parse_log(f.log),
     "test_reds.lost_runner": lambda f: TR.lost_runner({"conclusion": "failure", "name": "job"}, (), f.log),
+    "test_reds.runner_shut_down": lambda f: TR.runner_shut_down(f.log),
     "test_reds.exported_observations": lambda f: TR.exported_observations(f.lines),
     "test_reds.observations": lambda f: TR.observations(f.log),
     "test_reds._observations": lambda f: TR._observations(f.log),
@@ -15531,6 +15593,8 @@ NOT_SWEPT = {
     "base_red_excuse.compare_window": "compares a head's view with base windows through signature, step_errors and "
                                       "test_reds.classify_web_window, each swept",
     "test_reds._kept": "the parse cache: it calls the reader it is given",
+    "base_red_excuse.ws_check_step": "counted, not timed (WsCheckStepIsLinear): on HostileLog it reads no section, so "
+                                     "the sweep timed only a list copy, whose CPU time grows past 8x on a runner",
 }
 
 
@@ -15584,6 +15648,63 @@ class PrLogReadersScale(unittest.TestCase):
                             pass  # a refusal is an answer: it is timed like one
                     return run
                 assert_scales(self, build, self.N, name)
+
+
+def traced_steps(run):
+    """How many Python lines under scripts/ci RUN executes (sys.settrace line events; a loop's turn is one each): a
+    count of operations, the same on every host and under any load, where a CPU-time ratio of a call this small is
+    not (base_red_excuse.ws_check_step read 9.6x at 4x the input, three times, on a runner, from a list copy)."""
+    ci = str(ROOT / "scripts" / "ci")
+    count = 0
+
+    def local(frame, event, arg):
+        nonlocal count
+        if event == "line":
+            count += 1
+        return local
+
+    def tracer(frame, event, arg):
+        return local if frame.f_code.co_filename.startswith(ci) else None
+    old = sys.gettrace()
+    sys.settrace(tracer)
+    try:
+        run()
+    finally:
+        sys.settrace(old)
+    return count
+
+
+class WsCheckStepIsLinear(unittest.TestCase):
+    """ws_check_step reads a red step's whole section (its unittest failures, summaries and ws-check lines), and a PR's
+    test output sets how long that is: its work at 4N blocks is under SCALING_LIMIT times its work at N, counted in
+    lines run (traced_steps), never timed."""
+    N = 150
+
+    @staticmethod
+    def step_lines(n):
+        lines = ["##[group]Tests"]
+        for i in range(n):
+            lines += [f"FAIL: test_{i} (a.B)", "-" * 70, "Traceback (most recent call last):",
+                      f'  File "/home/runner/_work/_temp/lw/tests/test_a.py", line {i}, in test_{i}',
+                      f"AssertionError: boom {i}", "", f"ws-check: tests/test_a.py red at block {i}", "FAILED (failures=1)"]
+        return [*lines, "##[endgroup]", "ws-check step FAILED: Tests (exit 1, ran 4, skipped 0, gh calls 0)"]
+
+    def steps(self, n):
+        lines = self.step_lines(n)
+        found = {}
+
+        def run():
+            found["red"] = excuse.ws_check_step(lines, len(lines) - 1, "Tests")
+        count = traced_steps(run)
+        self.assertEqual(len(found["red"]["tests"]), n)  # it read every block: nothing was refused or skipped
+        return count
+
+    def test_its_work_grows_linearly_with_the_section(self):
+        small, large = self.steps(self.N), self.steps(4 * self.N)
+        self.assertGreater(small, self.N)
+        self.assertLess(large / small, SCALING_LIMIT,
+                        f"ws_check_step ran {small:,} lines at {self.N:,} blocks and {large:,} at {4 * self.N:,}: "
+                        "linear is about 4x and quadratic 16x")
 
 
 # The characters an opener (regex_openers) tries for a character class, in order: the first the class takes.
