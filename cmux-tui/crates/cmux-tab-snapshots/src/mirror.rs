@@ -13,7 +13,7 @@
 //! imported to model a cache persisted across launches.
 
 use crate::hash::BlobHash;
-use crate::row::Row;
+use crate::row::{Row, reorder};
 use crate::wire::{Delta, Manifest, Message, Resume, WireError};
 use std::collections::HashSet;
 use std::fmt;
@@ -165,6 +165,9 @@ impl Mirror {
                     self.rows.push(row);
                 }
             }
+        }
+        if let Some(order) = &d.order {
+            reorder(&mut self.rows, order);
         }
         self.rev = Some(d.rev);
         Applied::Delta { rev: d.rev }

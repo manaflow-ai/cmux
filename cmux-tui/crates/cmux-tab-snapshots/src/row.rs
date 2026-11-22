@@ -238,3 +238,23 @@ impl RowPatch {
         take(&mut row.captured_at_ms, self.captured_at_ms);
     }
 }
+
+/// Puts `rows` in `order`: the listed tabs first, in the listed order, then
+/// every unlisted tab in its old relative order. Unknown and repeated ids
+/// in `order` are ignored. Returns true when the order changed.
+pub fn reorder<S: AsRef<str>>(rows: &mut Vec<Row>, order: &[S]) -> bool {
+    let mut pending: Vec<Option<Row>> = std::mem::take(rows).into_iter().map(Some).collect();
+    let before: Vec<String> = pending.iter().flatten().map(|r| r.tab_id.clone()).collect();
+    let mut out = Vec::with_capacity(pending.len());
+    for id in order {
+        let id = id.as_ref();
+        let slot = pending.iter_mut().find(|r| r.as_ref().is_some_and(|r| r.tab_id == id));
+        if let Some(row) = slot.and_then(Option::take) {
+            out.push(row);
+        }
+    }
+    out.extend(pending.into_iter().flatten());
+    let changed = out.iter().map(|r| r.tab_id.as_str()).ne(before.iter().map(String::as_str));
+    *rows = out;
+    changed
+}

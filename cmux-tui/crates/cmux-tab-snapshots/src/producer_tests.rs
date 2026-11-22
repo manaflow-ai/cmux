@@ -115,3 +115,26 @@ fn removing_an_unknown_tab_changes_nothing() {
     assert!(!p.remove("nope"));
     assert_eq!(p.rev(), 0);
 }
+
+#[test]
+fn set_order_bumps_rev_only_on_change_and_rides_in_the_delta() {
+    let mut p = Producer::new("e1", 0, 16, 4);
+    for id in ["a", "b", "c"] {
+        p.observe(browser(id, id, b"f", id.as_bytes()));
+    }
+    let base = p.rev();
+    assert!(!p.set_order(&["a", "b", "c"]));
+    assert!(!p.set_order(&["a"]));
+    assert_eq!(p.rev(), base);
+    assert_eq!(p.delta_since(base).unwrap().order, None);
+    assert!(p.set_order(&["c", "nope", "a"]));
+    assert_eq!(p.rev(), base + 1);
+    let ids: Vec<_> = p.rows().iter().map(|r| r.tab_id.as_str()).collect();
+    assert_eq!(ids, vec!["c", "a", "b"]);
+    // A later append shows in the order the delta carries.
+    p.observe(browser("d", "d", b"f", b"d"));
+    let d = p.delta_since(base).unwrap();
+    assert_eq!(d.order, Some(vec!["c".into(), "a".into(), "b".into(), "d".into()]));
+    // A delta from after the reorder carries no order.
+    assert_eq!(p.delta_since(base + 1).unwrap().order, None);
+}

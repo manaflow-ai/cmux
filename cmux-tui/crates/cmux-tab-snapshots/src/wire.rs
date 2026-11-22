@@ -54,7 +54,10 @@ pub struct Manifest {
 }
 
 /// What changed from `baseRev` to `rev` within one `epoch`. A new tab is
-/// appended to the end.
+/// appended to the end. `order`, present only when the tab order changed,
+/// is the full order after the delta; the receiver applies it after
+/// `changed` and `removed`. A tab it does not list keeps its relative
+/// order after the listed ones.
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Delta {
@@ -63,6 +66,8 @@ pub struct Delta {
     pub base_rev: u64,
     pub changed: Vec<RowPatch>,
     pub removed: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order: Option<Vec<String>>,
 }
 
 /// One blob. The decoder does not check the hash; the receiver does.

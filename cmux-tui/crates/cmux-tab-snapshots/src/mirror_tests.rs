@@ -63,6 +63,7 @@ fn delta_applies_on_its_base_and_reports_a_gap_otherwise() {
         base_rev: 5,
         changed: vec![patch, RowPatch::full(&row("c", b"f", b"t3"))],
         removed: vec!["b".into()],
+        order: None,
     };
     assert_eq!(m.apply(Message::Delta(delta.clone())).unwrap(), Applied::Delta { rev: 7 });
     let ids: Vec<_> = m.rows().iter().map(|r| r.tab_id.as_str()).collect();
@@ -120,4 +121,23 @@ fn another_epoch_is_a_gap_for_a_delta_and_a_replacement_for_a_manifest() {
     assert_eq!(m.apply(Message::Manifest(replaced)).unwrap(), Applied::Manifest { rev: 2 });
     assert_eq!((m.epoch(), m.rev()), ("e2", Some(2)));
     assert_eq!(m.rows()[0].tab_id, "b");
+}
+
+#[test]
+fn order_applies_after_changes_and_keeps_unlisted_tabs_after() {
+    let mut m = Mirror::new();
+    let rows = ["a", "b", "c", "d"].map(|id| row(id, b"f", id.as_bytes()));
+    m.apply(manifest(1, rows.to_vec())).unwrap();
+    let delta = Delta {
+        epoch: "e1".into(),
+        rev: 2,
+        base_rev: 1,
+        changed: vec![RowPatch::full(&row("e", b"f", b"e"))],
+        removed: vec!["b".into()],
+        // "zz" is unknown and ignored; "a" and "e" are not listed.
+        order: Some(vec!["d".into(), "zz".into(), "c".into()]),
+    };
+    m.apply(Message::Delta(delta)).unwrap();
+    let ids: Vec<_> = m.rows().iter().map(|r| r.tab_id.as_str()).collect();
+    assert_eq!(ids, vec!["d", "c", "a", "e"]);
 }

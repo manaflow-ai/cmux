@@ -219,3 +219,21 @@ fn a_restarted_mac_answers_an_old_resume_with_a_manifest() {
     assert_eq!(ids, vec!["b1", "x9", "b3", "t1"]);
     assert!(all_filled(&phone));
 }
+
+#[test]
+fn a_reorder_while_disconnected_reaches_the_phone_in_one_delta() {
+    let mut p = mac();
+    let mut phone = Mirror::new();
+    let up = link_up(&phone);
+    run(&p, &mut Session::new(), &mut phone, up);
+    assert!(p.set_order(&["t1", "b3"]));
+    p.remove("b1");
+    p.observe(browser("b4", b"icon-docs", &[4; 4000]));
+    let up = link_up(&phone);
+    let t = run(&p, &mut Session::new(), &mut phone, up);
+    assert_eq!((t.manifests, t.deltas), (0, 1));
+    let ids: Vec<_> = phone.rows().iter().map(|r| r.tab_id.as_str()).collect();
+    let mac_ids: Vec<_> = p.rows().iter().map(|r| r.tab_id.as_str()).collect();
+    assert_eq!(ids, vec!["t1", "b3", "b2", "b4"]);
+    assert_eq!(ids, mac_ids);
+}

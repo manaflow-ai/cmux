@@ -10,7 +10,7 @@
 //! the value the host passes.
 
 use crate::hash::{BlobHash, Mime};
-use crate::row::{Kind, Row, RowPatch};
+use crate::row::{Kind, Row, RowPatch, reorder};
 use crate::store::BlobStore;
 use crate::wire::{Delta, Manifest};
 use std::collections::{HashMap, VecDeque};
@@ -57,6 +57,8 @@ struct Change {
     rev: u64,
     changed: Vec<RowPatch>,
     removed: Vec<String>,
+    /// True when this change moved tabs.
+    reordered: bool,
 }
 
 #[derive(Debug)]
@@ -139,7 +141,7 @@ impl Producer {
         for hash in old_hashes {
             self.store.release(hash);
         }
-        self.record(vec![patch], Vec::new());
+        self.record(vec![patch], Vec::new(), false);
         true
     }
 
@@ -152,7 +154,18 @@ impl Producer {
         for hash in row.hashes() {
             self.store.release(hash);
         }
-        self.record(Vec::new(), vec![row.tab_id]);
+        self.record(Vec::new(), vec![row.tab_id], false);
+        true
+    }
+
+    /// Sets the tab order: the listed tabs first, in the listed order, then
+    /// every unlisted tab in its old relative order. Unknown ids are
+    /// ignored. Returns true when that is a change (a new rev).
+    pub fn set_order<S: AsRef<str>>(&mut self, order: &[S]) -> bool {
+        if !reorder(&mut self.rows, order) {
+            return false;
+        }
+        self.record(Vec::new(), Vec::new(), true);
         true
     }
 
@@ -166,7 +179,9 @@ impl Producer {
         let mut changed: Vec<RowPatch> = Vec::new();
         let mut at: HashMap<String, usize> = HashMap::new();
         let mut removed: Vec<String> = Vec::new();
+        let mut reordered = false;
         for change in self.history.iter().filter(|c| c.rev > base_rev) {
+            reordered |= change.reordered;
             for id in &change.removed {
                 if let Some(i) = at.remove(id) {
                     // Keep the slot so other indexes stay valid; it is
@@ -191,12 +206,15 @@ impl Producer {
             }
         }
         changed.retain(|p| !p.tab_id.is_empty());
-        Some(Delta { epoch: self.epoch.clone(), rev: self.rev, base_rev, changed, removed })
+        // The order is the current one: later appends and removals are
+        // already reflected in it.
+        let order = reordered.then(|| self.rows.iter().map(|r| r.tab_id.clone()).collect());
+        Some(Delta { epoch: self.epoch.clone(), rev: self.rev, base_rev, changed, removed, order })
     }
 
-    fn record(&mut self, changed: Vec<RowPatch>, removed: Vec<String>) {
-        self.rev += 1;
-        self.history.push_back(Change { rev: self.rev, changed, removed });
+    fn record(&mut self, changed: Vec<RowPatch>, removed: Vec<String>, reordered: bool) {
+        self.rev = self.rev.saturating_add(1);
+        self.history.push_back(Change { rev: self.rev, changed, removed, reordered });
         while self.history.len() > self.history_cap {
             match self.history.pop_front() {
                 Some(dropped) => self.oldest_base = dropped.rev,

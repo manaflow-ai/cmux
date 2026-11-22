@@ -52,6 +52,7 @@ fn every_message_round_trips() {
         base_rev: 7,
         changed: vec![patch, RowPatch::full(&row("t3"))],
         removed: vec!["t2".into()],
+        order: Some(vec!["t3".into(), "t1".into()]),
     }));
     round_trip(&Message::Blob(BlobFrame {
         hash: BlobHash::of(b"img"),
@@ -173,4 +174,14 @@ fn blob_frame_is_binary() {
     let frame = encode_blob(BlobHash::of(&bytes), Mime::Jpeg, &bytes);
     assert_eq!(frame.len(), BLOB_HEADER_LEN + 100);
     assert_eq!(frame[33], 1);
+}
+
+#[test]
+fn order_is_omitted_when_unchanged() {
+    let d = Message::Delta(Delta { epoch: "e".into(), ..Delta::default() }).encode();
+    let json: serde_json::Value = serde_json::from_slice(&d[1..]).unwrap();
+    assert!(json.get("order").is_none());
+    let d = Delta { order: Some(vec!["b".into(), "a".into()]), ..Delta::default() };
+    let json: serde_json::Value = serde_json::from_slice(&Message::Delta(d).encode()[1..]).unwrap();
+    assert_eq!(json["order"], serde_json::json!(["b", "a"]));
 }
