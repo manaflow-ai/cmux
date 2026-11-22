@@ -518,6 +518,8 @@ dependencies = [
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-proto",
+ "cmux-terminal-projection",
+ "cmux-wg",
  "flate2",
  "futures-util",
  "hkdf",

@@ -4,23 +4,36 @@
 //! probes the clock and sends its paint report on `phone-frames`, and hostd's own join prints
 //! (a) Mac read to socket, (b) the wire, p50/p95. The phone's paint (c) comes from the simulator.
 //!
+//! Beside each, the same redraws over viewport state sync (`viewport_sync.rs`): datagrams through
+//! cmux-fault's `UdpShaper` (loss is loss), the phone a `SyncReceiver` acking back; one
+//! `STATESYNC-ROW` per profile sets the two paths' wire p50/p95 and bytes side by side.
+//!
 //! `cargo test -p cmux-mobile-host --test paint_latency_shaped -- --ignored --nocapture`
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use bytes::Bytes;
 use cmux_fault::Trace;
-use cmux_fault::shaper::{ProfileFile, Shaper};
+use cmux_fault::shaper::{Counters, ProfileFile, Shaper, UdpShaper};
 use cmux_mobile_host::paint_latency;
 use cmux_mobile_host::phone_frames;
+use cmux_mobile_host::viewport_sync::{self, Config, UDP_MAX_DATAGRAM, ViewportSync};
 use cmux_mobile_link::ChannelEvent;
 use cmux_mobile_link::frame::epoch_us;
 use cmux_mobile_link::link::{Link, LinkConfig, Role};
-use tokio::net::{TcpListener, TcpStream};
+use cmux_terminal_projection::sync::SyncReceiver;
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use tokio::sync::{mpsc, oneshot};
 
 /// A redraw of a Claude Code screen streaming a reply: a few rows of styled text, 1 to 6 KB.
 fn redraw(i: u64) -> Vec<u8> {
+    let data = base64::engine::general_purpose::STANDARD.encode(redraw_vt(i));
+    format!("{{\"data\":\"{data}\",\"event\":\"output\",\"surface\":1}}\n").into_bytes()
+}
+
+/// The PTY bytes of [`redraw`].
+fn redraw_vt(i: u64) -> Vec<u8> {
     let rows = 4 + (i % 24) as usize;
     let mut raw = Vec::new();
     for r in 0..rows {
@@ -30,11 +43,24 @@ fn redraw(i: u64) -> Vec<u8> {
         );
         raw.extend_from_slice(format!("{i}:{r}\x1b[0m").as_bytes());
     }
-    let data = base64::engine::general_purpose::STANDARD.encode(raw);
-    format!("{{\"data\":\"{data}\",\"event\":\"output\",\"surface\":1}}\n").into_bytes()
+    raw
 }
 
-async fn run(profile: &str, lines: u64, every: Duration) -> (paint_latency::Summary, paint_latency::Summary) {
+/// The host grid of the datagram run: every row [`redraw_vt`] writes is on screen.
+const COLS: u16 = 100;
+const ROWS: u16 = 40;
+
+/// What crossed the stream run's link while the redraws flowed, and for how long.
+struct StreamBytes {
+    counters: Counters,
+    elapsed: Duration,
+}
+
+async fn run(
+    profile: &str,
+    lines: u64,
+    every: Duration,
+) -> (paint_latency::Summary, paint_latency::Summary, StreamBytes) {
     let link_profile = ProfileFile::builtin().get(profile).cloned().expect("profile");
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let shaper = Shaper::start(listener.local_addr().unwrap(), link_profile, 7, &Trace::new()).await.unwrap();
@@ -68,6 +94,7 @@ async fn run(profile: &str, lines: u64, every: Duration) -> (paint_latency::Summ
         }
     });
 
+    let started = Instant::now();
     let stream = TcpStream::connect(shaper.addr()).await.unwrap();
     stream.set_nodelay(true).unwrap();
     let phone = Link::new(stream, Role::Phone, LinkConfig::default(), None);
@@ -89,6 +116,8 @@ async fn run(profile: &str, lines: u64, every: Duration) -> (paint_latency::Summ
             samples.push([seq as f64, rx, rx]);
         }
     }
+    // The redraws' bytes, before the paint reports go up.
+    let bytes = StreamBytes { counters: shaper.counters(), elapsed: started.elapsed() };
     let mut frames = phone.open("phone-frames", serde_json::json!({})).await.unwrap();
     let mut clock = Vec::new();
     for _ in 0..8 {
@@ -125,15 +154,139 @@ async fn run(profile: &str, lines: u64, every: Duration) -> (paint_latency::Summ
     // Both ends share this machine's clock, so the true offset is 0: the wire without the
     // estimate's error (at most half the probe's round trip).
     let truth = paint_latency::Report { clock: vec![[0.0, 0.0, 0.0, 0.0]], ..report };
-    (measured, paint_latency::summarize(truth, "phone-1", 0, paint_latency::lookup))
+    (measured, paint_latency::summarize(truth, "phone-1", 0, paint_latency::lookup), bytes)
+}
+
+/// The datagram run's row.
+struct DatagramRow {
+    p50_ms: f64,
+    p95_ms: f64,
+    down_per_min: f64,
+    up_per_min: f64,
+    /// Redraws whose state the phone never held: a newer one landed first.
+    superseded: usize,
+    /// Redraws that shared a capture with a later one (the pacer held the screen).
+    coalesced: usize,
+    rate: f64,
+    /// After quiescence the phone acked the last state and its screen is the host's capture.
+    converged: bool,
+}
+
+/// Nearest rank.
+fn percentile(sorted: &[f64], p: f64) -> f64 {
+    let rank = ((p * sorted.len() as f64).ceil() as usize).clamp(1, sorted.len());
+    sorted[rank - 1]
+}
+
+fn per_min(bytes: u64, elapsed: Duration) -> f64 {
+    bytes as f64 * 60.0 / elapsed.as_secs_f64()
+}
+
+/// The same redraws over viewport state sync: the host is `viewport_sync::run` on a UDP port
+/// behind a `UdpShaper`, the phone a `SyncReceiver` that acks every datagram it judges. Wire
+/// latency of redraw i: from its write to the host until the phone first holds a state with a
+/// seq at least the one of the first capture covering it (newest wins: a newer state covers it).
+async fn run_datagram(profile: &str, lines: u64, every: Duration) -> DatagramRow {
+    let link_profile = ProfileFile::builtin().get(profile).cloned().expect("profile");
+    let host = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let shaper = UdpShaper::start(host.local_addr().unwrap(), link_profile, 7, &Trace::new()).await.unwrap();
+    let phone = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    phone.connect(shaper.addr()).await.unwrap();
+    // The phone speaks first so the relay knows where it is (its knock on the overlay port).
+    phone.send(b"hello").await.unwrap();
+    tokio::time::sleep(Duration::from_millis(20)).await;
+
+    let (stop, stopped) = oneshot::channel::<()>();
+    let phone_task = tokio::spawn(async move {
+        let mut receiver = SyncReceiver::new();
+        let mut held: Vec<(u64, Instant)> = Vec::new();
+        let mut buffer = vec![0_u8; 64 * 1024];
+        let mut stopped = stopped;
+        loop {
+            tokio::select! {
+                received = phone.recv(&mut buffer) => {
+                    let Ok(n) = received else { continue };
+                    let before = receiver.seq();
+                    let ack = receiver.on_datagram(&buffer[..n]);
+                    if receiver.seq() > before {
+                        held.push((receiver.seq(), Instant::now()));
+                    }
+                    if let Some(ack) = ack {
+                        let _ = phone.send(&ack).await;
+                    }
+                }
+                _ = &mut stopped => return (receiver, held),
+            }
+        }
+    });
+
+    let peer = shaper.phone_addr_at_host().unwrap();
+    let mut sync = ViewportSync::new(COLS, ROWS, UDP_MAX_DATAGRAM, Config::default(), Instant::now());
+    sync.record_captures();
+    let (output, batches) = mpsc::channel(1024);
+    shaper.reset_counters();
+    let started = Instant::now();
+    let host_task =
+        tokio::spawn(viewport_sync::run(sync, host, Some(peer), batches, None, Duration::from_secs(60)));
+    let mut written = Vec::with_capacity(lines as usize);
+    let mut tick = tokio::time::interval(every);
+    for i in 0..lines {
+        tick.tick().await;
+        written.push(Instant::now());
+        output.send(redraw_vt(i)).await.unwrap();
+    }
+    drop(output);
+    let sync = host_task.await.unwrap().unwrap();
+    let elapsed = started.elapsed();
+    let counters = shaper.counters();
+    stop.send(()).unwrap();
+    let (receiver, held) = phone_task.await.unwrap();
+    // Checked after the table prints, so a miss still shows the numbers.
+    let converged =
+        sync.settled() && receiver.seq() == sync.latest_seq() && receiver.screen() == Some(&sync.capture());
+
+    let captures = sync.captures();
+    let mut latencies = Vec::with_capacity(lines as usize);
+    let mut superseded = 0;
+    let mut coalesced = 0;
+    let mut previous_seq = None;
+    for (i, wrote) in written.iter().enumerate() {
+        let batch = i as u64 + 1;
+        let capture = captures.iter().find(|capture| capture.batches >= batch).expect("a capture covers it");
+        if previous_seq == Some(capture.seq) {
+            coalesced += 1;
+        }
+        previous_seq = Some(capture.seq);
+        let Some((seq, at)) = held.iter().find(|(seq, _)| *seq >= capture.seq).copied() else {
+            // Never held: counted at the end of the run.
+            latencies.push((started + elapsed).saturating_duration_since(*wrote).as_secs_f64() * 1000.0);
+            continue;
+        };
+        if seq != capture.seq {
+            superseded += 1;
+        }
+        latencies.push(at.saturating_duration_since(*wrote).as_secs_f64() * 1000.0);
+    }
+    latencies.sort_by(f64::total_cmp);
+    DatagramRow {
+        p50_ms: percentile(&latencies, 0.50),
+        p95_ms: percentile(&latencies, 0.95),
+        down_per_min: per_min(counters.down_bytes, elapsed),
+        up_per_min: per_min(counters.up_bytes, elapsed),
+        superseded,
+        coalesced,
+        rate: sync.rate(),
+        converged,
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "a measurement (about a minute): --ignored --nocapture prints the table"]
 async fn mac_redraw_to_phone_receive_under_wifi_lte_and_lossy_3() {
     let mut rows = Vec::new();
+    let mut converged = Vec::new();
     for profile in ["good-wifi", "lte", "lossy-3", "lossy-10"] {
-        let (summary, truth) = run(profile, 500, Duration::from_millis(16)).await;
+        let (summary, truth, stream_bytes) = run(profile, 500, Duration::from_millis(16)).await;
         let mac = summary.mac.expect("mac part");
         let estimated = summary.wire.expect("wire part");
         let wire = truth.wire.expect("wire part");
@@ -153,7 +306,29 @@ async fn mac_redraw_to_phone_receive_under_wifi_lte_and_lossy_3() {
             (estimated.p50_ms - wire.p50_ms).abs() <= summary.clock_rtt_ms.unwrap() / 2.0 + 1.0,
             "{profile}: the offset's error is bounded by half its probe"
         );
+        let datagram = run_datagram(profile, 500, Duration::from_millis(16)).await;
+        let one_way = ProfileFile::builtin().get(profile).unwrap().rtt_ms as f64 / 2.0;
+        let StreamBytes { counters, elapsed } = stream_bytes;
+        println!(
+            "STATESYNC-ROW {profile}: stream p50 {:.1} p95 {:.1} bytes/min {:.0} down / {:.0} up | datagram p50 {:.1} p95 {:.1} bytes/min {:.0} down / {:.0} up | one-way {one_way} | superseded {} coalesced {} of 500 | pacer {:.0} B/s | datagram p95 <= 2x one-way: {}",
+            wire.p50_ms,
+            wire.p95_ms,
+            per_min(counters.down_bytes, elapsed),
+            per_min(counters.up_bytes, elapsed),
+            datagram.p50_ms,
+            datagram.p95_ms,
+            datagram.down_per_min,
+            datagram.up_per_min,
+            datagram.superseded,
+            datagram.coalesced,
+            datagram.rate,
+            if datagram.p95_ms <= 2.0 * one_way { "yes" } else { "no" },
+        );
         rows.push((profile, mac, wire));
+        converged.push((profile, datagram.converged));
+    }
+    for (profile, converged) in &converged {
+        assert!(converged, "{profile}: after quiescence the phone's screen is the host's capture");
     }
     for (profile, _mac, wire) in &rows {
         let nominal = match *profile {
