@@ -1,5 +1,5 @@
 //! Help examples for the work groups: `task`, `process`, `worktree`, `briefs`, `bead`, `inbox`,
-//! `forum`, `watch`, `board`, `chats`, `hand`, `router` (see `help_examples/mod.rs`).
+//! `forum`, `watch`, `chats`, `hand`, `router` (see `help_examples/mod.rs`).
 
 use super::Example;
 
@@ -70,12 +70,30 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "process",
         &[
+            (
+                "Every process acpmux started here, who owns it now and whether it is in use",
+                "acpmux process",
+            ),
             ("List background processes agents started", "acpmux process list"),
             (
                 "Follow a Claude Code background process's output",
                 "acpmux process show coord/b7x2k1q -f",
             ),
             ("Stop a Claude Code or Codex background process", "acpmux process kill coord/b7x2k1q"),
+        ],
+    ),
+    (
+        "board",
+        &[
+            ("The local branch board (Labs > Show Preview Features)", "acpmux board"),
+            ("The same board as JSON", "acpmux board --json"),
+        ],
+    ),
+    (
+        "gc",
+        &[
+            ("What acpmux would end as orphaned, and what it refuses and why", "acpmux gc"),
+            ("End the proven orphans and log each with its reason", "acpmux gc --apply"),
         ],
     ),
     (
@@ -406,8 +424,8 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "board",
         &[
-            ("Show this machine's sessions grouped by branch", "acpmux board"),
-            ("Print the same board as JSON", "acpmux --json board"),
+            ("Show this machine's branch board", "acpmux board"),
+            ("The same board as JSON", "acpmux --json board"),
         ],
     ),
     (
