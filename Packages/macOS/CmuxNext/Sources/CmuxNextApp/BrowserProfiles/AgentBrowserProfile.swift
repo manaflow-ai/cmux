@@ -23,7 +23,7 @@ enum AgentBrowserProfile {
     static let id = BrowserPageService.agentBrowserProfileID
 
     static var name: String {
-        String(localized: "handlers.misc.agentBrowserProfile.name", defaultValue: "Agents", table: "MiscHandlers", bundle: .module)
+        String(localized: "handlers.misc.agentBrowserProfile.name", defaultValue: "Agents", table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
 
     /// nil: not "agent" and not a profile id.

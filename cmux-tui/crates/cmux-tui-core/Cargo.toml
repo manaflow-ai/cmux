@@ -18,6 +18,8 @@ hotpatch = ["dep:subsecond"]
 [dependencies]
 cmux-build-space.workspace = true
 cmux-json.workspace = true
+# Names a crash sidecar's backtrace in a stripped release binary.
+cmux-panic-log.workspace = true
 # Locks that unlock before they close (a forked child keeps none).
 cmux-file-lock.workspace = true
 cmux-agent-pane-policy.workspace = true
@@ -70,7 +72,10 @@ cmux-terminal-sizing.workspace = true
 cmux-device-kind.workspace = true
 serde.workspace = true
 subsecond = { workspace = true, optional = true }
-serde_json.workspace = true
+# float_roundtrip, unbounded_depth: the cached session snapshot keeps its public values as JSON text
+# and each read parses them back to the same values, at any depth (resource_api/committed_snapshot.rs
+# `CompactJson`). cmux-layout-reducer already turns both on for this build.
+serde_json = { workspace = true, features = ["float_roundtrip", "unbounded_depth"] }
 uuid.workspace = true
 toml.workspace = true
 anyhow.workspace = true
@@ -96,6 +101,8 @@ fs4.workspace = true
 sha2.workspace = true
 # cmux Remote's verified copy outside the app (`remote_host/macos.rs`).
 cmux-signed-bundle.workspace = true
+# A store package's `STORE.sig`, checked against the store keys (`apps/store_trust.rs`).
+cmux-signed-envelope.workspace = true
 socket2.workspace = true
 quick-xml.workspace = true
 notify.workspace = true
@@ -111,6 +118,8 @@ cmux-tui-remote-access = { workspace = true, features = ["test-support"] }
 cmux-tui-util = { workspace = true, features = ["test-support"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
+# Signs the test store packages (`apps/store_trust_tests.rs`).
+ring.workspace = true
 # The worker's control channel in-process, for the Computer Use supervisor's tests.
 cmux-computer-use = { workspace = true, features = ["server"] }
 
@@ -131,6 +140,9 @@ tokio.workspace = true
 # client the cmux-tui binary already links for cmux.wire/1.
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+# The app's language packs (language_packs.rs): a zstd tar, the reader the cmux-tui binary
+# already links for `cmux customize use pr:N`.
+tar.workspace = true
 
 [target.'cfg(unix)'.dev-dependencies]
 # The SDK's raw client drives the cloud.* operations in server/cloud_api_tests.rs.

@@ -36,12 +36,28 @@ pub(crate) struct Events {
     /// next, so no cursor a client took from a notice is past a change it was never sent
     /// (#42091 F1).
     untold: std::sync::Mutex<HashSet<String>>,
+    /// This daemon's rows only their agent's stream changed since they were last told (a chunk's
+    /// preview, a tool call's `turn.doing`): told at a read as `untold` are, but each at most once
+    /// per [`STREAM_TELL_EVERY`] ([`StreamedRows`]).
+    streamed: std::sync::Mutex<StreamedRows>,
     /// Records since the last list read that reach other rows: each one's session and its parent
     /// (`Hub::note_rows_reading`).
     reaching: std::sync::Mutex<Vec<(String, Option<String>)>>,
     /// This run's id for list positions: a cursor of another run is no cursor here.
     epoch: String,
     tee: std::sync::OnceLock<Arc<TeeHandle>>,
+    /// Connections' fan-out tasks subscribed now (`Hub::subscribe_fanout`): how many takes each
+    /// event's fan-out clock waits for.
+    fanout_connections: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+/// A connection's fan-out task's place in [`Events::fanout_connections`], given up on drop.
+pub struct FanoutSeat(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for FanoutSeat {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 impl Events {
@@ -51,9 +67,11 @@ impl Events {
             summary_generation: Arc::new(AtomicU64::new(0)),
             rows: Default::default(),
             untold: Default::default(),
+            streamed: std::sync::Mutex::new(StreamedRows::new(STREAM_TELL_EVERY)),
             reaching: Default::default(),
             epoch: super::row_log::new_epoch(),
             tee: Default::default(),
+            fanout_connections: Default::default(),
         }
     }
 
@@ -94,14 +112,30 @@ impl Events {
         }
     }
 
+    /// Every send goes out here: its fan-out clock starts, owed by each connection's fan-out task
+    /// subscribed now (`gauges.fanout`).
+    fn send_now(&self, event: HubEvent) -> Result<usize, broadcast::error::SendError<HubEvent>> {
+        event.row.fanout.arm(self.fanout_connections.load(Ordering::Acquire));
+        self.tx.send(event)
+    }
+
+    /// A connection's fan-out task subscribes: it counts toward each event's fan-out until the
+    /// guard drops.
+    pub(super) fn subscribe_fanout(&self) -> (broadcast::Receiver<HubEvent>, FanoutSeat) {
+        // Counted before it subscribes: an event sent between the two is owed one more take than
+        // it gets, so it is no sample, never a sample taken before every connection had it.
+        self.fanout_connections.fetch_add(1, Ordering::AcqRel);
+        (self.tx.subscribe(), FanoutSeat(self.fanout_connections.clone()))
+    }
+
     /// Sends `event`, stamped with the list position of the row it changes, if any.
     fn stamped(&self, mut event: HubEvent) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         let Some((key, gone)) = super::row_log::row_change(&event) else {
-            return self.tx.send(event);
+            return self.send_now(event);
         };
         let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
         event.list_seq = rows.stamp(key, gone);
-        self.tx.send(event)
+        self.send_now(event)
     }
 
     /// Marks `session`'s row changed with no notice a watcher hears (a streamed chunk's preview,
@@ -111,10 +145,51 @@ impl Events {
         self.untold.lock().unwrap_or_else(|e| e.into_inner()).insert(session.to_owned());
     }
 
+    /// Marks `session`'s row changed by its agent's stream alone (a chunk's preview, a tool
+    /// call's `turn.doing`): told at a read, at most once per [`STREAM_TELL_EVERY`].
+    fn stamp_streamed(&self, session: &str) {
+        self.streamed.lock().unwrap_or_else(|e| e.into_inner()).waiting.insert(session.to_owned());
+    }
+
+    /// Tells a streamed row at most once per `every` (a test's short window).
+    #[cfg(test)]
+    pub(super) fn set_stream_tell_every(&self, every: std::time::Duration) {
+        self.streamed.lock().unwrap_or_else(|e| e.into_inner()).every = every;
+    }
+
+    /// Stops the window's clock at now: from here only [`Self::advance_stream_clock`] moves it,
+    /// so a test's window passes when the test says, never because the runner was slow.
+    #[cfg(test)]
+    pub(super) fn freeze_stream_clock(&self) {
+        self.streamed.lock().unwrap_or_else(|e| e.into_inner()).frozen =
+            Some(std::time::Instant::now());
+    }
+
+    /// Moves the window's clock on by `by`, from now when it was not frozen, and stops it there.
+    #[cfg(test)]
+    pub(super) fn advance_stream_clock(&self, by: std::time::Duration) {
+        let mut streamed = self.streamed.lock().unwrap_or_else(|e| e.into_inner());
+        let at = streamed.frozen.unwrap_or_else(std::time::Instant::now);
+        streamed.frozen = Some(at + by);
+    }
+
+    /// Whether `session`'s row waits to be told for its agent's stream.
+    #[cfg(test)]
+    pub(super) fn stream_untold(&self, session: &str) -> bool {
+        self.streamed.lock().unwrap_or_else(|e| e.into_inner()).waiting.contains(session)
+    }
+
     /// Stamps and tells every row changed with no notice since the last read: a follow after
     /// it sends each as it is now, and a watcher hears each as `session_changed`.
     fn tell_untold(&self) {
-        let untold = std::mem::take(&mut *self.untold.lock().unwrap_or_else(|e| e.into_inner()));
+        let mut untold =
+            std::mem::take(&mut *self.untold.lock().unwrap_or_else(|e| e.into_inner()));
+        let due = {
+            let mut streamed = self.streamed.lock().unwrap_or_else(|e| e.into_inner());
+            let now = streamed.now();
+            streamed.due(&untold, now)
+        };
+        untold.extend(due);
         for session in untold {
             self.tell_row(&session);
         }
@@ -182,8 +257,8 @@ impl Events {
         &self,
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
-        self.stamp_own(&event.session_id);
-        self.tx.send(event)
+        self.stamp_streamed(&event.session_id);
+        self.send_now(event)
     }
 
     /// Sends a peer's change ([`HubEvent::remote`], `peers.rs`): every local closed row keeps its
@@ -197,6 +272,46 @@ impl Events {
             self.mark_remote_tee(&remote.peer, &event.session_id);
         }
         self.stamped(event)
+    }
+
+    /// Sends many changes of `peer`'s rows at once (`Hub::announce_remote_rows`), each marked
+    /// [`HubEvent::peer_batch`], then the batch's close ([`super::PEER_ROWS_CHANGED`]). They are
+    /// stamped and sent under one hold of the row log, so their positions are consecutive and
+    /// nothing goes out between them: a watcher that applied every notice before the close holds
+    /// a cursor below the batch's first row, and the close names the position before that row
+    /// (`afterSeq`) and its last (`listSeq`). A follow from `afterSeq` (or any cursor below it)
+    /// answers every row of the batch as it is when read.
+    pub(super) fn send_remote_batch(&self, peer: &str, events: Vec<HubEvent>) {
+        for event in &events {
+            self.mark_remote_tee(peer, &event.session_id);
+        }
+        let count = events.len();
+        let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
+        let after = rows.head();
+        for mut event in events {
+            debug_assert!(event.remote.as_ref().is_some_and(|r| r.peer == peer));
+            if let Some((key, gone)) = super::row_log::row_change(&event) {
+                event.list_seq = rows.stamp(key, gone);
+            }
+            event.peer_batch = true;
+            let _ = self.tx.send(event);
+        }
+        let _ = self.tx.send(HubEvent {
+            session_id: String::new(),
+            record: Arc::new(EventRecord {
+                seq: 0,
+                at: crate::store::now_ms(),
+                dir: "peer".into(),
+                kind: super::PEER_ROWS_CHANGED.into(),
+                msg: json!({"count": count, "afterSeq": after}),
+                host_seq: None,
+            }),
+            remote: Some(RemoteRef { peer: peer.to_owned(), summary: Value::Null.into() }),
+            update_line: Default::default(),
+            row: Default::default(),
+            list_seq: rows.head(),
+            peer_batch: false,
+        });
     }
 
     /// Sends a change of `session`'s own row, which no other row reads (`Hub::append`): of the
@@ -217,7 +332,12 @@ impl Events {
             self.mark_tee(&session.id);
         }
         if super::row_log::row_change(&event).is_none() {
-            self.stamp_own(&session.id);
+            if event.record.dir == "in" {
+                // The agent's own stream (a tool call and its updates, a plan), as a chunk is.
+                self.stamp_streamed(&session.id);
+            } else {
+                self.stamp_own(&session.id);
+            }
         }
         self.stamped(event)
     }
@@ -249,6 +369,74 @@ impl Events {
                 tee.mark_all();
             }
         }
+    }
+}
+
+/// How often, at most, a row its agent's stream changed is told to the watchers.
+///
+/// A row only its stream changed is told at the next list read, not at each chunk. On a busy
+/// daemon something reads the list several times a second (pages, `acpmux ls`, peers, tools),
+/// and each read sent every streaming chat's whole row (4 to 6 KB) to every watching connection:
+/// the app's and the iPhone host's, with nobody using either (Leo's Mac, 2026-11-19: 312 MB in
+/// 90 s from acpmux, 45 MB of it to the iPhone host). What a watcher hears now is bounded by the
+/// chats that stream, not by how often anything reads. The stream's end (`turn_result`, `status`)
+/// is a record watchers hear at once, with the row as it is then.
+pub(crate) const STREAM_TELL_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The rows waiting to be told for their agent's stream, and when each row was last told.
+pub(crate) struct StreamedRows {
+    pub(super) waiting: HashSet<String>,
+    /// Rows told less than `every` ago; older entries go at each read, so it holds at most the
+    /// rows told in the last `every`.
+    told: std::collections::HashMap<String, std::time::Instant>,
+    pub(super) every: std::time::Duration,
+    /// A test's stopped clock (`Events::freeze_stream_clock`).
+    #[cfg(test)]
+    frozen: Option<std::time::Instant>,
+}
+
+impl StreamedRows {
+    fn new(every: std::time::Duration) -> Self {
+        Self {
+            waiting: HashSet::new(),
+            told: Default::default(),
+            every,
+            #[cfg(test)]
+            frozen: None,
+        }
+    }
+
+    fn now(&self) -> std::time::Instant {
+        #[cfg(test)]
+        if let Some(at) = self.frozen {
+            return at;
+        }
+        std::time::Instant::now()
+    }
+
+    /// At a read: the waiting rows to tell now (none told within `every`), beside `telling`, the
+    /// rows told now for another change, whose rows carry the stream too. A row told within
+    /// `every` keeps waiting for a later read, so a cursor is never past it: it takes a later
+    /// position when told (#42091 F1).
+    fn due(&mut self, telling: &HashSet<String>, now: std::time::Instant) -> Vec<String> {
+        let every = self.every;
+        self.told.retain(|_, at| now.saturating_duration_since(*at) < every);
+        let mut due = Vec::new();
+        let told = &self.told;
+        self.waiting.retain(|id| {
+            if telling.contains(id) {
+                return false;
+            }
+            if told.contains_key(id) {
+                return true;
+            }
+            due.push(id.clone());
+            false
+        });
+        for id in telling.iter().chain(&due) {
+            self.told.insert(id.clone(), now);
+        }
+        due
     }
 }
 
@@ -657,3 +845,7 @@ mod tests;
 #[cfg(test)]
 #[path = "list_scale_tests.rs"]
 mod scale_tests;
+
+#[cfg(test)]
+#[path = "stream_tell_tests.rs"]
+mod stream_tell_tests;

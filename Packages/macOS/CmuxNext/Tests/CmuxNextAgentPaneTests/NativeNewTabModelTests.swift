@@ -1,4 +1,5 @@
 @testable import CmuxNextAgentPane
+import Observation
 import Testing
 
 /// The native New Tab page (Lawrence 2026-10-29: "make the new tab page in swift"): the dropdown's
@@ -29,11 +30,36 @@ struct NativeNewTabModelTests {
         #expect(ranker.rows(for: "hacker", kind: .browser, omnibar: omnibar).map(\.id) == ["open", "page:https://news.ycombinator.com/"])
     }
 
+    @Test func bookmarkWebsiteRowsKeepTheirFaviconAndFixedIdentity() throws {
+        var page = Self.page()
+        page.omnibar.bookmarks = [AgentPaneOmnibar.Page(url: "https://swift.org/", title: "Swift",
+                                                        icon: "data:image/png;base64,AAAA")]
+        let row = try #require(NativeNewTabRanker().rows(for: "swift", kind: .browser, omnibar: page.omnibar).last)
+        guard case .bookmark(let bookmark) = row else { Issue.record("the matching bookmark was not ranked as a bookmark"); return }
+        #expect(bookmark.icon == "data:image/png;base64,AAAA")
+        #expect(row.id == "bookmark:https://swift.org/")
+        let content = NativeNewTabRowContent(row, strings: NativeNewTabStrings())
+        #expect(content.icon == bookmark.icon)
+    }
+
+    @Test func faviconRefreshChangesOnlyTheHostSnapshot() {
+        var page = Self.page()
+        page.omnibar.history = [AgentPaneOmnibar.Page(url: "https://swift.org/", title: "Swift")]
+        let model = NativeNewTabModel(page: page, actions: NativeNewTabActions(), favicons: NativeNewTabFavicons(revision: { 0 }, page: { current in
+            var refreshed = current
+            refreshed.omnibar.history[0].icon = "data:image/png;base64,AAAA"
+            return refreshed
+        }))
+        model.refreshFaviconPage()
+        #expect(model.page.omnibar.history[0].icon == "data:image/png;base64,AAAA")
+        #expect(model.text.isEmpty)
+    }
+
     @Test func thePalettesActionsAreAskedForOnceAtTheFirstKeystrokeAndComeLater() {
         var empty = Self.page()
         empty.omnibar.actions = []
         var asks: [@MainActor ([AgentPaneOmnibar.Action]) -> Void] = []
-        let model = NativeNewTabModel(page: empty, actions: NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _ in }),
+        let model = NativeNewTabModel(page: empty, actions: NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _, _ in }),
                                       paletteActions: { _, deliver in asks.append(deliver) })
         #expect(asks.isEmpty, "the page shows before the palette's actions are listed")
         model.text = "toggle side"
@@ -51,7 +77,7 @@ struct NativeNewTabModelTests {
         var empty = Self.page()
         empty.omnibar.actions = []
         var asks: [@MainActor ([AgentPaneOmnibar.Action]) -> Void] = []
-        let actions = NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _ in })
+        let actions = NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _, _ in })
         let model = NativeNewTabModel(page: empty, actions: actions, paletteActions: { _, deliver in asks.append(deliver) })
         model.loadPaletteActions()
         model.adopt(page: empty, actions: actions, paletteActions: { _, deliver in asks.append(deliver) })
@@ -60,6 +86,54 @@ struct NativeNewTabModelTests {
         model.loadPaletteActions()
         asks[1](Self.page().omnibar.actions)
         #expect(!model.page.omnibar.actions.isEmpty)
+    }
+
+    /// The palette's actions read again at the page's first use: an equal list changes nothing; a list that differs
+    /// changes the rows in one update, and the highlighted row stays the same row, by its id, while the rows have it.
+    @Test func aListReadAgainKeepsTheHighlightedRowByItsID() throws {
+        var asks: [@MainActor ([AgentPaneOmnibar.Action]) -> Void] = []
+        let listed = Self.page(actions: 3).omnibar.actions
+        let model = NativeNewTabModel(page: Self.page(actions: 3), actions: NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _, _ in }),
+                                      paletteRefresh: { _, deliver in asks.append(deliver) })
+        model.text = "action number"
+        model.text = "action number "
+        try #require(asks.count == 1, "the page asks for the actions again once, at its first letter: \(asks.count) asks")
+        // The first and the last action row: the highlight goes on the last one.
+        let rows = model.rows.map(\.id)
+        let actionRows = rows.indices.filter { rows[$0].hasPrefix("action:") }
+        let above = try #require(actionRows.first, "no action row: \(rows)")
+        let at = try #require(actionRows.last, "no action row: \(rows)")
+        try #require(above < at, "one action row only: \(rows)")
+        let (aboveID, atID) = (String(rows[above].dropFirst("action:".count)), String(rows[at].dropFirst("action:".count)))
+        model.highlighted = at
+
+        let change = Change()
+        withObservationTracking { _ = model.page } onChange: {
+            MainActor.assumeIsolated { change.seen = true } // main-proof: the model is main-actor state, set by this row
+        }
+        asks[0](listed)
+        #expect(!change.seen && model.highlighted == at, "an equal list changed the page")
+
+        // A row above the highlighted one is gone: the highlight follows its row.
+        asks[0](listed.filter { $0.id != aboveID })
+        #expect(model.selectedIndex.map { model.rows[$0].id } == rows[at], "the highlight left its row: \(model.rows.map(\.id)), highlighted \(String(describing: model.highlighted))")
+        #expect(model.highlighted == at - 1, "the row above did not go away: \(model.rows.map(\.id))")
+        // The highlighted row is gone: Return goes back to the first row.
+        asks[0](listed.filter { $0.id != aboveID && $0.id != atID })
+        #expect(model.highlighted == nil, "the highlight stayed at \(String(describing: model.highlighted)) with its row gone")
+    }
+
+    /// A run of a row that is no palette action asks for no list: the page goes away with the run. A run of an action
+    /// row is a first use of the page: it asks for the actions again.
+    @Test func onlyARunOfAnActionRowAsksForTheActionsAgain() throws {
+        var asks = 0
+        let model = NativeNewTabModel(page: Self.page(actions: 3), actions: NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }),
+                                      paletteRefresh: { _, _ in asks += 1 })
+        model.activate(.run("ls"))
+        #expect(asks == 0, "a run of a terminal row asked for the palette's actions \(asks) times")
+        let action = try #require(model.page.omnibar.actions.first, "the page has no action")
+        model.activate(.action(action))
+        #expect(asks == 1, "a run of an action row asked for the palette's actions \(asks) times where 1 is wanted")
     }
 
     @Test func everyPaletteActionIsReachable() {
@@ -76,7 +150,7 @@ struct NativeNewTabModelTests {
         let actions = NativeNewTabActions(
             submit: { text, kind, search in log.append("submit \(kind.rawValue) \(text) \(search)") },
             jump: { target, id in log.append("jump \(target.rawValue) \(id)") },
-            action: { id in log.append("action \(id)") }
+            action: { id, shown in log.append("action \(id) shown as \(shown)") }
         )
         let model = NativeNewTabModel(page: Self.page(), actions: actions)
         model.commit()
@@ -90,7 +164,7 @@ struct NativeNewTabModelTests {
         #expect(log == [
             "submit agent  false",
             "submit agent toggle side false",
-            "action toggleSidebar",
+            "action toggleSidebar shown as Toggle Sidebar",
             "jump tab t1",
         ])
     }
@@ -103,4 +177,9 @@ struct NativeNewTabModelTests {
         print("native-new-tab: 5 keystrokes over 1000 actions took \(elapsed)")
         #expect(elapsed < .milliseconds(50))
     }
+}
+
+/// Whether an observed value changed.
+@MainActor private final class Change {
+    var seen = false
 }
