@@ -3061,7 +3061,7 @@ function ComposerFrame({
                   }}
                   onClose={() => {
                     setHelpOpen(false);
-                    field.current?.focus();
+                    focusRoute(field.current, "person", "/help closed: the composer");
                   }}
                 />
               </ComposerListLayer>

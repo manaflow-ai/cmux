@@ -1,5 +1,6 @@
 import { useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { HELP_SECTIONS, helpRows, searchHelp, type HelpRow } from "./composerHelp";
+import { focusRoute } from "../../ui/focusRoute";
 import { useT } from "./i18n";
 import { ShortcutsContext } from "./shortcuts";
 import type { SlashCommand } from "./slashCommands";
@@ -29,7 +30,7 @@ export function HelpSheet({
   const all = useMemo(() => helpRows(commands, shortcuts, t), [commands, shortcuts, t]);
   const rows = useMemo(() => searchHelp(all, query), [all, query]);
   const at = Math.min(active, Math.max(0, rows.length - 1));
-  useLayoutEffect(() => search.current?.focus(), []);
+  useLayoutEffect(() => void focusRoute(search.current, "person", "/help opened: its search"), []);
   useLayoutEffect(() => {
     list.current?.querySelector<HTMLElement>(`[data-help-index="${at}"]`)?.scrollIntoView?.({ block: "nearest" });
   }, [at]);
@@ -56,7 +57,11 @@ export function HelpSheet({
 
   let index = -1;
   return (
-    <div className="ui-popup ui-glass acpmux-slash-menu acpmux-help-sheet" data-cmux-component="HelpSheet">
+    <div
+      className="ui-popup ui-glass acpmux-slash-menu acpmux-help-sheet"
+      data-cmux-component="HelpSheet"
+      // host-glass-allow: drawn in the `/` list's place and material (SlashMenu, on the web_floating backlog); they move to host glass together.
+    >
       <input
         ref={search}
         className="acpmux-help-search"
