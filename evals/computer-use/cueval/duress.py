@@ -147,11 +147,17 @@ def front_app() -> dict | None:
             asn = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=5).stdout.strip()
             info = subprocess.run(["lsappinfo", "info", "-only", "pid", "-only", "bundleid", asn],
                                   capture_output=True, text=True, timeout=5).stdout
-            pid = re.search(r'"pid"\s*=\s*(\d+)', info)
-            bid = re.search(r'"CFBundleIdentifier"\s*=\s*"([^"]*)"', info)
+            # Two output shapes: `"pid"=457` for an app record, and the full `pid = 457 ...` block that
+            # lsappinfo prints for an ASN with no app behind it (bundleID=[ NULL ]: nothing is frontmost).
+            pid = re.search(r'"pid"\s*=\s*(\d+)', info) or re.search(r'\bpid\s*=\s*(\d+)', info)
+            bid = re.search(r'"CFBundleIdentifier"\s*=\s*"([^"]*)"', info) or re.search(r'bundleID="([^"]*)"', info)
             out = {"pid": int(pid.group(1)) if pid else None, "bundle": bid.group(1) if bid else None}
-            if not pid:
-                out["raw"] = (asn + " | " + info.strip())[:200]
+            if not pid or "[ NULL ]" in info:
+                out["raw"] = (asn + " | " + " ".join(info.split()))[:200]
+            if "[ NULL ]" in info and not bid:
+                out["no_app"] = True  # an ASN with no app: no app is frontmost
+            top = next((w for w in mac_windows() if w.get("layer") == 0 and "error" not in w), None)
+            out["top_window_pid"] = top.get("pid") if top else None
             return out
         if sys.platform.startswith("linux"):
             r = subprocess.run(["xdotool", "getactivewindow", "getwindowpid"], capture_output=True, text=True, timeout=5)
@@ -326,11 +332,14 @@ def run(out_dir: str, rounds: int = 5) -> int:
     # 1 frontmost
     fronts = [f for f in sampler.fronts if f and f.get("pid")]
     changed = [f for f in fronts if f.get("pid") != person_pid]
+    setup = "" if (front_before or {}).get("pid") == person_pid else (
+        f"SETUP: the person window (pid {person_pid}) was not frontmost before the agent acted "
+        f"(front_before={front_before}); ")
     checks["frontmost"] = {
-        "ok": bool(fronts) and not changed,
-        "detail": f"{len(fronts)} samples, front was the person's app (pid {person_pid}) in "
-                  f"{len(fronts) - len(changed)}; others: {changed[:5]}" if fronts
-                  else f"front app unreadable in all {len(sampler.fronts)} samples (lsappinfo front gave no pid)",
+        "ok": bool(fronts) and not changed and not setup,
+        "detail": setup + (f"{len(fronts)} samples, front was the person's app (pid {person_pid}) in "
+                           f"{len(fronts) - len(changed)}; others: {changed[:5]}" if fronts
+                           else f"front app unreadable in all {len(sampler.fronts)} samples (lsappinfo front gave no pid)"),
     }
 
     # 2 no-leak
