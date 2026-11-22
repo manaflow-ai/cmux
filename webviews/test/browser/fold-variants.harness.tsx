@@ -250,7 +250,7 @@ async function scenarioNamed(name: string): Promise<SimScenario> {
   return bigClaudeTurn({ recap: name.includes("recap"), subagent: name.includes("subagent") });
 }
 
-/// A row's top, height and ink, and (when a clip hides part of it) the top and height of what it shows.
+/// A row's top, height and ink, and (when a clip hides part of it) the top and height of what it shows in the view.
 type Sample = {
   t: number;
   folding: boolean;
@@ -297,14 +297,20 @@ function sampleFrame(): Sample {
     )?.[1];
     all.push([key, box.top - threadTop, box.height, opens ? "opener" : (kind ?? "?")]);
     if (!view || box.bottom < view.top || box.top > view.bottom || box.height === 0) continue;
-    // Ink is the opacity times the share of the box its clip leaves drawn (`wipe` and its kin replace
-    // rows by clipping, not fading).
+    // Ink is the opacity times the share its clip leaves drawn of the part of the box in the view (`wipe`
+    // and its kin replace rows by clipping, not fading). The band the clip shows is read inside the view
+    // too: a clip changing on the part of a row past the view's edge is nothing the reader sees.
     const style = getComputedStyle(element);
     const inset = style.clipPath === "none" ? undefined : insetOf(style.clipPath);
-    const shown = inset ? Math.max(0, box.height - inset.top - inset.bottom) : box.height;
-    const ink = Number(style.opacity) * (shown / box.height);
-    if (inset) rows.push([key, box.top - view.top, box.height, ink, box.top - view.top + inset.top, shown]);
-    else rows.push([key, box.top - view.top, box.height, ink]);
+    const opacity = Number(style.opacity);
+    if (inset) {
+      const from = Math.max(box.top, view.top);
+      const to = Math.min(box.bottom, view.bottom);
+      const shownTop = Math.min(to, Math.max(from, box.top + inset.top));
+      const shown = Math.max(0, Math.min(to, box.bottom - inset.bottom) - shownTop);
+      const ink = to > from ? opacity * (shown / (to - from)) : 0;
+      rows.push([key, box.top - view.top, box.height, ink, shownTop - view.top, shown]);
+    } else rows.push([key, box.top - view.top, box.height, opacity]);
   }
   // `morph`'s card, as the band its clip shows.
   for (const element of thread?.querySelectorAll<HTMLElement>(`:scope > .${TURN_END_CARD}`) ?? []) {
