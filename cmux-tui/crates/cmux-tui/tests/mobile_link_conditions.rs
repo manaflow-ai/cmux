@@ -804,16 +804,40 @@ enum App {
     /// The macOS app: `DaemonConnection.swift` (identify, set-client-info, subscribe deltas) and
     /// `AttachSurfaceRequest` (`Input.swift`: `mode: "bytes"`, the view's size).
     Macos,
+    /// The phone with Settings > Transport > Agent CLI Screen Changes on, as #44619 declares it:
+    /// the hybrid frames (`agent-cli-hybrid-v1`, lean `-v2`), a shell as lean lines
+    /// (`terminal-shell-lines-v1`) and coalesced PTY output (`attach-output-coalesce-v1`).
+    IosLean,
 }
+
+/// What the lean phone adds to `client_info`'s capabilities.
+const LEAN_CAPABILITIES: &[&str] = &[
+    "agent-cli-hybrid-v1",
+    "agent-cli-hybrid-v2",
+    "terminal-shell-lines-v1",
+    "attach-output-coalesce-v1",
+];
 
 impl App {
     fn name(self) -> &'static str {
-        if self == App::Ios { "ios" } else { "macos" }
+        match self {
+            App::Ios => "ios",
+            App::IosLean => "ios-lean",
+            App::Macos => "macos",
+        }
+    }
+
+    fn of(name: &str) -> Self {
+        match name {
+            "macos" => App::Macos,
+            "ios-lean" => App::IosLean,
+            _ => App::Ios,
+        }
     }
 
     fn control(self) -> Vec<(&'static str, Value)> {
         match self {
-            App::Ios => vec![
+            App::Ios | App::IosLean => vec![
                 (
                     "set-client-info",
                     json!({"name": "bench", "kind": "ios", "device_kind": "iphone",
@@ -837,6 +861,12 @@ impl App {
     fn setup(self) -> Vec<(&'static str, Value)> {
         match self {
             App::Ios => vec![("set-client-info", client_info()), ("identify", json!({}))],
+            App::IosLean => {
+                let mut info = client_info();
+                let caps = info["capabilities"].as_array_mut().unwrap();
+                caps.extend(LEAN_CAPABILITIES.iter().map(|c| json!(c)));
+                vec![("set-client-info", info), ("identify", json!({}))]
+            }
             App::Macos => vec![
                 ("identify", json!({})),
                 ("set-client-info", json!({"name": "cmux-next", "kind": "macos"})),
@@ -846,7 +876,7 @@ impl App {
 
     fn attach(self, surface: u64) -> Value {
         match self {
-            App::Ios => attach_params(surface),
+            App::Ios | App::IosLean => attach_params(surface),
             App::Macos => json!({"surface": surface, "mode": "bytes", "cols": 120, "rows": 40}),
         }
     }
@@ -920,8 +950,8 @@ fn terminal_bytes_per_minute() {
         tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build().unwrap();
     runtime.block_on(async {
         let upstream = splice(&daemon.socket).await;
-        for app_name in env_list("NETCOND_BW_APPS", "ios,macos") {
-            let app = if app_name == "macos" { App::Macos } else { App::Ios };
+        for app_name in env_list("NETCOND_BW_APPS", "ios,ios-lean,macos") {
+            let app = App::of(&app_name);
             let idle = daemon.tab("exec cat");
             let burst = daemon.tab(
                 "read go; seq 1 200000; i=0; while :; do i=$((i+1)); printf 'trickle %06d\\n' $i; sleep 1; done",
@@ -971,6 +1001,10 @@ fn terminal_bytes_per_minute() {
             tokio::time::sleep(Duration::from_secs(secs)).await;
             let (taps, wire) = take(&control, &conn);
             emit_rates(&profile, "bw_burst", app, &taps, wire, Some(t0.elapsed().as_secs_f64()));
+            // The trickle ends, so the next app's idle terminal is idle.
+            let ctrl_c = base64::engine::general_purpose::STANDARD.encode([3u8]);
+            let _ = conn.send(vec![("send", json!({"surface": burst, "bytes": ctrl_c}))]).await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
     });
     drop(runtime);
