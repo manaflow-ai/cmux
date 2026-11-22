@@ -39,6 +39,10 @@ BUILDER_SCRIPT = "cmux-next-ios/scripts/testflight-build.sh"
 # commit on BUILDER_REF: failures on an older builder do not hold the first build on the new one.
 FAILURE_BACKOFF_START = dt.timedelta(minutes=30)
 FAILURE_BACKOFF_MAX = dt.timedelta(hours=6)
+# At most one upload per MIN_UPLOAD_GAP, counted from the newest successful or in-flight build's dispatch. Every
+# upload mails App Store Connect's notices to the team (2026-11-22: eight cmux INTERNAL uploads in five hours, each
+# an ITMS-90725 email). A person's dispatch (force) skips the gap.
+MIN_UPLOAD_GAP = dt.timedelta(hours=3)
 
 # Paths that change the iPhone app besides the local packages CmuxMobileKit names.
 STATIC_PREFIXES = (
@@ -190,6 +194,11 @@ def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_i
         if not moved and now - failed_at < wait:
             return Decision(False, f"BLOCKED: {streak} builds failed in a row (newest run {run_id}); backing off "
                                    f"{wait} after it, until {(failed_at + wait).isoformat()}", base)
+    recent = next((r for r in runs if r.get("conclusion") == "success" or r.get("status") != "completed"), None)
+    if recent and not force and now - _parse(recent["created_at"]) < MIN_UPLOAD_GAP:
+        due = _parse(recent["created_at"]) + MIN_UPLOAD_GAP
+        return Decision(False, f"run {recent.get('id')} of {recent['sha'][:12]} started under {MIN_UPLOAD_GAP} ago; "
+                               f"the next upload waits until {due.isoformat()}", base)
     if last_ok is None:
         return Decision(True, "no upload yet from this builder", base)
     if changed is None:

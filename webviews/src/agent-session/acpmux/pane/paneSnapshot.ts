@@ -1,3 +1,4 @@
+import { startDevMotionAudit } from "../devMotionAudit";
 import { openFork, openInOwnTab } from "../conversation/openFork";
 import React from "react";
 import { restoreForkSource } from "../handoff/restoreForkSource";
@@ -1097,6 +1098,8 @@ export function paneSnapshotEffect({
       setPreviewHost(host.transport === "preview");
       // Links copy in this build's scheme; only the hostless mock page falls back to Release's.
       setLinkScheme(host.linkScheme, mock ? FALLBACK_LINK_SCHEME : undefined);
+      // Dev builds judge every layout move against the layout-motion contract (devMotionAudit.ts).
+      if (!mock) startDevMotionAudit(host.linkScheme);
       if (mock) markMockPage();
       if (mock)
         setCheckpointVariant(
