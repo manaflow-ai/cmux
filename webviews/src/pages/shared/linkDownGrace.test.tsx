@@ -9,7 +9,7 @@
 import { act, type ReactNode } from "react";
 import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { CONNECTION_QUIET_MS, LASTING_MS } from "../../ui/lasting";
+import { CONNECTION_QUIET_MS } from "../../ui/lasting";
 import { teardownDom } from "../../../test/support/domTeardown";
 import { installVirtualSizes } from "../../../test/support/virtualSizes";
 import { createStrings } from "./i18n";

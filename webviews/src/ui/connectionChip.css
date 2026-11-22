@@ -4,26 +4,19 @@
   position: fixed;
   top: 8px;
   right: 12px;
-  z-index: 5;
+  /* Above sticky page headers, so a header never covers the dot; below dialogs and menus. */
+  z-index: var(--layer-overlay);
   display: block;
   width: 8px;
-  height: 8px;
+  aspect-ratio: 1;
   pointer-events: auto;
 }
 
 .ui-connection-chip__dot {
   display: block;
   width: 8px;
-  height: 8px;
+  aspect-ratio: 1;
   border-radius: 999px;
   background: var(--ds-color-attention, var(--warning, currentColor));
 }
 
-.ui-connection-chip__text {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}

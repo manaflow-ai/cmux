@@ -26,7 +26,7 @@ export function ConnectionChip({
       title={text}
     >
       <span className="ui-connection-chip__dot" aria-hidden="true" />
-      <span className="ui-connection-chip__text">{text}</span>
+      <span className="visually-hidden">{text}</span>
     </output>
   );
 }
