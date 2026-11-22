@@ -83,12 +83,12 @@
 //                       while the copy shows: a press ends the copy (chatSnapshot/live.ts `reportChatSnapshot`).
 // Each round also notes `composerLiveMs` (when the live composer first showed through the copy: liveComposer.ts);
 // HOLE_PIXELS=1 (Chromium) screencasts each relaunch and counts the pixels that differ between the frames either side.
+// LIVE_LOG=1 prints each change of the live snapshot (connection, sessionId, summary, modes) in 400-2500 ms.
 /// <reference types="bun" />
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { PNG } from "pngjs";
 import { chromium, webkit } from "./browsers";
 import type { Browser, Page } from "playwright";
 import {
@@ -288,29 +288,43 @@ const PRESS_AFTER_MS = 100;
 /// HOLE_PIXELS=1 (Chromium): a screencast of each relaunch, and the pixels that differ between the last frame before the
 /// live composer showed through the copy (chatSnapshot/liveComposer.ts, `composer_live_ms`) and the first after it.
 const HOLE_PIXELS = process.env.HOLE_PIXELS === "1";
-/// The pixels that differ between two screencast PNGs (any channel), and their bounding box.
-function pixelDiff(a: string, b: string): { changed: number; box: number[] | null } {
-  const one = PNG.sync.read(Buffer.from(a, "base64"));
-  const two = PNG.sync.read(Buffer.from(b, "base64"));
-  if (one.width !== two.width || one.height !== two.height) return { changed: -1, box: null };
-  let changed = 0;
-  let [x0, y0, x1, y1] = [Infinity, Infinity, -1, -1];
-  for (let y = 0; y < one.height; y += 1)
-    for (let x = 0; x < one.width; x += 1) {
-      const at = (y * one.width + x) * 4;
-      if (
-        one.data[at] === two.data[at] &&
-        one.data[at + 1] === two.data[at + 1] &&
-        one.data[at + 2] === two.data[at + 2]
-      )
-        continue;
-      changed += 1;
-      x0 = Math.min(x0, x);
-      y0 = Math.min(y0, y);
-      x1 = Math.max(x1, x);
-      y1 = Math.max(y1, y);
-    }
-  return { changed, box: changed ? [x0, y0, x1 - x0 + 1, y1 - y0 + 1] : null };
+/// LIVE_LOG=1: print each change of the live snapshot (connection, chat, summary, modes) in 400-2500 ms.
+const LIVE_LOG = process.env.LIVE_LOG === "1";
+/// The pixels that differ between two screencast PNGs (any channel), and their bounding box: decoded by the
+/// page's own image decoder, so the bench needs no PNG package.
+async function pixelDiff(page: Page, a: string, b: string): Promise<{ changed: number; box: number[] | null }> {
+  return page.evaluate(
+    async ([one, two]) => {
+      const pixels = async (data: string) => {
+        const image = await createImageBitmap(await (await fetch(`data:image/png;base64,${data}`)).blob());
+        const canvas = new OffscreenCanvas(image.width, image.height);
+        const context = canvas.getContext("2d")!;
+        context.drawImage(image, 0, 0);
+        return context.getImageData(0, 0, image.width, image.height);
+      };
+      const [first, second] = [await pixels(one), await pixels(two)];
+      if (first.width !== second.width || first.height !== second.height) return { changed: -1, box: null };
+      let changed = 0;
+      let [x0, y0, x1, y1] = [Infinity, Infinity, -1, -1];
+      for (let y = 0; y < first.height; y += 1)
+        for (let x = 0; x < first.width; x += 1) {
+          const at = (y * first.width + x) * 4;
+          if (
+            first.data[at] === second.data[at] &&
+            first.data[at + 1] === second.data[at + 1] &&
+            first.data[at + 2] === second.data[at + 2]
+          )
+            continue;
+          changed += 1;
+          x0 = Math.min(x0, x);
+          y0 = Math.min(y0, y);
+          x1 = Math.max(x1, x);
+          y1 = Math.max(y1, y);
+        }
+      return { changed, box: changed ? [x0, y0, x1 - x0 + 1, y1 - y0 + 1] : null };
+    },
+    [a, b] as const,
+  );
 }
 /// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
 /// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
@@ -374,7 +388,40 @@ type Painted = FrameRecord & {
   /// copy, the live composer through the copy's hole (`hole`, chatSnapshot/liveComposer.ts), the live page.
   chips: Chip[];
   chipLayer: Layer;
+  /// The live chat's snapshot (DEBUG automation view): its connection, chat, and whether summary and its modes are set.
+  live: LiveState | null;
 };
+type LiveState = { connection: string | null; sessionId: string | null; summary: boolean; modes: string | null };
+/// The spans (ms from navigation) the copy's composer was a hole the live composer showed through, and their total.
+function holeSpans(frames: Painted[]): { spans: [number, number][]; openMs: number } {
+  const spans: [number, number][] = [];
+  for (const [at, frame] of frames.entries()) {
+    if (frame.chipLayer !== "hole") continue;
+    const end = frames[at + 1]?.t ?? frame.t;
+    const last = spans.at(-1);
+    if (last && frames[at - 1]?.chipLayer === "hole") last[1] = Math.round(end);
+    else spans.push([Math.round(frame.t), Math.round(end)]);
+  }
+  return { spans, openMs: spans.reduce((sum, [from, to]) => sum + to - from, 0) };
+}
+/// LIVE_LOG=1: each change of the live snapshot's state in 400-2500 ms, as `ms layer connection sessionId summary modes`.
+function liveLog(frames: Painted[]): string[] {
+  const lines: string[] = [];
+  let was = "";
+  for (const frame of frames) {
+    if (frame.t < 400 || frame.t > 2500) continue;
+    const live = frame.live;
+    const now = live
+      ? `${live.connection} ${live.sessionId ?? "-"} summary=${live.summary ? "yes" : "no"} modes=${live.modes ?? "no"}`
+      : "no debug view";
+    const chips = frame.chips.map((chip) => chip.slot).join(",") || "-";
+    const line = `${frame.chipLayer} ${now} chips=${chips}`;
+    if (line === was) continue;
+    was = line;
+    lines.push(`${Math.round(frame.t)} ${line}`);
+  }
+  return lines;
+}
 /// One composer chip as painted: its slot (access, model, effort, harness, location:KIND) and its visible words.
 type Chip = { slot: string; label: string };
 /// The layer a frame was read from: the copy, the live page, or nothing (the live root held clear, no copy).
@@ -609,17 +656,44 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
     rootHidden: boolean;
     chips: Chip[];
     chipLayer: string;
+    live: LiveState | null;
   };
   let stopped = false;
-  /// Painted: a box, and no ancestor up to the layer's root hidden or clear.
+  /// Painted: a box, visible itself, and no ancestor up to the layer's root gone or clear. `visibility` is
+  /// read on the element alone: it inherits, and a child may set it back (liveComposer.ts shows the composer's
+  /// box in a hidden root).
   const painted = (element: Element): boolean => {
     const box = element.getBoundingClientRect();
     if (box.width <= 0 || box.height <= 0) return false;
+    if (getComputedStyle(element).visibility === "hidden") return false;
     for (let at: Element | null = element; at; at = at.parentElement) {
       const style = getComputedStyle(at);
-      if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return false;
+      if (style.display === "none" || Number(style.opacity) === 0) return false;
     }
     return true;
+  };
+  /// The live chat's snapshot this frame (the DEBUG automation view, App.tsx): what its chips draw from.
+  const liveState = () => {
+    const snapshot = (
+      window as unknown as {
+        cmuxAcpmuxDebug?: {
+          automation?: {
+            snapshot(): {
+              connection?: string;
+              sessionId?: string;
+              summary?: { modes?: { currentModeId?: string } };
+            };
+          };
+        };
+      }
+    ).cmuxAcpmuxDebug?.automation?.snapshot();
+    if (!snapshot) return null;
+    return {
+      connection: snapshot.connection ?? null,
+      sessionId: snapshot.sessionId ?? null,
+      summary: !!snapshot.summary,
+      modes: snapshot.summary?.modes?.currentModeId ?? (snapshot.summary?.modes ? "set" : null),
+    };
   };
   const words = (element: Element) =>
     (element.getAttribute("data-label") ?? element.textContent ?? "").trim().replace(/\s+/g, " ");
@@ -742,6 +816,7 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
       // then the chips drawn are the live page's.
       chips: rootHidden ? [] : readChips(host?.style.clipPath ? document : scope),
       chipLayer: rootHidden ? "hidden" : host ? (host.style.clipPath ? "hole" : "copy") : "live",
+      live: liveState(),
     };
   };
   window.cmuxAfterPaint(() => {
@@ -1594,7 +1669,7 @@ try {
         earlyChangeMs: since(load.earlyChangeAt),
         earlyChangeMissed: load.earlyChangeMissed,
         composerLiveMs: got.shown?.composerAt ?? null,
-        hole: (() => {
+        hole: await (async () => {
           const at = got.shown?.composerAt;
           if (!cast || at === undefined) return null;
           const epoch = got.origin + at;
@@ -1604,7 +1679,7 @@ try {
           return {
             beforeMs: Math.round(before.at - got.origin),
             afterMs: Math.round(after.at - got.origin),
-            ...pixelDiff(before.data, after.data),
+            ...(await pixelDiff(page, before.data, after.data)),
           };
         })(),
         frames: got.frames,
@@ -1820,6 +1895,7 @@ try {
         earlyChangeMissed: r.earlyChangeMissed,
         composerLiveMs: r.composerLiveMs === null ? null : Math.round(r.composerLiveMs),
         hole: r.hole,
+        holeOpen: holeSpans(r.frames),
         press: r.press,
         firstChips: r.frames.find((frame) => frame.rows.length > 0)?.chips ?? [],
         lastChips: r.frames.at(-1)?.chips ?? [],
@@ -1828,6 +1904,9 @@ try {
       })),
     };
     console.log(`CHIPS_VANISHED_JSON ${JSON.stringify(chipsRow)}`);
+    if (LIVE_LOG)
+      for (const [at, r] of rounds.entries())
+        for (const line of liveLog(r.frames)) console.log(`  round ${at + 1} live ${line}`);
     for (const [at, r] of rounds.entries())
       for (const gone of r.chips.vanished)
         console.log(

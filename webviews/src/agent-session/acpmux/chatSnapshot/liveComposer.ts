@@ -31,11 +31,37 @@ const EDIT_KEYS = new Set([
   "arrowdown",
 ]);
 
-type Carved = { doc: Document; box: HTMLElement; host: HTMLElement };
+type Carved = { doc: Document; box: HTMLElement; host: HTMLElement; copy: HTMLElement };
 let carved: Carved | undefined;
+/// The copies whose hole showed once: the person may have typed in the live box since, so its draft
+/// is no longer the copy's and only what is around the editor is compared again.
+const shownIn = new WeakSet<HTMLElement>();
 
 function words(element: Element): string {
   return (element.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+
+/// The box's words outside its editor: the chips and buttons, which the person does not type.
+function around(box: Element): string {
+  let text = "";
+  const walk = (node: Node) => {
+    if (node.nodeType === 3) text += node.nodeValue ?? "";
+    else if (node.nodeType === 1 && !(node as Element).matches(EDITOR)) node.childNodes.forEach(walk);
+  };
+  walk(box);
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/// Whether the live box still draws what the copy drew around the editor, where the copy drew it.
+function stillSame(target: Carved): boolean {
+  const at = target.box.getBoundingClientRect();
+  const was = target.copy.getBoundingClientRect();
+  return (
+    Math.abs(at.left - was.left) <= FIT_PX &&
+    Math.abs(at.width - was.width) <= FIT_PX &&
+    Math.abs(at.bottom - was.bottom) <= FIT_PX &&
+    around(target.box) === around(target.copy)
+  );
 }
 
 function near(a: DOMRect, b: DOMRect): boolean {
@@ -69,9 +95,11 @@ export function showsLiveComposer(): boolean {
 }
 
 /// Shows the live composer's box through the copy when it is the box the copy drew (same place, same
-/// words, with an editor in it); keeps the hole over it once it does. True while it shows.
+/// words, with an editor in it); keeps the hole over it while what is around the editor stays what the
+/// copy drew (a chip the live page drops, or a box that moves, puts the copy back whole in the same
+/// frame, so nothing the copy showed goes). True while it shows.
 export function fitLiveComposer(doc: Document = document): boolean {
-  if (carved && !showsLiveComposer()) undoLiveComposer();
+  if (carved && (!showsLiveComposer() || !stillSame(carved))) undoLiveComposer();
   if (carved) {
     cut(carved);
     return true;
@@ -85,9 +113,14 @@ export function fitLiveComposer(doc: Document = document): boolean {
   // The copy is laid out hidden until its sheets load (paint.ts): no hole in a copy that does not show.
   if (host.style.visibility === "hidden") return false;
   const at = box.getBoundingClientRect();
-  if (at.width <= 0 || at.height <= 0 || !near(at, copy.getBoundingClientRect())) return false;
-  if (words(box) !== words(copy)) return false;
-  carved = { doc, box, host };
+  if (at.width <= 0 || at.height <= 0) return false;
+  const fresh = { doc, box, host, copy };
+  // The first time, the whole box is the copy's, draft and all. After it showed once, the draft is
+  // the person's and the box grows upward with it: the rest must still be the copy's.
+  if (shownIn.has(host) ? !stillSame(fresh) : !near(at, copy.getBoundingClientRect()) || words(box) !== words(copy))
+    return false;
+  carved = fresh;
+  shownIn.add(host);
   // The live root is under the copy at opacity 0 (paint.ts), which hides the box with it: hidden by
   // `visibility` instead, the box alone shows, and what is around it stays unseen under the copy.
   root.style.removeProperty("opacity");
@@ -154,7 +187,12 @@ export function watchLiveComposer(doc: Document = document): () => void {
   const ask = () => {
     if (frame === undefined && !stopped) frame = view.requestAnimationFrame(check);
   };
-  const observer = new view.MutationObserver(ask);
+  // A change that makes the live box other than the copy's closes the hole here, before the frame
+  // that would have shown it; the fit itself waits for the frame (it reads layout).
+  const observer = new view.MutationObserver(() => {
+    if (carved && around(carved.box) !== around(carved.copy)) undoLiveComposer();
+    ask();
+  });
   observer.observe(root, { subtree: true, childList: true, characterData: true });
   view.addEventListener("resize", ask);
   ask();
