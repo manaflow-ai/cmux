@@ -1714,6 +1714,7 @@ dependencies = [
 name = "cmux-customize"
 version = "0.1.0"
 dependencies = [
+ "cmux-action-catalog",
  "cmux-app-manifest",
  "cmux-config",
  "cmux-file-lock",
@@ -1883,6 +1884,7 @@ dependencies = [
 name = "cmux-follow-cam"
 version = "0.1.0"
 dependencies = [
+ "cmux-process",
  "serde",
  "serde_json",
 ]
@@ -2668,6 +2670,7 @@ dependencies = [
  "cmux-git",
  "cmux-holder",
  "cmux-host",
+ "cmux-host-budget",
  "cmux-json",
  "cmux-layout-reducer",
  "cmux-link",
@@ -2699,6 +2702,7 @@ dependencies = [
  "cmux-vm",
  "cmux-vm-pool",
  "cmux-vnc",
+ "cmux-web-pieces",
  "cmux-wg",
  "core-foundation 0.10.1",
  "crossbeam-channel",
@@ -3074,6 +3078,17 @@ dependencies = [
  "flate2",
  "getrandom 0.3.4",
  "num-bigint",
+]
+
+[[package]]
+name = "cmux-web-pieces"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-signed-envelope",
+ "ring",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
