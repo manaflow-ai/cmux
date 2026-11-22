@@ -117,12 +117,33 @@ fn pgid(pid: u32) -> Option<u32> {
 }
 
 /// Seconds since `lstart` (`ps`'s local-time start, e.g. `Sat Nov 21 15:40:03 2026`).
+///
+/// The local time goes through libc's `mktime`, never `chrono::Local`: on macOS chrono reads the
+/// zone through CoreFoundation's CFTimeZone, which the darwin cmux-tui build (linked on Linux
+/// against a CoreFoundation stub) does not have, so one `chrono::Local` fails the whole publish.
 fn age_secs(lstart: &str) -> Option<i64> {
-    use chrono::TimeZone as _;
+    use chrono::{Datelike as _, Timelike as _};
     let squeezed = lstart.split_whitespace().collect::<Vec<_>>().join(" ");
     let naive = chrono::NaiveDateTime::parse_from_str(&squeezed, "%a %b %d %H:%M:%S %Y").ok()?;
-    let at = chrono::Local.from_local_datetime(&naive).earliest()?;
-    Some((chrono::Local::now() - at).num_seconds().max(0))
+    // SAFETY: `tm` is plain data, for which all-zero is a valid value.
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    tm.tm_year = naive.year() - 1900;
+    tm.tm_mon = i32::try_from(naive.month0()).ok()?;
+    tm.tm_mday = i32::try_from(naive.day()).ok()?;
+    tm.tm_hour = i32::try_from(naive.hour()).ok()?;
+    tm.tm_min = i32::try_from(naive.minute()).ok()?;
+    tm.tm_sec = i32::try_from(naive.second()).ok()?;
+    tm.tm_isdst = -1;
+    // SAFETY: mktime only reads and normalizes the `tm` it is given.
+    let at: i64 = unsafe { libc::mktime(&raw mut tm) };
+    if at == -1 {
+        return None;
+    }
+    let now = i64::try_from(
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs(),
+    )
+    .ok()?;
+    Some((now - at).max(0))
 }
 
 /// What the daemon says about one session: its status and last update, when it answers.

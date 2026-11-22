@@ -110,7 +110,6 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
-  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -119,13 +118,14 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
+  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  withCloudStartFolder,
   withDraftFolder,
   shownCloudStartPick,
+  withCloudStartFolder,
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import {
@@ -603,8 +603,6 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
@@ -613,6 +611,8 @@ import {
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   pageOnOtherMachine,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
@@ -716,7 +716,7 @@ import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./sig
 import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
 import { ForkPendingLine } from "./ForkPendingLine";
-import { HostError, HostRecoveringLine, HostUnavailableLine, HostWaitingLine } from "./HostError";
+import { HostError, HostLineSlot, HostRecoveringLine, HostUnavailableLine, HostWaitingLine } from "./HostError";
 import { hostLineText } from "./hostLine";
 import {
   AcpmuxRestartGate,
@@ -3257,7 +3257,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           source,
           open,
           {
-            working: snapshot.isWorking,
+            // A window whose newer records are left (direct.ts `newerLeft`) ends in history: the running turn's
+            // live line is drawn under the chat's latest row, never under the window's last.
+            working: snapshot.isWorking && snapshot.canLoadNewer !== true,
             clockOffset: snapshot.clockOffsetMs,
             turnStartedAtMs: snapshot.turnStartedAtMs,
             sessionStatus,
@@ -3352,6 +3354,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     started,
     folds,
     snapshot.isWorking,
+    snapshot.canLoadNewer,
     snapshot.clockOffsetMs,
     snapshot.turnStartedAtMs,
     sessionStatus,
@@ -3477,7 +3480,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const merged = mergeInboxNotices(
       withEarlierPlan(hatPlanRow ? turnRowsShown.filter((row) => row !== hatPlanRow) : turnRowsShown, pinnedEarlier),
     );
-    const rows = withWaitingRows(merged, group ? [...people, group] : people);
+    // The waiting messages follow the chat's latest row, not a window's last (direct.ts `newerLeft`).
+    const rows = snapshot.canLoadNewer ? merged : withWaitingRows(merged, group ? [...people, group] : people);
     return childRows ? rows : btwNotes.rows(rows, snapshot.sessionId, btwSnapshot);
   }, [
     chatPresentation,
@@ -3489,6 +3493,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     btwNotes,
     btwSnapshot,
     snapshot.sessionId,
+    snapshot.canLoadNewer,
     shownSessionId,
   ]);
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
@@ -8979,6 +8984,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // The perf watch (perfReporter.ts): one status read on the page's first connect; off, nothing runs.
         perfReporter.attach((params) => client.perf(params));
         client.setFollowing(followingTranscript.current);
+        // A reader scrolled far up keeps the rows in view and the screens under them (direct.ts `shedNewerHeld`).
+        client.readerView = () => transcriptInView.current?.();
         client.toastSink = (text, kind) => (kind === "error" ? notices.failed(text) : notices.transient(text));
         connectedClients.connected(client);
         // connect() may have delivered its first snapshot before returning. Associate that
@@ -12389,6 +12396,29 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                             ) ?? Promise.resolve()
                                                                         : undefined
                                                                   }
+                                                                  canLoadNewer={
+                                                                    !workflowTranscript.rows &&
+                                                                    !childRows &&
+                                                                    snapshot.canLoadNewer === true
+                                                                  }
+                                                                  historyThrough={
+                                                                    childRows ? undefined : snapshot.historyThrough
+                                                                  }
+                                                                  later={childRows ? undefined : snapshot.laterPrompts}
+                                                                  onLoadNewer={
+                                                                    !childRows
+                                                                      ? () =>
+                                                                          directClient.current?.loadNewer() ??
+                                                                          Promise.resolve()
+                                                                      : undefined
+                                                                  }
+                                                                  onReturnToLatest={
+                                                                    !childRows
+                                                                      ? () =>
+                                                                          directClient.current?.returnToLatest() ??
+                                                                          Promise.resolve()
+                                                                      : undefined
+                                                                  }
                                                                   openAt={
                                                                     !childRows &&
                                                                     shownSessionId &&
@@ -12442,7 +12472,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                     snapshot.chatRead !== true
                                                                   }
                                                                   afterLatest={
-                                                                    childRows
+                                                                    childRows || snapshot.canLoadNewer
                                                                       ? undefined
                                                                       : afterLatestFooter(
                                                                           showOpenAppCard ? (
@@ -13787,17 +13817,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // While the pane gets its chat back on its own, one quiet line says so: "Restoring sessions…"
   // while the host says acpmux restores, "Reconnecting…" for a lost connection before the deadline.
   // A Restart acpmux in flight keeps its own line.
-  const hostLine = restartingAcpmux ? (
-    hostWaitOrError
-  ) : (
-    <HostRecoveringLine
-      relinkingSince={relinkingSince}
-      restoring={hostRestoring}
-      failureShown={hostErrorSaid}
-      // "Reconnecting…" stays until the waiting line, whose wait starts a moment later, replaces it.
-      waitingSince={hostWaitingSince}
-      otherwise={hostWaitOrError}
-    />
+  // It is drawn out of flow, in a slot that is always there (HostLineSlot): no state of it moves a row.
+  const hostLine = (
+    <HostLineSlot>
+      {restartingAcpmux ? (
+        hostWaitOrError
+      ) : (
+        <HostRecoveringLine
+          relinkingSince={relinkingSince}
+          restoring={hostRestoring}
+          failureShown={hostErrorSaid}
+          // "Reconnecting…" stays until the waiting line, whose wait starts a moment later, replaces it.
+          waitingSince={hostWaitingSince}
+          otherwise={hostWaitOrError}
+        />
+      )}
+    </HostLineSlot>
   );
   // A pending Fork Conversation and its Cancel, in the dock and in Quick Chat alike: Quick Chat's
   // menu forks too (review of #36979).
