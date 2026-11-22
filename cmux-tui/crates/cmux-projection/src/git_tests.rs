@@ -201,7 +201,7 @@ fn a_worktree_registered_on_a_branch_at_the_commit_keeps_its_branch() {
     // A branch that moved on is not the commit mounted: HEAD is the commit, detached.
     std::fs::write(work.join("README.md"), "moved\n").unwrap();
     run(&work, &["commit", "-q", "-am", "moved"]);
-    run(&work, &["branch", "-f", "lane/x", "HEAD"]);
+    run(&work, &["update-ref", "refs/heads/lane/x", "HEAD"]);
     Worktree::write(&git_dir, "mnt", &at, &commit, b"index", &[]).unwrap();
     assert_eq!(std::fs::read_to_string(admin.join("HEAD")).unwrap(), format!("{commit}\n"));
 }
