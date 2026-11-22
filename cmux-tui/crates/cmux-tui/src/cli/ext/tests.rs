@@ -1610,3 +1610,22 @@ fn the_new_tab_pick_reads_the_settings_file() {
     assert_eq!(dev::NewTabPick::of("{}"), dev::NewTabPick::default());
     assert_eq!(dev::NewTabPick::of("not json"), dev::NewTabPick::default());
 }
+
+#[test]
+fn ext_dev_probes_a_widget_at_each_size_it_declares_default_first() {
+    let widget = |options: Value| json!({ "implements": { "cmux.widget/1": { "export": "w", "options": options } } });
+    let sizes = |manifest: &Value| -> Vec<String> {
+        dev::probe_contexts(manifest, "cmux.widget/1")
+            .iter()
+            .map(|c| format!("{}:{}", c["place"].as_str().unwrap(), c["size"].as_str().unwrap()))
+            .collect()
+    };
+    let all = widget(json!({ "sizes": ["small", "medium", "large"], "defaultSize": "medium" }));
+    assert_eq!(sizes(&all), ["newtab:medium", "newtab:small", "newtab:large"]);
+    // The sidebar holds small and medium: a sidebar-only widget is not probed large.
+    let sidebar = widget(json!({ "sizes": ["large", "small"], "places": ["sidebar"] }));
+    assert_eq!(sizes(&sidebar), ["sidebar:small"]);
+    assert_eq!(sizes(&widget(json!({}))), ["newtab:small"]);
+    // Any other view mounts once, with no context.
+    assert_eq!(dev::probe_contexts(&json!({}), "cmux.pane/1"), vec![json!({})]);
+}
