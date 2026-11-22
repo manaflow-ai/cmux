@@ -28,6 +28,7 @@ enum AppearanceHandlers {
             let route = SettingsDeepLink.appearanceRoute(background: true, workspace: context.scope(invocation).workspace?.id)
             try context.services.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: route)
         })
+        BackgroundPlacementHandlers.bind(into: registry, context: context)
         let save: SettingChoiceActions.Save = { path, value in
             if let managed = context.services.settings?.managedKey(forPath: path) { return RefusalStrings.settingManaged(managed.key) }
             context.writeSetting("set \(path.joined(separator: "."))", path, value, reloadOnFailure: true)

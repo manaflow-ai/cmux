@@ -1,6 +1,6 @@
-import AppKit
+public import AppKit
 import CmuxNextCompat
-import CmuxNextDesignTokens
+public import CmuxNextDesignTokens
 
 /// Where the picture lies (`appearance.backgroundPlacement`, Leo 2026-11-22: "we also want people to
 /// be able to reposition the images easily"). A picture with no entry keeps the art view's own look:
@@ -18,6 +18,12 @@ extension WindowMaterialView {
 
     /// The shown picture's size in points (nil without art), what Adjust Background… drags against.
     public var placementImageSize: CGSize? { artImage?.size }
+
+    /// The id `appearance.backgroundPlacement` keys the shown picture by; nil without a picture.
+    public var placementPictureID: String? {
+        let id = shownPictureID
+        return id.isEmpty || artImage == nil ? nil : id
+    }
 
     /// Lays the art out again whenever `appearance.backgroundPlacement` changes
     /// (``DesignSettings/backgroundPlacements``, Observation).
