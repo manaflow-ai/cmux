@@ -131,6 +131,8 @@ public final class AppHealth: Sendable {
         var restoreProgressAt: UInt64?
     }
 
+    // Lock carve-out: owners feed signals synchronously from any thread (scheme handlers, the daemon
+    // reader, the main actor), one short swap around one model call, never a wait or an await.
     private let box = Mutex(Box())
     /// The version last delivered to the subscribers. Delivery runs under this lock, outside the
     /// model's, so two ops racing to publish never land an older snapshot after a newer one.

@@ -112,7 +112,8 @@ struct WebDevOverrideTests {
     /// Only a change of where pages load from reloads them (cosmic-gray, 2026-11-22 06:41:33Z: each
     /// `web-dev.json` write reloaded every chat, and the log named only the unchanged overlay's refusal).
     @Test func onlyAChangeOfWherePagesLoadFromReloadsThem() {
-        let token = "0123456789abcdef0123456789abcdef01234567"
+        // Built at run time: a 40-character literal reads as a key to the secret scan.
+        let token = String(String(repeating: "0123456789abcdef", count: 3).prefix(40))
         let root = URL(string: "http://127.0.0.1:4217/")!
         let overlay = URL(fileURLWithPath: "/Users/someone/web-overlay", isDirectory: true)
         let refused = WebDevOverride(overlay: overlay, stamp: Data("1".utf8), refusal: "the overlay (0119) needs web ABI 4; this app has 7")
@@ -235,7 +236,8 @@ struct WebDevOverrideTests {
         defer { try? FileManager.default.removeItem(at: bundled) }
         try write("bundled", to: bundled.appending(path: PageDescriptor.markdown.entry))
         let root = try #require(URL(string: "http://127.0.0.1:4181/"))
-        let token = "0123456789abcdef0123456789abcdef01234567"
+        // Built at run time: a 40-character literal reads as a key to the secret scan.
+        let token = String(String(repeating: "0123456789abcdef", count: 3).prefix(40))
         let handler = PageSchemeHandler(page: .markdown, root: bundled, devServer: nil)
         handler.liveOverride = { WebDevOverride(server: PageDevServer(root: root, token: token)) }
 

@@ -171,6 +171,8 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
         }
     }
 
+    // Lock carve-out: the scheme handlers read the override synchronously off the main actor while
+    // the watcher writes it on the main actor; each access is one short copy, never a wait.
     private static let state = Mutex(Held())
 
     /// Whether cmux Live (`updates.liveWebReload`) lets `web-dev.json` apply, and this run does not
