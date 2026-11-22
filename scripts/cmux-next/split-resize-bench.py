@@ -93,7 +93,8 @@ def sight(driver) -> dict:
     """Whether the app's windows can get display frames now: the app active, and each main window shown, on screen and
     not covered. A window out of sight (FrameScheduler.windowIsOutOfSight: the app inactive and the window covered,
     minimized or ordered out) gets no frame ticks, and a divider drag's moves wait for one (DividerDrag.waitForFrame):
-    on 2026-11-20 (cmux20-bench, steps d315c76a and bee050aa) every drag's divider stood still until the release."""
+    the still dividers of steps d315c76a and bee050aa (2026-11-20) were not that but the gesture's trace ending early
+    (split_resize.from_point); the sight is still recorded with each drag."""
     focus = driver.call("debug.focus", {}, timeout=10)
     windows = driver.call("debug.window_list", {}, timeout=10).get("windows") or []
     return {"app_active": focus.get("app_active"),
