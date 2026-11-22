@@ -11,6 +11,21 @@
       "note": "Settings > Advanced > Labs: surfaces still being shaped, off by default.",
       "rows": [
         {
+          "key": "labs.launchShellFirst",
+          "name": "launchShellFirst",
+          "title": {
+            "key": "settings.labs.launchShellFirst",
+            "text": "Show Window Shell at Launch"
+          },
+          "help": {
+            "key": "settings.labs.launchShellFirst.help",
+            "text": "Show the saved window frame while cmux restores its content on the next launch."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": ["launch", "restore", "window", "startup"]
+        },
+        {
           "key": "labs.previewFeatures",
           "note": "Surfaces still being shaped (the App Store, the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.",
           "title": {

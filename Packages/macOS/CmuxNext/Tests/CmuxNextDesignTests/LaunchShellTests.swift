@@ -66,4 +66,18 @@ struct LaunchShellTests {
         #expect(LaunchShellPaths.build(info: ["CFBundleVersion": "1/../2 x"]) == "1..2x")
         #expect(LaunchShellPaths.build(info: [:]) == "unknown")
     }
+
+    /// Labs > Show Window Shell at Launch reaches stage 0 as one file: on makes it (and its folder),
+    /// off removes it, and both are idempotent.
+    @Test func optInFileFollowsTheSetting() async throws {
+        let folder = FileManager().temporaryDirectory.appending(path: "launch-shell-optin-\(UUID().uuidString)/com.example.app", directoryHint: .isDirectory)
+        defer { try? FileManager().removeItem(at: folder.deletingLastPathComponent()) }
+        #expect(!LaunchShellPaths.isOptedIn(support: folder))
+        #expect(await LaunchShellPaths.setOptedIn(true, support: folder))
+        #expect(await LaunchShellPaths.setOptedIn(true, support: folder))
+        #expect(LaunchShellPaths.isOptedIn(support: folder))
+        #expect(await LaunchShellPaths.setOptedIn(false, support: folder))
+        #expect(await LaunchShellPaths.setOptedIn(false, support: folder))
+        #expect(!LaunchShellPaths.isOptedIn(support: folder))
+    }
 }

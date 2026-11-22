@@ -51,10 +51,11 @@ public final class LaunchShell {
     /// Info.plist build); nil (an agent launch, a test window, an update relaunch behind) shows nothing.
     /// `session` is the daemon session name: with it, stage 0 shows no image of another session's windows.
     public static func atLaunch(bundleID: String?, session: String?, mark: @escaping @Sendable (String) -> Void) -> LaunchShell {
-        guard let bundleID, let support = FileManager().urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return LaunchShell(prepared: nil, mark: mark)
-        }
-        return prepare(support: support.appending(path: bundleID, directoryHint: .isDirectory), appSupport: support, session: session,
+        guard let bundleID else { return LaunchShell(prepared: nil, mark: mark) }
+        let support = NextSupport.applicationSupportDirectory(), folder = support.appending(path: bundleID, directoryHint: .isDirectory)
+        // Labs > Show Window Shell at Launch (`labs.launchShellFirst`, off by default): one stat, no settings read.
+        guard LaunchShellPaths.isOptedIn(support: folder) else { mark("launch_shell.off"); return LaunchShell(prepared: nil, mark: mark) }
+        return prepare(support: folder, appSupport: support, session: session,
                        build: LaunchShellPaths.build(info: Bundle.main.infoDictionary ?? [:]), mark: mark)
     }
 
@@ -247,8 +248,36 @@ public struct LaunchShellLook {
 
 /// The launch record's and the image store's paths in the app's Application Support folder.
 public enum LaunchShellPaths {
-    public static func record(in support: URL) -> URL { support.appending(path: "launch-record.bin", directoryHint: .notDirectory) }
-    public static func images(in support: URL) -> URL { support.appending(path: "launch-images", directoryHint: .isDirectory) }
+    public nonisolated static func record(in support: URL) -> URL { support.appending(path: "launch-record.bin", directoryHint: .notDirectory) }
+    public nonisolated static func images(in support: URL) -> URL { support.appending(path: "launch-images", directoryHint: .isDirectory) }
+    /// Present while Labs > Show Window Shell at Launch (`labs.launchShellFirst`) is on: stage 0 checks
+    /// this one file at launch instead of reading the settings, which it may not.
+    public nonisolated static func optIn(in support: URL) -> URL { support.appending(path: "launch-shell-first.on", directoryHint: .notDirectory) }
+    public nonisolated static func isOptedIn(support: URL) -> Bool { FileManager().fileExists(atPath: optIn(in: support).path) }
+
+    /// Makes or removes the opt-in file to match the setting, for the next launch. Off the main
+    /// thread; a failed write leaves the next launch as it was (logged by the caller's mark).
+    public nonisolated static func setOptedIn(_ on: Bool, support folder: URL) async -> Bool {
+        await Task.detached(priority: .utility) {
+            let file = optIn(in: folder), files = FileManager()
+            if !on { return (try? files.removeItem(at: file)) != nil || !files.fileExists(atPath: file.path) }
+            if files.fileExists(atPath: file.path) { return true }
+            try? files.createDirectory(at: folder, withIntermediateDirectories: true)
+            return files.createFile(atPath: file.path, contents: Data())
+        }.value
+    }
+
+    /// Keeps the opt-in file matching `isOn` (Labs > Show Window Shell at Launch) for the next launch:
+    /// event-driven, one file write per change; ends when `isOn` gives nil (its owner went).
+    public static func follow(support: URL, isOn: @escaping @MainActor @Sendable () -> Bool?) {
+        // task-owner: ends when isOn gives nil (the app's services went); otherwise lives as long as the app
+        Task {
+            for await on in ObservationStream(isOn) {
+                guard let on else { return }
+                _ = await setOptedIn(on, support: support)
+            }
+        }
+    }
 
     /// The first part of every image key, from the bundle's version and commit: a new build never
     /// draws an old build's image. Only characters a key component allows (cmux-launch-shell `ImageKey`).
