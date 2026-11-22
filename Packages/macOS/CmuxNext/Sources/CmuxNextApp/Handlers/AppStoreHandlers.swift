@@ -78,6 +78,7 @@ enum AppStoreHandlers {
             registry.track(AppCommandPalette.run(entry, services: services, origin: invocation.origin))
         })
         for (id, hidden) in [("app.hide", true), ("app.unhide", false)] as [(ActionID, Bool)] { bindHidden(id, hidden) }
+        services.apps.client.installSafeModeActions(in: registry) // safeMode.enter, safeMode.leave
         registry.bindEffect("app.reloadCustomViews", requires: nil, effect: { _ in // the error card's Reload, for every local app
             if let reason = services.apps.client.unavailableReason { throw Self.unavailable(reason) }
             services.apps.client.reloadLocalApps(); return .done

@@ -21,6 +21,8 @@ struct BoundActionCatalogTests {
         // which adds these rows to the Rust catalog: until it lands and re-pins, they do nothing.
         "macScreen.viewOnly", "macScreen.fullControl", "macScreen.fullScreen", "macScreen.sendSwitchApp",
         "macScreen.sendSpotlight", "macScreen.reconnect", "macScreen.stopAllViewing",
+        // Safe mode's palette rows (this Swift step B ahead of its Rust step A, cmux-action-catalog `app_store.rs`).
+        "safeMode.enter", "safeMode.leave",
     ]
 
     @Test func everyBoundActionIsInTheCatalog() {

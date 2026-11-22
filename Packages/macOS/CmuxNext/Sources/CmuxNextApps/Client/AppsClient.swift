@@ -1,5 +1,6 @@
 public import Foundation
 public import Observation
+import CmuxNextWakeups
 
 /// Why a change was not sent.
 public nonisolated enum AppsClientError: Error, Sendable, Hashable, CustomStringConvertible {
@@ -54,6 +55,9 @@ public final class AppsClient {
     /// Apps whose log is followed (followed again after a reconnect).
     @ObservationIgnored var followed: Set<String> = []
     @ObservationIgnored let keyPrefix = UUID().uuidString.prefix(8).lowercased()
+    /// This app launch's safe mode reports (AppsClient+SafeMode.swift): sent once per process.
+    @ObservationIgnored var launchReport = LaunchReport.unreported
+    @ObservationIgnored let launchSettleTimer = DemandTimer(owner: "SafeModeLaunch.settled")
     /// The extensions' status items (`cmux.status/1`), listed from the first read on: every titlebar
     /// strip and the menu bar item's menu draw them; nothing shows unless an installed app contributes one.
     @ObservationIgnored public private(set) lazy var statusItems: AppStatusItems = {
@@ -246,6 +250,8 @@ public final class AppsClient {
         // A restarted supervisor may count revisions from scratch.
         projection.newConnection()
         hostStates.removeAll()
+        // Before any mount on the chain: a crash loop (or the held key) turns safe mode on first.
+        sendPendingLaunch()
         refresh()
         remountAll()
         for app in followed { followLogs(app) }

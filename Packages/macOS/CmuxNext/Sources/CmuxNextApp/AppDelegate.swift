@@ -411,6 +411,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.themes.followChromeTheme(settings)
         services.remoteLocalhost.follow(settings)
         services.bookmarks.follow(settings)
+        services.apps.client.reportLaunch(keys: NSEvent.modifierFlags, whenSettled: launchSettle.whenSettled) // safe mode: Shift held, crash loop
         services.apps.start()
         Task {
             await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4)) // control socket: after the first frames (cx-z9kz0)
