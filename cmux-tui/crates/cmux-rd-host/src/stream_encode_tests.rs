@@ -237,8 +237,7 @@ fn the_ultra_pacer_follows_the_controller_wire_rate() {
     let desktop =
         FakeDesktop { seen: seen.clone(), quiet: UnixStream::pair().expect("socket pair") };
     let encoder = BlockingEncoder { seen: seen.clone(), release: release_rx, first: true };
-    let cfg =
-        SessionCfg { encode_profile: cmux_rd_core::profile::EncodeProfile::Ultra, ..cfg() };
+    let cfg = SessionCfg { encode_profile: cmux_rd_core::profile::EncodeProfile::Ultra, ..cfg() };
     let mut session = MediaSession::with_desktop(
         Box::new(desktop),
         Box::new(encoder),
