@@ -293,11 +293,11 @@ await requireBrowserLane("transcript-fold-no-blank-space-browser.test.ts", async
 
     await toggle(page);
     const opened = await blankSpace(page);
-    // Adjacent runs draw as one line (turns.ts mergeShortNotes; Leo, 2026-11-12, ask-bc2af01f6e: "how come
-    // these aren't folded?"): the steps of only quiet thoughts join the calls beside them, so a4's calls
-    // draw under a3's line and no quiet-only step is left as a row of its own.
-    expect(opened.ids).toContain("a3");
-    for (const id of ["a4", "a5"]) expect(opened.ids).not.toContain(id);
+    // A step of only quiet thoughts draws no row once the turn ends (turns.ts drawsNoWork, #46787: "a
+    // turn with nothing to show draws no empty Worked for"): a3 and a5 are gone from the open fold, not
+    // left as rows of their own, and a4's calls draw on their own line under the edit run's copy.
+    expect(opened.ids).toContain("a4");
+    for (const id of ["a3", "a5"]) expect(opened.ids).not.toContain(id);
     expect(opened.blank).toEqual([]);
 
     await toggle(page);

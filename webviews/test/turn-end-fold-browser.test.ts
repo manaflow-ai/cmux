@@ -360,12 +360,14 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       expect(between).toBeGreaterThanOrEqual(3);
       const steps = folding.slice(1).map((sample, index) => sample.prompt - folding[index]!.prompt);
       expect(Math.max(...steps)).toBeLessThan((after.prompt - before.prompt) * 0.75);
-      // The work the fold takes away fades over several frames where it was, never gone in one. A
-      // copy is gone by COPY_GONE_AT (0.6) of the fold's progress on the settle curve
-      // (turnEndFold.ts; cubic-bezier(0.16, 1, 0.3, 1) over 180 ms), which reaches it in the
-      // fold's first three frames at 60 Hz: two frames draw it part-faded (0.52, then 0.17).
+      // The work the fold takes away fades where it was, never gone in one frame, and is gone before
+      // anything moves (exitLead.ts, #48554: Leo, 2026-11-21, "we must hide text faster and sooner"):
+      // its copy fades over the 40 ms exit lead on the house ease-out, a frame of it part-faded at
+      // 60 Hz, and the prompt starts down only once the copy is all but gone.
       expect(samples[from]!.work).toBeGreaterThan(0.5);
-      expect(folding.filter((sample) => sample.work > 0.05 && sample.work < 0.95).length).toBeGreaterThanOrEqual(2);
+      expect(folding.filter((sample) => sample.work > 0 && sample.work < 0.95).length).toBeGreaterThanOrEqual(1);
+      for (const sample of folding)
+        if (Math.abs(sample.prompt - before.prompt) > 0.5) expect(sample.work).toBeLessThan(0.05);
       expect(after.work).toBe(0);
       // The bottom stays pinned on every frame of the fold: the view stays at its end.
       for (const sample of folding) expect(sample.gap).toBeLessThanOrEqual(2);
