@@ -63,6 +63,9 @@ function FoldedThought({
   const { open } = fold;
   // Whether the closed line holds more words than it shows; kept while open (an open line is whole).
   const [cut, setCut] = useState(false);
+  // A row that opens is a button and one that does not is not: the line is a new node when that
+  // flips, so the watch follows it.
+  const opens = head.rest !== "" || cut || open;
   useLayoutEffect(() => {
     const node = line.current;
     if (!node || open) return;
@@ -73,7 +76,7 @@ function FoldedThought({
     const observer = new Observer(read);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [head.line, open]);
+  }, [head.line, open, opens]);
   // The line's height when the reader clicked, for the morph: only their toggle plays it.
   const from = useRef<number | undefined>(undefined);
   useLayoutEffect(() => {
@@ -89,8 +92,12 @@ function FoldedThought({
   }, [open]);
   const words = head.line || t("tools.thought");
   const lineClass = `cv-tool__text cv-thought__preview${head.title ? " is-title" : ""}${open ? " is-open" : ""}`;
-  const opens = head.rest !== "" || cut || open;
-  const meta = time && <span className="cv-tool__meta cv-thought__time">{time}</span>;
+  // Find counts the thought's words, not how long it took.
+  const meta = time && (
+    <span className="cv-tool__meta cv-thought__time" data-find-skip>
+      {time}
+    </span>
+  );
   if (!opens)
     return (
       <div className={`${className} is-whole`}>
