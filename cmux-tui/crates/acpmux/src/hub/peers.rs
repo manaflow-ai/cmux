@@ -1120,6 +1120,23 @@ impl Hub {
                     let Some(receipt) = session_receipt(&summary) else { return };
                     let id = receipt.qualified_id();
                     let announced;
+                    // The row is built (its tools kept, its text written) from the row last
+                    // published, before the locks: under them only a check that it is still the
+                    // row there, else built again from the one there. Built under the locks, every
+                    // peer's notices waited on each row's text (a round of 2000 sessions' turns).
+                    let base = self
+                        .remote_sessions
+                        .read()
+                        .find_mux(&peer, &mux_id)
+                        .map(|(_, r)| Arc::clone(r));
+                    // The tools a row takes from `base` are not its own: one built again starts
+                    // from the summary as it came.
+                    let previous = base.as_ref().map(|r| &r.summary);
+                    let mut plain = (summary.get("tools").is_none()
+                        && previous.is_some_and(|p| p.has_tools()))
+                    .then(|| summary.clone());
+                    summary = Self::retain_summary_tools(summary, previous);
+                    let mut row = PeerRow::new(&summary);
                     {
                         #[cfg(test)]
                         self.pause_after_peer_session_projection_for_test();
@@ -1133,11 +1150,14 @@ impl Hub {
                         current.purge_tombstones.changed(&mux_id);
                         let old_id = map.find_mux(&peer, &mux_id).map(|(key, _)| key.clone());
                         let previous = old_id.as_ref().and_then(|key| map.take(key));
-                        summary = Self::retain_summary_tools(
-                            summary,
-                            previous.as_ref().map(|r| &r.summary),
-                        );
-                        let row = PeerRow::new(&summary);
+                        if previous.as_ref().map(Arc::as_ptr) != base.as_ref().map(Arc::as_ptr) {
+                            // A writer came between the check and the lock: built here, as before.
+                            summary = Self::retain_summary_tools(
+                                plain.take().unwrap_or(summary),
+                                previous.as_ref().map(|r| &r.summary),
+                            );
+                            row = PeerRow::new(&summary);
+                        }
                         // The table's row and the announcement share its text.
                         announced = row.clone();
                         map.insert(

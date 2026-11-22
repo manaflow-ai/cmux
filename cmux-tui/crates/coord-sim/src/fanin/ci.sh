@@ -5,7 +5,7 @@
 # one controller, N sessions over HOSTS hosts) and copies the tables and raw samples to
 # $FAST_CHECKS_OUT. Defaults: ramps 50,200,2000, a 300 s window, 10 hosts, 3 fan-out rounds
 # (ROUNDS 0, or FANIN_FANOUT_ROUNDS=0, measures fan-in with no fan-out bursts). A 5th argument
-# `perf` builds acpmux with frame pointers and profiles the largest ramp's controller (perf.self.txt, perf.children.txt, perf.stacks.gz).
+# `perf` builds acpmux with frame pointers and profiles the largest ramp's controller (perf.self.txt, perf.children.txt, perf.stacks.gz, and offcpu.stacks.gz where sudo -n works).
 set -uo pipefail
 RAMPS=${1:-50,200,2000}
 WINDOW=${2:-300}
@@ -45,8 +45,22 @@ profile() {
   done
   [ -n "$pid" ] || { echo "FANIN perf: no controller for n=$top"; return; }
   echo "FANIN perf: recording controller pid $pid"
+  # Where its threads block (a lock, a full channel): each switch away, with its stack. A
+  # scheduler tracepoint, so it needs root; a runner without `sudo -n` keeps the CPU profile only.
+  local off=""
+  if sudo -n true 2>/dev/null; then
+    sudo -n perf record -e sched:sched_switch --call-graph fp -p "$pid" -o "$OUT/offcpu.data" \
+      -- sleep $((WINDOW + 30)) >"$OUT/offcpu.record.log" 2>&1 &
+    off=$!
+  fi
   # perf exits non-zero when the controller ends first: what it wrote is the profile either way.
   perf record -F 299 --call-graph fp -p "$pid" -o "$OUT/perf.data" -- sleep $((WINDOW + 30)) >"$OUT/perf.record.log" 2>&1
+  if [ -n "$off" ]; then
+    wait "$off"
+    sudo -n perf script -i "$OUT/offcpu.data" -F tid,time,ip,sym 2>/dev/null | gzip >"$OUT/offcpu.stacks.gz"
+    sudo -n rm -f "$OUT/offcpu.data"
+    echo "FANIN perf: off-CPU $(grep -o '([0-9]* samples)' "$OUT/offcpu.record.log")"
+  fi
   [ -s "$OUT/perf.data" ] || { echo "FANIN perf: record failed: $(tail -3 "$OUT/perf.record.log")"; return; }
   echo "FANIN perf: $(grep -o '([0-9]* samples)' "$OUT/perf.record.log")"
   perf report -i "$OUT/perf.data" --stdio --no-children --sort sym -g none --percent-limit 0.3 >"$OUT/perf.self.txt" 2>/dev/null
