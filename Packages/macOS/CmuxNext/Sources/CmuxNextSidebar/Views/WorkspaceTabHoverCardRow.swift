@@ -74,6 +74,8 @@ final class WorkspaceTabHoverCardRow: NSView {
         closeButton.isHidden = true
         closeButton.onPress = { [weak self] in self?.onClose?() }
         for view in [icon, title, detail, trailingLabel, activity, unreadDot, closeButton] { addSubview(view) }
+        HoverSwap.tag([closeButton], .action, in: self)
+        HoverSwap.tag([unreadDot, activity], .mark, in: self)
         addTrackingArea()
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
@@ -259,10 +261,11 @@ final class WorkspaceTabHoverCardRow: NSView {
 
     override func mouseEntered(with event: NSEvent) { isHovered = true }
 
-    /// The ✕ shows on the hovered row in the trailing slot, over the unread dot.
+    /// The ✕ shows on the hovered row in the trailing slot, in place of the unread dot; the status mark gives way too
+    /// (Leo 2026-11-22: "the dot shouldnt show up when i hover; the cross should be there instead", `HoverSwap`).
     private func updateCloseButton() {
         closeButton.isHidden = !isHovered || onClose == nil
-        unreadDot.alphaValue = closeButton.isHidden ? 1 : 0
+        for mark in [unreadDot, activity] as [NSView] { mark.alphaValue = closeButton.isHidden ? 1 : 0 }
     }
     override func mouseExited(with event: NSEvent) { isHovered = false }
     /// The press focuses the tab at once (Lawrence u2819: "why is mouse-down tab focus unimplemented?");

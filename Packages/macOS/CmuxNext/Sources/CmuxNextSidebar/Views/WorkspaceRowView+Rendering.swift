@@ -158,6 +158,8 @@ extension WorkspaceRowView {
         // counts, the keycap and the hover close and more sit left of it.
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus
+        // An agent mark that stands in for the status is a mark the hover actions replace; beside the title it is not.
+        if (HoverSwap.role(of: agentMark) == .mark) != markReplacesStatus { HoverSwap.tag([agentMark], markReplacesStatus ? .mark : nil, in: self) }
         // `experiments.agentBadges`: the status pill owns the column in the status mark's place, and every row keeps
         // the widest pill's slot while the pills are on, so no title moves as a pill comes, changes or goes.
         let pillEdge = layoutAgentBadges(rowWidth: b.width, cy: cy, full: full)
@@ -211,7 +213,10 @@ extension WorkspaceRowView {
         // "hover on pinned tab should not have close button, should only be able to close in right click"). Its ⋮
         // takes the x's place, as on a row that cannot close. The pin is read only while the controls show.
         setHoverShown(closeSlot, showClose, fades: controlFades)
-        setHoverPainted(badge, !(showClose || (showMore && !hoverCloses) || !badge.state.isUnread), fades: fades)
+        // The needs-you glow stands in for the unread mark, the row badge and the status (WorkspaceRowView+NeedsYouGlow).
+        let glows = showsNeedsYouGlow
+        marksLaidOutForGlow = glows
+        setHoverPainted(badge, !(glows || showClose || (showMore && !hoverCloses) || !badge.state.isUnread), fades: fades)
         // The keycap of one of the first rows takes the unread mark's slot when there is no mark.
         setHoverPainted(keycap, keycap.number != nil && !badge.state.isUnread && !(showClose || (showMore && !hoverCloses)), fades: fades)
         var badgeEdge: CGFloat?
@@ -341,7 +346,8 @@ extension WorkspaceRowView {
                 : (controlsShow && !keepsPlace) || (status && coverStart != nil) || coverStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
             // The usage warning never gives way (the layout keeps it left of the controls).
             let underControl = mark !== usageWarningMark && Self.covers(shownControls, mark)
-            fadeOpacity(mark, to: covered || underControl ? 0 : 1, fades: fades)
+            let glowHides = glows && (mark === activity || mark === rowBadge)
+            fadeOpacity(mark, to: covered || underControl || glowHides ? 0 : 1, fades: fades)
         }
         giveWayToControls(shownControls, fades: fades)
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)

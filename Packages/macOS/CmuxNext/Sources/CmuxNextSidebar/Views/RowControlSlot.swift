@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// A row control that is made the first time it shows (REOPEN-F7). A workspace row used to make its five hover and
 /// content controls (close, more, Unpin, tree fold, audio) with the row and keep them hidden. That is 140 views and
@@ -10,6 +11,8 @@ import AppKit
 /// `frame` here whether or not the control exists, so a control made later lands where the row last laid it out.
 final class RowControlSlot<Host: NSView, Control: NSView> {
     private let make: (Host) -> Control
+    /// A hover action (✕, ⋮, pin) is tagged for the hover-swap rule (`HoverSwap`) when it is made.
+    private let swapRole: HoverSwap.Role?
     private(set) var made: Control?
     /// Where the row's last layout put the control (a made control follows it at once).
     var frame: NSRect = .zero {
@@ -17,7 +20,7 @@ final class RowControlSlot<Host: NSView, Control: NSView> {
     }
 
     /// `make` gets the row, so the slot holds no reference to it.
-    init(_ make: @escaping (Host) -> Control) { self.make = make }
+    init(swapRole: HoverSwap.Role? = nil, _ make: @escaping (Host) -> Control) { self.swapRole = swapRole; self.make = make }
 
     // A generic main-actor class's isolated deinit crashes the Release optimizer (#23050).
     nonisolated deinit {}
@@ -29,6 +32,7 @@ final class RowControlSlot<Host: NSView, Control: NSView> {
         control.isHidden = true
         control.frame = frame
         host.addSubview(control)
+        if let swapRole { HoverSwap.tag([control], swapRole, in: host) }
         made = control
         return control
     }

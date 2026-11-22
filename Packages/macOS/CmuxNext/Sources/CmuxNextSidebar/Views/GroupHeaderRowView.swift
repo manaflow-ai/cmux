@@ -132,6 +132,10 @@ final class GroupHeaderRowView: SidebarRowView {
         pill.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         dot.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         [glyph, name, count, pin, chevron, activitySlot, badge, machineMark, machineWords, addButton, moreButton, pinButton].forEach(addSubview)
+        // The hover actions replace the unread mark and the count (Leo 2026-11-22, `HoverSwap`); the loading spinner gives
+        // way on its own column (`layout`). The machine dot and words say where the group runs, and stay.
+        HoverSwap.tag([moreButton, addButton, pinButton], .action, in: self)
+        HoverSwap.tag([badge, count, activity], .mark, in: self)
         // Hidden until a hover first shows them; from then on a hover sets their opacity only (`setHoverPainted`).
         [addButton, moreButton, pinButton].forEach { $0.isHidden = true }
         // The header's label says the name, the count and (through AXExpanded) the chevron.
@@ -648,6 +652,10 @@ final class GroupHeaderRowView: SidebarRowView {
             count.frame.origin.y = SidebarStyle.textY(count, centerY: b.midY)
             trailing = count.frame.minX - LayoutGrid.base
         }
+        // The hovered actions replace the unread dot or count and the group's count, in place (no layout shift; Leo
+        // 2026-11-22: "the dot shouldnt show up when i hover; the cross should be there instead. liekwise with the
+        // other icons"). The layout is their one writer, so a display pass never brings them back under the actions.
+        for mark in [badge, count] as [NSView] { fadeOpacity(mark, to: showsActions ? 0 : 1, fades: fades) }
         let nameWidth = min(titleIntrinsicWidth, max(0, trailing - nx))
         name.frame = NSRect(x: nx, y: SidebarStyle.textY(name, centerY: b.midY), width: nameWidth, height: nh)
         // Every look draws its background (Lawrence 2026-11-05: groups always have a visible background).

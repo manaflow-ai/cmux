@@ -8,10 +8,12 @@ import Testing
 
 /// Leo 2026-11-22: "in all cases, the hovered buttons should just replace the other ones." One row per mark set (the
 /// blue dot, an unread count, the error mark, everything at once), drawn at rest and hovered, dark and light: the
-/// hovered cells show only the controls in the trailing cluster. Artifact `sidebar-hover-replaces-gallery.tar`
+/// hovered cells show only the controls in the trailing cluster. Every cell is checked against the hover-swap rule
+/// (`HoverSwap.violations`) after the display pass, so a dot under the ✕ fails the run as well as showing in the picture. Artifact `sidebar-hover-replaces-gallery.tar`
 /// (`CMUX_TEST_REQUIRE_GUI=1`).
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarHoverReplacesMarksGalleryTests {
-    static let variants: [SidebarRowCloseClearsMarksTests.Marks] = [.unreadDot, .unreadCount, .error, .pullRequestCount, .everything]
+    static let variants: [SidebarRowCloseClearsMarksTests.Marks] = [.pullRequest, .unreadDot, .unreadCount, .running, .runningUnread,
+                                                                      .error, .pullRequestCount, .everything]
 
     static func render(_ marks: SidebarRowCloseClearsMarksTests.Marks, hovered: Bool, dark: Bool) throws -> CGImage {
         Motion.reduceMotionOverride = true
@@ -40,6 +42,9 @@ import Testing
         row.isHovered = hovered
         for view in AANestedGroupsGalleryTests.all(root) { view.layoutSubtreeIfNeeded(); view.needsDisplay = true; view.displayIfNeeded() }
         CATransaction.flush()
+        // The picture is what the person sees after the display pass: no status mark may draw beside a hover action
+        // (Leo 2026-11-22: "the dot shouldnt show up when i hover; the cross should be there instead").
+        #expect(HoverSwap.violations(in: row).isEmpty, "\(marks) \(dark ? "dark" : "light"): \(HoverSwap.violations(in: row))")
         // The hovered row alone, so a column reads rest | hovered per mark set.
         let frame = row.convert(row.bounds, to: root)
         let rep = try #require(root.bitmapImageRepForCachingDisplay(in: frame))

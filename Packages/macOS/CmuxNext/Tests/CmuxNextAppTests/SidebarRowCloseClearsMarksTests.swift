@@ -13,18 +13,19 @@ struct SidebarRowCloseClearsMarksTests {
 
     enum Marks: String, CaseIterable, CustomTestStringConvertible {
         case pullRequest, pullRequestUnread, pullRequestError, pullRequestCount, unreadDot, unreadCount, error, hookText,
-             everything
+             everything, running, runningUnread
 
         var testDescription: String { rawValue }
 
         var workspace: SidebarWorkspace {
             let unread: UnreadState = switch self {
-            case .pullRequestUnread, .unreadDot, .everything: .dot
+            case .pullRequestUnread, .unreadDot, .everything, .runningUnread: .dot
             case .pullRequestCount, .unreadCount: .count(3)
             default: .none
             }
             let activity: StatusIndicatorState = switch self {
             case .pullRequestError, .error, .everything: .error
+            case .running, .runningUnread: .working(progress: nil) // an agent's turn runs: the spinner
             default: .idle
             }
             let hook = self == .hookText || self == .everything ? "#48363 checks failing" : nil

@@ -34,8 +34,11 @@ extension WorkspaceRowView {
     /// the marks it stands in for.
     func updateNeedsYouGlow() {
         let glows = showsNeedsYouGlow
-        let markAlpha: CGFloat = glows ? 0 : 1
-        for mark in [rowBadge, badge, activity] as [NSView] where mark.alphaValue != markAlpha { mark.alphaValue = markAlpha }
+        // One rule for every mark a hover control replaces (`HoverSwap`): anything may hide a mark, only the layout
+        // shows one. Setting these back to 1 here on every display pass drew the blue dot and the error mark under
+        // the hover ✕ (Leo 2026-11-22: "the dot shouldnt show up when i hover; the cross should be there instead").
+        if glows { HoverSwap.hide(glowMarks) }
+        if glows != marksLaidOutForGlow { needsLayout = true } // the layout brings them back, by its hover rules
         guard glows, let tone = needsYouTone, let host = layer else {
             removeNeedsYouGlow()
             return
@@ -51,6 +54,9 @@ extension WorkspaceRowView {
         layoutNeedsYouGlow()
         updateNeedsYouGlowMotion()
     }
+
+    /// The marks the halo stands in for: clear while the row glows.
+    var glowMarks: [NSView] { [rowBadge, badge, activity] }
 
     /// Fits the halo to the row's fill (`layout`).
     func layoutNeedsYouGlow() {

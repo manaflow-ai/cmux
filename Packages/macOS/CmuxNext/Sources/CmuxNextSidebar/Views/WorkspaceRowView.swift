@@ -33,6 +33,8 @@ final class WorkspaceRowView: SidebarRowView {
     var shownBadges: (workspace: WorkspaceID, states: [StatusIndicatorState])?
     /// The state a waiting row's glow stands in for, and its halo (WorkspaceRowView+NeedsYouGlow).
     var needsYouTone: StatusIndicatorState?, needsYouGlowLayer: CALayer?
+    /// Whether the last layout cleared the glow's marks (`updateNeedsYouGlow` asks for a layout when that changes).
+    var marksLaidOutForGlow = false
     /// The window is on screen and not covered, as the list tracks it for the rows' indicators
     /// (`SidebarListView.setWindowVisible`): the glow breathes only then.
     var isNeedsYouWindowVisible = true {
@@ -65,13 +67,13 @@ final class WorkspaceRowView: SidebarRowView {
     let audioSlot = RowControlSlot { (row: WorkspaceRowView) in row.makeAudioButton() }
     internal(set) var audio: SidebarWorkspaceAudio?
     /// The hover close (`SidebarRowCloseButton`).
-    let closeSlot = RowControlSlot { (row: WorkspaceRowView) in row.makeCloseButton() }
+    let closeSlot = RowControlSlot(swapRole: .action) { (row: WorkspaceRowView) in row.makeCloseButton() }
     /// The row's menu (cx-a9h6, ChatGPT project style): the right-click menu,
     /// under the button. Shows on hover only, over the end of the title
     /// behind a fade (Lawrence 2026-10-11: no layout shift).
-    let moreSlot = RowControlSlot { (row: WorkspaceRowView) in row.makeMoreButton() }
+    let moreSlot = RowControlSlot(swapRole: .action) { (row: WorkspaceRowView) in row.makeMoreButton() }
     /// An expanded pinned row's Unpin (cx-13w3), on hover beside the menu button.
-    let pinSlot = RowControlSlot { (row: WorkspaceRowView) in row.makePinButton() }
+    let pinSlot = RowControlSlot(swapRole: .action) { (row: WorkspaceRowView) in row.makePinButton() }
     /// `sidebar.workspaceRow.tabCount`: the workspace's tab count, in a fixed-width slot.
     let tabCount = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// `sidebar.workspaceRow.pullRequest`: the PR / CI badge a hook reported.
@@ -186,6 +188,10 @@ final class WorkspaceRowView: SidebarRowView {
         [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, cloudMark, usageWarningMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap, rollUp].forEach(addSubview)
         setUpSessionTree()
+        // The marks the hover actions replace (Leo 2026-11-22, `HoverSwap`); the agent mark joins them when it stands in
+        // for the status (`layout`). Not the usage warning, the Cloud mark, the audio button, the drive indicator or the
+        // pull request chips: a person points at those, and they keep their place beside the actions.
+        HoverSwap.tag([badge, rowBadge, activity, mutedMark, tabCount, prBadge, keycap, timeLabel, presenceDots], .mark, in: self)
         tabCount.isHidden = true
         prBadge.isHidden = true
         prBadge.lineBreakMode = .byTruncatingTail
