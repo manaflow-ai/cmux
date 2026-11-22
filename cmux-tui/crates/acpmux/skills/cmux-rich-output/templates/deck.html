@@ -276,9 +276,15 @@ html.deck-console .deck-console-foot { grid-area: foot; display: flex; align-ite
     if (data?.hello && !root.classList.contains("deck-console")) channel.postMessage({ go: current });
   });
   function presentWithNotes() {
-    const w = 1180, h = 760, sx = window.screenX, aw = screen.availWidth || w;
-    const left = sx + window.outerWidth + w <= aw ? sx + window.outerWidth : Math.max(0, aw - w);
-    const win = window.open(location.href, CONSOLE, `popup,width=${w},height=${h},left=${left},top=${window.screenY}`);
+    // Open beside the deck. An embedded browser can host the page offscreen (screenX far outside the
+    // screen), so when the opener's geometry isn't on screen, fall back to the screen's top-left.
+    const w = 1180, h = 760, x0 = screen.availLeft || 0, y0 = screen.availTop || 0, aw = screen.availWidth || w;
+    const sx = window.screenX, sy = window.screenY, ow = window.outerWidth;
+    const onScreen = sx >= x0 - 16 && sx + ow <= x0 + aw + 16 && sy >= y0 - 16 && sy < y0 + (screen.availHeight || h);
+    const right = sx + ow;
+    const left = !onScreen ? x0 + 12 : right + w <= x0 + aw ? right : Math.max(x0, x0 + aw - w);
+    const top = onScreen ? sy : y0 + 96;
+    const win = window.open(location.href, CONSOLE, `popup,width=${w},height=${h},left=${left},top=${top}`);
     if (win) present();
     else openConsole();
   }
