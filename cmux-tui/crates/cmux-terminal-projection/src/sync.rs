@@ -35,7 +35,7 @@ pub const KIND_DIFF: u8 = 1;
 /// An ack, phone to host.
 pub const KIND_ACK: u8 = 2;
 /// The payload format version.
-const VERSION: u8 = 1;
+const VERSION: u8 = 2;
 /// The most states sent and not yet acked that the sender keeps (to diff
 /// from once acked). Acks trail by a round trip, so at 60 Hz this covers
 /// about 17 s of them. Kept as keyframe encodings (a few KB each).
@@ -476,6 +476,20 @@ pub fn diff(base: Option<&ScreenState>, latest: &ScreenState) -> Vec<u8> {
         }
     };
     let cols = usize::from(latest.cols);
+    // Rows the base has elsewhere (a scroll): copied, not resent.
+    let moves = if from_blank { Vec::new() } else { row_moves(from, latest) };
+    let moved;
+    let from = if moves.is_empty() {
+        from
+    } else {
+        let mut m = from.clone();
+        for &(dst, src) in &moves {
+            let (d, s) = (usize::from(dst) * cols, usize::from(src) * cols);
+            m.cells[d..d + cols].clone_from_slice(&from.cells[s..s + cols]);
+        }
+        moved = m;
+        &moved
+    };
     // Changed spans: (row, first col, end col).
     let mut spans = Vec::new();
     for y in 0..latest.rows {
@@ -521,6 +535,22 @@ pub fn diff(base: Option<&ScreenState>, latest: &ScreenState) -> Vec<u8> {
     for style in &table {
         put_style(&mut out, style);
     }
+    // Moves as runs: (rows skipped, first base row, rows).
+    let mut runs: Vec<(u16, u16, u16)> = Vec::new();
+    for &(dst, src) in &moves {
+        match runs.last_mut() {
+            Some((d, s, n)) if *d + *n == dst && *s + *n == src => *n += 1,
+            _ => runs.push((dst, src, 1)),
+        }
+    }
+    put_varint(&mut out, runs.len() as u64);
+    let mut next_row = 0u64;
+    for &(dst, src, n) in &runs {
+        put_varint(&mut out, u64::from(dst) - next_row);
+        next_row = u64::from(dst) + u64::from(n);
+        put_varint(&mut out, u64::from(src));
+        put_varint(&mut out, u64::from(n));
+    }
     put_varint(&mut out, spans.len() as u64);
     let mut next_row = 0u64;
     for &(y, a, b) in &spans {
@@ -560,6 +590,43 @@ pub fn diff(base: Option<&ScreenState>, latest: &ScreenState) -> Vec<u8> {
         }
     }
     out
+}
+
+/// (latest row, base row) for every changed, non-blank row of `latest` that
+/// the base holds whole at another row, ascending: what a scroll moved.
+fn row_moves(base: &ScreenState, latest: &ScreenState) -> Vec<(u16, u16)> {
+    use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
+    let hasher = BuildHasherDefault::<DefaultHasher>::default();
+    let blank = |row: &[SyncCell]| row.iter().all(|c| *c == SyncCell::default());
+    let mut at: HashMap<u64, Vec<u16>> = HashMap::new();
+    for y in 0..base.rows {
+        let row = base.row(y);
+        if !blank(row) {
+            at.entry(hasher.hash_one(row)).or_default().push(y);
+        }
+    }
+    let mut moves = Vec::new();
+    if at.is_empty() {
+        return moves;
+    }
+    // The shift of the last move: a scroll moves rows together.
+    let mut shift = 0i64;
+    for y in 0..latest.rows {
+        let row = latest.row(y);
+        if base.row(y) == row || blank(row) {
+            continue;
+        }
+        let Some(candidates) = at.get(&hasher.hash_one(row)) else { continue };
+        let best = candidates
+            .iter()
+            .filter(|&&src| base.row(src) == row)
+            .min_by_key(|&&src| (i64::from(src) - i64::from(y) - shift).abs());
+        if let Some(&src) = best {
+            shift = i64::from(src) - i64::from(y);
+            moves.push((y, src));
+        }
+    }
+    moves
 }
 
 fn put_cell(out: &mut Vec<u8>, cell: &SyncCell) {
@@ -658,14 +725,18 @@ pub fn apply(base: Option<&ScreenState>, payload: &[u8]) -> Result<ScreenState, 
         return Err(SyncError::Malformed("grid"));
     }
     let (cols, rows) = (cols as u16, rows as u16);
-    let mut state = if flags & FLAG_FROM_BLANK != 0 {
-        ScreenState::blank(cols, rows)
+    let base = if flags & FLAG_FROM_BLANK != 0 {
+        None
     } else {
         let base = base.ok_or(SyncError::NoBase)?;
         if base.cols != cols || base.rows != rows {
             return Err(SyncError::GridMismatch);
         }
-        base.clone()
+        Some(base)
+    };
+    let mut state = match base {
+        Some(b) => b.clone(),
+        None => ScreenState::blank(cols, rows),
     };
     let cx = r.small(u64::from(u16::MAX), "cursor")? as u16;
     let cy = r.small(u64::from(u16::MAX), "cursor")? as u16;
@@ -680,12 +751,27 @@ pub fn apply(base: Option<&ScreenState>, payload: &[u8]) -> Result<ScreenState, 
     for _ in 0..count {
         table.push(r.style()?);
     }
+    let moves = r.small(u64::from(rows), "moves")?;
+    let mut dst = 0u64;
+    let width = usize::from(cols);
+    for _ in 0..moves {
+        dst = dst.saturating_add(r.varint()?);
+        if dst >= u64::from(rows) {
+            return Err(SyncError::Malformed("move"));
+        }
+        let src = r.small(u64::from(rows) - 1, "move")?;
+        let n = r.small(u64::from(rows) - dst.max(src), "move")?;
+        let from = base.ok_or(SyncError::Malformed("move from blank"))?;
+        let (d, s, n) = (dst as usize * width, src as usize * width, n as usize * width);
+        state.cells[d..d + n].clone_from_slice(&from.cells[s..s + n]);
+        dst += n as u64 / width as u64;
+    }
     let spans = r.small(u64::from(rows), "spans")?;
     let mut y = 0u64;
     let cols_u = u64::from(cols);
     for _ in 0..spans {
         // The delta counts from the row after the previous span.
-        y += r.varint()?;
+        y = y.saturating_add(r.varint()?);
         if y >= u64::from(rows) {
             return Err(SyncError::Malformed("row"));
         }
@@ -1103,39 +1189,55 @@ impl SyncSender {
             return;
         }
         if seq == 0 {
-            self.acked_seq = 0;
-            self.acked = None;
+            // The phone holds nothing of ours (or this ack is stale): start
+            // over from a keyframe, still able to take an ack of the state
+            // acked so far.
+            self.forget_acked();
             return;
         }
         if seq <= self.acked_seq {
             return;
         }
-        let state = match self.sent.iter().position(|s| s.0 == seq) {
-            Some(i) => {
-                for (_, k) in self.sent.drain(..i) {
-                    self.sent_bytes -= k.len();
-                }
-                let (_, keyframe) = self.sent.pop_front().unwrap_or_default();
-                self.sent_bytes -= keyframe.len();
-                if seq == self.latest_seq {
-                    self.latest.clone()
-                } else {
+        let state = if seq == self.latest_seq {
+            // The phone holds the latest: kept or not.
+            for (_, k) in self.sent.drain(..) {
+                self.sent_bytes -= k.len();
+            }
+            self.latest.clone()
+        } else {
+            match self.sent.iter().position(|s| s.0 == seq) {
+                Some(i) => {
+                    for (_, k) in self.sent.drain(..i) {
+                        self.sent_bytes -= k.len();
+                    }
+                    let (_, keyframe) = self.sent.pop_front().unwrap_or_default();
+                    self.sent_bytes -= keyframe.len();
                     apply(None, &keyframe).ok()
                 }
+                None => None,
             }
-            None => None,
         };
         match state {
             Some(state) => {
                 self.acked_seq = seq;
                 self.acked = Some(state);
             }
-            None => {
-                // The phone holds a state this sender no longer has.
-                self.acked_seq = 0;
-                self.acked = None;
-            }
+            // The phone holds a state this sender no longer has.
+            None => self.forget_acked(),
         }
+    }
+
+    /// Back to keyframes; the acked state stays kept (an ack of it may still
+    /// come, from a phone that holds it).
+    fn forget_acked(&mut self) {
+        if let Some(state) = self.acked.take()
+            && self.sent.front().is_none_or(|s| s.0 > self.acked_seq)
+        {
+            let keyframe = diff(None, &state);
+            self.sent_bytes += keyframe.len();
+            self.sent.push_front((self.acked_seq, keyframe));
+        }
+        self.acked_seq = 0;
     }
 
     pub fn latest_seq(&self) -> u64 {
@@ -1631,6 +1733,35 @@ mod tests {
 
     // Sender and receiver.
 
+    #[test]
+    fn a_scroll_sends_row_moves_not_rows() {
+        // A full-screen TUI scrolls its transcript by repainting every row
+        // one line up (no DECSTBM): the diff names the moved rows.
+        let line =
+            |i: usize| format!("\x1b[38;5;{}m{i:04} {}\x1b[0m", i % 200, "reply text ".repeat(9));
+        let paint = |top: usize| {
+            let mut s = String::from("\x1b[H");
+            for y in 0..38 {
+                s.push_str(&format!("\x1b[{};1H{}\x1b[K", y + 1, line(top + y)));
+            }
+            s.push_str("\x1b[39;1H\x1b[2m status \x1b[0m\x1b[K\x1b[40;1H> \x1b[K");
+            s
+        };
+        let mut t = term(120, 40, paint(0).as_bytes());
+        let a = ScreenState::capture(&t);
+        feed(&mut t, paint(1).as_bytes());
+        let b = ScreenState::capture(&t);
+        feed(&mut t, paint(4).as_bytes());
+        let c = ScreenState::capture(&t);
+        let one = roundtrip(Some(&a), &b);
+        let three = roundtrip(Some(&b), &c);
+        let keyframe = roundtrip(None, &b);
+        assert!(one < 250, "a one-line scroll: {one} bytes (keyframe {keyframe})");
+        assert!(three < 500, "a three-line scroll: {three} bytes (keyframe {keyframe})");
+        // Scrolling back down too.
+        assert!(roundtrip(Some(&c), &a) < 700);
+    }
+
     fn states(n: usize) -> Vec<ScreenState> {
         let mut t = term(30, 8, b"");
         let mut out = Vec::new();
@@ -1777,6 +1908,50 @@ mod tests {
         assert_eq!(rx.screen(), s.last());
         assert!(!tx.unacked());
         assert!(max_kept <= 2 * ONE_WAY + 4, "kept {max_kept}");
+    }
+
+    #[test]
+    fn a_stale_ack_of_nothing_does_not_lock_out_the_held_state() {
+        let s = states(3);
+        let mut tx = SyncSender::with_epoch(1200, 1);
+        let mut rx = SyncReceiver::new();
+        tx.update(s[0].clone());
+        let early = rx.on_datagram(&{
+            // A fragment-less diff from a base the phone never had: acks 0.
+            let mut d = Vec::new();
+            diff_header(&mut d, 1, 5, 4, 0, 1);
+            d
+        });
+        assert_eq!(parse_ack_datagram(early.as_ref().unwrap()), Some((1, 0)));
+        for d in tx.datagrams() {
+            tx.on_ack(&rx.on_datagram(&d).unwrap());
+        }
+        assert!(!tx.unacked());
+        // The stale ack 0 arrives late: the sender restarts from a keyframe,
+        // and the phone's ack of what it holds (the latest) settles it.
+        tx.on_ack(early.as_ref().unwrap());
+        assert!(tx.unacked());
+        for d in tx.datagrams() {
+            tx.on_ack(&rx.on_datagram(&d).unwrap());
+        }
+        assert!(!tx.unacked());
+        // The same once the phone is behind the latest.
+        tx.update(s[1].clone());
+        for d in tx.datagrams() {
+            tx.on_ack(&rx.on_datagram(&d).unwrap());
+        }
+        tx.update(s[2].clone());
+        let lost = tx.datagrams();
+        tx.on_ack(early.as_ref().unwrap());
+        assert_eq!(tx.acked_seq(), 0);
+        // The phone acks seq 2 (held) for the old diff: taken.
+        let ack = rx.on_datagram(&lost[0]).unwrap();
+        assert_eq!(rx.seq(), 3);
+        tx.on_ack(&ack_datagram(1, 2));
+        assert_eq!(tx.acked_seq(), 2);
+        tx.on_ack(&ack);
+        assert!(!tx.unacked());
+        assert_eq!(rx.screen(), Some(&s[2]));
     }
 
     #[test]
