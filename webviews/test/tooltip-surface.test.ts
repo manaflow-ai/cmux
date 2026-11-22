@@ -393,10 +393,10 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
     }
   });
 
-  // #49650: the composer's model chip ("Opus 5.5 Medium") showed "Opus 5.5 ⌃⌘M" in a tooltip at the
+  // https://github.com/manaflow-ai/cmux/issues/49650: the composer's model chip ("Opus 5.5 Medium") showed "Opus 5.5 ⌃⌘M" in a tooltip at the
   // whole max width, wider than the chip and off its center: the keycap floats to the box's end, and
   // the fit measured from the text to that far edge. A keyed tooltip is as wide as its text and keycap.
-  test("a tooltip with a shortcut hugs its text and keycap, centered under its control (#49650)", async () => {
+  test("a tooltip with a shortcut hugs its text and keycap, centered under its control (https://github.com/manaflow-ai/cmux/issues/49650)", async () => {
     for (const scale of [1, 1.25]) {
       const page = await open(
         theme("dark", `--cmux-interface-scale:${scale};`),
@@ -422,7 +422,6 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
             centerOffset: rect.left + rect.width / 2 - (anchor.left + anchor.width / 2),
             // The room between the text's end and the keycap: the keycap gap, never the rest of the max width.
             between: key.left - text.right,
-            padStart: text.left - rect.left,
             maxWidth: parseFloat(style.maxWidth),
           };
         });

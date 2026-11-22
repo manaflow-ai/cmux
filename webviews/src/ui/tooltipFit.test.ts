@@ -137,7 +137,7 @@ function shortcutTooltip(text: number, keycap: { width: number; gap: number; rea
   return tip;
 }
 
-test("a tooltip with a shortcut is as wide as its text and keycap, never its max width (#49650)", () => {
+test("a tooltip with a shortcut is as wide as its text and keycap, never its max width (https://github.com/manaflow-ai/cmux/issues/49650)", () => {
   // "Opus 5.5" (54 px) then its keycap (36 px, 6 px after the text, 4 px into the end padding):
   // measured at the 320 px max width, the floated keycap sat at the far edge and the tooltip kept
   // all 320 px, wider than the model chip it names.
