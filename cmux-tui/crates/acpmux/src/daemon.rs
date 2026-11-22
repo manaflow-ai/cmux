@@ -18,7 +18,7 @@ mod log_cap;
 #[cfg(unix)]
 mod open_file_limit;
 #[cfg(unix)]
-use lock::live_holder_pid;
+pub(crate) use lock::live_holder_pid;
 #[cfg(unix)]
 pub(crate) use lock::socket_held_by_other;
 use lock::{
@@ -65,6 +65,9 @@ pub(crate) use crate::owner_exit;
 pub use owner_exit::process_start;
 mod persist_retry;
 mod person_key;
+// A retired build's sooner stop and the clearing of dead daemons' records (`daemon/prune.rs`).
+#[cfg(unix)]
+pub(crate) mod prune;
 #[cfg(unix)]
 pub(crate) use crate::daemon_parts::not_dumpable;
 #[cfg(unix)]
@@ -900,7 +903,13 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     let mut rebinds = 0u32;
     // Unused for its grace on a home of its own, or soon after its owner app quit: a normal stop
     // (`daemon/unused_exit.rs`, `daemon/owner_exit.rs`).
-    let mut unused = std::pin::pin!(unused_exit::unused(Arc::downgrade(&hub)));
+    // A retired build (its executable gone) stops after a shorter unused wait (`daemon/prune.rs`).
+    let mut unused = std::pin::pin!(unused_exit::unused(Arc::downgrade(&hub), memory_store));
+    // Records of daemons that died, cleared on a timer while this daemon runs (`daemon/prune.rs`).
+    #[cfg(unix)]
+    let prune_scope = cmux_scope::Scope::new("daemon prune");
+    #[cfg(unix)]
+    prune_scope.spawn_until_cancelled("daemon prune", prune::every_while_running());
     // Its home and lock, re-read during the shutdown too.
     #[cfg(unix)]
     let held_home = owned_home.clone();
