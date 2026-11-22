@@ -89,12 +89,25 @@ impl Fixture {
         let channel = live::verify_channel(channel_body, keys, now)?;
         match apply_channel(&self.app, &self.store, &channel, false, |app_commit| {
             let payload = live::verify(live_body, keys, &channel.commit)?;
-            let plan =
-                choose(&channel.commit, Some(app_commit), &Live::Found(payload), None, &self.base);
-            let Plan::Live { files, .. } = plan else {
+            let plan = choose(
+                &channel.commit,
+                Some(app_commit),
+                &Live::Found(Box::new(payload)),
+                None,
+                &self.base,
+            );
+            let Plan::Live { files, helper, .. } = plan else {
                 return Err("the signed channel has no live payload this app can take".to_owned());
             };
-            let applied = try_live(&self.app, &files, &self.store, daemon, &mut Phases::default())?;
+            let applied = try_live(
+                &self.app,
+                &files,
+                helper.as_ref(),
+                &self.store,
+                daemon,
+                &NoSigning,
+                &mut Phases::default(),
+            )?;
             Ok(applied.changed)
         })? {
             ChannelApply::SkippedOlder => Ok(false),
@@ -318,7 +331,8 @@ fn nightly_live_channel_takes_daemon_from_past_the_whole_app_floor() {
     daemon_only["live_from"] = json!([COMMIT]);
     daemon_only.as_object_mut().unwrap().remove("native_from");
     daemon_only["daemon_from"] = json!([COMMIT, APP_FULL_COMMIT]);
-    let live = Live::Found(live::verify(&envelope(&daemon_only), &keys(), COMMIT).unwrap());
+    let live =
+        Live::Found(Box::new(live::verify(&envelope(&daemon_only), &keys(), COMMIT).unwrap()));
     let first = fixture();
     let plan = choose(COMMIT, Some(APP_COMMIT), &live, None, &first.base);
     let Plan::Live { scope: Scope::Daemon(left), .. } = &plan else {
@@ -621,7 +635,7 @@ fn app_try_native_proof_is_required_for_the_whole_app_and_the_daemon_goes_alone_
         if let Some(proof) = proof {
             body["native_from"] = proof;
         }
-        let live = Live::Found(live::verify(&envelope(&body), &keys(), COMMIT).unwrap());
+        let live = Live::Found(Box::new(live::verify(&envelope(&body), &keys(), COMMIT).unwrap()));
         // Without native proof the whole app is not live: a build of the commit in the feed wins.
         let plan = choose(COMMIT, Some(APP_COMMIT), &live, Some(Ok(&listing)), &fixture.base);
         let Plan::Full { build, .. } = plan else { panic!("expected full, got {plan:?}") };
@@ -651,7 +665,7 @@ fn app_try_native_proof_keeps_compatible_live_swaps_and_same_commit_legacy_manif
     ));
     let mut legacy = payload(live::PURPOSE, COMMIT, good_targets());
     legacy.as_object_mut().unwrap().remove("native_from");
-    let live = Live::Found(live::verify(&envelope(&legacy), &keys(), COMMIT).unwrap());
+    let live = Live::Found(Box::new(live::verify(&envelope(&legacy), &keys(), COMMIT).unwrap()));
     assert!(matches!(
         choose(COMMIT, Some(&COMMIT[..10]), &live, None, &fixture.base),
         Plan::Live { .. }
@@ -664,7 +678,7 @@ fn app_try_native_proof_must_name_the_same_full_commit_as_daemon_compatibility()
     let mut body = payload(live::PURPOSE, COMMIT, good_targets());
     // Sharing the installed app's short prefix is not proof about the resolved full commit.
     body["native_from"] = json!([format!("{APP_COMMIT}{}", "0".repeat(33))]);
-    let live = Live::Found(live::verify(&envelope(&body), &keys(), COMMIT).unwrap());
+    let live = Live::Found(Box::new(live::verify(&envelope(&body), &keys(), COMMIT).unwrap()));
     assert!(matches!(
         choose(COMMIT, Some(APP_COMMIT), &live, None, &fixture.base),
         Plan::Live { scope: Scope::Daemon(_), .. }
@@ -672,7 +686,7 @@ fn app_try_native_proof_must_name_the_same_full_commit_as_daemon_compatibility()
     // Native equality also cannot replace daemon compatibility (no daemon_from: live_from is the list).
     body["native_from"] = json!([APP_FULL_COMMIT]);
     body["live_from"] = json!([COMMIT]);
-    let live = Live::Found(live::verify(&envelope(&body), &keys(), COMMIT).unwrap());
+    let live = Live::Found(Box::new(live::verify(&envelope(&body), &keys(), COMMIT).unwrap()));
     assert!(matches!(
         choose(COMMIT, Some(APP_COMMIT), &live, None, &fixture.base),
         Plan::None { .. }
@@ -1474,7 +1488,7 @@ fn past_floor() -> Live {
     body["live_from"] = json!([COMMIT]);
     body.as_object_mut().unwrap().remove("native_from");
     body["daemon_from"] = json!([COMMIT, APP_FULL_COMMIT]);
-    Live::Found(live::verify(&envelope(&body), &keys(), COMMIT).unwrap())
+    Live::Found(Box::new(live::verify(&envelope(&body), &keys(), COMMIT).unwrap()))
 }
 
 #[test]
@@ -1522,7 +1536,8 @@ fn app_try_sha_daemon_only_swap_receipt_says_daemon_only_and_undo_restores() {
     let Plan::Live { files, scope, .. } = plan else { panic!("expected live") };
     let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
     let mut phases = Phases::default();
-    let result = try_live(&fixture.app, &files, &fixture.store, &daemon, &mut phases);
+    let result =
+        try_live(&fixture.app, &files, None, &fixture.store, &daemon, &NoSigning, &mut phases);
     let receipt = json!({
         "schema": 1, "action": "try", "target": COMMIT, "commit": COMMIT, "path": "live",
         "app": fixture.app.to_string_lossy(), "app_commit": APP_COMMIT,
@@ -1558,7 +1573,7 @@ fn app_try_sha_from_a_file_before_daemon_from_says_so() {
     let fixture = fixture();
     let mut legacy = payload(live::PURPOSE, COMMIT, good_targets());
     legacy.as_object_mut().unwrap().remove("native_from");
-    let live = Live::Found(live::verify(&envelope(&legacy), &keys(), COMMIT).unwrap());
+    let live = Live::Found(Box::new(live::verify(&envelope(&legacy), &keys(), COMMIT).unwrap()));
     let plan = choose(COMMIT, Some(APP_COMMIT), &live, None, &fixture.base);
     let Plan::Live { scope: Scope::Daemon(left), .. } = &plan else {
         panic!("expected daemon-only live, got {plan:?}")
