@@ -34,9 +34,7 @@ export class EarlyFrames {
   get done(): boolean {
     if (this.held.length) return false;
     const now = this.wire.now();
-    return this.asks.every(
-      (ask) => ask.replied || (ask.state !== "claimed" && now - ask.at > EARLY_OPEN_FRESH_MS),
-    );
+    return this.asks.every((ask) => ask.replied || (ask.state !== "claimed" && now - ask.at > EARLY_OPEN_FRESH_MS));
   }
 
   /// The pushes that came before the bundle's socket opened, in order, once.
@@ -68,7 +66,10 @@ export class EarlyFrames {
       } else ask.state = "dropped";
     }
     // The bundle's detach of the early chat: its attach, if still out, is no longer wanted.
-    if (method === "_acpmux/detach" && (message?.params as { sessionId?: unknown } | undefined)?.sessionId === this.wire.session)
+    if (
+      method === "_acpmux/detach" &&
+      (message?.params as { sessionId?: unknown } | undefined)?.sessionId === this.wire.session
+    )
       for (const ask of this.asks) if (ask.method === "_acpmux/attach" && ask.state === "out") ask.state = "dropped";
     // After the bundle's request: its answer comes as the host's would, never inside its send.
     if (!this.pumpQueued) {

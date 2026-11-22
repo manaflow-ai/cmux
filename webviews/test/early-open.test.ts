@@ -179,7 +179,11 @@ const push = (...frames: unknown[]) =>
     frames: frames.map((frame) => JSON.stringify(frame)),
   });
 const reply = (id: number, result: unknown) => ({ jsonrpc: "2.0", id, result });
-const event = (sessionId: string, seq: number) => ({ jsonrpc: "2.0", method: "_acpmux/event", params: { sessionId, seq } });
+const event = (sessionId: string, seq: number) => ({
+  jsonrpc: "2.0",
+  method: "_acpmux/event",
+  params: { sessionId, seq },
+});
 const request = (id: number, method: string, params: unknown) => JSON.stringify({ jsonrpc: "2.0", id, method, params });
 /// What the boot reads as `visible` here (direct.ts `readerHere`).
 const shown = typeof document === "undefined" || document.visibilityState !== "hidden";
@@ -250,7 +254,12 @@ test("an attach with other params goes out; the boot's answer and the chat's rec
   expect(host.sent.slice(3).map((frame) => JSON.parse(frame).id)).toEqual([2]);
   push(reply(2, { lastSeq: 5, events: [] }), event("chat", 6));
   await settle();
-  expect(heard).toEqual([reply(1, INIT), reply(3, { text: "" }), reply(2, { lastSeq: 5, events: [] }), event("chat", 6)]);
+  expect(heard).toEqual([
+    reply(1, INIT),
+    reply(3, { text: "" }),
+    reply(2, { lastSeq: 5, events: [] }),
+    event("chat", 6),
+  ]);
   socket.close();
 });
 

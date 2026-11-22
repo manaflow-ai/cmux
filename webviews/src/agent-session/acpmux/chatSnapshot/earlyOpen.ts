@@ -144,7 +144,11 @@ export function takeEarlyOpen(): Promise<number | undefined> | undefined {
 }
 
 /// A host push for one connection (bridgeSocket.ts `TransportEvent`).
-export type EarlyEvent = { connection: number; frames?: string[]; closed?: { code: number; reason: string; error?: string } };
+export type EarlyEvent = {
+  connection: number;
+  frames?: string[];
+  closed?: { code: number; reason: string; error?: string };
+};
 
 /// One request the boot script sent: its JSON-RPC id, method, params as JSON, and when.
 export type EarlyAsk = { id: number; method: string; params: string; at: number };
