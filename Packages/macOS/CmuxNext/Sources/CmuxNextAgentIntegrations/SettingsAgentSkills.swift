@@ -95,7 +95,7 @@ public final class SettingsAgentSkills: PageProvider {
             if let folder = workingFolder() { arguments += ["--cwd", folder.path(percentEncoded: false)] }
             let path = file.path(percentEncoded: false)
             if let reply = try? await runCLI(cli, arguments, [:]) {
-                refusal = Self.refusal(reply).map { (path: path, message: $0) }
+                refusal = await Self.refusal(reply).map { (path: path, message: $0) }
             } else {
                 // No answer at all is a refusal with no words of its own.
                 refusal = (path: path, message: "")
@@ -130,7 +130,7 @@ public final class SettingsAgentSkills: PageProvider {
         let reply = try? await runCLI(cli, arguments, [:])
         guard mine == generation else { return }
         loading = false
-        guard let reply, reply.0 == 0, let value = Self.lastJSON(reply.1), value["skills"]?.arrayValue != nil else {
+        guard let reply, reply.0 == 0, let value = await Self.lastJSON(reply.1), value["skills"]?.arrayValue != nil else {
             problem = "failed"
             return
         }
@@ -138,17 +138,18 @@ public final class SettingsAgentSkills: PageProvider {
         problem = nil
     }
 
-    /// The JSON the CLI printed: the whole output, or its last line when something printed before it.
-    static func lastJSON(_ data: Data) -> JSONValue? {
+    /// The JSON the CLI printed: the whole output, or its last line when something printed before it. Parsed off the
+    /// main actor: the skills listing grows with every skill and command the agents load.
+    @concurrent nonisolated static func lastJSON(_ data: Data) async -> JSONValue? {
         if let value = try? JSONValue.parse(data) { return value }
         let last = String(data: data, encoding: .utf8)?.split(separator: "\n").last.map { Data($0.utf8) } ?? Data()
         return try? JSONValue.parse(last)
     }
 
     /// The CLI's refusal (`--json` error envelope on stderr): its message; nil when it succeeded.
-    static func refusal(_ reply: (Int32, Data, Data)) -> String? {
+    static func refusal(_ reply: (Int32, Data, Data)) async -> String? {
         guard reply.0 != 0 else { return nil }
-        let error = lastJSON(reply.2)
+        let error = await lastJSON(reply.2)
         return error?["error"]?["message"]?.stringValue ?? error?["message"]?.stringValue ?? ""
     }
 }
