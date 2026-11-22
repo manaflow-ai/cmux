@@ -242,6 +242,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if json_out {
                 print_json(&json!({"sessionId": id, "replies": replies}));
             } else {
+                // Whose replies these are, as peers call it: `Pickle · lane-3/projection-opus`.
+                let info = client
+                    .request(method::MUX_INFO, json!({"sessionId": id, "waitLogs": false}))
+                    .await
+                    .unwrap_or_default();
+                if let Some(who) = crate::cli::last_reply::speaker(&info, &id) {
+                    println!("{who}\n");
+                }
                 for (i, r) in replies.iter().enumerate() {
                     if i > 0 {
                         println!("\n---\n");
@@ -339,6 +347,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Some(n) = &launch.name {
                 meta.set("name", json!(n));
+            }
+            if let Some(h) = &args.handle {
+                meta.set("handle", json!(h));
             }
             if let Some(p) = &args.policy {
                 meta["policy"] = json!(p);

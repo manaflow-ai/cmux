@@ -644,6 +644,7 @@ impl Hub {
             id: id.clone(),
             name,
             handle: None,
+            handle_assigned: false,
             name_given,
             former_names: Vec::new(),
             harness: parent_meta.harness.clone(),

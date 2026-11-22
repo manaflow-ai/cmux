@@ -1793,6 +1793,7 @@ async fn dispatch_request_with_identity(
                 harness: copy.harness.or_else(|| pick("harness")),
                 preset: copy.preset.or_else(|| pick("preset")),
                 name: pick("name"),
+                handle: pick("handle"),
                 cwd,
                 policy,
                 model: copy.model.or_else(|| pick("model")),

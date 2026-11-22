@@ -65,6 +65,9 @@ pub struct NewRequest {
     pub harness: Option<String>,
     pub preset: Option<String>,
     pub name: Option<String>,
+    /// The spoken handle the start asked for (`_meta.acpmux.handle`, `acpmux new --handle`);
+    /// None: the daemon gives a free one (`Hub::assign_handle`).
+    pub handle: Option<String>,
     /// None: the adopted session's recorded cwd, else the home directory.
     pub cwd: Option<PathBuf>,
     pub policy: Option<PermissionPolicy>,

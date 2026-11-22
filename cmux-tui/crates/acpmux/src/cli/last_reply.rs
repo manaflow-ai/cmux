@@ -20,6 +20,19 @@ const FIRST_PAGE: usize = 256;
 const PAGE_BYTES: usize = 4 << 20;
 
 /// The last `count` assistant replies of a session, oldest first.
+/// The line `acpmux last` heads its replies with: the session's spoken handle and its name
+/// (`Pickle · lane-3/projection-opus`), from an `_acpmux/info` answer; None when it has no name.
+pub(crate) fn speaker(info: &serde_json::Value, id: &str) -> Option<String> {
+    let text = |k: &str| {
+        info.get(k)
+            .or_else(|| info.get("summary").and_then(|s| s.get(k)))
+            .and_then(serde_json::Value::as_str)
+    };
+    let name = text("name").filter(|n| !n.is_empty())?;
+    let handle = crate::session_handle::display(text("handle"), id);
+    Some(format!("{handle} · {name}"))
+}
+
 pub(crate) async fn last_replies(
     client: &Arc<Client>,
     id: &str,
@@ -140,3 +153,17 @@ fn is_mux(record: &Value, kind: &str) -> bool {
 #[cfg(test)]
 #[path = "last_reply_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod speaker_tests {
+    #[test]
+    fn last_heads_its_replies_with_the_picked_name() {
+        let id = "0f6a1c2e-1b2c-4d5e-8f70-764b5709a685";
+        let info = serde_json::json!({"name": "lane-3/projection-opus", "handle": "Pickle"});
+        assert_eq!(super::speaker(&info, id).as_deref(), Some("Pickle · lane-3/projection-opus"));
+        let old = serde_json::json!({"summary": {"name": "lane-3/x"}});
+        let shown = super::speaker(&old, id).unwrap_or_default();
+        assert!(shown.ends_with(" · lane-3/x") && shown.contains('-'), "{shown}");
+        assert_eq!(super::speaker(&serde_json::json!({}), id), None);
+    }
+}

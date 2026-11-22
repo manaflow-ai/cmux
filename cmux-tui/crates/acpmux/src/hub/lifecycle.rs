@@ -93,6 +93,7 @@ impl Hub {
             harness,
             preset,
             name,
+            handle,
             cwd,
             policy,
             model,
@@ -348,6 +349,8 @@ impl Hub {
         let stores = super::adoption::store_families(&*self.config.read().await);
         // Pick or check the name and insert under one lock, so concurrent
         // creations can never publish the same name twice.
+        // Copied before the insert lock: a handle is checked against peers' rows too.
+        let remote_handles = self.remote_handles(&id);
         let session = {
             let mut sessions = self.sessions.lock().unwrap();
             // The shutdown reads the sessions after it starts: a session
@@ -393,6 +396,14 @@ impl Hub {
                     None => unique_name_among(&sessions, agent),
                 },
             };
+            // A chat that already has a handle (an adopt's, a fork's) keeps it; else the one asked
+            // for, or a free cute name it is asked to replace with its own on its first turn.
+            if meta.handle.is_none() {
+                let (picked, assigned) =
+                    Self::assign_handle(&sessions, &remote_handles, handle.as_deref(), &id)?;
+                meta.handle = Some(picked);
+                meta.handle_assigned = assigned;
+            }
             meta.wait_start = wait_start;
             meta.throwaway = throwaway;
             let session = self.make_session(meta);

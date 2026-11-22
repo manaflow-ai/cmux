@@ -207,6 +207,11 @@ pub struct SessionMeta {
     /// Explicit spoken handle. Older and unnamed sessions derive one from the same stable id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handle: Option<String>,
+    /// The daemon gave `handle` at the start (`Hub::assign_handle`), not the chat or a person:
+    /// the chat's first turn asks it to pick its own (`session_handle::first_turn_note`). A
+    /// rename clears it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub handle_assigned: bool,
     /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
     /// default (`hub/new_request.rs` `unique_name_among`). False in a log from before it was kept.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
