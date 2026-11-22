@@ -17,7 +17,8 @@ and prints, per launch, every launch mark the app streamed (ms since its process
   pre_main   process start to main_start (exec, dyld, static initializers)
   to_frame   main_start to first_window_frame_committed
   to_page    first_window_frame_committed to home.first_page (Home's first page in)
-  harness    the smoke's time to Home rendered (it polls snapshot.get every 0.25 s)
+  harness    the smoke's time to Home rendered (it reads snapshot.get as each launch mark arrives, at most
+             0.25 s apart)
 It also records the copy's facts once: its size, its main executable's size and load commands, its extended
 attributes (quarantine, provenance) and its signature (codesign -dv).
 
