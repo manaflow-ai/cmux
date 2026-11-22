@@ -74,6 +74,16 @@ pub(super) fn exit_cause(line: &str) -> &'static str {
         .unwrap_or("agent_exited")
 }
 
+/// An agent's answer to a prompt that ended its turn well, as the hosted agent's tap sees it
+/// (`tap.rs`): a result with a `stopReason` other than `cancelled`, the same rule `finish_turn`
+/// clears the hub's [`ExitLine`] by.
+pub(super) fn ends_a_turn_well(msg: &crate::rpc::Message) -> bool {
+    let crate::rpc::Message::Response { result: Some(result), error: None, .. } = msg else {
+        return false;
+    };
+    result.get("stopReason").and_then(serde_json::Value::as_str).is_some_and(|r| r != "cancelled")
+}
+
 /// `<program>: exit status <n>`, as Go's `exec.ExitError` prints it.
 fn is_wrapper_exit_line(line: &str) -> bool {
     let Some((program, rest)) = line.split_once(": exit status ") else {
@@ -161,5 +171,43 @@ mod explains_exit_tests {
             (Some("rate_limit"), Some(line))
         );
         assert_eq!(last.take(), None);
+    }
+
+    /// A hosted agent's tap: its 429, then its prompt's answer `end_turn`, then a quiet exit is
+    /// not `rate_limit`; a cancelled turn or another answer does not clear the line.
+    #[test]
+    fn a_hosted_agents_answered_turn_clears_its_earlier_429() {
+        use super::{ExitLine, ends_a_turn_well, exited_data};
+        use crate::rpc::{Message, RpcError};
+        let answer = |result: serde_json::Value| Message::Response {
+            id: serde_json::json!(3),
+            result: Some(result),
+            error: None,
+        };
+        let line = "API Error: Request rejected (429) · This request would exceed your account's rate limit";
+        // The tap's own steps: each inbound message, then the exit.
+        let tap = |messages: &[Message]| {
+            let mut last = ExitLine::default();
+            last.heard(line);
+            for m in messages {
+                if ends_a_turn_well(m) {
+                    last.turn_ended_well();
+                }
+            }
+            exited_data(Some(0), last.take().as_deref())
+        };
+        let ended = answer(serde_json::json!({"stopReason": "end_turn"}));
+        assert_eq!(tap(&[ended]), serde_json::json!({"code": 0, "reason": "agent_exited"}));
+        for kept in [
+            answer(serde_json::json!({"stopReason": "cancelled"})),
+            answer(serde_json::json!({"sessionId": "s"})),
+            Message::Response {
+                id: serde_json::json!(3),
+                result: None,
+                error: Some(RpcError::new(-32603, line)),
+            },
+        ] {
+            assert_eq!(tap(&[kept])["reason"], "rate_limit");
+        }
     }
 }
