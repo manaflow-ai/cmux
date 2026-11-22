@@ -370,7 +370,7 @@ fn tabs_respawned_after_the_holder_and_daemon_died_together_run_on_the_holder() 
     // The logout: the daemon, the holder and every shell end. Ended here, so
     // the drop never signals these pids again.
     daemon.sigkill();
-    let started: Vec<i32> = daemon.cleanup.drain(..).collect();
+    let started: Vec<i32> = std::mem::take(&mut daemon.cleanup);
     for pid in &started {
         // SAFETY: SIGKILL of the holder and shells this test's daemon started.
         unsafe { libc::kill(*pid, libc::SIGKILL) };

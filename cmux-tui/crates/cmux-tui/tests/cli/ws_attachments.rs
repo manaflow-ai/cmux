@@ -4,7 +4,7 @@
 //! them, reads the bytes back, and plays them through a download link
 //! (`GET /attachments/<token>` with byte ranges, as a video element seeks).
 
-use std::io::{Read, Write as _};
+use std::io::Read;
 use std::net::TcpStream;
 
 use base64::Engine;

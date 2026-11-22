@@ -5,7 +5,7 @@
 //! instructions, personality or tools, need the person's gesture in the cmux
 //! app, which a WebSocket never carries: each is refused and nothing changes.
 
-use std::io::{BufRead, BufReader, Write as _};
+use std::io::{BufRead, BufReader};
 
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
