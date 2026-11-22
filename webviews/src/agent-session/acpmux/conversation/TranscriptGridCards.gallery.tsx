@@ -65,13 +65,7 @@ export default componentEntry({
   variants: {
     grid: { props: {}, note: "Opened message, nested sub-session and live agent card with changing command counts." },
     ...(material
-      ? {
-          "grid-material": {
-            props: {},
-            note: "The same cards under the Material look (examples/looks).",
-            look: material,
-          },
-        }
+      ? { "grid-material": { props: {}, note: "The same cards under the Material look (examples/looks).", look: material } }
       : {}),
   },
 });
