@@ -745,6 +745,7 @@ fn link_frames(payload: u64) -> u64 {
 }
 
 /// A WebSocket frame's header for a payload of `len` (`masked`: client to server).
+#[allow(dead_code)]
 fn ws_header(len: u64, masked: bool) -> u64 {
     let base = if len < 126 {
         2
