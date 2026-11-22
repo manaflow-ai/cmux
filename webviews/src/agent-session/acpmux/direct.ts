@@ -3408,7 +3408,8 @@ export class AcpmuxDirectClient {
   private pendingSecret?: AcpmuxSecretAsk;
   private groupedPermissions = new Map<string, AcpmuxPermission>();
   /// Every chat's open permission requests, for the Needs you list (needsYou/asks.ts).
-  /// The pane's relay never sends `_acpmux/info`, so the app's host reads it (asks.ts `pendingReader`).
+  /// The pane's relay cuts an `_acpmux/info` reply to its `liveTree`, so the app's host reads the
+  /// asks (asks.ts `pendingReader`).
   private readonly asks = new AskTracker(
     pendingReader(
       // Read when called: the field is set before the constructor's `gitRoute`.
@@ -12774,6 +12775,8 @@ export class AcpmuxDirectClient {
         () => {
           if (heldForHost) heldUntil = Date.now();
           heldForHost = false;
+          // The perf watch's new-chat span: the first prompt since the handshake (perfReporter.ts).
+          acpmuxPerf.markAgent("promptSent");
           return this.request(
             "session/prompt",
             {
@@ -15877,6 +15880,12 @@ export class AcpmuxDirectClient {
         models: models.get(profile.id) ?? profile.models,
       })),
     ];
+  }
+  /// The perf watch (`_acpmux/perf`, perf_watch.rs): the Inspector's Perf tab turns it on and reads
+  /// it, and perfReporter.ts reports the page's own timings. A `read` with `waitMs` waits for the
+  /// next event (at most 30 s).
+  perf(params: Record<string, unknown>): Promise<unknown> {
+    return this.request("_acpmux/perf", params);
   }
   /// Another machine's agents: acpmux forwards `_acpmux/harnesses` to the peer `_meta.acpmux.peer`
   /// names (requests.rs, 5 s limit) and answers with that machine's reply plus `peer`. The composer

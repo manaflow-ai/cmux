@@ -23,6 +23,9 @@ pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
 #[cfg(test)]
 #[path = "requests/hold_attach_tests.rs"]
 mod hold_attach_tests;
+#[cfg(test)]
+#[path = "requests/session_load_newest_tests.rs"]
+mod session_load_newest_tests;
 mod settled_attach;
 #[cfg(test)]
 #[path = "requests/settled_attach_tests.rs"]
@@ -1343,6 +1346,7 @@ async fn dispatch_request_with_identity(
                 method::CHAT_FIX_FROM_LINK,
                 method::CHAT_FIX_FROM_LINK_PREPARE,
                 method::MUX_PROJECT_NEW,
+                method::MUX_PERF,
             ];
             #[allow(unused_mut)]
             let mut reply = json!({
@@ -2547,6 +2551,16 @@ async fn dispatch_request_with_identity(
             }
         }
         method::MUX_STATUS => Ok(hub.status().await),
+        // The live perf commentator (`perf_watch.rs`): this machine's own clients only. It names
+        // chats and clients, and `on` writes its tail file.
+        method::MUX_PERF => {
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+                return Err(RpcError::invalid_params(
+                    "only the local app or unix socket may use the perf watch",
+                ));
+            }
+            crate::perf_watch::handle(&params).await
+        }
         method::MUX_SESSIONS => {
             // `usage: true` (`ls --wide`, `--json`): each chat's usage as its harness recorded it
             // until now first (`hub/usage_view.rs`); else rows carry the last pass's.

@@ -88,6 +88,8 @@ STALE_HOURS = 24
 PART_STALE_HOURS = 20
 ABANDON_HOURS = 12          # of active time: the hours a measurement spent yielding to the fleet do not count
 ABANDON_WALL_HOURS = 48     # the hard cap, yielding included
+# A tip measurement closed at its bound (close_at_bound) has this long to finish before it is abandoned after all.
+CLOSE_GRACE_HOURS = 6
 MAX_YIELDS = 3
 PART_RUN_SECONDS = 900      # one part, its app build included (Lawrence: under 15 minutes each)
 PART_QUEUE_SECONDS = 300    # a part that does not start at once gives its place back
@@ -205,6 +207,11 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "idle-budget", "run_seconds": 2400},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
+    # Tabs and terminals as they grow (Leo 2026-11-10: "opening/closing tabs was p important to lawrence ... we defo need
+    # to encode and warn sometimes if those get slow"): tab switch at 2 and 30 tabs, 20 quick Cmd-W on terminal and chat
+    # tabs, Cmd-T and Ctrl-` at 10 and 30 workspaces. Not timed yet: 25 minutes, as the other multi-bench parts.
+    {"name": "tabs", "args": [*MEASURE, "--suite=budgets", "--only=tab_scale,tab_close,surfaces_scale"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "tabs", "run_seconds": 1500},
     # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
     # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571).
     # It measures the bench configuration (Release optimization, split-spring.sh --config=bench), the build people
@@ -324,7 +331,9 @@ PARTS = [
 PART_BY_NAME = {p["name"]: p for p in PARTS}
 # Which part measures a row (bisect re-measures only the parts of the regressed rows).
 ROW_PARTS = [
-    (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
+    (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"),
+    (r"^(cmd_t|ctrl_backtick)\.idle_\d+ws\.", "tabs"), (r"^tab_switch\.terminal\.(2|30)\.", "tabs"), (r"^tab_close\.", "tabs"),
+    (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
     (r"^memory\.app_agents\.", "memory-agents"), (r"^idle_budget\.", "idle-budget"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"),
@@ -1216,17 +1225,31 @@ def with_build(parts):
 def part_order(state, todo, t):
     """The order a tick takes a measurement's parts to do in (pure): the build first (every other Mac part reuses its
     app), then each part whose newest stored rows (state['part_stored'], store_part_rows) are older than
-    PART_STALE_HOURS, oldest first, then the rest in their PARTS order. A part with no stored rows yet keeps its
-    place. A yielded part stays first in todo, so without this a part that keeps yielding, or a measurement dropped
-    before its tail, starved the last parts: throughput, the 13th Mac part, went 38 h without a row (2026-11-19)."""
+    PART_STALE_HOURS, oldest first, then the rest in their PARTS order. A part with no stored rows yet goes before
+    the stale ones, and one with no row at all before those. A yielded part stays first in todo, so without this a part that keeps
+    yielding, or a measurement dropped before its tail, starved the last parts: throughput, the 13th Mac part, went
+    38 h without a row (2026-11-19), and terminal-scroll, added last, kept its place behind every stale part and never
+    ran (2026-11-21)."""
     stored = state.get("part_stored") if isinstance(state.get("part_stored"), dict) else {}
-    stale = []
+    never, stale = [], []
     for i, name in enumerate(todo):
+        if name == "build":
+            continue
         e = stored.get(name)
         at = parse_iso(e.get("at")) if isinstance(e, dict) else None
-        if name != "build" and at and hours_between(at, t) > PART_STALE_HOURS:
+        if not at:
+            never.append(name)
+        elif hours_between(at, t) > PART_STALE_HOURS:
             stale.append((at, i, name))
-    first = [n for _, _, n in sorted(stale)]
+    # Of those, a part with no row anywhere (row_history, last, part_rows) goes first: part_stored is newer than most
+    # rows, so on 2026-11-22 it named 24 of 31 parts, and terminal-scroll, with no row at all, was fifth of the Linux
+    # ones (about 10 h of Linux parts at 2 h each, past ABANDON_HOURS).
+    if never:
+        names = set(state.get("row_history") or {}) | set((state.get("last") or {}).get("rows") or {}) \
+            | set(state.get("part_rows") or {})
+        seen = {part_for_row(n) for n in names}
+        never = [n for n in never if n not in seen] + [n for n in never if n in seen]
+    first = never + [n for _, _, n in sorted(stale)]
     return [n for n in todo if n == "build"] + first + [n for n in todo if n != "build" and n not in first]
 
 
@@ -1336,7 +1359,10 @@ def drop_dead_measurement(state, t, measurable):
     (give_up_host)."""
     cur = state.get("current")
     why = None
-    if cur and (active_hours(cur, t) > ABANDON_HOURS or hours_between(parse_iso(cur["started_at"]), t) > ABANDON_WALL_HOURS):
+    over = cur and (active_hours(cur, t) > ABANDON_HOURS or hours_between(parse_iso(cur["started_at"]), t) > ABANDON_WALL_HOURS)
+    if over and close_at_bound(cur, t):
+        return "closed at its bound"
+    if over and not (cur.get("closed_at") and hours_between(parse_iso(cur["closed_at"]), t) <= CLOSE_GRACE_HOURS):
         why = "abandoned"
     elif cur and needs_mac(cur) and not measurable(cur["sha"]):
         why = "unmeasurable"
@@ -1352,6 +1378,27 @@ def drop_dead_measurement(state, t, measurable):
             if same_range(rng, cur.get("bisect_range")) and cur["sha"] not in rng.setdefault("skip", []):
                 rng["skip"].append(cur["sha"])
     return why
+
+
+def close_at_bound(cur, t):
+    """A tip measurement that reached its bound with a part done ends with what it has (pure on cur): each part
+    still to do is recorded as not run (state 'not_run', its reason the bound), so the next decide finishes it and
+    the report judges its rows; the measurement ends incomplete instead of abandoned. Returns whether it closed.
+    Abandoning threw the whole measurement away: from 2026-11-15 08:03Z the cron finished none for 165 h while each
+    one ran 8 to 20 of its 27 parts and was dropped at ABANDON_HOURS. A bisect step still abandons (its verdict needs
+    its parts), and so does a measurement with no part done (nothing to judge). cur['closed_at'] holds the close: the
+    finish gets CLOSE_GRACE_HOURS before the abandon applies again."""
+    if cur.get("kind") != "tip" or not cur.get("parts_todo") or cur.get("closed_at"):
+        return False
+    if not any(isinstance(p, dict) and p.get("state") == "done" for p in (cur.get("parts") or {}).values()):
+        return False
+    reason = (f"not run: the measurement reached its bound ({ABANDON_HOURS} h active or {ABANDON_WALL_HOURS} h in "
+              "all) and ended with the parts it had")
+    for name in cur["parts_todo"]:
+        cur["parts"][name] = {"state": "not_run", "reason": reason}
+    cur["parts_todo"] = []
+    cur["closed_at"] = iso(t)
+    return True
 
 
 def commit_failed(cur):
@@ -2134,6 +2181,10 @@ def supported_parts_at(sha):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text
+        elif need == "tabs":
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/perf-budgets.py"],
+                                  capture_output=True, text=True).stdout
+            ok = '"surfaces_scale":' in text
         elif need == "idle-budget":
             # Its report's perf-cron rows (cron_report): an older idle-budget.py writes none.
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/idle-budget.py"],
