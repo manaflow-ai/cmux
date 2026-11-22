@@ -237,7 +237,10 @@ jobs:
       # Next's route types (.next/types, which tsconfig.json includes) exist only after a build or typegen. The
       # production build below skips type errors (CMUX_CI_TYPECHECK_SEPARATE), so this job generates them: a route
       # type error (a page's props, a typed link) stays this check's red.
+      # typegen loads next.config.ts, which imports app/env.ts; route types need no secrets, so its check is off here.
       - name: Generate Next route types
+        env:
+          SKIP_ENV_VALIDATION: "1"
         run: bun x next typegen
 
       - name: Typecheck

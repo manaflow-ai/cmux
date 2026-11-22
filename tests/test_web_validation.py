@@ -375,6 +375,9 @@ class WebValidationTests(unittest.TestCase):
         block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
         typegen = block.index("run: bun x next typegen")
         self.assertLess(typegen, block.index("- name: Typecheck"))
+        # next typegen loads next.config.ts, which validates app/env.ts; CI holds none of its secrets.
+        step = block[block.index("- name: Generate Next route types") : typegen]
+        self.assertIn('SKIP_ENV_VALIDATION: "1"', step)
         self.assertIn("CMUX_CI_TYPECHECK_SEPARATE: \"1\"", workflow)
 
 if __name__ == "__main__":
