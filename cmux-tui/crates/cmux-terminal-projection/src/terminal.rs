@@ -5,9 +5,8 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use unicode_width::UnicodeWidthChar;
-
 use crate::style::{Interner, Style, StyleTable};
+use crate::unicode::{self, WidthEffect};
 
 /// A cell holding one narrow glyph (or nothing).
 pub const NARROW: u8 = 0;
@@ -889,9 +888,19 @@ impl Terminal {
     fn print(&mut self, ch: char) {
         let special = self.charsets.get(usize::from(self.shift_out)).copied().unwrap_or(false);
         let ch = if special { dec_special(ch) } else { ch };
-        let width = ch.width().unwrap_or(0);
+        // Grapheme clustering (mode 2027, on by default as in Ghostty): a
+        // code point that does not start a cluster joins the glyph before
+        // the cursor, whatever its width, as Ghostty's `print` does. Only
+        // code points past U+00FF are checked, as there.
+        let clustering = self.modes.get(&2027).copied().unwrap_or(true);
+        if clustering && u32::from(ch) > 0xFF && self.cursor.x > 0 && self.cluster(ch) {
+            return;
+        }
+        let width = unicode::width(ch);
         if width == 0 {
-            self.combine(ch);
+            if !clustering {
+                self.combine(ch);
+            }
             return;
         }
         let cols = self.cols;
@@ -958,7 +967,111 @@ impl Terminal {
         }
     }
 
-    /// A zero-width code point joins the glyph before the cursor.
+    /// Joins `ch` to the glyph before the cursor when it continues that
+    /// glyph's grapheme cluster (Ghostty's `print` with mode 2027): a
+    /// variation selector or a code point that widens the cluster makes
+    /// the glyph wide (wrapping it when it sits in the last column) or
+    /// narrow. False: `ch` starts a glyph of its own.
+    fn cluster(&mut self, ch: char) -> bool {
+        let (y, cursor_x, pending, cols, autowrap) =
+            (self.cursor.y, self.cursor.x, self.cursor.pending_wrap, self.cols, self.autowrap);
+        let Some(row) = self.screen().get(y) else { return false };
+        let left = if autowrap {
+            usize::from(!pending)
+        } else if cursor_x != cols - 1 {
+            1
+        } else {
+            usize::from(row.cells.get(cursor_x).is_none_or(|c| c.ch == 0))
+        };
+        let Some(mut x) = cursor_x.checked_sub(left) else { return false };
+        if row.cells.get(x).is_some_and(|c| c.kind == WIDE_TAIL) {
+            let Some(before) = x.checked_sub(1) else { return false };
+            x = before;
+        }
+        let Some(&cell) = row.cells.get(x) else { return false };
+        if cell.ch == 0 {
+            return false;
+        }
+        let mut text = self.cell_text(cell);
+        if !unicode::is_break(&text, ch) {
+            let prev = text.chars().next_back().unwrap_or(' ');
+            let mut at = (y, x);
+            match unicode::width_effect(prev, ch) {
+                WidthEffect::Ignore => return true,
+                WidthEffect::NoChange => {}
+                WidthEffect::Wide if cell.kind == WIDE => {}
+                WidthEffect::Wide => {
+                    let style = self.styles.id(self.cursor.style);
+                    self.cursor.x = x;
+                    if x == cols - 1 {
+                        if !autowrap {
+                            return true;
+                        }
+                        // No room for a wide glyph: a spacer head, and the
+                        // glyph again at the next row's start.
+                        if let Some(row) = self.screen().get_mut(y) {
+                            row.wrapped = true;
+                            if let Some(c) = row.cells.get_mut(x) {
+                                *c = Cell { ch: 0, style, kind: SPACER_HEAD };
+                            }
+                        }
+                        self.linefeed();
+                        self.cursor.x = 0;
+                        let y = self.cursor.y;
+                        self.clear_wide(y, 0);
+                        if let Some(c) = self.screen().get_mut(y).and_then(|r| r.cells.get_mut(0)) {
+                            *c = Cell { ch: cell.ch, style, kind: WIDE };
+                        }
+                        at = (y, 0);
+                    } else if let Some(c) =
+                        self.screen().get_mut(y).and_then(|r| r.cells.get_mut(x))
+                    {
+                        c.kind = WIDE;
+                    }
+                    let (y, x) = at;
+                    if x + 1 < cols {
+                        self.clear_wide(y, x + 1);
+                        if let Some(c) =
+                            self.screen().get_mut(y).and_then(|r| r.cells.get_mut(x + 1))
+                        {
+                            *c = Cell { ch: 0, style, kind: WIDE_TAIL };
+                        }
+                    }
+                    if x + 1 >= cols - 1 {
+                        self.cursor.x = cols - 1;
+                        self.cursor.pending_wrap = true;
+                    } else {
+                        self.cursor.x = x + 2;
+                        self.cursor.pending_wrap = false;
+                    }
+                }
+                WidthEffect::Narrow if cell.kind != WIDE => {}
+                WidthEffect::Narrow => {
+                    if let Some(row) = self.screen().get_mut(y) {
+                        if let Some(c) = row.cells.get_mut(x) {
+                            c.kind = NARROW;
+                        }
+                        if let Some(c) = row.cells.get_mut(x + 1) {
+                            c.kind = NARROW;
+                        }
+                    }
+                    self.cursor.pending_wrap = false;
+                    self.cursor.x = (x + 1).min(cols - 1);
+                }
+            }
+            text.push(ch);
+            let id = self.graphemes.id(&text);
+            let (y, x) = at;
+            if let Some(c) = self.screen().get_mut(y).and_then(|r| r.cells.get_mut(x)) {
+                c.ch = GRAPHEME | id;
+            }
+            return true;
+        }
+        false
+    }
+
+    /// With grapheme clustering off (mode 2027 reset): a zero-width code
+    /// point joins the glyph before the cursor.
     fn combine(&mut self, ch: char) {
         let (y, cursor_x, pending) = (self.cursor.y, self.cursor.x, self.cursor.pending_wrap);
         let mut x = if pending {
@@ -1384,5 +1497,80 @@ mod tests {
         feed(&mut term, "e\u{301}x");
         assert_eq!(text(&term, &term.primary[0]), "e\u{301}x");
         assert_eq!(term.primary_cursor(), (2, 0));
+    }
+
+    /// The glyphs of row `y` as (text, wide), blanks skipped.
+    fn glyphs(term: &Terminal, y: usize) -> Vec<(String, bool)> {
+        term.primary[y]
+            .cells
+            .iter()
+            .filter(|c| c.ch != 0 && c.kind != WIDE_TAIL)
+            .map(|c| (term.cell_text(*c), c.kind == WIDE))
+            .collect()
+    }
+
+    #[test]
+    fn grapheme_clusters_are_one_glyph_as_in_ghostty() {
+        let mut term = Terminal::new(20, 3, 100);
+        feed(
+            &mut term,
+            "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}x\u{1F1EF}\u{1F1F5}\u{1F1FA}\u{1F1F8}",
+        );
+        assert_eq!(
+            glyphs(&term, 0),
+            vec![
+                ("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}".to_string(), true),
+                ("x".to_string(), false),
+                ("\u{1F1EF}\u{1F1F5}".to_string(), true),
+                ("\u{1F1FA}\u{1F1F8}".to_string(), true),
+            ]
+        );
+        assert_eq!(term.primary_cursor(), (7, 0));
+    }
+
+    #[test]
+    fn variation_selectors_set_the_glyph_width() {
+        let mut term = Terminal::new(20, 3, 100);
+        // VS16 widens an emoji base (a keycap too), VS15 narrows one, and
+        // on a base it does not vary it is dropped.
+        feed(&mut term, "\u{2764}\u{FE0F}|1\u{FE0F}\u{20E3}|\u{231A}\u{FE0E}|a\u{FE0F}|");
+        assert_eq!(
+            glyphs(&term, 0),
+            vec![
+                ("\u{2764}\u{FE0F}".to_string(), true),
+                ("|".to_string(), false),
+                ("1\u{FE0F}\u{20E3}".to_string(), true),
+                ("|".to_string(), false),
+                ("\u{231A}\u{FE0E}".to_string(), false),
+                ("|".to_string(), false),
+                ("a".to_string(), false),
+                ("|".to_string(), false),
+            ]
+        );
+        assert_eq!(term.primary_cursor(), (10, 0));
+    }
+
+    #[test]
+    fn a_glyph_widened_in_the_last_column_wraps() {
+        let mut term = Terminal::new(10, 3, 100);
+        feed(&mut term, &format!("{}\u{2764}\u{FE0F}z", "x".repeat(9)));
+        assert!(term.primary[0].wrapped);
+        assert_eq!(term.primary[0].cells[9].kind, SPACER_HEAD);
+        assert_eq!(
+            glyphs(&term, 1),
+            vec![("\u{2764}\u{FE0F}".to_string(), true), ("z".to_string(), false)]
+        );
+        assert_eq!(term.primary_cursor(), (3, 1));
+    }
+
+    #[test]
+    fn indic_spacing_marks_and_conjuncts_cluster() {
+        let mut term = Terminal::new(20, 3, 100);
+        // A spacing mark makes its cluster wide, as Ghostty sizes it.
+        feed(&mut term, "\u{915}\u{93F}.");
+        assert_eq!(
+            glyphs(&term, 0),
+            vec![("\u{915}\u{93F}".to_string(), true), (".".to_string(), false)]
+        );
     }
 }

@@ -2580,6 +2580,7 @@ name = "cmux-terminal-projection"
 version = "0.1.0"
 dependencies = [
  "ghostty-vt",
+ "unicode-segmentation",
  "unicode-width",
 ]
 
