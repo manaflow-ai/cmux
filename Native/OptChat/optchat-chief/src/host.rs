@@ -647,6 +647,19 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
             return 1;
         }
     };
+    // A memory handed to this machine over a projected folder (memory_place.rs) is taken in
+    // before anything opens the memory; a mounted hand-out that is not this machine's refuses.
+    {
+        let capability =
+            crate::memory_place::daemon_capability(Path::new(&daemon_socket)).unwrap_or(false);
+        match crate::memory_place::at_host_start(&home, capability) {
+            Ok(line) => log(line),
+            Err(why) => {
+                log(format!("not starting: {why}"));
+                return crate::migrate::MOVED_EXIT;
+            }
+        }
+    }
     // A status left by a host that crashed mid-wait says nothing true now.
     let settle = crate::settle_status::SettleStatus::new(&paths.settle_status);
     settle.clear();
@@ -1298,6 +1311,7 @@ fn start(
     // Each installed brain's turn preset: the Chief's own home for it, cmux's Chief tools only.
     let mut brains = crate::brain_home::BrainTurns {
         root: Some(paths.root.clone()),
+        model: Some(crate::brain_home::BrainSetup::from_choice(&engine_choice_file, paths).model),
         ..Default::default()
     };
     for brain in &crate::brain_home::BRAINS {
@@ -2015,7 +2029,6 @@ fn start(
         membership: membership.clone(),
         keep_turn_session: env("CHIEF_KEEP_TURN_SESSION").as_deref() != Some("0"),
         chief_inbox,
-        screen_share: Some(paths.screen.clone()),
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.

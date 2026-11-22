@@ -27,9 +27,7 @@ import UniformTypeIdentifiers
     init() {
         HomeMarkdownPolicy.install()
         HomePlanRowProvider.plan = .empty
-        CustomRows.unregister(HomeTableRowProvider.kind)
-        CustomRows.unregister(HomePlanRowProvider.kind)
-        HomeTableRowProvider.install()
+        HomeTableRowProvider.reinstall()
     }
 
     static func table(_ text: String) -> HomeTable? {

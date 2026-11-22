@@ -23,6 +23,7 @@
 //                                      components (`cmuxAcpmuxDebug.renders`); a hidden page should draw none
 //   bun bench/session-scale-scroll.bench.ts [--sizes 100,10000] [--pages 4] [--newtabs 2] [--rate 4]
 //     [--pad 17000] [--cpu 1] [--turns 30] [--long 2000] [--seconds 6] [--hidden both|hidden|visible] [--profile]
+//     [--hidden-rate R]  the rate the hidden pages hear (default --rate)
 /// <reference types="bun" />
 import path from "node:path";
 import { chromium } from "./browsers";
@@ -40,6 +41,10 @@ const SIZES = (flag("--sizes") ?? "100,10000").split(",").map(Number);
 const PAGES = Number(flag("--pages") ?? 4);
 const NEWTABS = Number(flag("--newtabs") ?? 2);
 const RATE = Number(flag("--rate") ?? 4);
+/// The rate the hidden pages hear (default RATE). The app's host leaves other chats' row changes out for a page
+/// nobody sees and tells it once when it shows (AcpmuxPaneSocket.setAsleep), so `--hidden-rate 0` is the app's
+/// arm and the default the arm before it.
+const HIDDEN_RATE = Number(flag("--hidden-rate") ?? RATE);
 const PAD = Number(flag("--pad") ?? 17_000);
 /// The scrolled chat: a short one, a few screens tall.
 const TURNS = Number(flag("--turns") ?? 30);
@@ -63,6 +68,7 @@ if (
   SIZES.some((size) => !Number.isInteger(size) || size < 0) ||
   !(PAGES >= 1) ||
   !(RATE >= 0) ||
+  !(HIDDEN_RATE >= 0) ||
   !(SECONDS > 0) ||
   MODES.some((mode) => mode !== "hidden" && mode !== "visible")
 ) {
@@ -140,7 +146,7 @@ async function installDriver({ size, rate, pad }: { size: number; rate: number; 
   };
 }
 
-async function openPage(page: Page, port: number, size: number, kind: "chat" | "long" | "newtab") {
+async function openPage(page: Page, port: number, size: number, kind: "chat" | "long" | "newtab", rate: number) {
   await page.addInitScript(
     ({ count, newTab }) => {
       const mock = globalThis as { cmuxAcpmuxMockListSize?: number; __cmuxNewTabContext?: unknown };
@@ -166,7 +172,7 @@ async function openPage(page: Page, port: number, size: number, kind: "chat" | "
     if (seeded.error) throw new Error(`loadSeed: ${seeded.error}`);
     await page.locator(".acpmux-scroll").first().waitFor({ timeout: 60_000 });
   }
-  await page.evaluate(installDriver, { size, rate: RATE, pad: PAD });
+  await page.evaluate(installDriver, { size, rate, pad: PAD });
 }
 
 const taskMs = async (cdp: CDPSession) => {
@@ -223,7 +229,7 @@ try {
         for (let index = 0; index < PAGES; index += 1) {
           const page = await context.newPage();
           const kind = index === 0 ? "chat" : index > PAGES - 1 - NEWTABS ? "newtab" : "long";
-          await openPage(page, port, size, kind);
+          await openPage(page, port, size, kind, index === 0 ? RATE : HIDDEN_RATE);
           pages.push(page);
         }
         const hidden = pages.slice(1);
@@ -283,6 +289,7 @@ try {
           pages: PAGES,
           newtabs: NEWTABS,
           rate: RATE,
+          hidden_rate: HIDDEN_RATE,
           cpu: CPU,
           turns: TURNS,
           frames: frames.frames,
@@ -302,7 +309,7 @@ try {
         };
         results.push(row);
         console.log(
-          `n=${size} hidden pages report ${mode}, pages=${PAGES} (${NEWTABS} new tab) rate=${RATE}/s cpu=${CPU}x:` +
+          `n=${size} hidden pages report ${mode}, pages=${PAGES} (${NEWTABS} new tab) rate=${RATE}/s hidden-rate=${HIDDEN_RATE}/s cpu=${CPU}x:` +
             `frames ${row.frames} p50 ${row.frame_p50} p95 ${row.frame_p95} max ${row.frame_max} ms, dropped ${row.dropped}, ` +
             `main thread busy ${row.busy_pct} %, long tasks ${row.long_tasks} (longest ${row.longest_task_ms} ms), ` +
             `hidden pages' renders ${JSON.stringify(row.hidden_renders)} (pane ${JSON.stringify(row.hidden_pane_renders)})`,
