@@ -1,0 +1,52 @@
+diff --git a/webviews/src/agent-session/acpmux/direct.ts b/webviews/src/agent-session/acpmux/direct.ts
+index 37cd99fecb0f..f2548ad357dc 100644
+--- a/webviews/src/agent-session/acpmux/direct.ts
++++ b/webviews/src/agent-session/acpmux/direct.ts
+@@ -7222,16 +7222,36 @@ export class AcpmuxDirectClient {
+   /// The switch's hold of a chat on the store whose first window is not in yet.
+   private storeHold = 0;
+ 
+-  /// Reads the selected session's durable composer draft from acpmux.
++  /// Reads the selected session's durable composer draft from acpmux. A switch's read, sent with its
++  /// attach (`readDraftAhead`), answers the composer's first read of that chat, so the composer's
++  /// read no longer waits for the attach's render before it goes out.
+   readDraft(sessionId: string): Promise<unknown> {
+-    return this.request("_acpmux/draft_get", { sessionId });
++    const ahead = this.draftAhead;
++    this.draftAhead = undefined;
++    const read = () => this.request("_acpmux/draft_get", { sessionId });
++    // A read-ahead that went unanswered (a reconnect, a deadline) asks again rather than fail the composer.
++    if (ahead?.sessionId === sessionId) return ahead.read.catch(read);
++    return read();
+   }
+ 
+   /// Persists or clears the selected session's composer draft in acpmux.
+   writeDraft(sessionId: string, text: string): Promise<unknown> {
++    // A read sent before this write may answer with the draft it replaces: the next read asks again.
++    if (this.draftAhead?.sessionId === sessionId) this.draftAhead = undefined;
+     return this.request("_acpmux/draft_set", { sessionId, text });
+   }
+ 
++  /// The draft read a switch sent with its attach, for the composer's first read of that chat.
++  private draftAhead?: { sessionId: string; read: Promise<unknown> };
++
++  /// Sends `sessionId`'s draft read now, alongside its attach, for the composer to take (`readDraft`).
++  private readDraftAhead(sessionId: string): void {
++    const read = this.request("_acpmux/draft_get", { sessionId });
++    // An unanswered read is the composer's to handle when it takes it; untaken, it is dropped.
++    read.catch(ignore);
++    this.draftAhead = { sessionId, read };
++  }
++
+   /// The session's prompt bookmarks (`{bookmarks: [seq...]}`), kept in acpmux (threadMinimap/bookmarks.ts).
+   readBookmarks(sessionId: string): Promise<unknown> {
+     return this.request("_acpmux/bookmark_get", { sessionId });
+@@ -14099,6 +14119,8 @@ export class AcpmuxDirectClient {
+       // own task and a detach answered after the attach would drop the new subscription. A refused
+       // detach (acpmux no longer resolves the chat) never stops the chat being opened.
+       if (previousSessionId && previousSessionId !== sessionId) this.detachInBackground(previousSessionId);
++      // The composer reads the chat's draft once the attach has rendered it: that read goes out now.
++      if (previousSessionId !== sessionId) this.readDraftAhead(sessionId);
+       const detaching = this.detaching.get(sessionId);
+       if (detaching) await detaching;
+       else if (previousSessionId === sessionId)
