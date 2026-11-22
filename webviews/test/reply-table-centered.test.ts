@@ -84,7 +84,7 @@ await requireBrowserLane("reply-table-centered.test.ts", async () => {
     ["centered", 760],
     ["centered", 1200],
     ["rest", 760],
-    ["aligned", 1200],
+    ["rest", 1200],
   ] as const)
     test(`${variant} at ${width}px: a table narrower than the column is centered in it`, async () => {
       const page = await open(variant, width);
