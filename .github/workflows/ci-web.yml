@@ -34,6 +34,13 @@ on:
         required: false
         type: string
         default: ""
+    outputs:
+      # `true` when a type check here failed and fixit-compile found no machine fix (fixit_handoff.py signal): the
+      # post-merge batch dispatches fixit-handoff.yml for its revert.
+      fixit_nofix:
+        value: ${{ (jobs.web-typecheck.outputs.fixit_nofix == 'true' || jobs.react-apps-check-shard.outputs.fixit_nofix == 'true') && 'true' || '' }}
+      fixit_check:
+        value: ${{ jobs.react-apps-check-shard.outputs.fixit_nofix == 'true' && 'webviews' || 'web' }}
 
 permissions:
   contents: read
@@ -234,6 +241,8 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_32 || fromJSON(vars.RUNNER_POOLS).linux_16 }}
     # Matches the 10-minute siblings in this workflow.
     timeout-minutes: 10
+    outputs:
+      fixit_nofix: ${{ steps.fixit-nofix.outputs.nofix }}
     defaults:
       run:
         working-directory: web
@@ -262,6 +271,7 @@ jobs:
         run: bun tools/generate-managed-iroh-relay-catalog.ts --check
 
       - name: Typecheck
+        id: typecheck
         env:
           FIXIT_COMPILE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
@@ -287,6 +297,12 @@ jobs:
           fi
 
           exit "$status"
+
+      # A type error fixit-compile could not fix wrote its record (scripts/ci/oops/fixit_handoff.py signal).
+      - name: Hand a type error with no machine fix to fixit-handoff
+        id: fixit-nofix
+        if: ${{ failure() && steps.typecheck.outcome == 'failure' }}
+        run: python3 -I ../scripts/ci/oops/fixit_handoff.py signal >> "$GITHUB_OUTPUT"
 
       # A type check whose every error had one safe language-service fix, and passed with them: the patch, for the
       # cmuxterm-hq fixit-compile reconciler to push onto a lane/* branch as a fixup commit (ci-oops 0a).
@@ -604,6 +620,9 @@ jobs:
       actions: read
     timeout-minutes: &webview-shard-minutes ${{ github.repository_owner != 'manaflow-ai' && 90 || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 40 || contains(fromJSON(vars.RUNNER_POOLS).linux_4, '-2vcpu-') && 150 || 90 }}
     name: react-apps-check (${{ matrix.shard }})
+    # Only shard 1 runs the webview checks, so only it sets this.
+    outputs:
+      fixit_nofix: ${{ steps.fixit-nofix.outputs.nofix }}
     strategy:
       fail-fast: false
       # REACT_APPS_SHARDS (web-subarea-scope's Pick the react-apps-check shards): every shard on a push, a pull
@@ -784,6 +803,12 @@ jobs:
 
       # A type check whose every error had one safe language-service fix, and passed with them: the patch, for the
       # cmuxterm-hq fixit-compile reconciler to push onto a lane/* branch as a fixup commit (ci-oops 0a).
+      - name: Hand a type error with no machine fix to fixit-handoff
+        id: fixit-nofix
+        if: ${{ steps.webviews-check.outcome == 'failure' }}
+        continue-on-error: true
+        run: python3 -I scripts/ci/oops/fixit_handoff.py signal >> "$GITHUB_OUTPUT"
+
       - name: Upload the fixit-compile patch
         id: fixit-upload
         if: ${{ steps.webviews-check.outcome == 'failure' }}
