@@ -2,7 +2,7 @@
 // transcript's rules in direct.ts. Its text is a reply, its thoughts and tool calls fold into
 // activity rows, and the subagents it spawned between two pieces of its text draw as one group
 // row, so nesting reads the same at every level.
-import { appendThought, backgroundTask, mergeToolItem, textFromContent } from "../direct";
+import { appendThought, backgroundTask, mergeToolItem, textFromContent } from "../toolActivity";
 import { translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { isCompletedPlumbingTool, isPlumbingCall } from "../hiddenTools";

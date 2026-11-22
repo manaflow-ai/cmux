@@ -3,7 +3,7 @@
 // recorded it, with the connection and session state above them. It opens
 // over the transcript like the diff panel and reads nothing while closed.
 import { useEffect, useRef, useState } from "react";
-import type { EventRecord } from "./direct";
+import type { EventRecord } from "./eventRecord";
 import { useT } from "./i18n";
 import type { AcpmuxSnapshot } from "./model";
 import { acpWire, type AcpWireLog, type WireEntry } from "./wire";
