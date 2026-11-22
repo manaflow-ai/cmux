@@ -838,6 +838,63 @@ mod tests {
         assert!(!c.root.join(format!("{}.tmp-take-in", STORES[0])).exists());
     }
 
+    /// One writer: a home that already handed its memory out is not the writer any more, so a
+    /// second hand-out (a retry with another --to) would make two writers at one epoch.
+    #[test]
+    fn a_home_that_handed_out_cannot_hand_out_again() {
+        let t = tempfile::tempdir().unwrap();
+        let a_home = t.path().join("a");
+        let a = crate::paths::Paths::new(&a_home);
+        a.create().unwrap();
+        seed_memory(&a.root, &["remember the blue door"]);
+        hand_out(&a_home, "machine-b", &t.path().join("out1")).unwrap();
+        let out2 = t.path().join("out2");
+        assert!(hand_out(&a_home, "machine-c", &out2).is_err());
+        assert!(read_writer(&out2).is_none());
+    }
+
+    /// The memory a take-in replaces is kept whole: rows a crashed host left only in its WAL
+    /// stay with the `.before-take-in-EPOCH` copy, not deleted as the new file's side files.
+    #[test]
+    fn the_kept_memory_keeps_its_wal() {
+        let t = tempfile::tempdir().unwrap();
+        let a_home = t.path().join("a");
+        let a = crate::paths::Paths::new(&a_home);
+        a.create().unwrap();
+        seed_memory(&a.root, &["remember the blue door"]);
+        let out = t.path().join("out");
+        let w = hand_out(&a_home, "c", &out).unwrap();
+
+        let c_home = t.path().join("c");
+        let c = crate::paths::Paths::new(&c_home);
+        c.create().unwrap();
+        // C's host crashed: its last rows are only in the WAL (a copy taken while it was open).
+        let crashed = t.path().join("crashed");
+        std::fs::create_dir_all(&crashed).unwrap();
+        let conn = rusqlite::Connection::open(crashed.join(STORES[0])).unwrap();
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; \
+             CREATE TABLE log(id INTEGER PRIMARY KEY, text TEXT); \
+             INSERT INTO log(text) VALUES ('only in the wal');",
+        )
+        .unwrap();
+        std::fs::copy(crashed.join(STORES[0]), c.root.join(STORES[0])).unwrap();
+        std::fs::copy(
+            crashed.join(format!("{}-wal", STORES[0])),
+            c.root.join(format!("{}-wal", STORES[0])),
+        )
+        .unwrap();
+        drop(conn);
+
+        project(&out, &c.root);
+        take_in(&c_home, &w).unwrap();
+        assert_eq!(count(&c.memory_db, "%blue door%"), 1);
+        let kept = c
+            .root
+            .join(format!("{}.before-take-in-{}", STORES[0], w.epoch));
+        assert_eq!(count(&kept, "only in the wal"), 1);
+    }
+
     #[test]
     fn hand_out_without_memory_writes_no_writer() {
         let a = tempfile::tempdir().unwrap();
