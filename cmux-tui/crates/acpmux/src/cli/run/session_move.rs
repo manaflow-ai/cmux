@@ -1165,7 +1165,10 @@ impl Targets {
         // avoids (`server/place.rs`). A named one is the caller's choice.
         let observer = self.observer.as_deref().unwrap_or(src);
         let verdict = observer
-            .request("_acpmux/place", json!({"work": "agent", "offInteractive": true}))
+            .request(
+                "_acpmux/place",
+                json!({"work": "agent", "offInteractive": true, "outdatedOk": true}),
+            )
             .await?;
         let hosts = verdict.get("hosts").and_then(Value::as_array).cloned().unwrap_or_default();
         // The registry's one reader of holds and reservations (`placement::held`); placement
@@ -1182,11 +1185,11 @@ impl Targets {
             }
             None => {
                 let (order, mut skipped) = ranked(&hosts, &self.placed, |n| {
-                    if self.target(n).is_none() {
-                        return Some("not an ssh peer of this daemon".to_owned());
-                    }
-                    held(n)
+                    auto_refusal(n, self.target(n).is_some(), registry.as_ref())
                 });
+                for line in outdated_lines(&hosts, &order) {
+                    eprintln!("{line}");
+                }
                 let tries: Vec<Target> = order.iter().filter_map(|n| self.target(n)).collect();
                 let floors: HashMap<String, u64> = tries
                     .iter()
@@ -1240,6 +1243,43 @@ impl Targets {
     fn placed(&mut self, name: &str) {
         *self.placed.entry(name.to_owned()).or_default() += 1.0;
     }
+}
+
+/// Why `--machine auto` passes over the placement host `name` (`ssh`: an ssh peer of this
+/// daemon), from the registry: not an ssh peer, a machine `placement::auto_move_refusal` names
+/// (a person's own, never a dependency; a last-resort host), or one `placement::held` holds or
+/// someone reserved. `None`: it may take the move.
+fn auto_refusal(name: &str, ssh: bool, registry: Option<&Value>) -> Option<String> {
+    if !ssh {
+        return Some("not an ssh peer of this daemon".to_owned());
+    }
+    crate::placement::auto_move_refusal(registry, name)
+        .map(|why| format!("{why} with --machine {name}"))
+        .or_else(|| crate::placement::held(registry, name))
+}
+
+/// One line for each host of `order` placement marks `outdated` (its build differs from this
+/// one's; `server/place.rs` `outdatedOk`): it stays ranked, since the move reaches its daemon
+/// over ssh, and the line gives the one command that refreshes it. Not run by the move: an
+/// update restarts that daemon and every chat live on it.
+fn outdated_lines(hosts: &[Value], order: &[String]) -> Vec<String> {
+    order
+        .iter()
+        .filter_map(|n| {
+            let h = hosts.iter().find(|h| h.get("name").and_then(Value::as_str) == Some(n))?;
+            (h.get("outdated").and_then(Value::as_bool) == Some(true)).then(|| {
+                let refresh = h
+                    .get("refresh")
+                    .and_then(Value::as_str)
+                    .map_or_else(|| crate::placement::refresh_command(n), str::to_owned);
+                format!(
+                    "auto: {n} runs another acpmux build (a stale disk copy); ranked anyway, \
+                     since the move goes over ssh to its own daemon. Not refreshed here (an \
+                     update restarts its daemon and the chats on it); refresh it with `{refresh}`"
+                )
+            })
+        })
+        .collect()
 }
 
 /// What [`walk`] found: the target (with its answer), the hosts it passed over and why, the

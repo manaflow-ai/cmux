@@ -683,3 +683,47 @@ fn origin_head_names_the_default_branch() {
     let read = parse_checkout("top\t/w\nbranch\tmain\ndefault\torigin/main\n").unwrap().unwrap();
     assert_eq!(read.default_branch.as_deref(), Some("main"));
 }
+
+/// Item A: `--machine auto` never moves a chat to a machine the registry marks a person's own
+/// (never a dependency: leo-apps, interactive), a last-resort host, or a reserved one; a peer
+/// whose only fault is a stale build is ranked, with the one command that refreshes it said.
+#[test]
+fn auto_never_picks_a_personal_last_resort_or_reserved_machine_and_ranks_a_stale_build() {
+    let until = "2999-01-01T00:00:00Z";
+    let reg = json!({
+        "machines": {
+            "own-box": {"roles": ["leo-apps"], "lanes": {"max_lanes": 6}},
+            "desk": {"interactive": true},
+            "spare": {"lanes": {"last_resort": true}},
+            "booked": {"lanes": {"max_lanes": 6}, "hold": {"reason": "reserved", "until": until}},
+            "lane": {"lanes": {"max_lanes": 6}},
+            "old": {"lanes": {"max_lanes": 6}}
+        }
+    });
+    for n in ["own-box", "desk"] {
+        let why = auto_refusal(n, true, Some(&reg)).expect(n);
+        assert!(why.contains("never a dependency"), "{n}: {why}");
+    }
+    assert!(auto_refusal("spare", true, Some(&reg)).unwrap().contains("lanes.last_resort"));
+    assert!(auto_refusal("booked", true, Some(&reg)).is_some(), "a reserved machine");
+    assert_eq!(auto_refusal("lane", true, Some(&reg)), None);
+    assert!(auto_refusal("lane", false, Some(&reg)).unwrap().contains("not an ssh peer"));
+
+    let hosts = vec![
+        host("own-box", true, false, 9.0, 0),
+        host("old", true, false, 5.0, 0),
+        host("lane", true, false, 2.0, 0),
+        host("spare", true, false, 8.0, 0),
+    ];
+    let mut hosts = hosts;
+    hosts[1]["outdated"] = json!(true);
+    hosts[1]["refresh"] = json!("acpmux machine update old");
+    let (order, skipped) = ranked(&hosts, &HashMap::new(), |n| auto_refusal(n, true, Some(&reg)));
+    assert_eq!(order, ["old", "lane"], "{skipped:?}");
+    let passed: Vec<&str> = skipped.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(passed, ["own-box", "spare"]);
+    let lines = outdated_lines(&hosts, &order);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].starts_with("auto: old runs another acpmux build"), "{}", lines[0]);
+    assert!(lines[0].ends_with("refresh it with `acpmux machine update old`"), "{}", lines[0]);
+}
