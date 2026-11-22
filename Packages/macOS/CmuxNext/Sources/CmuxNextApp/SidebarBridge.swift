@@ -36,7 +36,7 @@ final class SidebarBridge {
     var cardsObservation: Task<Void, Never>?
     private lazy var remoteExperiment: RemoteMachinesSidebarExperiment = {
         RemoteMachinesSidebarExperiment(sidebar: remoteMachines,
-            enabled: { [weak services = self.services] in services?.settings?.snapshot.machineJoin == true },
+            enabled: { SidebarTunables.subagentLook.value },
             socketPath: { [weak services = self.services] in
                 guard let services else { return nil }
                 return QuitAgents.environment(services)?.socketPath ?? services.agentLanes.socketPath

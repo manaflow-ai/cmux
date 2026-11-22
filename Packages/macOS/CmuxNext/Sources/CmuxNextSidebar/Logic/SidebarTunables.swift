@@ -80,6 +80,14 @@ public nonisolated enum SidebarTunables {
         "sidebar.drop.sectionTopFraction", .sidebar, "Section header top share",
         help: "Upper share of a section header that drops at the end of the previous section.",
         default: 0.35, range: 0...0.8, step: 0.01, unit: .fraction, code: "SidebarTunables.sectionTopFraction")
+
+    /// The own-machines sidebar rows experiment. This is deliberately separate
+    /// from `machineJoin`, which records joined-machine consent and must not
+    /// change what the sidebar draws by itself.
+    public static let subagentLook = Tunable<Bool>.toggle(
+        "sidebar.subagents.look", .sidebar, "Own-machines sidebar rows",
+        help: "Shows joined own-machine and remote-session rows in the sidebar. Off by default; this experiment does not change machine-join consent.",
+        default: false, code: "SidebarTunables.subagentLook")
     public static let workspaceOntoStart = Tunable<CGFloat>.number(
         "sidebar.drop.workspaceOntoStart", .sidebar, "Group-on-drop band start",
         help: "Where the middle band of a loose workspace row starts; a drop in the band groups the two workspaces.",
@@ -303,6 +311,7 @@ public nonisolated enum SidebarTunables {
             rowTitlePreview.descriptor,
             rowTitleSingleChat.descriptor,
             sectionTopFraction.descriptor,
+            subagentLook.descriptor,
             SidebarChatsDesign.tunable.descriptor,
             SidebarFaviconStyle.tunable.descriptor,
             SidebarGroupHeaderStyle.tunable.descriptor,
