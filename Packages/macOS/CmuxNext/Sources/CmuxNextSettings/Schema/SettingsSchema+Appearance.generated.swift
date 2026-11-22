@@ -146,6 +146,12 @@ extension WallpaperTintSetting {
     public nonisolated static let fallback = true
 }
 
+extension TerminalCellBackgroundsSetting {
+    /// `appearance.terminalCellBackgrounds`: Ghostty's background-cells-opacity and background-cells-neutral-fade (ghostty-next), loaded with source cmux-next in GhosttyRuntime.finalizeConfig (GhosttyRuntimeSurfacePolicy.cellBackgroundLines). opaque loads nothing.
+    public nonisolated static let configPath = ["appearance", "terminalCellBackgrounds"]
+    public nonisolated static let fallback: TerminalCellBackgrounds = .opaque
+}
+
 extension AppearanceTuningSetting {
     /// `appearance.glassTransparency`.
     public nonisolated static let glassTransparencyPath = ["appearance", "glassTransparency"]

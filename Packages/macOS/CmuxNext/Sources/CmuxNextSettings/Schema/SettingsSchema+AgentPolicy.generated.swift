@@ -81,10 +81,10 @@ extension SettingsSchema {
         // The color of each machine's marks (looks only)
         "appearance.machineColors",
         "appearance.backdropArt", "appearance.backgroundOpacity", "appearance.backgroundBlur",
-        "appearance.inactiveWindowDim", "appearance.wallpaperTint", "appearance.background",
-        "appearance.backgroundRotation", "appearance.backgroundLight", "appearance.backgroundDark",
-        "appearance.backgroundSchedule", "appearance.backgroundDynamic", "appearance.backgroundLocation",
-        "appearance.backgroundMemory",
+        "appearance.inactiveWindowDim", "appearance.wallpaperTint", "appearance.terminalCellBackgrounds",
+        "appearance.background", "appearance.backgroundRotation", "appearance.backgroundLight",
+        "appearance.backgroundDark", "appearance.backgroundSchedule", "appearance.backgroundDynamic",
+        "appearance.backgroundLocation", "appearance.backgroundMemory",
         // Per-display background and cadence (looks only)
         "appearance.displayBackgrounds", "appearance.displayBackgroundRotations",
         "appearance.paneBackgrounds", "ui.reducedBackgrounds", "appearance.agentGlow",
