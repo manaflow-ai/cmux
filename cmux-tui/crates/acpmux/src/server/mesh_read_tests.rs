@@ -521,3 +521,273 @@ async fn call_error(hub: &Arc<Hub>, m: &str, params: Value) -> Value {
         }
     }
 }
+
+/// Which hub call a [`Flaky`] failure stands in for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Call {
+    Send,
+    Answer,
+}
+
+/// The hub as gcp-codex-swarm-07 saw it on 2026-11-19..20: the failures queued here come first,
+/// one per call of their kind, then [`Loopback`] answers. `calls` counts every call that reached it.
+struct Flaky {
+    inner: Loopback,
+    failures: Mutex<std::collections::VecDeque<(Call, HubError)>>,
+    calls: Mutex<Vec<Call>>,
+}
+
+impl Flaky {
+    fn new(inner: Loopback, failures: Vec<(Call, HubError)>) -> Self {
+        Self { inner, failures: Mutex::new(failures.into()), calls: Mutex::default() }
+    }
+
+    fn fail(&self, call: Call) -> Option<HubError> {
+        self.calls.lock().unwrap().push(call);
+        let mut failures = self.failures.lock().unwrap();
+        if failures.front().is_some_and(|(c, _)| *c == call) {
+            return failures.pop_front().map(|(_, e)| e);
+        }
+        None
+    }
+}
+
+/// A hub answer with `status` and `code`, as `mesh_http::answer` makes it.
+fn hub_status(status: u16, code: &str) -> HubError {
+    let mut e = HubError::refused(format!("the hub answered {status} {code}"));
+    e.refused = !(status == 408 || status == 429 || status >= 500);
+    e.status = Some(status);
+    e.code = Some(code.into());
+    e
+}
+
+impl MeshHub for Flaky {
+    fn inbox(&self, wait: Duration, max: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        self.inner.inbox(wait, max)
+    }
+
+    fn ack<'a>(&'a self, id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        self.inner.ack(id, ack)
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        beat: &'a crate::mesh::Heartbeat,
+    ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+        self.inner.heartbeat(beat)
+    }
+
+    fn send<'a>(&'a self, m: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        match self.fail(Call::Send) {
+            Some(e) => Box::pin(async move { Err(e) }),
+            None => self.inner.send(m),
+        }
+    }
+
+    fn receipt<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        self.inner.receipt(id)
+    }
+
+    fn answer<'a>(
+        &'a self,
+        id: &'a str,
+        wait: Duration,
+    ) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        match self.fail(Call::Answer) {
+            Some(e) => Box::pin(async move { Err(e) }),
+            None => self.inner.answer(id, wait),
+        }
+    }
+}
+
+/// `acpmux last HOST/NAME` through a hub that drops a connection, answers 503 and lets go of the
+/// read's receipt (404 `mesh.not_found`) still reads the session: each blip is tried again, and
+/// the read whose receipt is gone is sent afresh.
+#[tokio::test]
+async fn a_read_through_a_hub_that_blips_still_answers() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "own-e2e"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Flaky::new(
+        Loopback::new(&b, dir.path(), "person-1"),
+        vec![
+            (Call::Send, HubError::unavailable("the hub: error sending request")),
+            (Call::Answer, hub_status(503, "mesh.unavailable")),
+            (Call::Answer, hub_status(404, "mesh.not_found")),
+        ],
+    );
+    let info = read(&hub, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap();
+    assert_eq!(info["sessionId"].as_str(), Some(session.as_str()), "{info}");
+    assert_eq!(info["via"], "hub");
+    // Send (dropped), send, answer (503), answer (404: gone), send again, answer.
+    assert_eq!(
+        *hub.calls.lock().unwrap(),
+        [Call::Send, Call::Send, Call::Answer, Call::Answer, Call::Send, Call::Answer]
+    );
+}
+
+/// A hub that stays down is tried a bounded number of times, and the error names the only route
+/// this machine has to the host and the one that does not need the hub. A refusal is not retried.
+#[tokio::test]
+async fn a_hub_that_stays_down_fails_bounded_and_names_the_direct_route() {
+    let b = machine_b();
+    let dir = tempfile::tempdir().unwrap();
+    let down: Vec<_> = (0..crate::mesh_retry::ATTEMPTS)
+        .map(|_| (Call::Send, hub_status(503, "mesh.unavailable")))
+        .collect();
+    let hub = Flaky::new(Loopback::new(&b, dir.path(), "person-1"), down);
+    let e = read(&hub, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
+    assert_eq!(hub.calls.lock().unwrap().len(), crate::mesh_retry::ATTEMPTS);
+    assert!(e.message.contains("the hub answered 503 mesh.unavailable"), "{e:?}");
+    assert!(e.message.contains("only through the mesh hub"), "{e:?}");
+    assert!(e.message.contains("`acpmux machine add machine-b`"), "{e:?}");
+    let data = e.data.unwrap();
+    assert_eq!((&data["reason"], &data["route"]), (&json!("mesh.unavailable"), &json!("hub")));
+
+    let refused = Flaky::new(
+        Loopback::new(&b, dir.path(), "person-1"),
+        vec![(Call::Send, hub_status(403, "mesh.forbidden"))],
+    );
+    let e = read(&refused, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
+    assert_eq!(refused.calls.lock().unwrap().len(), 1);
+    assert_eq!(e.data.unwrap()["retryable"], json!(false));
+}
+
+/// How long the HTTP client waits on one hub call before it gives up (`mesh_http`'s `CALL_WAIT`).
+const CLIENT_WAIT: Duration = Duration::from_secs(30);
+
+/// A receipt the hub has taken and not yet delivered.
+fn queued() -> Receipt {
+    serde_json::from_value(json!({"messageId": "msg_silent", "state": "queued"})).unwrap()
+}
+
+/// A hub that takes a connection and never answers it: each call hangs for the client's whole
+/// wait, then fails as no answer. With `takes_send`, the send is taken at once and only the
+/// receipt's long-poll hangs.
+struct Silent {
+    takes_send: bool,
+    calls: Mutex<Vec<Call>>,
+}
+
+fn timed_out() -> HubError {
+    HubError::unavailable("the hub: error sending request: operation timed out")
+}
+
+impl MeshHub for Silent {
+    fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        panic!("a read never leases")
+    }
+
+    fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        panic!("a read never acks")
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        _: &'a crate::mesh::Heartbeat,
+    ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+        panic!("a read never heartbeats")
+    }
+
+    fn send<'a>(&'a self, _: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        self.calls.lock().unwrap().push(Call::Send);
+        let takes = self.takes_send;
+        Box::pin(async move {
+            if takes {
+                return Ok(queued());
+            }
+            tokio::time::sleep(CLIENT_WAIT).await;
+            Err(timed_out())
+        })
+    }
+
+    fn receipt<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        panic!("a read waits on its answer, not the receipt")
+    }
+
+    fn answer<'a>(&'a self, _: &'a str, _: Duration) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        self.calls.lock().unwrap().push(Call::Answer);
+        Box::pin(async {
+            tokio::time::sleep(CLIENT_WAIT).await;
+            Err(timed_out())
+        })
+    }
+}
+
+/// A read through a hub that never answers ends within `READ_WAIT`, whether the send or the
+/// answer is what hangs: no try outlives the read's wait, and none starts after it. Before,
+/// three tries of a 30 s call each, plus the resend, took a read past four minutes.
+#[tokio::test(start_paused = true)]
+async fn a_hub_that_never_answers_ends_the_read_within_its_wait() {
+    for takes_send in [false, true] {
+        let hub = Silent { takes_send, calls: Mutex::default() };
+        let started = tokio::time::Instant::now();
+        let e = read(&hub, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
+        let took = started.elapsed();
+        let calls = hub.calls.lock().unwrap().clone();
+        assert!(
+            took <= READ_WAIT + Duration::from_secs(1),
+            "takes_send {takes_send}: the read took {took:?} ({calls:?})"
+        );
+        assert_eq!(e.data.unwrap()["reason"], json!("mesh.read_unanswered"), "{calls:?}");
+    }
+}
+
+/// A hub that lets go of the read's receipt (404 `mesh.not_found`) only as the read's wait runs
+/// out.
+struct GoneLate {
+    started: tokio::time::Instant,
+    calls: Mutex<Vec<Call>>,
+}
+
+impl MeshHub for GoneLate {
+    fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        panic!("a read never leases")
+    }
+
+    fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        panic!("a read never acks")
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        _: &'a crate::mesh::Heartbeat,
+    ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+        panic!("a read never heartbeats")
+    }
+
+    fn send<'a>(&'a self, _: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        self.calls.lock().unwrap().push(Call::Send);
+        Box::pin(async { Ok(queued()) })
+    }
+
+    fn receipt<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        panic!("a read waits on its answer, not the receipt")
+    }
+
+    fn answer<'a>(&'a self, _: &'a str, _: Duration) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        self.calls.lock().unwrap().push(Call::Answer);
+        let gone = self.started + READ_WAIT;
+        Box::pin(async move {
+            tokio::time::sleep_until(gone).await;
+            Err(hub_status(404, "mesh.not_found"))
+        })
+    }
+}
+
+/// A receipt the hub lets go of once the read's wait has run out is not sent again: the read
+/// fails as unanswered with the one send it made, never a second read no one waits for.
+#[tokio::test(start_paused = true)]
+async fn a_receipt_gone_after_the_wait_is_not_sent_again() {
+    let hub = GoneLate { started: tokio::time::Instant::now(), calls: Mutex::default() };
+    let e = read(&hub, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
+    assert_eq!(*hub.calls.lock().unwrap(), [Call::Send, Call::Answer]);
+    assert_eq!(e.data.unwrap()["reason"], json!("mesh.read_unanswered"));
+}

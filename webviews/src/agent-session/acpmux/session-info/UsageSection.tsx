@@ -186,7 +186,7 @@ export const UsageSection = memo(function UsageSection({
                   type="button"
                   className="acpmux-session-info-usage__action"
                   disabled
-                  title={t("sessionInfo.usage.restartWithCapSoon")}
+                  aria-description={t("sessionInfo.usage.restartWithCapSoon")}
                 >
                   {t("sessionInfo.usage.restartWithCap")}
                 </button>

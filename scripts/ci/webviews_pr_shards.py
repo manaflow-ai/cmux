@@ -26,8 +26,8 @@ a pull request runs:
     (test/support/) or webviews script (webviews/scripts/) counts as a source here: the tests that import it.
 A shard's files come from the very split it makes itself (run-webviews-tests.sh CMUX_WEB_TEST_LIST_ONLY with the
 run's one duration manifest, widths and head start, passed in the environment), so the pick and the shards agree.
-Every feat-cmux-next push still runs all N shards over every file: a red a skipped shard would have caught shows on
-the base's next push (cmux-next-web.yml) and its base-red tracking.
+Every feat-cmux-next post-merge batch still runs all N shards over every file: a red a skipped shard would have
+caught shows on the base's next batch run (cmux-next-post-merge.yml, suite `web`) and its base-red tracking.
 
 Any error picks every shard: the pick may only ever run more.
 
@@ -53,10 +53,40 @@ RUNNER = Path(__file__).resolve().parent / "run-webviews-tests.sh"
 # Build inputs webviews_affected.EVERYTHING lists that a pull request's pick treats as sources: test helpers and
 # webviews scripts. On 11-20's merges they made 14 of 17 every-shard picks; the import graph reaches their tests.
 HOP = re.compile(r"^webviews/(test/support/|scripts/)")
+# A JS block or line comment (a line comment starts a line or follows a space, so `https://` in a string stays).
+COMMENT = re.compile(r"/\*[\s\S]*?\*/|(?:^|(?<=\s))//[^\n]*", re.M)
 
 
 def matrix(shards: list[int], count: int) -> str:
     return json.dumps([{"shard": shard, "shard_count": count} for shard in shards], separators=(",", ":"))
+
+
+def read_beyond_imports(selector: "wa.Selector", f: str) -> str:
+    """Why a helper or script change must run every shard, or "" when only its importers can see it.
+
+    A vite or compiler config (a code file at the top of webviews/) that imports it, directly or not, or names its
+    path (`new URL("./scripts/lint/x.mjs")`) feeds every bundle a test may load. A module some test reaches that names
+    its path without importing it reads it as data, and one that reads files and quotes its basename (10 or more
+    characters, outside comments) may read it by a joined path: none of those is an import edge. A script only shard
+    1's checks run (package.json scripts, a check's own baseline) needs no other shard: shard 1 always runs.
+    """
+    rel = f.removeprefix(wa.WEB)
+    name = Path(f).name
+    importers = selector.graph.importers.get(f, set())
+    for source in selector.text:
+        if "/" not in source.removeprefix(wa.WEB) and source.endswith(wa.ft.EXTENSIONS) and wa.EVERYTHING.search(source) \
+                and (f in selector.closure(source) or rel in selector.text[source]):
+            return f"{f} is loaded by the build input {source}"
+    reached = set().union(*(selector.closure(t) for t in selector.graph.tests))
+    reads = set().union(*(selector.closure(t) for t in selector.always)) if selector.always else set()
+    quoted = re.compile(r"[\"'`]" + re.escape(name) + r"[\"'`]")
+    for source in sorted(reached - importers - {f}):
+        text = COMMENT.sub("", selector.text.get(source, ""))
+        if rel in text or f in text:
+            return f"{f} is read as data by {source}"
+        if source in reads and len(name) >= wa.NAME_MIN and quoted.search(text):
+            return f"{f} may be read by {source}, which reads files"
+    return ""
 
 
 def touched(selector: "wa.Selector", files: list[str]) -> tuple[set[str] | None, str]:
@@ -66,8 +96,12 @@ def touched(selector: "wa.Selector", files: list[str]) -> tuple[set[str] | None,
         if f in selector.preload or (wa.EVERYTHING.search(f) and not HOP.search(f)):
             return None, f"{f} is a build or runner input"
         if wa.EVERYTHING.search(f):
-            # A test helper or webviews script (not the preload's): the tests that import it, as for a source. A file
-            # nothing imports (a baseline a check reads) touches none; shard 1 still runs its whole share.
+            # A test helper or webviews script (not the preload's): the tests that import it, as for a source, unless a
+            # build input loads it or a file reads it as data (below). A file nothing imports or names touches none;
+            # shard 1 still runs its whole share.
+            why = read_beyond_imports(selector, f)
+            if why:
+                return None, why
             out |= {t for t in selector.graph.importers.get(f, ()) if t in selector.graph.tests}
             continue
         if not f.startswith(wa.WEB):

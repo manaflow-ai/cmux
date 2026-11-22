@@ -418,6 +418,9 @@ fn enable_report(flags: &Flags) -> anyhow::Result<Value> {
     let mut notes = Vec::new();
     let with_service = !flags.has("no-service");
     if with_service {
+        if cfg!(target_os = "linux") {
+            notes.push(service::enable_linger());
+        }
         match service::install(&exe) {
             Ok(what) => notes.push(format!("service: {what}")),
             Err(e) => notes.push(format!(
@@ -431,12 +434,6 @@ fn enable_report(flags: &Flags) -> anyhow::Result<Value> {
     // A running `serve` keeps its old port and session; replace it.
     notes.push(service::restart(&exe, with_service)?);
     uninstalled?;
-    if cfg!(target_os = "linux") && !flags.has("no-service") {
-        notes.push(
-            "headless machine: run `loginctl enable-linger $USER` once so hosting survives logout"
-                .to_owned(),
-        );
-    }
     Ok(status_value(&config, Some(&status), &notes))
 }
 

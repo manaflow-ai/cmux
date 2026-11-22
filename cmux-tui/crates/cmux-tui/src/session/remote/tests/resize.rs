@@ -414,3 +414,35 @@ fn resize_audit_remote_resize_keeps_a_scrolled_back_viewport() {
         "a shared-grid resize snapped this viewer's scrollback to the bottom"
     );
 }
+
+// terminal-scroll-integrity: a resync that rebuilds the mirror while the
+// reader is scrolled back keeps the row they were reading at the top, even
+// when output arrived between the old state and the replay. Anchoring by
+// rows-from-the-end alone moves the viewport forward by every row printed in
+// the gap (the scroll probe's mirror jump: top 667 -> 1123 after a 300 ms gap).
+#[test]
+fn resync_keeps_the_row_a_scrolled_back_reader_is_on_when_output_arrived() {
+    let mut server = Terminal::new(12, 4, 100_000, Callbacks::default()).unwrap();
+    for index in 0..200 {
+        server.vt_write(format!("line-{index:03}\r\n").as_bytes());
+    }
+    let surface = test_remote_pty_surface(1, 12, 4, (8, 16));
+    surface.apply_stream_resize(12, 4, Some(&server.vt_replay_bytes().unwrap()), &[]).unwrap();
+    surface.term.lock().unwrap().scroll_delta(-100);
+    let top_before = surface.term.lock().unwrap().viewport_text().unwrap();
+    let top_before = top_before.lines().next().unwrap().to_owned();
+    assert!(top_before.starts_with("line-"), "{top_before:?}");
+
+    // Output the reader did not see arrives before the daemon's fresh state.
+    for index in 200..230 {
+        server.vt_write(format!("line-{index:03}\r\n").as_bytes());
+    }
+    surface.apply_stream_resize(12, 4, Some(&server.vt_replay_bytes().unwrap()), &[]).unwrap();
+
+    let top_after = surface.term.lock().unwrap().viewport_text().unwrap();
+    assert_eq!(
+        top_after.lines().next(),
+        Some(top_before.as_str()),
+        "the resync moved the viewport"
+    );
+}
