@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 667,
+  "count": 670,
   "sections": [
     {
       "id": "general",
@@ -2141,6 +2141,44 @@
             "left",
             "top",
             "compact"
+          ]
+        },
+        {
+          "key": "agentPane.display.layout.composer",
+          "title": "Message Box Shape",
+          "help": "The message box's outline: rounded, a pill, or square and docked.",
+          "kind": "choice",
+          "default": "rounded",
+          "group": "Agent Chat",
+          "values": [
+            "rounded",
+            "pill",
+            "square"
+          ]
+        },
+        {
+          "key": "agentPane.display.layout.header",
+          "title": "Chat Header",
+          "help": "Full shows the chat's header tools at all times; Quiet shows them only while the pointer is over the header.",
+          "kind": "choice",
+          "default": "full",
+          "group": "Agent Chat",
+          "values": [
+            "full",
+            "quiet"
+          ]
+        },
+        {
+          "key": "agentPane.display.layout.messages",
+          "title": "Message Layout",
+          "help": "How your messages sit in the chat: a bubble on the right, a flat row on the left with an accent rule, or a card on the left.",
+          "kind": "choice",
+          "default": "bubbles",
+          "group": "Agent Chat",
+          "values": [
+            "bubbles",
+            "flat",
+            "card"
           ]
         },
         {
@@ -5912,7 +5950,7 @@
           "title": "Suggestions Shown",
           "help": "",
           "kind": "number",
-          "default": 8,
+          "default": 6,
           "group": "Address Bar",
           "range": {
             "min": 3,
