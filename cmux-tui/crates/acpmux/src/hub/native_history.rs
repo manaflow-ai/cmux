@@ -292,6 +292,11 @@ pub(crate) async fn handle(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcE
                 return Err(stale());
             }
             let next_mark = if page.start > 0 { self::mark(&mut input, page.start) } else { None };
+            // An earlier transcript's cursor stays chained, so its next page keeps its own band.
+            let next_mark = match (depth, seed.as_deref()) {
+                (1.., Some(id)) => next_mark.map(|inner| chain::chain_mark(depth, id, &inner)),
+                _ => next_mark,
+            };
             if page.start == 0 && hop.is_none() {
                 hop = Some(chain::hop(home.as_deref(), &older, depth));
             }
