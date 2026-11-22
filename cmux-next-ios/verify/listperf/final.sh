@@ -14,6 +14,7 @@ runs=(
   "chat-40         chat        LIST_COUNT=40"
   "chat-200        chat        LIST_COUNT=200"
   "chat-40-stream  chat        LIST_COUNT=40 LIST_STREAM=1"
+  "chat-tall       chat        LIST_COUNT=3 LIST_TALL_ANSWER=1"
   "tabs-30         tabs        LIST_COUNT=30"
   "tabs-30-stream  tabs        LIST_COUNT=30 LIST_STREAM=1"
   "tabs-80         tabs        LIST_COUNT=80"
