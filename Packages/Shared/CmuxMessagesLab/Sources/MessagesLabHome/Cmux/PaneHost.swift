@@ -296,7 +296,7 @@ final class HostView: NSView {
     private func point(_ e: NSEvent) -> CGPoint { convert(e.locationInWindow, from: nil) }
     override func mouseDown(with event: NSEvent) { controller?.mouseDown(at: point(event), event) }
     override func mouseUp(with event: NSEvent) { controller?.mouseUp(at: point(event), event) }
-    override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: point(event)) }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.systemFree(controller?.menu(at: point(event))) }
 
     // Hover (MessagesLab 2a0805d): an attachment in the field shows its remove
     // button. The tracking area exists only while the field holds attachments,

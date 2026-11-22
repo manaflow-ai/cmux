@@ -157,7 +157,7 @@ final class SidebarNowPlayingCardView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        menuProvider?() ?? super.menu(for: event)
+        NSMenu.withoutSystemItems(menuProvider?() ?? super.menu(for: event))
     }
 
     private static var padding: CGFloat { Metrics.space3 }
