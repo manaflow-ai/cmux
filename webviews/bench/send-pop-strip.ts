@@ -99,35 +99,41 @@ try {
         animation.currentTime = at;
       }
     }, ms);
-    const read = await row.evaluate((article) => {
-      const scrollerOf = (el: Element) => {
-        for (let node = el.parentElement; node; node = node.parentElement) {
-          const style = getComputedStyle(node);
-          if (/(auto|scroll)/.test(style.overflowY) && node.scrollHeight > node.clientHeight) return node;
+    // Bring the prompt into view, let the frame settle, then read its box and shoot at once: a box read
+    // before the wait raced the view, which the streaming turn moves.
+    const measure = (scroll: boolean) =>
+      row.evaluate((article, scroll) => {
+        const scrollerOf = (el: Element) => {
+          for (let node = el.parentElement; node; node = node.parentElement) {
+            const style = getComputedStyle(node);
+            if (/(auto|scroll)/.test(style.overflowY) && node.scrollHeight > node.clientHeight) return node;
+          }
+          return document.scrollingElement!;
+        };
+        const scroller = scrollerOf(article);
+        // The prompt's top 24 px below the transcript's top, wherever the streaming turn moved the view.
+        if (scroll)
+          scroller.scrollTop += article.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 24;
+        const presentation = article.querySelector(".acpmux-row__message-presentation") ?? article;
+        const bubble = presentation.getBoundingClientRect();
+        // Clipping inside the row (between an attachment and the scroller), as bench/send-pop-probe.js reads it.
+        let rowClip = 0;
+        for (const el of presentation.querySelectorAll(
+          "img, .acpmux-attachment, .acpmux-file-chip, .acpmux-paste-chip",
+        )) {
+          const r = el.getBoundingClientRect();
+          for (let node = el.parentElement; node && node !== scroller; node = node.parentElement) {
+            const style = getComputedStyle(node);
+            if (style.overflowX === "visible" && style.overflowY === "visible" && style.clipPath === "none") continue;
+            const c = node.getBoundingClientRect();
+            rowClip = Math.max(rowClip, c.left - r.left, r.right - c.right, c.top - r.top, r.bottom - c.bottom);
+          }
         }
-        return document.scrollingElement!;
-      };
-      const scroller = scrollerOf(article);
-      // The prompt's top 24 px below the transcript's top, wherever the streaming turn moved the view.
-      scroller.scrollTop += article.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 24;
-      const presentation = article.querySelector(".acpmux-row__message-presentation") ?? article;
-      const bubble = presentation.getBoundingClientRect();
-      // Clipping inside the row (between an attachment and the scroller), as bench/send-pop-probe.js reads it.
-      let rowClip = 0;
-      for (const el of presentation.querySelectorAll(
-        "img, .acpmux-attachment, .acpmux-file-chip, .acpmux-paste-chip",
-      )) {
-        const r = el.getBoundingClientRect();
-        for (let node = el.parentElement; node && node !== scroller; node = node.parentElement) {
-          const style = getComputedStyle(node);
-          if (style.overflowX === "visible" && style.overflowY === "visible" && style.clipPath === "none") continue;
-          const c = node.getBoundingClientRect();
-          rowClip = Math.max(rowClip, c.left - r.left, r.right - c.right, c.top - r.top, r.bottom - c.bottom);
-        }
-      }
-      return { x: bubble.x, y: bubble.y, w: bubble.width, h: bubble.height, rowClipPx: Math.max(0, rowClip) };
-    });
+        return { x: bubble.x, y: bubble.y, w: bubble.width, h: bubble.height, rowClipPx: Math.max(0, rowClip) };
+      }, scroll);
+    await measure(true);
     await page.waitForTimeout(60);
+    const read = await measure(false);
     const top = read.y - 16;
     const bottom = read.y + read.h + 16;
     const clip = { x: 0, y: Math.max(0, top), width: 900, height: Math.min(640, bottom) - Math.max(0, top) };
