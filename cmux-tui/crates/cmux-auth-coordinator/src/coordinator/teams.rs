@@ -15,8 +15,10 @@ impl Coordinator {
         after: AfterTeams,
         fx: &mut Vec<Effect>,
     ) {
-        self.active_team_refresh_count += 1;
+        self.team_read_counter = self.team_read_counter.wrapping_add(1);
+        self.pending_team_reads.insert(self.team_read_counter);
         fx.push(Effect::RefreshTeams(TeamRefreshTicket {
+            id: self.team_read_counter,
             generation,
             mutation_generation: self.team_mutation_generation,
             list_generation: self.team_list_generation,
@@ -31,7 +33,12 @@ impl Coordinator {
         result: Result<TeamList, AuthFailure>,
         fx: &mut Vec<Effect>,
     ) {
-        self.active_team_refresh_count = self.active_team_refresh_count.saturating_sub(1);
+        // Each read is answered once: a repeated answer (or one for a read
+        // this coordinator never issued) would end another read's in-flight
+        // count and apply its list or hook twice.
+        if !self.pending_team_reads.remove(&ticket.id) {
+            return;
+        }
         let current = ticket.generation == self.session_generation;
         match result {
             Ok(list) if current => {
@@ -60,18 +67,46 @@ impl Coordinator {
         if ticket.after == AfterTeams::Nothing {
             return;
         }
-        if current && ticket.runs_post_sign_in_hook {
+        if current && ticket.runs_post_sign_in_hook && self.owner_is_active(ticket.after) {
             fx.push(Effect::RunPostSignInHook(ticket));
             return;
         }
-        self.after_teams(ticket.after, fx);
+        self.after_teams(ticket.generation, ticket.after, fx);
     }
 
-    pub(super) fn after_teams(&mut self, after: AfterTeams, fx: &mut Vec<Effect>) {
+    /// Whether the restore run or sign-in flow a team read belongs to is still running.
+    fn owner_is_active(&self, after: AfterTeams) -> bool {
+        match after {
+            AfterTeams::Nothing => true,
+            AfterTeams::Restore { id } => self.active_restore_id == Some(id),
+            AfterTeams::SignIn(flow) => self.flow_is_active(flow),
+        }
+    }
+
+    /// What the answer that finished the team read (or the hook) was for.
+    /// `generation` is the session the answer was issued under: a restore run
+    /// or sign-in flow that no longer owns it ignores the answer, and a
+    /// sign-in whose session was replaced ends as cancelled, never a success.
+    pub(super) fn after_teams(&mut self, generation: u64, after: AfterTeams, fx: &mut Vec<Effect>) {
         match after {
             AfterTeams::Nothing => {}
-            AfterTeams::Restore => self.finish_restore(fx),
-            AfterTeams::SignIn(flow) => self.succeed_sign_in(flow, fx),
+            AfterTeams::Restore { id } => {
+                if self.active_restore_id == Some(id) {
+                    self.finish_restore(fx);
+                }
+            }
+            AfterTeams::SignIn(flow) => {
+                if !self.flow_is_active(flow) {
+                    return;
+                }
+                if generation == self.session_generation
+                    && flow.sign_out_epoch == self.sign_out_epoch
+                {
+                    self.succeed_sign_in(flow, fx);
+                } else {
+                    self.fail_sign_in(flow, AuthFailure::Cancelled, flow.sets_loading, fx);
+                }
+            }
         }
     }
 

@@ -132,7 +132,9 @@ mod tests {
     fn sandbox_commands_do_not_inherit_cloud_access_token() {
         let previous = std::env::var_os("CMUX_CLOUD_ACCESS_TOKEN");
         // SAFETY: this test restores the process environment before returning.
-        unsafe { std::env::set_var("CMUX_CLOUD_ACCESS_TOKEN", "test-secret"); }
+        unsafe {
+            std::env::set_var("CMUX_CLOUD_ACCESS_TOKEN", "test-secret");
+        }
         let result = run("printf '%s' \"${CMUX_CLOUD_ACCESS_TOKEN-unset}\"", 5).unwrap();
         match previous {
             Some(value) => unsafe { std::env::set_var("CMUX_CLOUD_ACCESS_TOKEN", value) },
