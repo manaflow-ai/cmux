@@ -510,12 +510,39 @@ async fn wait_match_once(
 /// `acpmux ensure NAME`: the session if it exists, else create it.
 /// `HARNESS[/MODEL]` → (harness, model). The first slash splits; the model
 /// keeps its own slashes (`opencode/zai/glm-5.1` → `opencode`, `zai/glm-5.1`).
+///
+/// A Claude Code or Codex model is read as the bundled catalog names it, and the rewrite is said
+/// on stderr (`model fable-5.2 -> claude-fable-5-2`, `model_catalog.rs`); the daemon reads it
+/// again against its own catalog, so a name only the fresher catalog knows still folds there.
 pub(crate) fn split_target(spec: &str) -> (String, Option<String>) {
+    let (harness, model) = split_target_raw(spec);
+    let model = model.map(|m| match canonical_cli_model(&harness, &m) {
+        Some(canonical) => {
+            eprintln!("{}", canonical.line());
+            canonical.model
+        }
+        None => m,
+    });
+    (harness, model)
+}
+
+/// `HARNESS[/MODEL]` as written.
+fn split_target_raw(spec: &str) -> (String, Option<String>) {
     match spec.split_once('/') {
         Some((h, m)) if !m.is_empty() => (h.to_owned(), Some(m.to_owned())),
         Some((h, _)) => (h.to_owned(), None),
         None => (spec.to_owned(), None),
     }
+}
+
+/// `model` for the harness `harness` as the bundled catalog names it, when that is a rewrite.
+/// An ambiguous name is left for the daemon to refuse with its choices.
+pub(crate) fn canonical_cli_model(
+    harness: &str,
+    model: &str,
+) -> Option<crate::model_catalog::Canonical> {
+    let entry = crate::model_catalog::bundled_harness(harness)?;
+    crate::model_catalog::canonical_model(&entry, model).ok().filter(|c| c.changed())
 }
 
 /// Parse repeatable creation tags once, before a session is made.
