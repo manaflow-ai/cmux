@@ -516,6 +516,13 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private var warmed: Set<String> = []
     private var warmQueue: [FeedRowLayout] = []
     private var warmScheduled = false
+    // Red graft stubs: the base builds no spare and counts nothing.
+    private(set) var sparesMade = 0
+    private(set) var sparesTaken = 0
+    private(set) var newCellsBeforeSpare = 0
+    private(set) weak var spareGiven: FeedRowCell?
+    var parkedSpare: FeedRowCell? { nil }
+    var parkedHolder: UIView? { nil }
     private lazy var warmCell: FeedRowCell = {
         let cell = FeedRowCell(style: .default, reuseIdentifier: nil)
         cell.frame = CGRect(x: 0, y: 0, width: max(width, 1), height: 100)
