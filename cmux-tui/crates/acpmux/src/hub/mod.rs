@@ -1196,6 +1196,9 @@ pub struct Hub {
     pub(super) surge_triage_due: StdMutex<HashMap<String, bool>>,
     /// What answers surge triage instead of the small model (tests; `surge_triage.rs`).
     pub(super) surge_triager: StdMutex<Option<surge_triage::SurgeTriager>>,
+    /// Whether surge admission holds messages, set by tests; `None` reads Settings >
+    /// Experimental > Labs > Show Preview Features (`inbox_surge.rs` `surge_inbox_on`).
+    pub(super) surge_inbox: StdMutex<Option<bool>>,
     /// Each chat's surge triage state between passes (`surge_triage.rs` `Journal`).
     pub(super) surge_triage_journals: StdMutex<HashMap<String, surge_triage::Journal>>,
     /// The thread owners every chat subscribed itself to (`surge_triage.rs`).
@@ -1629,6 +1632,7 @@ impl Hub {
             coach_rewriter: StdMutex::new(None),
             surge_triage_due: StdMutex::new(HashMap::new()),
             surge_triager: StdMutex::new(None),
+            surge_inbox: StdMutex::new(None),
             surge_triage_journals: StdMutex::new(HashMap::new()),
             surge_subscribers: StdMutex::new(None),
             surge_digest_pace: StdMutex::new(HashMap::new()),
@@ -3368,6 +3372,19 @@ impl Hub {
         #[cfg(test)]
         log_load::catch_up_note(&log_load::NOTE_BEFORE_REPLAY_SCAN, "scans the log");
         self.store.scan(id, after, &mut |record| record.seq <= last && visit(record))
+    }
+
+    /// Where a replay of chat `id`'s newest `n` records starts ([`crate::store::NewestWindow`]),
+    /// read up to the same `last_seq` [`Self::scan_events`] stops at: `scan_events` from its
+    /// `after` sends those `n` and the few appended since. Costs `n` line heads read back from
+    /// the end however long the log is.
+    pub fn newest_window(&self, id: &str, n: u64) -> Result<crate::store::NewestWindow> {
+        let live = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let Some(session) = live else { return self.store.newest_window(id, u64::MAX, n) };
+        self.warm_chat(&session);
+        self.catch_up_tail(&session);
+        let last = session.meta().last_seq;
+        self.store.newest_window(id, last.saturating_add(1), n)
     }
 
     /// Counts `session`'s log tail past its saved `lastSeq` if no one has yet ([`Self::catch_up`]):

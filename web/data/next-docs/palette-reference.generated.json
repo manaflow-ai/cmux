@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1472,
+    "entries": 1470,
     "shortcuts": 205
   },
   "sections": [
@@ -6448,12 +6448,6 @@
           "command": null
         },
         {
-          "id": "chief.importMemories",
-          "title": "Bring Your History",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "palette.captureScreenshotToChat",
           "title": "Capture Screenshot to Chat",
           "shortcut": "⌃⌥⌘S",
@@ -7160,12 +7154,6 @@
           "title": "Toggle Thread Minimap",
           "shortcut": null,
           "command": "cmux agent toggle-minimap"
-        },
-        {
-          "id": "chief.importMemories.undo",
-          "title": "Undo Last Memory Import",
-          "shortcut": null,
-          "command": null
         },
         {
           "id": "agent.harness.updateAll",
