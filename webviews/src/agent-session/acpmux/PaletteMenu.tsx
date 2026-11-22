@@ -27,11 +27,12 @@ type Props = {
   returnFocus?: boolean;
   tooltip?: string;
   onOpen?: () => void;
-  /** How the highlighted row says what Return does (paletteMenuModel `PaletteReturnLook`). Default "none": today's look. */
+  /** How the highlighted row says what Return does (paletteMenuModel `PaletteReturnLook`). Default "verb": the keycap and
+   * the verb Return carries out (Leo, 2026-11-22). "none" is the look before. */
   returnLook?: PaletteReturnLook;
-  /** The search field's placeholder and name; default the sidebar's shared search string. */
+  /** The search field's placeholder and name; default "Search actions, chats and tabs" (`palette.searchPlaceholder`). */
   placeholder?: string;
-  /** Leave out a description that only restates its row's title (`descriptionRestatesName`). Default off. */
+  /** Leave out a description that only restates its row's title (`descriptionRestatesName`). Default on. */
   quietDescriptions?: boolean;
 };
 
@@ -45,9 +46,9 @@ export function PaletteMenu({
   returnFocus = true,
   tooltip,
   onOpen,
-  returnLook = "none",
+  returnLook = "verb",
   placeholder,
-  quietDescriptions = false,
+  quietDescriptions = true,
 }: Props) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -88,7 +89,7 @@ export function PaletteMenu({
     [filtered],
   );
   const selected = Math.min(active, Math.max(rows.length - 1, 0));
-  const searchLabel = placeholder ?? t("sidebar.searchPlaceholder");
+  const searchLabel = placeholder ?? t("palette.searchPlaceholder");
   // The outcome line under the list (the `footer` look): the highlighted row's whole outcome with its target.
   const outcome = returnLook === "footer" ? rows[selected]?.choice.outcome : undefined;
   const outcomeId = `${menuId}-outcome`;

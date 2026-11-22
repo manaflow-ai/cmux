@@ -219,7 +219,7 @@ for (const button of [1, 2]) {
   });
 }
 
-test("Return looks: off by default; the footer look puts keycap and verb on the highlighted row and the outcome under the list", async () => {
+test("Return looks: keycap and verb by default; the footer look adds the outcome under the list", async () => {
   const sections = [
     {
       title: "Chats",
@@ -238,8 +238,19 @@ test("Return looks: off by default; the footer look puts keycap and verb on the 
     );
   await act(async () => root!.render(<PaletteMenu label="Add" button="+" sections={sections} />));
   await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
-  expect(container.querySelector(".acpmux-palette-return")).toBeNull();
+  const defaultCaps = container.querySelectorAll(".acpmux-palette-return");
+  expect(defaultCaps.length).toBe(1);
+  expect(defaultCaps[0]!.textContent).toContain("Open");
   expect(container.querySelector(".acpmux-palette-outcome")).toBeNull();
+  expect(container.querySelector<HTMLInputElement>("input")!.placeholder).toBe("Search actions, chats and tabs");
+  expect(container.querySelector(".acpmux-menu-description")).toBeNull();
+
+  await act(async () =>
+    root!.render(
+      <PaletteMenu label="Add" button="+" sections={sections} returnLook="none" quietDescriptions={false} />,
+    ),
+  );
+  expect(container.querySelector(".acpmux-palette-return")).toBeNull();
   expect(container.querySelector(".acpmux-menu-description")?.textContent).toBe("Open a browser tab");
 
   await act(async () =>

@@ -2,7 +2,8 @@
 // Beyer's P3 ("show the outcome before the action", 6f3c76146074 put a Return keycap on New Tab's highlighted
 // row) pushed further on the + palette: the highlighted row says what Return will do, with the verb and,
 // where it matters, the target. Plus the P4 placeholder that names what the field searches, and descriptions
-// that only restate their title left out. Every look is a PaletteMenu prop that is off by default.
+// that only restate their title left out. Every look is a PaletteMenu prop; `together` is PaletteMenu's default (Leo, 2026-11-22),
+// and the other variants pin the looks before it (the sidebar's "Search", every description drawn).
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { PaletteMenu } from "./PaletteMenu";
@@ -124,14 +125,16 @@ function Fixture({ look, placeholder, quiet }: Props) {
         button={<span aria-hidden>+</span>}
         sections={SECTIONS}
         returnLook={look}
-        placeholder={placeholder}
-        quietDescriptions={quiet}
+        placeholder={placeholder ?? BEFORE_PLACEHOLDER}
+        quietDescriptions={quiet ?? false}
       />
     </div>
   );
 }
 
 const PLACEHOLDER = "Search actions, chats and tabs";
+/** The placeholder before: the sidebar's shared search string. */
+const BEFORE_PLACEHOLDER = "Search";
 
 export default componentEntry<Props>({
   id: "agent-pane.palette-return-outcome",
@@ -150,7 +153,7 @@ export default componentEntry<Props>({
   load: async () => Fixture,
   variants: {
     now: {
-      note: "Today: no sign of what Return does; the shared sidebar placeholder; every description drawn.",
+      note: "Before: no sign of what Return does; the shared sidebar placeholder; every description drawn.",
       props: { look: "none" },
       play: open,
     },
@@ -185,7 +188,7 @@ export default componentEntry<Props>({
       play: open,
     },
     together: {
-      note: "Recommended: (b) keycap and verb, the P4 placeholder, and restating descriptions left out.",
+      note: "The default: (b) keycap and verb, the P4 placeholder, and restating descriptions left out.",
       props: { look: "verb", placeholder: PLACEHOLDER, quiet: true },
       play: open,
     },
