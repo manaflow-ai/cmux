@@ -2946,6 +2946,48 @@ def evaluate(expression: str, context: dict):
     return eval(text, {"__builtins__": {}}, names)  # noqa: S307 - this repository's workflow, not input
 
 
+class PortablePlacementRunsOnlyForAReader(unittest.TestCase):
+    """portable-placement takes a runner only when a job that runs places by its outputs.
+
+    On a feat-cmux-next pull request without full-ci, `checks` is skipped and path_route's first attempt takes
+    cmux-linux whatever placement says, yet placement ran: 1,200 runner-min and 24 reds on 2026-11-21
+    (controller timing feed, 11-21T03..22T03). Leo: "de facto, im asking for 99% fewer minutes of ci time, period."
+    """
+
+    @staticmethod
+    def context(event: str, ref: str, base: str = "", labels: tuple[str, ...] = (), action: str = "") -> dict:
+        context = {"github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
+                   "github.event_name": event, "github.run_attempt": 1, "github.ref": ref,
+                   "github.triggering_actor": "a-person"}
+        if event == "pull_request":
+            context.update({"github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+                            "github.event.pull_request.base.ref": base,
+                            "github.event.pull_request.labels.*.name": list(labels),
+                            "github.event.action": action, "github.event.label.name": ""})
+        return context
+
+    def test_placement_runs_exactly_when_a_running_job_reads_it(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        readers = [name for name, job in jobs.items() if "portable-placement" in (job.get("needs") or [])]
+        self.assertIn("path_route", readers)
+        cases = [self.context("pull_request", "refs/pull/1/merge", base, labels, action)
+                 for base in ("feat-cmux-next", "main") for labels in ((), ("full-ci",))
+                 for action in ("opened", "synchronize", "reopened")]
+        cases += [self.context("push", "refs/heads/feat-cmux-next"), self.context("push", "refs/heads/lane/x")]
+        for context in cases:
+            placed = {**context, "needs.portable-placement.outputs.placed_attempt": "1",
+                      "needs.portable-placement.outputs.linux_jobs": " " + " ".join(readers) + " ",
+                      "needs.portable-placement.outputs.linux_runner": "placed-runner"}
+            reading = [name for name in readers if evaluate(jobs[name]["if"], context)
+                       and evaluate(one_runs_on(jobs[name]), placed) != evaluate(one_runs_on(jobs[name]), context)]
+            with self.subTest(event=context["github.event_name"], ref=context["github.ref"],
+                              base=context.get("github.event.pull_request.base.ref"),
+                              labels=context.get("github.event.pull_request.labels.*.name"),
+                              action=context.get("github.event.action")):
+                self.assertEqual(bool(evaluate(jobs["portable-placement"]["if"], context)), bool(reading),
+                                 f"jobs that place by portable-placement here: {reading}")
+
+
 class PortablePlacementBootstrapAdmission(unittest.TestCase):
     def test_stale_fleet_label_cannot_block_the_router_before_placement_runs(self):
         jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())["jobs"]
