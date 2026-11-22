@@ -85,6 +85,7 @@ members = [
     "crates/cmux-hub-host",
     "crates/cmux-signed-bundle",
     "crates/cmux-signed-envelope",
+    "crates/cmux-web-pieces",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
     "crates/cmux-files-host",
@@ -220,6 +221,7 @@ default-members = [
     "crates/cmux-hub-host",
     "crates/cmux-signed-bundle",
     "crates/cmux-signed-envelope",
+    "crates/cmux-web-pieces",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
     "crates/cmux-deadline",
@@ -344,6 +346,7 @@ cmux-git = { path = "crates/cmux-git" }
 cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
 cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
+cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-deadline = { path = "crates/cmux-deadline" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
