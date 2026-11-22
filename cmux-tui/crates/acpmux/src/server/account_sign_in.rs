@@ -182,7 +182,7 @@ pub fn drop_home(agent: Agent, home: &Path, made: bool) {
     if !made || login::signed_in_at(agent, home) {
         return;
     }
-    if let Err(e) = std::fs::remove_dir_all(home)
+    if let Err(e) = crate::home_fs::remove_dir_all(home)
         && e.kind() != std::io::ErrorKind::NotFound
     {
         tracing::warn!(home = %home.display(), error = %e, "account sign-in: remove the home it made");
