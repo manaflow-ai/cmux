@@ -315,3 +315,7 @@ else:
     without_redirects(os.environ)
     without_auto_maintenance(os.environ)
     os.environ.setdefault("GIT_CONFIG_GLOBAL", GLOBAL_CONFIG)
+    # A fixture's pre-push hook judges the gate's verdicts, not this host's load: the hook defers its tree checks to
+    # CI on a loaded host (prepush-gate.py heavy_deferral), which would turn a fixture's expected refusal into a pass
+    # on a busy Mac or CI mini. The tests of the deferral itself drop this.
+    os.environ.setdefault("CMUX_PREPUSH_GATE_FULL", "1")
