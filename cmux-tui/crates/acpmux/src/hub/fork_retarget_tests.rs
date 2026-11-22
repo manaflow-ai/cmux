@@ -438,9 +438,30 @@ async fn a_switch_onto_a_spawn_model_harness_reads_harness_slash_model_and_refus
     assert_eq!(live(&hub), before, "a refused switch left a fork");
 }
 
-/// A fork made from acpmux's transcript (an agent with no session/fork, as pi) runs the chat's
-/// model, and so does a fork of that fork. It ran the harness's default: its first agent was
-/// never told the chat's settings, which only a resumed agent session got (cmux#50092).
+/// Starts a turn on `session` that runs until it is cancelled, and waits until it runs.
+async fn working(hub: &Arc<Hub>, session: &Arc<Session>) -> tokio::task::JoinHandle<()> {
+    let turn = {
+        let (hub, session) = (hub.clone(), session.clone());
+        tokio::spawn(async move {
+            let until = vec![json!({"type": "text", "text": "until-cancel"})];
+            let _ = hub.prompt(&session, until, "test", false).await;
+        })
+    };
+    let started = std::time::Instant::now();
+    while !matches!(
+        session.meta().status,
+        crate::store::SessionStatus::Running | crate::store::SessionStatus::Waiting
+    ) {
+        assert!(started.elapsed().as_secs() < 20, "the turn never started");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    turn
+}
+
+/// A fork made from acpmux's transcript (a working chat of an agent with no session/fork, as
+/// pi) runs the chat's model, and so does a fork of that fork. It ran the harness's default: its
+/// first agent was never told the chat's settings, which only a resumed agent session got
+/// (cmux#50092).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_transcript_fork_and_its_fork_run_the_chats_model() {
     let dir = tempfile::tempdir().unwrap();
@@ -457,17 +478,23 @@ async fn a_transcript_fork_and_its_fork_run_the_chats_model() {
     hub.prompt(&parent, vec![json!({"type":"text", "text":"ONE"})], "test", false).await.unwrap();
     hub.set_model(&parent, "claude-opus-5-5").await.unwrap();
 
+    let turn = working(&hub, &parent).await;
     let fork = hub.fork(&parent, None, None, Default::default(), None, None, false).await.unwrap();
+    hub.cancel(&parent).await.unwrap();
+    let _ = turn.await;
     let sid = fork.meta().agent_session_id.expect("its agent started");
     assert_ne!(Some(sid.clone()), parent.meta().agent_session_id, "a transcript fork");
     assert_eq!(last_model_set(&calls, &sid).as_deref(), Some("claude-opus-5-5"));
     assert_eq!(model_option(&fork).as_deref(), Some("claude-opus-5-5"));
 
-    hub.prompt(&fork, vec![json!({"type":"text", "text":"TWO"})], "test", false).await.unwrap();
+    let turn = working(&hub, &fork).await;
     let fork2 = hub.fork(&fork, None, None, Default::default(), None, None, false).await.unwrap();
+    hub.cancel(&fork).await.unwrap();
+    let _ = turn.await;
     let sid2 = fork2.meta().agent_session_id.expect("its agent started");
     assert_eq!(last_model_set(&calls, &sid2).as_deref(), Some("claude-opus-5-5"));
     assert_eq!(model_option(&fork2).as_deref(), Some("claude-opus-5-5"));
+    hub.shutdown_all().await;
 }
 
 /// A switch onto another harness starts at the chat's own permission level: in the chat's mode
@@ -488,13 +515,14 @@ async fn a_switch_keeps_the_chats_permission_mode() {
         .await
         .unwrap();
     hub.prompt(&parent, vec![json!({"type":"text", "text":"ONE"})], "test", false).await.unwrap();
-    hub.set_mode(&parent, "plan").await.unwrap();
-    assert_eq!(crate::web_modes::mode_of(&parent.meta()).as_deref(), Some("plan"));
+    // `acceptEdits`: a mode that asks for commands, not `plan`, a toggle no chat inherits.
+    hub.set_mode(&parent, "acceptEdits").await.unwrap();
+    assert_eq!(crate::web_modes::mode_of(&parent.meta()).as_deref(), Some("acceptEdits"));
 
     let fork = hub
         .fork_to(&parent, to("lister2"), None, None, Default::default(), None, true)
         .await
         .unwrap();
     assert_eq!(fork.meta().harness, "lister2");
-    assert_eq!(crate::web_modes::mode_of(&fork.meta()).as_deref(), Some("plan"));
+    assert_eq!(crate::web_modes::mode_of(&fork.meta()).as_deref(), Some("acceptEdits"));
 }
