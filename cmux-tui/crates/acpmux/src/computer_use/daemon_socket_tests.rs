@@ -1,4 +1,4 @@
-//! The bridge finds the running app's daemon outside a cmux terminal (air-blue and CI Mac cmux22:
+//! The bridge finds the running app's daemon outside a cmux terminal (seen on a desktop Mac and a CI Mac:
 //! NIGHTLY's own `acpmux computer-use-mcp` asked `main.sock` and answered "the cmux daemon is
 //! not reachable: No such file or directory (os error 2)" while the app's daemon ran).
 
