@@ -657,6 +657,10 @@ async fn splice(
         LinePolicy::Daemon(daemon) => Some(daemon.device_id().to_owned()),
         LinePolicy::Chief(_) => None,
     };
+    let agent_tab_host = match &policy {
+        LinePolicy::Daemon(daemon) => daemon.agent_tab_host().map(str::to_owned),
+        LinePolicy::Chief(_) => None,
+    };
     let socket = UnixStream::connect(path)
         .await
         .map_err(|e| Refusal::new("unavailable", format!("cmux-tui session {label}: {e}")))?;
@@ -716,7 +720,7 @@ async fn splice(
             if let Some((tree, personal, layout)) = side_requirements(&line) {
                 cache.wait_for(tree, personal, layout).await;
             }
-            let verdict = owned_check(cache, &line, verdict);
+            let verdict = owned_check(cache, &line, verdict, agent_tab_host.as_deref());
             match verdict {
                 Verdict::Refuse(answer) => {
                     if ready_tx.send(Verdict::Refuse(answer)).await.is_err() {
@@ -1774,6 +1778,7 @@ fn side_requirements(line: &[u8]) -> Option<(bool, bool, bool)> {
         Some(Ownership::PinnedWorkspaceTile { .. }) => Some((false, false, true)),
         Some(Ownership::OwnGroup { .. }) => Some((true, true, false)),
         Some(Ownership::PlaceWorkspace { group, .. }) => Some((true, group.is_some(), false)),
+        Some(Ownership::UnboundAgentTab { .. }) => Some((true, false, false)),
         None => serde_json::from_slice::<Value>(line)
             .ok()
             .filter(|v| {
@@ -1786,10 +1791,15 @@ fn side_requirements(line: &[u8]) -> Option<(bool, bool, bool)> {
 
 /// Confirm ownership against the live cache; a missing/invalid snapshot never
 /// grants access. Snapshot refresh runs separately from keystroke forwarding.
-fn owned_check(cache: &crate::workspace_cache::WorkspaceCache, line: &[u8], verdict: Verdict) -> Verdict {
+fn owned_check(
+    cache: &crate::workspace_cache::WorkspaceCache,
+    line: &[u8],
+    verdict: Verdict,
+    agent_tab_host: Option<&str>,
+) -> Verdict {
     use crate::policy::{
         Ownership, is_pinned_workspace_tile, lists_workspace, not_owned, ownership, owns_group,
-        owns_personal_workspace, registry_id,
+        owns_personal_workspace, registry_id, unbound_agent_tab,
     };
     let Some(what) = ownership(line) else { return verdict };
     let tree = cache.tree();
@@ -1816,6 +1826,8 @@ fn owned_check(cache: &crate::workspace_cache::WorkspaceCache, line: &[u8], verd
                     (Some(_), None) => false,
                 }
         }),
+        Ownership::UnboundAgentTab { surface } => agent_tab_host
+            .is_some_and(|host| tree.as_ref().is_some_and(|tree| unbound_agent_tab(tree, *surface, host))),
     };
     if owned { verdict } else { Verdict::Refuse(not_owned(line, &what)) }
 }
