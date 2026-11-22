@@ -83,7 +83,7 @@ await requireBrowserLane("agent-pane-ticking-bottom-still.test.ts", async () => 
         while (performance.now() - start < ms) {
           await painted();
           const now = tops();
-          const shown = !!document.querySelector(".acpmux-jump-latest[data-shown]");
+          const shown = !!document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]");
           jump ||= shown;
           let frameMost = 0;
           let frameId = "";
