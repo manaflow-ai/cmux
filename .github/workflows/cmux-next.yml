@@ -310,6 +310,9 @@ on:
       - scripts/cmux-next/base-autofix-exports-pack.sh
       - tests/test_cmux_next_pr_autofix_settings.py
       - scripts/cmux-next/check-generator-inputs.sh
+      # The daemon-test generated-files verdict reads these when the PR autofix may repair a stale export.
+      - scripts/cmux-next/generated-autofixable.sh
+      - scripts/cmux-next/autofix-areas.sh
       - tests/test_ci_generator_input_freshness.sh
       - .github/workflows/cmux-next-pr-autofix.yml
       - .github/workflows/cmux-next-base-autofix.yml
@@ -405,6 +408,9 @@ on:
       - docs/cmux-next/customize-recipes.md
       - examples/looks/claude-code/notification-levels/cmux-setup.json
       - scripts/cmux-next/check-generator-inputs.sh
+      # The daemon-test generated-files verdict reads these when the PR autofix may repair a stale export.
+      - scripts/cmux-next/generated-autofixable.sh
+      - scripts/cmux-next/autofix-areas.sh
       - tests/test_ci_generator_input_freshness.sh
       - tests/test_cmux_next_base_autofix_finishes.py
       - tests/test_base_autofix_pushed_exports.py
@@ -2014,6 +2020,7 @@ jobs:
             bash scripts/cmux-next/tests/base-autofix-land.test.sh
             bash scripts/cmux-next/tests/base-autofix-action-exports.test.sh
             bash scripts/cmux-next/tests/base-autofix-changed.test.sh
+            bash scripts/cmux-next/tests/generated-autofixable.test.sh
             bash scripts/cmux-next/tests/base-autofix-settings-landed.test.sh
             bash scripts/cmux-next/tests/judge-action-exports.test.sh
             bash scripts/cmux-next/tests/publish-bot-head-tree.test.sh
@@ -4765,6 +4772,8 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-237
           CATALOG: ${{ steps.actions.outputs.catalog }}
           SETTINGS: ${{ steps.settings.outcome }}
+          # Stale files the PR autofix regenerates and pushes are "autofixed", not red (generated-autofixable.sh).
+          AUTOFIXED_OK: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_PR_AUTOFIX_PUSH == '1' }}
         run: |
           if [[ "$ACTIONS" == failure && "$CATALOG" == failure ]]; then
             verdict=catalog
@@ -4774,6 +4783,10 @@ jobs:
               echo "Fresh exports fail the same checks, so regenerating changes nothing. The step \"Check generated action catalog, surfaces and inventory\" names the failing test."
               [[ "$SETTINGS" != failure ]] || echo "- settings exports are also stale: scripts/cmux-next/regenerate-settings-exports.sh"
             } | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [[ "$ACTIONS" == failure || "$SETTINGS" == failure ]] && [[ "$AUTOFIXED_OK" == true ]] \
+            && why="$(scripts/cmux-next/generated-autofixable.sh)"; then
+            verdict=autofixed
+            echo "### Generated cmux-next files are stale: autofixed ($why)" | tee -a "$GITHUB_STEP_SUMMARY"
           elif [[ "$ACTIONS" == failure || "$SETTINGS" == failure ]]; then
             verdict=stale
             {
@@ -5182,6 +5195,8 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-262
           CATALOG: ${{ steps.actions.outputs.catalog }}
           SETTINGS: ${{ steps.settings.outcome }}
+          # Stale files the PR autofix regenerates and pushes are "autofixed", not red (generated-autofixable.sh).
+          AUTOFIXED_OK: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_PR_AUTOFIX_PUSH == '1' }}
         run: |
           if [[ "$ACTIONS" == failure && "$CATALOG" == failure ]]; then
             verdict=catalog
@@ -5191,6 +5206,10 @@ jobs:
               echo "Fresh exports fail the same checks, so regenerating changes nothing. The step \"Check generated action catalog, surfaces and inventory\" names the failing test."
               [[ "$SETTINGS" != failure ]] || echo "- settings exports are also stale: scripts/cmux-next/regenerate-settings-exports.sh"
             } | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [[ "$ACTIONS" == failure || "$SETTINGS" == failure ]] && [[ "$AUTOFIXED_OK" == true ]] \
+            && why="$(scripts/cmux-next/generated-autofixable.sh)"; then
+            verdict=autofixed
+            echo "### Generated cmux-next files are stale: autofixed ($why)" | tee -a "$GITHUB_STEP_SUMMARY"
           elif [[ "$ACTIONS" == failure || "$SETTINGS" == failure ]]; then
             verdict=stale
             {
@@ -5636,12 +5655,17 @@ jobs:
           include-hidden-files: true
           retention-days: 3
 
+      # Stale files the PR autofix regenerates from this pull request's own changes and pushes as a commit pass as
+      # "autofixed" (scripts/cmux-next/generated-autofixable.sh); that commit's run checks them strictly, and an
+      # autofixed run records no pass.
       - name: Fail on stale generated files
+        id: stale
         if: ${{ (steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure') && steps.reuse.outputs.hit != 'true' }}
         env:
           ACTIONS: ${{ steps.actions.outcome }}
           CATALOG: ${{ steps.actions.outputs.catalog }}
           SETTINGS: ${{ steps.settings.outcome }}
+          AUTOFIXED_OK: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_PR_AUTOFIX_PUSH == '1' }}
         run: |
           if [[ "$ACTIONS" == failure && "$CATALOG" == failure ]]; then
             {
@@ -5652,6 +5676,12 @@ jobs:
             } | tee -a "$GITHUB_STEP_SUMMARY"
             echo "::error::The action catalog checks fail with fresh exports too: a catalog failure, not stale files."
             exit 1
+          fi
+          if [[ "$AUTOFIXED_OK" == true ]] && why="$(scripts/cmux-next/generated-autofixable.sh)"; then
+            echo "### Generated cmux-next files are stale: autofixed ($why)" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=cmux-next generated files (autofixed)::Generated cmux-next files are stale only from this pull request's own changes: $why"
+            echo "autofixed=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           {
             echo "### Generated cmux-next files are stale"
@@ -5680,13 +5710,13 @@ jobs:
       # A pass records itself for the next run on the same inputs: an artifact named after
       # Why: docs/ci/cmux-next-workflow-notes.md#note-279
       - name: Record this pass for the same inputs
-        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && steps.stale.outputs.autofixed != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         run: |
           mkdir -p "$RUNNER_TEMP/ci-job-pass"
           printf '%s\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" > "$RUNNER_TEMP/ci-job-pass/pass.txt"
 
       - name: Save the pass
-        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && steps.stale.outputs.autofixed != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -5724,6 +5754,8 @@ jobs:
           case "$VERDICT" in
             fresh)
               echo "Generated cmux-next files are fresh ($HOST checked them on its package build)." | tee -a "$GITHUB_STEP_SUMMARY" ;;
+            autofixed)
+              echo "::notice title=cmux-next generated files (autofixed)::Generated cmux-next files are stale only from this pull request's own changes: the PR autofix regenerates them and pushes them as a commit, whose run checks them strictly ($HOST's step summary)." ;;
             stale)
               echo "::error::Generated cmux-next files are stale. $HOST's step summary says how to regenerate them; its cmux-next-generated-patch artifact holds the regenerated files."
               exit 1 ;;

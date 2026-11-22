@@ -237,11 +237,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.firstFrame.open()
             }
         }
-        // At idle after the first terminal frame: the palette panel (native) and the icon catalog (off the main actor). The icon picker and
+        // At idle after the first terminal frame: the palette panel (native), the icon catalog (off the main actor), then the hover card. The icon picker and
         // group editor (WebKit, ~60 MB of processes) wait for a menu or palette open, where every Set Icon and Rename Group is,
         // and are freed again once their idle limit passes with no open or menu (IconPickerService/GroupEditorService.idleLimit);
         // each menu or palette open makes them again or pushes that limit back.
-        launchSettle.whenSettled { [palette = services.palette, weak services] in Self.preparePalette(palette, step: 0); services?.iconPicker.prepare(page: false) }
+        launchSettle.whenSettled { [palette = services.palette, weak services] in Self.preparePalette(palette, step: 0) { services?.hoverCards.warm() }; services?.iconPicker.prepare(page: false) }
         let warmOverlays = { @MainActor [weak services] in services?.iconPicker.prepare(); services?.groupEditor.prepare() }
         services.keyRouter.menuPickKeys.tracking.onMenus(warmOverlays)
         services.palette.onShows(warmOverlays)
@@ -312,11 +312,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         firstFrame.armBackstop(after: .seconds(3))
     }
 
-    /// One palette warm-up step per idle moment (`PaletteController.prepare`).
-    private static func preparePalette(_ palette: PaletteController?, step: Int) {
+    /// One palette warm-up step per idle moment (`PaletteController.prepare`), then `done` at the next idle moment.
+    private static func preparePalette(_ palette: PaletteController?, step: Int, done: @escaping @MainActor () -> Void) {
         IdleOnce.schedule {
-            guard let palette, palette.prepare(step: step) else { return }
-            preparePalette(palette, step: step + 1)
+            guard let palette, palette.prepare(step: step) else { return IdleOnce.schedule(done) }
+            preparePalette(palette, step: step + 1, done: done)
         }
     }
 
