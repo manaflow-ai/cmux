@@ -1,7 +1,7 @@
 import XCTest
 
 /// CMUX-489, reworked 2026-11-13: Home says its Mac's list is not live the way the Workspaces
-/// tab does: kept rows show exactly as normal under Workspaces' connection toast ("Offline" or
+/// tab does: kept rows show exactly as normal under Workspaces' connection chip ("Can't reach" or
 /// "Couldn't refresh", with Retry), which takes its own room and covers no row; with nothing kept, Workspaces' empty state for that Mac shows
 /// ("Can't connect to …" with Retry, or "… is offline"). A kept row opens the conversation
 /// under its own "Not connected" bar, never a full-screen error.
@@ -49,7 +49,7 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         // Back on Home: the Mac button says it, with Retry; the rows stay after it.
         app.buttons["Back"].firstMatch.tap()
         XCTAssertTrue(row.waitForExistence(timeout: 10), "back on Home\n\(app.debugDescription)")
-        try expectToast(app, saying: "Offline", above: row)
+        try expectToast(app, saying: "Can't reach", above: row)
         attach(app, "1b-home-offline-toast")
         retryControl(app).tap()
         XCTAssertTrue(row.waitForExistence(timeout: 10), "the rows stay after Retry")
