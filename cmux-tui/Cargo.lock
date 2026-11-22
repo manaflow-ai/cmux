@@ -62,6 +62,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-source-scan",
+ "cmux-stack-auth",
  "cmux-supervise-core",
  "cmux-tailnet",
  "cmux-transport",
@@ -1346,6 +1347,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-apps"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-auth-coordinator"
 version = "0.1.0"
 
@@ -1931,6 +1942,7 @@ name = "cmux-host"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-apps",
  "cmux-cloud-environment",
  "cmux-file-lock",
  "cmux-json",
@@ -2112,6 +2124,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "objc2-app-kit",
+ "png",
  "windows-sys 0.61.2",
 ]
 
@@ -2613,6 +2626,7 @@ dependencies = [
  "cmux-api-compat",
  "cmux-app-host",
  "cmux-app-manifest",
+ "cmux-apps",
  "cmux-automations",
  "cmux-browser-host",
  "cmux-build-identity",
@@ -2678,6 +2692,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.4",
  "ghostty-vt",
+ "ghostty-vt-sys",
  "glob",
  "libc",
  "notify",
