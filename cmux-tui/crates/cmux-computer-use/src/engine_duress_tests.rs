@@ -418,10 +418,12 @@ fn duress_5_classic_cmux_is_never_launched_or_used() {
         "classic cmux was launched: {events:?}"
     );
     assert!(!events.iter().any(|e| window_of(e) == Some(CLASSIC_WINDOW)), "{events:?}");
-    for (name, out) in run.outs.iter().filter(|(_, o)| {
-        o.body.to_string().contains(CLASSIC_APP) || o.body.to_string().contains("\"cmux\"")
+    // `status` names it in the deny list it reports; any other result that
+    // names classic cmux must be a refusal.
+    for (name, out) in run.outs.iter().filter(|(name, o)| {
+        name != "status"
+            && (o.body.to_string().contains(CLASSIC_APP) || o.body.to_string().contains("\"cmux\""))
     }) {
-        // Only refusals may name it.
         assert!(out.is_error, "{name} used classic cmux: {}", out.body);
     }
     let classic_calls = &run.outs[run.outs.len() - 4..];

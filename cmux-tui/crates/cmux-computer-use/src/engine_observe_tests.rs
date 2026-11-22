@@ -699,10 +699,13 @@ fn a_look_with_nothing_to_compare_or_nothing_changed_costs_one_sentence() {
     let again = e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"})).to_mcp();
     let texts: Vec<&str> =
         again["content"].as_array().unwrap().iter().map(|c| c["text"].as_str().unwrap()).collect();
+    // Plus the driver stamp every result carries (which build answered).
+    assert_eq!(texts.len(), 2, "{texts:?}");
     assert_eq!(
-        texts,
-        ["{\"truncated\":false,\"window_id\":\"1\"}", "No change since your last look."]
+        serde_json::from_str::<Value>(texts[0]).unwrap(),
+        json!({"driver": driver_stamp(), "truncated": false, "window_id": "1"})
     );
+    assert_eq!(texts[1], "No change since your last look.");
     // An action still carries the evidence its outcome is decided from.
     let click = e.call(&ctx(), "click", &json!({"window_id": "1", "element_id": "3"}));
     let c = &click.body["state"]["changes"];
