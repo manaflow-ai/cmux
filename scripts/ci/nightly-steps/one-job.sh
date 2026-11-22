@@ -73,20 +73,26 @@ case "${1:-}" in
     ;;
   source)
     [[ "$NIGHTLY_BUILD" =~ ^[0-9]+$ && "$BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid build $NIGHTLY_BUILD at $BUILD_SHA" >&2; exit 1; }
-    # nightly-out (and cef-runtime): what publish-nightly downloads, from this workspace.
+    # nightly-out (and cef-runtime, language-packs): what publish-nightly downloads, from this workspace.
     mkdir -p nightly-out
     cp final-dmg/* remote-daemon-assets/cmuxd-remote-* nightly-out/
     if [ "$CEF" = true ]; then cp -R "$RUNNER_TEMP/cef-runtime" cef-runtime; fi
+    # The packs and their pin only (not the split's stage/), as the language-packs artifact carries.
+    if [ "${LANGUAGE_PACKS:-false}" = true ]; then
+      mkdir -p language-packs
+      cp "$RUNNER_TEMP"/language-packs/*.tar.zst "$RUNNER_TEMP/language-packs/language-packs.json" language-packs/
+    fi
     printf '%s\n' source=own "build=$NIGHTLY_BUILD" "build_sha=$BUILD_SHA" "build_short_sha=${BUILD_SHA:0:7}" \
       "tip_sha=$TIP_SHA" "behind=$BEHIND" "behind_hours=$BEHIND_HOURS" "variant_pattern=cmux-nightly-variant-*" \
-      "tested_pattern=cmux-nightly-tested-*" run_id= "cef=$CEF" "source_archive=$SOURCE_ARCHIVE" >> "$GITHUB_OUTPUT"
+      "tested_pattern=cmux-nightly-tested-*" run_id= "cef=$CEF" "language_packs=${LANGUAGE_PACKS:-false}" \
+      language_packs_run= "source_archive=$SOURCE_ARCHIVE" >> "$GITHUB_OUTPUT"
     ;;
   wipe)
     tmp="${RUNNER_TEMP:-}"
     if [ -n "$tmp" ] && [ -d "$tmp" ] && [ "$tmp" != / ] && [ "$tmp" != "$HOME" ]; then
       find "$tmp" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
     fi
-    rm -rf signed signed-app-handoff final-dmg nightly-out tested cef-runtime
+    rm -rf signed signed-app-handoff final-dmg nightly-out tested cef-runtime language-packs
     rm -f "${CHANNEL_DMG_PREFIX:-cmux-nightly-next-macos}"-*.delta
     python3 "$(dirname "$0")/../nightly_build_state.py" release || true
     ;;

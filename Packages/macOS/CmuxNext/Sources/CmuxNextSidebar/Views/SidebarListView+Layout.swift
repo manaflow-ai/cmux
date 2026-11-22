@@ -179,7 +179,8 @@ extension SidebarListViewComponents {
     }
     /// The indent rule every row, rail, lifted card and drop line of this list uses.
     var indent: SidebarIndent {
-        SidebarIndent(step: SidebarStyle.groupGutter, indentsTopLevel: model.groupHeaderDetails.background.indentsMembers)
+        let folders = model.groupHeaderDetails.background.indentsMembers
+        return SidebarIndent(step: folders ? SidebarStyle.folderMemberStep : SidebarStyle.groupGutter, indentsTopLevel: folders)
     }
     /// The width a level-0 row has: the indent cap is computed from it.
     var indentWidth: CGFloat { max(0, bounds.width - inset * 2 - SidebarStyle.rowTrailingTrim) }

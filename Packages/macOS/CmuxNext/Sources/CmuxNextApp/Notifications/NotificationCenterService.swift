@@ -122,7 +122,7 @@ final class NotificationCenterService {
     /// The deadline clock; tests inject their own.
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
     /// The languages banner titles the app writes are in (OSC 7501 alerts, cx-6so.36.8); tests pick one.
-    @ObservationIgnored var localizations: [String] = Bundle.module.preferredLocalizations
+    @ObservationIgnored var localizations: [String] = Bundle.main.preferredLocalizations
     /// Ghostty's `desktop-notifications`: off reads terminal notifications
     /// at once, as Ghostty then posts none (read per arrival, so a config
     /// reload applies).
@@ -648,7 +648,7 @@ final class NotificationCenterService {
             post(notification, tab: digest == nil ? located.tab : nil, workspace: located.workspace.id,
                  workspaceName: located.workspace.displayName, sound: digest == nil ? decision.sound : nil, volume: decision.soundVolume,
                  program: program, headline: digest.map { String(localized: "notifications.finishedBurst.title", defaultValue: "\($0.count) agents finished",
-                                                                       table: "NotificationsPanel", bundle: .module) },
+                                                                       table: "NotificationsPanel", bundle: .module.inAppLanguage) },
                  owner: located.tab)
         }
         if !decision.desktop, let sound = decision.sound { soundGate.player.play(sound, volume: decision.soundVolume, banner: notification.desktop) }

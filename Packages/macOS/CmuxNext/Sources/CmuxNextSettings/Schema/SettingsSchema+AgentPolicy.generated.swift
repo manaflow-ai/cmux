@@ -52,6 +52,8 @@ extension SettingsSchema {
         "app.hideDockIconWithoutWindows",
         // The menu bar item; looks only, ends no work.
         "app.showMenuBarIcon",
+        // The language cmux's own text is in; ends no work.
+        "app.language",
         "tabs.overflow",
         // How tabs are listed (looks only)
         "tabs.verticalTabs", "tabs.verticalTabsExpandOnHover",
@@ -90,7 +92,7 @@ extension SettingsSchema {
         "appearance.saturation", "appearance.density", "appearance.customDensity", "appearance.customDensities",
         "appearance.metrics.chromeFontSize", "appearance.fontSmoothing", "appearance.interfaceScale",
         "appearance.borders", "appearance.previousGlass", "appearance.sidebarSurface", "appearance.chromeStyle",
-        "appearance.titleAreaTone", "appearance.titleAreaContrast", "appearance.cornerFlush",
+        "appearance.titleAreaTone", "appearance.titleAreaContrast", "appearance.twoTone", "appearance.cornerFlush",
         "appearance.focusIndicator", "focus.inactiveTabStyle", "ui.animationSpeed", "ui.animations.newTab",
         "ui.animations.newWorkspace", "ui.animations.enabled", "ui.animations.sidebar", "ui.animations.tabs",
         "ui.animations.panes", "ui.animations.overlays", "ui.animations.hoverCards", "ui.animations.home",

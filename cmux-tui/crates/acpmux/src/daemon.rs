@@ -1516,9 +1516,16 @@ fn managed_by_acpmux_unit() -> bool {
 /// seconds between a shutdown and the unit's restart (chief-sub-a524, 2026-11-03), and waiting
 /// alone would end in a lock refusal and leave the unit failed while that daemon serves the home
 /// outside it. A `--take-over` start whose holder serves another socket is refused at once.
+///
+/// It asks each holder once, by pid, and looks at the holder again every [`HOLDER_LOOK`] while
+/// it waits: when another start took the lock first, that new holder is asked too. Two take-over
+/// starts at once are the usual case of an update: the replaced daemon's own swap starts one
+/// (`exe_swap.rs`) and the installer starts another. Asking only the first holder left the
+/// later start waiting forever on the one that won (`take_over_under_load`, 2026-11-20).
 async fn acquire_daemon_lock(path: &std::path::Path, take_over: bool) -> Result<DaemonLock> {
     let supervised = take_over || managed_by_acpmux_unit();
-    let mut asked = false;
+    // The holder this start has asked, by its pid (`None`: a pid the lock file did not name).
+    let mut asked: Option<Option<u32>> = None;
     loop {
         match acquire_lock(path) {
             Ok(lock) => return Ok(lock),
@@ -1531,31 +1538,50 @@ async fn acquire_daemon_lock(path: &std::path::Path, take_over: bool) -> Result<
                 if take_over && !ours {
                     return Err(error);
                 }
-                if ours && !asked {
-                    asked = true;
-                    take_over_holder(&socket_path()).await;
+                if !ours {
+                    // The kernel lock is the liveness signal: a live holder keeps it and a
+                    // dead holder releases it. Do not turn a busy but healthy daemon into a
+                    // startup failure with an arbitrary wall-clock cutoff.
+                    wait_for_lock_release(path.to_owned()).await;
+                    continue;
                 }
-                // The kernel lock is the liveness signal: a live holder keeps it and a
-                // dead holder releases it. Do not turn a busy but healthy daemon into a
-                // startup failure with an arbitrary wall-clock cutoff.
-                wait_for_lock_release(path.to_owned()).await;
+                #[cfg(unix)]
+                let holder = live_holder_pid(path);
+                #[cfg(not(unix))]
+                let holder = None;
+                if asked != Some(holder)
+                    && let Some(answered) = take_over_holder(&socket_path()).await
+                    // What answered is the holder (or the lock named none): asked. Another
+                    // daemon answering for a holder still starting is not; ask again.
+                    && (holder.is_none() || answered == holder)
+                {
+                    asked = Some(holder);
+                }
+                // Still no wall-clock cutoff: the wait only looks again at who holds the lock.
+                wait_for_lock_release_with_budget(path.to_owned(), Some(HOLDER_LOOK)).await;
             }
             Err(error) => return Err(error),
         }
     }
 }
 
+/// How often a supervised start waiting on this home's lock looks at who holds it, to ask a new
+/// holder to hand over ([`acquire_daemon_lock`]).
+// timeout: not a deadline; the wait goes on, and each look costs one read of the lock file.
+const HOLDER_LOOK: Duration = Duration::from_secs(1);
+
 /// Ask the daemon at `socket` to hand this home over: `_acpmux/shutdown` with its agents kept,
 /// as `acpmux daemon shutdown` sends it, once its status names this home and socket. Best
 /// effort: a holder that does not answer, or one that is already stopping, is waited out by the
-/// caller.
-async fn take_over_holder(socket: &std::path::Path) {
+/// caller. The pid that answered its status, or `None` when nothing answered (a holder still
+/// starting has no socket yet): the caller asks again.
+async fn take_over_holder(socket: &std::path::Path) -> Option<Option<u32>> {
     // Client::connect and request finish promptly on a closed socket. If the
     // peer is alive but busy, keep the handover request alive until it answers.
-    let Ok(client) = crate::client::Client::connect(socket).await else { return };
+    let Ok(client) = crate::client::Client::connect(socket).await else { return None };
     let Ok(status) = client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})).await
     else {
-        return;
+        return None;
     };
     let same = |key: &str, want: &std::path::Path| {
         status
@@ -1563,19 +1589,18 @@ async fn take_over_holder(socket: &std::path::Path) {
             .and_then(serde_json::Value::as_str)
             .is_some_and(|got| same_path(std::path::Path::new(got), want))
     };
+    let pid = status.get("pid").and_then(serde_json::Value::as_u64).map(|p| p as u32);
     if !same("home", &home()) || !same("socket", socket) {
-        return;
+        return Some(pid);
     }
-    tracing::info!(
-        pid = status.get("pid").and_then(serde_json::Value::as_u64),
-        "another daemon of this home serves its socket; asking it to hand over"
-    );
+    tracing::info!(pid, "another daemon of this home serves its socket; asking it to hand over");
     let _ = client
         .request(
             crate::rpc::method::MUX_SHUTDOWN,
             serde_json::json!({"reason": "handover: another daemon of this home starts"}),
         )
         .await;
+    Some(pid)
 }
 
 fn random_token() -> Result<String> {

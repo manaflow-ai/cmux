@@ -258,7 +258,7 @@ fn the_shipped_theme_files_apply_with_no_refusals() {
     let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../Resources/theme-files");
     let home = std::env::temp_dir().join(format!("cmux-theme-file-test-{}", std::process::id()));
     let list = names(&home, Some(&shipped));
-    for look in ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal"] {
+    for look in ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal", "teal"] {
         assert!(list.iter().any(|name| name == look), "{look} in {list:?}");
     }
     for name in &list {
@@ -538,6 +538,21 @@ fn the_settings_owner_keeps_the_keys_changed_over_the_theme_file() {
     let file = overlay(r#"{ "appearance.themeFileExceptions": ["appearance.accent"] }"#);
     assert!(file.keys().is_empty(), "{:?}", file.keys());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `appearance.twoTone` is a look key: a theme file may switch the two-tone on
+/// (`theme_file::two_tone`), and a value outside the list is refused.
+#[test]
+fn a_theme_file_sets_the_two_tone_toggle() {
+    let row =
+        Schema::embedded().row(two_tone::SETTING_KEY).expect("the schema has appearance.twoTone");
+    assert!(is_look(row));
+    let file = overlay(r#"{ "appearance": { "twoTone": "inkSakura" } }"#);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(at(&root, two_tone::SETTING_KEY), Some(&json!("inkSakura")));
+    let refused = overlay(r#"{ "appearance.twoTone": "neon" }"#);
+    assert_eq!(refused.diagnostics.len(), 1, "{:?}", refused.diagnostics);
 }
 
 /// `appearance.cornerFlush` (Leo, 2026-11-18: the gooey look "we have as a

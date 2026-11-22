@@ -255,6 +255,8 @@ pub fn install(ctx: &Context<'_>, args: &Args) -> Result<Output> {
         return Err(Error::usage(format!("invalid channel {channel:?}")));
     }
     access::ensure(&access_policy(&layout), ctx.runner)?;
+    // One service command at a time, for the whole install (Services::lock).
+    let _service_lock = services(ctx, &layout)?.lock()?;
     // Every refusal (a foreign unit, an unsafe directory) before the store changes.
     services(ctx, &layout)?.preflight()?;
     let mut cfg = config(&layout)?;
@@ -384,6 +386,9 @@ pub fn uninstall(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     }
     let layout = mutating_layout(ctx, false)?;
     let svc = services(ctx, &layout)?;
+    // One service command at a time, for the whole uninstall, store and
+    // state removal included (Services::lock).
+    let _service_lock = svc.lock()?;
     let session = super::session_service::installed(&svc);
     // A unit cmux did not write (or one systemd loads from elsewhere): stop,
     // disable, remove and purge nothing, not even the store or state a

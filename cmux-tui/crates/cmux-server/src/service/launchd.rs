@@ -49,7 +49,7 @@ pub fn install(s: &Services<'_>, restart: bool) -> Result<ServiceReport> {
     let logs = fsx::local(&s.layout.logs());
     fsx::ensure_dir(&logs, 0o700)?;
     private_log(&logs)?;
-    let changed = fsx::write_if_changed(&plist, text.as_bytes(), 0o644)?;
+    let changed = fsx::write_fresh(&plist, text.as_bytes(), 0o644)?;
     s.wrote(&[(plist.clone(), text)])?;
     let mut report = ServiceReport { unit: plist.clone(), changed, ..ServiceReport::default() };
     let was_loaded = loaded(s);
@@ -228,7 +228,9 @@ pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {
     // launchd has no bootout bound to a plist (`bootout DOMAIN PATH` reads
     // the label from the file and unloads by label): check the job's source
     // right before the bootout by label, so the gap is that one command
-    // (Codex R-005), which only root or this same account can use.
+    // (Codex R-005). Only root or this same account can load another job in
+    // its gui domain, and no other cmux command runs meanwhile (the service
+    // lock, `Services::lock`).
     check_source(s).map_err(|e| super::outcome(e, "nothing was changed"))?;
     let _ = s.runner.run(&launchctl().args(["bootout", &target(s)]));
     // A bootout that failed must not let uninstall remove what the job

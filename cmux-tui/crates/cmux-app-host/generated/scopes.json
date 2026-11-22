@@ -2242,6 +2242,7 @@
     "keybindings.remove",
     "keybindings.reset",
     "keybindings.set",
+    "language_packs.ensure",
     "layout.bulk",
     "network.list",
     "origin.confirmation.issue",

@@ -1209,6 +1209,8 @@ impl Hub {
                 json!({"prompt": short_text(&text, 200), "promptLine": super::auto_resume::shown_line(&line), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate, "persons": persons, "trigger": trigger, "cloudMobile": run.cloud_mobile, "device": device.as_deref().filter(|_| control == Control::Web)}),
             )
             .seq;
+        // The chat's page before the turn changes it (`turn_shots.rs`), off the turn's path.
+        super::turn_shots::turn_began(session, &turn_id);
         // The prompt as the agent gets it, before the checks below: making its model-sized copies
         // may take a moment, in which a Stop or a remote device may come (`model_copies.rs`).
         let wire = agent_blocks(self, session, &blocks).await;
@@ -2043,6 +2045,8 @@ impl Hub {
         joined: &super::digest::DigestTurn,
     ) {
         self.fail_unstarted_turn(session, prompt_id, turn_id, e, joined);
+        // Its before picture has no after coming (`turn_shots.rs`).
+        super::turn_shots::turn_refused(session, turn_id);
         if session.status() == SessionStatus::Disconnected {
             self.set_status(session, SessionStatus::Ready);
         }
@@ -2760,6 +2764,7 @@ impl Hub {
                 let cwd = session.meta().cwd.clone();
                 let _ = tokio::task::spawn_blocking(move || {
                     super::file_uploads::remove_session(&id);
+                    super::turn_shots::remove_session(&id);
                     // And the PDFs it saved in its project (`acp_prompt_blocks`).
                     remove_pdf_attachments(&cwd, &id);
                 })

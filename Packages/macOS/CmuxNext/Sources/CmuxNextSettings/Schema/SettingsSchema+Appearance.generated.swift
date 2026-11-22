@@ -270,6 +270,12 @@ extension TitleAreaContrastSetting {
     public nonisolated static let placeholder: Double = 1
 }
 
+extension TwoToneSetting {
+    /// `appearance.twoTone`: A toggle under any chrome style and any theme: the sidebar and the tab bar in tone A, the content panes (terminal, agent pane, New Tab page, Home) in tone B, the accent fitted to both. Off (the default), From Theme (auto) or a curated pairing; the colors and the pairing table are Rust (cmux-config theme_file::two_tone; the Swift TwoTone mirrors it, checked against the Rust fixture TwoToneTests has Rust write at test time). An explicit appearance.surfaces.<surface>.color wins. Leo 2026-11-19: the two-tone is just one of the toggles you can have; what would actually look good and not eyesore-ish.
+    public nonisolated static let configPath = ["appearance", "twoTone"]
+    public nonisolated static let fallback: TwoTone = .off
+}
+
 extension CornerFlushSetting {
     /// `appearance.cornerFlush`: How the selected tab meets the content card (CornerFlush, CmuxNextDesign). A missing key is the default, flush with no goo, drawn only over the stock chrome (CornerFlush.defaultFits); a set value draws over any chrome, as a Debug Settings pick of chrome.cornerFlush does, which still overrides it in DEV and NIGHTLY. Compact density keeps the pill under every value. Leo 2026-11-13: "lawrence wanted no goo by default"; Leo 2026-11-18: the gooey look is a toggle a theme or a setup can pick.
     public nonisolated static let configPath = ["appearance", "cornerFlush"]

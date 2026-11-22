@@ -14,6 +14,13 @@ fn from_agent(id: &str, prompt_id: &str, agent: &str, text: &str, mux: Value) ->
     json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": meta}})
 }
 
+/// The `_meta.acpmux` of an action (`--class result`). A message that names no class is an FYI
+/// (`inbox.rs` `default_notice_class`; Leo: "every non-actionable notice becomes fyi by default"),
+/// which waits for the flush window and steers into no turn.
+fn result() -> Value {
+    json!({"class": "result"})
+}
+
 /// A FIFO for the fake agent's gates.
 fn fifo(tag: &str) -> std::path::PathBuf {
     let path = std::env::temp_dir().join(format!("acpmux-inbox-{tag}-{}", uuid::Uuid::now_v7()));
@@ -110,7 +117,7 @@ async fn three_hundred_agent_messages_go_in_as_one_notice_at_the_next_tool_step(
 
     // The first message goes in as a notice at once; the agent reads it at its next tool step.
     let first = c
-        .send(method::SESSION_PROMPT, from_agent(&id, "m-first", "lane-0", "merged #1", json!({})))
+        .send(method::SESSION_PROMPT, from_agent(&id, "m-first", "lane-0", "merged #1", result()))
         .await;
     until(&hub, &id, "the first notice", |p| p.iter().any(|m| m["steer"] == true)).await;
     let mut sent = vec![first];
@@ -120,7 +127,7 @@ async fn three_hundred_agent_messages_go_in_as_one_notice_at_the_next_tool_step(
             &format!("m-{i}"),
             &format!("lane-{i}"),
             &format!("result {i}"),
-            json!({}),
+            result(),
         );
         sent.push(c.send(method::SESSION_PROMPT, msg).await);
     }
@@ -240,7 +247,7 @@ async fn a_queued_prompt_never_waits_behind_agent_messages() {
     let mut sent = Vec::new();
     for i in 0..5 {
         let msg =
-            from_agent(&id, &format!("m-{i}"), "lane-a", &format!("step {i} of #9"), json!({}));
+            from_agent(&id, &format!("m-{i}"), "lane-a", &format!("step {i} of #9"), result());
         sent.push(c.send(method::SESSION_PROMPT, msg).await);
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -451,7 +458,7 @@ async fn a_notice_never_goes_into_the_persons_turn_and_runs_on_its_own_after_it(
     let turn = c.send(method::SESSION_PROMPT, prompt(&id, &words, Some("p-me"))).await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
     let mine = hub.resolve(&id).unwrap().turn().unwrap().turn_id;
-    let msg = from_agent(&id, "m-1", "lane-a", "merged #9", json!({}));
+    let msg = from_agent(&id, "m-1", "lane-a", "merged #9", result());
     let sent = c.send(method::SESSION_PROMPT, msg).await;
     let accepted = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "m-1").await;
     assert_eq!(accepted["inbox"], true, "{accepted}");

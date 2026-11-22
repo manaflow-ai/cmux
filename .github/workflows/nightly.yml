@@ -177,7 +177,7 @@ permissions: {}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
-  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/0d5b239cfa47036c6f7d49b4933d124f87138eff/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   # Main's promote guard reads this exact line (promote-nightly-next.mjs G5); see resolve-tree-pending.sh.
   NIGHTLY_NEXT_TREE_AT_INSTALL: v1
   CREATE_DMG_VERSION: 8.0.0
@@ -4281,6 +4281,12 @@ jobs:
           CMUX_NEXT_CEF_ON_DEMAND: ${{ needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && '1' || '' }}
           CMUX_NEXT_CEF_RUNTIME_OUT: ${{ runner.temp }}/cef-runtime
           CMUX_NEXT_CEF_RUNTIME_BASE_URL: https://files-next.cmux.com
+          # Languages download on first use (CMUX-570): the non-English strings leave the app
+          # for language packs, which publish-nightly uploads before the appcast. On for
+          # nightly-next; the repository variable CMUX_NEXT_LANGUAGE_PACKS=0 turns it off.
+          CMUX_NEXT_LANGUAGE_PACKS: ${{ needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_LANGUAGE_PACKS != '0' && '1' || '' }}
+          CMUX_NEXT_LANGUAGE_PACKS_OUT: ${{ runner.temp }}/language-packs
+          CMUX_NEXT_LANGUAGE_PACKS_BASE_URL: https://files-next.cmux.com/language-packs
           # sign-cef.sh reuses it when it is the same code and signer, so deltas leave Chromium out.
           CMUX_CEF_REUSE_FRAMEWORK: ${{ runner.temp }}/cef-reuse/Chromium Embedded Framework.framework
         run: |
@@ -4316,6 +4322,34 @@ jobs:
         with:
           name: cef-runtime-pack
           path: ${{ runner.temp }}/cef-runtime
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
+      # The language packs the app's pin names (language-packs.py); publish-nightly uploads
+      # them before the appcast.
+      - name: Upload the language packs
+        id: upload-the-language-packs
+        continue-on-error: true
+        if: needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_LANGUAGE_PACKS != '0' && !env.LEFT_SLOT
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: language-packs
+          overwrite: true
+          path: |
+            ${{ runner.temp }}/language-packs/
+            !${{ runner.temp }}/language-packs/stage
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload the language packs (retry)
+        if: "!cancelled() && steps.upload-the-language-packs.outcome == 'failure' && (needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_LANGUAGE_PACKS != '0' && !env.LEFT_SLOT)"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: language-packs
+          path: |
+            ${{ runner.temp }}/language-packs/
+            !${{ runner.temp }}/language-packs/stage
           if-no-files-found: error
           retention-days: 7
           overwrite: true
@@ -5295,6 +5329,7 @@ jobs:
       behind: ${{ steps.fetch.outputs.behind }}
       behind_hours: ${{ steps.fetch.outputs.behind_hours }}
       cef: ${{ steps.fetch.outputs.cef }}
+      language_packs: ${{ steps.fetch.outputs.language_packs }}
       source_archive: ${{ steps.fetch.outputs.source_archive }}
     steps:
       - *checkout-default
@@ -5367,6 +5402,29 @@ jobs:
         with:
           name: cef-runtime-pack
           path: ${{ runner.temp }}/republished/cef-runtime/
+          if-no-files-found: error
+          retention-days: 3
+          overwrite: true
+
+      # The same for the source build's language packs (its language_packs output), whatever
+      # CMUX_NEXT_LANGUAGE_PACKS says now: the app's pin names them.
+      - name: Upload the republished build's language packs
+        id: upload-the-republished-build-s-language-packs
+        continue-on-error: true
+        if: steps.fetch.outputs.language_packs == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: language-packs
+          path: ${{ runner.temp }}/republished/language-packs/
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload the republished build's language packs (retry)
+        if: "!cancelled() && steps.upload-the-republished-build-s-language-packs.outcome == 'failure' && (steps.fetch.outputs.language_packs == 'true')"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: language-packs
+          path: ${{ runner.temp }}/republished/language-packs/
           if-no-files-found: error
           retention-days: 3
           overwrite: true
@@ -5787,13 +5845,19 @@ jobs:
           # republished build publishes the pack its source signed with (the app's pin names it), and
           # no source archive when its source made none.
           CEF_ON_DEMAND: ${{ vars.CMUX_NEXT_CEF_ON_DEMAND }}
+          LANGUAGE_PACKS: ${{ vars.CMUX_NEXT_LANGUAGE_PACKS }}
           PUBLISH_SOURCE_ARCHIVE: ${{ vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE }}
           REPUBLISHED_CEF: ${{ needs.republish-nightly-next.outputs.cef }}
+          REPUBLISHED_LANGUAGE_PACKS: ${{ needs.republish-nightly-next.outputs.language_packs }}
           REPUBLISHED_SOURCE_ARCHIVE: ${{ needs.republish-nightly-next.outputs.source_archive }}
         run: |
           set -euo pipefail
           run_id=
           cef=false source_archive=false
+          # Language packs (CMUX-570) are on unless CMUX_NEXT_LANGUAGE_PACKS is 0; a recovered build's
+          # packs stay in its own run (language_packs_run), a republished one's come from its receipt.
+          language_packs=true language_packs_run=
+          [ "${LANGUAGE_PACKS:-}" = 0 ] && language_packs=false
           [ "${CEF_ON_DEMAND:-}" = 1 ] && cef=true
           [ "${PUBLISH_SOURCE_ARCHIVE:-}" = 1 ] && source_archive=true
           if [ "$OWN_RESULT" = success ] && [ "$OWN_PENDING" != true ] && [ "$OWN_VERIFIED" = success ] && [ "$OWN_DMG_VERIFIED" = success ] && [ "$OWN_TREE" = ok ]; then
@@ -5804,6 +5868,7 @@ jobs:
             source=recovered build="$RECOVERED_BUILD" build_sha="$RECOVERED_BUILD_SHA" tip_sha="$RECOVERED_TIP_SHA"
             behind="$RECOVERED_BEHIND" behind_hours="$RECOVERED_BEHIND_HOURS" pattern="cmux-nightly-recovered-variant-*"
             tested_pattern="cmux-nightly-recovered-tested-*" run_id="$RECOVERED_RUN_ID"
+            language_packs_run="$RECOVERED_RUN_ID"
             echo "::notice title=Publishing an earlier nightly-next build::this run's build was not accepted in time; publishing build $build from run $RECOVERED_RUN_ID"
           elif [ "${REPUBLISHED:-}" = success ]; then
             # Published as a recovered build: the lineage and webview gate read its run.
@@ -5811,6 +5876,7 @@ jobs:
             behind="$REPUBLISHED_BEHIND" behind_hours="$REPUBLISHED_BEHIND_HOURS" pattern="cmux-nightly-republished-variant-*"
             tested_pattern="cmux-nightly-republished-tested-*" run_id="$REPUBLISHED_RUN_ID"
             [ "${REPUBLISHED_CEF:-}" = true ] && cef=true || cef=false
+            [ "${REPUBLISHED_LANGUAGE_PACKS:-}" = true ] && language_packs=true || language_packs=false
             [ "${REPUBLISHED_SOURCE_ARCHIVE:-}" = true ] || source_archive=false
             echo "::notice title=Republishing a verified nightly-next build::build $build from run $REPUBLISHED_RUN_ID, with this run's publication tooling"
           else
@@ -5830,6 +5896,8 @@ jobs:
             echo "tested_pattern=$tested_pattern"
             echo "run_id=$run_id"
             echo "cef=$cef"
+            echo "language_packs=$language_packs"
+            echo "language_packs_run=$language_packs_run"
             echo "source_archive=$source_archive"
           } >> "$GITHUB_OUTPUT"
           echo "NIGHTLY_BUILD=$build" >> "$GITHUB_ENV"
@@ -6169,6 +6237,27 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: bash "$PUBLISH_TOOLING/cmux-next/publish-cef-runtime.sh" cef-runtime
+
+      # Languages download on first use (CMUX-570): the packs the app's pin names, from this run
+      # (own or republished build) or the recovered build's run, published before the appcast.
+      - name: Download the language packs
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.source.outputs.language_packs == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: language-packs
+          path: language-packs
+          run-id: ${{ steps.source.outputs.language_packs_run || github.run_id }}
+          github-token: ${{ github.token }}
+
+      - &x92b
+        name: Publish the language packs
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.source.outputs.language_packs == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && !env.LEFT_SLOT
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: bash "$PUBLISH_TOOLING/cmux-next/publish-language-packs.sh" language-packs
 
       - &x93
         name: Read the live nightly-next feed before the write
@@ -7496,6 +7585,7 @@ jobs:
           BEHIND: ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind }}
           BEHIND_HOURS: ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind_hours }}
           CEF: ${{ vars.CMUX_NEXT_CEF_ON_DEMAND == '1' }}
+          LANGUAGE_PACKS: ${{ vars.CMUX_NEXT_LANGUAGE_PACKS != '0' }}
           SOURCE_ARCHIVE: ${{ vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' }}
         run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" source
       - name: Refuse stray processes before secrets (publication)
@@ -7529,6 +7619,7 @@ jobs:
       - *x90
       - *x91
       - *x92
+      - *x92b
       - *x93
       - *x94
       - *x95

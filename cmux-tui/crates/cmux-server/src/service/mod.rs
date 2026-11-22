@@ -80,6 +80,41 @@ impl Runner for Announce<'_> {
 /// wrote it.
 const RECORD: &str = "service-units.json";
 
+thread_local! {
+    /// The service locks this thread holds, by path: a command that holds
+    /// one may call the `Services` steps that take it again.
+    static HELD: std::cell::RefCell<Vec<PathBuf>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The lock file of the service commands, in the folder of the unit files
+/// ([`Services::lock`]); the service managers load no file of this name.
+const LOCK: &str = ".cmux-server.lock";
+
+/// The service lock ([`Services::lock`]), held until this drops.
+#[derive(Debug)]
+pub struct ServiceLock {
+    path: PathBuf,
+    /// The unit files of the layout: when none is left as the outer hold
+    /// ends (an uninstall), the lock file goes too.
+    units: Vec<PathBuf>,
+    /// None: this thread already held it; the outer hold releases it.
+    lock: Option<crate::fsx::FileLock>,
+}
+
+impl Drop for ServiceLock {
+    fn drop(&mut self) {
+        let Some(lock) = self.lock.take() else { return };
+        HELD.with(|held| held.borrow_mut().retain(|p| p != &self.path));
+        // Removed while still held, then released: a command that opened
+        // the old file meanwhile finds it is no longer the one at the name
+        // (`Services::lock`) and refuses.
+        if !self.units.iter().any(|unit| crate::fsx::exists_no_follow(unit)) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+        drop(lock);
+    }
+}
+
 fn sha256_hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -326,6 +361,7 @@ impl Services<'_> {
     /// `restart`, a running server is restarted (a new generation); its
     /// session host hands off and keeps terminal hosts (`KillMode=process`).
     pub fn install(&self, restart: bool) -> Result<ServiceReport> {
+        let _lock = self.lock()?;
         self.preflight()?;
         for (path, text) in self.unit_files()? {
             if self.announce && std::fs::read_to_string(&path).ok().as_deref() != Some(&text) {
@@ -350,6 +386,7 @@ impl Services<'_> {
 
     /// Restarts a running server (rollback, upgrade); a stopped one starts.
     pub fn restart(&self) -> Result<()> {
+        let _lock = self.lock()?;
         match &self.layout.service {
             ServiceKind::SystemdUser { .. } | ServiceKind::SystemdSystem { .. } => {
                 systemd::restart(self)
@@ -361,6 +398,7 @@ impl Services<'_> {
 
     /// Starts the installed server and enables it, so it starts at each login or boot.
     pub fn start(&self) -> Result<()> {
+        let _lock = self.lock()?;
         match &self.layout.service {
             ServiceKind::SystemdUser { .. } | ServiceKind::SystemdSystem { .. } => {
                 systemd::start(self)
@@ -373,6 +411,7 @@ impl Services<'_> {
     /// Stops the server and disables it, so it stays stopped across logins and boots.
     /// The units stay on disk.
     pub fn stop(&self) -> Result<()> {
+        let _lock = self.lock()?;
         match &self.layout.service {
             ServiceKind::SystemdUser { .. } | ServiceKind::SystemdSystem { .. } => {
                 systemd::stop(self)
@@ -459,12 +498,15 @@ impl Services<'_> {
             }
         };
         let meta = file.metadata().map_err(|e| Error::io(path.display(), e))?;
+        // An ACL entry can let another account write it whatever the mode
+        // says (macOS; crate::acl): such a record is no record of cmux's.
         let private = meta.is_file()
             && crate::sys::owner_uid(&meta) == crate::sys::euid()
-            && crate::fsx::mode_of(&meta) & 0o022 == 0;
+            && crate::fsx::mode_of(&meta) & 0o022 == 0
+            && !crate::acl::fd_write_grants(&file).map_err(|e| Error::io(path.display(), e))?;
         if cfg!(unix) && !private {
             return Err(Error::rejected(format!(
-                "{} (the record of the service files cmux wrote) is not a private file of yours; remove it, then run the command again",
+                "{} (the record of the service files cmux wrote) is not a private file of yours (another account can write it by its mode or an ACL entry); remove it, then run the command again",
                 path.display()
             )));
         }
@@ -540,6 +582,7 @@ impl Services<'_> {
     /// Stops, disables and removes every unit this crate writes. Returns
     /// the removed paths.
     pub fn uninstall(&self) -> Result<Vec<PathBuf>> {
+        let _lock = self.lock()?;
         // The caller checked ownership before its own steps (a final backup
         // can take minutes). Check again right before anything stops: a unit
         // edited since, or one the service manager now loads from another
@@ -560,6 +603,7 @@ impl Services<'_> {
             check_not_shared(&path, "a service unit file cmux wrote")
                 .map_err(|e| outcome(e, "nothing was changed"))?;
         }
+        self.renew_unit_files()?;
         let removed = match &self.layout.service {
             ServiceKind::SystemdUser { .. } | ServiceKind::SystemdSystem { .. } => {
                 systemd::uninstall(self)
@@ -569,6 +613,161 @@ impl Services<'_> {
         }?;
         self.forget_written(&removed)?;
         Ok(removed)
+    }
+
+    /// Holds the service lock until the returned guard drops: one command
+    /// that changes the service (install, uninstall, start, stop, restart)
+    /// at a time, so none acts between another's checks and its steps (an
+    /// install that starts the server while uninstall stops it, then sees
+    /// it remove the units). The lock is an exclusive `flock` on a 0600 file
+    /// of this account's in the folder of the unit files: that folder is
+    /// writable by no other account (checked) and no step removes it (a
+    /// `--purge` removes the state folder, never this one), and no other
+    /// account can open the file to hold the lock itself. A lock taken on a
+    /// file that is no longer the one at the name (removed by the uninstall
+    /// that held it) does not count. A second command refuses at once and
+    /// changes nothing. The CLI verbs take it for their whole run; the
+    /// steps here take it again, which the same thread may.
+    pub fn lock(&self) -> Result<ServiceLock> {
+        let unit = self.unit_path()?;
+        let Some(dir) = unit.parent() else {
+            return Err(Error::rejected(format!("{} names no folder", unit.display())));
+        };
+        let path = dir.join(LOCK);
+        let units = self.unit_files()?.into_iter().map(|(path, _)| path).collect();
+        if HELD.with(|held| held.borrow().contains(&path)) {
+            return Ok(ServiceLock { path, units, lock: None });
+        }
+        crate::fsx::ensure_dir(dir, 0o755)?;
+        check_private_dir(dir, "the service directory")?;
+        let mut options = std::fs::OpenOptions::new();
+        options.create(true).truncate(false).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        }
+        let file = options.open(&path).map_err(|e| Error::io(path.display(), e))?;
+        let meta = file.metadata().map_err(|e| Error::io(path.display(), e))?;
+        let private = meta.is_file()
+            && crate::sys::owner_uid(&meta) == crate::sys::euid()
+            && crate::fsx::mode_of(&meta) & 0o077 == 0;
+        if cfg!(unix) && !private {
+            return Err(Error::rejected(format!(
+                "{} (the lock of cmux's service commands) is not a private file of yours; remove it, then run the command again",
+                path.display()
+            )));
+        }
+        let busy = || {
+            Error::rejected(format!(
+                "another cmux server command changes the service now (it holds {}); nothing was changed. Run this one again when it ends",
+                path.display()
+            ))
+        };
+        // The file at the name now is the one opened (`meta`): a lock on a
+        // file that is no longer there holds nothing.
+        let at_name = || {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt as _;
+                std::fs::symlink_metadata(&path)
+                    .is_ok_and(|now| now.dev() == meta.dev() && now.ino() == meta.ino())
+            }
+            #[cfg(not(unix))]
+            true
+        };
+        // macOS: an allow entry (one the folder passes on, `allow
+        // read,file_inherit`, or one added later) lets another account open
+        // the file, whatever its mode, and hold a shared lock on it. Taking
+        // the entry away would not close what it opened meanwhile, so the
+        // command refuses, and the file goes when nothing holds it and it is
+        // still the one at the name (never a new lock file another command
+        // made meanwhile). A descriptor on a removed file holds nothing.
+        if crate::acl::fd_any_grants(&file).map_err(|e| Error::io(path.display(), e))? {
+            let removed = match crate::fsx::FileLock::try_acquire(file) {
+                Ok(held) => {
+                    let removed = at_name() && std::fs::remove_file(&path).is_ok();
+                    drop(held);
+                    removed
+                }
+                Err(_) => false,
+            };
+            return Err(Error::rejected(format!(
+                "{} (the lock of cmux's service commands) has an ACL entry that lets another account open it; most likely {} passes ACL entries to new files (`ls -led {}` lists them). Remove them (`chmod -N {}`){}, then run the command again; nothing was changed",
+                path.display(),
+                dir.display(),
+                dir.display(),
+                dir.display(),
+                if removed {
+                    String::new()
+                } else {
+                    format!(" and the lock file (`rm {}`)", path.display())
+                }
+            )));
+        }
+        let lock = match crate::fsx::FileLock::try_acquire(file) {
+            Ok(lock) => lock,
+            Err(std::fs::TryLockError::WouldBlock) => return Err(busy()),
+            Err(std::fs::TryLockError::Error(e)) => return Err(Error::io(path.display(), e)),
+        };
+        if !at_name() {
+            return Err(busy());
+        }
+        HELD.with(|held| held.borrow_mut().push(path.clone()));
+        Ok(ServiceLock { path, units, lock: Some(lock) })
+    }
+
+    /// Right before uninstall stops the service, puts the text cmux renders
+    /// now into a new file at each unit or plist path that is still the file
+    /// cmux wrote ([`crate::fsx::write_fresh`]; same bytes keep the
+    /// modification time). The manager may read a unit again at the stop,
+    /// and a write descriptor another account opened on the old file while
+    /// it could still reaches only the old file. The new text is the one
+    /// cmux renders, never the old bytes: with an old descriptor on the
+    /// ownership record too, such an account could make any bytes match a
+    /// recorded hash. Every file is checked first; one that is no longer
+    /// cmux's stops uninstall before any file is written or anything stops.
+    fn renew_unit_files(&self) -> Result<()> {
+        use std::io::Read as _;
+        let record = self.read_record()?;
+        let units = self.unit_files()?;
+        for (path, rendered) in &units {
+            if !crate::fsx::exists_no_follow(path) {
+                continue;
+            }
+            let mut options = std::fs::OpenOptions::new();
+            options.read(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt as _;
+                options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+            }
+            let bytes = options.open(path).ok().and_then(|mut file| {
+                let meta = file.metadata().ok()?;
+                if !meta.is_file() || crate::sys::owner_uid(&meta) != crate::sys::euid() {
+                    return None;
+                }
+                let mut bytes = Vec::new();
+                file.read_to_end(&mut bytes).ok()?;
+                Some(bytes)
+            });
+            let key = path.display().to_string();
+            let ours = bytes.is_some_and(|bytes| {
+                bytes == rendered.as_bytes() || record.get(&key) == Some(&sha256_hex(&bytes))
+            });
+            if !ours {
+                return Err(Error::rejected(format!(
+                    "{} changed since cmux checked it and is no longer the file cmux wrote, so cmux leaves it, and everything it may use, alone; nothing was changed",
+                    path.display()
+                )));
+            }
+        }
+        for (path, rendered) in &units {
+            if crate::fsx::exists_no_follow(path) {
+                crate::fsx::write_fresh(path, rendered.as_bytes(), 0o644)?;
+            }
+        }
+        Ok(())
     }
 
     /// The folders the unit or plist files are in: not writable by another

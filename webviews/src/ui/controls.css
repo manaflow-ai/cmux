@@ -272,13 +272,11 @@
   user-select: text;
   transition: box-shadow var(--cmux-motion-quick) var(--cmux-ease-out);
 }
+/* A placeholder names what the field takes, so it reads at 4.5:1: the secondary tier, as the chat
+   composer's placeholder. The tertiary tier held 3.52:1 (light) and 3.94:1 (dark) on the filled field
+   over an opaque window, and 1.44:1 over art on a see-through one (Settings search; fleet captures,
+   text-inputs-glass). */
 .ui-input::placeholder {
-  color: var(--ds-color-faint);
-}
-/* Over a see-through window the field is clear glass over art or the desktop, where the tertiary ink
-   fell to 1.44:1 (Settings search on the Great Wave, dark; fleet capture, text-inputs-glass). The
-   placeholder takes the secondary tier there, as pageBase.css lifts tertiary text. */
-:root[data-cmux-see-through] .ui-input::placeholder {
   color: var(--cmux-text-secondary, var(--ds-color-faint));
 }
 .ui-input[data-size="sm"] {
@@ -295,21 +293,28 @@
 }
 /* Over a see-through window the faint hover tint left the field clear over the art, and its
    placeholder at 2.35:1 even on the secondary tier (Settings search on the Great Wave, dark; fleet
-   capture of be805d96). The field lays the composer's surface under that tint there (its solid colour
-   at the chrome glass tint, composerStates.css), the fill the Chief composer's field takes too
-   (HomeThemePalette.composerSurfaceOverGlass). Reduce Transparency draws an opaque window. */
+   capture of be805d96). A filled field lays the composer's surface under its tint there (its solid
+   colour at the chrome glass tint, composerStates.css), the fill the Chief composer's field takes too
+   (HomeThemePalette.composerSurfaceOverGlass). The surface is one token, so a page that draws its
+   fields with a tint of its own (Settings' refined look, look.css) lays that tint over it too.
+   Reduce Transparency draws an opaque window and leaves the token unset. */
+:root[data-cmux-see-through]:not([data-reduce-transparency]) {
+  /* Light: the composer's surface at the chrome glass tint. Dark: the same solid at 88 %, since the
+     art under a dark window is bright and the field must stay under about 63/255 for its placeholder
+     (3.86:1 at 62 % on the Great Wave; settings-art at 41d8c65e). */
+  --ui-input-glass-underlay: light-dark(
+    color-mix(
+      in srgb,
+      color-mix(in srgb, var(--cmux-surface-solid, Canvas) 35%, var(--cmux-tone-light, #fff)) var(--ds-glass-chrome-tint, 62%),
+      transparent
+    ),
+    color-mix(in srgb, color-mix(in srgb, var(--cmux-text, CanvasText) 7%, var(--cmux-surface-solid, Canvas)) 88%, transparent)
+  );
+}
 :root[data-cmux-see-through]:not([data-reduce-transparency]) .ui-input[data-variant="filled"] {
   background:
     linear-gradient(var(--ds-color-hover), var(--ds-color-hover)),
-    color-mix(
-      in srgb,
-      light-dark(
-          color-mix(in srgb, var(--cmux-surface-solid, Canvas) 35%, var(--cmux-tone-light, #fff)),
-          color-mix(in srgb, var(--cmux-text, CanvasText) 7%, var(--cmux-surface-solid, Canvas))
-        )
-        var(--ds-glass-chrome-tint, 62%),
-      transparent
-    );
+    var(--ui-input-glass-underlay);
 }
 .ui-input[data-variant="outline"] {
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-color-separator);

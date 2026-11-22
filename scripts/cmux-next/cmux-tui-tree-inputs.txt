@@ -52,6 +52,7 @@ tree workers/cmux-vm/cli
 # embeds a file this list does not cover and prints the line to add. A blob a
 # revision lacks is left out of its key.
 blob Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json
+blob Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings
 blob Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json
 blob Resources/cmux-cli-path/fish/vendor_conf.d/cmux-cli-path.fish
 blob Resources/cmux-cli-path/zsh/.zshenv
@@ -74,11 +75,14 @@ blob Resources/theme-files/classic-desktop.json
 blob Resources/theme-files/claude-desktop.json
 blob Resources/theme-files/harbor.json
 blob Resources/theme-files/phosphor.json
+blob Resources/theme-files/teal.json
 # cmux-config embeds the shipped sidebar looks (sidebar_look::shipped).
 blob Resources/sidebar-looks/claude.json
 blob Resources/sidebar-looks/codex.json
 blob Resources/sidebar-looks/studio.json
 blob schemas/chief-home/vectors.json
+blob schemas/defaults/cmux-next.json
+blob schemas/settings/source/general.json
 blob schemas/agent-url-policy/vectors.json
 blob schemas/chief-cmux-target/vectors.json
 blob schemas/agent-cursor-visibility/vectors.json

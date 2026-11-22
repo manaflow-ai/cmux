@@ -430,6 +430,10 @@ fn try_parses_a_profile_and_minutes_and_keep_and_revert_take_nothing() {
     assert_eq!(parse(&words(&["keep"])), Ok(Request::Keep));
     assert_eq!(parse(&words(&["revert"])), Ok(Request::Revert));
     assert_eq!(parse(&words(&["settle", "--wait"])), Ok(Request::Settle { wait: true }));
+    // Code to try on: the same words `use` takes, timed.
+    assert_eq!(parse(&words(&["try", "pr:43496", "-m", "5"])), tried(Some("pr:43496"), 300_000));
+    assert_eq!(parse(&words(&["try", "dir:~/src/cmux"])), tried(Some("dir:~/src/cmux"), 600_000));
+    assert_eq!(parse(&words(&["settle", "--wait", "--code"])), Ok(Request::SettleCode));
     for bad in [
         &["try", "--minutes"][..],
         &["try", "--minutes", "0"],

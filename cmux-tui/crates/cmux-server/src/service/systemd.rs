@@ -216,10 +216,15 @@ const STOPPED_ONLY_CHECKED: &str =
 ///
 /// systemd has no stop bound to a unit file (D-Bus `StopUnit` takes a name
 /// only), so a gap of one command remains between the check and the stop.
-/// Only root or this same account can change what a name loads in it, and
-/// the check after the stop finds such a change only when it is still in
-/// place then. When it finds one, uninstall removes nothing and says what
-/// cmux may have stopped.
+/// No other account can use it: the unit folders and drop-ins are writable
+/// by no other account (checked), the unit file is a new one no older
+/// write descriptor reaches (`Services::renew_unit_files`), and only root
+/// or this account can make the manager load a name from another file.
+/// No other cmux command can use it either: every command that changes the
+/// service holds the service lock (`Services::lock`). The check after the
+/// stop finds a change made by hand in that gap when it is still in place
+/// then; uninstall then removes nothing and says what cmux may have
+/// stopped.
 fn stop_checked(
     s: &Services<'_>,
     unit: &str,
@@ -439,7 +444,7 @@ pub fn install(s: &Services<'_>, restart: bool) -> Result<ServiceReport> {
         if let Some(dir) = path.parent() {
             fsx::ensure_dir(dir, 0o755)?;
         }
-        report.changed |= fsx::write_if_changed(path, text.as_bytes(), 0o644)?;
+        report.changed |= fsx::write_fresh(path, text.as_bytes(), 0o644)?;
     }
     s.wrote(&files)?;
     if !system(s) {

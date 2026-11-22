@@ -40,7 +40,10 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let resolved = match super::remote_host::daemon_value(&global, &request) {
         Ok(resolved) => resolved,
         // An app took the name but can't run these words.
-        Err(error) if APP_REFUSALS.contains(&error["code"].as_str().unwrap_or_default()) => {
+        Err(error)
+            if APP_REFUSALS
+                .contains(&error.get("code").and_then(Value::as_str).unwrap_or_default()) =>
+        {
             return Some(refuse(name, &error, global.output));
         }
         // No daemon, no app host, an older daemon or no app by that name:
@@ -164,7 +167,9 @@ pub(super) fn op_help(name: &str, resolved: &Value) -> String {
         resolved["docs"].as_str().unwrap_or_default()
     );
     let required = required(&resolved["input"]);
-    for (property, schema) in resolved["input"]["properties"].as_object().into_iter().flatten() {
+    for (property, schema) in
+        resolved.pointer("/input/properties").and_then(Value::as_object).into_iter().flatten()
+    {
         let kind = schema["type"].as_str().unwrap_or("json");
         let mark = if required.contains(&property.as_str()) { " *" } else { "" };
         let about = schema["description"].as_str().unwrap_or_default();
@@ -223,16 +228,16 @@ pub(super) fn build_args(
             }
             continue;
         }
-        let negated = flag
-            .strip_prefix("no-")
-            .and_then(|bare| find(bare))
-            .filter(|p| properties[p]["type"] == "boolean");
+        let negated = flag.strip_prefix("no-").and_then(&find).filter(|p| {
+            properties.get(p).and_then(|s| s.get("type")).and_then(Value::as_str) == Some("boolean")
+        });
         if let Some(property) = negated {
             args.insert(property, Value::Bool(false));
             continue;
         }
         let property = find(flag).ok_or_else(|| messages().unknown_flag.replace("{flag}", flag))?;
-        let schema = &properties[&property];
+        let null = Value::Null;
+        let schema = properties.get(&property).unwrap_or(&null);
         // `--x` alone is true; `--x true|false` takes the value, so a
         // spelled-out boolean never falls through to a positional.
         if schema["type"] == "boolean" && inline.is_none() {
@@ -258,7 +263,7 @@ pub(super) fn build_args(
     for (index, property) in names.iter().enumerate() {
         let schema = properties.get(*property).cloned().unwrap_or(Value::Null);
         let last = index + 1 == names.len();
-        if last && schema["type"] == "array" {
+        if last && schema.get("type").and_then(Value::as_str) == Some("array") {
             for raw in plain.by_ref() {
                 insert(&mut args, property, &schema, &raw)?;
             }
@@ -359,9 +364,10 @@ pub(super) fn run_app_action_fallback(args: &[String]) -> Option<i32> {
     if words < 2 {
         return None;
     }
-    let name = command_args[..words].join(" ");
+    let (head, tail) = command_args.split_at_checked(words)?;
+    let name = head.join(" ");
     // `<noun> move-to-window --new` is `<noun> move-to-new-window`.
-    let (name, rest) = app::new_window_spelling(&name, &command_args[words..])
-        .unwrap_or_else(|| (name, command_args[words..].to_vec()));
+    let (name, rest) =
+        app::new_window_spelling(&name, tail).unwrap_or_else(|| (name, tail.to_vec()));
     app::run_cli_action(&global, &name, &rest).or_else(|| action_hint::report(&name, global.output))
 }

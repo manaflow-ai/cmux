@@ -2408,6 +2408,12 @@ export interface TrustSetParams {
   sessionId?: unknown;
 }
 
+export interface TurnShotsParams {
+  _meta?: RequestMeta;
+  sessionId?: unknown;
+  turnId?: unknown;
+}
+
 /** The running turn. */
 export type TurnSummary = {
   /**

@@ -34192,6 +34192,242 @@
         }
       }
     },
+    "macScreen.sharedBy.agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شغّل وكيل مشاركة جهاز Mac هذا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Agent hat „Diesen Mac teilen“ eingeschaltet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent turned on Share This Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agente activó Compartir este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agent a activé « Partager ce Mac »."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが「このMacを共有」をオンにしました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 이 Mac 공유를 켰습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有智能体开启了“共享这台 Mac”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有代理程式開啟了「分享這台 Mac」。"
+          }
+        }
+      }
+    },
+    "macScreen.sharedBy.cli": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شغّلت واجهة أوامر cmux مشاركة جهاز Mac هذا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die cmux-CLI hat „Diesen Mac teilen“ eingeschaltet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux CLI turned on Share This Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La CLI de cmux activó Compartir este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La CLI cmux a activé « Partager ce Mac »."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux CLIが「このMacを共有」をオンにしました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux CLI가 이 Mac 공유를 켰습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux CLI 开启了“共享这台 Mac”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux CLI 開啟了「分享這台 Mac」。"
+          }
+        }
+      }
+    },
+    "macScreen.sharedBy.device": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شغّل أحد أجهزتك مشاركة جهاز Mac هذا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eines deiner Geräte hat „Diesen Mac teilen“ eingeschaltet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One of your devices turned on Share This Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uno de tus dispositivos activó Compartir este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un de vos appareils a activé « Partager ce Mac »."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "お使いのデバイスの1台が「このMacを共有」をオンにしました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 기기 중 하나가 이 Mac 공유를 켰습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的一台设备开启了“共享这台 Mac”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的其中一部裝置開啟了「分享這台 Mac」。"
+          }
+        }
+      }
+    },
+    "macScreen.sharedBy.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شغّل أمر في طرفية مشاركة جهاز Mac هذا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Befehl in einem Terminal hat „Diesen Mac teilen“ eingeschaltet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A command in a terminal turned on Share This Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un comando en una terminal activó Compartir este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une commande dans un terminal a activé « Partager ce Mac »."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのコマンドが「このMacを共有」をオンにしました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널의 명령이 이 Mac 공유를 켰습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端中的命令开启了“共享这台 Mac”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機中的指令開啟了「分享這台 Mac」。"
+          }
+        }
+      }
+    },
     "macScreen.stats.fpsOfTarget": {
       "extractionState": "manual",
       "localizations": {
@@ -45193,6 +45429,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法從 cmux 中複製 %@，或其副本未通過程式碼簽章檢查"
+          }
+        }
+      }
+    },
+    "macScreen.home.listFailed.hub": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can’t reach the device hub, so your other Macs can’t be listed yet. cmux keeps trying."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر الوصول إلى مركز الأجهزة، لذا لا يمكن عرض أجهزة Mac الأخرى بعد. يواصل cmux المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Centar uređaja nije dostupan, pa se tvoji drugi Mac računari još ne mogu prikazati. cmux nastavlja pokušavati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enhedshubben kan ikke nås, så dine andre Mac-computere kan ikke vises endnu. cmux bliver ved med at prøve."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Geräte-Hub ist nicht erreichbar, daher können deine anderen Macs noch nicht angezeigt werden. cmux versucht es weiter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede conectar con el hub de dispositivos, así que aún no se pueden mostrar tus otros Mac. cmux sigue intentándolo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de joindre le hub d’appareils : vos autres Mac ne peuvent pas encore être listés. cmux continue d’essayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile raggiungere l’hub dei dispositivi, quindi gli altri Mac non possono ancora essere elencati. cmux continua a provare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスハブに接続できないため、ほかの Mac をまだ表示できません。cmux は再試行を続けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចភ្ជាប់ទៅមជ្ឈមណ្ឌលឧបករណ៍បានទេ ដូច្នេះមិនទាន់អាចបង្ហាញ Mac ផ្សេងទៀតរបស់អ្នកបានទេ។ cmux នៅតែព្យាយាម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 허브에 연결할 수 없어 다른 Mac을 아직 표시할 수 없습니다. cmux가 계속 시도합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enhetshuben kan ikke nås, så de andre Mac-maskinene dine kan ikke vises ennå. cmux fortsetter å prøve."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można połączyć się z hubem urządzeń, więc Twoje inne Maki nie mogą jeszcze zostać wyświetlone. cmux próbuje dalej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível acessar o hub de dispositivos, então seus outros Macs ainda não podem ser listados. O cmux continua tentando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удаётся связаться с хабом устройств, поэтому другие ваши Mac пока нельзя показать. cmux продолжает попытки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อฮับอุปกรณ์ไม่ได้ จึงยังแสดง Mac เครื่องอื่นของคุณไม่ได้ cmux จะลองต่อไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cihaz merkezine ulaşılamıyor, bu yüzden diğer Mac’leriniz henüz listelenemiyor. cmux denemeye devam ediyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдається зв’язатися з хабом пристроїв, тому інші ваші Mac поки не можна показати. cmux продовжує спроби."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không kết nối được trung tâm thiết bị nên chưa thể liệt kê các máy Mac khác của bạn. cmux vẫn đang thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接设备中心，因此暂时无法列出你的其他 Mac。cmux 会继续尝试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法連線到裝置中心，因此暫時無法列出你的其他 Mac。cmux 會繼續嘗試。"
+          }
+        }
+      }
+    },
+    "macScreen.home.listFailed.list": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t load your devices. cmux tries again when the hub reconnects."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تحميل أجهزتك. سيحاول cmux مجددًا عند إعادة الاتصال بالمركز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uređaji se nisu mogli učitati. cmux pokušava ponovo kad se centar ponovo poveže."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dine enheder kunne ikke indlæses. cmux prøver igen, når hubben genopretter forbindelsen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Geräte konnten nicht geladen werden. cmux versucht es erneut, sobald der Hub wieder verbunden ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron cargar tus dispositivos. cmux lo vuelve a intentar cuando el hub se reconecta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger vos appareils. cmux réessaie quand le hub se reconnecte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile caricare i dispositivi. cmux riprova quando l’hub si riconnette."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスを読み込めませんでした。ハブに再接続すると cmux が再試行します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចផ្ទុកឧបករណ៍របស់អ្នកបានទេ។ cmux នឹងព្យាយាមម្ដងទៀតនៅពេលមជ្ឈមណ្ឌលភ្ជាប់ឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기를 불러오지 못했습니다. 허브에 다시 연결되면 cmux가 다시 시도합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke laste inn enhetene dine. cmux prøver igjen når huben kobler til på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się wczytać urządzeń. cmux spróbuje ponownie, gdy hub połączy się ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível carregar seus dispositivos. O cmux tenta de novo quando o hub reconectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось загрузить ваши устройства. cmux повторит попытку, когда хаб снова подключится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหลดอุปกรณ์ของคุณไม่ได้ cmux จะลองอีกครั้งเมื่อฮับเชื่อมต่อใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cihazlarınız yüklenemedi. Merkez yeniden bağlandığında cmux tekrar dener."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося завантажити ваші пристрої. cmux спробує знову, коли хаб перепідключиться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không tải được thiết bị của bạn. cmux sẽ thử lại khi trung tâm kết nối lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载你的设备。设备中心重新连接后，cmux 会再试一次。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入你的裝置。裝置中心重新連線後，cmux 會再試一次。"
           }
         }
       }

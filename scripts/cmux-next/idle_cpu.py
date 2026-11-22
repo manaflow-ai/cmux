@@ -131,6 +131,64 @@ def app_threads(before: dict, after: dict, seconds: float) -> list[dict]:
     return sorted(groups.values(), key=lambda entry: -entry["cpu_ms_per_s"])
 
 
+# What a shown cmux page does while nobody touches it: its running animations (an infinite CSS animation or a
+# blinking caret keeps Chromium drawing frames), what holds focus, and the page's own work per second.
+PAGE_PROBE = """(() => {
+  const anims = document.getAnimations().filter(a => a.playState === "running").map(a => {
+    const t = a.effect && a.effect.target, timing = a.effect && a.effect.getTiming ? a.effect.getTiming() : {};
+    const name = a.animationName || a.transitionProperty || a.constructor.name;
+    const where = t ? (t.tagName || "") + (t.id ? "#" + t.id : "") + (typeof t.className === "string" && t.className ? "." + t.className.trim().split(/\\s+/).slice(0, 3).join(".") : "") : "";
+    return {name, where, iterations: String(timing.iterations), duration: timing.duration};
+  });
+  const el = document.activeElement;
+  return JSON.stringify({visibility: document.visibilityState, focus: document.hasFocus(),
+    active: el ? el.tagName + (el.isContentEditable ? "[contenteditable]" : "") : null, animations: anims.slice(0, 20),
+    animation_count: anims.length});
+})()"""
+PAGE_METRICS = ("TaskDuration", "ScriptDuration", "LayoutDuration", "RecalcStyleDuration", "LayoutCount",
+                "RecalcStyleCount")
+
+
+def page_activity(call, seconds: float = 10.0) -> list[dict]:
+    """After the measured windows (its DevTools calls wake the pages): per shown cmux page (`debug.cef_pages`), the
+    PAGE_PROBE reply and Chromium's page metrics per second over `seconds`. `call(method, params)` is the app's
+    control socket. A page whose DevTools call fails keeps its error."""
+    def devtools(browser, method, params=None):
+        reply = call("debug.cef_page_devtools", {"browser": browser, "method": method, "params": params or {}})
+        if not isinstance(reply, dict) or reply.get("error") or not isinstance(reply.get("result"), str):
+            return {"error": (reply or {}).get("error") if isinstance(reply, dict) else "no reply"}
+        try:
+            return json.loads(reply["result"])
+        except ValueError as error:
+            return {"error": str(error)}
+
+    def metrics(browser):
+        reply = devtools(browser, "Performance.getMetrics")
+        return {m["name"]: m["value"] for m in reply.get("metrics", [])} if "metrics" in reply else None
+
+    pages = [page for page in (call("debug.cef_pages") or {}).get("pages") or []
+             if not page.get("hidden") and str(page.get("origin", "")).startswith("cmux-page://")]
+    out = []
+    for page in pages:
+        devtools(page["browser"], "Performance.enable")
+        entry = {"browser": page["browser"], "origin": page.get("origin"), "path": page.get("path")}
+        probe = devtools(page["browser"], "Runtime.evaluate", {"expression": PAGE_PROBE, "returnByValue": True})
+        try:
+            entry.update(json.loads(probe["result"]["value"]))
+        except (KeyError, TypeError, ValueError):
+            entry["probe_error"] = probe
+        out.append(entry)
+    before = {entry["browser"]: metrics(entry["browser"]) for entry in out}
+    time.sleep(seconds)  # the probed window: the pages run with no call into them
+    for entry in out:
+        first, last = before[entry["browser"]], metrics(entry["browser"])
+        if first and last:
+            entry["metrics_per_s"] = {key: round((last.get(key, 0) - first.get(key, 0)) / seconds, 4)
+                                      for key in PAGE_METRICS if key in last}
+        devtools(entry["browser"], "Performance.disable")
+    return out
+
+
 def measure(app_pid: int, bundle: str, windows: int, window: float, each=None, threads=None) -> list[dict]:
     """Per process: kind, command and each window's CPU %, wakeups/s, switches/s, then the medians. `each(rows, index)`,
     if given, runs after each window with that window's rows (busiest first); a new window starts after it returns, so
@@ -455,6 +513,9 @@ def main(argv: list[str] | None = None) -> int:
                        each if args.sample_each_window and not args.no_sample else None, threads)
         result["processes"] = rows
         result["app_threads"] = threads
+        result["pages"] = page_activity(lambda method, params=None: client.call(method, params, timeout=30))
+        for entry in result["pages"]:
+            log("IDLE-CPU-PAGE " + json.dumps(entry, sort_keys=True))
         for index, groups in enumerate(threads):
             log(f"IDLE-CPU-THREADS {index + 1}/{args.windows} app " + " ".join(
                 f"{entry['name']!r}x{entry['threads']}={entry['cpu_ms_per_s']}" for entry in groups[:16]))

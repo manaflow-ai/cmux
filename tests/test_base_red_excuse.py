@@ -15419,6 +15419,8 @@ SCANNERS = {
     # A workflow `if:` is the head's own text: its parsers are timed on the log, nested parentheses and all.
     "base_red_excuse._top_level": lambda f: (excuse._top_level(f.log, "||"), excuse._top_level(f.log, "&&")),
     "base_red_excuse._unwrapped": lambda f: excuse._unwrapped("(" * len(f.lines) + f.log + ")" * len(f.lines)),
+    # The workflow other_pr_peer_verdict reads the paths of is the head's own text too.
+    "base_red_excuse.workflow_files": lambda f: excuse.workflow_files(".github/workflows/x.yml", f.log),
     "failed_steps_log.lines_of": lambda f: excuse.lines_of(f.log),
     "base_red_excuse.check_passed_in": lambda f: excuse.check_passed_in(f.log, "scripts/x.sh"),
     "failed_steps_log.step_owners": lambda f: (excuse.step_owners(f.job, f.log, **UNKNOWN),
@@ -16831,6 +16833,171 @@ class OtherPrSetupRed(unittest.TestCase):
                 judge(github)
             self.assertFalse([route for route in github.routes if "event=pull_request" in route], github.routes)
             self.assertLessEqual(set(github.refs), {self.HEAD_SHA})  # only read_head's own placing of its log
+
+
+class OtherPrPeerVerdict(unittest.TestCase):
+    """2026-11-21 (cmux#45422, hq#13487, glaeda#2103; cmuxterm-hq docs/handbook/pr-only-workflow-has-no-base-verdict.md):
+    a red of a workflow with no base verdict (ios-e2e.yml runs on pull requests only) was refused as "no feat-cmux-next
+    run of its workflow has a verdict" unless other_pr_setup_verdict matched another PR's error lines, while land-judge's
+    pr_only_peer_excuse let the same red through. other_pr_peer_verdict applies land-judge's rule: the same job failed at
+    the same first failed step on PR_ONLY_PEERS other PRs' heads, none changing the workflow's files, nor this PR. The
+    head is cmux#41892's 'backend' (OtherPrSetupRed's fixture: 'Join tailnet' failed); each peer is cmux#43755's
+    'backend' at another head, its error line another one, so no setup red matches and the peers alone decide."""
+
+    HEAD_SHA = OtherPrSetupRed.HEAD_SHA
+    PATH = OtherPrSetupRed.PATH
+    WORKFLOW = OtherPrSetupRed.WORKFLOW
+    HEAD_RUN = OtherPrSetupRed.HEAD_RUN
+    HEAD_JOB = OtherPrSetupRed.HEAD_JOBS["backend"]
+    PEER_JOB = OtherPrSetupRed.OTHER_JOBS["backend"]
+    NOW = OtherPrSetupRed.NOW
+    REFUSED = "no feat-cmux-next run of its workflow has a verdict"
+
+    def peer(self, index, *, number=None, changed=(), related="diverged", step="Join tailnet", base="feat-cmux-next"):
+        """One other PR's run of iOS E2E: its 'backend' failed at STEP (None: no step failed), its head changes
+        CHANGED, compares with this head as RELATED (shares_commits), into BASE."""
+        return {"index": index, "number": 44000 + index if number is None else number, "sha": f"{index:x}" * 40
+                if index < 16 else f"{index:040x}", "changed": changed, "related": related, "step": step, "base": base}
+
+    def github(self, peers, *, changed=()):
+        case = self
+        head_job, head_log = OtherPrSetupRed.fixture(self, self.HEAD_JOB)
+        peer_job, peer_log = OtherPrSetupRed.fixture(self, self.PEER_JOB)
+        # Another error line than the head's: other_pr_setup_verdict matches none, so only the peers can excuse it.
+        peer_log = peer_log.replace("##[error]sudo failed with exit code 1",
+                                    "##[error]tailscale up: context deadline exceeded")
+        jobs, logs, runs = {head_job["id"]: head_job}, {head_job["id"]: head_log}, {}
+        runs[self.HEAD_RUN] = {"id": self.HEAD_RUN, "head_sha": self.HEAD_SHA, "head_branch": "lane/chat-output-scroll-box",
+                               "pull_requests": [{"number": 41892, "base": {"ref": "feat-cmux-next"}}],
+                               "created_at": "2026-11-15T16:52:56Z"}
+        by_sha = {}
+        for peer in peers:
+            run_id, job_id = 50000 + peer["index"], 60000 + peer["index"]
+            job = dict(copy.deepcopy(peer_job), id=job_id, run_id=run_id, head_sha=peer["sha"])
+            for step in job["steps"]:
+                if step["conclusion"] == "failure":
+                    step["conclusion"] = "skipped"
+                if step["name"] == peer["step"]:
+                    step["conclusion"] = "failure"
+            jobs[job_id], logs[job_id] = job, peer_log
+            runs[run_id] = {"id": run_id, "head_sha": peer["sha"], "head_branch": f"lane/peer-{peer['index']}",
+                            "pull_requests": [{"number": peer["number"], "base": {"ref": peer["base"]}}],
+                            "created_at": f"2026-11-15T16:{59 - peer['index']:02d}:00Z"}
+            by_sha[peer["sha"]] = peer
+
+        class Fake:
+            def __init__(self):
+                self.routes: list[str] = []
+
+            def json(self, route, *, paginate=False):
+                self.routes.append(route)
+                if f"/compare/feat-cmux-next...{case.HEAD_SHA}" in route:
+                    return {"merge_base_commit": {"sha": BASE_SHA}, "files": [OtherPrSetupRed.file(case, f)
+                                                                              for f in changed],
+                            "commits": [{"sha": case.HEAD_SHA}], "total_commits": 1}
+                if "/compare/feat-cmux-next..." in route:  # a peer's changed files
+                    peer = by_sha[route.rsplit("...", 1)[1].split("?", 1)[0]]
+                    return {"merge_base_commit": {"sha": BASE_SHA}, "files": [OtherPrSetupRed.file(case, f)
+                                                                              for f in peer["changed"]],
+                            "commits": [{"sha": peer["sha"]}], "total_commits": 1}
+                if f"...{case.HEAD_SHA}?per_page=1" in route:  # a peer's head with this one (shares_commits)
+                    peer = by_sha[route.split("/compare/", 1)[1].split("...", 1)[0]]
+                    return {"status": peer["related"], "merge_base_commit": {"sha": BASE_SHA}}
+                if f"/actions/workflows/{case.WORKFLOW}/runs?" in route:
+                    if "event=pull_request" not in route:
+                        return {"workflow_runs": []}  # it never runs on feat-cmux-next
+                    return {"workflow_runs": [
+                        {"event": "pull_request", "status": "completed", "conclusion": "failure", "path": case.PATH,
+                         "workflow_id": case.WORKFLOW, "updated_at": "2026-11-15T17:17:00Z",
+                         "html_url": f"https://github.com/{REPO}/actions/runs/{run['id']}", **run}
+                        for run in runs.values()]}
+                if "/actions/runs/" in route and "/jobs?" in route:
+                    run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
+                    return [{"jobs": [copy.deepcopy(job) for job in jobs.values() if job["run_id"] == run]}]
+                if route.endswith(f"commits/{case.HEAD_SHA}/check-runs?filter=all&per_page=100"):
+                    return [{"check_runs": [
+                        {"id": head_job["id"], "name": "backend", "status": "completed", "conclusion": "failure",
+                         "app": {"slug": "github-actions"},
+                         "details_url": f"https://github.com/{REPO}/actions/runs/{case.HEAD_RUN}/job/{head_job['id']}"}
+                    ]}]
+                if "/actions/jobs/" in route:
+                    return copy.deepcopy(jobs[int(route.rsplit("/", 1)[1])])
+                if "/actions/runs?head_sha=" in route:
+                    return [{"total_count": 1, "workflow_runs": [{"id": case.HEAD_RUN, "workflow_id": case.WORKFLOW,
+                                                                  "head_sha": case.HEAD_SHA, "path": case.PATH}]}]
+                if "/actions/runs/" in route:
+                    run = int(route.rsplit("/", 1)[1])
+                    return {"workflow_id": case.WORKFLOW, "path": case.PATH, "event": "pull_request",
+                            "name": "iOS E2E", **runs[run]}
+                raise AssertionError(route)
+
+            def blob(self, repo, ref, path):
+                assert path == case.PATH, path
+                return (OTHER_PR_SETUP_FIXTURES / "ios-e2e.yml").read_text()
+
+            def blob_if_present(self, repo, ref, path):
+                assert path == ".gitmodules", path
+                return OtherPrSetupRed.GITMODULES
+
+            def log(self, repo, job):
+                return logs[job["id"]]
+
+        return Fake()
+
+    def judge(self, github):
+        with unittest.mock.patch.object(excuse, "datetime", wraps=excuse.datetime) as clock:
+            clock.now.return_value = excuse.datetime.fromisoformat(self.NOW)
+            return "\n".join(excuse.judge(REPO, "feat-cmux-next", self.HEAD_SHA, [], github, checks=["backend"]))
+
+    def test_three_matching_peers_excuse_it(self):
+        said = self.judge(self.github([self.peer(i) for i in (1, 2, 3)]))
+        self.assertIn("excused 'backend': not this PR (its workflow's red on other PRs): no feat-cmux-next run of its "
+                      "workflow has a verdict, and 'backend' failed at step 'Join tailnet' the same way on #44001 at "
+                      f"{'1' * 12}, #44002 at {'2' * 12}, #44003 at {'3' * 12}", said)
+        self.assertIn(f"change none of the workflow's 17 file(s) ({self.PATH} and the paths it names)", said)
+
+    def test_two_matching_peers_do_not(self):
+        with self.assertRaisesRegex(excuse.Refused, f"{self.REFUSED}.*not the workflow's red on other PRs: 'backend' "
+                                    "failed at step 'Join tailnet' the same way on 2 other PR head\\(s\\) "
+                                    "\\(#44001 at 111111111111, #44002 at 222222222222\\), under 3"):
+            self.judge(self.github([self.peer(1), self.peer(2)]))
+
+    def test_this_pr_editing_the_workflow_or_a_script_it_names_stays_refused(self):
+        peers = [self.peer(i) for i in (1, 2, 3)]
+        for path in (self.PATH, "scripts/e2e/require-fresh-tailnet-host.sh", "scripts/e2e/new-helper.sh"):
+            with self.subTest(path), self.assertRaisesRegex(
+                    excuse.Refused, f"this PR changes the workflow's files \\({re.escape(path)}\\), so its red is its "
+                    "own: it must be green on it"):
+                self.judge(self.github(peers, changed=[path]))
+        # A file the workflow does not name changes nothing.
+        self.assertIn("excused 'backend'", self.judge(self.github(peers, changed=["Sources/App.swift"])))
+
+    def test_a_peer_that_edits_the_workflow_fails_elsewhere_or_shares_a_commit_is_no_witness(self):
+        bad = {"edits the workflow": self.peer(3, changed=["scripts/e2e/backend-up.sh"]),
+               "fails at another step": self.peer(3, step="Start per-run backend"),
+               "fails at no step": self.peer(3, step=None),
+               "shares a commit": self.peer(3, related="ahead"),
+               "is this PR": self.peer(3, number=41892),
+               "repeats a PR": self.peer(3, number=44001),
+               "is into another base": self.peer(3, base="main")}
+        for what, peer in bad.items():
+            with self.subTest(what), self.assertRaisesRegex(excuse.Refused, "on 2 other PR head\\(s\\)"):
+                self.judge(self.github([self.peer(1), self.peer(2), peer]))
+            # A fourth that does match stands in for it.
+            with self.subTest(what, fourth=True):
+                self.assertIn("excused 'backend'", self.judge(self.github([self.peer(1), self.peer(2), peer,
+                                                                           self.peer(4)])))
+
+    def test_its_reads_are_bounded(self):
+        github = self.github([self.peer(i, step="Start per-run backend") for i in range(1, 15)])
+        with self.assertRaisesRegex(excuse.Refused, "on 0 other PR head\\(s\\) \\(none\\), under 3, in 10 of"):
+            self.judge(github)
+        listed = [route for route in github.routes if "status=completed" in route]
+        self.assertEqual(listed, [f"repos/{REPO}/actions/workflows/{self.WORKFLOW}/runs?event=pull_request"
+                                  f"&status=completed&per_page={excuse.PR_ONLY_PEER_RUNS}"])
+        # No peer matched its job list, so no peer's compare is read.
+        self.assertFalse([route for route in github.routes if "/compare/" in route and self.HEAD_SHA not in route])
+        self.assertFalse([route for route in github.routes if "/pulls" in route or "/issues" in route])
 
 
 class SetupOnlyStepsReadNothingUnlisted(unittest.TestCase):

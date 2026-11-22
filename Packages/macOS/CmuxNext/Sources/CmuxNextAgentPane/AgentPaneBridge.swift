@@ -127,6 +127,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             logger.info("agent pane ready accepted")
             view.refreshQuestionKeyBinding()
             view.applyTheme(force: true)
+            view.applyLanguage() // either host's document (the old host's too)
             // This document has no composer state, even when the native value has not changed.
             view.deliver([.composer(view.model.composer)], scripts: [view.model.composer.pageScript])
             view.applyShortcuts()

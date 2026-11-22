@@ -145,3 +145,6 @@ Packages/macOS/CmuxNext/usage-warning-gallery.tar
 # The extension SDK's customize types: every build of cmux-extension-sdk writes them from
 # cmux_customize::schema (build.rs); `cmux customize schema --typescript` prints the same text.
 /cmux-tui/crates/cmux-extension-sdk/typescript/src/generated/
+
+# Written at test time by TwoToneTests (cmux-config two_tone::fixture); never committed.
+/schemas/settings/two-tone-fixture.json
