@@ -156,6 +156,7 @@ fn outage_with_queue(unstarted: usize) -> Outage {
     let forced = Arc::new(Mutex::new(Vec::new()));
     let cfg = SessionCfg {
         display: String::new(),
+        display_pick: None,
         max_fps: 60,
         encode_profile: Default::default(),
         start_kbps: 2_000,
@@ -173,6 +174,7 @@ fn outage_with_queue(unstarted: usize) -> Outage {
         frames_in_flight: 3,
         input_frame_now: false,
         max_width: None,
+        show_cursor: true,
         capture: crate::capture_backend::CaptureBackend::default(),
     };
     let mut session = MediaSession::with_desktop(
@@ -281,7 +283,7 @@ fn queued_frames(session: &MediaSession) -> Vec<u32> {
 fn an_outage_end_drops_an_unstarted_frame_larger_than_a_keyframe_and_finishes_the_started_one() {
     let mut t = outage_with_queue(60_000);
     assert_eq!(queued_frames(&t.session), vec![t.started_frame], "only the started frame stays");
-    assert_eq!(t.session.paced_logs.iter().filter(|l| l.frame.1 == t.unstarted_frame).count(), 0);
+    assert_eq!(t.session.paced.0.iter().filter(|f| f.frame == t.unstarted_frame).count(), 0);
 
     // The started frame finishes, then the newest frame goes out as a keyframe.
     while !t.session.pacer.as_ref().is_some_and(Pacer::is_empty) {
