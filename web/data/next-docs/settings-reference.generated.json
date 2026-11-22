@@ -5012,6 +5012,32 @@
       "title": "Terminal",
       "rows": [
         {
+          "key": "terminal.cursorBlink",
+          "title": "Cursor Blink",
+          "help": "Whether the terminal cursor blinks. Unset, the Ghostty config's cursor-style-blink.",
+          "kind": "choice",
+          "default": null,
+          "group": "Cursor",
+          "values": [
+            "on",
+            "off"
+          ]
+        },
+        {
+          "key": "terminal.cursorStyle",
+          "title": "Cursor Style",
+          "help": "The terminal cursor's shape. Unset, the Ghostty config's cursor-style.",
+          "kind": "choice",
+          "default": null,
+          "group": "Cursor",
+          "values": [
+            "block",
+            "bar",
+            "underline",
+            "block_hollow"
+          ]
+        },
+        {
           "key": "terminal.fontFamily",
           "title": "Font Family",
           "help": "A monospaced font installed on this Mac.",
@@ -5058,32 +5084,6 @@
           "values": [
             "xterm-256color",
             "xterm-ghostty"
-          ]
-        },
-        {
-          "key": "terminal.cursorBlink",
-          "title": "Cursor Blink",
-          "help": "Whether the terminal cursor blinks. Unset, the Ghostty config's cursor-style-blink.",
-          "kind": "choice",
-          "default": null,
-          "group": "Cursor",
-          "values": [
-            "on",
-            "off"
-          ]
-        },
-        {
-          "key": "terminal.cursorStyle",
-          "title": "Cursor Style",
-          "help": "The terminal cursor's shape. Unset, the Ghostty config's cursor-style.",
-          "kind": "choice",
-          "default": null,
-          "group": "Cursor",
-          "values": [
-            "block",
-            "bar",
-            "underline",
-            "block_hollow"
           ]
         }
       ]
