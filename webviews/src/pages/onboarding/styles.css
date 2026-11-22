@@ -1211,6 +1211,10 @@ img.onb-make-tile-image {
   white-space: nowrap;
   cursor: default;
 }
+/* Accent and Window Style: many chips that wrap, each its own width (Material's four share the row). */
+.onb-make-chips:has(> .onb-make-chip:nth-child(5)) > .onb-make-chip {
+  flex: 0 1 auto;
+}
 .onb-make-chip:hover {
   background: var(--ds-color-hover);
 }

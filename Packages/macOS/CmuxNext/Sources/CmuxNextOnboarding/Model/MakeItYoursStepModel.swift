@@ -192,7 +192,7 @@ public final class MakeItYoursStepModel {
     public var shownOpacity: Double? { choices.opacity ?? source?.shownOpacity() }
 
     /// The Text Size slider's value: the one set, else the density's.
-    public var shownTextSize: Double? { choices.textSize ?? source?.textSize(density: choices.density) }
+    public var shownTextSize: Double? { (choices.textSize ?? source?.textSize(density: choices.density)).map { ($0 * 2).rounded() / 2 } }
 
     /// The terminal themes offered (their swatches as read now).
     public var themes: [FirstRunTheme] { source?.themes() ?? [] }
