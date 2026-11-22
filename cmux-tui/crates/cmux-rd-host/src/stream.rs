@@ -332,7 +332,7 @@ impl MediaSession {
             },
             now_us(),
         );
-        Self {
+        Ok(Self {
             desktop,
             encoder: EncodeThread::spawn(frames)?,
             held_damage: None,
