@@ -96,6 +96,20 @@ test("a draft written after the open's read is never answered from it", async ()
   client.close();
 });
 
+test("an early answer older than its bound is never taken", async () => {
+  const daemon = fakeDaemon();
+  const client = await connect(daemon);
+  const realNow = Date.now;
+  Date.now = () => realNow() + 60_000;
+  try {
+    await client.readDraft(CHAT);
+  } finally {
+    Date.now = realNow;
+  }
+  expect(daemon.drafts()).toHaveLength(2);
+  client.close();
+});
+
 test("a read of another chat asks acpmux for that chat", async () => {
   const daemon = fakeDaemon();
   const client = await connect(daemon);
