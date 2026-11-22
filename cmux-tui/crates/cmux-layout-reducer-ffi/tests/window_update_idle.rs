@@ -32,7 +32,10 @@ fn decide(facts: Value) -> Value {
 fn automatic_update_idle_operation_requires_complete_idle_facts() {
     let mut facts = json!({"enabled": true, "idleMinutes": 15,
         "inputIdleSeconds": 900, "runningTurns": 0, "unsentDrafts": 0});
-    assert_eq!(decide(facts.clone()), json!({"install": true, "hold": null}));
+    assert_eq!(
+        decide(facts.clone()),
+        json!({"install": true, "hold": null, "away": {"kind": "idle", "seconds": 900.0}})
+    );
     for (field, value, reason) in [
         ("enabled", json!(false), "off"),
         ("runningTurns", json!(1), "agentWorking"),
@@ -72,4 +75,45 @@ fn invalid_requests_and_unknown_operations_never_authorize_installation() {
         decide(json!({"enabled":true, "runningTurns":0, "unsentDrafts":0})),
         json!({"install":false,"hold":{"reason":"unknown"}})
     );
+}
+
+/// host_presence parity: a locked screen is away at once; a declined install backs off.
+#[test]
+fn a_locked_screen_installs_and_a_declined_install_backs_off() {
+    let locked = json!({"enabled": true, "idleMinutes": 15, "inputIdleSeconds": 5,
+        "screenLocked": true, "runningTurns": 0, "unsentDrafts": 0});
+    assert_eq!(
+        decide(locked.clone()),
+        json!({"install": true, "hold": null, "away": {"kind": "screenLocked"}})
+    );
+    let mut declined = locked;
+    declined["declinedInstalls"] = json!(1);
+    declined["secondsSinceDecline"] = json!(20);
+    assert_eq!(
+        decide(declined),
+        json!({"install": false, "hold": {"reason": "backoff", "secondsLeft": 40.0}})
+    );
+}
+
+#[test]
+fn the_next_check_answers_seconds_from_now() {
+    let next = |facts: Value| {
+        let (code, output) =
+            call(&serde_json::to_vec(&facts).unwrap(), c"window_update_next_check");
+        assert_eq!(code, OK);
+        serde_json::from_slice::<Value>(&output).unwrap()
+    };
+    assert_eq!(
+        next(json!({"secondsSinceLastCheck": 600, "intervalSeconds": 3600})),
+        json!({"inSeconds": 3000.0})
+    );
+    assert_eq!(
+        next(json!({"secondsSinceLastCheck": null, "intervalSeconds": 3600})),
+        json!({"inSeconds": 0.0})
+    );
+    assert_eq!(
+        next(json!({"secondsSinceLastCheck": 10, "intervalSeconds": 0})),
+        json!({"inSeconds": null})
+    );
+    assert_eq!(call(b"{}", c"window_update_next_check").0, ERR_INVALID);
 }

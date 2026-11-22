@@ -111,7 +111,18 @@ pub const OUT: Argument = Argument { name: "out", title: t("Localizable", "argum
 #[rustfmt::skip]
 pub const KEEP_SESSIONS: Argument = Argument { name: "keepSessions", title: t("Localizable", "argument.keepSessions", "Keep Sessions Running"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
-pub const END_SESSIONS: Argument = Argument { name: "endSessions", title: t("Localizable", "argument.endSessionsKeepLayout", "End Sessions, Keep Layout"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+pub const IF_NEWER: Argument = Argument { name: "ifNewer", title: t("ActionCatalog", "argument.ifNewer", "Only When a Newer Build Is Installed"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+pub const END_SESSIONS: Argument = Argument {
+    name: "endSessions",
+    title: t("Localizable", "argument.endSessionsKeepLayout", "End Sessions, Keep Layout"),
+    kind: ArgKind::Bool,
+    required: true,
+    suggestions: None,
+    is_target_name: false,
+    is_target_description: false,
+    is_supplied_by_target: false,
+    asked_in_palette: false,
+};
 #[rustfmt::skip]
 pub const END_EVERYTHING: Argument = Argument { name: "endEverything", title: t("Localizable", "argument.endEverything", "End Everything"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
