@@ -70,6 +70,7 @@
           "symbol": "gearshape",
           "note": "General holds the app itself: windows, quitting, history and housekeeping. The sidebar, tabs and panes, the New Tab page, the viewers and chats each have their own page (settings overhaul, 2026-11-07).",
           "groups": [
+            {"group": "settings.group.language"},
             {"group": "settings.group.window"},
             {"group": "settings.group.quit"},
             {"group": "settings.group.history"},
@@ -377,6 +378,7 @@
           "note": "A core cmux feature: banners, sounds, the attention ring and the feed for agents, terminal programs and `cmux notify`.",
           "groups": [
             {"group": "settings.group.banners"},
+            {"group": "settings.group.notificationDelivery"},
             {"group": "settings.group.sounds", "note": "Per-event sounds, volume, timing and the burst cooldown (notifications.json's sounds list); its per-level maps stay off the page."},
             {"group": "settings.group.dismissal"},
             {"group": "settings.group.attention"},

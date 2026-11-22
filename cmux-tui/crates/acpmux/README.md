@@ -1456,6 +1456,27 @@ Before this, a `--no-wait` send to a peer waited for the peer's whole turn: the 
 `session/prompt` answers only when the target's turn (or a steer's step) ends, and the peer's
 `_acpmux/prompt_accepted` was dropped on the way back.
 
+### Who sent it: the `Sent-by:` line
+
+Every message one session sends another ends with one line the daemon writes, never the sender
+(Leo, 2026-11-21: "well i was also saying attribution auto for messages between sessions"):
+
+```text
+PR #1 is green.
+
+Sent-by: devbox/lane-x harness=claude model=claude-opus-5-5
+```
+
+The host is the short hostname of the daemon that proved the sender's session (its caller
+token), the session its name, the harness its family, and the model the id its harness reports
+running now; a field the daemon does not know is left out, and an alias (`opus`) is never written
+as a model. It is stamped once, where that daemon takes the send (`server/requests.rs`, before
+the outbox keeps it or a peer gets it), so `acpmux send`, the MCP `send` tool, fan-out and tag
+sends and cross-host sends all carry it. A text with a `Sent-by: ` line already (a lane VM's
+broker relay) keeps its own. Notices, acpmux's own prompts, a session's note to itself and a send
+no session proved get none. The format is shared with the lane-gh broker relay and the stats
+parser; `src/sent_by.rs` holds it.
+
 ## Claude Code: native stdio backend
 
 Claude Code sessions run over Claude's own headless protocol, not ACP:

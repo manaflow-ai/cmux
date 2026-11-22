@@ -52,6 +52,9 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var busyUnreadMark: TabBusyUnreadMark?
     /// Where a titled tab's trailing status mark sits; nil follows `TabTunables.statusMarkPlacement`.
     public var statusMarkPlacement: TabStatusMarkPlacement?
+    /// `experiments.agentBadges`: an agent chat tab's count pill and its reserved slot (TabCell+CountPill). Read
+    /// with the tokens, so a change relays the strip out (`startObservingTokens`).
+    public var agentBadges: AgentBadgesExperiment = .off
 
     public var stripHeight: CGFloat
     public var tabHeight: CGFloat
@@ -230,6 +233,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         separatorOpacity = TabTunables.separatorOpacity.value
         showsPinnedDivider = TabTunables.pinnedDivider.value
         closeColors = DesignSettings.shared.flourishes.tabClose
+        agentBadges = DesignSettings.shared.agentBadges
     }
 
     /// Token-derived metrics for the current density.
