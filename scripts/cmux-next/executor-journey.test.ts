@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { guestCommand, parseGuest, resultProblem, staleExecutorMachines } from "./executor-journey.ts";
+import { guestCommand, parseGuest, phaseProblem, resultProblem, staleExecutorMachines } from "./executor-journey.ts";
 
 const GOOD = { status: "completed", execution: { ok: true, value: { pages: 20, mentionsOverview: true, chars: 3886 }, toolCalls: [{ name: "deepwiki.read_wiki_structure", outcome: "success", durationMs: 556 }] }, unavailableApps: [] };
 
@@ -21,6 +21,11 @@ describe("executor journey", () => {
     expect(resultProblem({ ...GOOD, execution: { ok: true, value: 2, toolCalls: [] } })).toContain("no successful deepwiki");
     expect(resultProblem({ ...GOOD, execution: { ...GOOD.execution, value: { pages: 0, mentionsOverview: false } } })).toContain("empty wiki");
     expect(resultProblem({ status: "paused" })).toContain("status");
+  });
+
+  test("a DeepWiki outage is named as the third party's, not Executor's", () => {
+    expect(phaseProblem({ phase: "deepwiki", ok: false, detail: "HTTP 503" })).toContain("a third party) is down, not Executor");
+    expect(phaseProblem({ phase: "execute", ok: false, detail: "NotSignedIn" })).toBe("Executor phase execute failed: NotSignedIn");
   });
 
   test("sweeps only its own old, idle machines", () => {

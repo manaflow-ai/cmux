@@ -38,7 +38,16 @@ t0=$(date +%s)
 if ! timeout 120 executor service start >"$home/start.log" 2>&1; then fail server "$(tail1 "$home/start.log")"; fi
 ok server "$(timeout 30 executor service status 2>&1 | head -1) in $(( $(date +%s) - t0 )) s"
 
-# The app: DeepWiki's public MCP server, no account (the app-authoring skill's integrations.md example).
+# The app: DeepWiki's public MCP server, no account (the app-authoring skill's integrations.md example). It is a third
+# party: probe it first, so a DeepWiki outage reads as that and not as Executor breaking.
+dwcode=$(curl -sS -o "$home/dw.out" -w '%{http_code}' --retry 2 --max-time 30 -X POST https://mcp.deepwiki.com/mcp \
+  -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"executor-journey","version":"1"}}}' 2>"$home/dw.err")
+case "$dwcode" in
+  2??) grep -q '"result"' "$home/dw.out" || fail deepwiki "third party, not Executor: mcp.deepwiki.com/mcp HTTP $dwcode without an initialize result: $(tail1 "$home/dw.out")" ;;
+  *) fail deepwiki "third party, not Executor: mcp.deepwiki.com/mcp HTTP ${dwcode:-none} $(tail1 "$home/dw.err") $(tail1 "$home/dw.out")" ;;
+esac
+ok deepwiki "mcp.deepwiki.com/mcp HTTP $dwcode"
 cat > "$home/app/index.ts" <<'EOF'
 import { defineApp } from "apps";
 import { mcpRouter } from "apps/mcp";

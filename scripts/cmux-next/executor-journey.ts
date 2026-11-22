@@ -93,6 +93,13 @@ export function resultProblem(result: any): string | null {
   return null;
 }
 
+/** The job result's verdict when a guest phase failed: a DeepWiki outage is named as the third party's, not Executor's. */
+export function phaseProblem(p: GuestPhase): string {
+  return p.phase === "deepwiki"
+    ? `not run: DeepWiki (mcp.deepwiki.com, a third party) is down, not Executor: ${p.detail}`
+    : `Executor phase ${p.phase} failed: ${p.detail}`;
+}
+
 /** The exec that runs the guest script: shipped inline (base64), in a fresh home of its own under /tmp. */
 export function guestCommand(script: string, version?: string): string {
   const b64 = Buffer.from(script).toString("base64");
@@ -217,7 +224,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const g = parseGuest(r.stdout);
     for (const p of g.phases) J.record({ step: `Executor: ${p.phase}`, status: p.ok ? "pass" : "fail", ms: 0, detail: p.detail });
     await J.step("Executor: job result", async () => {
-      const problem = r.code !== 0 && !g.phases.some((p) => !p.ok) ? `guest exit ${r.code}: ${r.stdout.slice(-400)} ${r.stderr.slice(-200)}` : resultProblem(g.result);
+      const failedPhase = g.phases.find((p) => !p.ok);
+      const problem = failedPhase ? phaseProblem(failedPhase)
+        : r.code !== 0 ? `guest exit ${r.code}: ${r.stdout.slice(-400)} ${r.stderr.slice(-200)}`
+        : resultProblem(g.result);
       if (problem) throw new Error(problem);
       const call = g.result.execution.toolCalls.find((c: any) => c.name === "deepwiki.read_wiki_structure");
       return { value: null, detail: `deepwiki.read_wiki_structure ${call.durationMs} ms; ${g.result.execution.value.pages} pages of UsefulSoftwareCo/executor` };
