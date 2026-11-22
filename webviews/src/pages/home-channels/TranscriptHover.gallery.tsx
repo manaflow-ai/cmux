@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
+import { intl } from "../../ui/intl";
 import { createStrings } from "../shared/i18n";
 import { TranscriptRowView } from "../home-messages/transcript/TranscriptRows";
 import { MessageRow } from "./MessageRow";
@@ -56,7 +57,7 @@ function TranscriptHover({ surface }: { surface: Surface }) {
           head
           people={new Map()}
           strings={strings}
-          timeFormat={new Intl.DateTimeFormat("en")}
+          timeFormat={intl.DateTimeFormat("en")}
           editing={false}
           onReact={() => {}}
         />
