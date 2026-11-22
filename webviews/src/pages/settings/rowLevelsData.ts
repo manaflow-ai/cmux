@@ -72,6 +72,8 @@ export const ROW_LEVELS: {
     "appearance.wallpaperLighting": "more",
     "appearance.displayBackgrounds": "hidden",
     "appearance.displayBackgroundRotations": "hidden",
+    // What each background mode last showed: the Background card keeps it, nothing edits it by hand.
+    "appearance.backgroundMemory": "hidden",
     "appearance.statusIndicator.animation": "more",
     "appearance.statusIndicator.showPageLoading": "more",
     "appearance.statusIndicator.size": "hidden",
@@ -304,6 +306,8 @@ export const ROW_LEVELS: {
     "agentPane.display.pinnedPlan": "more",
     "agentPane.display.trayTucked": "more",
     "agentPane.display.rail.side": "more",
+    "agentPane.display.rail.show": "more",
+    "agentPane.display.rail.control": "more",
     "agentPane.display.sessionInfo.placement": "more",
     "agentPane.display.font.ui": "more",
     "agentPane.display.code.family": "more",
