@@ -15,7 +15,7 @@
 // Each phase is measured idle (no hogs, no churn) and loaded. The row this bench is judged by is
 // loaded keys to_frame p95.
 //   bun bench/visible-first-load.bench.ts [--chats 4] [--sessions 3000] [--hogs N] [--rate 20] [--start-every 10]
-//     [--keys 60] [--gap 90] [--rows 600] [--json out.json] [--profile] [--unminified]
+//     [--seeded 2] [--keys 60] [--gap 90] [--rows 600] [--json out.json] [--profile] [--unminified]
 // Before and after a change, on one harness: bench/visible-first-load-ab.sh BASE.
 /// <reference types="bun" />
 import fs from "node:fs";
@@ -38,6 +38,7 @@ const START_EVERY = Number(flag("--start-every") ?? 10);
 const KEYS = Number(flag("--keys") ?? 60);
 const GAP_MS = Number(flag("--gap") ?? 90);
 const ROWS = Number(flag("--rows") ?? 600);
+const SEEDED = Math.min(CHATS, Number(flag("--seeded") ?? 2));
 const JSON_OUT = flag("--json");
 const PROFILE = argv.includes("--profile");
 const DIR = flag("--dir") ?? path.resolve(import.meta.dir, "..");
@@ -103,9 +104,10 @@ function stopHogs() {
 
 const releases: (() => unknown)[] = [];
 const port = await servePane(DIR, { unminified: argv.includes("--unminified") }, releases);
-const browser = await chromium.launch({ headless: true, args: ["--process-per-site"] });
+const browser = await chromium.launch({ headless: true, args: ["--process-per-site", "--renderer-process-limit=1"] });
 const report: Record<string, unknown> = {
   chats: CHATS,
+  seeded: SEEDED,
   sessions: SESSIONS,
   hogs: HOGS,
   rate: RATE,
@@ -120,19 +122,36 @@ try {
   await context.addInitScript((size) => {
     (globalThis as any).cmuxAcpmuxMockListSize = size;
   }, SESSIONS);
+  // One renderer for every page, as the Mac's agent pages share one (--renderer-process-limit=1, and
+  // each page after the first opened by the first, so it keeps an opener). Pages
+  // past SEEDED are spares, as the Mac keeps: listening to the list, showing no chat.
   const pages: Page[] = [];
+  const url = `http://127.0.0.1:${port}/?mock`;
   for (let i = 0; i < CHATS; i += 1) {
-    const page = await context.newPage();
-    await page.goto(`http://127.0.0.1:${port}/?mock`);
+    let page: Page;
+    if (i === 0) {
+      page = await context.newPage();
+      await page.goto(url);
+    } else {
+      [page] = await Promise.all([context.waitForEvent("page"), pages[0]!.evaluate((u) => void window.open(u), url)]);
+      await page.waitForLoadState();
+    }
     await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
-    const seeded = (await page.evaluate(
-      (turns) => (window as any).cmuxAcpmuxDebug.loadSeed(turns, { light: true }),
-      Math.round(ROWS / 3),
-    )) as Record<string, any>;
-    if (seeded.error) throw new Error(`loadSeed: ${seeded.error}`);
-    await page.locator(PROMPT).first().waitFor({ timeout: 30_000 });
+    if (i < SEEDED) {
+      const seeded = (await page.evaluate(
+        (turns) => (window as any).cmuxAcpmuxDebug.loadSeed(turns, { light: true }),
+        Math.round(ROWS / 3),
+      )) as Record<string, any>;
+      if (seeded.error) throw new Error(`loadSeed: ${seeded.error}`);
+      await page.locator(PROMPT).first().waitFor({ timeout: 30_000 });
+    }
     pages.push(page);
   }
+  const browserCdp = await browser.newBrowserCDPSession();
+  const processes: { processInfo: { type: string }[] } = await (browserCdp as any).send("SystemInfo.getProcessInfo");
+  const renderers = processes.processInfo.filter((info) => info.type === "renderer").length;
+  report.renderers = renderers;
+  console.log(`VISIBLE-FIRST renderers ${renderers} for ${CHATS} pages (${SEEDED} chats, the rest spares)`);
   const focused = pages[0]!;
   await focused.bringToFront();
   const missing = await focused.evaluate(() => typeof (window as any).cmuxAcpmuxDebug.sessionChurn !== "function");
@@ -177,6 +196,8 @@ try {
       at: performance.now(),
       task: all.map((m) => pick(m, "TaskDuration")),
       script: all.map((m) => pick(m, "ScriptDuration")),
+      style: all.map((m) => pick(m, "RecalcStyleDuration")),
+      layout: all.map((m) => pick(m, "LayoutDuration")),
     };
   };
   const perSecond = (a: Awaited<ReturnType<typeof busy>>, b: Awaited<ReturnType<typeof busy>>) => {
@@ -188,6 +209,8 @@ try {
       script_ms_per_s: ms(a.script, b.script),
       focused_task_ms_per_s: ms(a.task, b.task, 0),
       focused_script_ms_per_s: ms(a.script, b.script, 0),
+      focused_style_ms_per_s: ms(a.style, b.style, 0),
+      focused_layout_ms_per_s: ms(a.layout, b.layout, 0),
     };
   };
   const phase = async (loaded: boolean) => {
@@ -224,7 +247,7 @@ try {
       `VISIBLE-FIRST ${label} keys.to_frame p50 ${r.keys.to_frame?.p50_ms} p95 ${r.keys.to_frame?.p95_ms} max ${r.keys.to_frame?.max_ms}` +
         ` | to_listener p95 ${r.keys.to_listener?.p95_ms} | scroll frame p50 ${r.scroll.p50} p95 ${r.scroll.p95} max ${r.scroll.max}` +
         ` | idle-watch frame p95 ${r.frames.p95} max ${r.frames.max}` +
-        ` | main-thread all pages task ${r.main.task_ms_per_s} script ${r.main.script_ms_per_s} ms/s, focused task ${r.main.focused_task_ms_per_s} script ${r.main.focused_script_ms_per_s} ms/s`,
+        ` | main-thread all pages task ${r.main.task_ms_per_s} script ${r.main.script_ms_per_s} ms/s, focused task ${r.main.focused_task_ms_per_s} script ${r.main.focused_script_ms_per_s} style ${r.main.focused_style_ms_per_s} layout ${r.main.focused_layout_ms_per_s} ms/s`,
     );
   row("idle", report.idle);
   row("loaded", report.loaded);
