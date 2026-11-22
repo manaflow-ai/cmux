@@ -206,7 +206,8 @@
         "layout.minimumPaneHeight",
         "appearance.theme",
         "appearance.appTheme",
-        "appearance.accent"
+        "appearance.accent",
+        "appearance.selection"
       ]
     },
     {
@@ -399,6 +400,7 @@
         "sidebar.chromeGroups",
         "sidebar.sideBySide",
         "sidebar.groupBy",
+        "sidebar.nav",
         "sidebar.priorityView.enabled",
         "sidebar.priorityView.shown",
         "browser.defaultEngine",
@@ -525,7 +527,8 @@
       "agent": "settable",
       "why": "Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31); a new chat's composer can still change it for that chat.",
       "keys": [
-        "agentPane.newChatsIn"
+        "agentPane.newChatsIn",
+        "agentPane.sessionWorktrees"
       ]
     },
     {
@@ -1611,6 +1614,13 @@
       "why": "Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.",
       "keys": [
         "remote.ultra"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Ultra spends up to 150 Mbps on every Screen Sharing session this Mac views; only the person picks it.",
+      "keys": [
+        "remote.screenSharingProfile"
       ]
     },
     {
