@@ -267,4 +267,17 @@ struct RollbackCheckInItsTimeTests {
         #expect(stored == nil)
         #expect(Self.calls(state) == [Self.inItsTime, Self.inItsTime, Self.plain])
     }
+
+    /// An ask that ends with exit 0 and an output that is not the numbers and not a `not_ready`
+    /// answer is no answer, and the probe makes no call more for that state folder. The script
+    /// has the numbers for each call after the first: a probe that calls again gets them.
+    @Test func anOutputOfNeitherFormIsNoAnswerWithNoCallMore() async throws {
+        let (bundle, state) = try Self.bundle(answering: ["[]", Self.numbers])
+        defer { try? FileManager.default.removeItem(at: bundle.deletingLastPathComponent()) }
+
+        let stored = await StoreSchemaProbe(bundle: bundle).stored(stateDirectories: [state])
+
+        #expect(stored == nil)
+        #expect(Self.calls(state) == [Self.inItsTime])
+    }
 }
