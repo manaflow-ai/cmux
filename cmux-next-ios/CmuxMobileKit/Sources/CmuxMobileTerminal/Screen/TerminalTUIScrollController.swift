@@ -2,10 +2,8 @@
 import UIKit
 
 /// T-SCROLL-12: in a full-screen app (the alternate screen) a vertical drag
-/// of one finger, or two, scrolls the app, like a Mac trackpad in Ghostty,
-/// and the page stays pinned (Leo, 2026-11-12: "surely we're not regressing
-/// behavior, right? Like, you can still scroll through things and click on
-/// things and whatnot"). The drag and its fling become wheel events on the surface
+/// scrolls the app, like a Mac trackpad in Ghostty, and the page stays
+/// pinned. The drag and its fling become wheel events on the surface
 /// (`TerminalTUIScroll`, `TerminalTUIMomentum`); Ghostty turns them into
 /// what the app asked for. A tap still focuses the terminal, a long press
 /// still selects and a selection handle still moves: this pan starts only
@@ -44,8 +42,7 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
         self.tap = tap
         tap.delegate = self
         let pan = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
-        // One finger scrolls the app; a second is the same drag (its centroid).
-        pan.maximumNumberOfTouches = 2
+        pan.maximumNumberOfTouches = 1
         pan.delegate = self
         host.addGestureRecognizer(pan)
         // A touch that becomes a drag is never also a tap.
