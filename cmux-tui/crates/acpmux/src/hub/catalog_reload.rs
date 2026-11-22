@@ -95,6 +95,7 @@ impl Hub {
                 notify_command,
                 disk_low_bytes,
                 agent_inbox,
+                person_hold,
                 hold_agent_starts_to_starter,
                 auto_resume_delays_ms,
                 login_env_allow,
@@ -103,8 +104,10 @@ impl Hub {
                 peer_wake,
                 btw,
                 titles,
+                summaries,
                 context_overrides,
                 send_relay,
+                new_relay,
                 artifacts,
                 composer_max_rows,
                 tui,
@@ -178,6 +181,8 @@ impl Hub {
             current.notify_command = notify_command;
             current.disk_low_bytes = disk_low_bytes;
             current.agent_inbox = agent_inbox;
+            // The next person's prompt to an idle chat reads it (`person_hold.rs`).
+            current.person_hold = person_hold;
             current.mcp_store = mcp_store;
             current.hold_agent_starts_to_starter = hold_agent_starts_to_starter;
             current.auto_resume_delays_ms = auto_resume_delays_ms;
@@ -189,8 +194,10 @@ impl Hub {
             current.peer_wake = peer_wake;
             current.btw = btw;
             current.titles = titles;
+            current.summaries = summaries;
             current.context_overrides = context_overrides;
             current.send_relay = send_relay;
+            current.new_relay = new_relay;
             current.artifacts = artifacts;
             current.composer_max_rows = composer_max_rows;
             current.tui = tui;

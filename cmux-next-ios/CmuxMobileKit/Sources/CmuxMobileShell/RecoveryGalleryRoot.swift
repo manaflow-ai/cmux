@@ -1,6 +1,7 @@
 #if DEBUG && os(iOS)
 import CmuxMobileChief
 import CmuxMobileDesign
+import CmuxMobileModel
 import CmuxMobileTerminal
 import CmuxMobileWorkspaces
 import CmuxSpinner
@@ -25,6 +26,10 @@ import SwiftUI
 ///   unavailable on this account), then the variants it was picked from, B and C;
 /// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots.
 /// - `theme-mocha`, `theme-solarized`, `theme-wallpaper`: the chrome under a Mac's theme (`MacThemeGallery`).
+/// - `keybar`: the terminal key row's layouts, A (the default), B and C (`TerminalKeyBarGallery`).
+/// - `reconnect`: a list riding out a dropped or quiet connection to the Mac with its rows kept
+///   (Leo 2026-11-21: no "didn't answer in time"): A, the line the Chats list shows
+///   (`ListStatusRow`), in its three states, then the variants it was picked from, B and C.
 public struct RecoveryGalleryRoot: View {
     public static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-cmux-mobile-recovery-gallery")
@@ -59,8 +64,12 @@ public struct RecoveryGalleryRoot: View {
                 signedOut
             case "cloudmachines":
                 NavigationStack { CloudMachinesScreen(model: .gallery(), openChats: {}) }
+            case "reconnect":
+                reconnect
             case "theme-mocha", "theme-solarized", "theme-wallpaper":
                 MacThemeGallery(variant: scene)
+            case "keybar":
+                TerminalKeyBarGallery()
             default:
                 states
             }
@@ -78,7 +87,7 @@ public struct RecoveryGalleryRoot: View {
             ContentUnavailableView {
                 Label("Couldn't load chats", systemImage: "exclamationmark.triangle")
             } description: {
-                Text("The Mac didn't answer in time.")
+                Text(ConnectionInterrupted.message)
             } actions: {
                 RetryButton {}
             }
@@ -164,6 +173,55 @@ public struct RecoveryGalleryRoot: View {
             }
             .padding(.vertical, 60)
         }
+        .background(CmuxMobileTheme.standard.colors.bg.color)
+    }
+
+    /// A (picked): a quiet line at the top of the list, the same place and type as "Updating…",
+    /// so a blip reads as the list refreshing, not as a problem; rows stay tappable.
+    /// B: a floating glass pill over the bottom of the list (motion over content; covers the
+    /// last row and competes with the tab bar).
+    /// C: a thin indeterminate bar under the title with the rows dimmed (reads as blocked, and
+    /// dimming invites a tap that does nothing different).
+    private var reconnect: some View {
+        let rows = ["Fix the login redirect", "Bump the parser to 2.4", "Why is CI slow on arm64?"]
+        func list(_ status: ListStatusRow.State?, dimmed: Bool = false) -> some View {
+            List {
+                if let status { ListStatusRow(status) }
+                // visible-only: a fixed gallery of three rows.
+                ForEach(rows, id: \.self) { Text($0).opacity(dimmed ? 0.45 : 1) }
+            }
+            .listStyle(.insetGrouped)
+            .scrollDisabled(true)
+            .frame(height: 230)
+        }
+        return ScrollView {
+            VStack(spacing: 12) {
+                galleryLabel("A · picked · reconnecting")
+                list(.reconnecting)
+                galleryLabel("A · past the bound, rows kept")
+                list(.stale)
+                galleryLabel("A · empty list, connecting")
+                CmuxSpinner(label: Text("Connecting to your Mac…")).frame(height: 120)
+                galleryLabel("B · floating pill")
+                list(nil)
+                    .overlay(alignment: .bottom) {
+                        HStack(spacing: 8) {
+                            CmuxSpinner().controlSize(.small)
+                            Text("Reconnecting…").font(.footnote.weight(.medium))
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .glassEffect(.regular, in: .capsule)
+                        .padding(.bottom, 12)
+                    }
+                galleryLabel("C · top bar, rows dimmed")
+                list(nil, dimmed: true)
+                    .overlay(alignment: .top) {
+                        ProgressView().progressViewStyle(.linear).padding(.horizontal, 20)
+                    }
+            }
+            .padding(.vertical, 60)
+        }
+        .accessibilityIdentifier("recoveryGallery.reconnect.variants")
         .background(CmuxMobileTheme.standard.colors.bg.color)
     }
 

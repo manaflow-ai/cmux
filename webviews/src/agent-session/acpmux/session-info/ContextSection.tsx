@@ -18,6 +18,7 @@ import "../../../ui/controls.css";
 import "./sessionInfo.css";
 import "./ContextSection.css";
 import { type ContextPart, contextParts, type Breakdown, contextBreakdown } from "./contextSectionModel";
+import { intl } from "../../../ui/intl";
 const LIST_LABEL = {
   mcpTools: "sessionInfo.context.mcpTools",
   memoryFiles: "sessionInfo.context.memoryFiles",
@@ -29,8 +30,8 @@ const LIST_LABEL = {
 export function ContextBreakdownView({ breakdown, bar = true }: { breakdown: Breakdown; bar?: boolean }) {
   const t = useT();
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
-  const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
-  const share = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 });
+  const tokens = intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+  const share = intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 });
   const toggle = (id: string) =>
     setOpen((was) => {
       const next = new Set(was);
@@ -125,8 +126,8 @@ export function ContextSection({
   onViewPrompt?: () => void;
 }) {
   const t = useT();
-  const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
-  const share = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 });
+  const tokens = intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+  const share = intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 });
   const parts = contextParts(usage);
   const breakdown = contextBreakdown(reported);
   // Claude Code's free space is what is left before its autocompact buffer: the tokens until it
