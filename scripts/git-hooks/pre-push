@@ -270,7 +270,7 @@ sys.exit(code if code >= 0 else 128 - code)
     export CMUX_PREPUSH_PASS_KEY_HELD="$PASS_KEY"
     exec "$PYTHON3_BIN" -I -c "$QUEUE_HOLDER" "${CMUX_PREPUSH_QUEUE_DIR:-/tmp}" "${BASH_SOURCE[0]}" "$@" <&3
 fi
-if [[ "$CMUX_PREPUSH_QUEUE_HELD" =~ ^[0-9]+$ ]]; then
+if [[ "${CMUX_PREPUSH_QUEUE_HELD:-}" =~ ^[0-9]+$ ]]; then
     PHASE_TIMES="queue ${CMUX_PREPUSH_QUEUE_HELD}s"  # the wait for a turn, first in the hook-times line
 fi
 unset CMUX_PREPUSH_QUEUE_HELD CMUX_PREPUSH_PASS_KEY_HELD  # a push a check starts (none does today) queues for itself

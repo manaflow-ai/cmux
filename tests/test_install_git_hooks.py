@@ -1876,7 +1876,8 @@ mkdir -p node_modules/.bin
         head = self.commit_all("a commit to push")
         queue = self.root / "queue"
         queue.mkdir()
-        env = dict(self.env, CMUX_PREPUSH_QUEUE_DIR=str(queue), **settings)
+        # Every hook pushes the same head: the pass cache would answer all but the first, and this is about the queue.
+        env = dict(self.env, CMUX_PREPUSH_QUEUE_DIR=str(queue), CMUX_PREPUSH_PASS_CACHE="0", **settings)
         logs = [open(self.root / f"hook-{index}.log", "w+") for index in range(count)]
         for handle in logs:
             self.addCleanup(handle.close)
