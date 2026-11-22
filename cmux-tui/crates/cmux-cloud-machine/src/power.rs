@@ -192,7 +192,8 @@ impl Observation {
             | Status::Unknown
             | Status::Pausing
             | Status::Starting
-            | Status::Deleting => Observation::Unknown,
+            | Status::Deleting
+            | Status::Stopped => Observation::Unknown,
         }
     }
 }
