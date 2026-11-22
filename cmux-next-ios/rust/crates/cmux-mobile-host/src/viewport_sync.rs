@@ -78,6 +78,13 @@ pub struct Config {
     pub resend_unmeasured: Duration,
     /// How much the pacer may save up while idle, as time at its rate.
     pub burst: Duration,
+    /// On a jittery link (the round trip's variation at least an eighth of it), each new
+    /// diff goes this many more times, `copy_spacing` apart, each copy drawing its own delay:
+    /// the phone holds it at the fastest copy's arrival, and a lost fragment has a stand-in.
+    /// A copy goes only while the diff is the newest and unacked, and only on the pacer's
+    /// spare budget (it never waits for one).
+    pub copies: u8,
+    pub copy_spacing: Duration,
 }
 
 impl Default for Config {
@@ -91,6 +98,8 @@ impl Default for Config {
             resend_floor: Duration::from_millis(30),
             resend_unmeasured: Duration::from_millis(100),
             burst: Duration::from_millis(50),
+            copies: 2,
+            copy_spacing: Duration::from_millis(4),
         }
     }
 }
@@ -129,6 +138,12 @@ impl Pacer {
     }
 
     /// When a send may go (now, when it may already).
+    /// Whether `bytes` fit in the budget saved up now, leaving it out of debt.
+    pub fn affords(&mut self, bytes: usize, now: Instant) -> bool {
+        self.refill(now);
+        self.tokens >= bytes as f64
+    }
+
     pub fn ready_at(&mut self, now: Instant) -> Instant {
         self.refill(now);
         if self.tokens > 0.0 {
@@ -360,6 +375,21 @@ pub struct ViewportSync {
     switched: Option<Path>,
     captures: Option<Vec<Capture>>,
     feeds: Option<Vec<(Instant, Path)>>,
+    /// The newest diff's copies still to go: its seq, its datagrams (unstamped), how many more,
+    /// and when the next is due.
+    copy: Option<Copies>,
+    copies_sent: u64,
+    copy_bytes: u64,
+}
+
+/// Below this much round-trip variation the copies would only spend bytes (good wifi's few ms).
+const COPY_JITTER: Duration = Duration::from_millis(10);
+
+struct Copies {
+    seq: u64,
+    datagrams: Vec<Vec<u8>>,
+    left: u8,
+    at: Instant,
 }
 
 const FLOOR_WINDOW: Duration = Duration::from_secs(10);
@@ -410,6 +440,9 @@ impl ViewportSync {
             switched: None,
             captures: None,
             feeds: None,
+            copy: None,
+            copies_sent: 0,
+            copy_bytes: 0,
         }
     }
 
@@ -625,8 +658,12 @@ impl ViewportSync {
         self.select(now);
         if self.path() == Path::Datagram || self.probe.is_none() {
             let datagrams = self.poll_state(now);
-            if !datagrams.is_empty() || self.path() == Path::Datagram && !self.settled() {
+            if !datagrams.is_empty() {
                 return datagrams;
+            }
+            let copies = self.poll_copy(now);
+            if !copies.is_empty() || self.path() == Path::Datagram && !self.settled() {
+                return copies;
             }
         }
         self.poll_probe(now)
@@ -672,9 +709,59 @@ impl ViewportSync {
         if self.selector.is_some() {
             self.probe = datagrams.iter().min_by_key(|datagram| datagram.len()).cloned();
         }
+        if fresh {
+            self.copy = (self.config.copies > 0 && self.jittery()).then(|| Copies {
+                seq,
+                datagrams: datagrams.clone(),
+                left: self.config.copies,
+                at: now + self.config.copy_spacing,
+            });
+        }
         self.launch(&mut datagrams, now);
         self.sent_seq = seq;
         datagrams
+    }
+
+    /// The round trip varies by at least an eighth of itself, and by at least `COPY_JITTER`:
+    /// copies beat the jitter.
+    fn jittery(&self) -> bool {
+        self.rttvar >= COPY_JITTER && self.srtt.is_some_and(|srtt| self.rttvar * 8 >= srtt)
+    }
+
+    /// The copy due now, if its diff is still the newest unacked and the pacer has budget.
+    fn poll_copy(&mut self, now: Instant) -> Vec<Vec<u8>> {
+        let live = self.copy.as_ref().is_some_and(|copy| {
+            copy.seq == self.sender.latest_seq() && self.sender.unacked() && copy.seq == self.sent_seq
+        });
+        if !live {
+            self.copy = None;
+            return Vec::new();
+        }
+        let Some(copy) = self.copy.as_mut() else { return Vec::new() };
+        if now < copy.at {
+            return Vec::new();
+        }
+        let mut datagrams = copy.datagrams.clone();
+        copy.left -= 1;
+        copy.at = now + self.config.copy_spacing;
+        if copy.left == 0 {
+            self.copy = None;
+        }
+        let bytes = datagrams.iter().map(Vec::len).sum::<usize>();
+        if !self.pacer.affords(bytes, now) {
+            // Only spare budget: a copy never puts the pacer in debt, so it never delays a
+            // fresh diff. Without the budget it is skipped, not waited for.
+            return Vec::new();
+        }
+        self.copies_sent += 1;
+        self.copy_bytes += bytes as u64;
+        self.launch(&mut datagrams, now);
+        datagrams
+    }
+
+    /// Copies sent (each a whole diff again), and their bytes.
+    pub fn copies_sent(&self) -> (u64, u64) {
+        (self.copies_sent, self.copy_bytes)
     }
 
     fn probe_at(&self, now: Instant) -> Option<Instant> {
@@ -700,8 +787,15 @@ impl ViewportSync {
         if self.path() == Path::Stream && self.probe.is_some() {
             return probe;
         }
+        let copy = self.copy.as_ref().map(|copy| copy.at);
         if self.dirty {
-            return Some(self.pacer.ready_at(now));
+            let ready = self.pacer.ready_at(now);
+            return Some(copy.map_or(ready, |copy| copy.min(ready)));
+        }
+        if let Some(copy) = copy
+            && self.sender.unacked()
+        {
+            return Some(copy);
         }
         if !self.sender.unacked() {
             return probe;
@@ -1223,6 +1317,42 @@ mod tests {
         assert!(sync.rate() >= initial, "{} < {initial}: loss and jitter are not a queue", sync.rate());
         let loss = sync.loss().expect("enough settled");
         assert!((0.03..0.10).contains(&loss), "round-trip loss {loss}");
+    }
+
+    #[test]
+    fn viewport_sync_copies_the_newest_diff_only_on_a_jittery_link() {
+        // lossy-3's jitter: each diff goes up to twice more, on spare budget.
+        let start = Instant::now();
+        let mut sync = driver(start);
+        let mut link = FakeLink::new(Duration::from_millis(35), Duration::from_millis(300), 0.03);
+        drive_fake(&mut sync, &mut link, start, 10);
+        let (copies, bytes) = sync.copies_sent();
+        assert!(copies > 100, "{copies} copies on a jittery link");
+        assert!(bytes > 0);
+        // A steady 70 ms round trip: no copies.
+        let mut sync = driver(start);
+        let mut link = FakeLink::new(Duration::from_millis(35), Duration::ZERO, 0.0);
+        drive_fake(&mut sync, &mut link, start, 10);
+        assert_eq!(sync.copies_sent().0, 0);
+    }
+
+    #[test]
+    fn viewport_sync_a_copy_never_outlives_its_diff() {
+        let start = Instant::now();
+        let mut sync = driver(start);
+        sync.srtt = Some(Duration::from_millis(300));
+        sync.rttvar = Duration::from_millis(100);
+        sync.feed(b"one");
+        assert!(!sync.poll(start).is_empty());
+        let at = sync.next_wake(start).expect("a copy is due");
+        assert_eq!(at, start + Duration::from_millis(4));
+        assert!(!sync.poll(at).is_empty(), "the first copy");
+        // A newer diff replaces the rest of the old one's copies.
+        sync.feed(b" two");
+        let now = at + Duration::from_millis(4);
+        assert!(!sync.poll(now).is_empty());
+        assert_eq!(sync.copy.as_ref().map(|copy| copy.seq), Some(2));
+        assert_eq!(sync.copies_sent().0, 1);
     }
 
     #[test]

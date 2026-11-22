@@ -234,6 +234,8 @@ struct DatagramRow {
     /// Redraws that shared a capture with a later one (the pacer held the screen).
     coalesced: usize,
     rate: f64,
+    /// Of `down_per_min`, the bytes/min that were copies of a diff already sent.
+    copies_per_min: f64,
     /// After quiescence the phone acked the last state and its screen is the host's capture.
     converged: bool,
     /// Where a redraw's time goes, p50/p95 ms per stage.
@@ -398,6 +400,7 @@ async fn run_datagram(profile: &str, load: &Load, every: Duration) -> DatagramRo
         superseded,
         coalesced,
         rate: sync.rate(),
+        copies_per_min: per_min(sync.copies_sent().1, elapsed),
         converged,
         stages,
     }
@@ -683,7 +686,7 @@ async fn mac_redraw_to_phone_receive_under_wifi_lte_and_lossy_3() {
             let one_way = ProfileFile::builtin().get(profile).unwrap().rtt_ms as f64 / 2.0;
             let StreamBytes { counters, elapsed } = stream_bytes;
             println!(
-                "STATESYNC-ROW {name}{profile}: stream p50 {:.1} p95 {:.1} bytes/min {:.0} down / {:.0} up | datagram p50 {:.1} p95 {:.1} bytes/min {:.0} down / {:.0} up | one-way {one_way} | superseded {} coalesced {} of {n} | pacer {:.0} B/s | datagram p95 <= 2x one-way: {}",
+                "STATESYNC-ROW {name}{profile}: stream p50 {:.1} p95 {:.1} bytes/min {:.0} down / {:.0} up | datagram p50 {:.1} p95 {:.1} bytes/min {:.0} down (copies {:.0}) / {:.0} up | one-way {one_way} | superseded {} coalesced {} of {n} | pacer {:.0} B/s | datagram p95 <= 2x one-way: {}",
                 wire.p50_ms,
                 wire.p95_ms,
                 per_min(counters.down_bytes, elapsed),
@@ -691,6 +694,7 @@ async fn mac_redraw_to_phone_receive_under_wifi_lte_and_lossy_3() {
                 datagram.p50_ms,
                 datagram.p95_ms,
                 datagram.down_per_min,
+                datagram.copies_per_min,
                 datagram.up_per_min,
                 datagram.superseded,
                 datagram.coalesced,
