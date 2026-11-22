@@ -286,7 +286,9 @@ test("a long rule shows once, on the scope line, never in a button, and describe
   const lines = card.host.querySelectorAll(".acpmux-permission-scope");
   expect(lines.length).toBe(1);
   expect(lines[0]!.textContent).toBe(`In /Users/you/media/reel · ${RULE}`);
-  expect(lines[0]!.getAttribute("title")).toBe(`In /Users/you/media/reel · ${RULE}`);
+  // The line shows its words, so it has no tooltip; screen readers still hear the whole line.
+  expect(lines[0]!.getAttribute("title")).toBeNull();
+  expect(lines[0]!.getAttribute("aria-description")).toBe(`In /Users/you/media/reel · ${RULE}`);
   // The rule is drawn exactly once in the whole card.
   expect(card.host.textContent!.split(RULE).length - 1).toBe(1);
   const [target, rule] = [...lines[0]!.querySelectorAll("span")];

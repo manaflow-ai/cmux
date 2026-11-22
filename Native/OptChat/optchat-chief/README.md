@@ -116,12 +116,25 @@ id). With `OPTCHAT_GROUP_WAKE` set, a person's message in another local
 conversation the Chief takes part in is a wake of that conversation, read and
 answered as a cloud wake is (`brain/side.rs`); another Chief's message wakes
 it too (never its own; other agents never do). Loop guard: the owner's
-per-thread budget (`cmux_conversation::MAX_AGENT_TURNS`, 6): at most 6 agent
-texts in one thread (the replies of one root, or the top level) since a
-person's text in that thread; the owner refuses more (`agent_budget`), and a
+per-thread budget (`cmux_conversation::MAX_AGENT_TURNS`, 6): in a
+conversation with two or more agents, at most 6 agent texts in one thread
+(the replies of one root, or the top level) since a person's text in that
+thread (the person's own Chief chat, with one agent, has no cap); the owner refuses more (`agent_budget`), and a
 Chief pre-checks it from the messages it read (`thread_agent_streak` on the
 thread its reply goes into) so it stays quiet instead of running that turn.
-A person's text resets its own thread only. A page shows "Chiefs paused" for
+A person's text resets its own thread only. The outbox drops a refused
+message (it never loops) but keeps the refusal for the Chief: `send` answers
+an error ("refused by the conversation, nothing was posted (agent_budget)")
+when the owner refuses it at once, `outcome: queued` while it still waits in
+the outbox (the gap, an upload, link previews), and `outcome: done. sent`
+only when the owner took it; a later refusal (a queued send, a turn reply)
+is told on the Chief's next `send`. An `agent_budget` refusal in the Chief's
+conversation also starts the hold (`brain/budget_hold.rs`): while the guard
+refuses, `stop` and `sleep` are not refused for untold landed work, and the
+`[untold]` and `[no text]` notes wait instead of starting turns that could post
+nothing. The person's next message ends the hold, and its turn carries a
+`<held-news>` block naming the owed outcomes and silent starts; a Chief message
+the owner takes ends it too. A page shows "Chiefs paused" for
 a thread when `thread_agent_streak` of its newest messages is at the budget. `every` adds a constant
 "Channels" paragraph to the system prompt: the Chief acts on its own when a
 message concerns its role, and a reply of exactly `NO_REPLY` posts nothing.
@@ -834,8 +847,9 @@ that profile is named. Any other Claude-family profile must also be kind
 proxy` replaced by a `claude-stdio` profile that runs `claude` with no
 arguments) only when its `ANTHROPIC_BASE_URL` is the team subrouter on
 cmux-lawrence (`harness_gate::TEAM_SUBROUTER_URLS`); a real `sr claude
-proxy` profile wins over it. A refused turn starts no session and posts `(turn refused:
-...)` in the chat. A session that acpmux resolved or moved onto another
+proxy` profile wins over it. A refused turn starts no session and posts a short plain reply
+(`harness_gate::refused_reply`): it quotes the message it answers, says what is missing and what
+to do, and a repeat says how many turns in a row were refused, so no two in a row read the same. A session that acpmux resolved or moved onto another
 profile is checked again by its own harness, at the start and at the end
 of the turn. Every refusal is a `harness.refused` trace event (role,
 harness, reason), and each `turn.end` records `harness_profile`,
