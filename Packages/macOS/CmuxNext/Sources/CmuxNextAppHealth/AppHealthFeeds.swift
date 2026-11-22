@@ -38,19 +38,24 @@ public final class AppHealthFeeds {
     private var connectionFeed: Task<Void, Never>?
     /// Each window's footer line (``makeIndicator(over:)``) and the headline they show.
     private let indicators = NSHashTable<AppHealthIndicatorView>.weakObjects()
+    /// Where each part is (the chat a page shows), for the footer line's words and the card.
+    private let places: AppHealthPlaces
     private var headline: AppHealth.Headline?
 
     /// - Parameters:
     ///   - stateDirectory: The session daemon's state directory, whose registry size is read once.
     ///   - work: The app's blocking-work lanes (the size read runs on `.files`).
-    public init(daemon: DaemonService, stateDirectory: URL?, work: BackgroundWork) {
+    ///   - places: Where each part is; nil: the pages' tabs in `daemon`'s store (``AppHealthPlaces/init(store:)``).
+    public init(daemon: DaemonService, stateDirectory: URL?, work: BackgroundWork, places: AppHealthPlaces? = nil) {
         let health = AppHealth()
         self.health = health
         self.daemon = daemon
         self.stateDirectory = stateDirectory
         self.work = work
+        let places = places ?? AppHealthPlaces(store: daemon.store)
+        self.places = places
         pageFeed = AppHealthPageFeed(health: health)
-        popover = AppHealthPopover(health: health)
+        popover = AppHealthPopover(health: health, places: places)
     }
 
     /// Before the daemon starts (its first ensure is a health fact). The debug socket's `debug.health`
@@ -61,7 +66,8 @@ public final class AppHealthFeeds {
         // The footer lines follow the snapshot, in order, on main (one subscription for the app's life, as this object's).
         health.subscribe { [self] snapshot in
             let headline = AppHealth.headline(of: snapshot)
-            MainDelivery().later { self.show(headline) } // always queued, so the lines keep the snapshots' order
+            // Always queued, so the lines keep the snapshots' order; named by the chat on main, where the panes are.
+            MainDelivery().later { self.show(self.places.headline(headline)) }
         }
         // A restore that still makes progress holds the watch's automatic replace.
         daemon.recovery.holdsReplace = { health.holdsReplace }

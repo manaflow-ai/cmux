@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 887,
-    "mcp": 803
+    "verbs": 890,
+    "mcp": 808
   },
   "nouns": [
     {
@@ -49,6 +49,18 @@
           "id": "accounts.show",
           "mcp": true,
           "mcpTool": "app_accounts_show"
+        }
+      ]
+    },
+    {
+      "noun": "action",
+      "verbs": [
+        {
+          "command": "cmux action customize-reset",
+          "title": "Reset Element to Defaults",
+          "id": "customize.reset",
+          "mcp": true,
+          "mcpTool": "app_action_customize_reset"
         }
       ]
     },
@@ -110,6 +122,13 @@
           "id": "agentPane.editInstructions",
           "mcp": true,
           "mcpTool": "app_agent_edit_instructions"
+        },
+        {
+          "command": "cmux agent forget-computer-use-approval",
+          "title": "Forget a Computer Use Approval",
+          "id": "computerUse.approval.forget",
+          "mcp": true,
+          "mcpTool": "app_agent_forget_computer_use_approval"
         },
         {
           "command": "cmux agent fork-conversation",
@@ -292,6 +311,13 @@
           "id": "agentPane.runInBackground",
           "mcp": true,
           "mcpTool": "app_agent_run_in_background"
+        },
+        {
+          "command": "cmux agent set-computer-use-approval",
+          "title": "Change a Computer Use Approval",
+          "id": "computerUse.approval.set",
+          "mcp": true,
+          "mcpTool": "app_agent_set_computer_use_approval"
         },
         {
           "command": "cmux agent set-effort",
@@ -1200,39 +1226,11 @@
       "noun": "chief",
       "verbs": [
         {
-          "command": "cmux chief look-at-screen",
-          "title": "Chief: Look at Screen Now",
-          "id": "chief.screenShare.look",
-          "mcp": true,
-          "mcpTool": "app_chief_look_at_screen"
-        },
-        {
           "command": "cmux chief memory",
           "title": "Chief: Open Memory Inspector",
           "id": "chief.openMemoryInspector",
           "mcp": true,
           "mcpTool": "app_chief_memory"
-        },
-        {
-          "command": "cmux chief share-screen",
-          "title": "Share Screen with Chief",
-          "id": "chief.screenShare.start",
-          "mcp": false,
-          "mcpTool": null
-        },
-        {
-          "command": "cmux chief stop-sharing-screen",
-          "title": "Stop Sharing Screen with Chief",
-          "id": "chief.screenShare.stop",
-          "mcp": true,
-          "mcpTool": "app_chief_stop_sharing_screen"
-        },
-        {
-          "command": "cmux chief toggle-screen-share",
-          "title": "Chief: Toggle Screen Sharing",
-          "id": "chief.screenShare.toggle",
-          "mcp": false,
-          "mcpTool": null
         }
       ]
     },
@@ -2263,6 +2261,13 @@
           "mcpTool": "app_home_send"
         },
         {
+          "command": "cmux home setup",
+          "title": "Set Up cmux…",
+          "id": "home.showSetup",
+          "mcp": true,
+          "mcpTool": "app_home_setup"
+        },
+        {
           "command": "cmux home show-hidden",
           "title": "Show Hidden Conversations",
           "id": "home.showHiddenConversations",
@@ -2278,14 +2283,14 @@
         },
         {
           "command": "cmux home switch-view",
-          "title": "Switch Home View",
+          "title": "Switch Chief View",
           "id": "home.switchView",
           "mcp": true,
           "mcpTool": "app_home_switch_view"
         },
         {
           "command": "cmux home tab",
-          "title": "Open Home in Tab",
+          "title": "Open Chief in Tab",
           "id": "home.tab",
           "mcp": true,
           "mcpTool": "app_home_tab"
@@ -2805,6 +2810,13 @@
           "mcpTool": "app_pane_new_column_left"
         },
         {
+          "command": "cmux pane new-floating",
+          "title": "New Floating Pane",
+          "id": "newFloatingPane",
+          "mcp": true,
+          "mcpTool": "app_pane_new_floating"
+        },
+        {
           "command": "cmux pane new-row",
           "title": "New Row",
           "id": "newRow",
@@ -3090,6 +3102,13 @@
           "id": "toggleCanvasLayout",
           "mcp": true,
           "mcpTool": "app_pane_toggle_canvas_layout"
+        },
+        {
+          "command": "cmux pane toggle-floating",
+          "title": "Float Pane",
+          "id": "toggleFloatingPane",
+          "mcp": true,
+          "mcpTool": "app_pane_toggle_floating"
         },
         {
           "command": "cmux pane toggle-tab-bar",
@@ -4277,7 +4296,7 @@
       "verbs": [
         {
           "command": "cmux sidebar add-home",
-          "title": "Add Home to Sidebar",
+          "title": "Add Chief to Sidebar",
           "id": "sidebar.home.add",
           "mcp": true,
           "mcpTool": "app_sidebar_add_home"
@@ -4410,7 +4429,7 @@
         },
         {
           "command": "cmux sidebar remove-home",
-          "title": "Remove Home from Sidebar",
+          "title": "Remove Chief from Sidebar",
           "id": "sidebar.home.remove",
           "mcp": true,
           "mcpTool": "app_sidebar_remove_home"
@@ -5660,6 +5679,13 @@
           "mcpTool": "app_workspace_archive_others_in_group"
         },
         {
+          "command": "cmux workspace archive-settled",
+          "title": "Archive Settled Chats",
+          "id": "workspace.archiveSettled",
+          "mcp": true,
+          "mcpTool": "app_workspace_archive_settled"
+        },
+        {
           "command": "cmux workspace archive-unarchive",
           "title": "Archive/Unarchive Workspace",
           "id": "workspace.toggleArchive",
@@ -6468,6 +6494,6 @@
   "mcpExempt": {
     "credentials": 7,
     "endsApp": 4,
-    "systemChange": 73
+    "systemChange": 71
   }
 }

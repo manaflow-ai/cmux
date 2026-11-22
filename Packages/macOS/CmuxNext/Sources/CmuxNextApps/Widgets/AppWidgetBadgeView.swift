@@ -23,7 +23,7 @@ final class AppWidgetBadgeView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(AppWidgetStrings.remove)
-        toolTip = AppWidgetStrings.remove
+        themedToolTip = AppWidgetStrings.remove
     }
 
     @available(*, unavailable)

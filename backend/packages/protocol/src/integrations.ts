@@ -31,6 +31,12 @@ export const PENDING_CONNECTION_TTL_MS = 30 * 60_000
 /** Expired connections leave the owner's state this long after they expired (the projection keeps the row). */
 export const EXPIRED_CONNECTION_RETENTION_MS = 24 * 3600_000
 
+/** What a connection may act on: GitHub's recorded repositories, and who linked them (see Connection). */
+export const ConnectionResources = Schema.Struct({
+  repos: Schema.NullOr(Schema.Array(Schema.String)),
+  linked_by_github_id: Schema.optionalKey(Schema.Int)
+})
+
 export const Connection = Schema.Struct({
   id: ConnectionId,
   owner: TeamId,
@@ -46,9 +52,11 @@ export const Connection = Schema.Struct({
   /**
    * Provider resources this connection may act on. GitHub: the repositories the
    * linking user could access in the installation (`null` = the whole
-   * installation, when the team policy says so).
+   * installation, when the team policy says so). `linked_by_github_id`: the
+   * linking user's GitHub user id, recorded with a list; a repository that same
+   * user adds to the installation joins the list (absent on older connections).
    */
-  resources: Schema.optionalKey(Schema.Struct({ repos: Schema.NullOr(Schema.Array(Schema.String)) })),
+  resources: Schema.optionalKey(ConnectionResources),
   created_at: Schema.Int,
   updated_at: Schema.Int
 }).annotate({ identifier: "Connection" })
@@ -375,7 +383,7 @@ export const ConnectionActivateParams = Schema.Struct({
   connection: ConnectionId,
   account: Schema.Struct({ key: Schema.String, name: DisplayName, url: Schema.optionalKey(Schema.String) }),
   scopes_granted: Schema.Array(Schema.String),
-  resources: Schema.optionalKey(Schema.Struct({ repos: Schema.NullOr(Schema.Array(Schema.String)) }))
+  resources: Schema.optionalKey(ConnectionResources)
 })
 
 export const PolicyApplyManagedParams = Schema.Struct({
@@ -383,6 +391,20 @@ export const PolicyApplyManagedParams = Schema.Struct({
   policy: PolicyFields,
   /** Who or what applied it (for example an IdP connection id or an MDM profile id). */
   applied_by: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200))
+})
+/**
+ * A GitHub App webhook changed what an installation grants (`installation.unsuspend`,
+ * `installation.new_permissions_accepted`, `installation_repositories.removed` or `.added`): the permissions
+ * now granted, repositories that left the installation (they leave the connection's recorded list), and
+ * repositories the linking user added (they join it).
+ * The connection's status stays as it is.
+ */
+export const ConnectionGithubSyncParams = Schema.Struct({
+  connection: ConnectionId,
+  scopes_granted: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(100)))),
+  repos_removed: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(201)))),
+  /** Repositories the linking user added to the installation (its `sender` is the recorded `linked_by_github_id`). */
+  repos_added: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(201))))
 })
 export const ConnectionStatusParams = Schema.Struct({
   connection: ConnectionId,
@@ -442,6 +464,7 @@ export const connectionInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("integration.github.token_minted", GitHubTokenMintedParams, "Internal: a GitHub installation token was minted for a caller (POST /v1/integrations/github/token); its audit record goes to TeamDO."),
   internal("connection.activate", ConnectionActivateParams, "Internal: the provider approved; the credential is stored."),
   internal("connection.status", ConnectionStatusParams, "Internal: a refresh, call or provider event changed the connection's health."),
+  internal("connection.github.sync", ConnectionGithubSyncParams, "Internal: a GitHub App webhook changed the installation's permissions or repositories; the status stays."),
   internal(
     "connection.expire",
     // `at` is the alarm's wake instant (the owner's own clock reading; only the owner submits this op).

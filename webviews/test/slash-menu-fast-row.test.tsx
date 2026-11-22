@@ -184,7 +184,8 @@ test("other rows keep their /name and the agent's description, and no icon", asy
   await composer(chat("on"), "/");
   const review = rows().find((row) => text(row, ".acpmux-slash-name") === "/review");
   expect(review).toBeDefined();
-  expect(text(review, ".acpmux-slash-description")).toBe("Review a pull request");
+  // Not highlighted: its name only, and what it does for a screen reader (slash-menu-quiet-rows).
+  expect(review!.getAttribute("aria-description")).toBe("Review a pull request");
   expect(review!.querySelector(".acpmux-slash-icon")).toBeNull();
   // The Fast row is in the full list too.
   expect(text(fastRow(), ".acpmux-slash-name")).toBe("Fast");

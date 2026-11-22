@@ -406,7 +406,11 @@ session's saved-state directory: nothing is left to resume, and
 launch snapshot and the terminal-host records) once the owner released its
 session locks. The registry, the Chief store, conversations, git checkpoints,
 diff comments and session settings stay (an older owner answers no
-`session_dir`, and all its state stays). To close many tabs at once, send
+`session_dir`, and all its state stays). `shutdown-daemon` with
+`"if_idle":true` (`daemon-stop-if-idle-v1`, `cmux daemon stop --if-idle`)
+stops only while no other client is connected and no terminal is live;
+else it refuses with `daemon_busy` and names what uses it, checked under the
+handoff reservation that refuses new clients. To close many tabs at once, send
 `{"cmd":"close-tabs","surfaces":[...],"end_terminals":true}`: one durable
 commit (one journal fsync) removes every tab and ends every terminal left
 with no view that is not kept. The container closes take the same

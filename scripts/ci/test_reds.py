@@ -27,7 +27,8 @@ short). It reads only what the steps printed, never the runner's echo of a step'
 
     test_reds.py runner --job JOB.json [--annotations ANNOTATIONS.json] [--log LOG]
 
-says whether a failed job lost its runner (lost_runner: infra, no verdict, re-run it; exit 0) or has a verdict (exit 1).
+says whether a failed job lost its runner or was shut down under (lost_runner: infra, no verdict, re-run it;
+exit 0) or has a verdict (exit 1).
 `classify` prints one line per reason and exits 0 when the job's red is the base's, 1 when it is the head's own and 2
 when the log names no failing test, crash or cut-short run (not a test red: the caller judges it as before).
 
@@ -1000,7 +1001,7 @@ def _read_bun_step(lines: list[str], step: int, attempts: list, result: Result) 
 # Each log is parsed once per process (2026-11-06, cmux#36356 at 2c9f6957). base_red_excuse.py's window compares the
 # head's log with up to BASE_WINDOW base logs and re-classifies the whole window each time it grows, and classify,
 # classify_any, observations and flaky_failures each read the head again: 50 reads of 6 logs. A `cmux-next daemon
-# tests` log is 20 to 27 MB, about 3 s a read, so that judge spent 110 s of CPU in read() alone and merge_hold's 120 s
+# tests` log is 20 to 27 MB, about 3 s a read, so that judge spent 110 s of CPU in read() alone and land-judge's 120 s
 # bound on the classifier refused the merge three times. A read depends only on the log's text and BUN, so its result
 # is kept by text: each caller gets its own copy, and at most KEEP_PARSED texts are kept (the window's logs, which
 # the judge holds anyway, plus the head), the oldest dropped first.
@@ -1152,13 +1153,46 @@ LOST_RUNNER = re.compile(r"lost communication with the server|The runner has rec
                          r"The hosted runner encountered an error")
 BLOB_NOT_FOUND = re.compile(r"\bBlobNotFound\b|The specified blob does not exist")
 
+# The same shutdown, seen from the log instead of an annotation. GitHub sends the job's process group SIGTERM and
+# then prints this line, so the step it was in fails with exit 143 (128 + 15) and the job keeps a failed step: the
+# `job with a failed step keeps its verdict` rule below then read the shutdown as the change's own crash. 2026-11-22,
+# cmux#49751's `build / build x86_64-unknown-linux-musl` (run 44986426867, job 137098396057): "Process completed with
+# exit code 143." directly above "The runner has received a shutdown signal.", on a tree whose diff is two
+# cmux-tui/crates/acpmux files, read as "the test process crashed (signal 15)" in a job that runs no tests at all.
+# Three pull requests sat on that reading at once (cmux#49751, cmux#49030 at exit 137, cmuxterm-hq#17509).
+RUNNER_SHUTDOWN = re.compile(r"The runner has received a shutdown signal")
+# 128 + a signal no process raises on itself: SIGHUP 1, SIGINT 2, SIGQUIT 3, SIGKILL 9, SIGTERM 15. Someone sent it
+# (the runner shutting down, a cancel, a preemption, the kernel's OOM killer); a fault raises SIGSEGV, SIGABRT,
+# SIGBUS, SIGILL, SIGFPE or SIGTRAP instead, and those keep their verdict wherever they appear.
+SENT_SIGNAL_EXITS = {129: 1, 130: 2, 131: 3, 137: 9, 143: 15}
+
+
+def runner_shut_down(log: str) -> str | None:
+    """Why LOG says the runner was shut down under this job, rather than the job failing, or None.
+
+    Both halves are required: the runner's own shutdown notice, and a step that ended on a signal nobody raises on
+    itself. A test quoting either phrase cannot produce the other -- PROCESS_EXIT matches only the runner's own
+    `##[error]`/`::error` exit annotation, never a test's line."""
+    # log_lines, like every other reader here: the job-logs endpoint prefixes each line with its job, step and
+    # timestamp, and PROCESS_EXIT is anchored at the line's start.
+    lines = log_lines(log)
+    if not any(RUNNER_SHUTDOWN.search(text) for text in lines):
+        return None
+    for text in lines:
+        if (match := PROCESS_EXIT.match(text)) and (number := SENT_SIGNAL_EXITS.get(int(match.group(1)))):
+            return (f"the runner was shut down under it and its step ended with exit {match.group(1)} "
+                    f"(128 + signal {number}, which nothing raises on itself): the job was cut short")
+    return None
+
 
 def lost_runner(job, annotations=(), log=None):
     """Why failed JOB (an Actions job or check run) is infra and no verdict, or None. ANNOTATIONS are its check run's
     annotations (dicts with "message" and "annotation_level", or plain messages); LOG, when the caller read it, is
     its log text or the error its read gave. Any one is enough: a failure annotation that says the runner was lost;
     a job that completed with a step still unfinished and no step failed (the runner stopped reporting mid-step); or
-    a log GitHub never stored (BlobNotFound) with no step failed. A job with a failed step keeps its verdict."""
+    a log GitHub never stored (BlobNotFound) with no step failed. A job with a failed step keeps its verdict, except
+    the one case where the failed step is the shutdown itself (runner_shut_down): the runner's notice in LOG plus a
+    step that ended on a sent signal."""
     if (job or {}).get("conclusion") != "failure":
         return None
     for note in annotations or ():
@@ -1170,6 +1204,8 @@ def lost_runner(job, annotations=(), log=None):
             message = str(note)
         if LOST_RUNNER.search(message):
             return "its runner was lost: " + " ".join(message.split())[:200]
+    if isinstance(log, str) and (why := runner_shut_down(log)):
+        return why
     steps = [step for step in (job or {}).get("steps") or [] if isinstance(step, dict)]
     if any(step.get("conclusion") == "failure" for step in steps):
         return None
@@ -1870,6 +1906,8 @@ def classify_web_cut_short(head_log: str | None, windows, job: str = "", base: s
                           f"{'; '.join(left)[:600]}"], shared)
 
 
+# (Until 2026-11-21; the post-merge batch tier, cmux-next-post-merge.yml, now runs the base web checks and bisects
+# its own reds, so no new `web bisect` lines come. bisect_report still reads the old runs.)
 # A coalesced feat-cmux-next web run (cmux-next-web.yml runs its web checks at most once every 30 minutes, on the
 # newest push, routed from the last run's commit) covers several commits. When its webview tests go red, its
 # `web bisect` job (scripts/ci/web_coalesce.py bisect) re-runs only the new red files, only on those commits, and
@@ -1916,6 +1954,8 @@ GALLERY_CRASH = re.compile(r"\bcrash|Target (?:page, context or browser )?(?:has
 GALLERY_SLOW = "over its ready-time budget"
 # A state past its layout-shift baseline (shift-baseline.ts); older checkers wrote no `shifted` list.
 GALLERY_SHIFT = "past its layout-shift baseline"
+# A state with a layout move the layout-motion contract does not declare (undeclared-baseline.ts).
+GALLERY_UNDECLARED = "makes an undeclared layout move"
 
 
 def gallery_read(text: str | None, keep_known: bool = False) -> Result:
@@ -1951,6 +1991,8 @@ def gallery_read(text: str | None, keep_known: bool = False) -> Result:
         result.failed.add(f"{item.get('state', '')}: {GALLERY_SLOW}")
     for item in found.get("shifted") or []:
         result.failed.add(f"{item.get('state', '')}: {GALLERY_SHIFT}")
+    for item in found.get("undeclared") or []:
+        result.failed.add(f"{item.get('state', '')}: {GALLERY_UNDECLARED}")
     for item in found.get("geometry") or []:
         for violation in item.get("violations") or []:
             result.failed.add(f"{item.get('state', '')}: breaks {violation.get('key', '')}")

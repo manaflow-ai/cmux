@@ -19,7 +19,7 @@ import { BrowseFailure } from "./BrowseFailure";
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
-import { firstProject, homePath, mostRecentProject, projectLabel } from "./sessionList";
+import { firstProject, homePath, isTemporaryFolder, mostRecentProject, projectLabel } from "./sessionList";
 import { useT } from "./i18n";
 import { isStartableProject, rememberedStartedProject } from "./newtab/startedProject";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
@@ -200,7 +200,7 @@ export function NewTabPage({
   const [started] = useState(() => (home ? (rememberedStartedProject() ?? startedProject) : undefined));
   const projectCwd =
     picked ??
-    (isStartableProject(cwd) || !home
+    ((isStartableProject(cwd) && !isTemporaryFolder(cwd)) || !home
       ? cwd
       : (firstProject(started ? [started.replace(/(.)\/+$/, "$1")] : [], home, knownProjects) ??
         mostRecentProject(snapshot.sessions, home, knownProjects) ??
@@ -431,7 +431,9 @@ export function NewTabPage({
       // A page shown in a window that is not key yet gets no focus event until it is.
       setFocused(input.focused());
     };
-    focus();
+    // Not again while the field has the keyboard: a token change after the readiness selected the keys typed so far
+    // (the screen's show-focus has the same rule).
+    if (!field.current?.focused()) focus();
     const host = fieldElement()?.ownerDocument.defaultView;
     // The app replays the keys typed after Cmd-T at this readiness: it waits for the page's focus.
     let cancelReady = () => {};

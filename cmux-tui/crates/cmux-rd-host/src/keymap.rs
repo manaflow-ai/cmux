@@ -60,3 +60,27 @@ pub fn hid_to_evdev(usage: u32) -> Option<u16> {
 pub fn hid_to_x(usage: u32) -> Option<u8> {
     hid_to_evdev(usage).and_then(|e| u8::try_from(e + 8).ok())
 }
+
+/// X keycode to a HID usage: the inverse of `hid_to_x` (Xvfb and evdev keymaps, keycode = evdev + 8).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn x_to_hid(code: u8) -> Option<u32> {
+    (0x04..=0xe7).map(|id| 0x0007_0000 | id).find(|&u| hid_to_x(u) == Some(code))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn x_to_hid_inverts_hid_to_x() {
+        for id in 0x04..=0xe7u32 {
+            let usage = 0x0007_0000 | id;
+            if let Some(code) = hid_to_x(usage) {
+                assert_eq!(x_to_hid(code), Some(usage), "usage {usage:#x}, X keycode {code}");
+            }
+        }
+        // Xvfb's `a` is keycode 38 (evdev KEY_A 30 + 8).
+        assert_eq!(x_to_hid(38), Some(0x0007_0004));
+        assert_eq!(x_to_hid(0), None);
+    }
+}

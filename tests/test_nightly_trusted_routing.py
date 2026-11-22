@@ -2,8 +2,9 @@
 """Execute nightly runner selectors for pooled native work and Linux control work.
 
 Nightlies never run on Blacksmith (Lawrence, 2026-10-30). Every nightly.yml route ends on our own runners:
-a job holding a signing or publication secret on GitHub-hosted Ubuntu (the ephemeral runner the signing-secret
-rules allow), the light placed controls and decide on hosted Ubuntu, the early native jobs on the owned nightly
+a job holding a signing or publication secret on the owned one-job JIT VM label cmux-gcp-nightly-jit-x64 on every
+attempt (the ephemeral runner the signing-secret rules allow; GitHub-hosted Ubuntu starts nothing in manaflow-ai, so
+only a fork's branch names it), the light placed controls and decide on our own runners, the early native jobs on the owned nightly
 slot, build-nightly-app and every other job on the nightly-only Mac pool.
 """
 import copy
@@ -31,7 +32,7 @@ import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/workflows/nightly.yml'))
 DOC = workflow_jobs.document(nightly_expand(WORKFLOW_FILE.read_text()))
-# The nightly signer jobs: GitHub-hosted Ubuntu on every attempt, never Blacksmith.
+# The nightly signer jobs: the JIT nightly label on every attempt (a fork: hosted Ubuntu), never Blacksmith.
 SIGNER_JOBS = ('signer-build', 'signer-app', 'signer-dmg')
 # They, their picker and the cmux NIGHTLY-identity copy's release-signer jobs (all on the signer route itself)
 # have their own routes, outside the 16/32 rule.
@@ -41,7 +42,7 @@ TAIL_CONTROL_JOBS = (
     'report-nightly-failure', 'close-nightly-failure-issue',
 )
 # Our runners' fallback labels (nightly.yml): the nightly-only Mac pool (vars.CI_NIGHTLY_ONLY_RUNNER), the
-# owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER) and GitHub-hosted Ubuntu.
+# owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER) and, for a fork only, GitHub-hosted Ubuntu.
 NIGHTLY_ONLY = 'glaeda-nightly-only-m4pro'
 NIGHTLY_SLOT = 'glaeda-nightly-std-xcode-26.6'
 # The signer's label: only a trusted-only mini that runs no pull request job carries it, and the secret-bearing
@@ -49,16 +50,37 @@ NIGHTLY_SLOT = 'glaeda-nightly-std-xcode-26.6'
 SIGNING_SLOT = 'glaeda-trusted-next-signing'
 HOSTED = 'ubuntu-24.04'
 OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
-# The tail's secret jobs that stay on GitHub-hosted Ubuntu, outside the push group, never Blacksmith
+# The tail's secret jobs that take the ephemeral JIT nightly label, outside the push group, never Blacksmith
 # (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS has each one's reason). Every other nightly job runs on our own minis.
 # publish-nightly-next-github is the loop run's one hosted job (test_nightly_owned_minis_only.HOSTED_LOOP_JOBS, Leo's
-# override): an upload with the release App key that held the whole signing Mac.
+# override): an upload with the release App key that held the whole signing Mac. The names keep "hosted": these
+# jobs take an ephemeral VM, never a mini, though since 2026-11-21 that VM is ours, not GitHub's.
 HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
                       'publish-nightly-next-github')
+# Leo, 2026-11-19 (ask-b3e8183722): "why isn't nightly getting priority then? on the linux things". These hosted
+# jobs queued behind the org's busy hosted pool (publish-release-notes waited 24 min on ubuntu-24.04, run
+# 44556480014), so on attempt 1 they take cmux-gcp-nightly-jit-x64 first: one-job GCE VMs (no service account, no
+# ingress, deleted after the job) that only cmuxterm-hq gha-runners serve and no PR job may name
+# (tests/test_ci_nightly_labels_reserved.py). Ephemeral like the hosted VM, so each secret stays off persistent
+# runners. Leo, 2026-11-21 00:14Z: "the ci must flow": GitHub-hosted runners start nothing in manaflow-ai, so every
+# attempt (re-runs too) takes the JIT label, and publish-nightly-reel with them; only a fork's branch names hosted.
+JIT_LABEL = 'cmux-gcp-nightly-jit-x64'
+# The retired attempt-1-only arm (re-runs went back to hosted Ubuntu): no nightly route may name it now.
+JIT_ARM = f"github.run_attempt == 1 && '{JIT_LABEL}' || "
+JIT_ARM_JOBS = frozenset({'sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes',
+                          'publish-nightly-next-github', 'publish-nightly-reel'})
+
+
+def hosted_route(name: str, attempt: object) -> str:
+    """The label a hosted tail or loop job resolves to on a manaflow-ai run at `attempt`: the JIT label on every
+    attempt (GitHub-hosted Ubuntu starts nothing in manaflow-ai)."""
+    return JIT_LABEL
+
+
 # No hosted preflight: runner-preflight runs on the nightly-only pool since 2026-11-18
 # (test_nightly_owned_minis_only.HOSTED_PREFLIGHT_JOBS has the reason).
 HOSTED_PREFLIGHT_JOBS: tuple[str, ...] = ()
-# On our minis for nightly-next only; classic and RC keep GitHub-hosted Ubuntu, as their release uploads may wait out
+# On our minis for nightly-next only; classic and RC take the ephemeral JIT nightly label, as their release uploads may wait out
 # the rate limit for 360 min (test_nightly_owned_minis_only.NIGHTLY_NEXT_ONLY_OWNED).
 NIGHTLY_NEXT_ONLY_OWNED = ('republish-nightly-deltas',)
 # Every other nightly.yml job that holds a secret (holds_secret) runs on our own runners. HOSTED_SECRET_JOBS is a
@@ -82,7 +104,7 @@ OWNED_SECRET_JOBS = {
     'generate-nightly-deltas': "Sparkle keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
     'publish-nightly': "release and feed credentials in the push run; the signer's label",
     'keep-published-dsyms': "release credentials, short; the signer's label",
-    'republish-nightly-deltas': "the signer's label on nightly-next, hosted for classic and RC (NIGHTLY_NEXT_ONLY_OWNED)",
+    'republish-nightly-deltas': "the signer's label on nightly-next, the JIT nightly label for classic and RC (NIGHTLY_NEXT_ONLY_OWNED)",
 }
 # Parser anchors: a regression in holds_secret that empties the derived sets would empty the checks with them.
 SECRET_ANCHORS = {'decide', 'build-sign-notarize-nightly', 'publish-nightly', 'publish-nightly-next-github'}
@@ -562,9 +584,10 @@ class NightlyTrustedRouting(unittest.TestCase):
 
     def test_every_linux_nightly_job_takes_one_of_our_runners(self):
         # Nightlies never use Blacksmith (Lawrence, 2026-10-30). Every job whose route can name Ubuntu (a
-        # Linux control, or a fork's fallback) resolves, with no placement or pick, to GitHub-hosted Ubuntu,
-        # the owned nightly slot or the nightly-only Mac pool, whatever LINUX_RUNNER or RUNNER_POOLS hold.
-        # Only a secret job glaeda does not give the whole mini yet takes hosted Ubuntu.
+        # Linux control, or a fork's fallback) resolves, with no placement or pick, to the owned nightly slot,
+        # the nightly-only Mac pool or (a secret job glaeda does not give the whole mini yet) the ephemeral JIT
+        # nightly label on every attempt, whatever LINUX_RUNNER or RUNNER_POOLS hold. Never GitHub-hosted Ubuntu:
+        # it starts nothing in manaflow-ai.
         checked = 0
         for name, job, runs_on in linux_routes(DOC):
             checked += 1
@@ -573,6 +596,8 @@ class NightlyTrustedRouting(unittest.TestCase):
             self.assertNotIn('blacksmith', source, name)
             self.assertNotIn('RUNNER_POOLS', source, name)
             self.assertNotIn('LINUX_RUNNER', source, name)
+            # The retired attempt-1-only JIT arm sent re-runs back to hosted Ubuntu.
+            self.assertNotIn(JIT_ARM.strip(), ' '.join(source.split()), name)
             for runner in ('', 'ubuntu-24.04', 'blacksmith-4vcpu-ubuntu-2404', 'blacksmith-16vcpu-ubuntu-2404',
                            'blacksmith-32vcpu-ubuntu-2404'):
                 for attempt in (1, 2, 3):
@@ -584,15 +609,16 @@ class NightlyTrustedRouting(unittest.TestCase):
                                    'github.ref': 'refs/heads/nightly-next',
                                    'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}',
                                    'needs.prepare-nightly-variant-primary.result': primary}
-                        allowed = {HOSTED} if name in HOSTED_SECRET_JOBS or name in HOSTED_PREFLIGHT_JOBS else OUR_LABELS - {HOSTED}
+                        allowed = {hosted_route(name, attempt)} if name in HOSTED_SECRET_JOBS or name in HOSTED_PREFLIGHT_JOBS else OUR_LABELS - {HOSTED}
                         with self.subTest(job=name, runner=runner, attempt=attempt, primary=primary):
                             self.assertIn(evaluate(parse_expression(source), context), allowed)
                         if name in NIGHTLY_NEXT_ONLY_OWNED:
-                            # Classic (main) and RC runs: hosted, so their rate-limit waits never hold the signer.
+                            # Classic (main) and RC runs: the JIT nightly label, so their rate-limit waits never
+                            # hold the signer.
                             for ref in ('refs/heads/main', 'refs/heads/rc/1.2'):
                                 with self.subTest(job=name, runner=runner, attempt=attempt, primary=primary, ref=ref):
                                     self.assertEqual(evaluate(parse_expression(source), {
-                                        **context, 'github.ref': ref, 'needs.decide.outputs.track': 'nightly'}), HOSTED)
+                                        **context, 'github.ref': ref, 'needs.decide.outputs.track': 'nightly'}), JIT_LABEL)
         self.assertGreater(checked, 20)
 
     def test_every_secret_job_is_hosted_or_named_owned(self):
@@ -617,7 +643,7 @@ class NightlyTrustedRouting(unittest.TestCase):
 
     def test_a_new_secret_job_is_named_until_classified(self):
         """The class #36559 hit in backend.yml: a job split out with a secret that nobody lists."""
-        hosted = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}"
+        hosted = f"${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || '{JIT_LABEL}' }}}}"
         matrix = '${{ matrix.pool }}'
         for name, runs_on, extra in (
             ('upload-fixture-nightly', hosted,

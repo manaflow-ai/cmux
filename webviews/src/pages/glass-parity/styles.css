@@ -40,6 +40,12 @@ body {
 .glass-parity-surface.ui-tooltip {
   --parity-border: var(--tooltip-rim-width, 0px);
 }
+/* A hover card's border stays 1px at any scale (desktop.css .ui-card), where the tooltip's rim is a hairline
+   (0.5px at 2x): set back by the rim, the card's text sat half a point low at 2x (matrix run 12: WebKit card
+   text mean 2.9, every other surface exact). */
+.glass-parity-surface.ui-tooltip.ui-card {
+  --parity-border: 1px;
+}
 .glass-parity-title,
 .glass-parity-detail {
   position: absolute;
@@ -68,8 +74,14 @@ body {
   box-shadow: none;
 }
 
-/* The text axis (GlassParityPlayground.TextRendering): `smooth` measures the page's text with macOS font
-   smoothing on, against AppKit's own. */
-:root[data-parity-text="smooth"] .glass-parity-surface {
-  -webkit-font-smoothing: subpixel-antialiased;
+/* The text axis (GlassParityPlayground.TextRendering): `flat` and `smooth` pin the page's text smoothing
+   (off, on) whatever appearance.fontSmoothing gives the page (the theme's rule on every element, !important),
+   against native text drawn the same way; `standard` keeps what the app ships. */
+:root[data-parity-text="flat"] .glass-parity-surface,
+:root[data-parity-text="flat"] .glass-parity-surface * {
+  -webkit-font-smoothing: antialiased !important;
+}
+:root[data-parity-text="smooth"] .glass-parity-surface,
+:root[data-parity-text="smooth"] .glass-parity-surface * {
+  -webkit-font-smoothing: subpixel-antialiased !important;
 }

@@ -25,14 +25,17 @@
 pub mod client;
 pub mod cursor;
 pub mod desktop;
+pub mod displays;
 pub mod engine;
 pub mod frame;
 pub mod keys;
+pub mod locked;
 pub mod menus;
 pub mod observe;
 pub mod outcome;
 pub mod policy;
 pub mod preview;
+pub mod record;
 pub mod session;
 pub mod stop;
 pub mod tools;

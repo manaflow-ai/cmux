@@ -50,6 +50,19 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     public var resizeFencePresented = 0
     public var resizeFenceMissed = 0
     public var resizeFencesExpired = 0
+    /// Main-thread seconds of the resizes that joined a fence (``CEFLayerHosting/pageViewResized()`` past its guard:
+    /// the fence port, the fork's call and the deadline task), for its perf-hot budget per call.
+    public var resizeFenceJoinSeconds = 0.0
+    /// Pane commits a page drew ahead for with no fence (``CEFCommitPageWait``), by how each wait ended: the page
+    /// answered that it laid out at the new size, the wait reached its bound first, or the page hid or left.
+    public var commitWaitsAnswered = 0
+    public var commitWaitsAtBound = 0
+    public var commitWaitsLeft = 0
+    /// Page answers of those waits (``CEFCommitLayoutWait/laidOut``) that came after the wait reported at its bound,
+    /// evaluations that failed, and the seconds from each wait's start to the answer that ended it, summed.
+    public var commitAnswersLate = 0
+    public var commitAnswersFailed = 0
+    public var commitAnswerSeconds = 0.0
 
     public init() {}
 
@@ -76,7 +89,10 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
          "detaches": Double(detaches), "attaches": Double(attaches),
          "fences": Double(resizeFences), "fence_joined": Double(resizeFenceJoined),
          "fence_presented": Double(resizeFencePresented), "fence_missed": Double(resizeFenceMissed),
-         "fences_expired": Double(resizeFencesExpired)]
+         "fences_expired": Double(resizeFencesExpired), "fence_join_ms": resizeFenceJoinSeconds * 1_000,
+         "commit_answered": Double(commitWaitsAnswered), "commit_at_bound": Double(commitWaitsAtBound),
+         "commit_left": Double(commitWaitsLeft), "commit_answer_late": Double(commitAnswersLate),
+         "commit_answer_failed": Double(commitAnswersFailed), "commit_answer_ms": commitAnswerSeconds * 1_000]
     }
 
     /// Monotonic seconds for timing a read.
