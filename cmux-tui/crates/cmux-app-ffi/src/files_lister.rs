@@ -33,10 +33,10 @@ pub const CMUX_FILES_LISTER_ABI_VERSION: u32 = 1;
 
 /// Failures in a row (no answer in between) after which every request is
 /// refused and the app reads in process.
-pub const MAX_CONSECUTIVE_FAILURES: u32 = 3;
+pub(crate) const MAX_CONSECUTIVE_FAILURES: u32 = 3;
 /// The longest reply line read: a listing of a few hundred thousand items. A
 /// longer one is dropped, and its request waits for the child to exit.
-pub const MAX_REPLY_BYTES: usize = 256 << 20;
+pub(crate) const MAX_REPLY_BYTES: usize = 256 << 20;
 
 /// Called once per request `cmux_files_lister_request` accepted: `reply` is
 /// the child's reply line (a JSON object with `entries`, `entry` or `errno`,
