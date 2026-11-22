@@ -286,6 +286,7 @@ export function useProcessRegistry(
   const calls = useRef<readonly string[]>([]);
   const windowCalls = window?.calls;
   const endedWithin = window?.endedWithin;
+  const endedWithinRef = useRef<number | undefined>(undefined);
   const asked = useRef<{ sessionId?: string; calls: Set<string> }>({ calls: new Set() });
   // The processes this view saw run, for the chat: the tray may still show one as just ended, so
   // a window read after the whole list keeps it (`recentState` `held`).
@@ -296,6 +297,7 @@ export function useProcessRegistry(
   // Declared before the effects that read them, so it runs first on every commit.
   useEffect(() => {
     calls.current = windowCalls ?? [];
+    endedWithinRef.current = endedWithin;
     if (asked.current.sessionId !== sessionId || !windowed) asked.current = { sessionId, calls: new Set() };
     if (seenRunning.current.sessionId !== sessionId) seenRunning.current = { sessionId, ids: new Set() };
     // Read once per new list, not per render.
@@ -303,14 +305,15 @@ export function useProcessRegistry(
       seenRunning.current.read = state.processes;
       for (const process of state.processes) if (process.state === "running") seenRunning.current.ids.add(process.id);
     }
-  }, [windowCalls, sessionId, windowed, state]);
+  }, [windowCalls, endedWithin, sessionId, windowed, state]);
   useEffect(() => {
     // Closing the history releases its older rows even when an idle chat needs no subscription;
     // every process the window's calls started is held, so those calls need no read.
     if (windowed && sessionId) {
       setState((known) => {
         if (known.sessionId !== sessionId) return known;
-        const cut = windowState(known, seenRunning.current.ids, calls.current, endedWithin ?? 0, Date.now());
+        const within = endedWithinRef.current ?? 0;
+        const cut = windowState(known, seenRunning.current.ids, calls.current, within, Date.now());
         if (cut !== known) for (const call of calls.current) asked.current.calls.add(call);
         return cut;
       });
@@ -355,7 +358,7 @@ export function useProcessRegistry(
       const read = async () => {
         let reply: { processes?: unknown; recent?: unknown; omitted?: unknown; endedBefore?: unknown } | undefined;
         try {
-          reply = (await source.listProcesses(sessionId, PROCESS_LIST_RECENT, endedWithin)) as typeof reply;
+          reply = (await source.listProcesses(sessionId, PROCESS_LIST_RECENT, endedWithinRef.current)) as typeof reply;
         } catch {
           return settle();
         }
@@ -401,8 +404,7 @@ export function useProcessRegistry(
       settle();
       stop();
     };
-    // `calls` and `endedWithin` are read when the list is: a new call is read below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // `calls` and `endedWithin` are refs, read when the list is: a new call is read below.
   }, [source, sessionId, on, windowed]);
   // Calls the transcript shows that were not read yet (older rows read, a subagent's view opened):
   // their processes, which join what the registry holds.
