@@ -9,7 +9,7 @@
 
 use super::json::{self, Value};
 use super::*;
-use crate::{ThemeAccent, ThemeInput, ThemeTokens};
+use crate::{ThemeAccent, ThemeInput, ThemeSelection, ThemeTokens};
 
 fn hex(s: &str) -> Rgb {
     let v =
@@ -92,6 +92,7 @@ fn derive_matches_the_spec_reference_themes() {
             background_blur: 0,
             cursor: input_of("cursor").and_then(Value::as_str).map(hex),
             accent_color: input_of("accentColor").and_then(Value::as_str).map(hex),
+            selection: ThemeSelection::Accent,
             accent: input_of("accent").and_then(Value::as_str).map_or(ThemeAccent::Neutral, |a| {
                 ThemeAccent::parse(a).unwrap_or_else(|| panic!("{name}.input.accent {a:?}"))
             }),

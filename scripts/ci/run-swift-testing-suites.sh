@@ -243,8 +243,19 @@ else
 fi
 phase build-and-list
 swiftpm_binary_module_guard "$package_path" || exit $? # 75: fetch failed, no test ran
-swift test list ${debug_info_args[@]+"${debug_info_args[@]}"} --package-path "$package_path" > "$evidence_dir/discovered-tests.txt"
+list_status=0
+swift test list ${debug_info_args[@]+"${debug_info_args[@]}"} --package-path "$package_path" > "$evidence_dir/discovered-tests.txt" || list_status=$?
+if [ "$list_status" -ne 0 ] && swiftpm_unverified_build "$package_path/.build"; then
+  # The build failed on the .build an unfinished step left: once more from clean outputs, as a cold slot would do.
+  echo "::warning title=Unfinished warm build::$package_path: the build failed on the .build an unfinished step left; building again from clean outputs"
+  swiftpm_purge_build_outputs "$package_path/.build"
+  swiftpm_binary_module_guard "$package_path" || exit $? # 75: fetch failed, no test ran
+  list_status=0
+  swift test list ${debug_info_args[@]+"${debug_info_args[@]}"} --package-path "$package_path" > "$evidence_dir/discovered-tests.txt" || list_status=$?
+fi
+[ "$list_status" -eq 0 ] || exit "$list_status"
 [ ! -d "$package_path/.build" ] || git rev-parse HEAD > "$built_ref_file" 2>/dev/null || true
+rm -f "$package_path/.build/.cmux-ci-unverified"
 phase filters
 python3 "$script_dir/require_swift_test_execution.py" \
   --list-filters "$evidence_dir/discovered-tests.txt" > "$evidence_dir/filters.txt"

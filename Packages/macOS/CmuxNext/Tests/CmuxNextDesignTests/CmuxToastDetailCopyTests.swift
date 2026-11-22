@@ -70,7 +70,7 @@ struct CmuxToastDetailCopyTests {
         #expect(detail.stringValue == "The machine is out of disk space.")
         #expect(code.stringValue == "Error code: fs.no_space")
         #expect(code.isSelectable && !code.isHidden)
-        #expect(code.themedToolTip == Self.noSpace, "the raw reason is gone")
+        #expect(code.accessibilityHelp() == Self.noSpace, "the raw reason is gone")
         #expect((code.font?.pointSize ?? 0) < (detail.font?.pointSize ?? 0), "the code is not secondary")
         #expect(button.accessibilityLabel() == CmuxToastStrings.hideDetails)
         #expect(view.frame.width >= CmuxToastView.expandedMinWidth - 0.5)
