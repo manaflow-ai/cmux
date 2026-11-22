@@ -392,6 +392,25 @@ if [ -n "$shard" ] || [ -n "$shard_count" ]; then
     ${split_widths:+"$split_widths"} > "$results/shard-files"
   mv "$results/shard-files" "$results/files"
 fi
+# CMUX_WEB_TEST_TIER (pull_request, push, nightly; unset or all: every file): the files this tier runs by
+# their test category (scripts/ci/test_lifecycle.py; cmuxterm-hq docs/design/test-lifecycle.md). After the
+# split, so every shard and webviews_pr_shards.py's pick still split the same list.
+if [ -n "${CMUX_WEB_TEST_TIER:-}" ] && [ "$CMUX_WEB_TEST_TIER" != all ]; then
+  lifecycle_py="$(dirname "$shards_py")/test_lifecycle.py"
+  if [ -f "$lifecycle_py" ]; then
+    python3 "$lifecycle_py" filter "$results/files" --tier "$CMUX_WEB_TEST_TIER" --root . ||
+      echo "warning: test_lifecycle.py filter failed; every file of this shard runs" >&2
+    if [ "$(tr -cd '\0' < "$results/files" | wc -c | tr -d ' ')" -eq 0 ]; then
+      echo "every file of this shard is a proof or sampled test this tier skips (CMUX_WEB_TEST_TIER=$CMUX_WEB_TEST_TIER)"
+      [ "${CMUX_WEB_TEST_LIST_ONLY:-}" = 1 ] && exit 0
+      : > "$results/summary"
+      if [ -n "${CMUX_WEB_TEST_RESULTS:-}" ]; then
+        python3 "$(dirname "$self")/webviews_test_results.py" "$results/summary" "$CMUX_WEB_TEST_RESULTS"
+      fi
+      exit 0
+    fi
+  fi
+fi
 count="$(tr -cd '\0' < "$results/files" | wc -c | tr -d ' ')"
 if [ "$count" -eq 0 ]; then
   echo "error: no webviews test files found under $PWD${shard:+ for shard $shard/$shard_count}" >&2

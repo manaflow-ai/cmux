@@ -804,6 +804,10 @@ jobs:
           # a fully retried job into its timeout before the uploads. The run
           # below sets both from these minutes. A file that fails alone too stays red.
           CMUX_WEB_TEST_JOB_MINUTES: *webview-shard-minutes
+          # Which test categories run (scripts/ci/test_lifecycle.py, cmuxterm-hq docs/design/test-lifecycle.md):
+          # a pull request runs a proof test only when it touches the test or its direct subject, a push runs
+          # none, and the nightly sample runs the sampled tier. The full-ci label runs every file.
+          CMUX_WEB_TEST_TIER: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') && 'all' || github.event_name == 'pull_request' && 'pull_request' || (github.event_name == 'push' || github.event.inputs.tick == 'true') && 'push' || 'all' }}
           # Keep jsdom and browser workers below the 16-vCPU saturation point. The Session Info
           # test set grew enough that twelve plain workers starved each other and timed out.
           CMUX_WEB_TEST_JOBS: "8"

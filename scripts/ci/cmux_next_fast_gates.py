@@ -330,6 +330,8 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
         ("prepush gate", [py, "-I", "scripts/cmux-next/prepush-gate.py", "--base", base, "--head", merge, "--advisory"]),
         ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree)]),
         ("webviews checks", [py, "scripts/ci/fast_gate_webviews_checks.py", "--base", base] if checks else None),
+        # A new test file names its category (proof, guard, contract): cmuxterm-hq docs/design/test-lifecycle.md.
+        ("test categories", [py, "scripts/ci/test_lifecycle.py", "lint", "--base", base, "--head", merge]),
     ]
 
 
