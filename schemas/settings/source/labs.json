@@ -156,6 +156,30 @@
           ]
         },
         {
+          "key": "labs.pauseAgentMachines",
+          "note": "Mac pause/resume experiment (plans/mac-pause-resume/DESIGN.md): new nonpersistent Cloud agent machines opt into the existing 15-minute idle pause and resume when work arrives. Off by default; existing machines and persistent machines are unchanged.",
+          "title": {
+            "key": "settings.labs.pauseAgentMachines",
+            "text": "Pause Agent Machines"
+          },
+          "help": {
+            "key": "settings.labs.pauseAgentMachines.help",
+            "text": "Pause a new agent machine after 15 idle minutes; it resumes when work arrives."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "experiment",
+            "pause",
+            "resume",
+            "agent",
+            "machine",
+            "idle",
+            "vm"
+          ]
+        },
+        {
           "key": "customize.fromTheApp",
           "name": "customizeFromTheApp",
           "note": "Opt-in Customize surfaces in the window: holding Option over a big part shows the Customize Inspector (its settings, theme colors, Change This… and Reset), and the right-click menus of those parts end with Customize…. Off by default; off hides both, and nothing else changes. Leo 2026-11-15 (ask-9634dbcdac): opt-in UI needs a way back, which is turning this off.",
