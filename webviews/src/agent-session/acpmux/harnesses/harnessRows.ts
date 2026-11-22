@@ -2,7 +2,7 @@
 // found on this Mac, each with its state here. The installed ones first, then the rest, each in
 // the catalog's order: a sign-in check that answers later changes a row's state, never its place.
 import { type HarnessHealth, needsLogin } from "../harnessHealthNoticeModel";
-import type { AcpmuxSnapshot } from "../model";
+import type { AcpmuxInstallPlan, AcpmuxSnapshot } from "../model";
 import type { PickerCatalog } from "../modelCatalogData";
 import { withNetworkRetry } from "./installRetry";
 
@@ -38,6 +38,21 @@ export const INSTALL_COMMANDS: Readonly<Record<string, string>> = {
   opencode: npmOrNative("opencode-ai", "curl -fsSL https://opencode.ai/install | bash", "https://opencode.ai"),
   gemini: npmOrNative("@google/gemini-cli", "brew install gemini-cli", "https://registry.npmjs.org"),
 };
+
+/// A not-installed row's Install and its words, from acpmux's plan for the target machine
+/// (`install_route.rs`): the route it chose runs in place; no route ready shows the first missing
+/// prerequisite's fix (Install then opens the setup page); a CLI already there (off PATH) is never
+/// installed over. An acpmux without plans keeps the page's own npm-else-native command.
+export function installRoute(
+  plan: AcpmuxInstallPlan | undefined,
+  harness: string,
+): Pick<HarnessRow, "install" | "detail"> {
+  if (!plan) return INSTALL_COMMANDS[harness] ? { install: INSTALL_COMMANDS[harness] } : {};
+  if (plan.existing) return { detail: plan.existing.path };
+  if (plan.command)
+    return { install: withNetworkRetry(plan.command, plan.probeUrl ? { probeUrl: plan.probeUrl } : {}) };
+  return plan.blocked ? { detail: plan.blocked.action } : {};
+}
 
 export type HarnessRow = {
   /** The id acpmux runs it under (`chat.new`'s harness, `harness.health`'s id). */
@@ -121,9 +136,11 @@ export function harnessRows(
         mark: entry.brand ?? harness,
         status,
         ...(status === "unavailable" && entry.unavailable ? { detail: entry.unavailable } : {}),
+        ...(status === "notInstalled"
+          ? installRoute(acpmux.find((candidate) => candidate.id === harness)?.install, harness)
+          : {}),
         ...(login ? { login } : {}),
         ...(entry.docsUrl ? { docsUrl: entry.docsUrl } : {}),
-        ...(INSTALL_COMMANDS[harness] ? { install: INSTALL_COMMANDS[harness] } : {}),
       };
     });
   // Group by installation, not asynchronously resolved health, so a check never moves a row.

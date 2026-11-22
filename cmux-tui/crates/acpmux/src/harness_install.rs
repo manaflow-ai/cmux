@@ -41,7 +41,12 @@ pub fn agent(id: &str) -> Result<(&'static str, &'static str)> {
 /// Runs `ID`'s installer, reporting each step through `step`, and answers the result line.
 pub async fn install(id: &str, mut step: impl FnMut(&str, &str, &str)) -> Result<Value> {
     let (name, page) = agent(id)?;
-    let fail = |what: String| anyhow!("{name} did not install: {what}. Install it from {page}");
+    use crate::harness_health::install_route::{Phase, classify_failure};
+    // A failure names its phase and the one action that fixes its cause (`install_route`).
+    let fail = |phase: Phase, what: String| {
+        let recovery = classify_failure(phase, &what, page);
+        anyhow!("{name} did not install ({phase:?}): {what}. {}", recovery.action)
+    };
     let result = match id {
         "claude" => {
             if let Some(path) = claude_path() {
@@ -53,19 +58,23 @@ pub async fn install(id: &str, mut step: impl FnMut(&str, &str, &str)) -> Result
                 return Ok(result_line(id, &path));
             }
             step("download", "running", CLAUDE_INSTALLER);
-            let script = fetch(CLAUDE_INSTALLER).await.map_err(|e| fail(format!("{e:#}")))?;
+            let script = fetch(CLAUDE_INSTALLER)
+                .await
+                .map_err(|e| fail(Phase::Download, format!("{e:#}")))?;
             step("download", "done", &format!("{} bytes", script.len()));
             step("install", "running", "the official installer");
-            run_installer(&script).await.map_err(|e| fail(format!("{e:#}")))?;
-            let path = claude_path()
-                .ok_or_else(|| fail("the installer finished but no claude was found".into()))?;
+            run_installer(&script).await.map_err(|e| fail(Phase::Install, format!("{e:#}")))?;
+            let path = claude_path().ok_or_else(|| {
+                fail(Phase::Verify, "the installer finished but no claude was found".into())
+            })?;
             step("install", "done", &path.display().to_string());
             result_line(id, &path)
         }
         "codex" => {
             step("download", "running", "the pinned official Codex release");
-            let ready =
-                crate::managed_codex::install().await.map_err(|e| fail(format!("{e:#}")))?;
+            let ready = crate::managed_codex::install()
+                .await
+                .map_err(|e| fail(Phase::Install, format!("{e:#}")))?;
             step("install", "done", ready.get("path").and_then(Value::as_str).unwrap_or_default());
             result_line(id, &crate::managed_codex::managed_path())
         }

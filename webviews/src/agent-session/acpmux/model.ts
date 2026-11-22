@@ -1547,6 +1547,10 @@ export type AcpmuxSnapshot = {
     topModels?: string[];
     /** The configured harness login command, when its profile declares one. */
     auth?: { login?: string };
+    /** `_acpmux/harnesses` `install`: how its CLI installs on the target machine, decided by acpmux
+     * (`harness_health/install_route.rs`). `command` is the route Install runs; absent when it is
+     * installed already (`existing`) or when no route is ready (`blocked`: the fix to show). */
+    install?: AcpmuxInstallPlan;
     unavailable?: string;
     /** `unavailable` is only a failed model probe (a timeout, a rate limit): the harness may run. */
     probeFailed?: boolean;
@@ -4333,4 +4337,13 @@ export function paneHeader(
 
 /** Where acpmux's start model or effort comes from: `saved` (acpmux defaults or the person's
  * pick), `profile` (the harness profile's own), `catalog` (the model catalog's default). */
+/** acpmux's install plan for a harness CLI on the target machine (`install_route.rs` `InstallPlan`). */
+export type AcpmuxInstallPlan = {
+  route?: string;
+  command?: string;
+  probeUrl?: string;
+  existing?: { channel: string; path: string };
+  blocked?: { phase: string; cause: string; action: string };
+};
+
 export type StartSource = "saved" | "profile" | "catalog";

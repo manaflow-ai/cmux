@@ -13,6 +13,7 @@ mod agent_files;
 pub mod auto;
 pub mod channel;
 mod codex_provider;
+pub mod install_route;
 pub(crate) mod inventory;
 pub(crate) mod inventory_feed;
 mod inventory_refresh;

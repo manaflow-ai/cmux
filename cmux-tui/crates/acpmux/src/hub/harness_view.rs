@@ -12,6 +12,17 @@ impl Hub {
     pub async fn harnesses_view(&self) -> Value {
         // Before the config lock: the table reads it with `try_read`.
         let web_modes = self.web_modes();
+        // How each known agent CLI would install on this machine (`install_route`): read off the
+        // config lock, on a blocking thread (a few `stat`s and one `statvfs` of the home).
+        let install_plans = tokio::task::spawn_blocking(|| {
+            let home = dirs::home_dir().unwrap_or_default();
+            crate::harness_health::install_route::plans_here(
+                std::env::var_os("PATH").as_deref(),
+                &home,
+            )
+        })
+        .await
+        .unwrap_or_default();
         let cfg = self.config.read().await;
         let mut agents = serde_json::Map::new();
         for (name, p) in &cfg.harnesses {
@@ -42,6 +53,10 @@ impl Hub {
                 }
                 if let Some(r) = cfg.unavailable.get(name) {
                     o.insert("unavailable".into(), json!(r));
+                }
+                // Its install routes here, and the one Install runs (none when it is installed).
+                if let Some(plan) = install_plans.iter().find(|plan| plan.id == *name) {
+                    o.insert("install".into(), json!(plan));
                 }
                 if let Some(r) = self.probe_errors.lock().unwrap().get(name) {
                     o.insert("probeError".into(), json!(r));

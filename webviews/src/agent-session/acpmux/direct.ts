@@ -29,6 +29,7 @@ import { answeredBy, promptAuthor, queuedAuthor, type Participant } from "./mult
 import type {
   AcpmuxActivity,
   AcpmuxFileDiff,
+  AcpmuxInstallPlan,
   AcpmuxLocation,
   AcpmuxPermission,
   AcpmuxPermissionScope,
@@ -18254,6 +18255,31 @@ function harnessStart(value: unknown): AcpmuxSnapshot["catalog"][number]["start"
   return start.model || start.effort ? start : undefined;
 }
 
+/// acpmux's install plan (`install_route.rs`): only the fields the Harnesses page renders.
+function installPlan(raw: any): AcpmuxInstallPlan | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
+  const existing =
+    raw.existing && text(raw.existing.path)
+      ? { channel: text(raw.existing.channel) ?? "standalone", path: text(raw.existing.path)! }
+      : undefined;
+  const blocked =
+    raw.blocked && text(raw.blocked.action)
+      ? {
+          phase: text(raw.blocked.phase) ?? "prerequisites",
+          cause: text(raw.blocked.cause) ?? "other",
+          action: text(raw.blocked.action)!,
+        }
+      : undefined;
+  return {
+    ...(text(raw.route) ? { route: text(raw.route) } : {}),
+    ...(text(raw.command) ? { command: text(raw.command) } : {}),
+    ...(text(raw.probeUrl) ? { probeUrl: text(raw.probeUrl) } : {}),
+    ...(existing ? { existing } : {}),
+    ...(blocked ? { blocked } : {}),
+  };
+}
+
 export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
   const harnesses = value?.harnesses ?? value?.items ?? value ?? [];
   const entries: any[] = Array.isArray(harnesses) ? harnesses : harnessEntries(harnesses, value?.defaultHarness);
@@ -18304,6 +18330,7 @@ function catalogEntry(harness: any): AcpmuxSnapshot["catalog"][number] {
     ...(typeof harness.auth?.login === "string" && harness.auth.login.trim()
       ? { auth: { login: harness.auth.login.trim() } }
       : {}),
+    ...(installPlan(harness.install) ? { install: installPlan(harness.install) } : {}),
     // Why acpmux will not start it, when it says: its launcher check (`unavailable`), else its
     // failed model probe (`probeError`).
     ...(harnessRefusal(harness) ? { unavailable: harnessRefusal(harness) } : {}),
