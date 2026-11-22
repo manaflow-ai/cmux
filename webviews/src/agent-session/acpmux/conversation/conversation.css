@@ -7421,8 +7421,11 @@ a.cv-sha:focus-visible {
   syntax: "*";
   inherits: false;
 }
+/* The top band eases (smoothstep at 9 stops) and is 24px: a linear 18px band ended in a line under the
+   header (Leo, 2026-11-22: "there's simultaneously a fade AND a hard break ideally lessen the hard
+   break"). */
 .acpmux-scroll[data-fade-top] {
-  --acpmux-fade-top: 18px;
+  --acpmux-fade-top: 24px;
 }
 /* No soft edge above the composer: rows keep full ink down to the stack's top and stop there, as
    the Codex app's do under its composer (Lucas, 2026-11-17: "remove the fade and just make it white
@@ -7460,7 +7463,14 @@ a.cv-sha:focus-visible {
   --acpmux-view-mask: linear-gradient(
     to bottom,
     transparent var(--acpmux-view-top, 0px),
-    #000 calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach)),
+    rgb(0 0 0 / 0.043) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.125),
+    rgb(0 0 0 / 0.156) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.25),
+    rgb(0 0 0 / 0.316) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.375),
+    rgb(0 0 0 / 0.5) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.5),
+    rgb(0 0 0 / 0.684) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.625),
+    rgb(0 0 0 / 0.844) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.75),
+    rgb(0 0 0 / 0.957) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.875),
+    #000 calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 1),
     #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px) * var(--acpmux-fade-bottom-reach)),
     transparent var(--acpmux-view-foot) var(--acpmux-dock-holes,)
   );
