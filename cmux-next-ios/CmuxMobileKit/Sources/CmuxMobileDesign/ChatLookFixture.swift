@@ -24,8 +24,11 @@ extension CmuxMobileMacTheme {
     @MainActor
     public func applyLaunchFixture(arguments: [String] = ProcessInfo.processInfo.arguments) {
         guard let index = arguments.firstIndex(of: "-cmux-mobile-mac-appearance"), index + 1 < arguments.count else { return }
-        matchesMac = true
-        switch arguments[index + 1] {
+        // "-unmatched" scenes carry the same Mac frame with Match Mac theme off: the app stays stock.
+        var scene = arguments[index + 1]
+        matchesMac = !scene.hasSuffix("-unmatched")
+        if !matchesMac { scene = String(scene.dropLast("-unmatched".count)) }
+        switch scene {
         case "default":
             apply(CmuxMobileMacAppearance(theme: Self.fixtureGhostty))
         case "mocha":
