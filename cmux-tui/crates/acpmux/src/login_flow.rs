@@ -21,6 +21,8 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
+/// The `initialize` feature saying this daemon runs `_acpmux/login_flow`.
+pub const FEATURE: &str = "loginFlow";
 /// How long a flow waits for its sign-in before it is `expired` (the agent sign-in card's).
 pub const EXPIRY_MS: u64 = crate::agent_login::EXPIRY.as_millis() as u64;
 /// Ended flows kept for a `get` after they end, at most.

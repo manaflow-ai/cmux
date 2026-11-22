@@ -14006,6 +14006,17 @@ export class AcpmuxDirectClient {
       throw error;
     }
   }
+  /// Setup's observed provider sign-in (`_acpmux/login_flow`, loginFlow.ts). Undefined when this
+  /// daemon has none or the pane's host does not relay it: the caller keeps the plain terminal login.
+  async loginFlow(params: Record<string, unknown>): Promise<unknown> {
+    if (!this.features.has("loginFlow")) return undefined;
+    try {
+      return await this.request("_acpmux/login_flow", params);
+    } catch (error) {
+      if (error instanceof AcpmuxRpcError && refusedByHost(error)) return undefined;
+      throw error;
+    }
+  }
   /// The routes acpmux has (`_acpmux/route/list`) with `sessionId`'s active one: the composer's
   /// Account menu. Each route says whether it `serves` the session's harness family.
   async routes(sessionId: string): Promise<unknown> {
