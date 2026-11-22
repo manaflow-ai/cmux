@@ -114,20 +114,33 @@ public enum FaviconKeeping {
         return "\(scheme)://\(host)" + (page.port.map { ":\($0)" } ?? "")
     }
 
-    /// ``face(fresh:origin:keeper:profile:persist:)`` for the page at `page`.
+    /// ``face(fresh:origin:keeper:profile:persist:keeps:)`` for the page at `page`.
     @MainActor
-    public static func face(fresh: TabImage?, page: URL?, keeper: OriginFaviconKeeper, profile: BrowserProfileID, persist: Bool) -> TabImage? {
-        face(fresh: fresh, origin: origin(of: page), keeper: keeper, profile: profile, persist: persist)
+    public static func face(fresh: TabImage?, page: URL?, keeper: OriginFaviconKeeper, profile: BrowserProfileID, persist: Bool,
+                            keeps: Bool = true) -> TabImage? {
+        face(fresh: fresh, origin: origin(of: page), keeper: keeper, profile: profile, persist: persist, keeps: keeps)
     }
 
+    /// `keeps` off while the page's address and its icon may belong to different documents (a navigation not committed
+    /// yet: the address is the new site's, the icon still the old one's), so one origin's icon is never kept for another.
     @MainActor
     public static func face(fresh: TabImage?, origin: String?, keeper: OriginFaviconKeeper, profile: BrowserProfileID,
-                            persist: Bool) -> TabImage? {
+                            persist: Bool, keeps: Bool = true) -> TabImage? {
         guard let origin else { return fresh }
         if let fresh {
-            keeper.keep(fresh, origin: origin, profile: profile, persist: persist)
+            if keeps { keeper.keep(fresh, origin: origin, profile: profile, persist: persist) }
             return fresh
         }
         return keeper.kept(origin: origin, profile: profile)
+    }
+
+    /// Whether `tab`'s address and icon belong to one committed document (the icon may be kept for its origin).
+    @MainActor
+    public static func keeps(_ tab: (any BrowserTab)?) -> Bool {
+        guard let tab else { return true }
+        switch tab.state.phase {
+        case .committed, .finished: return true
+        case .idle, .provisional, .failed: return false
+        }
     }
 }

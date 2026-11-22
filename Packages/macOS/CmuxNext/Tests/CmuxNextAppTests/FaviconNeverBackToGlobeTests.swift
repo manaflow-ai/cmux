@@ -92,6 +92,17 @@ import Testing
         #expect(Self.face(nil, nil, keeper) == nil, "a page with no origin has nothing to keep")
     }
 
+    /// A navigation from GitHub to another site before it commits: the address is the new site's, the icon GitHub's.
+    @Test func anUncommittedNavigationNeverKeepsTheOldSitesIconForTheNewOne() {
+        let keeper = OriginFaviconKeeper(directory: nil)
+        let githubIcon = Self.icon()
+        _ = Self.face(githubIcon, Self.github, keeper)
+        let shown = FaviconKeeping.face(fresh: githubIcon, origin: "https://example.org", keeper: keeper, profile: .default, persist: true, keeps: false)
+        #expect(shown === githubIcon, "the old page is still on screen")
+        #expect(Self.face(nil, "https://example.org", keeper) == nil, "example.org never gets GitHub's icon")
+        #expect(Self.face(nil, Self.github, keeper) === githubIcon)
+    }
+
     @Test func profilesDoNotShareKeptIcons() {
         let keeper = OriginFaviconKeeper(directory: nil)
         _ = Self.face(Self.icon(), Self.github, keeper)

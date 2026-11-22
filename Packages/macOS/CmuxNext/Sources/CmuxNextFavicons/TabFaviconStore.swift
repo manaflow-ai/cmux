@@ -80,7 +80,8 @@ public final class TabFaviconStore {
     public func face(for address: String?, profile: BrowserProfileID, tab: (any BrowserTab)? = nil, page: URL? = nil,
                      origin: String? = nil, persist: Bool = true, fetching: Bool = true) -> TabImage? {
         let fresh = fetching ? image(for: address, profile: profile, tab: tab) : address.flatMap { cachedImage(for: $0, profile: profile) }
-        return FaviconKeeping.face(fresh: fresh, origin: origin ?? FaviconKeeping.origin(of: page), keeper: kept, profile: profile, persist: persist)
+        return FaviconKeeping.face(fresh: fresh, origin: origin ?? FaviconKeeping.origin(of: page), keeper: kept, profile: profile, persist: persist,
+                                   keeps: FaviconKeeping.keeps(tab))
     }
 
     /// The icon at `address` for a page of `profile`, or nil while it loads
