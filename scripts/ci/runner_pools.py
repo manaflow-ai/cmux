@@ -201,6 +201,11 @@ def owned_gcp(label: object) -> bool:
     return isinstance(label, str) and label in OWNED_GCP_LINUX
 
 
+def owned_x64_lead(label: object) -> bool:
+    """An owned GCP x64 label a pool may lead with: the persistent pool's (owned_gcp()) or the one-job secret label."""
+    return owned_gcp(label) or (isinstance(label, str) and label in OWNED_GCP_JIT_LINUX)
+
+
 def owned_lead(label: object) -> bool:
     """An owned Linux label a pool may lead with: the Mac fleet's VMs (owned_ephemeral()) or the GCP pool (owned_gcp())."""
     return owned_ephemeral(label) or owned_gcp(label)
@@ -252,9 +257,10 @@ def load_pools(path: Path = RUNNERS, env: Mapping[str, str] | None = None) -> di
     for name, spec in declared.items():
         listed = spec.get("members")
         if HOSTED_OVERRIDE_POOL.match(name) and isinstance(listed, list) and listed \
-                and all(isinstance(m, str) and (X64_UBUNTU.match(m) or owned_gcp(m) and m == listed[0]) for m in listed):
-            # An owned GCP lead (owned_gcp()) stays first: the override replaces only the Blacksmith overflow.
-            lead = listed[:1] if owned_gcp(listed[0]) else []
+                and all(isinstance(m, str) and (X64_UBUNTU.match(m) or owned_x64_lead(m) and m == listed[0])
+                        for m in listed):
+            # An owned GCP lead (owned_x64_lead()) stays first: the override replaces only the Blacksmith overflow.
+            lead = listed[:1] if owned_x64_lead(listed[0]) else []
             declared[name] = {**spec, "members": [*lead, label, *listed[len(lead):]], "hosted": True,
                               "hosted_why": f"{HOSTED_OVERRIDE} is set: Blacksmith Linux pause override"}
     return declared

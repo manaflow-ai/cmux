@@ -776,7 +776,7 @@ class HostedOverride(unittest.TestCase):
         for name in self.X64:
             listed = declared[name]["members"]
             # An owned GCP lead stays first: the override replaces only the Blacksmith overflow.
-            lead = listed[:1] if runner_pools.owned_gcp(listed[0]) else []
+            lead = listed[:1] if runner_pools.owned_x64_lead(listed[0]) else []
             self.assertEqual(pools[name]["members"], [*lead, "ubuntu-24.04", *listed[len(lead):]])
         for name in set(declared) - set(self.X64):
             self.assertEqual(pools[name], declared[name], name)
@@ -791,7 +791,7 @@ class HostedOverride(unittest.TestCase):
         written = json.loads(raw)
         declared = runner_pools.load_pools(env={})
         self.assertEqual({k: written[k] for k in self.X64},
-                         {k: "cmux-fleet-linux-x64" if runner_pools.owned_gcp(declared[k]["members"][0])
+                         {k: declared[k]["members"][0] if runner_pools.owned_x64_lead(declared[k]["members"][0])
                           else "ubuntu-24.04" for k in self.X64})
         self.assertEqual({k: v for k, v in written.items() if k not in self.X64 and not k.startswith("_")},
                          {k: v for k, v in before.items() if k not in self.X64 and not k.startswith("_")})
