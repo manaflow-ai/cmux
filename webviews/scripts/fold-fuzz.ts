@@ -131,7 +131,7 @@ export function analyze(run: FuzzRun, spec?: Pick<FuzzSpec, "viewport">) {
         heights.set(row[0], list);
       }
     for (const [key, list] of heights) {
-      const lowAfter: number[] = new Array(list.length);
+      const lowAfter: number[] = Array.from({ length: list.length }, () => 0);
       for (let index = list.length - 1, low = Infinity; index >= 0; index -= 1)
         lowAfter[index] = low = Math.min(low, list[index]!.h);
       let lowBefore = Infinity;
@@ -330,7 +330,9 @@ async function fuzz(
     if (file && resume && !again && existsSync(file))
       return analyze(JSON.parse(readFileSync(file, "utf8")), fuzzSpec(seed));
     const run = await playSeed(await pageOf(slot), look, seed).catch(async (error: unknown) => {
-      console.error(`seed ${seed} ${look}: ${error instanceof Error ? error.message.split("\n")[0] : error}; again`);
+      console.error(
+        `seed ${seed} ${look}: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}; again`,
+      );
       // A fresh page: the old one may be the trouble.
       await slot.page?.close().catch(() => {});
       slot.page = undefined;
@@ -585,7 +587,7 @@ if (import.meta.main) {
           .catch(record)
           .catch((error: unknown) => {
             console.error(
-              `gallery: seed ${r.seed} ${look}: ${error instanceof Error ? error.message.split("\n")[0] : error}`,
+              `gallery: seed ${r.seed} ${look}: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`,
             );
             return undefined;
           });
