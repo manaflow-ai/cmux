@@ -25,7 +25,8 @@ const STATE_VERSION: u32 = 1;
 pub const AUTH_STATE_VERSION: u32 = 2;
 const MAX_INVITATION_TTL: Duration = Duration::from_secs(5 * 60);
 const MAX_LIVE_INVITATIONS: usize = 256;
-const APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+/// How long a daemon holds an invitation's enrollment for a person's approval.
+pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 /// Device-id prefix of a grant issued by a trusted-network listener. Such a
 /// connection is admitted by the network it arrived on; it is never revoked by
 /// the daemon's device list or its carrier policy, only by leaving the network.

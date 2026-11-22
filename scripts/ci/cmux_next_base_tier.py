@@ -10,12 +10,18 @@ started by every push, dispatches one `cmux-next base tier · <tip>` run of cmux
 cmux-next.yml's push paths name changed since the last base tier run. Its tip contains every landing
 before it, so each landing gets a base-tier run within WINDOW of landing.
 
+The checks job (god files, concurrency, crash safety, l10n) moved here too on 2026-11-22: about 9
+runner-minutes a push (workflow note-26). A base tier run checks every commit since the previous base
+tier run's tip, which `previous` prints, so a red still names its commit range.
+
 Never touched: the Release compile and its fleet fast check (nightly-next's input), the DEV landing
 compile, the DEV daily, the fast tier and every nightly, DEV or promote build. They still run per push.
 
     cmux_next_base_tier.py defer ROUTE_OUTPUT [--keep TIER]
                                                    path_route on a feat-cmux-next push: the router's
                                                    key=value outputs with the base tier's tiers off
+    cmux_next_base_tier.py previous --tip SHA      the checks job in a base tier run: the sha the
+                                                   base tier run before TIP's tested, or nothing
     cmux_next_base_tier.py kick [--window S]       cmux-next-base-tier-kick.yml: wait until the window
                                                    opens, then dispatch the base tier at the tip if due
 
@@ -75,6 +81,8 @@ TIERS = ("daemon", "scheme", "generated")
 # (cmux-next.yml swift-canary, a Mac job per merge). Leo, 2026-11-21: "whatever we need to cut, we cut."
 TIP_SUITE_COVERED = {"swift_canary": "false", "swift_canary_targets": ""}
 WINDOW_S = 15 * 60
+# How long `previous` (the checks job's "Previous checked tip" step) may spend on its one listing.
+PREVIOUS_S = 60
 # After a dispatch: long enough that the next kick's listing shows the new run.
 SETTLE_S = 20
 # What a dispatch needs before the job's deadline: its POST, which the client ends at REQUEST_TIMEOUT_S
@@ -136,7 +144,7 @@ def push_paths(workflow_text: str) -> list[str]:
             in_paths = line.strip() == "paths:"
             continue
         if in_paths and line.strip().startswith("- "):
-            out.append(line.strip()[2:].strip().strip("'\""))
+            out.append(re.split(r"\s+#", line.strip()[2:], maxsplit=1)[0].strip().strip("'\""))
     return out
 
 
@@ -292,6 +300,14 @@ def newest(firsts: dict[str, float]) -> tuple[str | None, float | None]:
     return max(firsts.items(), key=lambda item: item[1]) if firsts else (None, None)
 
 
+def previous(firsts: dict[str, float], tip: str) -> str | None:
+    """The sha of the newest base tier run created before TIP's first one (TIP not listed: the newest other),
+    which is what TIP's base tier checks compare against (cmux-next.yml checks, "Previous checked tip")."""
+    before = firsts.get(tip, float("inf"))
+    earlier = {sha: at for sha, at in firsts.items() if sha != tip and at < before}
+    return newest(earlier)[0]
+
+
 def branch_tip(api: Api, repo: str) -> str:
     tip = (api.get(f"repos/{repo}/git/ref/heads/{BRANCH}").get("object") or {}).get("sha") or ""
     if not SHA.match(tip):
@@ -441,6 +457,9 @@ def main(argv: list[str] | None = None) -> int:
     defer_cmd.add_argument("route_output", type=Path)
     defer_cmd.add_argument("--keep", action="append", choices=TIERS, default=[],
                            help="a tier the push still runs (scheme: it is the DEV landing build)")
+    previous_cmd = sub.add_parser("previous", help="print the tip the previous base tier run tested")
+    previous_cmd.add_argument("--tip", required=True)
+    previous_cmd.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", REPO))
     kick_cmd = sub.add_parser("kick")
     kick_cmd.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", REPO))
     kick_cmd.add_argument("--window", type=float, default=float(os.environ.get("BASE_TIER_WINDOW_S") or WINDOW_S))
@@ -454,6 +473,14 @@ def main(argv: list[str] | None = None) -> int:
     if not token:
         print("error: GH_TOKEN is not set", file=sys.stderr)
         return 2
+    if args.command == "previous":
+        try:
+            sha = previous(base_tier_runs(QuotaGitHub(token, deadline=Deadline(PREVIOUS_S)), args.repo), args.tip)
+        except Exception as error:  # noqa: BLE001  one line, no traceback: the caller runs without a range
+            print(f"error: could not read the previous base tier run: {error}", file=sys.stderr)
+            return 1
+        print(sha or "")
+        return 0
     patterns = push_paths(args.workflow_file.read_text(encoding="utf-8")) if args.workflow_file.is_file() else []
     # The job's one deadline, from when this process started; every wait below reads what is left of it.
     deadline = Deadline(JOB_TIMEOUT_S - MARGIN_S - (time.monotonic() - STARTED))

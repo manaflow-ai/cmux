@@ -146,6 +146,10 @@ UNWIRED: set[str] = {
     # scripts/ci/fast-check-inputs.json); run it by hand when fast_check_route.py, that map or a routed workflow
     # changes. Exit: as below.
     "tests/test_ci_fast_check_route.py",
+    # lane = "manual": kept manual under the 2026-10-23 no-new-CI rule (lifted 2026-11-18). It reads every
+    # workflow only as data (each pull-request job's declared inputs via scripts/ci/job_inputs.py); run it by hand
+    # when job_inputs.py, job-inputs-always.json or a router's map changes. Exit: as below.
+    "tests/test_ci_job_inputs.py",
     # lane = "manual": kept manual under the 2026-10-23 no-new-CI rule (lifted 2026-11-18). Both read the
     # workflows only as data (the receipt jobs' verifier calls; each pull-request job's same-tree reuse or
     # denial in scripts/ci/same_tree_reuse.json); run them by hand when ci_receipt.py, same_tree_reuse.py,
