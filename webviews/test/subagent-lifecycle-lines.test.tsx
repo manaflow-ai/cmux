@@ -193,9 +193,13 @@ test("late kind and prompt metadata update a cached start label", () => {
     { id: "chat/toolu_review", name: "chat/toolu_alias", parent: null, state: "running" },
   ]);
   const cache: DoneLineCache = new Map();
+  // The agent started after the group's first two, so it has a start line of its own.
   const read = () =>
-    withSubagentLines([...record.groups.values()], cache).find((entry) => entry.kind === SUBAGENT_STARTED)!;
+    withSubagentLines([...record.groups.values()], cache).find(
+      (entry) => entry.kind === SUBAGENT_STARTED && entry.subagents?.some((agent) => agent.id === "chat/toolu_review"),
+    )!;
   const first = read();
+  expect(first.subagents).toHaveLength(1);
   record.feed("subagent_state_update", [{ id: "chat/toolu_review", kind: "Explore" }]);
   const second = read();
   expect(second).not.toBe(first);

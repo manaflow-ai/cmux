@@ -5,10 +5,11 @@
 //
 // After each painted frame (support/paintedFrames.ts) it reads every row the transcript draws: the
 // row's own size, and each part of it that carries a class, as x, y, width and height from the
-// row's corner. A part is named by its row's id and its path of class names, so a part React draws
-// again is the same part. The first frame a part is read on is its first painted frame; any later
-// frame where its box differs from that one by more than half a pixel is a shift, counted with the
-// pixels, the frames, and the record that was last sent before it (`mark`).
+// row's corner, and the room between the row and the row right above it. A part is named by its
+// row's id and its path of class names, so a part React draws again is the same part. The first
+// frame a part is read on is its first painted frame; any later frame where its box differs from
+// that one by more than half a pixel is a shift, counted with the pixels, the frames, and the
+// record that was last sent before it (`mark`).
 import type { Page } from "playwright";
 
 export type RectShift = {
@@ -73,11 +74,18 @@ export async function startFirstFrameRects(page: Page, rowSelector: string, igno
       };
       const read = (now: number) => {
         frames += 1;
+        let above: { id: string; at: number; bottom: number } | undefined;
         for (const row of document.querySelectorAll<HTMLElement>(rowSelector)) {
           const id = row.dataset.rowId ?? "";
           rowIds.add(id);
           const box = row.getBoundingClientRect();
           const parts: [string, number[]][] = [["", [0, 0, round(box.width), round(box.height)]]];
+          // The room over the row, while the same row stays right above it: a row that is placed
+          // again moves against its neighbour though nothing inside it does.
+          const at = Number(row.getAttribute("aria-posinset"));
+          if (above && at === above.at + 1)
+            parts.push([`(room under ${above.id})`, [0, round(box.top - above.bottom), 0, 0]]);
+          above = { id, at, bottom: box.bottom };
           const walk = (element: Element, path: string, depth: number) => {
             for (const child of element.children) {
               if (child instanceof SVGElement && !(child instanceof SVGSVGElement)) continue;

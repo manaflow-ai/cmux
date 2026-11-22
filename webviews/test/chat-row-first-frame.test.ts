@@ -7,7 +7,8 @@
 // session recorded them (a background agent's `subagent_spawned`, its `Agent:` tool call 706 ms
 // later; three agents started 30 ms and 1 s apart; commands that start and end). The recorder
 // (support/firstFrameRects.ts) reads every painted frame, and no row or part of one may have another
-// box than on its first painted frame. Real Chromium against the pane's dev entry
+// box than on its first painted frame. Named apart: a running line's light band, the turn's live
+// line, and a run of commands, each of which changes by design. Real Chromium against the pane's dev entry
 // (support/papercutChat.ts). Locally:
 //   CMUX_BROWSER_TESTS=1 bun test test/chat-row-first-frame.test.ts
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -15,6 +16,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane, type PapercutStep } from "./support/papercutChat";
 import {
+  type RectReport,
   markFirstFrameRects,
   paintedFor,
   shiftLines,
@@ -123,6 +125,16 @@ await requireBrowserLane("chat-row-first-frame.test.ts", async () => {
   const LONG =
     "cd /Users/dev/.wt/checkouts/cmux/lane--chat-row-first-frame-size/webviews && set -o pipefail && bun test test/chat-row-first-frame.test.ts test/row-arrival-settle.test.ts 2>&1 | tail -40";
 
+  /// A running line's light band crosses its words on a loop (ShimmerText.tsx): paint, never layout.
+  /// A row's gap target is the unseen click area over the room under it (VirtualTranscript.tsx): it is as
+  /// tall as that room, which is the next row's to set when it arrives. The room itself is judged, as
+  /// the recorder's "room under" part of the row below.
+  const MOVES_BY_DESIGN = ".cv-shimmer__band, .cv-row-shimmer__band, .acpmux-row__gap";
+  /// The turn's live line under the last row says what runs now, so its words change with each record.
+  const LIVE_LINE = "thinking-live";
+  const outsideLiveLine = (report: RectReport) =>
+    shiftLines({ ...report, shifts: report.shifts.filter((shift) => shift.row !== LIVE_LINE) });
+
   let browser: Browser;
   beforeAll(async () => {
     browser = await chromium.launch({ headless: true });
@@ -138,7 +150,7 @@ await requireBrowserLane("chat-row-first-frame.test.ts", async () => {
     try {
       page = await pane.open({ width, height: 700 });
       await paintedFor(page, 1500);
-      await startFirstFrameRects(page, TRANSCRIPT_ROW);
+      await startFirstFrameRects(page, TRANSCRIPT_ROW, MOVES_BY_DESIGN);
       for (const [gapMs, name, [dir, kind, msg]] of steps) {
         if (gapMs > 0) await paintedFor(page, gapMs);
         await markFirstFrameRects(page, name);
@@ -175,7 +187,8 @@ await requireBrowserLane("chat-row-first-frame.test.ts", async () => {
       [300, "progress", progress(1, NAME)],
     ]);
     expect(report.rows).toBeGreaterThan(3);
-    expect(shiftLines(report)).toEqual([]);
+    expect(report.parts).toBeGreaterThan(50);
+    expect(outsideLiveLine(report)).toEqual([]);
   });
 
   test("agents started one after another never move the ones already shown", async () => {
@@ -192,18 +205,25 @@ await requireBrowserLane("chat-row-first-frame.test.ts", async () => {
         ],
         width,
       );
-      lines.push(...shiftLines(report));
+      lines.push(...outsideLiveLine(report));
     }
     expect(lines).toEqual([]);
   });
 
-  test("a command's row keeps its first frame when it starts and when it ends", async () => {
+  // A run of commands is one row that grows a line per command, and its head counts them, so the
+  // run's own row changes as commands join and end (the fold's design, conversation/ToolGroupRow.tsx).
+  // Every other row holds: nothing above the run is measured again or placed again.
+  test("commands that start and end move no row but their own run", async () => {
     const report = await play("commands", [
       [0, "long-starts", command("long1", LONG)],
       [400, "short-starts", command("short1", "git status")],
       [600, "long-ends", ended("long1")],
       [200, "short-ends", ended("short1")],
     ]);
-    expect(shiftLines(report)).toEqual([]);
+    const run = report.shifts.filter((shift) => shift.row.startsWith("activity-"));
+    console.log(`first-frame commands run: ${JSON.stringify(shiftTotals({ ...report, shifts: run }))}`);
+    expect(
+      outsideLiveLine({ ...report, shifts: report.shifts.filter((shift) => !shift.row.startsWith("activity-")) }),
+    ).toEqual([]);
   });
 });

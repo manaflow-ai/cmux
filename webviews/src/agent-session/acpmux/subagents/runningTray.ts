@@ -444,6 +444,8 @@ export function withSubagentLines(
   const reported = new Map<string, Subagent>();
   const cards = new Map<number, AcpmuxRow[]>();
   const made = new Set<string>();
+  // Each group's first run, read once with the runs after it.
+  const firstRuns = new Map<number, Subagent[] | undefined>();
   for (const index of groups) {
     const row = rows[index]!;
     // An agent a shell call started keeps its card where it started (AgentRunCard.tsx).
@@ -470,7 +472,9 @@ export function withSubagentLines(
       before.set(at, [...(before.get(at) ?? []), line]);
     }
     // The agents a later record started: their line goes under the rows that came before them.
-    for (const run of startedRuns(row, workflowCards).slice(1)) {
+    const runs = startedRuns(row, workflowCards);
+    firstRuns.set(index, runs[0]);
+    for (const run of runs.slice(1)) {
       let at = index + 1;
       while (at < rows.length && rows[at]!.at <= run[0]!.startedAt) at += 1;
       before.set(at, [...(before.get(at) ?? []), startedLine(row, run, false, cache, made)]);
@@ -482,7 +486,7 @@ export function withSubagentLines(
   for (const index of groups)
     if (!isRunGroup(rows[index]!))
       changed.set(index, () => {
-        const run = startedRuns(rows[index]!, workflowCards)[0];
+        const run = firstRuns.get(index);
         const line = run ? [startedLine(rows[index]!, run, true, cache, made)] : NO_ROWS;
         return [...line, ...(cards.get(index) ?? NO_ROWS)];
       });
