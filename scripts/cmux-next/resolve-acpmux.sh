@@ -43,15 +43,18 @@ if (cd "$repo" && "$repo/scripts/cmux-next/build-acpmux.sh" --check-build-allowe
 fi
 if [[ -x "$repo/scripts/cmux-next/pin-cmux-tui.sh" ]]; then
   if (cd "$repo" && CMUX_TUI_TREE_WAIT_SECONDS="${CMUX_TUI_TREE_WAIT_SECONDS:-0}" "$repo/scripts/cmux-next/pin-cmux-tui.sh" fetch-acpmux) >&2; then
-    if path="$(cached)"; then
+    # The fetch worked, so a miss now is build-acpmux.sh declining what it brought (an architecture the
+    # tree did not publish): show its reason instead of blaming the fetch (a RAM bench on a developer Mac at 7802ece0,
+    # 2026-11-22, a universal Release reload of a feat-cmux-next tree whose acpmux is arm64 only).
+    why="$(mktemp "${TMPDIR:-/tmp}/resolve-acpmux.XXXXXX")"
+    if path="$(cd "$repo" && "$repo/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path 2>"$why")"; then
+      rm -f "$why"
       echo "acpmux: the published acpmux of this checkout's cmux-tui tree $path" >&2
       printf '%s\n' "$path"
       exit 0
     fi
-    # The fetch worked but the cache did not take it: say why (build-acpmux.sh's own reason), not "could not be
-    # fetched" (air-blue, 2026-11-21: the fetched acpmux sat verified beside cmux-tui while this said it was never fetched).
-    why="$(cd "$repo" && "$repo/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path 2>&1 >/dev/null || true)"
-    echo "error: the published acpmux of this checkout's cmux-tui tree was fetched, but build-acpmux.sh did not take it into its cache: ${why:-it gave no reason}; set CMUX_NEXT_ACPMUX_BIN to the fetched file to go on" >&2
+    cat "$why" >&2; rm -f "$why"
+    echo "error: this checkout's cmux-tui tree acpmux was fetched, but build-acpmux.sh cannot use it for this build (above); set CMUX_NEXT_ACPMUX_BIN to bundle another" >&2
     exit 1
   fi
 fi

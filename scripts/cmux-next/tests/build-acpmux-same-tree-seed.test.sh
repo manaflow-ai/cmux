@@ -38,7 +38,7 @@ grep -q "source=same-tree" "$out.ref" || fail "ref: $(cat "$out.ref")"
 # An arch it lacks: not seeded, and the reason names both sides.
 rm -rf "$TMP/cache"
 if out="$(run env CMUX_NEXT_ACPMUX_ARCHS=x86_64)"; then fail "x86_64 seeded from an arm64 binary: $out"; fi
-grep -q "not using the same-tree acpmux .* it has architectures arm64, this build needs x86_64" "$TMP/err" \
+grep -q "the same-tree fetch has no x86_64 slice for this build (needs x86_64; fetched: .*acpmux (arm64))" "$TMP/err" \
   || fail "skip reason: $(cat "$TMP/err")"
 
 echo "build-acpmux-same-tree-seed.test.sh: ok"

@@ -66,7 +66,7 @@ grep -q "no published acpmux of its cmux-tui tree" "$TMP/err" || fail "failure r
 # never "could not be fetched".
 reset; touch "$repo/state/published" "$repo/state/not-taken"
 if out="$(resolve)"; then fail "an untaken fetch resolved to '$out'"; fi
-grep -q "was fetched, but build-acpmux.sh did not take it" "$TMP/err" || fail "untaken fetch reason: $(cat "$TMP/err")"
+grep -q "was fetched, but build-acpmux.sh cannot use it" "$TMP/err" || fail "untaken fetch reason: $(cat "$TMP/err")"
 grep -q "architectures x86_64" "$TMP/err" || fail "untaken fetch lost build-acpmux's reason: $(cat "$TMP/err")"
 ! grep -q "could not be fetched" "$TMP/err" || fail "untaken fetch blamed the fetch: $(cat "$TMP/err")"
 

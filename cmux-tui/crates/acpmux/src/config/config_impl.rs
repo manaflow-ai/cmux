@@ -340,7 +340,7 @@ impl Config {
     }
 
     /// Without a configured default, prefer Claude, then Codex, then another coding ACP harness.
-    /// Terminal and Chief harnesses are chosen only explicitly.
+    /// Terminal, Chief and UniiChat harnesses are chosen only explicitly.
     fn pick_auto_default(&mut self) {
         if self.default_harness.is_none() {
             self.auto_default = true;
