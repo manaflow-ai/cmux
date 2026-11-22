@@ -10228,6 +10228,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Pause a new agent machine after 15 idle minutes; it resumes when work arrives.</string>
+			<key>pfm_name</key>
+			<string>labs.pauseAgentMachines</string>
+			<key>pfm_title</key>
+			<string>Pause Agent Machines</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both.</string>
 			<key>pfm_name</key>
 			<string>customize.fromTheApp</string>
@@ -10300,11 +10312,35 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat.</string>
+			<key>pfm_name</key>
+			<string>experiments.toastsV2</string>
+			<key>pfm_title</key>
+			<string>Toasts v2</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Installed extensions can show a card under a finished tool call in agent chat.</string>
 			<key>pfm_name</key>
 			<string>experiments.chatWidgets</string>
 			<key>pfm_title</key>
 			<string>Extension Chat Widgets</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A Cloud preview can be published as an app with its own versions and a stable address, listed under Apps in the sidebar.</string>
+			<key>pfm_name</key>
+			<string>experiments.appsTier</string>
+			<key>pfm_title</key>
+			<string>Publish Previews as Apps</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

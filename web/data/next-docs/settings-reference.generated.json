@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 667,
+  "count": 670,
   "sections": [
     {
       "id": "general",
@@ -2404,14 +2404,9 @@
           "key": "agentPane.display.width",
           "title": "Chat Text Width",
           "help": "The widest the chat's column gets. On a wider pane the chat stays centered.",
-          "kind": "number",
+          "kind": "choice_or_number",
           "default": 800,
-          "group": "Agent Chat",
-          "range": {
-            "min": 480,
-            "max": 4000,
-            "unit": "points"
-          }
+          "group": "Agent Chat"
         },
         {
           "key": "app.uiScale",
@@ -7210,6 +7205,14 @@
           "group": "Experiments"
         },
         {
+          "key": "experiments.appsTier",
+          "title": "Publish Previews as Apps",
+          "help": "A Cloud preview can be published as an app with its own versions and a stable address, listed under Apps in the sidebar.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
           "key": "experiments.chatWidgets",
           "title": "Extension Chat Widgets",
           "help": "Installed extensions can show a card under a finished tool call in agent chat.",
@@ -7229,6 +7232,14 @@
           "key": "experiments.glassToolbarGroups",
           "title": "Glass Toolbar Groups",
           "help": "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.toastsV2",
+          "title": "Toasts v2",
+          "help": "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat.",
           "kind": "toggle",
           "default": false,
           "group": "Experiments"
@@ -7261,6 +7272,14 @@
           "key": "labs.machineJoin",
           "title": "Screen Sharing for Joined Machines",
           "help": "Shows Screen sharing and Control in Settings > Devices once this Mac joins.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.pauseAgentMachines",
+          "title": "Pause Agent Machines",
+          "help": "Pause a new agent machine after 15 idle minutes; it resumes when work arrives.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"

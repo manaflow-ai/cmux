@@ -3621,6 +3621,12 @@
       "title" : "Agent Badges: Running Beam",
       "type" : "boolean"
     },
+    "experiments.appsTier" : {
+      "default" : false,
+      "description" : "A Cloud preview can be published as an app with its own versions and a stable address, listed under Apps in the sidebar.",
+      "title" : "Publish Previews as Apps",
+      "type" : "boolean"
+    },
     "experiments.chatWidgets" : {
       "default" : false,
       "description" : "Installed extensions can show a card under a finished tool call in agent chat.",
@@ -3637,6 +3643,12 @@
       "default" : false,
       "description" : "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
       "title" : "Glass Toolbar Groups",
+      "type" : "boolean"
+    },
+    "experiments.toastsV2" : {
+      "default" : false,
+      "description" : "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat.",
+      "title" : "Toasts v2",
       "type" : "boolean"
     },
     "feed.agentPermissionPrompts" : {
@@ -3954,6 +3966,12 @@
       "default" : false,
       "description" : "Shows Screen sharing and Control in Settings > Devices once this Mac joins.",
       "title" : "Screen Sharing for Joined Machines",
+      "type" : "boolean"
+    },
+    "labs.pauseAgentMachines" : {
+      "default" : false,
+      "description" : "Pause a new agent machine after 15 idle minutes; it resumes when work arrives.",
+      "title" : "Pause Agent Machines",
       "type" : "boolean"
     },
     "labs.previewFeatures" : {
