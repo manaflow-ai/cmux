@@ -294,6 +294,55 @@
       "pattern": "^auto_[a-z0-9]{20}$",
       "description": "An automation definition, owned by its team's SchedulerDO."
     },
+    "AutomationSecretName": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+      "description": "An environment variable name: capital letters, digits and _, starting with a letter (at most 64)."
+    },
+    "AutomationSecretState": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AutomationSecretName"
+          }
+        },
+        "hint": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "generation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "updated_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "updated_by": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "UserId"
+          }
+        }
+      }
+    },
     "AutomationSettings": {
       "kind": "object",
       "fields": {
@@ -2930,6 +2979,13 @@
                       "name": "string"
                     }
                   }
+                }
+              },
+              "linked_by_github_id": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
                 }
               }
             }
@@ -18229,6 +18285,509 @@
               "finished_at",
               "error",
               "outcome"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "automation.secret.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "automation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "automation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AutomationId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "automation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AutomationId"
+            }
+          },
+          "secrets": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "AutomationSecretState"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "selector.not_found"
+      ],
+      "owner": "cloud:SchedulerDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "automation secret list",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "automation"
+      },
+      "docs": "The names of an automation's secrets (who may edit it). Never returns a value.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "automation": {
+            "$ref": "#/$defs/AutomationId"
+          }
+        },
+        "required": [
+          "automation"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "automation": {
+            "$ref": "#/$defs/AutomationId"
+          },
+          "secrets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AutomationSecretState"
+            }
+          }
+        },
+        "required": [
+          "automation",
+          "secrets"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          },
+          "AutomationSecretName": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+            "description": "An environment variable name: capital letters, digits and _, starting with a letter (at most 64)."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "AutomationSecretState": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/AutomationSecretName"
+              },
+              "hint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "generation": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "updated_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "updated_by": {
+                "$ref": "#/$defs/UserId"
+              }
+            },
+            "required": [
+              "name",
+              "hint",
+              "generation",
+              "updated_at",
+              "updated_by"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "automation.secret.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "automation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "automation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AutomationId"
+            }
+          },
+          "name": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AutomationSecretName"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "automation": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "AutomationId"
+                }
+              },
+              "name": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "AutomationSecretName"
+                }
+              },
+              "removed": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:SchedulerDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "automation secret remove",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "automation"
+      },
+      "docs": "Remove one secret of an automation (its creator, editors and team admins).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "automation": {
+            "$ref": "#/$defs/AutomationId"
+          },
+          "name": {
+            "$ref": "#/$defs/AutomationSecretName"
+          }
+        },
+        "required": [
+          "automation",
+          "name"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          },
+          "AutomationSecretName": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+            "description": "An environment variable name: capital letters, digits and _, starting with a letter (at most 64)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "automation": {
+            "$ref": "#/$defs/AutomationId"
+          },
+          "name": {
+            "$ref": "#/$defs/AutomationSecretName"
+          },
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "automation",
+          "name",
+          "removed"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          },
+          "AutomationSecretName": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+            "description": "An environment variable name: capital letters, digits and _, starting with a letter (at most 64)."
+          }
+        }
+      }
+    },
+    "automation.secret.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "automation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "automation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AutomationId"
+            }
+          },
+          "name": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AutomationSecretName"
+            }
+          },
+          "value": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 32768
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AutomationSecretState"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "automation_secret.not_configured",
+        "automation_secret.too_many",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:SchedulerDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "automation secret set",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "automation"
+      },
+      "docs": "Add or replace one secret of an automation (its creator, editors and team admins, in a person's session). Its machine steps get it as the environment variable NAME. The value is never returned.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "automation": {
+            "$ref": "#/$defs/AutomationId"
+          },
+          "name": {
+            "$ref": "#/$defs/AutomationSecretName"
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32768
+          }
+        },
+        "required": [
+          "automation",
+          "name",
+          "value"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          },
+          "AutomationSecretName": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+            "description": "An environment variable name: capital letters, digits and _, starting with a letter (at most 64)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/AutomationSecretState",
+        "$defs": {
+          "AutomationSecretName": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+            "description": "An environment variable name: capital letters, digits and _, starting with a letter (at most 64)."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "AutomationSecretState": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/AutomationSecretName"
+              },
+              "hint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "generation": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "updated_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "updated_by": {
+                "$ref": "#/$defs/UserId"
+              }
+            },
+            "required": [
+              "name",
+              "hint",
+              "generation",
+              "updated_at",
+              "updated_by"
             ],
             "additionalProperties": true
           }
@@ -60161,6 +60720,13 @@
                           }
                         }
                       }
+                    },
+                    "linked_by_github_id": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "int64"
+                      }
                     }
                   }
                 }
@@ -60340,6 +60906,11 @@
                     "type": "null"
                   }
                 ]
+              },
+              "linked_by_github_id": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               }
             },
             "required": [
@@ -60471,7 +61042,7 @@
               "kind": "primitive",
               "name": "string",
               "max_length": 512,
-              "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?)$"
+              "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?|integration\\/complete)$"
             }
           },
           "expected_revision": {
@@ -60582,7 +61153,7 @@
           "return_to": {
             "type": "string",
             "maxLength": 512,
-            "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?)$"
+            "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?|integration\\/complete)$"
           }
         },
         "required": [
@@ -60740,6 +61311,11 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "linked_by_github_id": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   }
                 },
                 "required": [
@@ -61026,6 +61602,11 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "linked_by_github_id": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   }
                 },
                 "required": [
@@ -61751,6 +62332,11 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "linked_by_github_id": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   }
                 },
                 "required": [

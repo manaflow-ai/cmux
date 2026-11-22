@@ -210,12 +210,12 @@ public nonisolated struct AgentPaneTurnUndo: Equatable, Sendable, CustomStringCo
 extension AgentPaneTurnUndo {
     /// `turn.undo` arrived without a real click or key press in the pane.
     static var needsGestureMessage: String {
-        String(localized: "agentPane.error.turnUndoGesture", defaultValue: "Undo needs a click or key press in the pane.", bundle: .module)
+        String(localized: "agentPane.error.turnUndoGesture", defaultValue: "Undo needs a click or key press in the pane.", bundle: .localizedModule)
     }
 
     /// `turn.undo` whose params break its contract.
     static var invalidMessage: String {
-        String(localized: "agentPane.error.turnUndoInvalid", defaultValue: "The app refused the undo request.", bundle: .module)
+        String(localized: "agentPane.error.turnUndoInvalid", defaultValue: "The app refused the undo request.", bundle: .localizedModule)
     }
 
     /// `turn.undo` (nil: params that break its contract): spends `model`'s GRANT credit, then runs

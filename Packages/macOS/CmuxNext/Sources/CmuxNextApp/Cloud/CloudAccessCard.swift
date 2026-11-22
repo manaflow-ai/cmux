@@ -67,7 +67,7 @@ enum CloudAccessCard {
         if how(.always, ask) != nil, let folder = ask.alwaysFolder {
             // The whole folder Always shares (a git working copy's top, say), not only its name.
             text += " " + CloudAccessStrings.alwaysShares(middle(folder))
-            actions.append(.init(id: Action.always.rawValue, title: CloudAccessStrings.always(middle(URL(fileURLWithPath: folder).lastPathComponent, 60)),
+            actions.append(.init(id: Action.always.rawValue, title: CloudAccessStrings.always(middle((folder as NSString).lastPathComponent, 60)),
                                  hint: CloudAccessStrings.alwaysHint(middle(folder))))
         }
         text += reasonText(ask.reason)

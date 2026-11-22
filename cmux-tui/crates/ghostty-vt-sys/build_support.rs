@@ -160,6 +160,30 @@ pub fn installed_zig_paths(version: &str) -> Vec<String> {
     vec![format!("/opt/zig-{version}/zig")]
 }
 
+/// The zigs the build tries, in order: `explicit` (``zig_program``'s pick), PATH's
+/// first `zig`, every other `zig` on PATH, then ``installed_zig_paths`` of the pin.
+///
+/// Every PATH entry, not only the first: a host that keeps an older Zig early on PATH
+/// (cmux10s's ~/.cargo/bin/zig, 0.16) hid setup-zig's pinned one further down.
+pub fn zig_candidates(
+    explicit: String,
+    path: Option<&std::ffi::OsStr>,
+    required: Option<&str>,
+) -> Vec<String> {
+    let mut candidates = vec![explicit, "zig".to_string()];
+    let exe = if cfg!(windows) { "zig.exe" } else { "zig" };
+    for dir in path.into_iter().flat_map(std::env::split_paths) {
+        let zig = dir.join(exe);
+        if zig.is_file() {
+            candidates.push(zig.display().to_string());
+        }
+    }
+    if let Some(required) = required {
+        candidates.extend(installed_zig_paths(required));
+    }
+    candidates
+}
+
 /// The zig the build runs: the first of `candidates` (``zig_program``'s pick,
 /// then PATH, then ``installed_zig_paths``) whose `zig version` serves
 /// `required`. With no pin, or when none serves it, the first candidate, which
@@ -504,6 +528,41 @@ pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
             ("zig".to_string(), None)
         );
         assert_eq!(select_zig(&candidates, None, versions), ("zig".to_string(), None));
+    }
+
+    /// cmux10s keeps a Zig 0.16 in ~/.cargo/bin, and in the Mac legs it came before setup-zig's
+    /// 0.17 on PATH (macos-cross-parity run 45000510727, after 7e85a5ac): the first `zig` on PATH
+    /// was the only PATH candidate, so the build failed on Ghostty's version check although the
+    /// pinned Zig was on PATH too.
+    #[test]
+    fn a_pinned_zig_later_on_path_wins_over_an_older_one_first_on_path() {
+        let root = scratch_tree("zig-path", &["stale/zig", "tool/zig", "empty/.keep"]);
+        let (stale, tool) = (root.join("stale/zig"), root.join("tool/zig"));
+        let path =
+            std::env::join_paths([root.join("empty"), root.join("stale"), root.join("tool")])
+                .unwrap();
+        let (stale_s, tool_s) = (stale.display().to_string(), tool.display().to_string());
+        let versions = |zig: &str| {
+            if zig == "zig" || zig == stale_s {
+                Some("0.16.0".to_string())
+            } else if zig == tool_s {
+                Some("0.17.0".to_string())
+            } else {
+                None
+            }
+        };
+        let candidates = zig_candidates("zig".to_string(), Some(path.as_os_str()), Some("0.17.0"));
+        let (zig, why) = select_zig(&candidates, Some("0.17.0"), versions);
+        assert_eq!(zig, tool_s);
+        assert!(why.unwrap().contains("0.17.0"));
+        // an explicit ZIG still comes first, and no PATH means the old list
+        let explicit = zig_candidates("/x/zig".to_string(), Some(path.as_os_str()), None);
+        assert_eq!(explicit.first().map(String::as_str), Some("/x/zig"));
+        assert_eq!(
+            zig_candidates("zig".to_string(), None, Some("0.17.0")),
+            vec!["zig".to_string(), "zig".to_string(), "/opt/zig-0.17.0/zig".to_string()]
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

@@ -22,7 +22,7 @@ import type { CloudPlanTeam, CloudPlanTeamRefusal } from "./cloudPlanTeams";
 import {
   CLOUD_PLAN_IDS,
   CLOUD_PLANS,
-  cloudSizeWords,
+  cloudPlanMachineWords,
   sizeFits,
   type CloudPlanId,
   type CloudPlanView,
@@ -32,6 +32,7 @@ import { useCloudPlanSubscribe, type CloudPlanSubscribeStore } from "./cloudPlan
 import { useGitHubPicker, type GitHubPickerStore } from "./githubRepos";
 import "./cloudStart.css";
 import { type ChecklistStep, startupChecklist } from "./cloudStartViewModel";
+import { WithFacts } from "./chips/FactsHoverCard";
 function mark(step: ChecklistStep, t: Translate) {
   if (step.status === "done")
     return (
@@ -140,7 +141,7 @@ function PlanOffer({
       </span>
       <span className="acpmux-cloud-plans__price">{t("cloudStart.plans.perMonth", { price: offer.price })}</span>
       <span className="acpmux-cloud-ask__line">
-        {t("cloudStart.plans.includes", { size: cloudSizeWords(offer.maxSize, t) })}
+        {t("cloudStart.plans.includes", { size: cloudPlanMachineWords(plan, t) })}
       </span>
       <button
         type="button"
@@ -160,7 +161,7 @@ function PlanOffer({
 }
 
 /// The pricing card: a Cloud send the account has no plan for (the platform's `cloud_plan_required`, or the page's
-/// own hold when `cloudMachine.list` says `plan.state` `none`). A final state, no retry and no wait: cmux NEXT Pro and
+/// own hold when `cloudMachine.list` says `plan.state` `none`). A final state, no retry and no wait: cmux NEXT Plus, Pro and
 /// Max side by side (or the plans the refusal named, `plans`), each with Subscribe (`cloud.plan.subscribe`, the start
 /// goes again by itself once the plan is on, cloudPlanSubscribe.ts), then Run on This Mac and Not now. A refusal in a team (`refusal`) names the team the send
 /// was in (the one picked in the team menu, which is easy to miss) and offers the person's own team first, which
@@ -369,16 +370,19 @@ function TooBigActions({
             aria-label={t("cloudStart.pickRepo")}
           >
             {repos.map((repo) => (
-              <button
-                key={repo.path}
-                type="button"
-                className="acpmux-cloud-ask__button acpmux-cloud-too-big__repo"
-                data-repo={repo.path}
-                title={repo.path}
-                onClick={() => onPickRepo(repo.path)}
-              >
-                {repo.name}
-              </button>
+              <WithFacts key={repo.path} facts={[{ value: repo.path, code: true }]}>
+                {(facts) => (
+                  <button
+                    {...facts}
+                    type="button"
+                    className="acpmux-cloud-ask__button acpmux-cloud-too-big__repo"
+                    data-repo={repo.path}
+                    onClick={() => onPickRepo(repo.path)}
+                  >
+                    {repo.name}
+                  </button>
+                )}
+              </WithFacts>
             ))}
           </fieldset>
         </>
@@ -429,9 +433,9 @@ function ConnectGitHubAction({ store }: { store?: GitHubPickerStore }) {
       >
         {t("cloudRepository.connect")}
       </button>
-      {github.state.connectError && (
+      {(github.state.connectError ?? github.state.status?.message) && (
         <output className="acpmux-cloud-start__status" data-connect-error="true">
-          {github.state.connectError}
+          {github.state.connectError ?? github.state.status?.message}
         </output>
       )}
     </>
