@@ -27,9 +27,10 @@ Headlines (INFTABS lines, and one PERF_ROW JSON line each for the perf cron):
   renderer_mb_per_tab  (Chromium renderer RSS at full - at empty) / tabs: a hibernated tab's renderer cost
   switch_mounted_ms    the app's own time from the restore to the page being back (debug.surfaces wakes)
   switch_live_ms       from the switch request to the page answering script with its scroll back
-  snapshot_covered     the share of those wakes a kept last frame covered (the app reports that a
-                       snapshot covered the pane, not yet when it was drawn: the last-frame time is
-                       bounded above by switch_mounted_ms until the app reports it)
+  switch_picture_ms    the app's own time from the restore to the pane holding the tab's last frame,
+                       decoded (debug.surfaces wakes picture_ms; it draws in the next frame). Absent
+                       for a wake whose placeholder showed none: no kept frame, or the page was back first
+  snapshot_covered     the share of those wakes a kept last frame covered
 INFTABS-KIND lines give each process kind at empty and full (count, RSS, footprint, CPU, wakeups).
 
 Measurement only, never a gate. macOS only, a fleet Mac, never a laptop (DEV or bench build: it reads
@@ -177,7 +178,8 @@ def wake(app: bm.App, sock: str, entry: dict) -> dict:
     own = bw.wait_for(lambda: next((w for w in reversed(hibernation(sock).get("wakes") or [])
                                     if w.get("tab") == page["tab"] and w.get("loaded_ms") is not None), None), 3) if asleep else None
     if own:
-        row.update({"mounted_ms": own.get("mounted_ms"), "loaded_ms": own.get("loaded_ms"), "snapshot": own.get("snapshot")})
+        row.update({"picture_ms": own.get("picture_ms"), "mounted_ms": own.get("mounted_ms"), "loaded_ms": own.get("loaded_ms"),
+                    "snapshot": own.get("snapshot")})
     print(f"INFTABS-WAKE {json.dumps(row)}", flush=True)
     return row
 
@@ -215,6 +217,9 @@ def summarize(args, report: dict, made: list[dict]) -> dict:
         "live_terminals": full["app_counts"]["live_terminals"], "chat_pages": full["app_counts"]["chat_pages"],
         "snapshot_mb": full["app_counts"]["snapshot_mb"],
         "switches": len(rows), "switches_hibernated": len(woken),
+        "switch_picture_p50_ms": bw.percentile([r.get("picture_ms") for r in woken], 0.5),
+        "switch_picture_p95_ms": bw.percentile([r.get("picture_ms") for r in woken], 0.95),
+        "switch_pictures": sum(1 for r in woken if r.get("picture_ms") is not None),
         "switch_mounted_p50_ms": bw.percentile([r.get("mounted_ms") for r in woken], 0.5),
         "switch_mounted_p95_ms": bw.percentile([r.get("mounted_ms") for r in woken], 0.95),
         "switch_loaded_p50_ms": bw.percentile([r.get("loaded_ms") for r in woken], 0.5),
@@ -316,6 +321,8 @@ def run(argv: list[str]) -> int:
         perf_row("wakeups_per_s", summary["wakeups_per_s"], "1/s")
         perf_row("wakeups_empty_per_s", summary["wakeups_empty_per_s"], "1/s")
         perf_row("renderer_mb_per_tab", summary["renderer_mb_per_tab"], "MB")
+        if summary["switch_pictures"]:
+            perf_row("switch_picture_ms", summary["switch_picture_p50_ms"], "ms", summary["switch_picture_p95_ms"])
         perf_row("switch_mounted_ms", summary["switch_mounted_p50_ms"], "ms", summary["switch_mounted_p95_ms"])
         perf_row("switch_live_ms", summary["switch_live_p50_ms"], "ms", summary["switch_live_p95_ms"])
         if summary["switches_hibernated"]:

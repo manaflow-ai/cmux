@@ -504,7 +504,10 @@ pub fn prepare(paths: &Paths, answer: &Value, setup: &BrainSetup, log: &dyn Fn(S
                     state.state = "unavailable".into();
                     state.reason = unavailable;
                     states.insert(brain.family.to_owned(), state);
-                    log(format!("brain {}: unavailable ({NO_GATEWAY})", brain.family));
+                    log(format!(
+                        "brain {}: unavailable ({NO_GATEWAY})",
+                        brain.family
+                    ));
                     continue;
                 }
                 match write(paths, brain, setup) {
