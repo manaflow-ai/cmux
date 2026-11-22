@@ -245,7 +245,10 @@ nonisolated extension AcpmuxPaneMethods {
         let setting = settingMethods.contains(method)
         let denied = setting ? [] : modeFields ?? []
         var dropped: [String] = []
-        for key in params.keys where !known.params.contains(key) && !denied.contains(key) {
+        // A `_meta` that is not an object is a forged shape, not a newer key: it stays for the
+        // params rule to refuse.
+        for key in params.keys where !known.params.contains(key) && !denied.contains(key)
+            && !(key == "_meta" && !(params[key] is [String: Any])) {
             params.removeValue(forKey: key)
             dropped.append(key)
         }

@@ -110,8 +110,10 @@ pub fn stripping_unknown_params(
     let keep = |list: &BTreeSet<String>, k: &str| contains(list, k) || contains(denied, k);
     let mut dropped = Vec::new();
     let mut params = params.clone();
-    params.retain(|k, _| {
-        let kept = keep(&known.params, k);
+    // A `_meta` that is not an object is a forged shape, not a newer key: it
+    // stays for the params rule to refuse.
+    params.retain(|k, v| {
+        let kept = keep(&known.params, k) || (k == "_meta" && !v.is_object());
         if !kept {
             dropped.push(k.clone());
         }
