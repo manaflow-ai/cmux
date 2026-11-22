@@ -176,6 +176,7 @@ impl Inner {
         // repair journaled again): an upper bound for each.
         let newest = order.applied;
         for chat in replayed {
+            order.log_lsns.entry(chat.clone()).or_default().bound(newest);
             order.log_lsn.insert(chat, newest);
         }
         Ok(())
