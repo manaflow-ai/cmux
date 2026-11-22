@@ -73,6 +73,10 @@ function fromProfile(...keys: string[]): number | null {
 }
 const SESSIONS = Number(flag("--sessions") ?? fromProfile("listed_sessions", "listed") ?? 3000);
 const ROWS = Number(flag("--rows") ?? 120);
+// --full-seed: seed chats with the mock's full load turns (tool calls, diffs, long replies) instead of light ones. The
+// fidelity mode always does: at the 13:03Z NIGHTLY profile light seeds drew frames at 100 ms p95, full ones at 66.6
+// against the app's 66.3.
+const FULL_SEED = argv.includes("--full-seed") || PROFILE !== undefined;
 const WINDOW_MS = Number(flag("--window") ?? 5000);
 const changesPerMin = fromProfile("sessions_changed_per_min");
 const RATE = Number(flag("--rate") ?? (changesPerMin !== null ? changesPerMin / 60 : 20));
@@ -397,7 +401,8 @@ function rssMB(pid: number): number {
 }
 
 /// A profile's scene: its pages, sessions and load. `mix` set, runAxis builds this one scene and measures it once.
-type Mix = { chats: number; tabs: number; hogs: number };
+/// `visible` of the chats are shown (each in a window of its own) and stream a reply a delta every `streamMs`.
+type Mix = { chats: number; visible: number; tabs: number; hogs: number; streamMs: number | null };
 type Scene = { sample: Sample; agentRssMB: number; churn: boolean };
 
 async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undefined> {
@@ -453,8 +458,8 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
     });
     const seed = async (page: Page) => {
       const seeded = (await page.evaluate(
-        (turns) => (window as any).cmuxAcpmuxDebug.loadSeed(turns, { light: true }),
-        Math.max(1, Math.round(ROWS / 2)),
+        ([turns, light]) => (window as any).cmuxAcpmuxDebug.loadSeed(turns, { light }),
+        [Math.max(1, Math.round(ROWS / 2)), !FULL_SEED] as const,
       )) as Record<string, any>;
       if (seeded.error) throw new Error(`loadSeed: ${seeded.error}`);
       await page.locator(PROMPT).first().waitFor({ timeout: 60_000 });
@@ -508,13 +513,44 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
           .catch(() => undefined);
     };
     if (mix) {
-      for (let index = 1; index < mix.chats; index += 1) await add(index, "chats");
-      // Every chat shares one renderer (--process-per-site): the app's agent renderer. Before tabs it is the largest.
-      const agentPid = renderers(rootPid).sort((a, b) => rssMB(b) - rssMB(a))[0]!;
+      for (let index = 1; index < mix.chats - (mix.visible - 1); index += 1) await add(index, "chats");
+      // Tabs before the other windows: a new target opens in the newest window, which focusing the chat would not hide.
       for (let index = 0; index < mix.tabs; index += 1) await add(index, "tabs");
+      // The other shown chats: a window each, as the app shows chats side by side; same site, same renderer.
+      const shown: Page[] = [focused];
+      for (let index = 1; index < mix.visible; index += 1) {
+        const [page] = await Promise.all([
+          context.waitForEvent("page"),
+          browserCdp.send("Target.createTarget", { url: "about:blank", newWindow: true }),
+        ]);
+        await page.goto(url);
+        await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
+        await seed(page);
+        const cdp = await context.newCDPSession(page);
+        await cdp.send("Performance.enable");
+        items.push({ page, cdp, awake: true });
+        shown.push(page);
+      }
+      // Every chat shares one renderer (--process-per-site): the app's agent renderer, the largest (a tab's holds one page).
+      const agentPid = renderers(rootPid).sort((a, b) => rssMB(b) - rssMB(a))[0]!;
       await focused.bringToFront();
       startChurn(RATE);
+      const states = await Promise.all(shown.map((page) => visibility(page)));
+      console.log(`SIM-FIDELITY shown chats ${states.map(([state, frames]) => `${state} ${frames}`).join(", ")}`);
       const hogs = Array.from({ length: mix.hogs }, () => Bun.spawn(["yes"], { stdout: "ignore" }));
+      // Each shown chat streams a reply (text deltas, a tool call every 60) through the settle and the window.
+      const streams =
+        mix.streamMs === null
+          ? []
+          : shown.map((page) =>
+              page
+                .evaluate((o) => (window as any).cmuxAcpmuxDebug.loadRun(o), {
+                  seconds: Math.ceil((SETTLE_MS + WINDOW_MS) / 1000) + 15,
+                  chunk_ms: mix.streamMs,
+                  scroll_speed: 0,
+                })
+                .catch((error: unknown) => ({ error: String(error) })),
+            );
       try {
         const sample = await measure(rootPid, items, focused);
         return {
@@ -523,6 +559,7 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
           churn: hasChurn,
         };
       } finally {
+        await Promise.all(streams);
         for (const hog of hogs) hog.kill();
         await Promise.all(hogs.map((hog) => hog.exited));
       }
@@ -579,6 +616,14 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
 /// cannot measure reads null with its reason.
 async function runProfile() {
   const chats = Math.max(1, fromProfile("agent_total", "agent_pages") ?? 1);
+  const visible = Math.min(chats, Math.max(1, fromProfile("agent_visible") ?? 1));
+  // The app's events spread over its running chats; a shown chat streams its share: a delta every running/events s.
+  const events = fromProfile("events_per_s");
+  const running = fromProfile("running_sessions", "running");
+  const streamMs =
+    events !== null && events > 0
+      ? Math.min(1000, Math.max(4, Math.round((1000 * Math.max(1, running ?? 1)) / events)))
+      : null;
   const tabs = fromProfile("browser_tabs") ?? 0;
   const load = fromProfile("load_1m", "load1");
   const appCores = fromProfile("cores", "ncpu");
@@ -592,16 +637,20 @@ async function runProfile() {
   report.profile = {
     file: PROFILE_FILE,
     chats,
+    visible,
     tabs,
+    stream_ms: streamMs,
     sessions: SESSIONS,
     rate: RATE,
     hogs,
   };
   console.log(`SIM-FIDELITY scene ${JSON.stringify(report.profile)}`);
-  const scene = (await runAxis("chats", { chats, tabs, hogs }))!;
+  const scene = (await runAxis("chats", { chats, visible, tabs, hogs, streamMs }))!;
   console.log(`SIM-FIDELITY sim ${JSON.stringify(scene)}`);
   const longTasks = fromProfile("long_tasks_ms_per_10s");
-  const pairs: Record<string, { sim: number | null; app: number | null; why?: string }> = {
+  const appCpu = fromProfile("renderer_cpu_pct");
+  // `extra` pairs are reported beside the goal's four and stay out of the max.
+  const pairs: Record<string, { sim: number | null; app: number | null; why?: string; extra?: boolean }> = {
     frame_p95_ms: {
       sim: scene.sample.frame_p95_ms,
       app: fromProfile("frame_p95_ms"),
@@ -623,6 +672,11 @@ async function runProfile() {
       sim: scene.agentRssMB,
       app: fromProfile("renderer_rss_mb", "agent_renderer_rss_mb"),
     },
+    renderer_cpu_ms_per_s: {
+      sim: scene.sample.cpu_ms_per_s,
+      app: appCpu === null ? null : Math.round(appCpu * 10),
+      extra: true,
+    },
   };
   const divergences: Record<string, number | null> = {};
   for (const [metric, pair] of Object.entries(pairs)) {
@@ -632,7 +686,7 @@ async function runProfile() {
     console.log(
       `SIM-FIDELITY ${metric} sim ${pair.sim} app ${pair.app} divergence ${value ?? pair.why ?? "UNMEASURED"}`,
     );
-    if (value !== null)
+    if (value !== null && !pair.extra)
       perfRow({
         name: `sim_fidelity.${metric}.divergence`,
         p95: value,
@@ -646,6 +700,7 @@ async function runProfile() {
   report.divergences = divergences;
   report.churn = scene.churn;
   const worst = Object.entries(divergences)
+    .filter(([metric]) => !pairs[metric]!.extra)
     .filter((entry): entry is [string, number] => entry[1] !== null)
     .sort((a, b) => b[1] - a[1])[0];
   report.divergence_max = worst?.[1] ?? null;
