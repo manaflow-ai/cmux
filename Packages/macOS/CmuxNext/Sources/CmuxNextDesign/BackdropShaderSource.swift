@@ -286,7 +286,7 @@ nonisolated enum BackdropShaderSource {
             for (int i = -2; i <= 2; i++) {
                 float2 id = cell + float2(i, j);
                 float2 center = (id + 0.5) * gap;
-                float2 away = center - u.mouse;
+                float2 away = center - u.pointer; // the dots part where the cursor is now, not where it was
                 float dist = max(length(away), 0.001);
                 float push = gap * (1.2 + 1.6 * u.energy) * exp(-dist * dist / (reach * reach));
                 float2 dir = away / dist;

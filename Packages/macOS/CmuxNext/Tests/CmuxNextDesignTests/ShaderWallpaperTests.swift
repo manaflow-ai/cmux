@@ -199,6 +199,11 @@ import Testing
         let matrix = String(source[start.lowerBound..<end]) + String(rest[..<(rest.range(of: "\n    }\n")?.upperBound ?? rest.endIndex)])
         #expect(matrix.contains("float2 p = u.pointer / pitch;") && matrix.contains("bmGauss(x - u.pointer / pitch"),
                 "Block Matrix centers its glow on the eased pointer: it trails the cursor")
+        // The class: anything drawn under the cursor reads it this frame. Dot Field parts its dots there;
+        // the fluid stirs (Currents, Ripples, Aurora, Aero's bubbles) keep the eased pointer as their inertia.
+        let field = try #require(source.range(of: "fragment float4 wp_field("))
+        let fieldBody = source[field.upperBound...].prefix(2000)
+        #expect(fieldBody.contains("center - u.pointer"), "Dot Field parts its dots where the cursor was, not where it is")
     }
 
     @Test func clicksSendRingsAndTheOldestIsReplaced() {
