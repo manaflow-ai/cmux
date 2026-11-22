@@ -145,9 +145,9 @@ final class AppsService {
             guard opened else { throw .noPage }
             return nil
         case .notDeployed: throw .notDeployed
-        case .widget: // Its tile is on the New Tab page's grid, where installing it placed it (`newTab.page`, never a terminal).
-            guard services.windows.active != nil else { throw .noWindow }
-            guard services.registry.perform(NewTabPage.action, invocation: ActionInvocation(origin: origin, focusRequested: focus)) else { throw .noPage }
+        case .widget: // Its tile's New Tab page: a person's Cmd-T (`newTab`, needs no pane: the store has none), else the focused pane's.
+            guard let window = services.windows.active else { throw .noWindow }
+            guard origin == .user || window.focusedPane != nil, services.registry.perform(origin == .user ? "newTab" : NewTabPage.action, invocation: ActionInvocation(origin: origin, focusRequested: focus)) else { throw .noPage }
         case .none: guard let show = SidebarBridgeRules().nativePaneShowAction(appID), services.registry.perform(
             ActionID(rawValue: show), invocation: ActionInvocation(arguments: [:], origin: origin, focusRequested: focus)) else { throw .noPage }
         }
