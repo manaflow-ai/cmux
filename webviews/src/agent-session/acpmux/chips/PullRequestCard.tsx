@@ -21,6 +21,7 @@ import { Tooltip } from "../../../ui/Tooltip";
 import { relativeTime } from "../conversation/relativeTime";
 import { usePullRequestAnswer, type LinkedPullRequest } from "./pullRequestStore";
 import { githubItemRef } from "./pullRequestCardModel";
+import { repeatsTitle } from "./linkHoverCardModel";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { useLoadFade } from "../../shared/loadFade";
 
@@ -119,6 +120,9 @@ export function PullRequestCardBody({
   // takes the whole card down over one string the host passed through from GitHub.
   const updatedAt = read?.updatedAt == null ? Number.NaN : Date.parse(read.updatedAt);
   const reference = `${known.repo}#${known.number}`;
+  // A head titled by the reference itself (no title read yet) already names it: owner/repo#N is
+  // not printed again under it (Leo 2026-11-22, a card that read "owner/repo#7909" twice).
+  const showReference = !head || !repeatsTitle(title || reference, reference);
   const glyph = (
     <span className="acpmux-pr-card__glyph" data-state={state || undefined} data-kind={issue ? "issue" : undefined}>
       {/* The state's word is the glyph's accessible name; the card also shows it in the status row. */}
@@ -162,19 +166,21 @@ export function PullRequestCardBody({
             <Changes read={read} t={t} />
           </Slot>
         )}
-        <div className="acpmux-pr-card__facts">
-          {!head && glyph}
-          {/* The pull request's link, styled as one (Leo 2026-10-20: "the hovers need to be
-              styled"); a click takes the host's link-click path, as the bar's and chip's anchors
-              do. Only a parsed pull request address becomes a link; anything else stays text. */}
-          {link ? (
-            <a className="acpmux-pr-card__ref" href={link} rel="noreferrer">
-              {reference}
-            </a>
-          ) : (
-            <span className="acpmux-pr-card__ref">{reference}</span>
-          )}
-        </div>
+        {showReference && (
+          <div className="acpmux-pr-card__facts">
+            {!head && glyph}
+            {/* The pull request's link, styled as one (Leo 2026-10-20: "the hovers need to be
+                styled"); a click takes the host's link-click path, as the bar's and chip's anchors
+                do. Only a parsed pull request address becomes a link; anything else stays text. */}
+            {link ? (
+              <a className="acpmux-pr-card__ref" href={link} rel="noreferrer">
+                {reference}
+              </a>
+            ) : (
+              <span className="acpmux-pr-card__ref">{reference}</span>
+            )}
+          </div>
+        )}
         {/* A pull request's last held row is its branches; an issue's, its labels. */}
         <Slot hold={waiting && !issue} leaving={leaving && !issue} shown={shown.branches} row="branches">
           <Branches read={read} />

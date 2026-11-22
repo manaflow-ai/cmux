@@ -2374,6 +2374,10 @@ export function NewTabScreen(props: Props) {
         <div
           ref={setBox}
           className="ui-glass ui-glass-floats nt-composer-surface nt-box"
+          // One material with its pickers and suggestions (composerStates.css, ONE MATERIAL FAMILY): the
+          // App's popover glass under the page, as the folder picker's Popover. No cover: the box sits in
+          // the page's flow, so nothing scrolls under it for the page to blur in place.
+          data-host-glass="popover"
           inert={props.cloudStarting === true}
         >
           {/* Drawn out of the card's glass, above it, as the chat composer's (backdropLayer.tsx). */}
@@ -2642,7 +2646,8 @@ export function NewTabScreen(props: Props) {
               template === "console" ? " nt-popover-console" : ""
             }`
           }
-          hostGlass={false}
+          // The App's popover glass, as the box it opens from (data-host-glass="popover" above): the two
+          // are one material. It kept the page's glass while the box did (#44476).
           initialFocus={false}
           finalFocus={false}
         >

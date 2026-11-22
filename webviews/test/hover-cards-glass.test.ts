@@ -4,8 +4,7 @@
 //   - a session reference's hover card (started/useSessionHover.tsx);
 //   - a New Tab suggestion row's hover card (newtab/StageCards.tsx);
 //   - the thread minimap's mark preview (threadMinimap/PreviewCard.tsx).
-// Each renders the shared liquid glass (.ui-glass, ui/glass/glass.css) or, for the minimap card, the
-// tooltip glass (the tooltip tint over the shared blur). No stylesheet may lay a solid fill on one
+// Each renders the shared liquid glass (.ui-glass, ui/glass/glass.css). No stylesheet may lay a solid fill on one
 // of them or switch its blur off, except under Reduce Transparency, where the shared tokens turn
 // every glass solid on their own (pages/shared/desktop.css). The native hover cards share one glass
 // window (HoverCardPanel; scripts/cmux-next/check-overlay-glass.py and
@@ -25,8 +24,8 @@ const CARDS = [
   { file: "agent-session/acpmux/chips/LinkHoverCard.tsx", root: "acpmux-pr-card", glass: "ui-glass" },
   { file: "agent-session/acpmux/started/useSessionHover.tsx", root: "acpmux-session-hover-card", glass: "ui-glass" },
   { file: "agent-session/acpmux/newtab/StageCards.tsx", root: "nt-hovercard", glass: "ui-glass" },
-  // Not .ui-glass: the tooltip tint over the shared blur (thread-minimap-card-glass.test.ts).
-  { file: "agent-session/acpmux/threadMinimap/PreviewCard.tsx", root: "acpmux-minimap__card", glass: null },
+  // The hover-card glass on the App's popover glass (thread-minimap-card-glass.test.ts).
+  { file: "agent-session/acpmux/threadMinimap/PreviewCard.tsx", root: "acpmux-minimap__card", glass: "ui-glass" },
 ] as const;
 const ROOTS = [...new Set(CARDS.map((card) => card.root))];
 
@@ -154,7 +153,7 @@ test("every hover card renders the shared glass", () => {
     const classes = [...source.matchAll(/"([^"\n]*)"/g)].map((match) => match[1]!.split(/\s+/));
     const named = classes.filter((list) => list.includes(root));
     if (named.length === 0) return true;
-    return glass !== null && !named.every((list) => list.includes(glass));
+    return !named.every((list) => list.includes(glass));
   });
   expect(missing.map(({ file, root }) => `${file}: .${root}`)).toEqual([]);
 });

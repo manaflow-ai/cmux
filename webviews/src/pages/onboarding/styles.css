@@ -585,18 +585,17 @@
 
 /* Grouped: the browsers in one card, hairlines between, and the kinds in a second card, two to a
    line (Settings' lists; the agents step's list look). */
-/* The cards are frosted glass of their own: the surface color at the chrome glass level over its blur, so a busy wallpaper
-   behind the window's glass never fights the rows' text (the plain look's 5% tint did). Never opaque. */
+/* The cards are .ui-glass at the chrome level (ui/glass/glass.css): the surface color at the chrome tint
+   over its blur, so a busy wallpaper behind the window's glass never fights the rows' text (the plain
+   look's 5% tint did). Never opaque; Reduce Transparency is the solid surface color. */
 .onb-import {
-  --onb-card-glass: color-mix(in srgb, var(--ds-color-surface) var(--ds-glass-chrome-tint), transparent);
+  /* glass-opaque-allow: Reduce Transparency's fill only (glass.css applies it under that setting) */
+  --glass-opaque: var(--ds-color-surface);
 }
 .onb-import .onb-import-list,
 .onb-import .onb-import-options {
   border: 1px solid var(--onb-card-rim);
   border-radius: var(--ds-radius-xl);
-  background: var(--onb-card-glass);
-  -webkit-backdrop-filter: var(--ds-glass-chrome-blur);
-  backdrop-filter: var(--ds-glass-chrome-blur);
 }
 .onb-import .onb-import-list {
   gap: 0;
@@ -891,9 +890,6 @@
   padding: var(--ds-space-1) var(--ds-space-1) var(--ds-space-1) var(--ds-space-3);
   border: 1px solid var(--onb-card-rim);
   border-radius: var(--ds-radius-xl);
-  background: var(--onb-card-glass);
-  -webkit-backdrop-filter: var(--ds-glass-chrome-blur);
-  backdrop-filter: var(--ds-glass-chrome-blur);
   text-align: start;
 }
 .onb-express-ask-icon {
@@ -917,17 +913,6 @@
 }
 .onb-express-toggle.is-hidden {
   visibility: hidden;
-}
-
-/* Reduce Transparency: the import cards turn solid and drop their blur (the one place glass may). */
-@media (prefers-reduced-transparency: reduce) {
-  .onb-import {
-    --onb-card-glass: var(--ds-color-surface);
-  }
-  .onb-import :is(.onb-import-list, .onb-import-options, .onb-express-ask) {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
 }
 
 /* A row's fill and a control's opacity follow the motion switch (WebTheme's data-cmux-motion). */

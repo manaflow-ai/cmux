@@ -56,6 +56,7 @@ html[data-cmux-page="changelog"] body {
 /* The enlarged picture: on glass over the page, the picture whole (contain), never cut. */
 .cl-lightbox-backdrop {
   background: color-mix(in srgb, var(--cmux-surface-background, Canvas) 60%, transparent);
+  /* one-material-allow: the lightbox's modal scrim (the dialog above it is the .ui-glass), not a glass surface */
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
 }
@@ -324,8 +325,7 @@ html[data-cmux-page="changelog"] {
   border-radius: 12px;
   background: var(--page-hover);
   box-shadow: inset 0 0 0 1px var(--page-separator);
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
+  /* A content-layer card scrolls with the page (design/glass-system.md, rule 7): no backdrop blur. */
 }
 .cln-card-kind {
   color: var(--page-text-3);
@@ -597,8 +597,7 @@ html[data-cmux-page="changelog"] {
   border-radius: 16px;
   background: var(--page-hover);
   box-shadow: inset 0 0 0 1px var(--page-separator);
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
+  /* A content-layer card scrolls with the page (design/glass-system.md, rule 7): no backdrop blur. */
 }
 .cln-clips-grid .cln-clip-text { padding: 0 4px; }
 .cln-clips-grid .cln-clip-title { font-size: var(--text-title); line-height: var(--text-title--line-height); letter-spacing: var(--text-title--letter-spacing); }
