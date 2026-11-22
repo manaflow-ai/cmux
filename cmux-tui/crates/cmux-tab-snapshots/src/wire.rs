@@ -32,25 +32,33 @@ pub struct Viewport {
     pub screen_pixel_h: u32,
 }
 
-/// The phone's last applied manifest rev, sent on reconnect.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+/// The phone's last applied manifest rev and the producer epoch it came
+/// from, sent on reconnect. An empty `epoch` means the phone holds none; the
+/// Mac answers that with a manifest.
+#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Resume {
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub epoch: String,
     pub rev: u64,
 }
 
-/// Every row, in tab order, at `rev`.
+/// Every row, in tab order, at `rev`. `epoch` names the producer run that
+/// handed out `rev`: revs from different epochs are unrelated.
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Manifest {
+    pub epoch: String,
     pub rev: u64,
     pub rows: Vec<Row>,
 }
 
-/// What changed from `baseRev` to `rev`. A new tab is appended to the end.
+/// What changed from `baseRev` to `rev` within one `epoch`. A new tab is
+/// appended to the end.
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Delta {
+    pub epoch: String,
     pub rev: u64,
     pub base_rev: u64,
     pub changed: Vec<RowPatch>,

@@ -7,7 +7,8 @@
 //! - The session opens on the phone's first frame other than `have`. On
 //!   link-up the phone sends `have` (if it holds blobs), then `resume` (if
 //!   it holds a rev), then `viewport`. A resumed phone's opening frame is a
-//!   delta from its rev; a phone without one gets the manifest. The host may also open the
+//!   delta from its rev; a phone without one, or one whose `resume` names
+//!   another epoch than the producer's (or none), gets the manifest. The host may also open the
 //!   session itself ([`Session::open`]) if the phone stays silent.
 //! - A producer change since the last manifest or delta goes out as one
 //!   delta before any blob; changes made between two pulls coalesce.
@@ -66,6 +67,9 @@ pub struct Session {
     phone_rev: Option<u64>,
     /// The phone resumed and has not been answered yet.
     answer_resume: bool,
+    /// The epoch the phone's `resume` named. A resume from another epoch is
+    /// answered with a manifest.
+    resume_epoch: String,
     phone_has: HashSet<BlobHash>,
     sent: HashSet<BlobHash>,
     queue: VecDeque<BlobHash>,
@@ -127,6 +131,7 @@ impl Session {
             }
             Message::Resume(r) => {
                 self.phone_rev = Some(r.rev);
+                self.resume_epoch = r.epoch;
                 self.answer_resume = true;
             }
             other @ (Message::Manifest(_) | Message::Delta(_) | Message::Blob(_)) => {
@@ -181,10 +186,11 @@ impl Session {
     /// A manifest or delta when the phone's rev is not the producer's.
     fn rows_frame(&mut self, producer: &Producer) -> Option<Vec<u8>> {
         let rev = producer.rev();
+        let same_epoch = !self.answer_resume || self.resume_epoch == producer.epoch();
         let delta = match self.phone_rev {
             Some(have) if have == rev && !self.answer_resume => return None,
-            Some(have) => producer.delta_since(have),
-            None => None,
+            Some(have) if same_epoch => producer.delta_since(have),
+            _ => None,
         };
         self.answer_resume = false;
         self.phone_rev = Some(rev);

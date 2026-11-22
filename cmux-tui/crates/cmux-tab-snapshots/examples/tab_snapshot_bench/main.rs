@@ -112,7 +112,9 @@ fn baseline(link: &Link, producer: &Producer) -> Value {
     let mut titles_at = hello_at;
     let mut blob_bytes = 0;
     for row in producer.rows() {
-        let row_frame = Message::Manifest(Manifest { rev: 0, rows: vec![row.clone()] }).encode();
+        let row_frame =
+            Message::Manifest(Manifest { epoch: String::new(), rev: 0, rows: vec![row.clone()] })
+                .encode();
         let (_, mut at) = down.send(hello_at, row_frame.len());
         titles_at = at;
         for (h, len) in card_blob_sizes(producer, row) {

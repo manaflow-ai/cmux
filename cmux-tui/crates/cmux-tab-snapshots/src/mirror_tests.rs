@@ -16,7 +16,7 @@ fn row(id: &str, favicon: &[u8], thumb: &[u8]) -> Row {
 }
 
 fn manifest(rev: u64, rows: Vec<Row>) -> Message {
-    Message::Manifest(Manifest { rev, rows })
+    Message::Manifest(Manifest { epoch: "e1".into(), rev, rows })
 }
 
 #[test]
@@ -58,6 +58,7 @@ fn delta_applies_on_its_base_and_reports_a_gap_otherwise() {
         RowPatch { tab_id: "a".into(), title: Some("New".into()), ..RowPatch::default() };
     patch.thumb_hash = Some(None);
     let delta = Delta {
+        epoch: "e1".into(),
         rev: 7,
         base_rev: 5,
         changed: vec![patch, RowPatch::full(&row("c", b"f", b"t3"))],
@@ -90,7 +91,10 @@ fn held_set_exports_and_imports() {
     let frames = next.link_up_frames();
     assert_eq!(frames.len(), 2);
     assert_eq!(frames[0][0], crate::wire::kind::HAVE);
-    assert_eq!(Message::decode(&frames[1]).unwrap(), Message::Resume(Resume { rev: 3 }));
+    assert_eq!(
+        Message::decode(&frames[1]).unwrap(),
+        Message::Resume(Resume { epoch: "e1".into(), rev: 3 })
+    );
 }
 
 #[test]
@@ -98,4 +102,22 @@ fn phone_to_mac_frames_are_refused() {
     let mut m = Mirror::new();
     let frame = Message::Want(vec![]).encode();
     assert_eq!(m.apply_frame(&frame), Err(MirrorError::WrongDirection(frame[0])));
+}
+
+#[test]
+fn another_epoch_is_a_gap_for_a_delta_and_a_replacement_for_a_manifest() {
+    let mut m = Mirror::new();
+    m.apply(manifest(5, vec![row("a", b"f", b"t")])).unwrap();
+    let foreign = Delta { epoch: "e2".into(), rev: 6, base_rev: 5, ..Delta::default() };
+    assert_eq!(
+        m.apply(Message::Delta(foreign)).unwrap(),
+        Applied::Gap { mirror_rev: Some(5), base_rev: 5 }
+    );
+    assert_eq!((m.epoch(), m.rev()), ("e1", Some(5)));
+    let resume = Message::decode(&m.resume_frame().unwrap()).unwrap();
+    assert_eq!(resume, Message::Resume(Resume { epoch: "e1".into(), rev: 5 }));
+    let replaced = Manifest { epoch: "e2".into(), rev: 2, rows: vec![row("b", b"f", b"t")] };
+    assert_eq!(m.apply(Message::Manifest(replaced)).unwrap(), Applied::Manifest { rev: 2 });
+    assert_eq!((m.epoch(), m.rev()), ("e2", Some(2)));
+    assert_eq!(m.rows()[0].tab_id, "b");
 }

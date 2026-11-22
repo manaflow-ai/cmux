@@ -36,13 +36,18 @@ fn every_message_round_trips() {
     }));
     round_trip(&Message::Want(vec![BlobHash::of(b"a"), BlobHash::of(b"b")]));
     round_trip(&Message::Have(vec![]));
-    round_trip(&Message::Resume(Resume { rev: 42 }));
-    round_trip(&Message::Manifest(Manifest { rev: 7, rows: vec![row("t1"), row("t2")] }));
+    round_trip(&Message::Resume(Resume { epoch: "e1".into(), rev: 42 }));
+    round_trip(&Message::Manifest(Manifest {
+        epoch: "e1".into(),
+        rev: 7,
+        rows: vec![row("t1"), row("t2")],
+    }));
     let mut patch = RowPatch { tab_id: "t1".into(), ..RowPatch::default() };
     patch.title = Some("New".into());
     patch.thumb_hash = Some(None);
     patch.favicon_hash = Some(Some(BlobHash::of(b"x")));
     round_trip(&Message::Delta(Delta {
+        epoch: "e1".into(),
         rev: 9,
         base_rev: 7,
         changed: vec![patch, RowPatch::full(&row("t3"))],
@@ -114,7 +119,25 @@ fn unknown_fields_are_ignored() {
 
     let mut frame = vec![kind::RESUME];
     frame.extend_from_slice(br#"{"rev":5,"why":"reconnect"}"#);
-    assert_eq!(Message::decode(&frame).unwrap(), Message::Resume(Resume { rev: 5 }));
+    assert_eq!(
+        Message::decode(&frame).unwrap(),
+        Message::Resume(Resume { epoch: String::new(), rev: 5 })
+    );
+}
+
+#[test]
+fn epoch_is_on_manifest_delta_and_resume() {
+    let m = Message::Manifest(Manifest { epoch: "ab12".into(), rev: 1, rows: vec![] }).encode();
+    let json: serde_json::Value = serde_json::from_slice(&m[1..]).unwrap();
+    assert_eq!(json["epoch"], "ab12");
+    let d = Message::Delta(Delta { epoch: "ab12".into(), ..Delta::default() }).encode();
+    let json: serde_json::Value = serde_json::from_slice(&d[1..]).unwrap();
+    assert_eq!(json["epoch"], "ab12");
+    let r = Message::Resume(Resume { epoch: "ab12".into(), rev: 4 }).encode();
+    assert_eq!(&r[1..], br#"{"epoch":"ab12","rev":4}"#);
+    // A resume without an epoch omits the field.
+    let r = Message::Resume(Resume { epoch: String::new(), rev: 4 }).encode();
+    assert_eq!(&r[1..], br#"{"rev":4}"#);
 }
 
 #[test]

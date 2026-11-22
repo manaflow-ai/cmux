@@ -185,7 +185,7 @@ impl Workload {
     }
 
     pub fn producer(&self) -> Producer {
-        let mut p = Producer::new(1_795_000_000_000, 256, 64);
+        let mut p = Producer::new("e1", 1_795_000_000_000, 256, 64);
         for i in 0..self.tabs {
             p.observe(self.observe(i, 0));
         }

@@ -39,7 +39,7 @@ fn terminal(id: &str, text: &str) -> Observation {
 }
 
 fn mac() -> Producer {
-    let mut p = Producer::new(1_000, 64, 16);
+    let mut p = Producer::new("e1", 1_000, 64, 16);
     p.observe(browser("b1", b"icon-github", &[1; 4000]));
     p.observe(browser("b2", b"icon-github", &[2; 4000]));
     p.observe(browser("b3", b"icon-docs", &[3; 4000]));
@@ -194,5 +194,28 @@ fn a_gap_recovers_through_resume() {
     // its own rev.
     assert_eq!((t.manifests, t.deltas), (0, 1));
     assert_eq!(phone.rev(), Some(p.rev()));
+    assert!(all_filled(&phone));
+}
+
+#[test]
+fn a_restarted_mac_answers_an_old_resume_with_a_manifest() {
+    let p = mac();
+    let mut phone = Mirror::new();
+    let up = link_up(&phone);
+    run(&p, &mut Session::new(), &mut phone, up);
+    // The host restarts with a fresh epoch and the same first rev, so the
+    // phone's rev is a valid number in the new run but means something else.
+    let mut restarted = Producer::new("e2", 1_000, 64, 16);
+    restarted.observe(browser("b1", b"icon-github", &[1; 4000]));
+    restarted.observe(browser("x9", b"icon-docs", &[7; 4000]));
+    restarted.observe(browser("b3", b"icon-docs", &[3; 4000]));
+    restarted.observe(terminal("t1", "$ cargo test\nok\n"));
+    assert_eq!(restarted.rev(), p.rev());
+    let up = link_up(&phone);
+    let t = run(&restarted, &mut Session::new(), &mut phone, up);
+    assert_eq!((t.manifests, t.deltas), (1, 0));
+    assert_eq!(phone.epoch(), "e2");
+    let ids: Vec<_> = phone.rows().iter().map(|r| r.tab_id.as_str()).collect();
+    assert_eq!(ids, vec!["b1", "x9", "b3", "t1"]);
     assert!(all_filled(&phone));
 }

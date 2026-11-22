@@ -3,10 +3,11 @@
 //! when a row's content changed, keeps blobs in its [`BlobStore`], and keeps
 //! a bounded history so a reconnecting phone gets one delta from its rev.
 //!
-//! `rev` starts at the value the host passes. A host that restarts should
-//! start above any rev it handed out before (for example the wall clock in
-//! ms), so a phone's remembered rev from an earlier run reads as unknown
-//! rather than as current.
+//! The host passes an `epoch` at construction: a fresh random value for every
+//! start of the host process. Every manifest and delta carries it, and a
+//! `resume` from another epoch (or none) gets a manifest, so a phone's rev
+//! from an earlier run is never read as a rev of this one. `rev` starts at
+//! the value the host passes.
 
 use crate::hash::{BlobHash, Mime};
 use crate::row::{Kind, Row, RowPatch};
@@ -60,6 +61,7 @@ struct Change {
 
 #[derive(Debug)]
 pub struct Producer {
+    epoch: String,
     rows: Vec<Row>,
     rev: u64,
     /// The oldest rev a delta can start from.
@@ -70,10 +72,17 @@ pub struct Producer {
 }
 
 impl Producer {
-    /// `first_rev`: the rev of the empty state. `history_cap`: how many revs
+    /// `epoch`: this run's identity, fresh per host start (the crate does not
+    /// generate it). `first_rev`: the rev of the empty state. `history_cap`: how many revs
     /// a resume can reach back. `recent_blob_cap`: see [`BlobStore::new`].
-    pub fn new(first_rev: u64, history_cap: usize, recent_blob_cap: usize) -> Self {
+    pub fn new(
+        epoch: impl Into<String>,
+        first_rev: u64,
+        history_cap: usize,
+        recent_blob_cap: usize,
+    ) -> Self {
         Self {
+            epoch: epoch.into(),
             rows: Vec::new(),
             rev: first_rev,
             oldest_base: first_rev,
@@ -81,6 +90,10 @@ impl Producer {
             history_cap,
             store: BlobStore::new(recent_blob_cap),
         }
+    }
+
+    pub fn epoch(&self) -> &str {
+        &self.epoch
     }
 
     pub fn rev(&self) -> u64 {
@@ -96,7 +109,7 @@ impl Producer {
     }
 
     pub fn manifest(&self) -> Manifest {
-        Manifest { rev: self.rev, rows: self.rows.clone() }
+        Manifest { epoch: self.epoch.clone(), rev: self.rev, rows: self.rows.clone() }
     }
 
     /// Records what a tab shows. Returns true when that is a change (a new
@@ -178,7 +191,7 @@ impl Producer {
             }
         }
         changed.retain(|p| !p.tab_id.is_empty());
-        Some(Delta { rev: self.rev, base_rev, changed, removed })
+        Some(Delta { epoch: self.epoch.clone(), rev: self.rev, base_rev, changed, removed })
     }
 
     fn record(&mut self, changed: Vec<RowPatch>, removed: Vec<String>) {

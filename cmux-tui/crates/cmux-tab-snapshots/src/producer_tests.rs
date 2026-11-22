@@ -21,7 +21,7 @@ pub(crate) fn browser(id: &str, title: &str, favicon: &[u8], thumb: &[u8]) -> Ob
 
 #[test]
 fn same_content_is_no_new_rev() {
-    let mut p = Producer::new(100, 8, 4);
+    let mut p = Producer::new("e1", 100, 8, 4);
     assert!(p.observe(browser("a", "A", b"fav", b"thumb")));
     assert_eq!(p.rev(), 101);
     let mut again = browser("a", "A", b"fav", b"thumb");
@@ -35,7 +35,7 @@ fn same_content_is_no_new_rev() {
 
 #[test]
 fn a_change_carries_only_changed_fields() {
-    let mut p = Producer::new(0, 8, 4);
+    let mut p = Producer::new("e1", 0, 8, 4);
     p.observe(browser("a", "A", b"fav", b"thumb"));
     p.observe(browser("a", "A", b"fav", b"thumb2"));
     let d = p.delta_since(1).unwrap();
@@ -49,7 +49,7 @@ fn a_change_carries_only_changed_fields() {
 
 #[test]
 fn shared_favicon_is_stored_once() {
-    let mut p = Producer::new(0, 8, 0);
+    let mut p = Producer::new("e1", 0, 8, 0);
     p.observe(browser("a", "A", b"fav", b"t1"));
     p.observe(browser("b", "B", b"fav", b"t2"));
     let stats = p.store().stats();
@@ -62,7 +62,7 @@ fn shared_favicon_is_stored_once() {
 
 #[test]
 fn flipping_back_keeps_the_old_blob() {
-    let mut p = Producer::new(0, 8, 2);
+    let mut p = Producer::new("e1", 0, 8, 2);
     p.observe(browser("a", "A", b"fav", b"one"));
     p.observe(browser("a", "A", b"fav", b"two"));
     assert!(p.store().contains(&BlobHash::of(b"one")));
@@ -72,7 +72,7 @@ fn flipping_back_keeps_the_old_blob() {
 
 #[test]
 fn delta_since_merges_and_handles_removal() {
-    let mut p = Producer::new(0, 16, 4);
+    let mut p = Producer::new("e1", 0, 16, 4);
     p.observe(browser("a", "A", b"f", b"1"));
     p.observe(browser("b", "B", b"f", b"2"));
     let base = p.rev();
@@ -94,7 +94,7 @@ fn delta_since_merges_and_handles_removal() {
 
 #[test]
 fn resume_is_bounded_by_history() {
-    let mut p = Producer::new(50, 2, 4);
+    let mut p = Producer::new("e1", 50, 2, 4);
     for i in 0..5u8 {
         p.observe(browser("a", &format!("T{i}"), b"f", &[i]));
     }
@@ -103,7 +103,7 @@ fn resume_is_bounded_by_history() {
     assert!(p.delta_since(53).is_some());
     assert!(p.delta_since(56).is_none());
     assert!(p.delta_since(10).is_none());
-    let mut none = Producer::new(0, 0, 0);
+    let mut none = Producer::new("e1", 0, 0, 0);
     none.observe(browser("a", "A", b"f", b"t"));
     assert!(none.delta_since(0).is_none());
     assert!(none.delta_since(1).is_some());
@@ -111,7 +111,7 @@ fn resume_is_bounded_by_history() {
 
 #[test]
 fn removing_an_unknown_tab_changes_nothing() {
-    let mut p = Producer::new(0, 4, 4);
+    let mut p = Producer::new("e1", 0, 4, 4);
     assert!(!p.remove("nope"));
     assert_eq!(p.rev(), 0);
 }

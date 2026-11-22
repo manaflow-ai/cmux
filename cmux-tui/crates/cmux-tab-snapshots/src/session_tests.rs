@@ -23,7 +23,7 @@ fn browser(id: &str, title: &str, favicon: &[u8], thumb: &[u8]) -> Observation {
 }
 
 fn producer() -> Producer {
-    let mut p = Producer::new(0, 16, 8);
+    let mut p = Producer::new("e1", 0, 16, 8);
     p.observe(browser("a", "A", b"fav", b"ta"));
     p.observe(browser("b", "B", b"fav", b"tb"));
     p
@@ -118,17 +118,17 @@ fn resume_gets_a_delta_or_a_manifest() {
     let mut p = producer();
     p.observe(browser("a", "A2", b"fav", b"ta"));
     let mut s = Session::new();
-    s.on_message(Message::Resume(Resume { rev: 2 })).unwrap();
+    s.on_message(Message::Resume(Resume { epoch: "e1".into(), rev: 2 })).unwrap();
     let out = drain(&mut s, &p);
     assert!(matches!(&out[..], [Message::Delta(d)] if d.base_rev == 2 && d.rev == 3));
 
     let mut same = Session::new();
-    same.on_message(Message::Resume(Resume { rev: 3 })).unwrap();
+    same.on_message(Message::Resume(Resume { epoch: "e1".into(), rev: 3 })).unwrap();
     let out = drain(&mut same, &p);
     assert!(matches!(&out[..], [Message::Delta(d)] if d.changed.is_empty() && d.rev == 3));
 
     let mut unknown = Session::new();
-    unknown.on_message(Message::Resume(Resume { rev: 99 })).unwrap();
+    unknown.on_message(Message::Resume(Resume { epoch: "e1".into(), rev: 99 })).unwrap();
     assert!(matches!(&drain(&mut unknown, &p)[..], [Message::Manifest(_)]));
 }
 
@@ -162,4 +162,20 @@ fn push_before_want_queues_missing_blobs_favicons_first() {
     assert_eq!(first.first(), Some(&kind::DELTA));
     s.on_message(Message::Want(vec![h(b"tb2")])).unwrap();
     assert_eq!(blob_hashes(&drain(&mut s, &p)), vec![h(b"tb2")]);
+}
+
+#[test]
+fn a_resume_from_another_or_no_epoch_gets_a_manifest() {
+    let p = producer();
+    let mut other = Session::new();
+    other.on_message(Message::Resume(Resume { epoch: "old-run".into(), rev: 2 })).unwrap();
+    assert!(matches!(&drain(&mut other, &p)[..], [Message::Manifest(m)] if m.epoch == "e1"));
+
+    let mut none = Session::new();
+    none.on_message(Message::Resume(Resume { epoch: String::new(), rev: 2 })).unwrap();
+    assert!(matches!(&drain(&mut none, &p)[..], [Message::Manifest(_)]));
+
+    let mut same = Session::new();
+    same.on_message(Message::Resume(Resume { epoch: "e1".into(), rev: 2 })).unwrap();
+    assert!(matches!(&drain(&mut same, &p)[..], [Message::Delta(d)] if d.epoch == "e1"));
 }

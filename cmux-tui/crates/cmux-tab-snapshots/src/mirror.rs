@@ -1,8 +1,9 @@
 //! A reference phone side, used by tests and the bench. The phone app owns
 //! its real cache and fetch policy elsewhere; this one shows the rules a
 //! phone has to keep:
-//! - A delta applies only on top of the rev it names (`baseRev`). Any other
-//!   delta is a gap: the caller sends `resume {rev}`.
+//! - A delta applies only on top of the rev it names (`baseRev`) in the
+//!   epoch the mirror holds. Any other delta is a gap: the caller sends
+//!   `resume {epoch, rev}`. A manifest replaces everything, epoch included.
 //! - A blob is kept only when its bytes hash to the hash in its frame.
 //! - What to ask for: favicons first in row order, then each row's
 //!   thumbnail or screen in row order. Full frames are fetched on demand,
@@ -26,7 +27,8 @@ pub enum Applied {
     Delta {
         rev: u64,
     },
-    /// The delta starts at `base_rev` but the mirror is at `mirror_rev`.
+    /// The delta starts at `base_rev` but the mirror is at `mirror_rev`, or
+    /// the delta is from another epoch than the mirror holds.
     /// Nothing changed; send [`Mirror::resume_frame`].
     Gap {
         mirror_rev: Option<u64>,
@@ -68,6 +70,7 @@ impl std::error::Error for MirrorError {}
 
 #[derive(Debug, Default)]
 pub struct Mirror {
+    epoch: String,
     rev: Option<u64>,
     rows: Vec<Row>,
     held: HashSet<BlobHash>,
@@ -76,6 +79,11 @@ pub struct Mirror {
 impl Mirror {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The epoch of the last manifest applied (empty before any).
+    pub fn epoch(&self) -> &str {
+        &self.epoch
     }
 
     /// The rev of the last manifest or delta applied.
@@ -106,6 +114,7 @@ impl Mirror {
     /// Forgets the rows and rev but keeps the held blobs: a relaunch with a
     /// persisted blob cache and no persisted manifest.
     pub fn relaunch(&mut self) {
+        self.epoch.clear();
         self.rev = None;
         self.rows.clear();
     }
@@ -135,13 +144,14 @@ impl Mirror {
     }
 
     fn apply_manifest(&mut self, m: Manifest) -> Applied {
+        self.epoch = m.epoch;
         self.rev = Some(m.rev);
         self.rows = m.rows;
         Applied::Manifest { rev: m.rev }
     }
 
     fn apply_delta(&mut self, d: Delta) -> Applied {
-        if self.rev != Some(d.base_rev) {
+        if self.rev != Some(d.base_rev) || self.epoch != d.epoch {
             return Applied::Gap { mirror_rev: self.rev, base_rev: d.base_rev };
         }
         let removed: HashSet<&str> = d.removed.iter().map(String::as_str).collect();
@@ -188,9 +198,9 @@ impl Mirror {
         (!missing.is_empty()).then(|| Message::Want(missing).encode())
     }
 
-    /// `resume {rev}`, or `None` before any manifest.
+    /// `resume {epoch, rev}`, or `None` before any manifest.
     pub fn resume_frame(&self) -> Option<Vec<u8>> {
-        self.rev.map(|rev| Message::Resume(Resume { rev }).encode())
+        self.rev.map(|rev| Message::Resume(Resume { epoch: self.epoch.clone(), rev }).encode())
     }
 
     /// `have` for the held set, or `None` when it is empty.
