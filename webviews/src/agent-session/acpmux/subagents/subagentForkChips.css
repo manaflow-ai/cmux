@@ -24,7 +24,7 @@
 /* The fork menu's first line: why the chip is fixed, in the menu's description text. */
 .acpmux-subagent-fork-note {
   max-width: 280px;
-  padding: 4px 8px 6px;
+  padding: var(--ds-space-1) var(--ds-space-2);
   color: var(--agent-muted);
   font-size: var(--text-caption);
   line-height: 1.35;

@@ -12767,7 +12767,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         chatModel: summary?.model,
         ...(summary?.model ? { chatModelName: models.find((model) => model.id === summary.model)?.name } : {}),
         modeId: summary?.modes?.currentModeId,
-        modes: summary?.modes?.availableModes ?? [],
+        modes: (summary?.modes?.availableModes ?? []).map((mode) => ({ ...mode, name: mode.name ?? mode.id })),
         models,
         subagentModel: relayedSubagent?.spawnModel ?? relayedSubagent?.model,
         canFork: snapshot.canForkSubagent === true && subagentForkId !== undefined,
