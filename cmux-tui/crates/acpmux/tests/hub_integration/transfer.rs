@@ -814,3 +814,32 @@ async fn a_chat_moved_into_the_same_linked_worktree_can_still_recreate_it() {
     assert!(linked.is_dir(), "its linked worktree is back");
     assert_eq!(texts(&mut dst, &id, "user_message").await, ["hi", "back"]);
 }
+
+/// 2026-11-22: a move whose client lost its daemon left the chat frozen ("it is being moved
+/// already") with no move running. `session move --abort` (`_acpmux/transfer_end_stale`) ends
+/// it now the way the watch would after the lease: refused while the client was just heard
+/// from, then given back here, and the chat runs again.
+#[tokio::test]
+async fn a_stale_move_is_ended_now_on_asking_and_a_live_one_is_not() {
+    let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let id = busy_chat(&mut src, &[("p-a", "a")]).await;
+    let begin = src
+        .request("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true}))
+        .await
+        .unwrap();
+    let path = begin["files"][0]["path"].clone();
+    let read = json!({"transferId": begin["transferId"], "path": path, "offset": 0, "limit": 1, "epoch": begin["epoch"]});
+    src.request("_acpmux/transfer_read", read).await.unwrap();
+    // Long enough that the watch does not end it first; a quarter of it is "just heard from".
+    a.set_transfer_lease(Duration::from_secs(12));
+    let live = src.request("_acpmux/transfer_end_stale", json!({"sessionId": id})).await;
+    assert!(format!("{live:?}").contains("transfer.live"), "{live:?}");
+    tokio::time::sleep(Duration::from_millis(3500)).await;
+    let ended = src.request("_acpmux/transfer_end_stale", json!({"sessionId": id})).await.unwrap();
+    assert_eq!(ended["ended"], "given back", "{ended}");
+    assert_eq!(ended["transferId"], begin["transferId"], "{ended}");
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["transferBlocked"], false, "{info}");
+    let again = src.request("_acpmux/transfer_end_stale", json!({"sessionId": id})).await;
+    assert!(format!("{again:?}").contains("transfer.not_moving"), "{again:?}");
+}

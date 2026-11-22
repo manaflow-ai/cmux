@@ -46,6 +46,10 @@ pub const SESSION_IDLE_FACTS: &str = "session-idle-facts-v1";
 /// Pre-copy for a chat move (`hub/transfer_precopy.rs`).
 pub const TRANSFER_PRECOPY: &str = "transfer-precopy-v1";
 
+/// Live migration of a chat move (`hub/transfer_live.rs`): compressed pages, resumable stages,
+/// the source's digest of a prefix, and the client's progress reports.
+pub const TRANSFER_LIVE: &str = "transfer-live-v1";
+
 pub struct Capability {
     pub id: &'static str,
     pub wire: &'static [&'static str],
@@ -360,6 +364,21 @@ pub const CAPABILITIES: &[Capability] = &[
             "_acpmux/transfer_stage_finish",
             "_acpmux/transfer_begin",
             "_acpmux/transfer_receive",
+        ],
+    },
+    // Live migration of a chat move (`hub/transfer_live.rs`): `transfer_write {encoding:
+    // "zstd"}` takes a compressed page, `transfer_stage {resume: true}` takes up the chat's
+    // unfinished stage and says what it holds, `transfer_digest` answers the source's digest of
+    // the same bytes, `transfer_progress` is the client's report `session info` shows, and
+    // `transfer_end_stale` ends a move whose client is gone now, as its watch would.
+    Capability {
+        id: TRANSFER_LIVE,
+        wire: &[
+            "_acpmux/transfer_digest",
+            "_acpmux/transfer_end_stale",
+            "_acpmux/transfer_progress",
+            "_acpmux/transfer_stage",
+            "_acpmux/transfer_write",
         ],
     },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).

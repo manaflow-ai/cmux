@@ -74,6 +74,8 @@ fn about_ok(free_gb: Option<u64>) -> RemoteDaemon {
         socket: "/home/cmux/.acpmux/acpmux.sock".into(),
         disk_free: free_gb.map(|g| g * 1_000_000_000),
         harnesses: None,
+        rate: None,
+        copy_secs: None,
     }
 }
 
@@ -371,6 +373,7 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
             dry_run: true,
             resume_there: false,
             from: None,
+            slow_ok: false,
         };
         let outcome = move_one(&client, "chat", &args, repo.path(), &mut targets).await;
         assert_eq!(outcome.error_code, expected);
@@ -516,4 +519,37 @@ fn about_reads_the_targets_harness_ids() {
     assert!(r.lacks("codex").unwrap().contains("not configured there"));
     let old = parse_about("/home/cmux\n{\"socket\":\"/s\"}\n1024\n").unwrap();
     assert!(old.harnesses.is_none() && old.lacks("claude-sr2").is_none());
+}
+
+/// 2026-11-22: a 7 GB chat went to a host reached through a ~96 KB/s relay (about 6 h of copy)
+/// when another took about 1 MB/s. A host whose copy is estimated past `SLOW_COPY` is passed
+/// over, with why, for one that is not; when only slow hosts answer, the fastest is the pick
+/// (the move then refuses it without `--slow-ok`).
+#[test]
+fn auto_passes_over_a_host_whose_copy_takes_hours() {
+    let wire = super::link::wire_bytes(6_800_000_000);
+    let at = |rate: f64| RemoteDaemon {
+        rate: Some(rate),
+        copy_secs: Some(super::link::copy_secs(wire, rate)),
+        ..about_ok(Some(100))
+    };
+    let w = walk(
+        &targets(&["relayed", "direct"]),
+        0,
+        "claude",
+        |_| 0,
+        |t| Ok(at(if t.name == "relayed" { 96_000.0 } else { 1_000_000.0 })),
+    );
+    assert_eq!(w.pick.unwrap().name, "direct");
+    assert_eq!(w.skipped.len(), 1);
+    assert!(w.skipped[0].1.contains("96 KB/s"), "{:?}", w.skipped);
+    let w = walk(
+        &targets(&["slower", "slow"]),
+        0,
+        "claude",
+        |_| 0,
+        |t| Ok(at(if t.name == "slower" { 50_000.0 } else { 96_000.0 })),
+    );
+    assert_eq!(w.pick.unwrap().name, "slow");
+    assert!(w.warning.unwrap().contains("slow"));
 }

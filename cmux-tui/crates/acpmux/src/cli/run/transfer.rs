@@ -5,6 +5,14 @@
 use super::*;
 use cmux_json::JsonSet as _;
 
+#[path = "transfer_live.rs"]
+pub(crate) mod live;
+#[path = "transfer_reconnect.rs"]
+pub(crate) mod reconnect;
+pub(crate) use live::{Live, move_progress_line};
+use live::{Pager, page_files};
+pub(crate) use reconnect::Daemon;
+
 /// Moves `session` to the daemon at `to`.
 pub(super) async fn run(
     session: &str,
@@ -31,6 +39,7 @@ pub(super) async fn run(
     let to_meta = json!({"socket": socket});
     let watch = json!({"socket": socket});
     let running = (interrupt, after_turn);
+    let (src, dst) = (Daemon::over(&src, "source"), Daemon::over(&dst, "target"));
     let moved =
         move_chat(&src, &dst, &dst_init, &id, Some(watch), cwd, name, running, to_meta).await?;
     if json_out {
@@ -61,7 +70,7 @@ pub(super) struct Staged {
 /// the target as the source's watch reaches it if the move's client goes away
 /// (`{socket}`, or `{socket, ssh}` for a daemon on another machine, `hub/transfer_watch.rs`).
 pub(super) async fn begin_move(
-    src: &Client,
+    src: &Daemon<'_>,
     id: &str,
     watch: Option<Value>,
     running: (bool, bool),
@@ -73,7 +82,7 @@ pub(super) async fn begin_move(
 /// past its prefix; a prefix the source no longer holds as it was is moved in full (the refusal
 /// gave the chat back first).
 pub(super) async fn begin_staged(
-    src: &Client,
+    src: &Daemon<'_>,
     id: &str,
     watch: Option<Value>,
     running: (bool, bool),
@@ -90,7 +99,7 @@ pub(super) async fn begin_staged(
 
 /// [`begin_move`]; after `staged`, the bundle holds only the records past its prefix.
 async fn begin_move_after(
-    src: &Client,
+    src: &Daemon<'_>,
     id: &str,
     watch: Option<Value>,
     (interrupt, after_turn): (bool, bool),
@@ -122,7 +131,7 @@ async fn begin_move_after(
 }
 
 /// Gives the chat back on the source: the move did not happen.
-pub(super) async fn abort_move(src: &Client, id: &str, begun: &Begun) {
+pub(super) async fn abort_move(src: &Daemon<'_>, id: &str, begun: &Begun) {
     let abort = json!({"sessionId": id, "transferId": begun.transfer_id, "epoch": begun.epoch});
     if let Err(e) = src.request("_acpmux/transfer_abort", abort).await {
         eprintln!("acpmux: the move failed and the chat stays frozen here: {e}");
@@ -133,8 +142,8 @@ pub(super) async fn abort_move(src: &Client, id: &str, begun: &Begun) {
 /// commits it on `src` with `to_meta` (plus the chat's id there) as where it went.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn move_chat(
-    src: &Client,
-    dst: &Client,
+    src: &Daemon<'_>,
+    dst: &Daemon<'_>,
     dst_init: &Value,
     id: &str,
     watch: Option<Value>,
@@ -145,7 +154,11 @@ pub(super) async fn move_chat(
 ) -> Result<Value> {
     // Pre-copied when both daemons can: the freeze then costs only what changed since. A target
     // that lost its stage refuses the bundle, and the move is made again in full.
-    let staged = precopy(src, dst, dst_init, id).await;
+    let live = Live { verbose: true, ..Live::default() };
+    let staged = precopy(src, dst, dst_init, id, &live).await?;
+    if staged.is_none() {
+        whole_freeze_refusal(src, id).await?;
+    }
     let begun = begin_staged(src, id, watch.clone(), running, staged.as_ref()).await?;
     if begun.stage_id.is_some() {
         let (cwd, name, meta) = (cwd.clone(), name.clone(), to_meta.clone());
@@ -156,67 +169,139 @@ pub(super) async fn move_chat(
     } else {
         return finish_move(src, dst, dst_init, id, &begun, cwd, name, to_meta).await;
     }
+    whole_freeze_refusal(src, id).await?;
     let begun = begin_move(src, id, watch, running).await?;
     finish_move(src, dst, dst_init, id, &begun, cwd, name, to_meta).await
+}
+
+/// Refuses a move of chat `id` whole inside its freeze when its log is past
+/// `live::WHOLE_FREEZE_LIMIT`: the chat would be frozen for the whole copy (2026-11-22: 6 h
+/// over a relay). A source that does not say how big the log is is not refused.
+pub(super) async fn whole_freeze_refusal(src: &Daemon<'_>, id: &str) -> Result<()> {
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id, "waitLogs": false})).await?;
+    let Some(bytes) = info.get("historyBytes").and_then(Value::as_u64) else { return Ok(()) };
+    if bytes > live::WHOLE_FREEZE_LIMIT {
+        bail!(
+            "transfer.whole_freeze: its history is {:.2} GB and could not be pre-copied, so the \
+             move would freeze the chat for the whole copy; not moved (both daemons need \
+             transfer-precopy-v1: update the target's acpmux)",
+            bytes as f64 / 1e9
+        );
+    }
+    Ok(())
 }
 
 fn refused_as(e: &anyhow::Error, code: &str) -> bool {
     format!("{e:#}").contains(code)
 }
 
-/// Whether a daemon's `initialize` or `_acpmux/status` reply lists pre-copy.
-fn lists_precopy(reply: &Value, pointer: &str) -> bool {
-    let ids = reply.pointer(pointer).and_then(Value::as_array);
-    ids.is_some_and(|ids| ids.iter().any(|id| id == crate::capabilities::TRANSFER_PRECOPY))
-}
-
 /// The chat's history as of now staged on `dst`, with no freeze, when both daemons list
-/// pre-copy; None (a full move) when either does not or any step fails.
+/// pre-copy (`live` module docs: in rounds, resumed, compressed); `Ok(None)` (a full move) when
+/// either does not or a step fails; `Err` only when the copy would be too slow
+/// (`live::SLOW`), the chat untouched and what was copied kept on the target.
 pub(super) async fn precopy(
-    src: &Client,
-    dst: &Client,
+    src: &Daemon<'_>,
+    dst: &Daemon<'_>,
     dst_init: &Value,
     id: &str,
-) -> Option<Staged> {
-    if !lists_precopy(dst_init, "/_meta/acpmux/capabilities") {
-        return None;
+    live: &Live,
+) -> Result<Option<Staged>> {
+    use crate::capabilities::{TRANSFER_LIVE, TRANSFER_PRECOPY};
+    let target_caps = "/_meta/acpmux/capabilities";
+    if !live::lists(dst_init, target_caps, TRANSFER_PRECOPY) {
+        return Ok(None);
     }
-    let status = src.request(method::MUX_STATUS, json!({})).await.ok()?;
-    if !lists_precopy(&status, "/capabilities") {
-        return None;
+    let Ok(status) = src.request(method::MUX_STATUS, json!({})).await else { return Ok(None) };
+    if !live::lists(&status, "/capabilities", TRANSFER_PRECOPY) {
+        return Ok(None);
     }
+    let zstd = live::lists(dst_init, target_caps, TRANSFER_LIVE);
+    let resume = zstd && live::lists(&status, "/capabilities", TRANSFER_LIVE);
+    let mut pager = Pager::new(src, id, live.clone(), zstd);
     // The copy `dst` still holds from the chat's last move, if any: the source prepares only
     // what came after it. A base either side refuses falls back to a full prefix.
     let base = dst.request("_acpmux/transfer_base", json!({"sessionId": id})).await.ok();
     let base = base.map(|b| field(&b, "base").clone()).filter(|b| !b.is_null());
-    if let Some(base) = base
-        && let Some(staged) = stage_prefix(src, dst, id, Some(base)).await
-    {
-        return Some(staged);
+    let mut staged = None;
+    if let Some(base) = base {
+        staged = stage_rounds(src, dst, id, Some(base), resume, &mut pager).await?;
     }
-    stage_prefix(src, dst, id, None).await
+    if staged.is_none() {
+        staged = stage_rounds(src, dst, id, None, resume, &mut pager).await?;
+    }
+    if staged.is_some() {
+        pager.phase = "freeze";
+        let _ = pager.tick(true).await;
+    } else {
+        pager.done().await;
+    }
+    Ok(staged)
 }
 
-/// One prepare on `src`, staged on `dst`: from `base` when it is given and the source holds it.
-async fn stage_prefix(src: &Client, dst: &Client, id: &str, base: Option<Value>) -> Option<Staged> {
-    let mut params = json!({"sessionId": id});
-    if let Some(base) = &base {
-        params.set("base", base.clone());
+/// The prefix staged on `dst` in rounds (from `base` when it is given and the source holds it):
+/// each round prepares the log as of now and sends what the stage does not hold yet, until one
+/// sends little (`live::SMALL_ROUND`); then the stage is finished. With no `resume` (an older
+/// daemon) one round, whole.
+async fn stage_rounds(
+    src: &Daemon<'_>,
+    dst: &Daemon<'_>,
+    id: &str,
+    base: Option<Value>,
+    resume: bool,
+    pager: &mut Pager<'_>,
+) -> Result<Option<Staged>> {
+    let mut staged = None;
+    for _ in 0..live::MAX_ROUNDS {
+        let mut params = json!({"sessionId": id});
+        if let Some(base) = &base {
+            params.set("base", base.clone());
+        }
+        let Ok(prepared) = src.request("_acpmux/transfer_prepare", params).await else {
+            return Ok(None);
+        };
+        if base.is_some() && field(&prepared, "base").is_null() {
+            return Ok(None);
+        }
+        let ask = json!({"manifest": prepared, "resume": resume});
+        let Ok(stage) = dst.request("_acpmux/transfer_stage", ask).await else { return Ok(None) };
+        let (Some(stage_id), Some(prepare_id), Some(after_seq)) = (
+            field(&stage, "stageId").as_str().map(str::to_owned),
+            field(&prepared, "prepareId").as_str().map(str::to_owned),
+            field(&prepared, "afterSeq").as_u64(),
+        ) else {
+            return Ok(None);
+        };
+        let from = live::resume_offsets(src, &prepare_id, &stage).await;
+        pager.begin_round("pre-copy", &prepared);
+        let receive_id = json!(stage_id);
+        let paged = page_files(
+            src,
+            dst,
+            &prepared,
+            field(&prepared, "prepareId"),
+            &receive_id,
+            None,
+            &from,
+            pager,
+        )
+        .await;
+        match paged {
+            Err(e) if refused_as(&e, live::SLOW) => return Err(e),
+            Err(_) => return Ok(None),
+            Ok(()) => {}
+        }
+        let _ = pager.tick(true).await;
+        staged = Some(Staged { prepare_id, after_seq, stage_id });
+        if !resume || pager.sent <= live::SMALL_ROUND {
+            break;
+        }
     }
-    let prepared = src.request("_acpmux/transfer_prepare", params).await.ok()?;
-    if base.is_some() && field(&prepared, "base").is_null() {
-        return None;
+    let Some(staged) = staged else { return Ok(None) };
+    let finish = json!({"stageId": staged.stage_id});
+    if dst.request("_acpmux/transfer_stage_finish", finish).await.is_err() {
+        return Ok(None);
     }
-    let stage = dst.request("_acpmux/transfer_stage", json!({"manifest": prepared})).await.ok()?;
-    let stage_id = field(&stage, "stageId").as_str()?.to_owned();
-    let receive_id = json!(stage_id);
-    page_files(src, dst, &prepared, field(&prepared, "prepareId"), &receive_id, None).await.ok()?;
-    dst.request("_acpmux/transfer_stage_finish", json!({"stageId": stage_id})).await.ok()?;
-    Some(Staged {
-        prepare_id: field(&prepared, "prepareId").as_str()?.to_owned(),
-        after_seq: field(&prepared, "afterSeq").as_u64()?,
-        stage_id,
-    })
+    Ok(Some(staged))
 }
 
 /// Whether the receiver may take the bundle `begin` made: one that carries prompts the owner
@@ -246,8 +331,8 @@ pub(crate) fn receiver_takes(begin: &Value, dst_init: &Value) -> Result<()> {
 /// there, and committed on `src`. A failure that leaves the chat nowhere else aborts the move.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn finish_move(
-    src: &Client,
-    dst: &Client,
+    src: &Daemon<'_>,
+    dst: &Daemon<'_>,
     dst_init: &Value,
     id: &str,
     begun: &Begun,
@@ -271,9 +356,13 @@ pub(super) async fn finish_move(
             return Err(e);
         }
     };
+    // A receive seeded from the stage's native files pages only what they grew by.
+    let from = live::resume_offsets(src, transfer_id, &receive).await;
     let moved = match copy(
         src,
         dst,
+        dst_init,
+        &from,
         begin,
         receive.get("receiveId").unwrap_or(&Value::Null),
         begun.epoch,
@@ -311,7 +400,7 @@ pub(super) async fn finish_move(
 
 /// Whether the target took this move (its log has the `transferred_in` of `transfer_id`); `None`
 /// when it cannot say.
-async fn landed(dst: &Client, id: &str, transfer_id: &str) -> Option<bool> {
+async fn landed(dst: &Daemon<'_>, id: &str, transfer_id: &str) -> Option<bool> {
     let kinds = json!({"sessionId": id, "afterSeq": 0, "kinds": ["transferred_in"]});
     match dst.request(method::MUX_EVENTS, kinds).await {
         Ok(page) => Some(
@@ -329,16 +418,36 @@ async fn landed(dst: &Client, id: &str, transfer_id: &str) -> Option<bool> {
 }
 
 /// Pages every bundle file from `src` into the receive on `dst`, and finishes it there.
+#[allow(clippy::too_many_arguments)]
 async fn copy(
-    src: &Client,
-    dst: &Client,
+    src: &Daemon<'_>,
+    dst: &Daemon<'_>,
+    dst_init: &Value,
+    from: &std::collections::HashMap<String, u64>,
     begin: &Value,
     receive_id: &Value,
     epoch: u64,
     cwd: Option<String>,
     name: Option<String>,
 ) -> Result<Value> {
-    page_files(src, dst, begin, &begin["transferId"], receive_id, Some(epoch)).await?;
+    let id = field(begin, "sessionId").as_str().unwrap_or_default();
+    let zstd =
+        live::lists(dst_init, "/_meta/acpmux/capabilities", crate::capabilities::TRANSFER_LIVE);
+    let mut pager = Pager::new(src, id, Live::default(), zstd);
+    pager.begin_round("freeze", begin);
+    let paged = page_files(
+        src,
+        dst,
+        begin,
+        field(begin, "transferId"),
+        receive_id,
+        Some(epoch),
+        from,
+        &mut pager,
+    )
+    .await;
+    pager.done().await;
+    paged?;
     let mut finish =
         json!({"receiveId": receive_id, "from": {"sessionId": begin["sessionId"]}, "epoch": epoch});
     if let Some(cwd) = cwd {
@@ -348,41 +457,6 @@ async fn copy(
         finish.set("name", json!(name));
     }
     dst.request("_acpmux/transfer_finish", finish).await
-}
-
-/// Pages every file `manifest` lists from `src`'s `transfer_id` into `receive_id` on `dst`.
-async fn page_files(
-    src: &Client,
-    dst: &Client,
-    manifest: &Value,
-    transfer_id: &Value,
-    receive_id: &Value,
-    epoch: Option<u64>,
-) -> Result<()> {
-    for file in manifest["files"].as_array().into_iter().flatten() {
-        let path = &file["path"];
-        let mut offset = 0u64;
-        loop {
-            let mut read = json!({"transferId": transfer_id, "path": path, "offset": offset});
-            let page = src.request("_acpmux/transfer_read", stamped(&mut read, epoch)).await?;
-            let mut write = json!({"receiveId": receive_id, "path": path, "offset": offset, "data": field(&page, "data")});
-            dst.request("_acpmux/transfer_write", stamped(&mut write, epoch)).await?;
-            offset =
-                field(&page, "next").as_u64().ok_or_else(|| anyhow!("transfer_read: no next"))?;
-            if *field(&page, "eof") == true {
-                break;
-            }
-        }
-    }
-    Ok(())
-}
-
-/// `params` with the move's `epoch`, when it has one (a prepare's pages carry none).
-fn stamped(params: &mut Value, epoch: Option<u64>) -> Value {
-    if let Some(epoch) = epoch {
-        params.set("epoch", json!(epoch));
-    }
-    params.take()
 }
 
 /// A client of the target's daemon at `socket`, through an ssh forward of it unless `ssh` is

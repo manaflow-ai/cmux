@@ -1715,6 +1715,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/transfer_digest",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_end_stale",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transfer_finish",
       "params": true,
       "result": true
@@ -1728,6 +1740,12 @@
     {
       "kind": "request",
       "name": "_acpmux/transfer_prepare",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_progress",
       "params": true,
       "result": true
     },

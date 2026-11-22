@@ -24,8 +24,13 @@ pub struct MoveSessionsArgs {
     pub sessions: Vec<String>,
     /// The machine to move them to, or `auto`: `machine pick`'s choice among your machines
     /// (never a reserved one), one machine per checkout. `--host` still works.
-    #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
-    pub host: String,
+    #[arg(
+        long = "machine",
+        alias = "host",
+        value_name = "MACHINE",
+        required_unless_present = "abort"
+    )]
+    pub host: Option<String>,
     /// Every open chat here that is between turns.
     #[arg(long, conflicts_with = "sessions")]
     pub all_idle: bool,
@@ -56,6 +61,17 @@ pub struct MoveSessionsArgs {
     /// chats. With it, `--machine local` brings them here.
     #[arg(long, value_name = "MACHINE")]
     pub from: Option<String>,
+    /// Copy however long the link takes: the chat keeps running while its history is copied,
+    /// and only the last few records move frozen. Without it a machine whose copy is estimated
+    /// at more than two hours is passed over (`auto`) or refused.
+    #[arg(long)]
+    pub slow_ok: bool,
+    /// End a move of the named chats whose client is gone (a `move` that died or lost its
+    /// daemon), now instead of after the five-minute lease: one not copied whole is given back
+    /// here, one whose target took it is committed there. One whose target cannot say stays
+    /// frozen, and this says why.
+    #[arg(long, conflicts_with_all = ["all_idle", "dry_run", "slow_ok"])]
+    pub abort: bool,
 }
 
 #[derive(Parser)]
@@ -2152,7 +2168,7 @@ mod help_contract_tests {
         let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| flatten(c.command.unwrap()));
         let want = MoveSessionsArgs {
             sessions: vec!["a".into(), "b".into()],
-            host: "huge-blue".into(),
+            host: Some("huge-blue".into()),
             all_idle: false,
             interrupt: true,
             after_turn: false,
@@ -2161,6 +2177,8 @@ mod help_contract_tests {
             cwd: None,
             dry_run: true,
             from: Some("mini-3".into()),
+            slow_ok: false,
+            abort: false,
         };
         for verb in [&["move-sessions"][..], &["session", "move"][..]] {
             for machine in ["--machine", "--host"] {

@@ -509,10 +509,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             cwd,
             dry_run,
             from,
+            slow_ok,
+            abort,
         }) => {
+            if abort {
+                return super::session_move::end_stale(&sessions, from.as_deref(), json_out).await;
+            }
             let args = super::session_move::MoveArgs {
                 sessions,
-                host,
+                host: host.unwrap_or_default(),
                 all_idle,
                 interrupt,
                 after_turn,
@@ -522,6 +527,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 dry_run,
                 resume_there: false,
                 from,
+                slow_ok,
             };
             super::session_move::run(args, json_out).await
         }
