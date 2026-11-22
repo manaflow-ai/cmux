@@ -97,7 +97,7 @@ fn resolve(
             visible.then(|| json!({ "path": path, "op": op, "docs": entry["docs"] }))
         })
         .collect();
-    let app_name = package.manifest["name"].clone();
+    let app_name = package.manifest.get("name").cloned().unwrap_or(Value::Null);
     if words.first().is_none_or(|word| HELP.contains(&word.as_str())) {
         return Ok(json!({ "app": package.id, "name": app_name, "commands": commands }));
     }
@@ -115,7 +115,11 @@ fn resolve(
     let Some((consumed, op, entry, path)) = found else {
         let mut error = ApiError::new(
             "apps.cli.path_unknown",
-            format!("{} has no command {}", package.id, words[0]),
+            format!(
+                "{} has no command {}",
+                package.id,
+                words.first().map(String::as_str).unwrap_or_default()
+            ),
         );
         error.details = Some(json!({ "app": package.id, "commands": commands }));
         return Err(error);
