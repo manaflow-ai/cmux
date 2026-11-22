@@ -1397,6 +1397,12 @@ public final class WorkspaceTabsSource: TabsDataSource {
         terminal.overviewScrollingChanged(scrolling)
     }
 
+    /// A browser tab's favicon as the Mac sent it, kept across launches (`MacTabCards`).
+    public func icon(for id: TabsKitTab.ID) -> UIImage? {
+        guard workspaceTab(id)?.kind == .browser else { return nil }
+        return macCardEntry(id)?.favicon
+    }
+
     public func showStaticCard(for id: TabsKitTab.ID) -> Bool {
         guard let tab = workspaceTab(id) else { return false }
         switch tab.kind {
