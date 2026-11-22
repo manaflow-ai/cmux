@@ -104,6 +104,7 @@ public final class GlassMenu {
         list.needsLayout = true
         holdsSelf = self
         panel.makeFirstResponder(list)
+        list.postAccessibility(list, GlassMenuListView.menuOpened, nil)
         return true
     }
 
@@ -253,9 +254,12 @@ public final class GlassMenu {
     func runKeyEquivalent(_ event: NSEvent) -> Bool {
         let root = root
         // A stepper's shortcut (⌘- ⌘= ⌘0 on the zoom row) steps it in place: the menu stays open.
+        // It runs after the key, as the row's arrow keys do (``GlassMenuStepperRowView/handleKey(_:)``).
         if let (stepper, part) = root.stepperPart(matching: event) {
-            stepper.run(part)
-            root.refreshControls()
+            MainRunLoopBlock.perform { [weak root] in
+                stepper.run(part)
+                root?.refreshControls()
+            }
             return true
         }
         guard let item = GlassMenuRow.item(matching: event, in: root.menu) else { return false }
@@ -320,6 +324,7 @@ public final class GlassMenu {
         guard !closed else { return }
         closed = true
         closeChild()
+        list.postAccessibility(list, GlassMenuListView.menuClosed, nil)
         host.hide()
         holdsSelf = nil
         guard parentMenu == nil else { return }

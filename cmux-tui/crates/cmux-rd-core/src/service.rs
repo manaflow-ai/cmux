@@ -40,11 +40,14 @@ pub mod caps {
     /// the bits-per-pixel floor (the resolution ladder, design D5). A viewer that does not
     /// offer it gets the full stream on every frame.
     pub const VIDEO_SCALED: &str = "video.scaled";
+    /// The stage ledger (screen-share-under-100ms.md D8): after each frame's last shard the
+    /// host sends its times for that frame in a `FrameTimes` datagram.
+    pub const LEDGER: &str = "ledger";
     /// Clipboard text both ways (`clipboard` control messages, cmux-rd-proto `clipboard`):
     /// the host applies the viewer's text and sends its own only in a control session.
     pub const CLIPBOARD_TEXT: &str = "clipboard.text";
     /// Every named cap.
-    pub const ALL: [&str; 10] = [
+    pub const ALL: [&str; 11] = [
         INPUT_SERVICE,
         TILE,
         UP_MEDIA,
@@ -54,6 +57,7 @@ pub mod caps {
         LINK_UDP,
         CURSOR,
         VIDEO_SCALED,
+        LEDGER,
         CLIPBOARD_TEXT,
     ];
 }

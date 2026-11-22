@@ -60,7 +60,7 @@ public final class LinkHintController {
 
     /// The notice a page with nothing to label shows.
     public static var noLinksNotice: String {
-        String(localized: "linkHints.notice.noLinks", defaultValue: "No links on screen", bundle: .module)
+        String(localized: "linkHints.notice.noLinks", defaultValue: "No links on screen", bundle: .localizedModule)
     }
 
     public func start(_ mode: LinkHintSession.Mode, tab: any BrowserTab, window: NSWindow?, isFocused: @escaping () -> Bool,
