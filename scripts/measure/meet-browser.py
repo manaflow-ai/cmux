@@ -207,7 +207,7 @@ def cpu_seconds(text: str) -> float:
 
 
 def processes():
-    run = subprocess.run(["ps", "-axo", "pid=,ppid=,time=,command="], capture_output=True, text=True)
+    run = subprocess.run(["ps", "-axww", "-o", "pid=,ppid=,time=,command="], capture_output=True, text=True)
     rows = {}
     for line in run.stdout.splitlines():
         m = re.match(r"\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)", line)
@@ -275,6 +275,7 @@ class Cmux:
         self.side, self.name, self.log = side, name, log
         self.sock = None
         self.pid = None
+        self.eval_errors = 0
         self.app = subprocess.run([side, "path", name], capture_output=True, text=True).stdout.strip()
 
     def launch(self, args: list[str]):
@@ -325,6 +326,9 @@ class Cmux:
     def js(self, tab, script):
         reply = self.page(tab, "eval", script=script)
         if reply.get("error"):
+            self.eval_errors += 1
+            if self.eval_errors <= 5:
+                self.log(f"eval refused: {json.dumps(reply)[:300]}")
             return None
         return reply.get("value")
 
@@ -412,7 +416,7 @@ class Chrome:
         self.dir.mkdir(parents=True, exist_ok=True)
         self.port = free_port()
         argv = [binary, f"--user-data-dir={self.dir}", f"--remote-debugging-port={self.port}", "--no-first-run",
-                "--no-default-browser-check", "--disable-search-engine-choice-screen", "--window-size=1280,900", *flags, url]
+                "--no-default-browser-check", "--disable-search-engine-choice-screen", "--use-mock-keychain", "--window-size=1280,900", *flags, url]
         self.flags = flags
         self.proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=open(self.dir / "stderr.log", "w"))
         self.ws = None
