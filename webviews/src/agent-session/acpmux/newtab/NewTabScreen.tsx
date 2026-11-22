@@ -155,6 +155,7 @@ import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
+import { SolidPopups, useYieldsToPopup } from "../../../ui/solidPopups";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 /// Where a browser pick of the page opens: by default it navigates the page's own tab; `beside` asks for a
@@ -1287,6 +1288,9 @@ export function NewTabScreen(props: Props) {
     [split, composer, box],
   );
   const suggesting = rows.length > 0;
+  // One popup at a time (cmux#50983): the rows give way while a chip's menu (folder, machine, access,
+  // model) or any other solid popup is open, so it never opens over rows still standing under it.
+  const yieldRows = useYieldsToPopup(drawnRows > 0, box?.ownerDocument);
   useEffect(() => {
     if (!suggesting || !box) return;
     const document = box.ownerDocument;
@@ -2640,7 +2644,7 @@ export function NewTabScreen(props: Props) {
           {lists}
         </>
       )}
-      {drawnRows > 0 && anchor && (
+      {drawnRows > 0 && anchor && !yieldRows && (
         <Popover
           open
           // The rows follow the field (Escape there and a press outside close them): the popover
@@ -2657,6 +2661,7 @@ export function NewTabScreen(props: Props) {
             }`
           }
           hostGlass={false}
+          yields
           initialFocus={false}
           finalFocus={false}
         >
@@ -2756,7 +2761,10 @@ export function NewTabScreen(props: Props) {
         }
       }
     >
-      <OnNewTab.Provider value={true}>{page}</OnNewTab.Provider>
+      <OnNewTab.Provider value={true}>
+        {/* Every menu, picker and list the screen opens is solid (cmux#50983, ui/solidPopups.tsx). */}
+        <SolidPopups>{page}</SolidPopups>
+      </OnNewTab.Provider>
     </SignInContext.Provider>
   );
 }

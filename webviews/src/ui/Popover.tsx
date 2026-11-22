@@ -12,6 +12,7 @@ import { useNativeFinalFocus } from "./useNativeFinalFocus";
 import { popupCollision, type UiPopupFlip } from "./openSide";
 import { usePopupPadding } from "./popupInset";
 import { useScrollEdges } from "./scrollEdges";
+import { popupSurfaceAttributes, useSolidPopups } from "./solidPopups";
 
 /** A point or box on the page to place a popover at (a caret's coordinates, for example). */
 export interface UiAnchorRect {
@@ -65,6 +66,9 @@ export interface PopoverProps {
   className?: string;
   /** False keeps a surface on the page's own glass. */
   hostGlass?: boolean;
+  /** A list that follows a field: solid, it gives way to any other solid popup (ui/solidPopups.tsx);
+   * its owner hides it while one is open (`useYieldsToPopup`). */
+  yields?: boolean;
   /** Fade a capped popup body when more content lies beyond its scroll edges. */
   fade?: boolean;
   /** Which side of the anchor receives the popover. */
@@ -96,6 +100,7 @@ export function Popover({
   id,
   className,
   hostGlass = true,
+  yields = false,
   fade = false,
   side = "bottom",
   flip = true,
@@ -110,6 +115,7 @@ export function Popover({
   const container = usePortalContainer();
   const positionMethod = useOverlayPosition();
   const padding = usePopupPadding();
+  const solid = useSolidPopups();
   const nativePopup = useNativePopup({
     open: open === true && native !== undefined,
     model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
@@ -149,9 +155,9 @@ export function Popover({
             // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
             data-popup-shift={flip === "shift" ? "" : undefined}
             className={cx(popupClassName, fade && "ui-popup-scroll-shell")}
-            // The App's popover glass under the page (glass/hostGlass.ts).
-            data-host-glass={hostGlass ? "popover" : undefined}
-            data-host-glass-cover={hostGlass ? "" : undefined}
+            // The App's popover glass under the page (glass/hostGlass.ts), or, opened from a composer,
+            // the solid popup surface (solidPopups.tsx).
+            {...popupSurfaceAttributes(solid, "popover", hostGlass, yields)}
             id={id}
             aria-label={label}
             initialFocus={initialFocus}

@@ -13,6 +13,7 @@ import {
   slashScrollForActive,
   slashViewport,
 } from "./slashViewport";
+import { useSolidPopupAttributes } from "../../ui/solidPopups";
 
 /**
  * The composer's `/` list, the one New Tab's box and the agent chat's composer both open: one line
@@ -40,6 +41,8 @@ export function SlashMenu({
   onHover(index: number): void;
   onPick(command: SlashCommand): void;
 }) {
+  // Solid over the composer (ui/solidPopups.tsx); a list that follows the field yields to a chip menu.
+  const solid = useSolidPopupAttributes({ yields: true });
   const t = useT();
   const list = useRef<HTMLDivElement>(null);
   // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
@@ -132,6 +135,7 @@ export function SlashMenu({
       onOpen={(match) => onPick(match.command)}
       getItemId={(_, index) => `acpmux-slash-${index}`}
       shellClassName="ui-popup ui-glass acpmux-slash-menu"
+      shellAttributes={solid}
       id="acpmux-slash-menu"
       rowClassName="acpmux-slash-row"
       empty={<div className="acpmux-slash-empty">{empty}</div>}

@@ -546,6 +546,26 @@
   border-color: transparent;
 }
 
+/* SOLID POPUPS (cmux#50983, ui/solidPopups.tsx; 2026-11-22: "this text over text thing due to the
+   glass thing keeps happening ... i can't read anything"). A menu, picker or list opened from a
+   composer (the chat's, New Tab's) lies over the composer's own text, its chip rows, a suggestion
+   list or a dialog. As glass, each of the paths above let that text read through its rows: the
+   underlay covers part of it, the App's host glass is under the whole page, and a surface over the
+   composer may not blur it. So such a popup (data-popup-solid) lays the opaque popup surface
+   (--glass-opaque, its Reduce Transparency fill: --surface-popup) under its rows in every engine, glass
+   mode and page look, takes no backdrop blur and is never reported as host glass. Its rim and drop
+   stay. !important as Reduce Transparency's own rule above: no surface token, lens tint or underlay
+   rule may make it translucent again. */
+.ui-glass[data-popup-solid] {
+  /* glass-opaque-allow: a composer popup is solid on purpose (cmux#50983): text under it must never read through */
+  --glass-tint: var(--glass-opaque) !important;
+  --glass-backdrop: none !important;
+  /* glass-opaque-allow: a composer popup is solid on purpose (cmux#50983): text under it must never read through */
+  background: var(--glass-opaque) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
 /* A HOVER CARD BLURS WHAT IT COVERS, IN EVERY CHROMIUM PAGE (Leo 2026-11-05, on the hover previews:
    "this awkward wannabe glass but kind of just opaque thing"). Chromium draws a backdrop-filter's
    blurred copy over the page's pixels, so the transcript's text read crisp through a hover card's

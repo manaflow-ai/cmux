@@ -63,6 +63,7 @@ import { ClaudeConnectRow } from "./ClaudeConnectRow";
 import type { ClaudeConnectRowProps } from "./claudeConnect";
 import { pickerHeightBounds } from "./modelPickerLayout";
 import { intl } from "../../ui/intl";
+import { useSolidPopupAttributes } from "../../ui/solidPopups";
 type ModelChoice = {
   id: string;
   name: string;
@@ -382,6 +383,8 @@ function StarGlyph({ filled, size }: { filled: boolean; size: number }) {
 /// The real search field receives focus immediately, and the selected harness's fixed model order
 /// keeps keyboard muscle memory intact between openings.
 export function ModelPicker(props: ModelPickerProps) {
+  // Solid over the composer (ui/solidPopups.tsx).
+  const solid = useSolidPopupAttributes();
   const {
     catalog,
     harness,
@@ -1527,6 +1530,7 @@ export function ModelPicker(props: ModelPickerProps) {
           className="ui-popup ui-glass ui-picker-popup acpmux-mp z-(--layer-dropdown) flex w-[min(310px,var(--available-width,calc(100vw-24px)))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
           aria-label={modelText}
+          {...solid}
           // The anchor's room above or below the chip, between the picker's minimum and maximum
           // heights; a fixed height here collapsed a menu that opened before its models loaded.
           style={{ ...menuStyle, ...pickerHeightBounds(menuStyle.maxHeight, openHeight) }}

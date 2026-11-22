@@ -12,6 +12,7 @@ import { useT } from "./i18n";
 import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
 import { useScrollEdges } from "./summary/scrollEdges";
 import { type PaletteSection, filterPaletteSections } from "./paletteMenuModel";
+import { useSolidPopupAttributes } from "../../ui/solidPopups";
 type Props = {
   label: string;
   className?: string;
@@ -34,6 +35,8 @@ export function PaletteMenu({
   tooltip,
   onOpen,
 }: Props) {
+  // Solid over the composer (ui/solidPopups.tsx).
+  const solid = useSolidPopupAttributes();
   const t = useT();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -201,6 +204,7 @@ export function PaletteMenu({
           ref={attach}
           style={{ ...menuStyle, height: searchHeight }}
           className={`ui-popup ui-glass acpmux-menu acpmux-palette-menu acpmux-menu-${align}`}
+          {...solid}
         >
           <div className="acpmux-palette-search">
             <input

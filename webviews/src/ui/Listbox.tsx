@@ -49,6 +49,8 @@ export interface ListboxProps<T> {
    */
   shellClassName?: string;
   shellRef?: Ref<HTMLDivElement>;
+  /** Attributes on the shell (a solid popup's marks, ui/solidPopups.tsx). */
+  shellAttributes?: Record<string, string>;
   empty?: ReactNode;
   /** Content rendered after the rows, such as a loading or status note. */
   footer?: ReactNode;
@@ -84,6 +86,7 @@ export function Listbox<T>({
   listRef: externalListRef,
   shellClassName,
   shellRef,
+  shellAttributes,
   empty,
   footer,
   "aria-busy": ariaBusy,
@@ -254,7 +257,7 @@ export function Listbox<T>({
   );
   if (shellClassName === undefined) return list;
   return (
-    <div ref={shellRef} className={cx(shellClassName, "ui-popup-scroll-shell")}>
+    <div {...shellAttributes} ref={shellRef} className={cx(shellClassName, "ui-popup-scroll-shell")}>
       {list}
     </div>
   );

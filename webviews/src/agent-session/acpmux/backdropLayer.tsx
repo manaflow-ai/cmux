@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { naturalHeight } from "../../ui/popupHost";
 import { listPlacement } from "../../ui/listPlacement";
 import { backdropLayer, ListAnchor } from "./backdropLayerModel";
+import { useYieldsToPopup } from "../../ui/solidPopups";
 /** The box the composer's lists float above (the chat's `.acpmux-composer-box`, New Tab's `.nt-box`). */
 export function ComposerListAnchor({
   box,
@@ -105,9 +106,19 @@ export function ComposerListLayer({ children }: { children: ReactNode }) {
       window.removeEventListener("scroll", onScroll, true);
     };
   }, [box, host]);
+  // One popup at a time (cmux#50983): while a chip's menu or a picker is open, the / @ : list under
+  // it hides, so the menu never opens over a list still standing there. It shows again as the menu
+  // closes, the field's text and the list's selection unchanged.
+  const yielded = useYieldsToPopup(Boolean(box), box?.ownerDocument);
   if (!box || !host) return <>{children}</>;
   return createPortal(
-    <div ref={layer} className="acpmux-composer-list-layer" inert={inert}>
+    <div
+      ref={layer}
+      className="acpmux-composer-list-layer"
+      inert={inert || yielded}
+      data-yielded={yielded || undefined}
+      style={yielded ? { visibility: "hidden" } : undefined}
+    >
       {children}
     </div>,
     host,

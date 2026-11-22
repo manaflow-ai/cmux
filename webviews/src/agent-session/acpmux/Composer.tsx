@@ -192,6 +192,7 @@ import { focusRoute } from "../../ui/focusRoute";
 import { outcomeAsk } from "./outcomeAsk.experiment";
 import { withOutcomeAsk } from "./outcomeAsk";
 import type { ComposerEditCommand } from "./composerEditCommand";
+import { SolidPopups } from "../../ui/solidPopups";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -524,7 +525,13 @@ type Props = {
 /// its identity while nothing the composer shows changed (composer/composerView.ts), so a transcript
 /// change (a tool call, a row added) leaves it be.
 export function Composer(props: Props) {
-  return <MemoComposer {...useStableHandlers(props)} />;
+  const stable = useStableHandlers(props);
+  // Every menu, picker and list the composer opens is solid (cmux#50983, ui/solidPopups.tsx).
+  return (
+    <SolidPopups>
+      <MemoComposer {...stable} />
+    </SolidPopups>
+  );
 }
 
 /// The prompt box with the agent's `/` command menu:

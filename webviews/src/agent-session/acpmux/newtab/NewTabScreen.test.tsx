@@ -297,6 +297,38 @@ test("New Tab suggestions keep the composer's page glass", async () => {
   expect(popover).toBeTruthy();
   expect(popover!.hasAttribute("data-host-glass")).toBe(false);
   expect(popover!.hasAttribute("data-host-glass-cover")).toBe(false);
+  // Solid (cmux#50983): the composer and the page never read through its rows.
+  expect(popover!.hasAttribute("data-popup-solid")).toBe(true);
+  expect(popover!.hasAttribute("data-popup-yields")).toBe(true);
+});
+
+test("New Tab suggestions give way while a chip's menu is open, then come back (cmux#50983)", async () => {
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+  await typePrompt("fix the flaky test");
+  expect(document.querySelector(".nt-popover")).toBeTruthy();
+  // A chip's menu (the access picker, the folder picker) opens: a solid popup that does not yield.
+  const menu = document.createElement("div");
+  menu.className = "ui-popup ui-glass ui-menu";
+  menu.setAttribute("data-popup-solid", "");
+  await act(async () => document.body.append(menu));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(document.querySelector(".nt-popover")).toBeNull();
+  await act(async () => menu.remove());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(document.querySelector(".nt-popover")).toBeTruthy();
 });
 
 test("other popovers keep native popup glass", async () => {

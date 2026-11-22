@@ -19,6 +19,7 @@ import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { cx } from "./cx";
 import { useScrollEdges } from "./scrollEdges";
+import { popupSurfaceAttributes, useSolidPopups } from "./solidPopups";
 import { ScrollArea } from "./ScrollArea";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
@@ -140,6 +141,7 @@ export function Combobox({
   // A popup list with no room above or below its field: past the window's edge (popupHost.ts).
   // The field keeps the focus; the list's highlight is Base UI's data-highlighted.
   const host = usePopupHost();
+  const solid = useSolidPopups();
   const [field, setField] = useState<HTMLInputElement | null>(null);
   const [popup, setPopup] = useState<HTMLElement | null>(null);
   const [value, setValue] = useState(defaultValue);
@@ -575,8 +577,7 @@ export function Combobox({
               <Autocomplete.Popup
                 ref={host ? setPopup : undefined}
                 className="ui-popup ui-glass ui-combobox-popup"
-                data-host-glass="menu"
-                data-host-glass-cover=""
+                {...popupSurfaceAttributes(solid, "menu")}
               >
                 {listed}
               </Autocomplete.Popup>

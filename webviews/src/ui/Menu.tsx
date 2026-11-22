@@ -23,6 +23,7 @@ import { popupAction } from "./popupDescriptors";
 import { cx } from "./cx";
 import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
+import { popupSurfaceAttributes, useSolidPopups } from "./solidPopups";
 import { UI_ANCHOR_GAP } from "./anchor";
 import { popupCollision, type UiPopupFlip } from "./openSide";
 import { usePopupPadding } from "./popupInset";
@@ -386,6 +387,7 @@ export function MenuPopup({
   const positionMethod = useOverlayPosition();
   const padding = usePopupPadding();
   const host = usePopupHost();
+  const solid = useSolidPopups();
   const menu = use(MenuContext);
   const nested = use(InPopup);
   // The boundary box, found from the menu button as the menu opens; a submenu inherits it.
@@ -441,9 +443,9 @@ export function MenuPopup({
           ref={attachPopup}
           id={id}
           aria-label={label}
-          // The App's menu glass under the page (glass/hostGlass.ts).
-          data-host-glass="menu"
-          data-host-glass-cover=""
+          // The App's menu glass under the page (glass/hostGlass.ts), or, opened from a composer, the
+          // solid popup surface (solidPopups.tsx).
+          {...popupSurfaceAttributes(solid, "menu")}
           className={cx(
             "ui-popup ui-glass ui-menu",
             scroll && "ui-popup-scroll-shell",
