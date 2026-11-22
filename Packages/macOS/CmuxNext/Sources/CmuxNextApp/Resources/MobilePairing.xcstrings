@@ -3282,127 +3282,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Settings are still loading. Try again in a moment."
+            "value": "Settings did not load, so phone access did not change."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا تزال الإعدادات قيد التحميل. حاول مرة أخرى بعد لحظة."
+            "value": "لم تُحمَّل الإعدادات، لذا لم يتغيّر وصول الهاتف."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Postavke se još učitavaju. Pokušajte ponovo za trenutak."
+            "value": "Postavke se nisu učitale, pa se pristup telefona nije promijenio."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indstillingerne indlæses stadig. Prøv igen om lidt."
+            "value": "Indstillingerne blev ikke indlæst, så telefonadgangen blev ikke ændret."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Einstellungen werden noch geladen. Versuche es gleich noch einmal."
+            "value": "Die Einstellungen wurden nicht geladen, daher hat sich der Telefonzugriff nicht geändert."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los ajustes aún se están cargando. Inténtalo de nuevo en un momento."
+            "value": "La configuración no se cargó, así que el acceso del teléfono no cambió."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les réglages sont encore en cours de chargement. Réessayez dans un instant."
+            "value": "Les réglages ne se sont pas chargés, l’accès du téléphone n’a donc pas changé."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le impostazioni sono ancora in caricamento. Riprova tra poco."
+            "value": "Le impostazioni non sono state caricate, quindi l'accesso del telefono non è cambiato."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定を読み込み中です。しばらくしてからもう一度お試しください。"
+            "value": "設定が読み込まれなかったため、電話のアクセスは変更されませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការកំណត់កំពុងផ្ទុកនៅឡើយ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។"
+            "value": "ការកំណត់មិនបានផ្ទុកទេ ដូច្នេះសិទ្ធិចូលប្រើរបស់ទូរសព្ទមិនបានផ្លាស់ប្ដូរទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "설정을 아직 불러오는 중입니다. 잠시 후 다시 시도하세요."
+            "value": "설정이 로드되지 않아 휴대폰 접근이 변경되지 않았습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Innstillingene lastes fortsatt inn. Prøv igjen om litt."
+            "value": "Innstillingene ble ikke lastet inn, så telefontilgangen ble ikke endret."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ustawienia wciąż się wczytują. Spróbuj ponownie za chwilę."
+            "value": "Ustawienia się nie wczytały, więc dostęp telefonu się nie zmienił."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Os ajustes ainda estão carregando. Tente novamente em instantes."
+            "value": "Os ajustes não carregaram, então o acesso do telefone não mudou."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Настройки ещё загружаются. Повторите попытку через минуту."
+            "value": "Настройки не загрузились, поэтому доступ телефона не изменился."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การตั้งค่ายังโหลดอยู่ ลองอีกครั้งในอีกสักครู่"
+            "value": "การตั้งค่าโหลดไม่สำเร็จ การเข้าถึงของโทรศัพท์จึงไม่เปลี่ยนแปลง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ayarlar hâlâ yükleniyor. Birazdan yeniden dene."
+            "value": "Ayarlar yüklenmedi, bu yüzden telefon erişimi değişmedi."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Налаштування ще завантажуються. Спробуйте ще раз за мить."
+            "value": "Налаштування не завантажилися, тож доступ телефона не змінився."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cài đặt vẫn đang tải. Hãy thử lại sau giây lát."
+            "value": "Cài đặt chưa tải được nên quyền truy cập của điện thoại không thay đổi."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "设置仍在加载。请稍后再试。"
+            "value": "设置未能加载，因此手机访问权限没有更改。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定仍在載入。請稍後再試。"
+            "value": "設定未能載入，因此手機存取權限沒有變更。"
           }
         }
       }

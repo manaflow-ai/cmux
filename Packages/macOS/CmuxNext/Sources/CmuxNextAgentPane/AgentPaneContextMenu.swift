@@ -334,6 +334,7 @@ enum AgentPaneContextMenu {
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply, symbol: "text.quote") { actions.quoteReply(quoted) })
             }
             if let row = target.retryRowId {
+                // retry-prompt-ok: re-sends a model turn (a paid request)
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.retry, symbol: "arrow.clockwise") { actions.retry(row) })
             }
             if target.isPrompt {
@@ -487,6 +488,7 @@ enum AgentPaneMenuStrings {
     }
 
     static var retry: String {
+        // retry-prompt-ok: re-sends a model turn (a paid request)
         String(localized: "agentPane.menu.retry", defaultValue: "Retry", bundle: .localizedModule)
     }
 

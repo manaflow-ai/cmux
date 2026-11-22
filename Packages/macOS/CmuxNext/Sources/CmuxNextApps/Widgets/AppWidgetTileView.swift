@@ -1,10 +1,12 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// One widget tile: the widget's scene (``AppSceneHostingView``, the sidebar's AppKit scene path) on a
 /// rounded card, laid out to fill the tile. Let it crash: while the widget's render throws, the
-/// tile keeps its last scene, dimmed, with a quiet "Retrying" line; it never blanks. In edit mode a
+/// tile keeps its last scene; once the failures have lasted ``NoticeTiming/connectionQuiet`` (cmux retries on its own,
+/// nothing for the person to do) it dims with a quiet "Retrying" line; it never blanks. In edit mode a
 /// minus badge removes it and the scene takes no clicks (the area drags the tile instead).
 final class AppWidgetTileView: NSView {
     let instance: String
@@ -15,6 +17,9 @@ final class AppWidgetTileView: NSView {
     let removeBadge = AppWidgetBadgeView()
     private var feed: Task<Void, Never>?
     private var shownStale: String??
+    /// How long a stale stretch stays out of sight before the tile dims and says "Retrying".
+    private let staleQuiet: Duration
+    private let staleTimer = DemandTimer(owner: "apps.widget.stale-quiet")
 
     var isEditing = false {
         didSet {
@@ -29,9 +34,10 @@ final class AppWidgetTileView: NSView {
         didSet { if isLifted != oldValue { Motion.sidebar.animate(.fadeIn, in: self, { animator().alphaValue = isLifted ? 0.4 : 1 }) } }
     }
 
-    init(instance: String, mount: AppMount) {
+    init(instance: String, mount: AppMount, staleQuiet: Duration = NoticeTiming.connectionQuiet) {
         self.instance = instance
         self.mount = mount
+        self.staleQuiet = staleQuiet
         scene = AppSceneHostingView(model: mount.model, bundleDirectory: mount.bundleDirectory)
         scene.fillsBounds = true
         super.init(frame: .zero)
@@ -64,7 +70,10 @@ final class AppWidgetTileView: NSView {
         super.viewDidMoveToWindow()
         feed?.cancel()
         feed = nil
-        guard window != nil else { return }
+        guard window != nil else {
+            staleTimer.cancel()
+            return
+        }
         showStale(mount.model.staleReason)
         // task-owner: this view (cancelled when it leaves its window); event-driven (Observation).
         feed = Task { [weak self, model = mount.model] in
@@ -72,8 +81,24 @@ final class AppWidgetTileView: NSView {
         }
     }
 
-    /// The stale look: the last scene dimmed and the retry hint, or the plain tile again.
+    /// The stale look once a stale stretch has lasted ``staleQuiet`` (a new reason in the stretch shows at once), or
+    /// the plain tile again at once.
     private func showStale(_ reason: String?) {
+        guard reason != nil, shownStale == nil || shownStale == .some(nil) else {
+            staleTimer.cancel()
+            applyStale(reason)
+            return
+        }
+        guard staleQuiet > .zero else { return applyStale(reason) }
+        guard !staleTimer.isScheduled else { return }
+        staleTimer.schedule(after: staleQuiet) { @MainActor [weak self] in
+            guard let self, let current = mount.model.staleReason else { return }
+            applyStale(current)
+        }
+    }
+
+    /// Draws the stale look for `reason`, or the plain tile for nil.
+    private func applyStale(_ reason: String?) {
         guard shownStale != .some(reason) else { return }
         shownStale = .some(reason)
         let stale = reason != nil

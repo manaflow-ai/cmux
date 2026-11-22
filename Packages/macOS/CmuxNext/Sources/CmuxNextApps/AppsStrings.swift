@@ -10,6 +10,7 @@ nonisolated enum AppsStrings {
     /// An app mount failed and the supervisor gave no reason.
     static var mountFailed: String { t("apps.mount.failed", "The app could not start") }
     /// A failed app view's error card: runs the app's script again from its saved files.
+    // retry-prompt-ok: runs the app's script again, which may act through its grants; a saved edit reloads by itself
     static var reload: String { t("apps.mount.reload", "Reload") }
     static var reloadHelp: String { t("apps.mount.reload.help", "Run the script again from its saved files") }
     /// A failed mount's row (AppFailureCopy): its script threw or did not parse.

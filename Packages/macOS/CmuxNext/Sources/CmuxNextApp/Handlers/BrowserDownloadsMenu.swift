@@ -26,6 +26,7 @@ enum BrowserDownloadsMenu {
             submenu.addItem(closure(title, symbol) { [weak download] in download.map { $0.setPaused(!$0.isPaused) } })
         }
         if download.canRetry {
+            // retry-prompt-ok: a download retry fetches the file again over the network and writes it to disk; the person asks for it
             submenu.addItem(closure(BrowserHitStrings.downloadRetry, "arrow.clockwise") { [weak list, weak download] in
                 if let list, let download { list.retry(download) }
             })

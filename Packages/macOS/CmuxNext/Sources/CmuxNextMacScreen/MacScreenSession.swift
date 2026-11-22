@@ -62,7 +62,7 @@ public final class MacScreenSession {
     @ObservationIgnored public private(set) var transportCarrier: String?
     /// A frame stopped arriving while connected (the picture is frozen).
     public private(set) var isStalled = false
-    /// This approach never reconnects on its own: Try Again asks the hub again.
+    /// The session never reconnects itself: the pane asks the hub again (``MacScreenPane``'s retry, or Try Again).
     public var isReconnecting: Bool { false }
     public var preferences: ScreenPreferences
     /// The viewer display's refresh rate; the next session asks for up to it.

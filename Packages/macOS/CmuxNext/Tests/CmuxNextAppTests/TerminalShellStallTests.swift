@@ -135,7 +135,7 @@ import Testing
         #expect(view.statusLabelWaits)
         clock.advance(by: .seconds(TerminalStatusBanner.disconnectedRevealDelay))
         try await Self.until { view.statusText != nil }
-        #expect(view.statusText == "Disconnected: connection lost · Click or type to reconnect")
+        #expect(view.statusText == "Disconnected: connection lost · Still retrying")
         #expect(view.statusLabel.banner?.showsMark == false)
     }
 
@@ -157,7 +157,7 @@ import Testing
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(TerminalStatusBanner.disconnectedRevealDelay))
         try await Self.until { view.statusText != nil }
-        #expect(view.statusText == "Disconnected: the stream ended · Click or type to reconnect")
+        #expect(view.statusText == "Disconnected: the stream ended · Still retrying")
     }
 
     /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". A daemon restart, a
@@ -214,7 +214,7 @@ import Testing
         #expect(view.statusText == nil)
         clock.advance(by: .milliseconds(100))
         try await Self.until { view.statusText != nil }
-        #expect(view.statusText == "Disconnected: the stream ended · Click or type to reconnect")
+        #expect(view.statusText == "Disconnected: the stream ended · Still retrying")
         #expect(view.statusLabel.banner?.showsMark == false)
     }
 
@@ -244,7 +244,7 @@ import Testing
         #expect(view.statusText == nil)
         clock.advance(by: .milliseconds(100))
         try await Self.until { view.statusText != nil }
-        #expect(view.statusText == "Disconnected: connection lost · Click or type to reconnect")
+        #expect(view.statusText == "Disconnected: connection lost · Still retrying")
     }
 
     /// A state the app knows is final waits for nothing: the session ended (its shell exited, its host was

@@ -8,9 +8,9 @@ struct MobilePairingStrings {
         String(localized: "mobilePairing.page.title", defaultValue: "Pair your iPhone", table: "MobilePairing", bundle: .module.inAppLanguage)
     }
 
-    /// Phone access cannot be written before Settings has loaded.
+    /// Phone access cannot be written: Settings did not load within the wait.
     static var settingsNotLoaded: String {
-        String(localized: "mobilePairing.settingsNotLoaded", defaultValue: "Settings are still loading. Try again in a moment.",
+        String(localized: "mobilePairing.settingsNotLoaded", defaultValue: "Settings did not load, so phone access did not change.",
                table: "MobilePairing", bundle: .module.inAppLanguage)
     }
 }

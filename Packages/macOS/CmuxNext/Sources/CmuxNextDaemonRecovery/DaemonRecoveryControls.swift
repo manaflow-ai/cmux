@@ -14,9 +14,9 @@ enum DaemonRecoveryStrings {
     static var reinstall: String { String(localized: "daemon.reinstall", defaultValue: "Reinstall cmux to fix this.", bundle: .localizedModule) }
     static var copyDetails: String { String(localized: "daemon.copyDetails", defaultValue: "Copy Details", bundle: .localizedModule) }
     static var retrying: String { String(localized: "daemon.retrying", defaultValue: "Still retrying in the background.", bundle: .localizedModule) }
-    static var retryNow: String { String(localized: "daemon.recovery.retryNow", defaultValue: "Retry Now", bundle: .localizedModule) }
     static var restart: String { String(localized: "daemon.recovery.restart", defaultValue: "Restart Background Service", bundle: .localizedModule) }
     static var restarting: String { String(localized: "daemon.recovery.restarting", defaultValue: "Restarting the background service…", bundle: .localizedModule) }
+    // retry-prompt-ok: shown after the person's own Restart failed; Restart replaces the service (a side effect).
     static var failed: String {
         String(localized: "daemon.recovery.failed", defaultValue: "Couldn't restart the background service. Try again in a moment.", bundle: .localizedModule)
     }
@@ -59,15 +59,19 @@ enum DaemonRestart {
     }
 }
 
-/// Retry Now and Restart cmux-tui under the launch window's failure
-/// (cx-jniyz.1). Restart shows once a plain ensure failed, or the connected
-/// daemon stopped answering (`DaemonRecovery.offersRestart`).
+/// Restart cmux-tui under the launch window's failure (cx-jniyz.1). Restart shows once a plain
+/// ensure failed, or the connected daemon stopped answering (`DaemonRecovery.offersRestart`).
+///
+/// No Retry Now: the connection already tries again by itself at least every 30 s
+/// (`RetryPolicy.localFirstConnect`, `keepsTrying`), and a Retry Now only skipped that wait. Leo,
+/// 2026-11-22: "i dont know what kind of decision a "try again" would be other than "ok i guess
+/// ill click this."" The window becoming key (the person came to look) tries at once instead.
 final class DaemonRecoveryControls: NSStackView {
     private let recovery: DaemonRecovery
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
-    private let retryButton = ThemedBezelButton(title: "", target: nil, action: nil)
     private let restartButton = ThemedBezelButton(title: "", target: nil, action: nil)
     private var observation: Task<Void, Never>?
+    private var keyObservation: MainActorObservation?
     /// The window shows a failure: the controls show only then.
     var isOffered = false { didSet { refresh() } }
 
@@ -82,9 +86,9 @@ final class DaemonRecoveryControls: NSStackView {
         statusLabel.isSelectable = true
         statusLabel.focusRingType = .none
         statusLabel.setAccessibilityIdentifier("daemon.recoveryStatus")
-        Self.configure(retryButton, title: DaemonRecoveryStrings.retryNow, identifier: "daemon.retryNow", target: self, action: #selector(retryNow))
         Self.configure(restartButton, title: DaemonRecoveryStrings.restart, identifier: "daemon.restart", target: self, action: #selector(restart))
-        let row = NSStackView(views: [retryButton, restartButton])
+        // retry-prompt-ok: Restart stops the stuck owner and starts a new one (a side effect), not a retry of the connect.
+        let row = NSStackView(views: [restartButton])
         row.orientation = .horizontal
         row.spacing = Metrics.space2
         addArrangedSubview(statusLabel)
@@ -110,6 +114,18 @@ final class DaemonRecoveryControls: NSStackView {
         button.setAccessibilityIdentifier(identifier)
     }
 
+    /// The person brought the failure's window forward: try to connect now rather than at the
+    /// next backoff step (what the removed Retry Now did, without asking for the click).
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        keyObservation = window.map { window in
+            MainActorObservation(NSWindow.didBecomeKeyNotification, object: window) { [weak self] in
+                guard let self, isOffered, !isHidden, !recovery.isRestarting else { return }
+                recovery.retryNow()
+            }
+        }
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         performWithTheme { statusLabel.textColor = Palette.textSecondary }
@@ -121,15 +137,10 @@ final class DaemonRecoveryControls: NSStackView {
     private func refresh() {
         let restarting = recovery.isRestarting
         isHidden = !isOffered || !recovery.canRetry
-        retryButton.isEnabled = !restarting
         restartButton.isHidden = !(recovery.offersRestart || restarting)
         restartButton.isEnabled = !restarting
         statusLabel.stringValue = DaemonRestart.status(recovery) ?? ""
         statusLabel.isHidden = statusLabel.stringValue.isEmpty
-    }
-
-    @objc private func retryNow() {
-        recovery.retryNow()
     }
 
     @objc private func restart() {

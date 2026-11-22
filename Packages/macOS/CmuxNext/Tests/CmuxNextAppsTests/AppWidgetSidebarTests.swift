@@ -203,7 +203,8 @@ import Testing
         let mount = try #require(area.mounted["w1"]?.mount)
         let drawn: AppJSON = [["op": "create", "id": "n1", "type": "Text", "props": ["text": "9:41"]], ["op": "root", "id": "n1"]]
         transport.onEvent?(.scene(mountID: mount.id, ops: AppSceneOp.batch(drawn), reset: false))
-        let tile = AppWidgetTileView(instance: "w1", mount: mount)
+        // No quiet stretch here; `aStaleWidgetSaysNothingInsideTheQuietBound` covers the default.
+        let tile = AppWidgetTileView(instance: "w1", mount: mount, staleQuiet: .zero)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: .borderless, backing: .buffered, defer: true)
         window.contentView?.addSubview(tile)
         #expect(!tile.isStale)
@@ -219,6 +220,24 @@ import Testing
         transport.onEvent?(.widgetHealth(mountID: mount.id, stale: false, reason: nil, retryMilliseconds: nil))
         await Self.settle(client)
         #expect(mount.model.staleReason == nil)
+        #expect(!tile.isStale)
+        tile.removeFromSuperview()
+    }
+
+    /// cmux retries a stale widget on its own, so the tile says nothing (no dimming, no "Retrying") until the stretch
+    /// has lasted NoticeTiming.connectionQuiet (Leo, 2026-11-14: connectivity stuff should "shut the fuck up").
+    @Test func aStaleWidgetSaysNothingInsideTheQuietBound() async throws {
+        let (transport, client, area) = await Self.started(layout: [Self.tile("w1", "small")])
+        let mount = try #require(area.mounted["w1"]?.mount)
+        let tile = AppWidgetTileView(instance: "w1", mount: mount)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: .borderless, backing: .buffered, defer: true)
+        window.contentView?.addSubview(tile)
+        transport.onEvent?(.widgetHealth(mountID: mount.id, stale: true, reason: "render: TypeError", retryMilliseconds: 1000))
+        await Self.settle(client)
+        #expect(mount.model.staleReason == "render: TypeError")
+        #expect(!tile.isStale, "a stale stretch inside the quiet bound shows nothing")
+        transport.onEvent?(.widgetHealth(mountID: mount.id, stale: false, reason: nil, retryMilliseconds: nil))
+        await Self.settle(client)
         #expect(!tile.isStale)
         tile.removeFromSuperview()
     }
