@@ -654,6 +654,13 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         var rows: [Row]
         /// The rows' bottoms, lowest first (an `.up` list at its newest end), not their tops.
         var fromBottom = false
+        /// The first row is cut by the reader's top edge. It counts as above the reader, as it does
+        /// for the layout's own correction (``PagedListLayout``): ``restore(_:shiftedBy:deliberate:)``
+        /// keeps the rows below it still, so a change of its height does not move what is read.
+        /// Keeping its top still instead moved every row under it by the change, the list at rest
+        /// (#47121 step d20b5519, video frames 351-352: the straddling row grew a line and the rows
+        /// read moved down 20 pt).
+        var straddles = false
         var id: CellID? { rows.first?.id }
     }
 
@@ -677,13 +684,15 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         }
         let top = readerTop
         var rows: [Anchor.Row] = []
+        var straddles = false
         for indexPath in collectionView.indexPathsForVisibleItems.sorted() {
             guard let attributes = collectionView.layoutAttributesForItem(at: indexPath),
                   attributes.frame.maxY > top + 0.5,
                   let id = dataSource.itemIdentifier(for: indexPath), case .row = id else { continue }
+            if rows.isEmpty { straddles = attributes.frame.minY < top - 0.5 }
             rows.append(Anchor.Row(id: id, index: indexPath.item, windowY: windowY(attributes)))
         }
-        return rows.isEmpty ? nil : Anchor(rows: rows)
+        return rows.isEmpty ? nil : Anchor(rows: rows, straddles: straddles && rows.count > 1)
     }
 
     private func windowY(_ attributes: UICollectionViewLayoutAttributes, bottom: Bool = false) -> CGFloat {
@@ -707,7 +716,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// end, re-sorted) is skipped: following it would carry the reader away. Returns the row used.
     @discardableResult
     private func restore(_ anchor: Anchor, shiftedBy shift: CGFloat = 0, deliberate: Bool = false) -> Anchor.Row? {
-        let survivors = anchor.rows.compactMap { row in dataSource.indexPath(for: row.id).map { (row, $0.item) } }
+        let survivors = anchor.rows.dropFirst(anchor.straddles ? 1 : 0).compactMap { row in dataSource.indexPath(for: row.id).map { (row, $0.item) } }
         guard !survivors.isEmpty else { return nil }
         func stable(_ i: Int) -> Bool {
             guard survivors.count > 1 else { return true }
