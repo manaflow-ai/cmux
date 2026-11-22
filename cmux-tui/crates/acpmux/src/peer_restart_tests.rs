@@ -365,9 +365,11 @@ impl ListDaemon {
         let (restart, restarts) = tokio::sync::watch::channel(0);
         let (sent_tx, pages) = mpsc::unbounded_channel();
         let task = tokio::spawn(async move {
-            for conn in 0.. {
+            let mut conn = 0;
+            loop {
                 let (stream, _) = listener.accept().await.unwrap();
                 tokio::spawn(answer_pages(stream, conn, restarts.clone(), sent_tx.clone()));
+                conn += 1;
             }
         });
         Self { port, restart, pages, sent: Vec::new(), task }

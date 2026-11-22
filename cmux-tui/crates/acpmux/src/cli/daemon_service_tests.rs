@@ -266,7 +266,7 @@ fn task_file(m: &Fake) -> String {
     let bytes = std::fs::read(task_path(m.home.path())).unwrap();
     assert_eq!(&bytes[..2], &[0xFF, 0xFE], "Task Scheduler reads UTF-16LE with its mark");
     let units: Vec<u16> =
-        bytes[2..].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        bytes[2..].as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
     String::from_utf16(&units).unwrap()
 }
 

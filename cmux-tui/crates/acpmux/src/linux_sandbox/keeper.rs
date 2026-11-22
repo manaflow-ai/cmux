@@ -872,7 +872,7 @@ mod tests {
             &options.paths.claude_project,
         ];
         let mut round_trip = Vec::new();
-        for (pair, path) in required().chunks_exact(2).take(5).zip(paths) {
+        for (pair, path) in required().as_chunks::<2>().0.iter().take(5).zip(paths) {
             assert_eq!(path, &PathBuf::from(pair[1]));
             round_trip.extend([OsString::from(pair[0]), path.as_os_str().to_owned()]);
         }
@@ -909,7 +909,7 @@ mod tests {
     }
     #[test]
     fn options_refuse_missing_duplicate_and_unknown_flags() {
-        for pair in required().chunks_exact(2) {
+        for pair in required().as_chunks::<2>().0 {
             let mut missing = argv(&[]);
             let at = missing.iter().position(|v| v == pair[0]).unwrap();
             missing.drain(at..at + 2);
@@ -930,7 +930,7 @@ mod tests {
         ] {
             assert!(parse(argv(&extra)).is_err(), "{extra:?}");
         }
-        for flag in required().chunks_exact(2).map(|p| p[0]).chain(["--api-port"]) {
+        for flag in required().as_chunks::<2>().0.iter().map(|p| p[0]).chain(["--api-port"]) {
             assert!(parse(vec![flag.into()]).is_err(), "{flag} at EOF");
             assert!(parse(vec![flag.into(), "--".into(), "/bin/true".into()]).is_err());
         }

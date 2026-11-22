@@ -14,7 +14,7 @@ fn the_kept_log_is_bounded_at_twice_its_cap() {
     let dir = scratch("cap");
     let log = dir.join("daemon.log");
     let mut kept = Kept::open(log.clone(), 4096);
-    let line = [b'x'; 99].iter().copied().chain([b'\n']).collect::<Vec<u8>>();
+    let line = [b'x'; 99].iter().copied().chain(*b"\n").collect::<Vec<u8>>();
     for _ in 0..1000 {
         kept.write_all(&line).unwrap();
     }

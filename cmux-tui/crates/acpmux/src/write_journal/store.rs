@@ -196,7 +196,7 @@ fn drop_torn_tail(path: &Path) -> io::Result<()> {
     f.seek(SeekFrom::Start(len.saturating_sub(1)))?;
     let mut b = [0u8; 1];
     f.read_exact(&mut b)?;
-    if b == [b'\n'] {
+    if b == *b"\n" {
         return Ok(());
     }
     f.seek(SeekFrom::Start(0))?;

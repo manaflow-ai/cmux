@@ -106,10 +106,13 @@ impl Store for MemoryStore {
     }
     fn writes_history(&self) -> bool {
         #[cfg(test)]
-        if COPY_FORKS.with(std::cell::Cell::get) {
-            return false;
+        {
+            !COPY_FORKS.with(std::cell::Cell::get)
         }
-        true
+        #[cfg(not(test))]
+        {
+            true
+        }
     }
     fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
         Ok(Some(Box::new(MemoryHistory { store: self, id: id.to_owned(), records: Vec::new() })))
