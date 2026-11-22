@@ -173,6 +173,7 @@ fn outage_with_queue(unstarted: usize) -> Outage {
         frames_in_flight: 3,
         input_frame_now: false,
         max_width: None,
+        show_cursor: true,
         capture: crate::capture_backend::CaptureBackend::default(),
     };
     let mut session = MediaSession::with_desktop(

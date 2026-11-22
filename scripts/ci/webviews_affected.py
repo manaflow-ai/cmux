@@ -11,7 +11,8 @@ pull request), so a base never loses a suite.
 The selection is focused_tests.py's webviews import graph with no cap, plus rules that keep
 it from missing a test:
   - a changed test file runs itself; a deleted test selects nothing, and a deleted source
-    selects everything (the tests that imported it are gone from the graph);
+    selects the tests reaching any code file that still names it in an import specifier
+    (everything when a non-code file names it);
   - a file under webviews/ selects every test that imports it, directly or through other
     modules (a template-literal import counts by its static path, an asset import by its path
     without the query: `./fixture.md?raw`);
@@ -20,8 +21,8 @@ it from missing a test:
     name found in a non-code file (a fixture, a config) selects everything;
   - a test always runs when it, or any module it imports, does what no import graph follows:
     reads files (sync or async, a glob, Bun.file), imports a computed path or an alias, starts
-    Vite or a browser, or spawns a process. The content-pinned generated frame-table reader
-    is exempt only when all changed files are isolated tests that cannot feed its bundle;
+    Vite or a browser, or spawns a process. Two reviewed loads that read nothing a test controls
+    (RUNTIME_LOADS) are exempt at their pinned content;
   - a build or runner input (webviews/package.json, bun.lock, bunfig, tsconfig, vite configs,
     webviews/scripts/, the test support dir, the preload bunfig loads before every file and
     what it imports, the runner scripts, this file, ci-web.yml) selects everything, as does
@@ -32,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import re
 import subprocess
 import sys
@@ -75,14 +77,29 @@ TEMPLATE_IMPORT = re.compile(r"import\(\s*`(\.{1,2}/[^`$?]+)")
 QUERY_IMPORT = re.compile(r"""(?:from\s+|import\(\s*)["'](\.{1,2}/[^"'?]+)\?[\w&=-]+["']""")
 PRELOAD = WEB + "test/preload.ts"
 NAME_MIN = 10
-# This reader loads only the generated bundle's site table. A standalone test
-# file cannot change that table. Pin the reviewed reader: any edit restores the
-# unresolved fallback until its inputs have been reviewed again. Production
-# changes still select every consumer, as do tests imported by production code.
-GENERATED_READERS = {
+# Undo: the repository variable CI_WEBVIEWS_NARROW_SELECTION=0 (ci-web.yml hands it to every job) turns off
+# what 2026-11-22 added: RUNTIME_LOADS, a deleted source's namers (deleted_namers) and a read script's readers
+# (webviews_pr_shards.read_beyond_imports). Each then runs what it ran before, or more.
+NARROW = os.environ.get("CI_WEBVIEWS_NARROW_SELECTION", "1") != "0"
+# Reviewed loads the import graph cannot follow that read nothing a test or its change controls. Pinned
+# to the reviewed content: any edit puts the file back among the untracked modules, so every test that
+# reaches it runs again until it is reviewed again. On 2026-11-22's tree these two made 835 of the 2,101
+# always-run tests, and with frameOwners' table consumers 18 of the 42 red files a shard 1 job (137100131913)
+# then retried alone.
+#   - frameOwners.ts imports the built pane's own chunks/frame-sites.js, beside document.baseURI. Only
+#     `bundle.mjs --frame-sites` writes one; a test with no such bundle beside its document gets null. The
+#     one test that writes a table (agent-pane-frame-sites.test.ts) reads files, and a browser test that
+#     loads a built page uses Playwright: both stay always-run on their own.
+#   - domTeardown.ts requires the npm package `scheduler` from react-dom's folder: bun.lock, a build input,
+#     decides what it loads. It is in the preload's imports too, so its own edit runs everything.
+RUNTIME_LOADS = {
     WEB + "src/agent-session/acpmux/frameOwners.ts":
         "99c31528e5b7e676cb9aee8e069cd77f8cee5feb8af52119801287a48cd6c37e",
+    WEB + "test/support/domTeardown.ts":
+        "bc39e128441ba75445140da45a75078d5f2659612ca1be66c36cb6730e9b1ec5",
 }
+# An import specifier that ends in a module's name, with or without its extension or a query.
+SPECIFIER = r"""["'`][^"'`\n]*/{}(?:\.[\w.]+)?(?:\?[^"'`\n]*)?["'`]"""
 
 
 class Selector:
@@ -102,30 +119,10 @@ class Selector:
                 self.imports.setdefault(source, set()).add(target)
         untracked = {f for f, text in self.text.items() if UNTRACKED.search(text)
                      or (not f.startswith(WEB + "src/") or f in self.graph.tests) and UNTRACKED_OUTSIDE_SRC.search(text)}
-        generated = {f for f, digest in GENERATED_READERS.items() if f in self.text
-                     and hashlib.sha256((root / f).read_bytes()).hexdigest() == digest}
-        self.generated = set().union(*(self.reaching(f) for f in generated)) if generated else set()
-        self.always = {t for t in self.graph.tests if self.closure(t) & (untracked - generated)}
+        reviewed = {f for f, digest in RUNTIME_LOADS.items() if NARROW and f in self.text
+                    and hashlib.sha256((root / f).read_bytes()).hexdigest() == digest}
+        self.always = {t for t in self.graph.tests if self.closure(t) & (untracked - reviewed)}
         self.preload = self.closure(PRELOAD)
-
-    def isolated_test(self, path: str) -> bool:
-        """A test cannot feed a bundle if every reverse edge stays in test files.
-
-        Helpers, fixtures, deleted files and unresolved inputs are not exempt.
-        Follow all reverse edges, including test -> helper -> production.
-        """
-        if path not in self.graph.tests:
-            return False
-        seen, frontier = set(), [path]
-        while frontier:
-            source = frontier.pop()
-            if source in seen:
-                continue
-            seen.add(source)
-            if source not in self.graph.tests:
-                return False
-            frontier.extend(self.graph.importers.get(source, ()))
-        return True
 
     def closure(self, path: str) -> set[str]:
         """`path` and every module it imports, transitively."""
@@ -150,6 +147,34 @@ class Selector:
             out |= self.reaching(source)
         return out
 
+    def deleted_reach(self, path: str) -> set[str] | None:
+        """The tests a deleted source can still affect, or None when only every file is safe."""
+        namers = self.deleted_namers(path)
+        return None if namers is None else set().union(set(), *(self.reaching(f) for f in namers))
+
+    def deleted_namers(self, path: str) -> set[str] | None:
+        """The code files that still name a deleted source in an import, or None when only every file is safe.
+
+        A module that imported it and still does is broken (the type check in shard 1 fails on it), and one
+        whose import the change edited is itself in the diff: either way some file still names it in an
+        import. So the tests reaching any code file whose text holds an import specifier ending in its name
+        (its folder's name for an index file), the same as a name found in source. A glob, a computed import
+        or a file read loads it unnamed: those tests are already always-run. A non-code file naming it, or a
+        name under 4 characters, runs everything.
+        """
+        p = Path(path)
+        name = p.parent.name if p.stem == "index" else p.stem
+        if not NARROW or len(name) < 4:
+            return None
+        pattern = re.compile(SPECIFIER.format(re.escape(name)))
+        out: set[str] = set()
+        for source, text in self.text.items():
+            if pattern.search(text):
+                if not source.endswith(ft.EXTENSIONS):
+                    return None
+                out.add(source)
+        return out
+
     def select(self, files: list[str]) -> tuple[set[str] | None, str]:
         """(test files under the repo root, or None for every file; the reason for None)."""
         out: set[str] = set()
@@ -163,7 +188,11 @@ class Selector:
                 if not (self.root / f).exists() and ft.WEB_TEST.search(f):
                     continue
                 if not (self.root / f).exists() and f.endswith(ft.EXTENSIONS):
-                    return None, f"{f} was deleted"
+                    hit = self.deleted_reach(f)
+                    if hit is None:
+                        return None, f"{f} was deleted, and a non-code file or a short name may load it"
+                    out |= hit
+                    continue
                 hit = self.reaching(f)
                 if hit:
                     out |= hit
@@ -178,8 +207,7 @@ class Selector:
             if f.startswith(WEB) and not named and not f.endswith(ft.EXTENSIONS):
                 return None, f"no rule maps {f}"
             out |= named
-        generated = self.generated if any(not self.isolated_test(f) for f in files) else set()
-        return out | self.always | generated, ""
+        return out | self.always, ""
 
 
 def changed(root: Path, base: str, head: str) -> list[str]:

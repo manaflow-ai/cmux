@@ -520,7 +520,7 @@ fn own_repository(
         return Ok(false);
     }
     let machine = remote.stat(&format!("{remote_root}/{dir}/.git"))?;
-    Ok(machine.is_some_and(|stat| stat["kind"] == "dir"))
+    Ok(machine.is_some_and(|stat| stat.get("kind").and_then(Value::as_str) == Some("dir")))
 }
 
 /// Plans the pull of one [`Scope`]: nothing here changes. New paths are named to `keep_new` and

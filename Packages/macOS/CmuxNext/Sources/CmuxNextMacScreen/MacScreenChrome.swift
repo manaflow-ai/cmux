@@ -47,6 +47,10 @@ final class MacScreenChromeActions {
     var selectDisplay: (Int) -> Void = { _ in }
     var setQuality: (ScreenQuality) -> Void = { _ in }
     var toggleStats: () -> Void = {}
+    /// Customize: the stream's bitrate cap in kbit/s (nil: Auto); a change starts a new session.
+    var setMaxKbps: (Int?) -> Void = { _ in }
+    /// Customize: show the cursor in the stream or not; a change starts a new session.
+    var toggleStreamCursor: () -> Void = {}
     var refresh: () -> Void = {}
     var fullScreen: () -> Void = {}
     var sendKeys: (MacScreenShortcut) -> Void = { _ in }

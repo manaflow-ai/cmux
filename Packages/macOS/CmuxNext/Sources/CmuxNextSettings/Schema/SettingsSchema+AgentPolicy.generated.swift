@@ -25,7 +25,7 @@ extension SettingsSchema {
 
     /// Keys an agent may set and reset.
     public static let agentSettableKeys: Set<String> = [
-        "window.titlebar",
+        "agentPane.links.openCitationsInEditor", "window.titlebar",
         "shortcuts.showModifierHoldHints",
         // Whether the window offers the Customize Inspector and right-click Customize…: looks only, and off is the default.
         "customize.fromTheApp",
@@ -52,6 +52,8 @@ extension SettingsSchema {
         "app.hideDockIconWithoutWindows",
         // The menu bar item; looks only, ends no work.
         "app.showMenuBarIcon",
+        // The language cmux's own text is in; ends no work.
+        "app.language",
         "tabs.overflow",
         // How tabs are listed (looks only)
         "tabs.verticalTabs", "tabs.verticalTabsExpandOnHover",
@@ -90,7 +92,7 @@ extension SettingsSchema {
         "appearance.saturation", "appearance.density", "appearance.customDensity", "appearance.customDensities",
         "appearance.metrics.chromeFontSize", "appearance.fontSmoothing", "appearance.interfaceScale",
         "appearance.borders", "appearance.previousGlass", "appearance.sidebarSurface", "appearance.chromeStyle",
-        "appearance.titleAreaTone", "appearance.titleAreaContrast", "appearance.cornerFlush",
+        "appearance.titleAreaTone", "appearance.titleAreaContrast", "appearance.twoTone", "appearance.cornerFlush",
         "appearance.focusIndicator", "focus.inactiveTabStyle", "ui.animationSpeed", "ui.animations.newTab",
         "ui.animations.newWorkspace", "ui.animations.enabled", "ui.animations.sidebar", "ui.animations.tabs",
         "ui.animations.panes", "ui.animations.overlays", "ui.animations.hoverCards", "ui.animations.home",
@@ -155,7 +157,7 @@ extension SettingsSchema {
         // Needs you in the agent chat header (an App Store item): a display the person can hide again.
         "agentPane.needsYou.enabled",
         // Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31); a new chat's composer can still change it for that chat.
-        "agentPane.newChatsIn",
+        "agentPane.newChatsIn", "agentPane.sessionWorktrees",
         // The default `cmux chat` target (`cmux config set on cloud`): where the CLI starts a chat when neither --on nor CMUX_ON names one; the person may ask an agent to set it.
         "chat.on",
         "updates.notify", "updates.showWhatsNew",
@@ -245,7 +247,7 @@ extension SettingsSchema {
         "agentPane.display.statusVerbs.custom", "agentPane.display.thinking.shimmer",
         "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand",
         "agentPane.display.thinking.jumpButton", "agentPane.display.harnessPlacement", "agentPane.display.rail.side",
-        "agentPane.display.commandLabels",
+        "agentPane.display.rail.show", "agentPane.display.rail.control", "agentPane.display.commandLabels",
         // The code editor's looks and editing behavior (diff-host S7); editor.importFrom is the person's.
         "editor.fontFamily", "editor.fontSize", "editor.fontWeight", "editor.fontLigatures", "editor.lineHeight",
         "editor.letterSpacing", "editor.tabSize", "editor.insertSpaces", "editor.detectIndentation", "editor.wordWrap",

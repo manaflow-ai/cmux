@@ -152,6 +152,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
             .get("max-width")
             .map(|w| w.parse().map_err(|_| format!("--max-width {w}: a pixel count")))
             .transpose()?,
+        show_cursor: true,
         // The Cloud host streams its own virtual X display unless `--capture portal` asks
         // for the compositor's screen (a Wayland desktop).
         capture: opts

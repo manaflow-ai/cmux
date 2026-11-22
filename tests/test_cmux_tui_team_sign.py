@@ -201,6 +201,9 @@ class TeamSignedWorkflow(unittest.TestCase):
         request = jobs["request-team-signed-tree"]
         self.assertTrue(request["continue-on-error"])
         self.assertIn("refs/heads/feat-cmux-next", request["if"])
+        # The windowed tree build is a feat-cmux-next dispatch; its tree's pushes deferred before it
+        # published, so a push-only request never signed it (run 44978301534, 2026-11-22).
+        self.assertIn("(github.event_name == 'push' || github.event_name == 'workflow_dispatch')", request["if"])
         # A push whose tree another run published (the same-key owner wait) asks too: run 43725236906,
         # #43724's own merge, skipped the request when it read publish-tree's result.
         self.assertEqual(request["needs"], ["tree-preflight", "publish-tree-tested"])

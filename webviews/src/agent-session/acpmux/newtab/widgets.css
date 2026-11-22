@@ -197,7 +197,9 @@
   height: var(--ds-control-compact);
   border: 0;
   border-radius: 50%; /* radius-allow: Apple's round badge on a widget's corner, as the minus badge */
-  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  /* The wash over the opaque page surface, not over whatever is behind: over a see-through window's busy picture the
+     clear wash read its glyph at 2.97:1 (control-contrast-11, widget-edit over the busy picture). */
+  background: color-mix(in srgb, var(--agent-text) 14%, var(--ds-color-surface));
   color: var(--agent-text);
 }
 .nt-widget-corner {

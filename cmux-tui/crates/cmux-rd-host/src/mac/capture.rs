@@ -650,7 +650,7 @@ fn hz_to_fps(hz: f64) -> Option<u32> {
     (hz.is_finite() && hz >= 1.0).then(|| (hz.round() as u32).min(MAX_REFRESH_FPS))
 }
 
-/// The refresh rate of the display `which` names (`main` or an index, as [`Capture::start`] picks
+/// The refresh rate of the display `which` names (`main`, an index or `id:<n>`, as [`Capture::start`] picks
 /// it), else [`FALLBACK_FPS`] when it reads 0 or the display list is not available.
 pub fn refresh_fps(which: &str) -> u32 {
     let Ok((content, displays)) = shareable_displays() else { return FALLBACK_FPS };
@@ -738,15 +738,20 @@ fn release_all(content: Id, displays: &[(Id, u32)]) {
     sys::release(content);
 }
 
+/// Every display's streamed size, the index `which` picks, and every display's CGDirectDisplayID.
+pub type Displays = (Vec<(u32, u32)>, usize, Vec<u32>);
+
 /// Every display's streamed size (native pixels fitted to the decoder, as a session
-/// captures it), left to right, and the index of the main (menu bar) display. Only `serve` (the
-/// `link` feature) asks.
+/// captures it), left to right, the index of the display `which` picks (as [`Capture::start`]
+/// picks it), and every display's CGDirectDisplayID in the same order. Only `serve` (the `link`
+/// feature) asks.
 #[cfg_attr(not(feature = "link"), allow(dead_code))]
-pub fn displays() -> Res<(Vec<(u32, u32)>, usize)> {
+pub fn displays(which: &str) -> Res<Displays> {
     let (content, displays) = shareable_displays()?;
+    let ids: Vec<u32> = displays.iter().map(|d| d.1).collect();
     // SAFETY: CGMainDisplayID has no preconditions.
     let main = unsafe { cg::CGMainDisplayID() };
-    let current = displays.iter().position(|d| d.1 == main).unwrap_or(0);
+    let current = super::display_pick::pick_index(&ids, main, which).unwrap_or(0);
     let sizes = displays
         .iter()
         .map(|&(_, id)| {
@@ -755,24 +760,17 @@ pub fn displays() -> Res<(Vec<(u32, u32)>, usize)> {
         })
         .collect();
     release_all(content, &displays);
-    Ok((sizes, current))
+    Ok((sizes, current, ids))
 }
 
-/// `main` (the menu bar display) or a display's index counted left to right.
+/// `main` (the menu bar display), a display's index counted left to right, or `id:<n>`, the
+/// display whose CGDirectDisplayID is n (a run's virtual display, from a screen link).
 fn pick(displays: &[(Id, u32)], which: &str) -> Res<(Id, u32)> {
-    if which == "main" {
-        // SAFETY: CGMainDisplayID has no preconditions.
-        let main = unsafe { cg::CGMainDisplayID() };
-        return displays
-            .iter()
-            .find(|d| d.1 == main)
-            .or(displays.first())
-            .copied()
-            .ok_or_else(|| "no display to capture (is Screen Recording allowed?)".into());
-    }
-    let index: usize =
-        which.parse().map_err(|_| format!("--display {which}: use main or an index"))?;
-    displays.get(index).copied().ok_or_else(|| format!("no display {index}").into())
+    let ids: Vec<u32> = displays.iter().map(|d| d.1).collect();
+    // SAFETY: CGMainDisplayID has no preconditions.
+    let main = unsafe { cg::CGMainDisplayID() };
+    let index = super::display_pick::pick_index(&ids, main, which)?;
+    Ok(displays[index])
 }
 
 /// How long ago, in µs, the mach absolute time `then` was. The Mach timebase and clock calls are

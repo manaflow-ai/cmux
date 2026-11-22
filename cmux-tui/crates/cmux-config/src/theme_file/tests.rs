@@ -258,7 +258,17 @@ fn the_shipped_theme_files_apply_with_no_refusals() {
     let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../Resources/theme-files");
     let home = std::env::temp_dir().join(format!("cmux-theme-file-test-{}", std::process::id()));
     let list = names(&home, Some(&shipped));
-    for look in ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal", "teal", "moss", "meadow", "lily-pond"] {
+    for look in [
+        "harbor",
+        "classic-desktop",
+        "phosphor",
+        "claude-desktop",
+        "charcoal",
+        "teal",
+        "moss",
+        "meadow",
+        "lily-pond",
+    ] {
         assert!(list.iter().any(|name| name == look), "{look} in {list:?}");
     }
     for name in &list {
@@ -273,6 +283,12 @@ fn the_shipped_theme_files_apply_with_no_refusals() {
         );
         assert!(file.is_loaded, "{name}");
         assert!(file.diagnostics.is_empty(), "{name}: {:?}", file.diagnostics);
+        // A look that names a terminal theme takes the window with it, over the person's own
+        // App Theme (else a dark look sits in a light window).
+        let value = crate::jsonc::parse(&text).expect("jsonc");
+        if value.get("appearance.theme").is_some() {
+            assert_eq!(value["appearance.appTheme"], json!("followTerminal"), "{name}");
+        }
     }
 }
 

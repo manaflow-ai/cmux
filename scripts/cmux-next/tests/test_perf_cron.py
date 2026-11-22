@@ -199,6 +199,13 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(cron.part_order(state, ["build", "motion", "stress", "fresh"], t),
                          ["build", "fresh", "motion", "stress"])
 
+    def test_a_part_with_no_row_anywhere_goes_before_one_with_old_rows(self):
+        state = cron.empty_state(T0)
+        state["part_stored"] = {}
+        state["last"] = {"rows": {"sidebar.400.scroll.frame@cmux20-bench": {"p95": 1}}}
+        self.assertEqual(cron.part_for_row("sidebar.400.scroll.frame"), "sidebar")
+        self.assertEqual(cron.part_order(state, ["build", "sidebar", "fresh"], at(1)), ["build", "fresh", "sidebar"])
+
     def test_bisect_runs_only_the_parts_of_the_regressed_rows(self):
         state = cron.empty_state(T0)
         rng = {"good": "a" * 40, "bad": "e" * 40, "skip": [], "steps": 0}

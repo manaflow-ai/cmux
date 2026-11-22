@@ -23,6 +23,7 @@ STAGES = ["compile", "link", "sign", "quit", "launch", "ready"]
 GRAPH = {"compile": [], "link": ["compile"], "sign": ["link"], "quit": [], "launch": ["sign", "quit"], "ready": ["launch"]}
 ANCHOR = 'defer { DebugTimings.markLaunch("did_finish_launching_end") }'
 IDLE_S = 15  # after a launch: time for the window, the typed key's echo and the app to go idle before the next step
+EXEC_SETTLE_MS = 5000  # a new process's path can still change by exec this long after its start (Watcher.sweep)
 LAUNCH_WAIT_S = 180  # LaunchServices' open to the app's process: a few s; 60 s once ran out (step a8b4d181c32ad2c06b3a0126)
 
 
@@ -45,16 +46,19 @@ class Watcher(threading.Thread):
         self.interval, self.procs, self.live, self.lock, self.stop_flag = interval, {}, {}, threading.Lock(), False
         self.buf = (ctypes.c_int * 16384)()
 
+    def path(self, pid):
+        buf = ctypes.create_string_buffer(4096)
+        n = self.lib.proc_pidpath(pid, buf, 4096)
+        return buf.value.decode(errors="replace") if n > 0 else ""
+
     def info(self, pid):
         raw = ctypes.create_string_buffer(136)
         if self.lib.proc_pidinfo(pid, 3, ctypes.c_uint64(0), raw, 136) != 136:  # PROC_PIDTBSDINFO
             return None
         import struct
         fields = struct.unpack("<12I16s32s6I2Q", raw.raw)
-        path = ctypes.create_string_buffer(4096)
-        n = self.lib.proc_pidpath(pid, path, 4096)
         name = fields[13].split(b"\0")[0].decode(errors="replace") or fields[12].split(b"\0")[0].decode(errors="replace")
-        return {"pid": pid, "ppid": fields[4], "path": path.value.decode(errors="replace") if n > 0 else "",
+        return {"pid": pid, "ppid": fields[4], "path": self.path(pid),
                 "name": name, "start": fields[20] * 1000.0 + fields[21] / 1000.0, "end": None}
 
     def sweep(self):
@@ -73,6 +77,16 @@ class Watcher(threading.Thread):
             for pid in list(self.live):
                 if pid not in pids:
                     self.procs[self.live.pop(pid)]["end"] = t
+                    continue
+                # LaunchServices starts an app as xpcproxy, which then execs the app in the same pid: a sweep that saw
+                # it first kept xpcproxy's path, so find() never matched the app. 2026-11-22 steps a8b4d181c32ad2c06b3a0126
+                # and acf6e3bb243cda244406f29b: "no app process within 180 s" with the app (9278) running. A young
+                # process's path is read again until it has been seen for EXEC_SETTLE_MS.
+                rec = self.procs[self.live[pid]]
+                if t - rec["start"] < EXEC_SETTLE_MS:
+                    path = self.path(pid)
+                    if path:
+                        rec["path"] = path
 
     def run(self):
         while not self.stop_flag:

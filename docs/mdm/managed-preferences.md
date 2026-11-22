@@ -181,6 +181,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.favoriteThemes` | array | `[]` |  | Starred Themes. Themes starred in a theme picker. The picker lists them first. |
 | `appearance.rotateFavoriteThemes` | string | `"off"` | `off`, `launch`, `daily` | Rotate Starred Themes. Switches the terminal theme to the next starred one. Needs two starred themes. |
 | `appearance.accent` | string | `"neutral"` | `neutral`, `theme`, `art`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan` | Accent. The color of selection, focus and the Send button. |
+| `appearance.selection` | string | `"accent"` | `accent`, `neutral` | Selection. Accent tints the selected row and tab with the accent. Neutral keeps them gray. |
 | `appearance.themeFile` | string |  |  | Theme File. A theme file in ~/.config/cmux/themes, such as "tokyo" for tokyo.json. |
 | `appearance.themeFileExceptions` | array | `[]` |  | Changed Over Theme File. Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list. |
 | `appearance.highlightColor` | string |  |  | Highlight Color. The color of selected text everywhere. Unset uses the terminal theme's. |
@@ -352,6 +353,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.thinking.jumpButton` | string | `"arrow"` | `arrow`, `dots` | Jump to Latest While Working. What the Jump to latest button shows while the agent works. |
 | `agentPane.display.harnessPlacement` | string | `"symbols"` | `symbols`, `left`, `top`, `compact` | Model Picker Harness Placement |
 | `agentPane.display.rail.side` | string | `"left"` | `left`, `right` | Prompt Rail Side. Right-click the rail to move it. |
+| `agentPane.display.rail.show` | string | `"prompts"` | `prompts`, `mine`, `received`, `replies`, `everything`, `errors`, `edits`, `tools`, `subagents` | Prompt Rail Shows. Right-click the rail to change it. |
+| `agentPane.display.rail.control` | boolean | `false` |  | Prompt Rail Button. Shows what the rail lists above it while you point at it. |
 | `agentPane.display.commandLabels` | string | `[]` |  | Command Labels. The names the chat shows for background commands. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
@@ -414,6 +417,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.sessionTree` | boolean | `false` |  | Session Tree. Lists workspaces an agent started under the workspace that started them. |
 | `sidebar.showProjects` | boolean | `true` |  | Show Projects |
 | `sidebar.groupBy` | string | `"none"` | `none`, `folder`, `recents` | Group Projects By |
+| `sidebar.nav` | array | `[]` |  | Sidebar Nav Rows. Rows at the top of the sidebar that run cmux actions, by action id, optionally "id \| Title \| symbol". Empty shows none. |
 | `sidebar.showSpaces` | boolean | `false` |  | Show Spaces. Spaces show once you have more than one. New Space is in the command palette. |
 | `sidebar.showProfileControl` | boolean | `true` |  | Show Profile Button |
 | `sidebar.showSearchButton` | boolean | `false` |  | Show Search Button. A search button after the profile button. Off: search from the palette. |
@@ -698,9 +702,11 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `experiments.composerV2` | boolean | `false` |  | Composer Refresh. A glass composer with mode chips, mention chips and a round send button. Still being shaped. |
 | `experiments.agentBadges` | boolean | `false` |  | Agent Badges. Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done. |
 | `experiments.agentBadgesBeam` | boolean | `false` |  | Agent Badges: Running Beam. With Agent Badges on, a thin light travels along a sidebar row's edge while its agent runs. |
+| `experiments.chatWidgets` | boolean | `false` |  | Extension Chat Widgets. Installed extensions can show a card under a finished tool call in agent chat. |
 | `feed.github.enabled` | boolean | `false` |  | GitHub Inbox. Inbox shows your GitHub notifications |
 | `feed.github.pollIntervalSeconds` | real | `120` | 60 to 900 | Refresh Interval. Seconds between GitHub refreshes. Refresh in the Inbox runs immediately. |
 | `agentPane.links.outsideRoots` | string | `"open"` | `confirm`, `text`, `open` | Files Outside the Project. What a link to a file outside the chat's folders does. Keys and .env files never open. |
+| `agentPane.links.openCitationsInEditor` | boolean | `false` |  | Open File Citations in Text Editor. Open local chat links that name a line in your chosen text editor. |
 | `agentPane.images.remote` | string | `"click"` | `click`, `never`, `always` | Web Images in Replies. A web image loads from its site, which then sees that you read the reply. |
 | `agentPane.needsYou.enabled` | boolean | `false` |  | Needs You. A badge in the chat header counts what your agents wait on. |
 | `agentPane.editedFiles.show` | string | `"always"` | `always`, `collapsed`, `never` | Edited Files Card. The card that lists a turn's edited files, with Undo and View changes. |
@@ -731,6 +737,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `macScreen.debug.relayOnly` | boolean | `false` |  | Relay Only. Mac Screen tabs connect only through the relay, to test it. |
 | `remote.endSharingOnQuit` | boolean | `false` |  | End Sharing When cmux Quits. Off: this Mac stays available to your devices while cmux is quit. |
 | `remote.ultra` | string | `"auto"` | `off`, `auto`, `always` | Ultra Connection Mode. Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data. |
+| `remote.screenSharingProfile` | string | `"balanced"` | `balanced`, `ultra` | Screen Sharing Profile. Ultra spends the link on a fast direct connection when viewing another Mac: up to 120 fps, up to 150 Mbps, near-lossless text. Balanced is the default. Not Ultra Connection Mode, which repairs a lossy network. |
 | `deviceHub.url` | string | `""` |  | Device Hub Address. The device hub for Mac Screen sharing. Empty uses the built-in one. |
 | `contextMenus.showCustomizeItem` | boolean | `false` |  | Show Customize Menu…. Adds Customize Menu… to the end of every right-click menu. |
 | `imessage.enabled` | boolean | `false` |  | Connect iMessage. Lets cmux read Messages conversations on this Mac. Sending needs your click. |
