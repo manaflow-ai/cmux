@@ -1322,7 +1322,7 @@ impl Hub {
             let mut plan = plan;
             plan.args.extend(super::additional_dirs::claude_args(&meta));
             // Its stop condition, at every start (a resume or respawn too: `stop_condition.rs`).
-            plan.args.extend(super::stop_condition::claude_args(&meta));
+            super::stop_condition::add_claude_args(&mut plan.args, &meta);
             let (plan, profile) = self.remote_chain_plan(session, profile, plan).await?;
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };

@@ -27,6 +27,18 @@
 //! or workspace route still does), and the doctor names endpoint fixes.
 //! The key is never in the profile, an error, a log or argv: a literal key
 //! (in a parameter, the URL or the item name) is refused.
+//!
+//! **cmux models** (open-weight models cmux hosts: cmux-platform's model
+//! router at `<platform>/v1/inference`): an anthropic-endpoint whose base URL
+//! is one of the three cmux platforms' [`CMUX_MODELS_PATH`]
+//! ([`is_cmux_models_url`]). It takes no key: its Claude Code signs each
+//! request with the person's short-lived cmux access token through an
+//! `apiKeyHelper` that runs `cmux auth token` ([`cmux_models_helper`],
+//! docs/cmux-next/auth-token.md), asked again before it expires
+//! ([`CMUX_HELPER_TTL_MS`]) and after a 401, so no token is on disk, in the
+//! profile or in an env. The add points it at the platform of the API that
+//! issued the app's token (a DEV build's token is staging's), and lists the
+//! router's models from its public `<base>/models` ([`models_url`]).
 
 use std::collections::BTreeMap;
 
@@ -73,6 +85,71 @@ const ANTHROPIC_KEYS: &[&str] = &[
     "ANTHROPIC_BEDROCK_BASE_URL",
     "ANTHROPIC_VERTEX_BASE_URL",
 ];
+
+/// The model router's path on a cmux platform (cmux-platform api/Inference.ts `.prefix`).
+pub const CMUX_MODELS_PATH: &str = "/v1/inference";
+/// How long Claude Code keeps a cmux token from [`cmux_models_helper`] before it asks again:
+/// half the app's ten-minute tokens.
+pub const CMUX_HELPER_TTL_MS: &str = "300000";
+/// Claude Code's env key for that.
+pub const CMUX_HELPER_TTL_ENV: &str = "CLAUDE_CODE_API_KEY_HELPER_TTL_MS";
+
+/// The cmux models base URL on `platform` (one of the three cmux platform origins).
+pub fn cmux_models_base(platform: &str) -> String {
+    format!("{}{CMUX_MODELS_PATH}", platform.trim_end_matches('/'))
+}
+
+/// Whether `base_url` is cmux's own model router: a cmux platform's [`CMUX_MODELS_PATH`].
+pub fn is_cmux_models_url(base_url: &str) -> bool {
+    use cmux_cloud_client::backend::Backend;
+    let base = base_url.trim().trim_end_matches('/');
+    [Backend::Production, Backend::Staging, Backend::Development]
+        .into_iter()
+        .any(|b| cmux_models_base(b.platform()) == base)
+}
+
+/// The `apiKeyHelper` command that gives Claude Code a cmux access token: the `cmux` CLI at
+/// `cmux` (shell-quoted: the app's path has spaces) asking the app for one.
+pub fn cmux_models_helper(cmux: &str) -> String {
+    format!("'{}' auth token", cmux.replace('\'', "'\\''"))
+}
+
+/// The `--settings` value a cmux models harness's Claude Code runs with: only the helper.
+pub fn cmux_models_settings(helper: &str) -> String {
+    serde_json::json!({ "apiKeyHelper": helper }).to_string()
+}
+
+/// The fix for a failed cmux models turn: what the router's refusal means to the person.
+/// `detail` is the turn's (masked) error text, which names the router's own reason.
+pub fn cmux_models_fix(problem: Problem, detail: &str) -> String {
+    let t = detail.to_ascii_lowercase();
+    if t.contains("cannot use the model router") {
+        return "cmux models are not open to this team yet: ask cmux to turn them on for it, or \
+                choose another team in Settings > Accounts"
+            .to_owned();
+    }
+    if has_code(&t, "429") || t.contains("rate limit") || t.contains("rate_limited") {
+        return "cmux models are busy or this team reached its limit: wait a minute, then try again"
+            .to_owned();
+    }
+    if has_code(&t, "503") || has_code(&t, "502") || t.contains("unavailable") {
+        return "cmux models are not answering right now: try again in a few minutes".to_owned();
+    }
+    match problem {
+        Problem::Key => {
+            "sign in to cmux in the app (Settings > Accounts), then try again".to_owned()
+        }
+        Problem::Model => {
+            "this model is no longer served: fetch the cmux models again and pick one".to_owned()
+        }
+        Problem::BaseUrl => {
+            "cmux was not reached: check your connection, then try again".to_owned()
+        }
+        Problem::Credit | Problem::Other => {
+            "check your cmux sign-in and the model, then try again".to_owned()
+        }
+    }
+}
 
 /// Which endpoint kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -285,6 +362,9 @@ pub struct Endpoint<'a> {
     pub models: &'a [String],
     /// None: the endpoint takes no key, and the profile names no Keychain item.
     pub keychain_item: Option<&'a str>,
+    /// cmux models: the `apiKeyHelper` command ([`cmux_models_helper`]) that signs each request
+    /// with the person's cmux token. Anthropic only; never with a Keychain item.
+    pub cmux_helper: Option<&'a str>,
 }
 
 fn toml_string(s: &str) -> String {
@@ -322,11 +402,22 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
                 .iter()
                 .map(|(k, v)| format!("{k} = {}\n", toml_string(v)))
                 .collect();
+            // cmux models: Claude Code asks `cmux auth token` for each token (never stored).
+            let (args, helper_ttl) = match e.cmux_helper {
+                Some(helper) => (
+                    format!(
+                        "args = [\"--settings\", {}]\n",
+                        toml_string(&cmux_models_settings(helper))
+                    ),
+                    format!("{CMUX_HELPER_TTL_ENV} = {}\n", toml_string(CMUX_HELPER_TTL_MS)),
+                ),
+                None => (String::new(), String::new()),
+            };
             format!(
-                "{head}icon = \"claude\"\nprotocol = \"claude-stdio\"\ncommand = \"claude\"\n\n\
+                "{head}icon = \"claude\"\nprotocol = \"claude-stdio\"\ncommand = \"claude\"\n{args}\n\
                  [capabilities]\npermission_modes = true\nresume = true\n\n\
                  [defaults]\nmodel = {m}\n\n[models]\nlist = [{list}]\n\n\
-                 [env]\nANTHROPIC_BASE_URL = {}\n{item_line}ANTHROPIC_MODEL = {m}\n{slots}{marker}",
+                 [env]\nANTHROPIC_BASE_URL = {}\n{item_line}{helper_ttl}ANTHROPIC_MODEL = {m}\n{slots}{marker}",
                 toml_string(e.base_url),
             )
         }
@@ -383,7 +474,8 @@ pub fn models_url(kind: Kind, base_url: &str) -> String {
         None => (base_url, None),
     };
     let base = path.trim_end_matches('/');
-    let url = if kind == Kind::OpenAi || base.ends_with("/v1") {
+    // cmux's model router lists its models at `/v1/inference/models` (public, OpenAI's shape).
+    let url = if kind == Kind::OpenAi || base.ends_with("/v1") || is_cmux_models_url(base) {
         format!("{base}/models")
     } else {
         format!("{base}/v1/models")
@@ -465,8 +557,20 @@ pub async fn fetch_models(
         }
     })?;
     let status = response.status().as_u16();
+    let cmux = is_cmux_models_url(&base);
     match status {
         200..=299 => {}
+        404 if cmux => {
+            return Err("cmux models are not available on this cmux deployment (HTTP 404)".into());
+        }
+        429 if cmux => {
+            return Err("cmux models are busy (HTTP 429): try again in a minute".into());
+        }
+        502 | 503 if cmux => {
+            return Err(format!(
+                "cmux models are not answering right now (HTTP {status}): try again in a few minutes"
+            ));
+        }
         401 | 403 => return Err(format!("the endpoint refused the key (HTTP {status})")),
         404 | 405 => {
             return Err(format!(
@@ -478,6 +582,9 @@ pub async fn fetch_models(
     }
     let bytes = read_capped(response, MAX_LIST_BYTES).await?;
     let models = parse_models(&String::from_utf8_lossy(&bytes))?;
+    if models.is_empty() && cmux {
+        return Err("no cmux models are available here yet: the model router lists none".into());
+    }
     if models.is_empty() {
         return Err("the endpoint lists no models: type the model ids".into());
     }
