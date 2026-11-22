@@ -19,24 +19,11 @@ const IDLE: Duration = acpmux::hub::IDLE_CHILD;
 /// The fake harness under a shell: `$dir/broken` makes its start fail (exit 3); `$dir/slow_exit`
 /// makes the harness ignore SIGTERM, so each stop waits out its grace, while its stand-in MCP
 /// server (started before the trap) still ends at the SIGTERM; else it appends its own pid to
-/// `$dir/harness` and its stand-in MCP server's to `$dir/sidecar`. The server appends a line to
-/// `$dir/armed` once it handles SIGTERM, and at the SIGTERM the monotonic clock's nanoseconds
-/// to `$dir/told`: when its stop was told, read by the process itself, not by a poll.
+/// `$dir/harness` and its stand-in MCP server's to `$dir/sidecar`.
 const HARNESS: &str = r#"d=$1; f=$2
 [ -e "$d/broken" ] && exit 3
 echo $$ >> "$d/harness"
-python3 -c '
-import signal, sys, time
-def told(*_):
-    with open(sys.argv[1] + "/told", "a") as out:
-        out.write("%d\n" % time.monotonic_ns())
-    sys.exit(0)
-signal.signal(signal.SIGTERM, told)
-with open(sys.argv[1] + "/armed", "a") as out:
-    out.write("1\n")
-while True:
-    signal.pause()
-' "$d" </dev/null >/dev/null 2>&1 &
+sleep 100000 </dev/null >/dev/null 2>&1 &
 echo $! >> "$d/sidecar"
 [ -e "$d/slow_exit" ] && trap '' TERM
 exec python3 "$f""#;
@@ -230,17 +217,12 @@ async fn an_idle_session_hibernates_after_two_minutes_even_while_shown() {
 
 /// Idle sessions whose harnesses are slow to end hibernate together, not one after another: the
 /// idle pass ended them serially, so at 1,000 idle agents it took minutes and most stayed live
-/// (cmux#43143). Each harness here ignores SIGTERM, so its stop waits out the grace before the
-/// SIGKILL; its stand-in MCP server ends at the SIGTERM and writes when (`HARNESS`). One after
-/// another, no stop is told before the stop before it waited out its grace; together, most stops
-/// are told within the first one's grace. Read from the servers' own clock readings, not from a
-/// poll: under a loaded suite one `ps` round took 400 ms, which merged "told" and "ended" into
-/// one sample and failed this test with the stops at once.
-/// The stops `$dir/told` holds (`HARNESS`).
-fn told_lines(r: &Rig) -> usize {
-    std::fs::read_to_string(r.dir.join("told")).unwrap_or_default().lines().count()
-}
-
+/// (cmux#43143). Each harness here ignores SIGTERM, so its stop waits out the 300 ms grace before
+/// the SIGKILL; its stand-in MCP server ends at the SIGTERM. One after another, each harness ends
+/// before the next one is told to stop; together, the stops are told while the first harness
+/// still waits out its grace. Read from that order, not from wall time: a loaded suite stretches
+/// the pass's own reads (`ps`) and this test's polling (2.09 s for 8 in a full run, 0.83 s alone),
+/// never the order.
 #[cfg(unix)]
 #[tokio::test]
 async fn idle_sessions_hibernate_at_once_not_one_after_another() {
@@ -254,36 +236,41 @@ async fn idle_sessions_hibernate_at_once_not_one_after_another() {
         ids.push(id);
     }
     r.until("every harness started", || r.pids("harness").len() == N).await;
-    r.until("every stand-in server handles SIGTERM", || r.pids("armed").len() == N).await;
-    let harnesses = r.pids("harness");
+    let (harnesses, sidecars) = (r.pids("harness"), r.pids("sidecar"));
+    assert_eq!(sidecars.len(), N);
+    let began = std::time::Instant::now();
     r.clock.advance(IDLE + Duration::from_secs(1));
-    let deadline = std::time::Instant::now() + Duration::from_secs(20);
-    loop {
-        let pids = harnesses.clone();
-        let running = tokio::task::spawn_blocking(move || running_of(&pids)).await.unwrap();
-        if running.is_empty() && told_lines(&r) == N {
-            break;
-        }
+    // When each process was first seen ended: a server at its SIGTERM, a harness at its SIGKILL.
+    let mut told: Vec<Option<Duration>> = vec![None; N];
+    let mut ended: Vec<Option<Duration>> = vec![None; N];
+    let deadline = began + Duration::from_secs(20);
+    while ended.iter().any(Option::is_none) {
         assert!(std::time::Instant::now() < deadline, "a harness outlived its hibernation");
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        let all: Vec<u32> = sidecars.iter().chain(&harnesses).copied().collect();
+        let running = tokio::task::spawn_blocking(move || running_of(&all)).await.unwrap();
+        let at = began.elapsed();
+        for (seen, pids) in [(&mut told, &sidecars), (&mut ended, &harnesses)] {
+            for (slot, pid) in seen.iter_mut().zip(pids) {
+                if slot.is_none() && !running.contains(pid) {
+                    *slot = Some(at);
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
     }
-    let text = std::fs::read_to_string(r.dir.join("told")).unwrap();
-    let mut told: Vec<u64> = text.lines().filter_map(|l| l.trim().parse().ok()).collect();
-    told.sort_unstable();
-    assert_eq!(told.len(), N, "{text}");
-    // A harness that ignores SIGTERM ends no sooner than its grace after its stop was told, so
-    // one after another the second stop is told no sooner than that.
-    // The daemon's kill grace (`agent::KILL_GRACE`, 300 ms; not public to this suite).
-    let grace = Duration::from_millis(300).as_nanos() as u64;
-    let first = told[0];
-    let told_in_grace = told.iter().filter(|t| **t - first < grace).count();
-    let offsets: Vec<String> =
-        told.iter().map(|t| format!("{:.1} ms", (t - first) as f64 / 1e6)).collect();
-    eprintln!("{N} slow harnesses told at {offsets:?}; {told_in_grace} within the first grace");
+    let first_end = ended.iter().flatten().min().copied().unwrap();
+    let told_in_grace = told.iter().flatten().filter(|t| **t < first_end).count();
+    eprintln!(
+        "{N} slow harnesses: told {told:?}, ended {ended:?}; {told_in_grace} told before the \
+         first ended at {first_end:?}"
+    );
+    // One after another, no stop is told before the harness before it ended: one at most. Most
+    // of them, not all: under a loaded suite the pass's reads spread the stops (602 to 813 ms in
+    // a full run, the first end at 985 ms), and a pass two or four at a time still fails here.
     assert!(
         told_in_grace > N / 2,
-        "{told_in_grace} of {N} slow harnesses were told to stop within the first one's grace: \
-         they stop one after another (told at {offsets:?})"
+        "{told_in_grace} of {N} slow harnesses were told to stop before the first one ended \
+         (at {first_end:?}): they stop one after another (told {told:?}, ended {ended:?})"
     );
     r.until("an idle session never hibernated", || ids.iter().all(|id| r.status(id) == "idle"))
         .await;
