@@ -202,10 +202,6 @@
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
     },
-    "CI_OVERFLOW_LINUX": {
-      "fallback": "unset by default, so the job runs on cmux-linux, the ci-v2 Linux label (hq#13994); the overflow switch sets it to an overflow label while cmux-linux starts nothing and deletes it to put the jobs back",
-      "after_minutes": 5
-    },
     "RUNNER_POOLS": {
       "fallback": "the next member of the pool in .github/runners.json (its reconciler moves the pool when the current member starts nothing); with the variable unset, the selector's default, the pool's first member (tools/fleet-reconcilers/test_runner_pools.py)",
       "after_minutes": 5
