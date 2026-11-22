@@ -1882,6 +1882,7 @@ dependencies = [
 name = "cmux-follow-cam"
 version = "0.1.0"
 dependencies = [
+ "cmux-process",
  "serde",
  "serde_json",
 ]
@@ -2206,10 +2207,14 @@ dependencies = [
  "anyhow",
  "bincode",
  "cmux-process",
+ "flate2",
  "fuser",
  "libc",
+ "reqwest",
+ "rustls",
  "serde",
  "sha1",
+ "sha2 0.10.9",
  "tempfile",
  "zstd",
 ]
@@ -2670,6 +2675,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
+ "cmux-signed-bundle",
  "cmux-terminal-client",
  "cmux-theme-tokens",
  "cmux-tui-cdp",
@@ -2996,6 +3002,7 @@ dependencies = [
  "tokio-rustls",
  "tracing",
  "tracing-subscriber",
+ "x509-parser",
  "zeroize",
 ]
 
