@@ -82,6 +82,51 @@ struct MacScreenShareHostTests {
         #expect(found.app.standardizedFileURL == helper.standardizedFileURL)
     }
 
+    /// One prompt at a time (Lawrence, 2026-11-17: macOS's prompt and our Check Again sheet were up
+    /// at once). A request that did not grant waits while macOS's prompt has focus, and opens the
+    /// Settings pane only when nothing took focus (macOS asks once per grant).
+    @Test(arguments: [(true, true), (true, false), (false, true), (false, false)])
+    func aRequestWaitsForMacOSsOwnSurface(granted: Bool, promptTakesFocus: Bool) async {
+        let host = MacScreenShareHost()
+        var active = true
+        var asked: [Bool] = [], opened: [Bool] = [], settles = 0, waits = 0
+        host.helper = { nil }
+        host.readPermissions = { (granted, false) }
+        host.isAppActive = { active }
+        host.askMacOS = { asked.append($0); return granted }
+        host.settle = { _ in settles += 1; if promptTakesFocus { active = false } }
+        host.nextActivation = { waits += 1; active = true }
+        host.openSettingsPane = { opened.append($0) }
+
+        await host.requestAndWait(screenRecording: true)
+
+        #expect(asked == [true])
+        #expect(host.screenRecordingGranted == granted)
+        if granted {
+            #expect(opened.isEmpty && settles == 0 && waits == 0)
+        } else if promptTakesFocus {
+            #expect(opened.isEmpty && settles == 1 && waits == 1)
+        } else {
+            #expect(opened == [true] && settles == 1 && waits == 0)
+        }
+    }
+
+    /// A request started while this app is already in the background waits for the person's return.
+    @Test func aRequestFromTheBackgroundWaitsForTheReturn() async {
+        let host = MacScreenShareHost()
+        var waits = 0, settles = 0, opened = 0
+        host.helper = { nil }
+        host.readPermissions = { (false, false) }
+        host.isAppActive = { waits == 0 ? false : true }
+        host.askMacOS = { _ in false }
+        host.settle = { _ in settles += 1 }
+        host.nextActivation = { waits += 1 }
+        host.openSettingsPane = { _ in opened += 1 }
+
+        await host.requestAndWait(screenRecording: false)
+        #expect(waits == 1 && settles == 0 && opened == 0)
+    }
+
     /// The helper's one JSON line (cmux-rd-host src/permissions.rs).
     @Test func theHelpersAnswerDecodes() throws {
         let answer = try JSONDecoder().decode(MacScreenHelper.Permissions.self,

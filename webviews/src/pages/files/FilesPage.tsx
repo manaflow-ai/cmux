@@ -1,7 +1,7 @@
 // The Files page (cx-p4rt): the chat's folder as a keyboard-first tree beside the chat (ui/Tree: Up
 // and Down move, Right opens a folder or steps into it, Left closes it or steps to its parent, Return
-// opens a file or toggles a folder, Home and End jump, typing selects by name). Folders list as git
-// sees them, so ignored files never show.
+// opens a file or toggles a folder, Home and End jump, typing selects by name). Any folder lists:
+// in a git repository as git sees it (ignored files never show), elsewhere from the disk.
 import { useSyncExternalStore } from "react";
 import { FileIcon } from "../../file-icons";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";

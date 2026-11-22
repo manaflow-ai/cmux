@@ -84,7 +84,8 @@ export const BUNDLED_FAMILY: Record<BundledChatFont, string> = {
   hanken: "cmux Hanken Grotesk",
   atkinson: "cmux Atkinson Hyperlegible Next",
 };
-const isBundled = (font: ChatUiFont): font is BundledChatFont => font in BUNDLED_FAMILY;
+export const isBundledChatFont = (font: ChatUiFont): font is BundledChatFont => font in BUNDLED_FAMILY;
+const isBundled = isBundledChatFont;
 
 /// The system font's stack, desktop.css's `--font-ui`.
 const SYSTEM = "-apple-system, BlinkMacSystemFont, system-ui, sans-serif";
@@ -165,9 +166,26 @@ const PERSONALITY: Partial<Record<ChatUiFont, Record<(typeof STEPS)[number], str
   },
 };
 
+/// cmux Sans: Source Sans 3's narrow letters under a taller lowercase read packed at chat sizes, so
+/// it draws a step looser than its designed spacing, most at the small steps (Leo, 2026-11-19: "The
+/// kerning in cmux sans is off it all looks too packed together and narrow a lot of the time").
+const CMUX_SANS: Record<(typeof STEPS)[number], string> = {
+  caption: "0.02em",
+  detail: "0.018em",
+  body: "0.015em",
+  field: "0.012em",
+  title: "0.008em",
+  heading: "0.004em",
+};
+
 /// The letter-spacing table `font` sets on the type scale's steps, or null when it sets none.
-const trackingTable = (font: ChatUiFont) =>
-  font === "system-ui-tight" ? TIGHT : font === "inter-tuned" ? INTER_TUNED : (PERSONALITY[font] ?? null);
+const TRACKING: Partial<Record<ChatUiFont, Record<(typeof STEPS)[number], string>>> = {
+  "system-ui-tight": TIGHT,
+  "inter-tuned": INTER_TUNED,
+  "cmux-sans": CMUX_SANS,
+  ...PERSONALITY,
+};
+const trackingTable = (font: ChatUiFont) => TRACKING[font] ?? null;
 
 /// The letter-spacing `font` gives a type-scale step, in em: what chatUiFontVariables sets on
 /// `--text-STEP--letter-spacing`, 0 for a step it has none for and for the faces with none.

@@ -96,6 +96,7 @@ import argparse
 import ast
 import concurrent.futures
 import contextlib
+import fcntl
 import fnmatch
 import hashlib
 import json
@@ -119,6 +120,14 @@ FIX_COMMAND = "scripts/web-lint.sh --fix"
 MIN_SKIP_REASON = 20
 # "0" (or false/no/off/skip): this host runs no heavy check. Set by the host, e.g. from a fleet registry.
 LOCAL_HEAVY_ENV = "CMUX_LOCAL_HEAVY_CHECKS"
+# Leo, 2026-11-22, on a type check that went red in CI: "should've been caught and fixed faster". A host that runs no
+# heavy check by policy (66 of 68 lane hosts, so every lane VM pushed with no type check and no Oxlint) may still run
+# them when it says how much free memory that takes (GiB) and has it now: the type check and type-aware lint peak
+# at about 5 and 9 GB, with GOMEMLIMIT and the Node heap capped below. One such push at a time per host
+# (HEAVY_LOCK): a second push while one runs stays light rather than doubling the peak. Unset: light, as before.
+LOCAL_HEAVY_FREE_ENV = "CMUX_LOCAL_HEAVY_WHEN_FREE_GB"
+HEAVY_LOCK = "cmux-web-lint-heavy.lock"
+_heavy_lock = None
 # --timings: each setup step and check says on stderr when it starts and how long it took, as it happens, so a run
 # stopped by its job's timeout names the step it stalled in (a `bun install` that never returns printed nothing).
 PHASES = False
@@ -1158,12 +1167,58 @@ def light_pieces(repo: Path, package: ScriptPackage, script: str, mode: str, rea
     return light
 
 
-def local_heavy_checks() -> bool:
-    """False when the host said it runs no heavy piece (CMUX_LOCAL_HEAVY_CHECKS=0). CI always runs every piece:
-    a runner that inherits the host setting still runs the full type-aware check."""
+def local_heavy_checks(mode: str = "web lint") -> bool:
+    """False when the host said it runs no heavy piece (CMUX_LOCAL_HEAVY_CHECKS=0), unless it also set
+    CMUX_LOCAL_HEAVY_WHEN_FREE_GB and free_memory_heavy() lets it. CI always runs every piece: a runner that inherits
+    the host setting still runs the full type-aware check."""
     if in_ci():
         return True
-    return os.environ.get(LOCAL_HEAVY_ENV, "").strip().lower() not in ("0", "false", "no", "off", "skip")
+    if os.environ.get(LOCAL_HEAVY_ENV, "").strip().lower() not in ("0", "false", "no", "off", "skip"):
+        return True
+    return free_memory_heavy(mode)
+
+
+def available_gib(meminfo: str = "/proc/meminfo") -> float | None:
+    """MemAvailable in GiB, or None where it cannot be read (macOS, no /proc)."""
+    try:
+        with open(meminfo) as handle:
+            for line in handle:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) / (1024 * 1024)
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def free_memory_heavy(mode: str, meminfo: str = "/proc/meminfo") -> bool:
+    """True when CMUX_LOCAL_HEAVY_WHEN_FREE_GB names a floor this host's free memory meets and no other push on the
+    host holds HEAVY_LOCK; this process then holds it until it exits. Says which way it went, either way."""
+    global _heavy_lock
+    raw = os.environ.get(LOCAL_HEAVY_FREE_ENV, "").strip()
+    if not raw:
+        return False
+    try:
+        floor = float(raw)
+    except ValueError:
+        print(f"{mode}: {LOCAL_HEAVY_FREE_ENV}={raw!r} is not a number of GiB; type check left to CI.", file=sys.stderr)
+        return False
+    free = available_gib(meminfo)
+    if free is None or free < floor:
+        shown = "unknown" if free is None else f"{free:.1f} GiB"
+        print(f"{mode}: free memory {shown} is under {floor:g} GiB; the type check and Oxlint are left to CI.",
+              file=sys.stderr)
+        return False
+    path = Path(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()) / HEAVY_LOCK
+    try:
+        handle = open(path, "a")
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print(f"{mode}: another push on this host is running the type check; this one leaves it to CI.",
+              file=sys.stderr)
+        return False
+    _heavy_lock = handle
+    print(f"{mode}: {free:.1f} GiB free (floor {floor:g}): running the type check and Oxlint here.", file=sys.stderr)
+    return True
 
 
 def in_ci() -> bool:
@@ -1843,6 +1898,35 @@ def load_compare():
     return module
 
 
+# --new-only: the file (one repo-relative path per line) of the paths the change touches, for a check that is a pure
+# function of each file (webviews' check:compiler-bails) to read only those. Its findings on the other files are the
+# base's, which a full run on every feat-cmux-next push (cmux-next-web-lint.yml, no --new-only) already holds. The
+# merge and the --new-only base run read the same list. check:compiler-bails compiled all 2,977 agent-chat files
+# serially on every pull request: 65 s of the fast gates' 159 s step (job 136902872282, 2026-11-21).
+CHANGED_FILES_ENV = "CMUX_WEB_LINT_CHANGED_FILES"
+
+
+@contextlib.contextmanager
+def changed_files_env(files: list[str] | None):
+    """CHANGED_FILES_ENV naming a file of FILES while the checks run; unset (every check reads every file) when None."""
+    if files is None:
+        yield
+        return
+    handle, name = tempfile.mkstemp(prefix="web-lint-changed-", suffix=".txt")
+    previous = os.environ.get(CHANGED_FILES_ENV)
+    try:
+        with os.fdopen(handle, "w") as out:
+            out.write("".join(f"{path}\n" for path in files))
+        os.environ[CHANGED_FILES_ENV] = name
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(CHANGED_FILES_ENV, None)
+        else:
+            os.environ[CHANGED_FILES_ENV] = previous
+        Path(name).unlink(missing_ok=True)
+
+
 def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list[Result], heavy: bool = True) -> None:
     """--new-only: each failed package check runs again on BASE. A red whose every finding BASE has too passes
     with a warning; otherwise the result keeps only the findings it adds. A host that runs no heavy checks makes
@@ -1942,6 +2026,11 @@ def main(argv: list[str] | None = None) -> int:
     heads: dict[str | None, list[str]] = {}
     if args.base:
         heads[None if args.fix else args.head] = changed_files(repo, args.base, args.head)
+    elif args.all and not args.pre_push:
+        # Every package is checked, whatever changed (below), so no push range is needed: in CI's shallow checkout
+        # of a commit no remote ref names, that range cannot be told, and asking for it refused the whole run
+        # (cmux-ci test, run 44991179215: "nothing was linted").
+        heads[None if args.fix else args.head] = []
     else:
         push_range = load_push_range(args.trusted_scripts_dir.resolve() if args.trusted_scripts_dir else None)
         try:
@@ -1968,7 +2057,7 @@ def main(argv: list[str] | None = None) -> int:
             heads.setdefault(None if args.fix else head, []).extend(own_files(repo, own, head))
 
     started = time.monotonic()
-    heavy = local_heavy_checks()
+    heavy = local_heavy_checks(mode)
     results: list[Result] = []
     for head, changed in heads.items():
         files = sorted(set(changed))
@@ -2027,7 +2116,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             print(f"{mode}: this worktree is a sparse checkout: the checks run on a lint tree of the {len(only)} "
                   f"files of {head[:12]} they read.", file=sys.stderr)
-        with tree_of(repo, head, directories, only) as tree:
+        scoped = files if args.new_only and not args.all else None
+        with tree_of(repo, head, directories, only) as tree, changed_files_env(scoped):
             if args.pre_push and not refuse_escapes(tree, plan, mode, read):
                 continue
             found = run_plan(tree, plan, args.fix, cache=tree == repo, heavy=heavy, mode=mode)

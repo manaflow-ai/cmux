@@ -171,6 +171,7 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
+            "scripts/ci/workflow_job_bounds.py",
             "scripts/normalize-pbxproj.py",
             "scripts/webviews_bun_version.py",
             "scripts/lint_swift_namespaces.py",
@@ -803,6 +804,28 @@ class WebLintPrePushTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("::warning title=web lint (base)::webviews: sh check-lanes.sh", result.stderr)
+
+    def test_new_only_hands_the_checks_the_changed_files_and_a_full_lint_none(self):
+        # check:compiler-bails compiled every agent-chat file on every pull request (65 s of the fast gates' step,
+        # 2026-11-21); with --new-only it reads the change's files from CMUX_WEB_LINT_CHANGED_FILES and checks only
+        # those. Without --new-only (the push lint, the pre-push hook) the variable is unset: every file is checked.
+        seen = Path(self.temporary.name) / "seen.txt"
+        self.write("webviews/check-lanes.sh",
+                   'if [ -n "$CMUX_WEB_LINT_CHANGED_FILES" ]; then cat "$CMUX_WEB_LINT_CHANGED_FILES" >> "$SEEN"; '
+                   'else echo unset >> "$SEEN"; fi\n' + CHECK_LANES)
+        self.commit("a check that records the changed files")
+        self.write("webviews/src/app.ts", "export const app = 4;\n")
+        self.commit("a change")
+        self.env["SEEN"] = str(seen)
+
+        result = self.lint_range("--new-only")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(seen.read_text(), "webviews/src/app.ts\n")
+        self.assertNotIn("CMUX_WEB_LINT_CHANGED_FILES", os.environ)
+        seen.unlink()
+        self.assertEqual(self.lint_range().returncode, 0)
+        self.assertEqual(seen.read_text(), "unset\n")
 
     # The trust boundary (docs/contributor-verification.md): the hook runs only check code the push did not change.
     # Each test below plants a marker-writing script that only pushed content can reach, and the hook must never run
@@ -1757,6 +1780,34 @@ class TuiBindingsTests(unittest.TestCase):
         self.assertEqual(len(setup), 1)
         self.assertIn("neither npm nor bun is on PATH", lint.shown(setup[0]))
 
+    def test_an_all_run_in_a_shallow_ci_clone_lints_every_package(self):
+        # cmux-ci test at 491d6f30 (run 44991179215): `web-lint.sh --all` in Actions' depth-1 checkout of a snapshot
+        # two commits over the remote said "cannot tell which commits are this push's own ... refused; nothing was
+        # linted". --all lints every package whatever changed, so it needs no push range.
+        self.add_tui_packages()
+        self.git("push", "--quiet", "--no-verify", "origin", "HEAD:feat-cmux-next")
+        # Two snapshot commits over the branch, on a ref of their own; Actions checks out only the top one.
+        for n in (1, 2):
+            self.write(f"snapshot-{n}.txt", f"{n}\n")
+            self.commit(f"snapshot {n}")
+        self.git("push", "--quiet", "--no-verify", "origin", "HEAD:refs/heads/snapshot")
+        shallow = self.root / "shallow"
+        subprocess.run(["git", "clone", "--quiet", "--depth", "1", "--branch", "snapshot",
+                        f"file://{self.origin}", str(shallow)], env=self.env, check=True, capture_output=True)
+        # As actions/checkout leaves it: the commit detached, no remote ref names it, and no base to fetch.
+        for argv in (["checkout", "--quiet", "--detach"], ["update-ref", "-d", "refs/remotes/origin/snapshot"],
+                     ["remote", "set-url", "origin", str(self.root / "gone.git")]):
+            subprocess.run(["git", *argv], cwd=shallow, env=self.env, check=True)
+        self.assertEqual(subprocess.run(["git", "rev-parse", "--is-shallow-repository"], cwd=shallow, env=self.env,
+                                        text=True, capture_output=True).stdout.strip(), "true")
+        self.tool_log.write_text("")
+        result = subprocess.run(["scripts/web-lint.sh", "--all"], cwd=shallow, env=self.env, text=True,
+                                capture_output=True)
+        self.assertNotIn("nothing was linted", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("web lint passed", result.stderr)
+        self.assertIn("check web", self.tool_log.read_text())
+
     def test_an_all_run_builds_the_bindings_before_the_frontend_check_and_is_clean(self):
         self.add_tui_packages()
 
@@ -2457,6 +2508,66 @@ class TrustBoundaryTests(unittest.TestCase):
         for package in lint.ESLINT_PACKAGES:
             self.assertEqual(lint.executed_symlinks(SOURCE, head, package.executed, (),
                                                     lint.package_directories(package)), [])
+
+
+class FreeMemoryHeavyTests(unittest.TestCase):
+    """A no-heavy host that names a free-memory floor runs the type check when it has the memory and no other push
+    on the host holds the lock (Leo, 2026-11-22: "should've been caught and fixed faster")."""
+
+    def setUp(self):
+        self.lint = load_lint(Path(__file__).resolve().parent.parent)
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.addCleanup(self.release)
+
+    def release(self):
+        if self.lint._heavy_lock is not None:
+            self.lint._heavy_lock.close()
+            self.lint._heavy_lock = None
+
+    def meminfo(self, kib):
+        path = self.tmp / "meminfo"
+        path.write_text(f"MemTotal: 999999999 kB\nMemAvailable: {kib} kB\n")
+        return str(path)
+
+    def env(self, floor):
+        return {"CMUX_LOCAL_HEAVY_CHECKS": "0", "CMUX_LOCAL_HEAVY_WHEN_FREE_GB": floor, "XDG_RUNTIME_DIR": str(self.tmp),
+                "GITHUB_ACTIONS": "", "CI": ""}
+
+    def run_it(self, floor, kib):
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, self.env(floor)), mock.patch("sys.stderr", err):
+            return self.lint.free_memory_heavy("pre-push", self.meminfo(kib)), err.getvalue()
+
+    def test_unset_stays_light(self):
+        with mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "0", "CMUX_LOCAL_HEAVY_WHEN_FREE_GB": "",
+                                          "GITHUB_ACTIONS": "", "CI": ""}):
+            self.assertFalse(self.lint.local_heavy_checks())
+
+    def test_enough_free_memory_runs_heavy_and_holds_the_lock(self):
+        ok, err = self.run_it("16", 32 * 1024 * 1024)
+        self.assertTrue(ok)
+        self.assertIn("running the type check", err)
+        self.assertIsNotNone(self.lint._heavy_lock)
+
+    def test_under_the_floor_stays_light(self):
+        ok, err = self.run_it("16", 8 * 1024 * 1024)
+        self.assertFalse(ok)
+        self.assertIn("under 16 GiB", err)
+
+    def test_a_second_push_while_one_holds_the_lock_stays_light(self):
+        import fcntl
+        holder = open(self.tmp / self.lint.HEAVY_LOCK, "a")
+        self.addCleanup(holder.close)
+        fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        ok, err = self.run_it("16", 32 * 1024 * 1024)
+        self.assertFalse(ok)
+        self.assertIn("another push", err)
+
+    def test_a_bad_floor_stays_light(self):
+        ok, err = self.run_it("lots", 32 * 1024 * 1024)
+        self.assertFalse(ok)
+        self.assertIn("not a number", err)
 
 
 if __name__ == "__main__":
