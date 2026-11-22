@@ -19785,7 +19785,8 @@
             "description": "The rev the caller read; refused with rev_mismatch when the record changed."
           }
         },
-        "extra": false
+        "extra": false,
+        "unknown_params": "refuse"
       },
       "result": {
         "kind": "apply",
@@ -20156,7 +20157,8 @@
             "description": "The person's lock: while true no Chief (the Chief itself included) changes the record (operation.failed details.reason chief_locked). Owner only; on the page a gesture field."
           }
         },
-        "extra": false
+        "extra": false,
+        "unknown_params": "refuse"
       },
       "result": {
         "kind": "apply",
@@ -26094,7 +26096,8 @@
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
           }
         },
-        "extra": false
+        "extra": false,
+        "unknown_params": "refuse"
       },
       "result": {
         "kind": "apply",

@@ -1099,8 +1099,11 @@ structured errors, and stream item/end types. `resource-operations-v2.schema.jso
 defines the catalog format. A request parameter the operation does not declare
 is dropped before the operation runs (the daemon logs its name once, never its
 value), so a newer client's field never refuses a request on an older daemon;
-an operation whose params say `"unknown_params": "refuse"` (`terminal.close`,
-whose guards must not go unread) refuses it with `validation.invalid`. Unknown
+an operation whose params say `"unknown_params": "refuse"` refuses it with
+`validation.invalid`: `terminal.close`, whose guards must not go unread;
+`column.update`, where an older client's `sticky` would drop its pin; and
+`chief.profile.update` and `chief.profile.delete`, grant writes where a made-up
+confirmation must fail loudly. Unknown
 result fields are rejected.
 
 | Class | Semantics |
