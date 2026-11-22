@@ -60,7 +60,8 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
     ///   - buttonSide: The toolbar buttons' side; nil uses the density's `omnibarButtonSize`, else the row's height.
     public init(tokens: DensityTokens, height: Double? = nil, fontSize: Double? = nil, textScale: CGFloat = 1,
                 rowHeight: CGFloat? = nil, glyphSide: CGFloat? = nil, buttonSide: CGFloat? = nil) {
-        let row = rowHeight ?? tokens.toolbarButtonSize
+        let toolbarRow = tokens.toolbarButtonSize
+        let row = rowHeight ?? toolbarRow
         let requested = height.flatMap { $0.isFinite ? CGFloat(Self.clamp($0, Self.heightRange).rounded()) : nil } ?? row
         // A built-in density's text fits the bar's line (Ultra-compact's 20 pt row draws 11 pt text,
         // whole points), its own `fontSize` too, so the bar stays the tab's height (Lawrence 2026-11-11:
@@ -86,7 +87,8 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
         // Default's omnibar is Compact's (`DensityPreset.omnibarScaleFactor`), so its level-based sizes are Compact's too.
         let levelTokens = tokens.isBuiltIn && tokens.id == DensityPreset.cozy.rawValue ? DensityPreset.compact.tokens : tokens
         iconPointSize = min(levelTokens.resolve(compact: 13, comfortable: 15), ((barHeight - 8) / 1.2).rounded(.down))
-        toolbarIconSize = min(glyphSide ?? tokens.toolbarGlyphSize, buttonSize)
+        let densityGlyph = tokens.toolbarGlyphSize
+        toolbarIconSize = min(glyphSide ?? densityGlyph, buttonSize)
         // A density's `omnibarTrailingIconSize` (Helium's `kLocationBarTrailingIconSize` 18, Chrome's 20).
         trailingIconSize = min(tokens.tokens["omnibarTrailingIconSize"].map { CGFloat($0) } ?? tokens.resolve(compact: 18, comfortable: 20), barHeight - 6)
         extensionsIconSize = min(tokens.tokens["omnibarExtensionsGlyphSize"].map { CGFloat($0) } ?? toolbarIconSize, buttonSize)
