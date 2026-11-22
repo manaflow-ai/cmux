@@ -860,7 +860,7 @@ class Run:
                 self.record(browser.name, round_no, tab_row(count, "cpu"), window["cpu_pct"], kinds=kinds, **extra)
                 self.record(browser.name, round_no, tab_row(count, "wakeups"), window["wakeups_per_s"], **extra)
                 self.record(browser.name, round_no, tab_row(count, "gpu-cpu"),
-                            kinds.get("gpu", {}).get("cpu_pct", 0.0), **extra)
+                            sum(kinds.get(kind, {}).get("cpu_pct", 0.0) for kind in ("gpu", "webkit-gpu")), **extra)
                 self.record(browser.name, round_no, tab_row(count, "gpu-util"), gpu_got.get("device_utilization_pct"),
                             gpu=gpu_got, **extra)
         except Exception as error:  # noqa: BLE001 - a failed session is logged, the run goes on

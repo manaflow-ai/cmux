@@ -54,6 +54,10 @@ on:
         description: "probe: retries of this probe after a run with no verdict."
         type: string
         default: "0"
+      pieces:
+        description: "probe: hot swap out state (scripts/ci/piece_swap.py State); sha is then the culprit with some pieces swapped out."
+        type: string
+        default: ""
   push:
     branches:
       - lane/post-merge-drill-*
@@ -69,6 +73,10 @@ concurrency:
   # One batch run per branch at a time; probes queue per suite and job, never cancelled.
   group: cmux-next-post-merge-${{ github.ref_name }}-${{ inputs.mode == 'probe' && format('probe-{0}-{1}', inputs.suite, inputs.only) || 'batch' }}
   cancel-in-progress: false
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   plan:
@@ -168,9 +176,35 @@ jobs:
       actions: read
       contents: read
 
+  web:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' web ')
+    uses: ./.github/workflows/ci-web.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    # actions: read: the base's webview test history and duration manifest are artifacts (ci-web.yml).
+    permissions:
+      contents: read
+      actions: read
+
+  tip-test-compile:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' tip-test-compile ')
+    uses: ./.github/workflows/cmux-next-tip-test-compile.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      actions: write
+      contents: read
+      issues: write
+
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces]
-    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile]
+    # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
+    # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
+    if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
@@ -181,6 +215,8 @@ jobs:
       job: ${{ steps.judge.outputs.job }}
       good: ${{ steps.judge.outputs.good }}
       origin: ${{ steps.judge.outputs.origin }}
+      pieces: ${{ steps.judge.outputs.pieces }}
+      piece: ${{ steps.judge.outputs.piece }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -217,10 +253,11 @@ jobs:
           BAD: ${{ inputs.bad }}
           ORIGIN: ${{ inputs.origin }}
           TRIES: ${{ inputs.tries }}
+          PIECES: ${{ inputs.pieces }}
         run: |
           python3 scripts/ci/post_merge_batch.py judge --branch "$BRANCH" --mode "$MODE" --sha "$GITHUB_SHA" \
             --run-id "$GITHUB_RUN_ID" --suite "$SUITE" --job "$JOB" --only "$ONLY" --probe-sha "$PROBE_SHA" \
-            --good "$GOOD" --bad "$BAD" --origin "$ORIGIN" --tries "$TRIES"
+            --good "$GOOD" --bad "$BAD" --origin "$ORIGIN" --tries "$TRIES" --pieces "$PIECES"
 
   revert:
     needs: judge
@@ -230,7 +267,9 @@ jobs:
     # The routing App's key lives in ci-routing-agent, which serves the base; a drill branch opens
     # its revert with GITHUB_TOKEN instead (that pull request starts no CI, which a drill needs not).
     environment: ${{ github.ref_name == 'feat-cmux-next' && 'ci-routing-agent' || '' }}
+    # actions: write: hot swap out dispatches its piece probes (scripts/ci/piece_swap.py) with this job's token.
     permissions:
+      actions: write
       contents: write
       pull-requests: write
     steps:
@@ -269,18 +308,39 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-contents: write
           permission-pull-requests: write
-      - name: Open the revert pull request
+      # Creating a branch based on feat-cmux-next needs workflows write: its workflow files differ from
+      # main's, and GitHub refuses or times out a token without it (drill-5, -6 and -7). Minted on every
+      # branch, so a drill proves the same push; the pull request itself still opens with GH_TOKEN.
+      - name: Mint the revert push token
+        id: push-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+      - name: Swap out the piece, or open the revert pull request
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           GH_READ_TOKEN: ${{ steps.read-token.outputs.token }}
+          PUSH_TOKEN: ${{ steps.push-token.outputs.token || steps.app-token.outputs.token || github.token }}
           CULPRIT: ${{ needs.judge.outputs.culprit }}
           RED_JOB: ${{ needs.judge.outputs.job }}
           GOOD: ${{ needs.judge.outputs.good }}
           ORIGIN: ${{ needs.judge.outputs.origin }}
           BRANCH: ${{ github.ref_name }}
+          DISPATCH_TOKEN: ${{ github.token }}
+          # Hot swap out first, for classes .github/piece-swap.json lists (only drill ships); 0 turns it off.
+          NEXT_PIECE_SWAP: ${{ vars.NEXT_PIECE_SWAP }}
+          PIECES: ${{ needs.judge.outputs.pieces }}
+          PIECE: ${{ needs.judge.outputs.piece }}
         run: |
           git config user.name "cmux post-merge batch"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           python3 scripts/ci/post_merge_batch.py revert --branch "$BRANCH" --culprit "$CULPRIT" --job "$RED_JOB" \
-            --good "$GOOD" --origin "$ORIGIN" \
-            --push-url "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            --good "$GOOD" --origin "$ORIGIN" --pieces "$PIECES" --piece "$PIECE" \
+            --push-url "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"

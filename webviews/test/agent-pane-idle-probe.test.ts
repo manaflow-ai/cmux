@@ -46,3 +46,31 @@ test("a second probe while one runs is refused and the first still restores", as
   await first;
   expect(window.setTimeout).toBe(original);
 });
+
+test("a probe counts host pushes by method and puts the transport's receive back", async () => {
+  const { idleProbe } = await import("../src/agent-session/acpmux/idleProbe");
+  const got: unknown[] = [];
+  const transport = { receive: (event: unknown) => void got.push(event) };
+  const original = transport.receive;
+  (window as unknown as { cmuxAcpmuxTransport: unknown }).cmuxAcpmuxTransport = transport;
+  const running = idleProbe({ ms: 150 });
+  const frame = (update: string) =>
+    JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: update } } });
+  transport.receive({ connection: 1, frames: [frame("usage_update"), frame("usage_update"), '{"id":3,"result":{}}'] });
+  const result = (await running) as { pushes: { site: string; count: number; sample: string }[] };
+  expect(result.pushes).toEqual([
+    { site: "session/update usage_update", count: 2, sample: "" },
+    { site: "reply", count: 1, sample: "" },
+  ]);
+  expect(got).toHaveLength(1);
+  expect(transport.receive).toBe(original);
+  delete (window as unknown as { cmuxAcpmuxTransport?: unknown }).cmuxAcpmuxTransport;
+});
+
+test("posts between two counts keep only the methods that grew", async () => {
+  const { postsBetween } = await import("../src/agent-session/acpmux/idleProbe");
+  expect([...postsBetween({ a: 2, b: 1 }, { a: 5, b: 1, c: 1 }).entries()]).toEqual([
+    ["a", { count: 3, sample: "" }],
+    ["c", { count: 1, sample: "" }],
+  ]);
+});

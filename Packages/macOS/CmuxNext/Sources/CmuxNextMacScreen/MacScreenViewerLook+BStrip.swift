@@ -35,6 +35,9 @@ final class MacScreenStatusStripBar: MacScreenThemedView {
     private let line = MacScreenFill(\.separator)
     /// The state's buttons, made again only when the state changes.
     private var stateButtons: [MacScreenButton] = []
+    /// The button the keyboard lands on while a state shows (the pane's focus target under this strip): the state's
+    /// Return button, else its primary, else its first.
+    private(set) var keyButton: MacScreenButton?
     private var shownState: MacScreenStripState?
     private var announced: String?
     private var isFullScreen: Bool?
@@ -165,17 +168,32 @@ final class MacScreenStatusStripBar: MacScreenThemedView {
         keyboard.resize(to: MacScreenType.caption)
     }
 
+    /// Makes the state's buttons, a keyboard loop like the card's: Tab and Shift-Tab move between them, Space presses the
+    /// focused one. A pane that held the keyboard moves it to the new state's key button, or back to the screen once live.
     private func rebuildButtons(for state: MacScreenStripState?) {
+        let heldKeyboard = paneHoldsKeyboard
         for button in stateButtons { button.removeFromSuperview() }
-        stateButtons = (state?.actions ?? []).map { action in
+        let actions = state?.actions ?? []
+        stateButtons = actions.map { action in
             MacScreenButton(action.title, role: action.primary ? .primary : .plain, compact: true, hint: action.returnKey ? .return : nil,
                             id: action.id) { [weak self] in self?.actions.run(action.run) }
         }
-        for button in stateButtons {
+        for (index, button) in stateButtons.enumerated() {
             button.translatesAutoresizingMaskIntoConstraints = true
+            button.takesKeyFocus = true
+            button.nextKeyView = stateButtons[(index + 1) % stateButtons.count]
             addSubview(button)
             paint(button)
         }
+        let key = actions.firstIndex { $0.returnKey } ?? actions.firstIndex { $0.primary } ?? actions.indices.first
+        keyButton = key.map { stateButtons[$0] }
+        if heldKeyboard { self.actions.focusScreen() }
+    }
+
+    /// The pane this strip sits in holds the keyboard (its screen, or a button of the strip or the card).
+    private var paneHoldsKeyboard: Bool {
+        guard let pane = superview, let focused = window?.firstResponder as? NSView else { return false }
+        return focused === pane || focused.isDescendant(of: pane)
     }
 
     /// The state beside the name: its title in the state's ink, the machine's name emphasized inside it when it names it.
