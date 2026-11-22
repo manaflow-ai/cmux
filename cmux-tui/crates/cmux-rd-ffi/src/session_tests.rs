@@ -225,6 +225,46 @@ fn stream_carrier_routes_frames_and_queues_other_messages() {
     assert_eq!(push(&s, &frames(0, 1, 10)[0], 0), CMUX_RD_ERR_CARRIER);
 }
 
+/// An ultra capacity probe is padding the host times: its arrival rides the stream's
+/// media feedback (transport seq + arrival time), and it is never handed to the app as
+/// a message. Before probes were reported, the host's probe planner never got a sample
+/// and an ultra session held its start rate.
+#[test]
+fn probe_arrivals_ride_the_streams_feedback_and_are_not_messages() {
+    let s = session(CMUX_RD_CARRIER_DATAGRAM);
+    let probe_on = |stream: u16, seq: u16| {
+        let mut d = Vec::new();
+        DatagramHeader {
+            flags: 0,
+            kind: DatagramKind::Probe,
+            stream,
+            frame: 0,
+            index: seq,
+            count: 4,
+            fec_count: 0,
+            transport_seq: seq,
+        }
+        .encode_into(&mut d);
+        d.resize(1_200, 0);
+        d
+    };
+    for (i, seq) in [40u16, 41, 42, 43].into_iter().enumerate() {
+        assert!(push(&s, &probe_on(0, seq), 1_000 + i as u64 * 100) >= 0);
+    }
+    // A probe for a stream the viewer never opened is dropped, not an error.
+    assert_eq!(push(&s, &probe_on(9, 44), 1_500), CMUX_RD_OK);
+    let mut m = CmuxRdMessage { data: std::ptr::null(), len: 0, kind: 0 };
+    // SAFETY: live session, writable out.
+    assert_eq!(unsafe { cmux_rd_session_pop_message(s.0, &mut m) }, 0, "no probe message");
+    let fb = feedbacks(&s, 2_000, false);
+    let arrivals: Vec<(u16, u32)> = fb
+        .iter()
+        .filter(|f| f.0 == 0)
+        .flat_map(|f| f.1.arrivals.iter().map(|a| (a.transport_seq, a.arrival_us)))
+        .collect();
+    assert_eq!(arrivals, vec![(40, 1_000), (41, 1_100), (42, 1_200), (43, 1_300)]);
+}
+
 #[test]
 fn closing_a_stream_drops_its_frames_and_its_timer() {
     let s = session(CMUX_RD_CARRIER_DATAGRAM);
