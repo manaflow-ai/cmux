@@ -7,6 +7,7 @@
     media_polish.py trim CLIP --out OUT.mp4 (--start S --end E | --event-start-frame F --event-end-frame F)
     media_polish.py redact SRC --out OUT --rect X,Y,W,H [--rect ...] --scale DPR [--style box|blur]
     media_polish.py scan FILE [FILE ...]
+    media_polish.py lean CLIP --out OUT.mp4 [--speed 3] [--max-seconds 15] [--margin 24]
 
 Leo, 2026-11-22: "the class of measurement errors for ui you guys need to do these things properly. likewise
 with screenshots and vids and properly cropping them. you guys need to be more polished and rigorous about
@@ -29,6 +30,14 @@ the event under test. Each subcommand closes one of those:
   account names is outside the frame. scan reads no text and refuses nothing; it prints what each file's
   sidecar says and reminds you to run the privacy check (scripts/ci/pr_media_privacy.py check), which
   scripts/pr-media.py runs anyway before any upload.
+
+- lean strips a walkthrough down to what changes (Leo, 2026-11-22: "you guys need to just be stripping this
+  shit down bare into the constituent parts of what the fuck actually matters. speed up the walkthrough"): it
+  crops to the union box of what changes (scripts/media/proof_clip_check.py's estimate, plus --margin device px;
+  no crop when that box is over 85% of the frame), drops idle frames (mpdecimate), plays it --speed times faster
+  (3 by default, 2 to 4; slower, down to 1x, when what is left would run under 3 s) and cuts it at
+  --max-seconds (15). Its sidecar records element_coverage (the change
+  box over the output frame), which proof_clip_check.py then reads.
 
 Every output gets a sidecar `<output>.media.json` (scripts/ci/pr_media_lint.py reads it) with source,
 crop_bounds, scale, dims {w,h}, margin, variable, control, runs, window_frames {start,end}, viewport, split
@@ -57,6 +66,13 @@ from typing import Any, Callable, Sequence
 ROOT = Path(__file__).resolve().parents[2]
 PR_MEDIA = ROOT / "scripts/pr-media.py"
 PRIVACY_CHECK = "scripts/ci/pr_media_privacy.py"
+PROOF_CHECK = Path(__file__).resolve().parent / "proof_clip_check.py"
+LEAN_SPEED = 3.0
+LEAN_MAX_SECONDS = 15.0
+LEAN_MARGIN = 24
+LEAN_MAX_CROP = 0.85  # a change box over this share of the frame is not worth a crop
+LEAN_MAX_FPS = 60.0
+LEAN_MIN_SECONDS = 3.0  # a leaned clip shorter than this is played slower (never below 1x) so it can be seen
 
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v", ".webm", ".gif")
@@ -895,6 +911,85 @@ def cmd_redact(args: argparse.Namespace, ctx: Context) -> int:
     return 0
 
 
+_PROOF_CHECK: Any = None
+
+
+def proof_check() -> Any:
+    """scripts/media/proof_clip_check.py, loaded once: its change box estimate."""
+    global _PROOF_CHECK
+    if _PROOF_CHECK is None:
+        spec = importlib.util.spec_from_file_location("proof_clip_check", PROOF_CHECK)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        _PROOF_CHECK = module
+    return _PROOF_CHECK
+
+
+def lean_crop(box: Any, margin: int) -> tuple[int, int, int, int] | None:
+    """(x, y, w, h) of the change box plus MARGIN, even and inside the frame; None when it is most of the frame."""
+    if box is None:
+        return None
+    x0, y0 = max(0, box.x - margin), max(0, box.y - margin)
+    x1, y1 = min(box.width, box.x + box.w + margin), min(box.height, box.y + box.h + margin)
+    w, h = x1 - x0, y1 - y0
+    if w * h > LEAN_MAX_CROP * box.width * box.height:
+        return None
+    w, h = max(2, w - w % 2), max(2, h - h % 2)
+    return min(x0, box.width - w), min(y0, box.height - h), w, h
+
+
+def cmd_lean(args: argparse.Namespace, ctx: Context) -> int:
+    if not 2 <= args.speed <= 4:
+        raise PolishError("--speed is 2 to 4")
+    if args.max_seconds <= 0 or args.margin < 0:
+        raise PolishError("--max-seconds must be positive and --margin not negative")
+    media = probe(args.source, ctx.run)
+    if media.kind != "video":
+        raise PolishError(f"{args.source.name} is a still; lean takes clips")
+    output_kind(args.out, "video")
+    prepare_out(args.out, [args.source], ctx)
+    try:
+        box = proof_check().change_box(args.source, ctx.run)
+    except (ValueError, OSError) as error:
+        raise PolishError(f"{args.source.name}: could not find what changes in it ({error})") from None
+    crop = lean_crop(box, args.margin)
+    fps = min(media.fps or 30.0, LEAN_MAX_FPS)
+    steps = [f"crop={crop[2]}:{crop[3]}:{crop[0]}:{crop[1]}"] if crop else ["crop=trunc(iw/2)*2:trunc(ih/2)*2"]
+    def encode(speed: float) -> float | None:
+        steps_at = steps + ["mpdecimate", f"setpts=N/({fps:g}*{speed:g})/TB", f"fps={fps:g}", "setsar=1"]
+        ctx.ffmpeg(ffmpeg(["-i", str(args.source), "-vf", ",".join(steps_at), "-t", f"{args.max_seconds:g}",
+                           *VIDEO_ENCODE, str(args.out)]))
+        if ctx.dry_run:
+            return None
+        try:
+            return proof_check().probe(args.out, ctx.run)[2]
+        except (ValueError, OSError):
+            return None
+
+    speed = args.speed
+    duration = encode(speed)
+    if duration is not None and duration < LEAN_MIN_SECONDS and duration < args.max_seconds:
+        # What is left after the idle frames went is short: play it slower, down to its own pace, not a blink.
+        slower = max(1.0, round(duration * speed / LEAN_MIN_SECONDS, 2))
+        if slower < speed:
+            speed = slower
+            duration = encode(speed)
+    dims = (crop[2], crop[3]) if crop else (media.w - media.w % 2, media.h - media.h % 2)
+    coverage = round(box.w * box.h / float(dims[0] * dims[1]), 3) if box else 0.0
+    lean = {"speed": speed, "speed_asked": args.speed, "max_seconds": args.max_seconds, "source_duration_s": media.duration,
+            "cropped": crop is not None, "change_box": {"x": box.x, "y": box.y, "w": box.w, "h": box.h} if box
+            else None, "idle_frames_dropped": True}
+    ctx.write_json(sidecar_path(args.out), sidecar(
+        args, command="lean", source=private_path(args.source), dims=dims,
+        crop_bounds={"x": crop[0], "y": crop[1], "w": crop[2], "h": crop[3]} if crop else None,
+        margin=args.margin if crop else None, labels=[args.label] if args.label else None,
+        extra={"lean": lean, "duration_s": round(duration, 2) if duration is not None else None,
+               "element_coverage": min(1.0, coverage), "coverage_method": "estimated from frame changes"}))
+    return 0
+
+
 def cmd_scan(args: argparse.Namespace, ctx: Context) -> int:
     """Prints what is known about each file and reminders. Reads no text in the pictures; refuses nothing."""
     for path in args.files:
@@ -1035,6 +1130,17 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     redact.add_argument("--color", default="000000", help="RRGGBB fill for box (default 000000)")
     redact.add_argument("--label", help="a name for this capture, recorded in labels")
 
+    lean = commands.add_parser("lean", parents=[common], help="crop to what changes, drop idle frames, speed up",
+                               description="Crop a clip to the union box of what changes (plus --margin; no crop "
+                                           "over 85%% of the frame), drop idle frames, play it --speed times "
+                                           "faster and cut it at --max-seconds. Writes OUT.mp4 and its sidecar.")
+    lean.add_argument("source", type=Path)
+    lean.add_argument("--out", type=Path, required=True)
+    lean.add_argument("--speed", type=float, default=LEAN_SPEED, help="2 to 4 (default 3)")
+    lean.add_argument("--max-seconds", type=float, default=LEAN_MAX_SECONDS, help="cap (default 15)")
+    lean.add_argument("--margin", type=int, default=LEAN_MARGIN, help="device px around the change (default 24)")
+    lean.add_argument("--label", help="a name for this clip, recorded in labels")
+
     scan = commands.add_parser("scan", help="print sidecar facts and privacy reminders; refuses nothing",
                                description="Reads no text and refuses nothing: prints each file's size and what "
                                            "its sidecar records, and reminds you to run the privacy check.")
@@ -1044,7 +1150,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 
 COMMANDS = {"crop": cmd_crop, "pair": cmd_pair, "grid": cmd_grid, "trim": cmd_trim, "redact": cmd_redact,
-            "scan": cmd_scan}
+            "scan": cmd_scan, "lean": cmd_lean}
 
 
 def main(argv: Sequence[str] | None = None, runner: Runner | None = None, out=None) -> int:
