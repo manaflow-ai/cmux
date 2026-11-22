@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Darwin
 import Foundation
 
@@ -419,44 +420,47 @@ extension CMUXCLI {
         process.standardInput = FileHandle.standardInput
         process.standardOutput = outputPipe
         process.standardError = FileHandle.standardError
+        let originalForegroundProcessGroup = tcgetpgrp(STDIN_FILENO)
         do {
             try process.run()
         } catch {
             return nil
         }
-        let output = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        // `Process` starts `script` in a process group of its own. `script`
+        // sets the terminal to raw mode, and from a background group that
+        // stops it before setup-token runs, so it gets the terminal first.
+        var didForegroundChild = false
+        if originalForegroundProcessGroup > 0 {
+            let childProcessGroup = getpgid(process.processIdentifier)
+            if childProcessGroup > 0, childProcessGroup != originalForegroundProcessGroup,
+               (try? setTerminalForegroundProcessGroup(childProcessGroup)) != nil {
+                _ = Darwin.kill(-childProcessGroup, SIGCONT)
+                didForegroundChild = true
+            }
+        }
+        defer {
+            if didForegroundChild {
+                try? setTerminalForegroundProcessGroup(originalForegroundProcessGroup)
+            }
+        }
+        // The sign-in link and the paste prompt are in this output, so it is
+        // printed as it arrives. Waiting for the exit hid both, and a sign-in
+        // that needed either one never finished.
+        var filter = ClaudeSetupTokenOutputFilter()
+        let reader = outputPipe.fileHandleForReading
+        // A closed stdout must not end this process while setup-token still
+        // holds the terminal, so the output is drained either way.
+        while true {
+            let chunk = reader.availableData
+            if chunk.isEmpty { break }
+            cliWrite(filter.consume(chunk), to: FileHandle.standardOutput, onBrokenPipe: .ignore)
+        }
+        cliWrite(filter.finish(), to: FileHandle.standardOutput, onBrokenPipe: .ignore)
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
             return nil
         }
-
-        let text = String(decoding: output, as: UTF8.self)
-        Self.printRedactedClaudeSetupOutput(text)
-        return Self.firstClaudeSetupToken(in: text)
-    }
-
-    private static let claudeSetupTokenRegex = try! NSRegularExpression(
-        pattern: #"sk-ant-oat01-[A-Za-z0-9_-]{20,1000}"#
-    )
-
-    private static func firstClaudeSetupToken(in text: String) -> String? {
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        guard let match = claudeSetupTokenRegex.firstMatch(in: text, range: range),
-              let tokenRange = Range(match.range, in: text) else {
-            return nil
-        }
-        return String(text[tokenRange])
-    }
-
-    private static func printRedactedClaudeSetupOutput(_ text: String) {
-        guard !text.isEmpty else { return }
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        let redacted = claudeSetupTokenRegex.stringByReplacingMatches(
-            in: text,
-            range: range,
-            withTemplate: "[REDACTED]"
-        )
-        print(redacted, terminator: "")
+        return filter.token
     }
 
     private func readHiddenTerminalLine(prompt: String) throws -> String {
