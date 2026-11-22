@@ -916,8 +916,14 @@ pub fn load_row(row: &Value, registry: Option<&Value>, now_ms: u64) -> Value {
             .and_then(|hosts| registry_lanes(&hosts, name))
             .filter(Value::is_object)
             .map_or_else(Lanes::default, |l| Lanes::from_registry(&l));
-        let c =
-            Candidate { name: name.to_owned(), local: false, health: h.clone(), health_at: None };
+        let via_hub = row.get("via").and_then(Value::as_str) == Some("hub");
+        let c = Candidate {
+            name: name.to_owned(),
+            local: false,
+            health: h.clone(),
+            health_at: None,
+            via_hub,
+        };
         let w = weigh(&c, Some(lanes));
         out["room"] = json!(w.room);
         match (&w.refused, w.room) {
