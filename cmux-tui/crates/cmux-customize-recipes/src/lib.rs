@@ -103,10 +103,10 @@ const CLAUDE_CODE_APP: &[(&str, &str)] = &[
 ];
 
 /// A tonal theme: its light and dark theme files and its chat stylesheet, beside the recipe.
-const PAPER: &[(&str, &str)] = &[
-    ("themes/paper.json", include_str!("../recipes/apps/paper/theme.json")),
-    ("themes/paper-dark.json", include_str!("../recipes/apps/paper/theme-dark.json")),
-    ("agent-pane/theme.css", include_str!("../recipes/apps/paper/agent-pane.css")),
+const TONAL: &[(&str, &str)] = &[
+    ("themes/tonal.json", include_str!("../recipes/apps/tonal/theme.json")),
+    ("themes/tonal-dark.json", include_str!("../recipes/apps/tonal/theme-dark.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/tonal/agent-pane.css")),
 ];
 
 /// Every recipe, in the order a guide lists them.
@@ -192,12 +192,12 @@ pub const RECIPES: &[Recipe] = &[
         includes: &[],
     },
     Recipe {
-        name: "paper",
-        title: "Paper: a tonal theme",
+        name: "tonal",
+        title: "Tonal: one seed, every color",
         group: Group::Look,
         ask: "make cmux one calm tonal theme from a single seed color, opaque, no glass",
-        profile: include_str!("../recipes/paper.json"),
-        includes: PAPER,
+        profile: include_str!("../recipes/tonal.json"),
+        includes: TONAL,
     },
     Recipe {
         name: "codex-app",

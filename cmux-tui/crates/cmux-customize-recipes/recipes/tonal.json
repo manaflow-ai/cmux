@@ -1,9 +1,9 @@
 {
   "cmuxProfile": 1,
-  "name": "paper",
-  "description": "Paper: every color from one sage-teal seed in tonal steps, opaque surfaces with no glass, the work in one rounded card, a filled primary Send. Light, with Paper Dark beside it.",
+  "name": "tonal",
+  "description": "Tonal: every color from one sage-teal seed in tonal steps, opaque surfaces with no glass, the work in one rounded card, a filled primary Send. Light, with Tonal Dark beside it.",
   "settings": {
-    "appearance.themeFile": "paper",
+    "appearance.themeFile": "tonal",
     "sidebar.density": "comfortable",
     "sidebar.showTimestamps": false,
     "agentPane.display.width": 760,

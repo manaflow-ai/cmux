@@ -1,4 +1,4 @@
-/* Paper's chat: flat, opaque, tonal. Depth comes from how strongly a surface is tinted by the
+/* Tonal's chat: flat, opaque, tonal. Depth comes from how strongly a surface is tinted by the
    theme's one accent (its seed), never from a shadow or a frost: the page is the lowest surface,
    cards sit one tone up, the composer and its hat one more, menus the highest. Corners follow one
    scale: 12 px for small controls and inline pieces, 16 px for cards and the prompt bubble, 28 px
@@ -6,7 +6,7 @@
    ink laid over its container at 8% and 12%, the same two steps everywhere. Lines are a quiet
    1 px outline in the ink at 12%, drawn only where tone alone can't tell two surfaces apart.
    Every color is mixed from the theme's own (--agent-accent, --agent-text, --agent-page-bg), so
-   this one file reads over Paper and Paper Dark, and over any theme of your own.
+   this one file reads over Tonal and Tonal Dark, and over any theme of your own.
    Paint only, on :root: nothing in the transcript moves when this applies or reloads.
    The tones, as used below: the seed over the page at 4% (low), 10% (high) and 14% (highest)
    for containers; at 18% for the secondary container (your prompt); the ink at 12% for
@@ -86,7 +86,7 @@
   --menu-submenu-align-offset: -4px;
 
   /* ---------- The toast ----------
-     The app's toast is drawn by the app, not this page, so no stylesheet reaches it: Paper's calm
+     The app's toast is drawn by the app, not this page, so no stylesheet reaches it: Tonal's calm
      toast (a 12 px tonal card on the inverse surface, not a pill, not glass) comes with the
      notifications.toast.style key's flat style, pending. */
 }
