@@ -3006,6 +3006,10 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
         if on_persistent:
             run = read(lambda: api.run(target.run_id), sleep, log) if run_finished(jobs) else {}
             finished = run.get("status") == "completed"
+            # Every job of this attempt is finished and a newer attempt runs: waiting for "the rest of the run" waits
+            # for that attempt, and nothing of this one can change. 24 such waits held a runner 20-60 min each in
+            # 2026-11-21 23-01Z, then said what the first look knew ("someone else already re-ran the run").
+            superseded = int(run.get("run_attempt") or 0) > target.attempt
             # A job no runner acquired looks like one a cancelled run left queued (unacquired()).
             stranded = finished and run.get("conclusion") not in (None, "cancelled")
             if finished and run.get("conclusion") == "cancelled" and int(run.get("run_attempt") or 0) == target.attempt:
@@ -3066,14 +3070,15 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 why = open_head_failover(api, target, now=now, sleep=sleep, log=log, first_seen=first_seen).why
                 if why:
                     return "failover", why
-            if look.action == "refused" and not finished and seen_at < deadline and target.pr_number \
-                    and not target.main and refusal_rerun_now(jobs, target):
+            if look.action == "refused" and not finished and not superseded and seen_at < deadline \
+                    and target.pr_number and not target.main and refusal_rerun_now(jobs, target):
                 # Every other unfinished job only waits for a runner: a cancel kills no work, so the refused job is
                 # re-run now (cancel, then its failed and cancelled jobs) instead of after the run ends. Run
                 # 43716323834 (#43733, 2026-11-15): 'cmux-next generated files' was refused at 14:32Z while the
                 # fast tier waited for a runner until 15:33Z; it was re-run at 15:47Z, once the run had ended.
                 log(f"look {looks}: {look.reason}; no other job of the run is running, so it is re-run now")
-            elif look.action == "refused" and not finished and seen_at < deadline and not target.main:
+            elif look.action == "refused" and not finished and not superseded and seen_at < deadline \
+                    and not target.main:
                 # GitHub re-runs no job of a run still in progress (403 "already
                 # running", for one job or the failed ones), and cancelling
                 # the run to re-run it killed every healthy sibling (run
