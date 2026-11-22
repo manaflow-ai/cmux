@@ -34,7 +34,7 @@ jobs:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository
       && !github.event.pull_request.draft
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       contents: write
@@ -45,8 +45,9 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.base.sha }}
-          # One commit each: the job reads base files, diffs two trees and commits on the PR head, none of
-          # which needs history. The full clone outgrew timeout-minutes (cancelled in this step, 2026-11-16).
+          # One commit each: the job reads base files, diffs two trees and commits on the PR head. The merge
+          # base it diffs from is found in a separate commits-only history (below). The full clone outgrew
+          # timeout-minutes (cancelled in this step, 2026-11-16).
           fetch-depth: 1
           persist-credentials: false
 
@@ -115,7 +116,27 @@ jobs:
             git show "$BASE_SHA:$path" > "$path"
           done
 
-          git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" \
+          # Lint what the PR changed: diff from the merge base, not the base tip. A two-dot diff from a base
+          # that moved on also lists every file the base changed since the PR branched (cmux#50301, 293
+          # commits behind: 251 Swift files charged, 22 its own). Both sides are deepened in a commits-only
+          # scratch history (no trees or blobs; the full history took 137 s) until they meet, then that one
+          # commit is fetched here.
+          history="$RUNNER_TEMP/namespace-history"
+          rm -rf "$history"
+          git init -q --bare "$history"
+          upstream="https://github.com/$GITHUB_REPOSITORY.git"
+          git -C "$history" fetch -q --no-tags --filter=tree:0 --depth=1 "$upstream" "$BASE_SHA" "$HEAD_SHA"
+          for _ in $(seq 1 25); do
+            git -C "$history" merge-base "$BASE_SHA" "$HEAD_SHA" >/dev/null 2>&1 && break
+            git -C "$history" fetch -q --no-tags --filter=tree:0 --deepen=200 "$upstream" "$BASE_SHA" "$HEAD_SHA" || break
+          done
+          merge_base="$(git -C "$history" merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null)" || {
+            echo "::error::No merge base of PR head $HEAD_SHA and base $BASE_SHA (a fetch failed, or they are more than 5,000 commits apart: merge the base into the PR)."
+            exit 1
+          }
+          echo "Diff base: merge base $merge_base (base tip $BASE_SHA)"
+          git fetch --no-tags --depth=1 origin "$merge_base"
+          git diff --name-only --diff-filter=ACMR "$merge_base" "$HEAD_SHA" \
             | awk '/^(Packages|ios\/cmux)\/.*\.swift$/ { print }' \
             | sort -u > "$RUNNER_TEMP/namespace-files.txt"
           if [ ! -s "$RUNNER_TEMP/namespace-files.txt" ]; then
