@@ -4200,16 +4200,21 @@ class UnreadPartFirstTests(unittest.TestCase):
     def test_a_tip_that_predates_an_unread_part_gives_its_mac_parts_up(self):
         state = self.mid_tip()
         self.assertEqual(cron.unread_parts(state), ["chat-size"])
-        d = cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(sorted(state["current"]["parts_todo"][:2]), ["power", "wake"],
+                         "a measurement under SUPERSEDE_AFTER_HOURS old keeps its Mac parts")
+        state["current"]["yield_hours"] = cron.SUPERSEDE_AFTER_HOURS  # the day went to nightlies, as on 2026-11-22
+        state["current"].pop("host_asked_since", None)  # and its host still takes parts
+        d = cron.decide(state, at(cron.SUPERSEDE_AFTER_HOURS + 1), None, None, self.supported, None, newest=self.NEW)
         cur = state["current"]
         self.assertEqual((d["part"], d["linux_part"]), ("", "coord-sim"), "the Linux parts still run")
         self.assertEqual({cur["parts"][n]["state"] for n in ("wake", "power")}, {"superseded"})
-        cron.record_part(cur, "coord-sim", {"state": "done", "worker": cron.LEGACY_LINUX_CLASS}, "u", at(1))
-        d = cron.decide(state, at(1.5), None, None, self.supported, None, newest=self.NEW)
+        cron.record_part(cur, "coord-sim", {"state": "done", "worker": cron.LEGACY_LINUX_CLASS}, "u", at(26))
+        d = cron.decide(state, at(26.5), None, None, self.supported, None, newest=self.NEW)
         self.assertEqual(d["action"], "finish")
         state["current"] = None
-        cron.decide(state, at(2), self.NEW, None, self.supported, None)
-        order = cron.part_order(state, state["current"]["parts_todo"], at(2))
+        cron.decide(state, at(27), self.NEW, None, self.supported, None)
+        order = cron.part_order(state, state["current"]["parts_todo"], at(27))
         self.assertEqual(order[:2], ["build", "chat-size"], "the unread part goes right after the build")
 
     def test_an_unread_part_goes_ahead_of_a_stale_one(self):
