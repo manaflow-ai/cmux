@@ -31,11 +31,14 @@ permissions:
   contents: read
 
 concurrency:
-  # Pull requests merge with the branch tip, so only its key is restored: a
-  # newer push cancels an older build, and the cache holds one live entry
-  # instead of one per push (about 45 a day touch cmux-tui).
+  # Pull requests merge with the branch tip, so only its key is restored. A
+  # build takes 11-25 min and feat-cmux-next takes a cmux-tui push about every
+  # 5 min, so cancelling in progress left no run finishing (91 of 100 runs
+  # cancelled, 2026-11-22). Instead the running build finishes and only the
+  # newest push waits behind it (GitHub drops older pending runs): about one
+  # saved key per build, not one per push.
   group: cmux-tui-headless-debug-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
