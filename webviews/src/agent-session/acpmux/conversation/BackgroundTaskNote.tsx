@@ -152,7 +152,7 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
             </>
           )}
           {named ? (
-            <span className="cv-bgtask__title" title={task.command}>
+            <span className="cv-bgtask__title" aria-description={task.command}>
               {named}
             </span>
           ) : (
