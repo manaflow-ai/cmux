@@ -2248,8 +2248,19 @@ function TranscriptView({
   followRef.current = follow;
   const transcriptMounted = useRef(true);
   const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
-  /// The scroll state and follow state the last commit drew (set after each commit, below).
-  const renderedScroll = useRef<{ scroll: { top: number; delta: number }; following: boolean } | undefined>(undefined);
+  /// The last commit drew the followed view at its layout's end (`projectedTop`), which reads no offset.
+  const drewFollowedEnd = useRef(false);
+  /// A frame that stays at the latest row, where the last commit already drew the followed view: that
+  /// commit placed the rows at the layout's end, not at the offset, so a render for the offset draws the
+  /// same rows. Each streamed chunk's follow write brings a scroll event, and its forced render of the
+  /// whole transcript ran ahead of the key the reader typed (Leo, 2026-11-22: "the interactive/visible
+  /// parts of cmux are not prioritized enough"). The offset is kept for the next render that reads it.
+  const followedFrameDrawn = (node: HTMLDivElement, atLatest: boolean) =>
+    atLatest &&
+    followingRef.current &&
+    drewFollowedEnd.current &&
+    jumpTarget.current === undefined &&
+    !userScrollIntent(node).isHeld();
   const pacedScroll = (frame: ScrollFrame) => {
     if (!transcriptMounted.current) return;
     // A wheel/default write or a rail jump may move the live scroller after an event queued this
@@ -2270,6 +2281,7 @@ function TranscriptView({
         top,
         delta: top - scrollRef.current.top || scrollRef.current.delta,
       };
+      if (followedFrameDrawn(node, atLatest)) return;
       // Route recovery through the authoritative setter so the parent callback and synchronous
       // intent ref agree; a stale queued `atLatest` must not retake a parked reader.
       flushSync(() => {
@@ -2278,13 +2290,9 @@ function TranscriptView({
       });
       return;
     }
-    // The offset and follow state the transcript last rendered are this frame's already (the follow pass
-    // set them as it wrote the offset, and this is that write's own scroll event): a forced render of
-    // the whole transcript would draw the same rows. Under load that render ran for every streamed
-    // chunk, ahead of the key the reader typed (Leo, 2026-11-22: "the interactive/visible parts of
-    // cmux are not prioritized enough").
-    const shown = renderedScroll.current;
-    if (shown && shown.scroll === scrollRef.current && shown.following === followingRef.current) return;
+    if (ref.current && followedFrameDrawn(ref.current, frame.atLatest)) return;
+    // Counted for the test that a followed stream forces none (agent-pane-follow-stream-no-flush.test.ts).
+    acpmuxPerf.render("transcript:scroll-flush");
     acpmuxPerf.timed("flush.scroll", () => {
       flushSync(() => {
         setScroll(scrollRef.current);
@@ -2313,9 +2321,10 @@ function TranscriptView({
     // event comes): an event that brings no new offset keeps the direction the scroll has. Its delta
     // of 0 left the next render no lead, and a fling painted blank frames (transcript-fling on the
     // CI runner, mounted rows a step behind the view).
-    const delta = top - scrollRef.current.top || scrollRef.current.delta;
-    // The same offset keeps the same state, so the pacer can tell it is drawn already.
-    if (top !== scrollRef.current.top || delta !== scrollRef.current.delta) scrollRef.current = { top, delta };
+    scrollRef.current = {
+      top,
+      delta: top - scrollRef.current.top || scrollRef.current.delta,
+    };
     scheduleScrollLeadReset();
     if (immediate) scrollPacer.current!.flush({ top, atLatest });
     else scrollPacer.current!.enqueue({ top, atLatest });
@@ -4839,9 +4848,6 @@ function TranscriptView({
   // The old scroll state remains in React until the transition layout effect runs. Render the
   // new session from the top once so its first paint cannot reuse the previous chat's mounted rows.
   const unplacedScroll = sessionSwitched ? { top: 0, delta: 0 } : scrollRef.current;
-  useLayoutEffect(() => {
-    renderedScroll.current = { scroll: unplacedScroll, following };
-  });
   const origin = !sessionSwitched && ref.current ? scrollOrigin(ref.current) : 0;
   // Select the rows at this commit's anchored position before React reconciles them. Correcting
   // scrollTop only in the placement effect unmounted visible rows and flashed new copies on prepend.
@@ -4878,6 +4884,10 @@ function TranscriptView({
             })
           : undefined;
   const renderScroll = projectedTop === undefined ? unplacedScroll : { ...unplacedScroll, top: projectedTop + origin };
+  const followedEnd = projectedTop !== undefined && followingRef.current && following;
+  useLayoutEffect(() => {
+    drewFollowedEnd.current = followedEnd;
+  });
   const renderFollowing = sessionSwitched || followingRef.current;
   // The content in view starts at the offset less `lift`: rows drawn up by it show content that much
   // further down.
