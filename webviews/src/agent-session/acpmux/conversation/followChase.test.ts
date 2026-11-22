@@ -669,7 +669,11 @@ test("carry in the `instant` arm: what the reader froze lands in the first frame
 
 /// The `steady` arm's math, frame by frame at 60 Hz: a stream of 16 characters every 50 ms is about a
 /// 22.75 px line every ~250 ms, here 4 px a chunk every third frame (what `shift` draws back).
-function drift(chunks: (frame: number) => number, frames: number, opts: { trail?: number; cap?: number; landing?: (frame: number) => boolean } = {}) {
+function drift(
+  chunks: (frame: number) => number,
+  frames: number,
+  opts: { trail?: number; cap?: number; landing?: (frame: number) => boolean } = {},
+) {
   const dt = 1 / 60;
   let state: SteadyState = { x: 0, speed: 0, rate: 0 };
   const out: { x: number; move: number; speed: number }[] = [];

@@ -2050,6 +2050,12 @@ function TranscriptView({
   /// transcript only appends (Leo, 2026-11-09: "these animations all slosh around and it's not
   /// cohesive / i previously sent the claude code one, just look at how they do it").
   const slimFollow = followArm === "send";
+  /// The `steady` arm (the product's since Leo, 2026-11-22: "it's just not great design to have the
+  /// jolts. esp in tandem with how aggressively we're folding claude code chats. it's not smooth"):
+  /// a send is the slim arm's (the sent prompt in place at once, its bubble fading in, reader input
+  /// handing what glides to the scroll offset), but the reply streaming, a tool row arriving and a
+  /// fold drift on the chase at the stream's own pace (followChase.ts `steadyStep`).
+  const slimSend = slimFollow || followArm === "steady";
   const followChase = useRef<FollowChase>(undefined);
   followChase.current ??= createFollowChase(slimFollow ? "blocks" : followArm);
   /// Freezes the composer growth's rise of the rows where it is painted (the dock's effect sets it).
@@ -5283,7 +5289,9 @@ function TranscriptView({
             // The slim arm moves every pass's rows at once, the send's own among them: the sent prompt is
             // in place in the frame after Return, and nothing settles after it (Leo, 2026-11-09: "the
             // scroll up is extremely sluggish").
-            const atOnce = dockMoved || !live || stepped || slimFollow;
+            // The steady arm moves a send's own rows at once too, as the slim arm does.
+            const atOnce =
+              dockMoved || !live || stepped || slimFollow || (followArm === "steady" && (sentRows || promptCame));
             // A row that came above the live line (not the reply's own growth) holds back up to the
             // trail bound, while the live line glides under it (followChase CHASE_ARRIVAL_HOLD_LINES).
             // The arrived row's room often lands a pass later (its measured height), so the passes
@@ -6627,8 +6635,8 @@ function TranscriptView({
       // (summary/heldWhileScrolling.ts).
       noteReaderScroll();
       followTrace.input();
-      if (slimFollow) {
-        // The slim arm (the product's): what still glides holds where it is drawn, so nothing jumps
+      if (slimSend) {
+        // The slim arm (and the steady one): what still glides holds where it is drawn, so nothing jumps
         // under the reader's input (the composer growth's rise freezes into the chase there,
         // followChase.carry), and once the input goes quiet the whole offset goes to the scroll
         // position (`settleHeldFollowMotion`), followed or not, so nothing settles on after it either
@@ -6702,7 +6710,7 @@ function TranscriptView({
     const settleHeldFollowMotion = () => {
       // The slim arm hands a held chase to the scroll offset in a followed view too: played on from
       // where it was held, it was the "little readjustment" after the reader's own scroll.
-      if ((followingRef.current && !slimFollow) || jumpTarget.current !== undefined) return;
+      if ((followingRef.current && !slimSend) || jumpTarget.current !== undefined) return;
       tailGlide.current?.dropUnseen(() => node.getBoundingClientRect());
       const chase = followChase.current;
       // Whole pixels only: the offset moves by an exact number of its own ticks, so the browser never
@@ -6983,7 +6991,7 @@ function TranscriptView({
       gutterRelease.current = undefined;
       gutter?.remove();
     };
-  }, [dropFoldRoom, landForReader, startBottomStack, stopBottomStackFold, slimFollow, stopFollowMotion, stopJump]);
+  }, [dropFoldRoom, landForReader, startBottomStack, stopBottomStackFold, slimSend, stopFollowMotion, stopJump]);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
   // to its footer. Marked on the mounted rows, so a hover renders nothing.
   // The chat's one Retry (turns.ts retryTargetIn, retryPlacement): the reply footer of the person's
@@ -7329,7 +7337,7 @@ function TranscriptView({
             // 120 ms (conversation.css SEND-SLIM), never opening from the right on a clip the main thread
             // paints (Leo, 2026-11-09: "the scroll up is extremely sluggish ... if I send in a prompt like
             // this and it just lags, it's not a good look").
-            data-send-entrance={slimFollow ? "fade" : undefined}
+            data-send-entrance={slimSend ? "fade" : undefined}
             // A read-only transcript's right-clicks are reported to no host (conversation/messageMenu.ts).
             data-read-only-transcript={readOnly ? "" : undefined}
             // Its place comes back after a web update's reload (reportAnchor, pages/shared/webSwap.ts).

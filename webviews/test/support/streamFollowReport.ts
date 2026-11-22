@@ -36,7 +36,12 @@ export function moves(deltas: number[], seconds: number, threshold = JOLT_PX): M
     joltsPerS: r2(seconds > 0 ? deltas.filter((delta) => Math.abs(delta) > threshold).length / seconds : 0),
     maxPx: r2(Math.max(0, ...deltas.map(Math.abs))),
     p95Px: r2(pct(moving, 0.95)),
-    jerkP95Px: r2(pct(jerks.filter((jerk) => jerk > 0.25), 0.95)),
+    jerkP95Px: r2(
+      pct(
+        jerks.filter((jerk) => jerk > 0.25),
+        0.95,
+      ),
+    ),
   };
 }
 

@@ -34,7 +34,8 @@ describe.skipIf(!ON)("stream follow while tool calls fold (CMUX_STREAM_FOLLOW=1)
     try {
       await (await open120Hz("about:blank")).close();
     } catch (error) {
-      if (error instanceof FramesUnsupported) throw new Error("needs chrome-headless-shell (CMUX_CHROME_HEADLESS_SHELL)");
+      if (error instanceof FramesUnsupported)
+        throw new Error("needs chrome-headless-shell (CMUX_CHROME_HEADLESS_SHELL)");
       throw error;
     }
     const { createServer } = await import("vite");
@@ -70,14 +71,13 @@ describe.skipIf(!ON)("stream follow while tool calls fold (CMUX_STREAM_FOLLOW=1)
       await driver.page.waitForFunction(() => "__sendStream" in window);
       await driver.page.getByText("History answer 6.").waitFor();
       driver.start();
-      const samples = (await driver.page.evaluate(
-        () =>
-          (window as unknown as { __sendStream: { run(options: object): Promise<unknown> } }).__sendStream.run({
-            scenario: "fold-stream",
-            chars: 16,
-            everyMs: 50,
-            settleMs: 900,
-          }),
+      const samples = (await driver.page.evaluate(() =>
+        (window as unknown as { __sendStream: { run(options: object): Promise<unknown> } }).__sendStream.run({
+          scenario: "fold-stream",
+          chars: 16,
+          everyMs: 50,
+          settleMs: 900,
+        }),
       )) as Sample[];
       await driver.stop();
       if (clipDir) writeClip(clipDir, frames);
