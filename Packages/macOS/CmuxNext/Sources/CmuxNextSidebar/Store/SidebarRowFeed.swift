@@ -181,6 +181,12 @@ public final class SidebarRowFeed {
     private var inputsChanged = false
     /// Rows mapped again since the last structural pass (the next `fill` maps only new rows).
     private var named: [WorkspaceID] = []
+    /// Rows the list draws as rows of their own. Nil keeps the existing all-row observation behavior.
+    private var drawn: Set<WorkspaceID>?
+    /// Rows near the list's viewport. Only drawn rows outside this set are disarmed.
+    private var near: Set<WorkspaceID> = []
+    /// The Labs switch for the near-viewport policy. False restores the historical all-row policy.
+    private let nearViewportEnabled: @MainActor () -> Bool
     /// Changed rows, at most once per flush.
     public var onChange: (([SidebarWorkspace]) -> Void)?
     /// Runs one flush later. The app hands the display frame (`FrameBatcher`): the row patches of
@@ -200,10 +206,11 @@ public final class SidebarRowFeed {
 
     /// `schedule` defaults to the next main-actor turn. `keeps` defaults to no workspace: a row no pass names is
     /// forgotten at once.
-    public init(schedule: Schedule? = nil, keeps: @escaping @MainActor (WorkspaceID) -> Bool = { _ in false }) {
+    public init(schedule: Schedule? = nil, keeps: @escaping @MainActor (WorkspaceID) -> Bool = { _ in false }, nearViewportEnabled: @escaping @MainActor () -> Bool = { true }) {
         // task-owner: the feed; one flush per main-actor turn after the store's batch applies
         self.schedule = schedule ?? { work in Task { @MainActor in work() } }
         self.keeps = keeps
+        self.nearViewportEnabled = nearViewportEnabled
     }
 
     /// Starts a structural pass (call first in the pass's tracked closure).
@@ -233,11 +240,73 @@ public final class SidebarRowFeed {
         for entry in entries.values { disarm(entry) }
         entries.removeAll()
         dirty.removeAll()
+        (drawn, near) = (nil, [])
         for listing in listings.values { disarm(listing) }
         listings.removeAll()
         unarmedListings.removeAll()
         staleListings.removeAll()
         forgetParked()
+    }
+
+    /// Updates the rows this list draws and the rows near its viewport. This is opt-in: callers that never
+    /// call `watch` retain the historical behavior where every mapped row remains observed.
+    public func watch(drawn rows: Set<WorkspaceID>?, near nearRows: Set<WorkspaceID>) {
+        guard nearViewportEnabled() else {
+            if drawn != nil {
+                let ids = entries.keys
+                drawn = nil
+                near.removeAll(keepingCapacity: true)
+                for id in ids { follow(id) }
+            }
+            return
+        }
+        guard rows != drawn else { return watch(near: nearRows) }
+        let old = drawn
+        drawn = rows
+        let moved = near.symmetricDifference(nearRows)
+        near = nearRows
+        guard let old, let rows else {
+            // Starting or stopping the viewport experiment changes every row's policy once.
+            for id in entries.keys { follow(id) }
+            return
+        }
+        for id in old.symmetricDifference(rows).union(moved) { follow(id) }
+    }
+
+    /// Updates the rows near the viewport after a scroll. Only rows whose near state changed are visited.
+    public func watch(near nearRows: Set<WorkspaceID>) {
+        guard nearViewportEnabled() else {
+            if drawn != nil { watch(drawn: nil, near: []) }
+            return
+        }
+        let moved = near.symmetricDifference(nearRows)
+        near = nearRows
+        guard drawn != nil else { return }
+        for id in moved { follow(id) }
+    }
+
+    private func observes(_ id: WorkspaceID) -> Bool {
+        guard let drawn else { return true }
+        return near.contains(id) || !drawn.contains(id)
+    }
+
+    /// Disarms rows outside the viewport, or maps a row once as it comes into the viewport.
+    private func follow(_ id: WorkspaceID) {
+        guard let entry = entries[id] else { return }
+        guard observes(id) else {
+            dirty.remove(id)
+            disarm(entry)
+            return
+        }
+        guard !entry.armed else { return }
+        dirty.remove(id)
+        let mapped = map([id])
+        var changed: [SidebarWorkspace] = []
+        for (mappedEntry, row) in mapped where row != mappedEntry.row {
+            mappedEntry.row = row
+            changed.append(row)
+        }
+        if !changed.isEmpty { onChange?(changed) }
     }
 
     private func forgetParked() {
@@ -329,7 +398,20 @@ public final class SidebarRowFeed {
         // A row whose content changed since its last map (dirty) keeps that row here: the scheduled flush maps it
         // and sends it as a patch. Mapped here, a tick's status would ride this pass as a structural set (hitch17:
         // a sidebar reload and an anchored offset shift every 1-2 s under 50 ticking terminals).
-        let due = named.filter { id in entries[id].map { remap || (!$0.armed && !dirty.contains(id)) } ?? false }
+        var offscreenNew: [WorkspaceID] = []
+        for id in named {
+            guard let entry = entries[id], !observes(id) else { continue }
+            disarm(entry)
+            if entry.revision == 0 { offscreenNew.append(id) }
+        }
+        for id in offscreenNew {
+            guard let entry = entries[id] else { continue }
+            if let row = entry.make() { entry.row = row }
+        }
+        let due = named.filter { id in
+            guard observes(id), let entry = entries[id] else { return false }
+            return remap || (!entry.armed && !dirty.contains(id))
+        }
         for (entry, row) in map(due) { entry.row = row }
         for id in named {
             guard let entry = entries[id] else { continue }
@@ -514,7 +596,9 @@ public final class SidebarRowFeed {
         dirty.removeAll(keepingCapacity: true)
         var changed: [SidebarWorkspace] = []
         SidebarPerfCounters.timed {
-            let mapped = map(ids.filter { id in entries[id].map { !$0.armed } ?? false })
+            let mapped = map(ids.filter { id in
+                observes(id) && (entries[id].map { !$0.armed } ?? false)
+            })
             SidebarPerfCounters.add(.rowFlushes)
             for (entry, row) in mapped where row != entry.row {
                 entry.row = row

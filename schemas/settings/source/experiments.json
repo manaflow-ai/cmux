@@ -161,6 +161,31 @@
             "tool",
             "card"
           ]
+        },
+        {
+          "key": "experiments.sidebarRowsNearViewport",
+          "note": "Performance experiment: keep sidebar workspace-row observations armed only for rows near the viewport; off-screen rows keep their last mapped value and remap when shown. Off by default; off keeps today's all-row observation behavior.",
+          "title": {
+            "key": "settings.experiments.sidebarRowsNearViewport",
+            "text": "Sidebar Rows Near Viewport"
+          },
+          "help": {
+            "key": "settings.experiments.sidebarRowsNearViewport.help",
+            "text": "Observe and remap sidebar workspace rows near the viewport; off-screen rows update when shown."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "performance",
+            "sidebar",
+            "rows",
+            "viewport",
+            "visible",
+            "offscreen",
+            "scroll"
+          ]
         }
       ]
     }

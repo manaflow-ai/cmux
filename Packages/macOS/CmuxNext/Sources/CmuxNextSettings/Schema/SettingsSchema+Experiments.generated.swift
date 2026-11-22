@@ -20,6 +20,9 @@ extension CmuxConfigSnapshot {
     /// `experiments.chatWidgets`: Agent chat draws an installed extension's chat widget (cmux.chat.widget/1, the daemon's apps.chat_widgets.route) as a card under a finished tool call (webviews ToolWidget.tsx, useExperimentSwitch("chatWidgets")). Off by default; off makes no route call and draws no card, so the chat is unchanged.
     public nonisolated static let chatWidgetsPath = ["experiments", "chatWidgets"]
     public nonisolated static let chatWidgetsDefault = false
+    /// `experiments.sidebarRowsNearViewport`: Performance experiment: keep sidebar workspace-row observations armed only for rows near the viewport; off-screen rows keep their last mapped value and remap when shown. Off by default; off keeps today's all-row observation behavior.
+    public nonisolated static let sidebarRowsNearViewportPath = ["experiments", "sidebarRowsNearViewport"]
+    public nonisolated static let sidebarRowsNearViewportDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -87,6 +90,16 @@ nonisolated enum ExperimentsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.chatWidgetsDefault),
                 keywords: ["experiments", "experimental", "prototype", "extension", "extensions", "chat", "widget", "tool", "card"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.sidebarRowsNearViewportPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.sidebarRowsNearViewport", "Sidebar Rows Near Viewport"),
+                help: SettingsText.keyed("settings.experiments.sidebarRowsNearViewport.help", "Observe and remap sidebar workspace rows near the viewport; off-screen rows update when shown."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.sidebarRowsNearViewportDefault),
+                keywords: ["experiments", "experimental", "performance", "sidebar", "rows", "viewport", "visible", "offscreen", "scroll"]
             ),
         ]
     }

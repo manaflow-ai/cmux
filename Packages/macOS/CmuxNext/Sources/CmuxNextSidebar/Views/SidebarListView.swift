@@ -31,6 +31,8 @@ final class SidebarListView: NSView {
     var onApply: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
+    /// Optional row observation feed. Nil keeps the historical all-row behavior.
+    weak var rowFeed: SidebarRowFeed?
     var groups: [GroupID: SidebarGroup] = [:]
     /// What placed groups draw in under the gradient palette (`SidebarGroup.drawnTints`), set with `groups`; empty
     /// under every other palette. A header and its line draw this instead of the group's own tint.

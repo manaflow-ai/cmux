@@ -147,7 +147,7 @@ extension SettingsSchema {
         "labs.previewFeatures",
         // Experiments are taste prototypes of how a surface looks (looks only), each off by default.
         "experiments.glassToolbarGroups", "experiments.composerV2", "experiments.agentBadges",
-        "experiments.agentBadgesBeam", "experiments.toastsV2",
+        "experiments.agentBadgesBeam", "experiments.toastsV2", "experiments.sidebarRowsNearViewport",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
         // The floating Chief pet and its character: a display the person can hide again; its reply box types only what the person writes.
