@@ -376,6 +376,7 @@ impl Hub {
         // If the old driver stopped heartbeating before it read the bundle to its end, abort
         // that fenced move first. The target cannot have finished such a bundle, so retrying
         // cannot create a second chat or lose the original.
+        let lease = *self.transfer_lease.lock().unwrap_or_else(|e| e.into_inner());
         let watch = loop {
             let other = session.moving();
             let Some(other) = other else {
@@ -389,11 +390,7 @@ impl Hub {
             let old_dir = transfers_dir().join(&other);
             let idle = super::transfer_watch::idle_for(&old_dir);
             let fully_read = super::transfer_watch::fully_read(&old_dir);
-            if super::transfer_watch::takeover_allowed(
-                idle,
-                fully_read,
-                super::transfer_watch::TRANSFER_LEASE,
-            ) {
+            if super::transfer_watch::takeover_allowed(idle, fully_read, lease) {
                 let epoch =
                     transfer_epoch_marker(&old_dir)?.or_else(|| Some(session.ownership_epoch()));
                 if self
@@ -408,7 +405,7 @@ impl Hub {
                 "moving",
                 format!(
                     "this chat is already being moved by transfer {other} (last heartbeat {age}); retry after the {}-second lease to take it over",
-                    super::transfer_watch::TRANSFER_LEASE.as_secs()
+                    lease.as_secs()
                 ),
             );
             return Err(e.with_data(json!({"transferId": other, "idle": idle.map(|d| d.as_secs()), "takeover": "retry after the lease"})));
