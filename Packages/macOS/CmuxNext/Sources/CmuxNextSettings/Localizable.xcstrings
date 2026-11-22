@@ -198972,6 +198972,268 @@
         }
       }
     },
+    "settings.labs.hostsSidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الشريط الجانبي للمضيفات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bočna traka hostova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sidepanel med værter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hosts in der Seitenleiste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hosts Sidebar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hosts en la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hôtes dans la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host nella barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドバーのホスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនមេក្នុងរបារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바 호스트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verter i sidepanelet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hosty na pasku bocznym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hosts na barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хосты в боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฮสต์ในแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenar Çubuğunda Ana Bilgisayarlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хости на бічній панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy chủ trong thanh bên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "侧边栏主机"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "側邊欄主機"
+          }
+        }
+      }
+    },
+    "settings.labs.hostsSidebar.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض أجهزتك في الشريط الجانبي مع «إضافة مضيف». انقر على جهاز لفتح مساحة عمل عليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikazuje vaše računare u bočnoj traci, uz Dodaj host. Kliknite računar da otvorite radni prostor na njemu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser dine maskiner i sidepanelet med Tilføj vært. Klik på en maskine for at åbne et arbejdsområde på den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeigt deine Rechner in der Seitenleiste, mit „Host hinzufügen“. Klicke auf einen Rechner, um dort einen Workspace zu öffnen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows your machines in the sidebar, with Add Host. Click a machine to open a workspace on it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muestra tus equipos en la barra lateral, con Añadir host. Haz clic en un equipo para abrir un espacio de trabajo en él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affiche vos machines dans la barre latérale, avec Ajouter un hôte. Cliquez sur une machine pour y ouvrir un espace de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra le tue macchine nella barra laterale, con Aggiungi host. Fai clic su una macchina per aprirvi uno spazio di lavoro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドバーにマシンと「ホストを追加」を表示します。マシンをクリックするとそのマシンでワークスペースを開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញម៉ាស៊ីនរបស់អ្នកក្នុងរបារចំហៀង ជាមួយ «បន្ថែមម៉ាស៊ីនមេ»។ ចុចម៉ាស៊ីនមួយដើម្បីបើកកន្លែងធ្វើការលើវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바에 내 머신과 호스트 추가를 표시합니다. 머신을 클릭하면 해당 머신에서 작업 공간을 엽니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser maskinene dine i sidepanelet, med Legg til vert. Klikk på en maskin for å åpne et arbeidsområde på den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuje Twoje maszyny na pasku bocznym wraz z Dodaj host. Kliknij maszynę, aby otworzyć na niej obszar roboczy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra suas máquinas na barra lateral, com Adicionar host. Clique em uma máquina para abrir um espaço de trabalho nela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывает ваши машины в боковой панели вместе с «Добавить хост». Нажмите на машину, чтобы открыть на ней рабочее пространство."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงเครื่องของคุณในแถบด้านข้าง พร้อม เพิ่มโฮสต์ คลิกเครื่องเพื่อเปิดพื้นที่ทำงานบนเครื่องนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makinelerinizi kenar çubuğunda Ana Bilgisayar Ekle ile birlikte gösterir. Bir makinede çalışma alanı açmak için ona tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показує ваші машини на бічній панелі разом із «Додати хост». Натисніть машину, щоб відкрити на ній робочий простір."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị các máy của bạn trong thanh bên, kèm Thêm máy chủ. Nhấp vào một máy để mở không gian làm việc trên máy đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在侧边栏中显示你的机器，并提供“添加主机”。点按机器即可在其上打开工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在側邊欄中顯示你的機器，並提供「新增主機」。點按機器即可在其上開啟工作區。"
+          }
+        }
+      }
+    },
     "settings.labs.liveCode": {
       "extractionState": "manual",
       "localizations": {
