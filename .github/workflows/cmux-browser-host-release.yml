@@ -49,10 +49,13 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
+      # Shallow: fetch-depth 0 fetched every branch and tag with full history, which ran into the
+      # 10 min timeout or died mid-fetch on base pushes (runs 44964640522, 44974272284). Only a tag
+      # needs history, for its merge-base check, and fetches feat-cmux-next's commits alone below.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: 1
       - name: Version (a tag must match the crate and sit on feat-cmux-next)
         id: version
         shell: bash
@@ -61,6 +64,9 @@ jobs:
           cargo_toml=cmux-tui/crates/cmux-browser-host/Cargo.toml
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             version="$(python3 scripts/cmux-next/browser-host-release.py version "$GITHUB_REF_NAME" "$cargo_toml")"
+            # Commits only (no trees or blobs): enough for merge-base.
+            git fetch --no-tags --filter=tree:0 --unshallow origin \
+              +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next
             if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/feat-cmux-next; then
               echo "tag $GITHUB_REF_NAME ($GITHUB_SHA) is not on feat-cmux-next" >&2
               exit 1
