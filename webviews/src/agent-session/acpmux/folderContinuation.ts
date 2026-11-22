@@ -1,4 +1,13 @@
 export const folderContinuationRequest = { noProject: true, continueWithoutFolder: true } as const;
+/// The same recovery in the declined folder itself, read-only (acpmux `_meta.acpmux.restricted`,
+/// hub/restricted.rs): the folder's settings, hooks and MCP servers stay off and edits are denied.
+export const readOnlyContinuationRequest = { continueReadOnly: true } as const;
+/// Whether a chat of `family` can continue read-only: acpmux keeps a declined folder's config off
+/// only for Claude Code; Codex reads its project config by its own trust record, so acpmux refuses
+/// it (`restricted.unsupported`) and the pane offers only the folder-free chat.
+export function readOnlyHarness(family: unknown): boolean {
+  return family === "claude";
+}
 
 /** Serializes a no-project recovery and invalidates stale completions when the pane changes. */
 export class FolderContinuation {
