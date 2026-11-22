@@ -87,6 +87,17 @@ import Testing
         #expect(card.frame.width > 100 && card.frame.height > 40, "card \(card.frame.size)")
         #expect(!card.tabRowHeights.isEmpty && card.tabRowHeights.allSatisfy { $0 > 0 }, "tab rows \(card.tabRowHeights)")
         #expect(pinned.size.width >= card.frame.maxX, "the cell holds the card")
+        // The card's pixels show the card: its title and rows draw ink across it, not one flat fill (Liquid Glass's
+        // content never reaches a window's bitmap, so the shots once showed an empty box).
+        let image = try #require(pinned.image)
+        let pixels = try #require(SidebarStatesPlaygroundPixels(image))
+        let inset = card.frame.insetBy(dx: 2, dy: 2)
+        let ink = pixels.inkBox(in: CGRect(x: inset.minX * pinned.scale, y: inset.minY * pinned.scale,
+                                           width: inset.width * pinned.scale, height: inset.height * pinned.scale))
+        let inked = try #require(ink, "the hover card drew no ink: an empty box at \(card.frame)")
+        // Its text is left-aligned, so the ink spans most of the card's height but only part of its width.
+        #expect(inked.width > card.frame.width * pinned.scale / 4 && inked.height > card.frame.height * pinned.scale / 2,
+                "the card's ink covers \(inked) of \(card.frame) at \(pinned.scale)x")
         // The favicon slot: each favicon row's leading icon draws its own favicon (or the fallback), so the three
         // rows' pixels left of the title differ.
         let leading = try [SidebarStatesPlaygroundState.faviconMono, .faviconColorful, .faviconMissing].map { state in
