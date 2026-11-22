@@ -296,7 +296,9 @@ async function pixelDiff(page: Page, a: string, b: string): Promise<{ changed: n
   return page.evaluate(
     async ([one, two]) => {
       const pixels = async (data: string) => {
-        const image = await createImageBitmap(await (await fetch(`data:image/png;base64,${data}`)).blob());
+        // Not `fetch(data:)`: the page's connect-src refuses it.
+        const bytes = Uint8Array.from(atob(data), (char) => char.charCodeAt(0));
+        const image = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
         const canvas = new OffscreenCanvas(image.width, image.height);
         const context = canvas.getContext("2d")!;
         context.drawImage(image, 0, 0);
@@ -390,6 +392,8 @@ type Painted = FrameRecord & {
   chipLayer: Layer;
   /// The live chat's snapshot (DEBUG automation view): its connection, chat, and whether summary and its modes are set.
   live: LiveState | null;
+  /// LIVE_LOG: while the hole is open, why the live composer's chips are not painted (`holeWhy` in recordFrames).
+  why?: string;
 };
 type LiveState = { connection: string | null; sessionId: string | null; summary: boolean; modes: string | null };
 /// The spans (ms from navigation) the copy's composer was a hole the live composer showed through, and their total.
@@ -415,7 +419,7 @@ function liveLog(frames: Painted[]): string[] {
       ? `${live.connection} ${live.sessionId ?? "-"} summary=${live.summary ? "yes" : "no"} modes=${live.modes ?? "no"}`
       : "no debug view";
     const chips = frame.chips.map((chip) => chip.slot).join(",") || "-";
-    const line = `${frame.chipLayer} ${now} chips=${chips}`;
+    const line = `${frame.chipLayer} ${now} chips=${chips}${frame.why ? ` why: ${frame.why}` : ""}`;
     if (line === was) continue;
     was = line;
     lines.push(`${Math.round(frame.t)} ${line}`);
@@ -657,6 +661,7 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
     chips: Chip[];
     chipLayer: string;
     live: LiveState | null;
+    why?: string;
   };
   let stopped = false;
   /// Painted: a box, visible itself, and no ancestor up to the layer's root gone or clear. `visibility` is
@@ -700,10 +705,11 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
   /// The composer's chips as this layer draws them (ComposerPickers.tsx, ModelPicker.tsx, ComposerContext.tsx):
   /// the access chip (`.acpmux-mode`: AccessMenu or the inert PendingMode), the model and effort forms the row's
   /// fit shows (`data-fit-part`, a short form drawn from its `data-label`), the harness's mark, the location chips.
-  const readChips = (scope: ParentNode): Chip[] => {
+  const readChips = (scope: ParentNode, inBox?: boolean): Chip[] => {
     const chips: Chip[] = [];
     // The row is `display: contents` in the composer's foot (composerLocation.css): it has no box of its own.
     for (const row of Array.from(scope.querySelectorAll(".acpmux-chips"))) {
+      if (inBox !== undefined && !!row.closest(".acpmux-composer-box") !== inBox) continue;
       for (const mode of Array.from(row.querySelectorAll(".acpmux-mode")).filter(painted)) {
         const text = Array.from(mode.querySelectorAll(".acpmux-mode-text")).filter(painted).map(words).join(" ");
         if (text) chips.push({ slot: "access", label: text });
@@ -728,10 +734,42 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
         });
     }
     for (const picker of Array.from(scope.querySelectorAll(".acpmux-location-picker")).filter(painted)) {
+      if (inBox !== undefined && !!picker.closest(".acpmux-composer-box") !== inBox) continue;
       const text = words(picker);
       if (text) chips.push({ slot: `location:${picker.getAttribute("data-kind") ?? ""}`, label: text.slice(0, 60) });
     }
     return chips;
+  };
+  /// Why the live composer's chips are not painted under the hole: where the chip row is, and for each
+  /// chip part the first thing that hides it.
+  const holeWhy = (): string => {
+    const liveBox = document.querySelector("#root .acpmux-composer-box");
+    const rows = Array.from(document.querySelectorAll("#root .acpmux-chips"));
+    const hides = (element: Element): string => {
+      const box = element.getBoundingClientRect();
+      if (box.width <= 0 || box.height <= 0) return `size ${Math.round(box.width)}x${Math.round(box.height)}`;
+      for (let at: Element | null = element; at; at = at.parentElement) {
+        const style = getComputedStyle(at);
+        const name = `${at.tagName.toLowerCase()}.${at.classList[0] ?? ""}`;
+        if (style.display === "none") return `display:none at ${name}`;
+        if (Number(style.opacity) === 0) return `opacity:0 at ${name}`;
+        if (style.visibility === "hidden") {
+          // The nearest ancestor that sets it.
+          let from: Element = at;
+          while (from.parentElement && getComputedStyle(from.parentElement).visibility === "hidden")
+            from = from.parentElement;
+          return `visibility:hidden from ${from.tagName.toLowerCase()}.${from.classList[0] ?? from.id}`;
+        }
+      }
+      return "painted";
+    };
+    const parts = rows.flatMap((row) =>
+      Array.from(row.querySelectorAll(".acpmux-mode, .acpmux-mode-text, [data-fit-part], .agent-mark")).map(
+        (part) => `${part.classList[0] ?? part.getAttribute("data-fit-part")}=${hides(part)}`,
+      ),
+    );
+    const text = (liveBox?.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+    return `rows=${rows.length} inBox=${rows.map((row) => !!liveBox?.contains(row)).join(",")} boxText="${text}" ${[...new Set(parts)].join("; ")}`;
   };
   const recording = {
     frames: [] as Frame[],
@@ -814,9 +852,15 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
       rootHidden,
       // While the copy shows, its composer may be a hole the live composer shows through (liveComposer.ts):
       // then the chips drawn are the live page's.
-      chips: rootHidden ? [] : readChips(host?.style.clipPath ? document : scope),
+      // the chips in the box are the live page's, the ones around it (the foot's row) still the copy's.
+      chips: rootHidden
+        ? []
+        : host?.style.clipPath
+          ? [...readChips(document, true), ...readChips(scope, false)]
+          : readChips(scope),
       chipLayer: rootHidden ? "hidden" : host ? (host.style.clipPath ? "hole" : "copy") : "live",
       live: liveState(),
+      ...(drawn?.style.clipPath ? { why: holeWhy() } : {}),
     };
   };
   window.cmuxAfterPaint(() => {
