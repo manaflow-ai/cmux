@@ -22,19 +22,19 @@ struct CloudChatTabMarkTests {
     /// The mark across a start's life: starting and failed on the New Tab page, running in place, none for a local chat.
     @Test func aCloudSendIsMarkedStartingFailedAndRunning() throws {
         let titles = AgentCloudStartTitles(), page = try Self.page(DaemonStore(), surface: 71)
-        let mark = { (fronted: String?, newTab: Bool) in
-            CloudChatTabMark.mark(agent: true, frontedMachine: fronted, sentToCloud: titles.sentToCloud(page), showsNewTabPage: newTab)
+        let mark = { (fronted: String?, local: Bool) in
+            CloudChatTabMark.mark(agent: true, frontedMachine: fronted, sentToCloud: titles.sentToCloud(page), localSession: local)
         }
-        #expect(mark(nil, true) == nil, "a New Tab page that sent nothing has no cloud")
+        #expect(mark(nil, false) == nil, "a New Tab page that sent nothing has no cloud")
         titles.begin(page, task: "1+1", untitled: "New Chat")
-        #expect(mark(nil, true) == CloudChatTabMark(machine: nil), "starting")
+        #expect(mark(nil, false) == CloudChatTabMark(machine: nil), "starting")
         titles.end(page) // the runner's defer, on failure as on success
-        #expect(mark(nil, true) == CloudChatTabMark(machine: nil), "a failed start keeps its cloud")
-        #expect(mark(nil, false) == nil, "the page then sent here instead: a local chat")
+        #expect(mark(nil, false) == CloudChatTabMark(machine: nil), "a failed start keeps its cloud")
+        #expect(mark(nil, true) == nil, "the tab then sent here instead: a local chat")
         titles.opened(page)
         #expect(!titles.sentToCloud(page))
-        #expect(mark("cloud-machine-1", false) == CloudChatTabMark(machine: "cloud-machine-1"), "running in place: the machine's cloud")
-        #expect(CloudChatTabMark.mark(agent: false, frontedMachine: nil, sentToCloud: true, showsNewTabPage: true) == nil, "a terminal never")
+        #expect(mark("cloud-machine-1", true) == CloudChatTabMark(machine: "cloud-machine-1"), "running in place: the machine's cloud")
+        #expect(CloudChatTabMark.mark(agent: false, frontedMachine: nil, sentToCloud: true, localSession: false) == nil, "a terminal never")
     }
 
     /// A retry after a failure marks the tab again; another tab's send never marks this one.

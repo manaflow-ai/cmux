@@ -10,11 +10,11 @@ public nonisolated struct CloudChatTabMark: Equatable, Sendable {
     public init(machine: String?) { self.machine = machine }
 
     /// The mark of an agent tab of this Mac: `frontedMachine`, the machine of the Cloud chat it shows in place; `sentToCloud`, its Send
-    /// started a Cloud chat that is starting or failed (``AgentCloudStartTitles/sentToCloud(_:)``); `showsNewTabPage`, it still shows
-    /// its New Tab page (a later local Send turns it into a local chat, with no cloud).
-    public static func mark(agent: Bool, frontedMachine: String?, sentToCloud: Bool, showsNewTabPage: Bool) -> Self? {
+    /// started a Cloud chat that is starting or failed (``AgentCloudStartTitles/sentToCloud(_:)``), from the New Tab page or a new chat's
+    /// composer; `localSession`, it runs a chat of its own here (a later local Send after a failed start: a local chat, with no cloud).
+    public static func mark(agent: Bool, frontedMachine: String?, sentToCloud: Bool, localSession: Bool) -> Self? {
         guard agent else { return nil }
         if let frontedMachine { return Self(machine: frontedMachine) }
-        return sentToCloud && showsNewTabPage ? Self(machine: nil) : nil
+        return sentToCloud && !localSession ? Self(machine: nil) : nil
     }
 }
