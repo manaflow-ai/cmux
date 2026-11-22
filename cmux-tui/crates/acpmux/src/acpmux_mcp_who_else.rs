@@ -30,10 +30,11 @@ pub(super) const NAME: &str = "who_else";
 pub(super) const MAX_CHARS: usize = 6000;
 /// The most session rows the default answer carries, before the bound cuts further.
 pub(super) const BRIEF_SESSIONS: usize = 12;
-/// The most entries a row's list field keeps (its files, topic words, pull requests).
-const BRIEF_LIST: usize = 3;
-/// The longest a row's text field stays (its title, folder, branch).
-const BRIEF_FIELD: usize = 120;
+/// How much of each row the default answer keeps, tried in order: the most entries a row's list
+/// field keeps (its files, topic words, pull requests) and the longest any text in it stays (its
+/// title, folder, branch, a file's path). Rows give up detail before any row is dropped, so a
+/// few sessions with long file lists keep every row and lose only the length.
+const BRIEF_TIERS: [(usize, usize); 3] = [(3, 120), (1, 60), (0, 40)];
 
 /// The instruction the server gives with the tool.
 pub(super) const STEER: &str = "Before changing files another agent may be working on, or to \
@@ -113,32 +114,32 @@ fn clip(text: &str, max: usize) -> String {
     format!("{}…", kept.trim_end())
 }
 
-/// One session row with its long text clipped and its long lists cut to `BRIEF_LIST`, counting
-/// into `cut` every list entry left out. Every field keeps its name and its type, so the card
-/// (`whoElseCalls.ts`) and any caller reading a field still find it; only the length changes.
-fn brief_row(row: &Value, cut: &mut usize) -> Value {
-    let Some(fields) = row.as_object() else { return row.clone() };
-    let mut out = Map::new();
-    for (key, value) in fields {
-        let short = match value {
-            Value::String(s) => json!(clip(s, BRIEF_FIELD)),
-            Value::Array(list) => {
-                *cut += list.len().saturating_sub(BRIEF_LIST);
-                let kept: Vec<Value> = list
-                    .iter()
-                    .take(BRIEF_LIST)
-                    .map(|entry| match entry {
-                        Value::String(s) => json!(clip(s, BRIEF_FIELD)),
-                        other => other.clone(),
-                    })
-                    .collect();
-                Value::Array(kept)
-            }
-            other => other.clone(),
-        };
-        out.insert(key.clone(), short);
+/// `value` with its text clipped to `field` characters and its lists cut to `list` entries, all
+/// the way down (a row's `files` are objects whose `path` is the long part), counting into `cut`
+/// every list entry left out.
+fn brief_value(value: &Value, list: usize, field: usize, cut: &mut usize) -> Value {
+    match value {
+        Value::String(s) => json!(clip(s, field)),
+        Value::Array(entries) => {
+            *cut += entries.len().saturating_sub(list);
+            Value::Array(
+                entries.iter().take(list).map(|e| brief_value(e, list, field, cut)).collect(),
+            )
+        }
+        Value::Object(fields) => Value::Object(
+            fields.iter().map(|(k, v)| (k.clone(), brief_value(v, list, field, cut))).collect(),
+        ),
+        other => other.clone(),
     }
-    Value::Object(out)
+}
+
+/// One session row clipped (`brief_value`). Every field keeps its name and its type, so the card
+/// (`whoElseCalls.ts`) and any caller reading a field still find it; only the length changes.
+fn brief_row(row: &Value, list: usize, field: usize, cut: &mut usize) -> Value {
+    if !row.is_object() {
+        return row.clone();
+    }
+    brief_value(row, list, field, cut)
 }
 
 /// The daemon's answer under `MAX_CHARS`: the `lines` summary with its rows, each row clipped
@@ -154,9 +155,12 @@ pub(super) fn brief(answer: &Value) -> Value {
     // The daemon's own count of the rows it ranked out (`hub/touched.rs` MAX_ROWS).
     let ranked_out = answer.get("more").and_then(Value::as_u64).unwrap_or(0);
     let mut keep = rows.len().min(BRIEF_SESSIONS);
+    let mut tier = 0usize;
     loop {
+        let (list, field) = BRIEF_TIERS[tier];
         let mut cut = 0usize;
-        let kept: Vec<Value> = rows.iter().take(keep).map(|r| brief_row(r, &mut cut)).collect();
+        let kept: Vec<Value> =
+            rows.iter().take(keep).map(|r| brief_row(r, list, field, &mut cut)).collect();
         let dropped = rows.len().saturating_sub(keep);
         let mut out = answer.clone();
         if let Some(obj) = out.as_object_mut() {
@@ -178,7 +182,12 @@ pub(super) fn brief(answer: &Value) -> Value {
         if out.to_string().chars().count() <= MAX_CHARS || keep == 0 {
             return out;
         }
-        keep -= 1;
+        if tier + 1 < BRIEF_TIERS.len() {
+            tier += 1;
+        } else {
+            tier = 0;
+            keep -= 1;
+        }
     }
 }
 
