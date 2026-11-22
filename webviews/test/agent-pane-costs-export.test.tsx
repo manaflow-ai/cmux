@@ -198,7 +198,7 @@ test("a row with no input says its share from cache is unknown, in every look", 
     });
     await act(async () => undefined);
     if (look === "table") {
-      const title = container.querySelector<HTMLElement>(".cst-label")?.title ?? "";
+      const title = container.querySelector<HTMLElement>(".cst-label")?.getAttribute("aria-description") ?? "";
       expect(title).toEndWith(` · ${unknown}`);
     } else {
       const detail = container.querySelector(".cst-detail")?.textContent ?? "";
