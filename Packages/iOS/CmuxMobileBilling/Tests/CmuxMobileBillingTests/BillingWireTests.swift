@@ -41,7 +41,8 @@ import Testing
         let account = try JSONDecoder().decode(BillingAccount.self, from: json)
         #expect(account.currentPlan == BillingCurrentPlan(planID: .nextPro, source: .apple))
         #expect(account.products.map(\.planID) == [.nextPlus, .nextPro, .nextMax])
-        #expect(account.products.allSatisfy(\.planID.isNext))
+        let allNext = account.products.allSatisfy { $0.planID.isNext }
+        #expect(allNext)
         #expect(!BillingPlanID.pro.isNext)
         #expect(BillingPlanID.nextPlus < .nextPro && BillingPlanID.nextPro < .nextMax)
     }
