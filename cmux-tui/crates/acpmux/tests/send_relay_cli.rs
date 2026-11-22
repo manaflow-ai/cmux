@@ -423,7 +423,7 @@ fn a_stalled_relay_listing_never_holds_or_fails_ls() {
     // base build, for a PR's before/after.
     let report_only = std::env::var_os("ACPMUX_LS_STALL_REPORT").is_some();
     let runs: usize =
-        std::env::var("ACPMUX_LS_STALL_RUNS").ok().and_then(|n| n.parse().ok()).unwrap_or(5);
+        std::env::var("ACPMUX_LS_STALL_RUNS").ok().and_then(|n| n.parse().ok()).unwrap_or(10);
     let idle = stall_leg(&dir, "idle", runs, 0);
     let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
     let hogged = stall_leg(&dir, "cpu hogs", runs, cores * 10);
