@@ -112,6 +112,7 @@ jobs:
       contents: read
     outputs:
       ci_guard_group: ${{ steps.route.outputs.ci_guard_group }}
+      nightly_guards: ${{ steps.route.outputs.nightly_guards }}
       own_change_checks: ${{ steps.route.outputs.own_change_checks }}
     steps:
       # The guard ownership reads ci-guards.yml and the tests' imports.
@@ -285,9 +286,13 @@ jobs:
           CMUX_CEF_R2_ENV_FILE: /dev/null
         run: scripts/cmux-next/check-pinned-assets.sh "${{ steps.base.outputs.base }}"
 
+  # On a pull request this call runs only the submodule forward-only guard and Guard status (about 62 + 13 + 11 s of
+  # runner on every head, 661 PR runs in 6 h on 2026-11-22). fast-check-route skips it when the diff touches none of
+  # that guard's inputs (scripts/ci/fast-check-inputs.json: gitlinks, .gitmodules, build.zig.zon, the Zig lock and
+  # the guard's scripts); a push runs it as before.
   nightly-guards:
-    needs: coalesce
-    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
+    needs: [coalesce, fast-check-route]
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.nightly_guards != 'false' }}
     permissions:
       contents: read
       checks: read

@@ -419,12 +419,6 @@
         ],
         "suggested_inputs_more": 677
       },
-      "nightly-guards": {
-        "why": "calls a reusable workflow (ci-guards.yml); the callee's own jobs route",
-        "suggested_inputs": [
-          ".github/workflows/ci-guards.yml"
-        ]
-      },
       "portable-placement": {
         "why": "a router: it reads the diff (or the pull request) to decide which other jobs run, so it runs on every pull request",
         "suggested_inputs": [

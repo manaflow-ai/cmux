@@ -49,7 +49,19 @@ class RouteTest(unittest.TestCase):
         self.assertEqual(self.run_route(FAST_GATES, changed("Packages/macOS/CmuxNext/Sources/A.swift")),
                          {"fast-gates": True})
         self.assertEqual(self.run_route(FAST_GATES, changed("Resources/Localizable.xcstrings")), {"fast-gates": True})
-        self.assertEqual(self.run_route(GUARDS, changed("tests/test_base_red_excuse.py")), {"ci-guard-group": True, "own-change-checks": False})
+        self.assertEqual(self.run_route(GUARDS, changed("tests/test_base_red_excuse.py")),
+                         {"ci-guard-group": True, "nightly-guards": False, "own-change-checks": False})
+
+    def test_the_submodule_guard_runs_only_on_its_inputs(self):
+        """nightly-guards (the submodule forward-only guard on a pull request) runs on a gitlink move, .gitmodules,
+        a build.zig.zon, the Zig lock or its scripts, and skips a product change."""
+        for path in ("ghostty", "ghostty-next", "homebrew-cmux", ".gitmodules", "scripts/ci/zig-packages.lock",
+                     "cmux-tui/vendor/x/build.zig.zon", "scripts/ci/submodule_forward_only.py",
+                     ".github/workflows/ci-guards.yml", GUARDS):
+            self.assertTrue(self.run_route(GUARDS, changed(path))["nightly-guards"], path)
+        self.assertFalse(self.run_route(GUARDS, changed("Packages/macOS/CmuxNext/Sources/A.swift"))["nightly-guards"])
+        self.assertTrue(self.run_route(GUARDS, changed("Packages/macOS/CmuxNext/Sources/A.swift"),
+                                       event="push")["nightly-guards"])
 
     def test_the_workflow_itself_is_an_input(self):
         self.assertEqual(self.run_route(DOCTOR, changed(DOCTOR)), {"react-doctor": True})
