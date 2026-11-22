@@ -2404,14 +2404,9 @@
           "key": "agentPane.display.width",
           "title": "Chat Text Width",
           "help": "The widest the chat's column gets. On a wider pane the chat stays centered.",
-          "kind": "number",
+          "kind": "choice_or_number",
           "default": 800,
-          "group": "Agent Chat",
-          "range": {
-            "min": 480,
-            "max": 4000,
-            "unit": "points"
-          }
+          "group": "Agent Chat"
         },
         {
           "key": "app.uiScale",

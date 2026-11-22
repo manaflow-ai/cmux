@@ -52636,12 +52636,38 @@
     },
     {
       "accepts" : [
+        "narrow",
+        "medium",
+        "wide",
         480,
         4000,
         2240
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.width.narrow",
+            "text" : "Narrow"
+          },
+          "value" : "narrow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.medium",
+            "text" : "Medium"
+          },
+          "value" : "medium"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.width.wide",
+            "text" : "Wide"
+          },
+          "value" : "wide"
+        }
+      ],
       "consumers" : [
         "cmux-next"
       ],
@@ -52669,7 +52695,7 @@
         "measure",
         "wide"
       ],
-      "kind" : "number",
+      "kind" : "choice_or_number",
       "page_hidden" : false,
       "path" : [
         "agentPane",
@@ -52685,6 +52711,8 @@
         "unit" : "points"
       },
       "refuses" : [
+        "__not_a_choice__",
+        true,
         -3040,
         7520,
         "1"
