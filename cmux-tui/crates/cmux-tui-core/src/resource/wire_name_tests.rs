@@ -28,6 +28,7 @@ fn wire_name_round_trips_through_serde() {
         "conductor_import.plan",
         "conductor_import.record",
         "browser_import.read",
+        "language_packs.ensure",
         "cloud.vm.domains",
         "cloud.owner.acpmux_keyed_start",
         "cloud.machine.io",

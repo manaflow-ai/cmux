@@ -1,0 +1,11 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/rex-palette",
+  "name": "Palette, picker and input",
+  "tagline": "Opt-in command palette, tab picker, rename input and last-location shortcuts.",
+  "description": "Opt-in command palette, tab picker, rename input and last-location shortcuts.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "cmuxProfile": 1,
+  "settings": {}
+}
