@@ -34,7 +34,7 @@ import Testing
     @Test func aPieceSwitchedToTheBundleNeedsNoFolder() async throws {
         let store = WebUpdateStore(base: FileManager.default.temporaryDirectory.appending(path: "web-pieces-\(UUID().uuidString)"))
         let answer = try #require(WebPiecesAnswer.parse(Self.answer(paneServe: "bundled", paneUpdate: nil)))
-        let (switched, used) = await WebUpdates.resolve(answer, [], store)
+        let (switched, used, _) = await WebUpdates.resolve(answer, [], store)
         #expect(switched == [Self.pane: nil])
         #expect(used.isEmpty)
     }
@@ -46,11 +46,54 @@ import Testing
         let answer = try #require(WebPiecesAnswer.parse(Self.answer(paneServe: "last-good", paneUpdate: "old1")))
         let pointer = WebUpdatePointer(channel: "every-merge", key: "old1", archive: "a.tar.gz", sha256: "", size: 0,
                                        outputs: "nope", abi: 1, commit: "c", committedAt: 1, publishedAt: 1)
-        let (switched, used) = await WebUpdates.resolve(answer, [pointer], store)
+        let (switched, used, verified) = await WebUpdates.resolve(answer, [pointer], store)
         #expect(switched == [Self.pane: nil])
         #expect(used.isEmpty)
+        #expect(verified.isEmpty)
         // An update the app holds no pointer for is not served either.
         #expect(await WebUpdates.resolve(answer, [], store).0 == [Self.pane: nil])
+    }
+
+    /// A kept update verified once in this run is not hashed again on the next read: its folder
+    /// comes from the cache, even with no files on disk to hash.
+    @Test func aVerifiedUpdateIsNotHashedAgain() async throws {
+        let store = WebUpdateStore(base: FileManager.default.temporaryDirectory.appending(path: "web-pieces-\(UUID().uuidString)"))
+        let answer = try #require(WebPiecesAnswer.parse(Self.answer(paneServe: "last-good", paneUpdate: "old1")))
+        let pointer = WebUpdatePointer(channel: "every-merge", key: "old1", archive: "a.tar.gz", sha256: "", size: 0,
+                                       outputs: "nope", abi: 1, commit: "c", committedAt: 1, publishedAt: 1)
+        let folder = URL(fileURLWithPath: "/verified/old1", isDirectory: true)
+        let (switched, used, fresh) = await WebUpdates.resolve(answer, [pointer], store, verified: ["old1": folder])
+        #expect(switched == [Self.pane: folder])
+        #expect(used == [pointer])
+        #expect(fresh.isEmpty)
+        // A cached folder of an update the app no longer holds a pointer for is not served.
+        #expect(await WebUpdates.resolve(answer, [], store, verified: ["old1": folder]).0 == [Self.pane: nil])
+    }
+
+    /// The cache holds for one set of kept updates; a new set starts empty.
+    @Test func theVerifiedCacheResetsWhenTheKeptSetChanges() {
+        var cache = VerifiedTrees()
+        let folder = URL(fileURLWithPath: "/verified/old1", isDirectory: true)
+        let first = cache.held(for: ["old1"])
+        #expect(first.isEmpty)
+        cache.add(["old1": folder], for: ["old1"])
+        let kept = cache.held(for: ["old1"])
+        #expect(kept == ["old1": folder])
+        // Verified for a set that is no longer held: not kept.
+        cache.add(["old2": folder], for: ["old2"])
+        let still = cache.held(for: ["old1"])
+        #expect(still == ["old1": folder])
+        let grown = cache.held(for: ["old1", "old2"])
+        #expect(grown.isEmpty)
+        let back = cache.held(for: ["old1"])
+        #expect(back.isEmpty)
+    }
+
+    @Test func theRefusedAnswerParses() {
+        #expect(WebPiecesRefused.parse(Data("a line before\n{\"refused\":true,\"serial\":4}\n".utf8)) == WebPiecesRefused(refused: true))
+        #expect(WebPiecesRefused.parse(Data("{\"refused\":false,\"serial\":0}".utf8)) == WebPiecesRefused(refused: false))
+        #expect(WebPiecesRefused.parse(Data("usage: cmux app web-pieces\n".utf8)) == nil)
+        #expect(WebPiecesRefused.parse(Data()) == nil)
     }
 
     @Test func theKeptPointersLastWhileAPieceIsSwitchedOut() async throws {

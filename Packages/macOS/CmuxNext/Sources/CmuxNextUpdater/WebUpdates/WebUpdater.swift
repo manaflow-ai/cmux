@@ -94,6 +94,10 @@ public final class WebUpdater {
     /// A check ended, whatever it took: the app reads the channel's switch file of web pieces
     /// then (cmux-tui/crates/cmux-web-pieces), with the state the check left.
     @ObservationIgnored public var onChecked: () -> Void = {}
+    /// Whether the channel's switch file of web pieces refuses an update, asked before a new one
+    /// is downloaded and made active (the app asks `cmux app web-pieces refused`; the decision is
+    /// Rust's). A refused update is never served. Default: none is.
+    @ObservationIgnored public var refuses: @MainActor (WebUpdatePointer) async -> Bool = { _ in false }
 
     public let store: WebUpdateStore
     public let app: App
@@ -274,6 +278,12 @@ public final class WebUpdater {
                 if self.channel == channel { etag = tag }
                 throw error
             }
+            // Refused by the switch file: never downloaded or made active, so no page loads it
+            // before the pieces read would roll it back. Asked again when the pointer changes.
+            if await refuses(pointer) {
+                if self.channel == channel { etag = tag }
+                throw WebUpdateRefusal.refusedBySwitchFile
+            }
             phase = .downloading
             var request = URLRequest(url: pointer.archiveURL(base: base))
             request.allowsConstrainedNetworkAccess = allowsConstrained
@@ -322,7 +332,8 @@ public final class WebUpdater {
             }.value
         } catch let refusal as WebUpdateRefusal {
             lastRefusal = refusal
-            phase = refusal == .notNewer || Self.isAppTooOld(refusal) ? .idle : .failed(String(describing: refusal))
+            phase = refusal == .notNewer || refusal == .refusedBySwitchFile || Self.isAppTooOld(refusal)
+                ? .idle : .failed(String(describing: refusal))
         } catch {
             phase = .failed(error.localizedDescription)
         }

@@ -52,9 +52,12 @@ nonisolated struct WebPiecesAnswer: Decodable, Equatable, Sendable {
     var switched: [String: Piece] { pieces.filter { $0.value.serve != "live" } }
 
     /// The answer in the last line of the command's output, nil when it is none.
-    static func parse(_ output: Data) -> WebPiecesAnswer? {
+    static func parse(_ output: Data) -> WebPiecesAnswer? { lastLine(output, as: WebPiecesAnswer.self) }
+
+    /// The last non-empty line of a `cmux app web-pieces` output as `T`, nil when it is none.
+    static func lastLine<T: Decodable>(_ output: Data, as type: T.Type) -> T? {
         guard let line = output.split(separator: UInt8(ascii: "\n")).last(where: { !$0.isEmpty }) else { return nil }
-        return try? JSONDecoder().decode(WebPiecesAnswer.self, from: Data(line))
+        return try? JSONDecoder().decode(type, from: Data(line))
     }
 
     /// For `updates.web.status`.
@@ -67,6 +70,35 @@ nonisolated struct WebPiecesAnswer: Decodable, Equatable, Sendable {
         let taken: JSONValue = serial.map { JSONValue($0) } ?? .null
         let refused: JSONValue = refusal.map { .string($0.code) } ?? .null
         return .object(["serial": taken, "refusal": refused, "switched": .object(out)])
+    }
+}
+
+/// The answer of `cmux app web-pieces refused`: whether the switch file last taken refuses an update.
+nonisolated struct WebPiecesRefused: Decodable, Equatable, Sendable {
+    let refused: Bool
+
+    static func parse(_ output: Data) -> WebPiecesRefused? { WebPiecesAnswer.lastLine(output, as: WebPiecesRefused.self) }
+}
+
+/// The folders of kept updates that verified (``WebUpdateStore/verifiedTree(_:)`` hashes every
+/// file), by key, for the set of kept updates they were verified for. A new set starts empty.
+nonisolated struct VerifiedTrees: Equatable, Sendable {
+    private(set) var keys: Set<String> = []
+    private(set) var trees: [String: URL] = [:]
+
+    /// The folders verified for `keys`: empty, and the cache reset, when the set changed.
+    mutating func held(for keys: Set<String>) -> [String: URL] {
+        if keys != self.keys {
+            self.keys = keys
+            trees = [:]
+        }
+        return trees
+    }
+
+    /// Keeps `verified` when it was verified for the set held now.
+    mutating func add(_ verified: [String: URL], for keys: Set<String>) {
+        guard keys == self.keys else { return }
+        trees.merge(verified) { _, new in new }
     }
 }
 
@@ -110,9 +142,29 @@ extension WebUpdates {
         return refused
     }
 
+    /// Whether the switch file last taken refuses `pointer` (`cmux app web-pieces refused`: offline,
+    /// from the state the reads kept; the decision is Rust's). The updater asks it before it
+    /// downloads a new update and makes it active, so a refused update is never served. No answer:
+    /// not refused here (the pieces read after the check still rolls it back).
+    func piecesRefuse(_ pointer: WebUpdatePointer, _ updater: WebUpdater) async -> Bool {
+        guard let piecesCLI, updater.channel != .off else { return false }
+        let (state, channel) = Self.piecesPlace(updater.store, updater.channel, drill: piecesDrill)
+        let words = ["app", "web-pieces", "refused", "--state", state.path, "--channel", channel, "--key", pointer.key]
+        guard let output = await piecesCLI(words) else { return false }
+        return WebPiecesRefused.parse(output)?.refused ?? false
+    }
+
+    /// The state folder and the channel the CLI reads. A drill has its own file, serial and log,
+    /// so it never moves the channel's own.
+    nonisolated static func piecesPlace(_ store: WebUpdateStore, _ channel: WebUpdater.Channel, drill: Bool) -> (URL, String) {
+        let state = drill ? store.base.appending(path: "pieces-drill", directoryHint: .isDirectory) : store.base
+        return (state, (drill ? "drill-" : "") + channel.rawValue)
+    }
+
     /// One read. Returns whether the active update is refused and was not rolled back here.
-    private func readPiecesNow(_ updater: WebUpdater, _ cli: @Sendable ([String]) async -> Data?,
-                               offline: Bool, launch: Bool, rolledBack: Int = 0) async -> Bool {
+    /// Internal for the tests (WebPiecesHostTests).
+    func readPiecesNow(_ updater: WebUpdater, _ cli: @Sendable ([String]) async -> Data?,
+                       offline: Bool, launch: Bool, rolledBack: Int = 0) async -> Bool {
         let channel = updater.channel, store = updater.store
         guard channel != .off else {
             // Off serves the bundled web: nothing is switched.
@@ -128,10 +180,9 @@ extension WebUpdates {
         where pointer.key != active?.key && !candidates.contains(where: { $0.key == pointer.key }) {
             candidates.append(pointer)
         }
-        // A drill has its own file, serial and log, so it never moves the channel's own.
         let drill = piecesDrill
-        var words = ["app", "web-pieces", "check", "--state", (drill ? store.base.appending(path: "pieces-drill", directoryHint: .isDirectory) : store.base).path,
-                     "--channel", (drill ? "drill-" : "") + channel.rawValue]
+        let (state, piecesChannel) = Self.piecesPlace(store, channel, drill: drill)
+        var words = ["app", "web-pieces", "check", "--state", state.path, "--channel", piecesChannel]
         if let active { words += ["--active", active.key] }
         for pointer in candidates { words += ["--kept", pointer.key] }
         if offline { words.append("--offline") }
@@ -145,21 +196,25 @@ extension WebUpdates {
             guard rolledBack < 2, (try? await updater.rollBack()) != nil else { return true }
             return await readPiecesNow(updater, cli, offline: true, launch: false, rolledBack: rolledBack + 1)
         }
-        let (switched, used) = await Self.resolve(answer, candidates, store)
+        let keys = Set(candidates.map(\.key))
+        let (switched, used, verified) = await Self.resolve(answer, candidates, store, verified: verifiedTrees.held(for: keys))
+        verifiedTrees.add(verified, for: keys)
         pieces = answer
         await Self.keep(used, switched: !switched.isEmpty, in: store)
         if WebBundleOverlay.shared.setSwitches(switched), !launch { await switchesChanged() }
         return false
     }
 
-    /// The folder each switched-out output is served from (nil: the bundle), and the pointers of
-    /// the updates used. An update is used only while its files still match its signed pointer;
-    /// else the piece is served from the bundle.
-    @concurrent nonisolated static func resolve(_ answer: WebPiecesAnswer, _ pointers: [WebUpdatePointer],
-                                                _ store: WebUpdateStore) async -> ([String: URL?], [WebUpdatePointer]) {
+    /// The folder each switched-out output is served from (nil: the bundle), the pointers of the
+    /// updates used, and the folders verified here. An update is used only while its files still
+    /// match its signed pointer; else the piece is served from the bundle. `verified`: the folders
+    /// already verified in this run (``VerifiedTrees``), not hashed again.
+    @concurrent nonisolated static func resolve(_ answer: WebPiecesAnswer, _ pointers: [WebUpdatePointer], _ store: WebUpdateStore,
+                                                verified: [String: URL] = [:]) async -> ([String: URL?], [WebUpdatePointer], [String: URL]) {
         var trees: [String: URL?] = [:]
         var used: [WebUpdatePointer] = []
         var switched: [String: URL?] = [:]
+        var fresh: [String: URL] = [:]
         for piece in answer.switched.values {
             var tree: URL?
             if let key = piece.update {
@@ -167,14 +222,21 @@ extension WebUpdates {
                     tree = known
                 } else {
                     let pointer = pointers.first { $0.key == key }
-                    tree = pointer.flatMap { store.verifiedTree($0) }
+                    if let pointer {
+                        if let cached = verified[key] {
+                            tree = cached
+                        } else {
+                            tree = store.verifiedTree(pointer)
+                            if let tree { fresh[key] = tree }
+                        }
+                    }
                     trees.updateValue(tree, forKey: key)
                     if tree != nil, let pointer { used.append(pointer) }
                 }
             }
             switched.updateValue(tree, forKey: piece.output)
         }
-        return (switched, used)
+        return (switched, used, fresh)
     }
 
     @concurrent nonisolated static func hasKept(_ store: WebUpdateStore) async -> Bool {
