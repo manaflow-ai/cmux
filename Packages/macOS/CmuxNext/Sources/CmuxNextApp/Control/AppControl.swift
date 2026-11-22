@@ -32,6 +32,15 @@ final class AppControl {
     private let terminalDisplayProbe = TerminalDisplayProbe()
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     private let motionCommitProbe = MotionCommitProbe()
+    /// `perf.*`: the frame and layout probes in every build, off until `perf.probes.enable` (`cmux perf profile --frames`).
+    private lazy var perfProbes = PerfProbes(
+        watchdog: watchdog,
+        frames: { [probe = DebugFrameProbe()] in
+            CmuxNextSettings.JSONValue(foundation: probe.handle(action: $0["action"]?.stringValue, raw: $0["raw"]?.boolValue == true)) ?? .null
+        },
+        layoutCounters: { DebugLayoutCounters.handle($0) },
+        tabSwitch: { DebugTabSwitch.timer.handle($0, key: "switches") },
+        workspaceSwitch: { DebugWorkspaceSwitch.timer.handle($0, key: "switches") })
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.key` sequences' player (one sequence at a time), owned here, not by a static.
     private let keySequencePlayer = DebugKeySequencePlayer()
@@ -139,8 +148,11 @@ final class AppControl {
                 guard let services, let (tab, _) = services.locateTab(id) else { return .missing }
                 guard tab.agentSession != nil else { return .notAgentChat }
                 return services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }.map { .page($0) } ?? .notLoaded
-            }.controlMethod(),
+            }.controlMethod(sources: { [weak services] in services?.madeAgentTabs?.retirer.sources }),
         ])
+        // Frames, hangs, layout counters and switch times in Release too, off by default (PerfProbes):
+        // `perf.probes.enable {"on": true}` opens them for `cmux perf profile --frames`.
+        service.router.register(perfProbes.methods())
         // Diagnostics for tagged DEV builds; a release build registers none (ControlRouter drops them: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
