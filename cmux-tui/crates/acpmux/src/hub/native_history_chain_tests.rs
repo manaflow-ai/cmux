@@ -202,14 +202,14 @@ async fn a_resumed_chat_pages_back_through_its_earlier_transcript() {
     run_under(&hub, &["new"]);
     assert_eq!(session.meta().previous_agent_session_ids, ["old", "mid"]);
     let pages = page_all(&hub, seed).await;
-    let (rows, seqs) = rows(&pages);
+    let (got, seqs) = rows(&pages);
     assert!(seqs.windows(2).all(|w| w[0] < w[1]), "oldest first across transcripts");
     assert!(*seqs.last().unwrap() < 1, "below every logged record");
     let mut want: Vec<String> = (0..230).map(|n| format!("old {n}")).collect();
     want.push("--- resumed 21:50Z".into());
     // The seeded page held `mid`'s newest 200.
     want.extend((0..60).map(|n| format!("mid {n}")));
-    assert_eq!(rows, want);
+    assert_eq!(got, want);
     let hop = pages.iter().find_map(|p| p.get("olderTranscript")).expect("a reply names the hop");
     assert_eq!(hop["agentSessionId"], "old");
     assert_eq!(hop["depth"], 1);
@@ -227,18 +227,18 @@ async fn a_missing_earlier_transcript_is_a_divider() {
     run_under(&hub, &["first", "gone", "cur"]);
     let session = hub.resolve("chat").unwrap();
     hub.replay_adopted(&session, "claude", file(&home, "cur")).await;
-    let (rows, _) = rows(&page_all(&hub, seeded(&hub)).await);
+    let (got, _) = rows(&page_all(&hub, seeded(&hub)).await);
     let mut want: Vec<String> = (0..3).map(|n| format!("first {n}")).collect();
     want.push("--- earlier transcript not found".into());
     want.push("--- resumed 21:50Z".into());
     want.extend((0..10).map(|n| format!("cur {n}")));
-    assert_eq!(rows, want);
+    assert_eq!(got, want);
     // With nothing older on disk at all, the dividers end the scrollback.
     std::fs::remove_file(file(&home, "first")).unwrap();
-    let (rows, _) = rows(&page_all(&hub, seeded(&hub)).await);
+    let (got, _) = rows(&page_all(&hub, seeded(&hub)).await);
     let gone = "--- earlier transcript not found";
-    assert_eq!(rows[..3], [gone, gone, "--- resumed 21:50Z"]);
-    assert_eq!(rows.len(), 13);
+    assert_eq!(got[..3], [gone, gone, "--- resumed 21:50Z"]);
+    assert_eq!(got.len(), 13);
     let _ = std::fs::remove_dir_all(home);
 }
 
@@ -268,10 +268,10 @@ async fn a_compaction_is_a_divider_where_it_happened() {
     run_under(&hub, &["s"]);
     let session = hub.resolve("chat").unwrap();
     hub.replay_adopted(&session, "claude", file(&home, "s")).await;
-    let (rows, _) = rows(&page_all(&hub, seeded(&hub)).await);
+    let (got, _) = rows(&page_all(&hub, seeded(&hub)).await);
     let mut want: Vec<String> = (0..10).map(|n| format!("s {n}")).collect();
     want.push("--- compacted".into());
     want.extend((10..30).map(|n| format!("s {n}")));
-    assert_eq!(rows, want, "the summary itself is never a prompt");
+    assert_eq!(got, want, "the summary itself is never a prompt");
     let _ = std::fs::remove_dir_all(home);
 }

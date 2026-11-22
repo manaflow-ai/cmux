@@ -360,10 +360,12 @@ async fn which_transcript(
         && let (Some(home), Some(mark)) = (home, mark.clone())
     {
         let ids: Vec<String> = meta.previous_agent_session_ids.iter().rev().cloned().collect();
-        let found = tokio::task::spawn_blocking(move || chain::seeded_by_mark(&home, &ids, &mark))
-            .await
-            .ok()
-            .flatten();
+        let wanted = mark.clone();
+        let found =
+            tokio::task::spawn_blocking(move || chain::seeded_by_mark(&home, &ids, &wanted))
+                .await
+                .ok()
+                .flatten();
         if let Some((id, file)) = found {
             return Ok((file, 0, Some(id), Some(mark)));
         }
