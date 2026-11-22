@@ -203,13 +203,37 @@ await requireBrowserLane("transcript-thumb-look.test.ts", async () => {
               attributeFilter: ["data-cmux-scrolling", "data-cmux-scroller-near"],
             });
           });
-          // The wheel over the bar lane does not reach the scroller here (the marks stayed empty), so
-          // the scroll is a script step of the same size: the scroll event marks it as a wheel would.
-          await page.evaluate(() => {
-            document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollBy(0, 60);
-          });
+          await page.evaluate(
+            ([x, y]) => {
+              const seen = (window as any).__marks as string[];
+              const name = (node: Element | null) =>
+                node ? `${node.tagName.toLowerCase()}.${String(node.className).slice(0, 60)}` : "none";
+              const chain = (node: Element | null) => {
+                const out: string[] = [];
+                for (let at = node; at && out.length < 6; at = at.parentElement) out.push(name(at));
+                return out.join(" < ");
+              };
+              seen.push(`at point: ${chain(document.elementFromPoint(x, y))}`);
+              window.addEventListener(
+                "wheel",
+                (event) => {
+                  const target = event.target as Element;
+                  seen.push(`wheel target=${chain(target)} cancelable=${event.cancelable}`);
+                  setTimeout(() => seen.push(`wheel after: prevented=${event.defaultPrevented}`));
+                },
+                { capture: true, passive: true },
+              );
+              document.addEventListener("scroll", () => seen.push("scroll"), {
+                capture: true,
+                passive: true,
+                once: true,
+              });
+            },
+            [view.x + view.width - 4, middle.y + 1],
+          );
           // A move on the bar while the scroll shows reads the pointer against the shown thumb.
           await page.mouse.move(view.x + view.width - 4, middle.y + 1, { steps: 2 });
+          await page.mouse.wheel(0, 60);
           await settled(true).catch(async (error) => {
             const state = await page.evaluate(() => {
               const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
