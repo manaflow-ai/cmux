@@ -100,6 +100,7 @@ import { timeHoverWording } from "../agent-session/acpmux/conversation/timeHover
 import { timeHoverDate } from "../agent-session/acpmux/conversation/timeHoverDate.experiment";
 import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.experiment";
 import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.experiment";
+import { unitCost } from "../agent-session/acpmux/unitCost/unitCost.experiment";
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
 import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
 import { jumpLatestPlace } from "../agent-session/acpmux/jumpPlace.experiment";
@@ -216,6 +217,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   fieldGrowthMotion,
   composerDockMotion,
   teamAudit,
+  unitCost,
   jumpPairLook,
   jumpLatestPlace,
   outcomeAsk,
