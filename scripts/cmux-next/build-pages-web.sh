@@ -39,6 +39,7 @@ coderouter
 debug-settings
 feed
 files
+forum
 github
 group-editor
 history

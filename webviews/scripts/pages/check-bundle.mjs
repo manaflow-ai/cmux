@@ -38,6 +38,7 @@ const expectedPages = new Set([
   "debug-settings",
   "feed",
   "files",
+  "forum",
   "github",
   "glass-parity",
   "group-editor",
