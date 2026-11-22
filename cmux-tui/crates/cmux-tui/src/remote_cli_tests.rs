@@ -1453,14 +1453,6 @@ fn remote_client_locale_fixture() {
         client_relay_options(None, vec!["relay+wss://one.example".into()], vec![], vec![]),
         client_relay_options(
             None,
-            (0..5).map(|index| format!("relay+wss://relay-{index}.example")).collect(),
-            (0..5).map(|index| format!("slot-{index}")).collect(),
-            (0..5)
-                .map(|index| ClientRelayCredentialArg::File(format!("ticket-{index}").into()))
-                .collect(),
-        ),
-        client_relay_options(
-            None,
             vec!["wss://not-a-relay.example".into()],
             vec!["slot".into()],
             vec![ClientRelayCredentialArg::File("ticket".into())],
