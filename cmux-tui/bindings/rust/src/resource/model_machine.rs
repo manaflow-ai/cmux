@@ -79,14 +79,15 @@ mod tests {
         let legacy: MachineSnapshot = serde_json::from_value(value.clone()).unwrap();
         assert!(legacy.platform.is_none());
         assert!(legacy.capabilities.is_empty());
-        for (field, bad) in [
-            ("platform", json!({"os":1})),
-            ("platform", json!({"path":"/private"})),
-            ("capabilities", json!([1])),
-        ] {
+        for (field, bad) in [("platform", json!({"os":1})), ("capabilities", json!([1]))] {
             let mut malformed = value.clone();
             malformed[field] = bad;
             assert!(serde_json::from_value::<MachineSnapshot>(malformed).is_err());
         }
+        // A field a newer daemon adds is ignored, not refused.
+        let mut newer = value.clone();
+        newer["platform"] = json!({"os":"linux","path":"/private"});
+        let machine: MachineSnapshot = serde_json::from_value(newer).unwrap();
+        assert_eq!(machine.platform.unwrap().os.as_deref(), Some("linux"));
     }
 }
