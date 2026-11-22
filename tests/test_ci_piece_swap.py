@@ -271,6 +271,16 @@ class WorkflowTest(unittest.TestCase):
         plan = batch.plan_batch("a" * 40, [], suites, lambda base: [], branch="feat-cmux-next")
         self.assertEqual(len(plan["suites"]), len(suites))
 
+    def test_pieces_drill_branch_stays_drill_only_after_its_green_batch(self):
+        """Run 45037084940: the red batch planned web and rust-workspaces too, and its judge waited 85 minutes
+        on web shards before it could name the drill's red."""
+        suites = batch.load_manifest()
+        green = [{"id": 1, "event": "push", "status": "completed", "head_sha": "b" * 40, "display_title": "batch push", "name": "batch push"}]
+        self.assertTrue(batch.is_batch(green[0]))
+        plan = batch.plan_batch("a" * 40, green, suites, lambda base: [DRILL_RED, DRILL_KEEP], branch="lane/post-merge-drill-pieces-4")
+        self.assertEqual(plan["suites"], ["drill"])
+        self.assertEqual(plan["base"], "b" * 40)
+
     def test_drill_suite_reads_both_drill_pieces(self):
         drill = batch.load_manifest()["drill"]
         self.assertTrue(drill.reached([DRILL_RED]))
