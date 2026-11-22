@@ -129,6 +129,13 @@ extension SidebarViewComponents {
         set { list.hoverCard.timelineSource = newValue }
     }
 
+    /// A workspace's split layout for its hover card's shaped preview (Leo 2026-11-22: "i have this layout. so. the
+    /// preview should be able to depict that."). Nil shows the tab list.
+    public var layoutSource: SidebarPaneLayoutSource? {
+        get { list.hoverCard.layoutSource }
+        set { list.hoverCard.layoutSource = newValue }
+    }
+
     /// True while the workspace hover card samples resources.
     public var isSamplingResources: Bool { list.hoverCard.resources.isOpen }
 
