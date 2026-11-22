@@ -174,11 +174,29 @@ def pool_ref(label: str) -> str:
     return f"fromJSON(vars.RUNNER_POOLS).{pool}"
 
 
-def trusted_fallback(label: str, other: str | None = None, ref=pool_ref) -> str:
+# cmux-gcp-lane-build-x64 is the feat-cmux-next tree's reserved label (#48177): in these selectors a
+# repository variable arm naming it applies on feat-cmux-next only.
+def lane_build_guard(variable: str) -> str:
+    return f"(github.ref == 'refs/heads/feat-cmux-next' || {variable} != 'cmux-gcp-lane-build-x64') && "
+
+
+FEAT_LANE_RESERVED = {
+    ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_BUILD_RUNNER"),
+    ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER"),
+}
+
+
+def trusted_fallback(label: str, other: str | None = None, ref=pool_ref, reserved: bool = False) -> str:
     """The size; the other size while the outage record exists; an operator's non-Blacksmith runner first."""
     other = other or (SMALL if label == BIG else BIG)
-    return (f"!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
+    guard = lane_build_guard("vars.LINUX_RUNNER") if reserved else ""
+    return (f"!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && {guard}vars.LINUX_RUNNER || "
             f"vars.CI_CLOUD_OVERFLOW_SAVED && {ref(other)} || {ref(label)}")
+
+
+def job_fallback(workflow: str, job_id: str, where: str, label: str) -> str:
+    return trusted_fallback(label, OTHER.get((workflow, job_id)), lambda size: route_ref(size, workflow, job_id),
+                            (workflow, job_id, where) in FEAT_LANE_RESERVED)
 
 
 # What comes before the trusted fallback: the fork and fork pull request
@@ -226,7 +244,7 @@ PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER"): (
         OWNER + "github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && "
         "(github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-nightly-x64' || "
-        "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
+        + lane_build_guard("vars.LINUX_RUNNER_DARWIN_CROSS") + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_BUILD_RUNNER"): (
         OWNER + "(inputs.linux_build_runner != '' && inputs.linux_build_runner || inputs.linux_runner != '' && inputs.linux_runner || "
         # Attempt 1 of a nightly-path tree run: a nightly-next push or a tree request takes the nightly-only
@@ -234,7 +252,8 @@ PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
         "github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && "
         "(github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-nightly-x64' || "
         "github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && "
-        "github.ref == 'refs/heads/feat-cmux-next' && 'cmux-gcp-lane-build-x64' || vars.LINUX_BUILD_RUNNER || ", ")"),
+        "github.ref == 'refs/heads/feat-cmux-next' && 'cmux-gcp-lane-build-x64' || "
+        + lane_build_guard("vars.LINUX_BUILD_RUNNER") + "vars.LINUX_BUILD_RUNNER || ", ")"),
     # Owner-gated jobs with no fork branch.
     ("cmux-next-terminal.yml", "rust-terminal-linux", "runs-on"): ("", ""),
     ("cmux-next-terminal.yml", "swift-terminal-linux", "runs-on"): ("", ""),
@@ -272,7 +291,7 @@ def expected_selector(workflow: str, job_id: str, where: str, label: str) -> str
             prefix = OWNER + FORK_PULL_REQUEST.format(label=FORK_LABEL_PLACEHOLDER)
     ref = lambda size: route_ref(size, workflow, job_id)  # noqa: E731
     return with_pool_fork_labels(
-        "${{ " + prefix + trusted_fallback(label, OTHER.get((workflow, job_id)), ref) + closing + " }}")
+        "${{ " + prefix + trusted_fallback(label, OTHER.get((workflow, job_id)), ref, (workflow, job_id, where) in FEAT_LANE_RESERVED) + closing + " }}")
 
 
 def load(name: str) -> dict:
@@ -321,9 +340,9 @@ class LinuxCompileRunners(unittest.TestCase):
                 # vars.LINUX_RUNNER appears only in the outage guard, never as
                 # a plain `vars.LINUX_RUNNER ||` that would pick 4 vCPU.
                 self.assertEqual(
-                    len(SHARED_VARIABLE.findall(value)), 2,
+                    len(SHARED_VARIABLE.findall(value)), 3 if (workflow, job_id, where) in FEAT_LANE_RESERVED else 2,
                     f"{workflow}:{job_id} {where} must read vars.LINUX_RUNNER only in "
-                    f"{trusted_fallback(label, OTHER.get((workflow, job_id)), lambda size: route_ref(size, workflow, job_id))!r}: {value}",
+                    f"{job_fallback(workflow, job_id, where, label)!r}: {value}",
                 )
 
     def test_each_compile_job_follows_the_blacksmith_outage_switch(self) -> None:
@@ -337,9 +356,9 @@ class LinuxCompileRunners(unittest.TestCase):
                     self.assertTrue(value.endswith(CMUX_LINUX_TAIL), value)
                     self.assertNotIn("RUNNER_POOLS", value)
                     continue
-                self.assertEqual(value.count(trusted_fallback(label, OTHER.get((workflow, job_id)), lambda size: route_ref(size, workflow, job_id))), 1, f"{workflow}:{job_id} {where}: {value}")
+                self.assertEqual(value.count(job_fallback(workflow, job_id, where, label)), 1, f"{workflow}:{job_id} {where}: {value}")
                 self.assertRegex(
-                    value, re.escape(trusted_fallback(label, OTHER.get((workflow, job_id)), lambda size: route_ref(size, workflow, job_id))) + r"\)? \}\}$",
+                    value, re.escape(job_fallback(workflow, job_id, where, label)) + r"\)? \}\}$",
                     f"{workflow}:{job_id} {where}: the outage guard must be the trusted fallback",
                 )
 

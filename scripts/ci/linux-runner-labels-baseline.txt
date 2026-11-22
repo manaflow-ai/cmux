@@ -58,5 +58,6 @@
 3 .github/workflows/thunderdome-label.yml
 3 .github/workflows/triage-radar.yml
 1 .github/workflows/tui-publish-npm.yml
+3 .github/workflows/vm-hassle.yml
 3 .github/workflows/web-complexity-trusted.yml
 1 .github/workflows/web-validation.yml
