@@ -28,8 +28,11 @@ cleanup() {
 trap cleanup EXIT
 depth=()
 [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
-git -C "$root" cat-file -e "$before^{commit}" 2>/dev/null \
-  || git -C "$root" fetch -q --no-tags --no-recurse-submodules ${depth[@]+"${depth[@]}"} origin "$before"
+if ! git -C "$root" cat-file -e "$before^{commit}" 2>/dev/null; then
+  # A fetch by id takes only a full one (a CI checkout is shallow, so an abbreviation resolves to nothing here).
+  [[ "$before" =~ ^[0-9a-f]{40}$ ]] || { echo "BEFORE_SHA $before is not in this checkout: give its full 40-character id" >&2; exit 2; }
+  git -C "$root" fetch -q --no-tags --no-recurse-submodules ${depth[@]+"${depth[@]}"} origin "$before" || exit 1
+fi
 before="$(git -C "$root" rev-parse "$before^{commit}")"
 after="$(git -C "$root" rev-parse HEAD)"
 tree="$scratch/${before:0:12}"
