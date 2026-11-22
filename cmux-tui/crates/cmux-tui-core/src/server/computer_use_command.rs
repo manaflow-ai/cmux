@@ -5,8 +5,9 @@
 //!   `{"state":"starting"|"off"|"unavailable","reason"}`. Starts the worker
 //!   when needed and waits up to 10 s for it. Local same-user connections
 //!   only (never a page, a WebSocket or a `cmux link` peer): the answer holds
-//!   the worker's secret. On macOS it is the cmux Remote host's
-//!   `computer_use.endpoint`.
+//!   the worker's secret. On a Mac whose cmux build embeds cmux Remote it is
+//!   that host's `computer_use.endpoint`; otherwise the daemon's own worker
+//!   runs in the Screen Sharing helper (`computer_use_host/macos.rs`).
 //! - `computer-use-config {config}`: a `PolicyConfig` from the verified app.
 //!   The machine owner's file (`/etc/cmux/computer-use.json`,
 //!   `%ProgramData%\cmux\computer-use.json`) still wins.
@@ -16,7 +17,7 @@
 //!   (it also removes a saved Never) and an `answer` that allows raise it
 //!   and need the verified app.
 //!
-//! Questions from the Linux and Windows worker reach the person as a cmux
+//! Questions from the daemon's own worker reach the person as a cmux
 //! notification while a verified app is connected ([`route_ask`]); the app
 //! answers them here. With no app connected they are `unavailable` at once.
 
@@ -80,12 +81,20 @@ fn app_connected(mux: &Mux) -> bool {
     })
 }
 
+/// Whether the daemon's own worker serves Computer Use on this Mac: the build
+/// embeds no cmux Remote, so the Screen Sharing helper runs the worker
+/// (`configure_remote_host` configured it). Linux and Windows always do.
+#[cfg(target_os = "macos")]
+fn own_worker(mux: &Mux) -> bool {
+    mux.control_clients.computer_use.configured()
+}
+
 pub(super) fn endpoint(mux: &Mux, client: u64) -> anyhow::Result<Value> {
     caller(mux, client)?;
     #[cfg(target_os = "macos")]
-    {
+    if !own_worker(mux) {
         let wait = crate::computer_use_host::ENDPOINT_WAIT.as_millis() as u64;
-        Ok(
+        return Ok(
             match mux
                 .control_clients
                 .remote_host
@@ -100,12 +109,9 @@ pub(super) fn endpoint(mux: &Mux, client: u64) -> anyhow::Result<Value> {
                 }
                 Err(reason) => json!({"state": "unavailable", "reason": reason}),
             },
-        )
+        );
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        Ok(mux.control_clients.computer_use.endpoint(crate::computer_use_host::ENDPOINT_WAIT))
-    }
+    Ok(mux.control_clients.computer_use.endpoint(crate::computer_use_host::ENDPOINT_WAIT))
 }
 
 pub(super) fn config(mux: &Mux, client: u64, config: Value) -> anyhow::Result<Value> {
@@ -116,25 +122,22 @@ pub(super) fn config(mux: &Mux, client: u64, config: Value) -> anyhow::Result<Va
         refused(BAD_REQUEST, format!("config is not a Computer Use policy: {error}"))
     })?;
     #[cfg(target_os = "macos")]
-    {
-        let _ = policy;
-        mux.control_clients
+    if !own_worker(mux) {
+        return mux
+            .control_clients
             .remote_host
             .call("computer_use.config", json!({"config": config}))
-            .map_err(|reason| refused(UNAVAILABLE, reason))
+            .map_err(|reason| refused(UNAVAILABLE, reason));
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let host = &mux.control_clients.computer_use;
-        if let Some((_, crate::computer_use_host::config::Source::Owner(path))) = host.config() {
-            return Ok(json!({
-                "applied": false,
-                "reason": format!("this machine's owner sets Computer Use in {}", path.display()),
-            }));
-        }
-        host.set_config(policy, crate::computer_use_host::config::Source::App);
-        Ok(json!({"applied": true, "status": host.status()}))
+    let host = &mux.control_clients.computer_use;
+    if let Some((_, crate::computer_use_host::config::Source::Owner(path))) = host.config() {
+        return Ok(json!({
+            "applied": false,
+            "reason": format!("this machine's owner sets Computer Use in {}", path.display()),
+        }));
     }
+    host.set_config(policy, crate::computer_use_host::config::Source::App);
+    Ok(json!({"applied": true, "status": host.status()}))
 }
 
 /// Answers that grant access (the rest only narrow it).
@@ -190,7 +193,7 @@ pub(super) fn approvals(mux: &Mux, client: u64, params: Value) -> anyhow::Result
         ));
     }
     #[cfg(target_os = "macos")]
-    {
+    if !own_worker(mux) {
         let mut answer = mux
             .control_clients
             .remote_host
@@ -199,31 +202,28 @@ pub(super) fn approvals(mux: &Mux, client: u64, params: Value) -> anyhow::Result
         if !verified_app && let Some(fields) = answer.as_object_mut() {
             fields.remove("pending");
         }
-        Ok(answer)
+        return Ok(answer);
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let host = &mux.control_clients.computer_use;
-        let unavailable = |reason: String| refused(UNAVAILABLE, reason);
-        match action {
-            "list" => {
-                let mut list = host.list_approvals().map_err(unavailable)?;
-                // Who asks for what is the app's to show.
-                if !verified_app && let Some(fields) = list.as_object_mut() {
-                    fields.remove("pending");
-                }
-                Ok(list)
+    let host = &mux.control_clients.computer_use;
+    let unavailable = |reason: String| refused(UNAVAILABLE, reason);
+    match action {
+        "list" => {
+            let mut list = host.list_approvals().map_err(unavailable)?;
+            // Who asks for what is the app's to show.
+            if !verified_app && let Some(fields) = list.as_object_mut() {
+                fields.remove("pending");
             }
-            "answer" => {
-                let id = params.get("id").and_then(Value::as_u64).unwrap_or_default();
-                let answer = params.get("answer").and_then(Value::as_str).unwrap_or_default();
-                host.answer(id, answer).map_err(|reason| refused(BAD_REQUEST, reason))?;
-                Ok(json!({"answered": id}))
-            }
-            _ => {
-                host.edit_approvals(action, app_id).map_err(unavailable)?;
-                Ok(json!({"done": action}))
-            }
+            Ok(list)
+        }
+        "answer" => {
+            let id = params.get("id").and_then(Value::as_u64).unwrap_or_default();
+            let answer = params.get("answer").and_then(Value::as_str).unwrap_or_default();
+            host.answer(id, answer).map_err(|reason| refused(BAD_REQUEST, reason))?;
+            Ok(json!({"answered": id}))
+        }
+        _ => {
+            host.edit_approvals(action, app_id).map_err(unavailable)?;
+            Ok(json!({"done": action}))
         }
     }
 }

@@ -7,7 +7,8 @@
 
 /** The one tool a window shows; it never changes for a window. */
 /** `agentTools` asks whether cmux may add its MCP server (Computer Use included) to the person's coding agents. */
-export type OnboardingStep = "agents" | "importData" | "computerUse" | "agentTools";
+/** `makeItYours` is a new person's one setup screen: how they work, the density and a background (cmux#48416). */
+export type OnboardingStep = "agents" | "importData" | "computerUse" | "agentTools" | "makeItYours";
 
 /** What the footer's filled button says (OnboardingModel.primaryTitle). */
 export type PrimaryAction =
@@ -76,12 +77,21 @@ export interface AgentsState {
 
 // MARK: Import from Browser
 
-export type ImportDataKind = "bookmarks" | "history" | "openTabs" | "cookies" | "searchEngines" | "passwords";
+export type ImportDataKind =
+  | "bookmarks"
+  | "history"
+  | "openTabs"
+  | "extensions"
+  | "cookies"
+  | "searchEngines"
+  | "passwords";
 
 export interface ImportCounts {
   bookmarks: number;
   history: number;
   openTabs: number;
+  /** Extensions read (store ones open their page in the profile, unpacked ones are copied). Older hosts leave it out. */
+  extensions?: number;
   cookies: number;
   passwords: number;
   searchEngines: number;
@@ -231,6 +241,32 @@ export interface AgentToolsState {
   answered: boolean;
 }
 
+// MARK: Make cmux Yours
+
+/** GUI-first (recommended: chats, browsers and terminals side by side, Cmd-T the New Tab page) or
+ * terminal-first (Cmd-T opens a terminal). */
+export type WorkStyle = "gui" | "terminal";
+/** Three of the five `appearance.density` levels: compact, standard (the default) and comfortable. */
+export type DensityChoice = "compact" | "standard" | "comfortable";
+
+/** A background offered: Shuffle Paintings (`daily`, no name: the page names it) or a built-in work. */
+export interface MakeItYoursBackground {
+  id: string;
+  /** The work's "Title — Artist"; empty for Shuffle Paintings. */
+  name: string;
+  preview: HostImage | null;
+}
+
+export interface MakeItYoursState {
+  workStyle: WorkStyle;
+  density: DensityChoice;
+  /** The background's id; null: none. */
+  background: string | null;
+  backgrounds: MakeItYoursBackground[];
+  /** The backgrounds' previews were read. */
+  loaded: boolean;
+}
+
 // MARK: The page
 
 export interface OnboardingState {
@@ -241,6 +277,8 @@ export interface OnboardingState {
   computerUse: ComputerUseState | null;
   /** The cmux Tools step's state; null on the other steps (absent from older hosts). */
   agentTools?: AgentToolsState | null;
+  /** Make cmux Yours' state; null on the other steps (absent from older hosts). */
+  makeItYours?: MakeItYoursState | null;
 }
 
 /** Ops the page calls: [params, result]. Every gesture answers `{}` and the change comes back on
@@ -269,6 +307,11 @@ export interface OnboardingOps {
   "cmux.onboarding.import.skipPasswords": [Record<string, never>, unknown];
   "cmux.onboarding.computerUse.allow": [{ pane: ComputerUsePane }, unknown];
   "cmux.onboarding.computerUse.restart": [Record<string, never>, unknown];
+  /** Make cmux Yours: each pick is written at once, so the window behind shows it. */
+  "cmux.onboarding.makeItYours.workStyle": [{ value: WorkStyle }, unknown];
+  "cmux.onboarding.makeItYours.density": [{ value: DensityChoice }, unknown];
+  /** `id` null: no background. */
+  "cmux.onboarding.makeItYours.background": [{ id: string | null }, unknown];
 }
 
 export interface OnboardingEvents {
@@ -294,5 +337,8 @@ export const OPS = {
   skipPasswords: "cmux.onboarding.import.skipPasswords",
   allow: "cmux.onboarding.computerUse.allow",
   restart: "cmux.onboarding.computerUse.restart",
+  workStyle: "cmux.onboarding.makeItYours.workStyle",
+  density: "cmux.onboarding.makeItYours.density",
+  background: "cmux.onboarding.makeItYours.background",
   changed: "cmux.onboarding.changed",
 } as const satisfies Record<string, keyof OnboardingOps | keyof OnboardingEvents>;

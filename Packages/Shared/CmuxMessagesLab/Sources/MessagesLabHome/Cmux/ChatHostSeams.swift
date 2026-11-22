@@ -38,6 +38,10 @@ protocol ChatIntents: AnyObject {
     func attachmentPasteText(from pasteboard: NSPasteboard) -> String?
     /// The file of the draft attachment `id`, named like it; nil when it has none here.
     func draftAttachmentFile(_ id: ID) -> URL?
+    /// Whether the draft attachment `id`, which left the field, can come back: Edit > Undo (or
+    /// Redo) put its picture in the field again, and the draft takes it back only when the host
+    /// still holds what a send needs for it (cmux #48500).
+    func canRestoreDraftAttachment(_ id: ID) -> Bool
     /// A drop on the field: true when the host's intake took the drag's
     /// pasteboard (file URLs, file promises, pictures).
     func takeDroppedAttachments(from pasteboard: NSPasteboard) -> Bool
@@ -141,4 +145,6 @@ extension ChatIntents {
     func attachmentDropTargeted(_ targeted: Bool) {}
     func attachmentPasteText(from pasteboard: NSPasteboard) -> String? { nil }
     func draftAttachmentFile(_ id: ID) -> URL? { nil }
+    /// Hosts without bytes of their own send the attachment's model: it can always come back.
+    func canRestoreDraftAttachment(_ id: ID) -> Bool { true }
 }
