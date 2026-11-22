@@ -12,7 +12,7 @@ import SwiftUI
 /// (the Mac stayed unreachable). Never an alert, never a raw timeout (Leo 2026-11-21). Picked
 /// in the recovery gallery's `reconnect` scene (variant A) over a floating pill and a top bar.
 public struct ListStatusRow: View {
-    public enum State: Equatable, Sendable {
+    public enum State: Equatable, Sendable, CaseIterable {
         case updating
         case reconnecting
         case stale
@@ -33,8 +33,8 @@ public struct ListStatusRow: View {
     public var body: some View {
         let theme = CmuxMobileTheme.standard
         HStack(spacing: 8) {
-            if state == .stale {
-                Image(systemName: "wifi.exclamationmark")
+            if state == .stale, let symbol = ConnectionChip.Kind.macOffline.symbol {
+                Image(systemName: symbol)
                     .font(.footnote)
                     .foregroundStyle(theme.colors.label3.color)
             } else {
@@ -55,12 +55,11 @@ public extension ListStatusRow.State {
     var chip: ConnectionChip.Content {
         switch self {
         case .updating:
-            .init(word: String(localized: "Updating"), symbol: nil, sentence: String(localized: "Updating…"))
+            .init(.updating, sentence: String(localized: "Updating…"))
         case .reconnecting:
-            .init(word: String(localized: "Reconnecting"), symbol: nil,
-                  sentence: String(localized: "Reconnecting to your Mac…"))
+            .init(.reconnecting, sentence: String(localized: "Reconnecting to your Mac…"))
         case .stale:
-            .init(word: String(localized: "Mac offline"), symbol: "wifi.exclamationmark",
+            .init(.macOffline,
                   sentence: String(localized: "Can't reach your Mac. Showing chats from earlier."))
         }
     }

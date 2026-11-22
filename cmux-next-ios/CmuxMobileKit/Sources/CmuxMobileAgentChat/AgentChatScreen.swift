@@ -693,8 +693,7 @@ struct AgentChatConnectionLine: View {
     var body: some View {
         Group {
             if let line = store.connectionLine {
-                ConnectionChip(.init(word: store.summary.status == .disconnected ? String(localized: "Connecting") : String(localized: "Updating"),
-                                     symbol: nil, sentence: line))
+                ConnectionChip(.init(store.summary.status == .disconnected ? .connecting : .updating, sentence: line))
                     .padding(.leading, 20)
                     .alignmentGuide(.top) { $0[.bottom] + 8 }
                     .accessibilityIdentifier("agentChat.connectionLine")

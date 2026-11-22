@@ -42,12 +42,22 @@ public struct RecoveryGalleryRoot: View {
     }
 
     let scene: String
+    /// `chip-b`, `chiplist-c`: one variant of a variants scene, so each gets its own shot.
+    let variant: String?
     /// `-cmux-mobile-gallery-appearance light|dark`: the scheme the shots use (else the system's).
     let scheme: ColorScheme?
 
     public init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         let index = arguments.firstIndex(of: "-cmux-mobile-recovery-gallery")
-        scene = index.flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil } ?? "states"
+        let named = index.flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil } ?? "states"
+        let parts = named.split(separator: "-", maxSplits: 1).map(String.init)
+        if ["chip", "chiplist"].contains(parts[0]), parts.count == 2 {
+            scene = parts[0]
+            variant = parts[1]
+        } else {
+            scene = named
+            variant = nil
+        }
         let look = arguments.firstIndex(of: "-cmux-mobile-gallery-appearance").flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil }
         scheme = look == "dark" ? .dark : look == "light" ? .light : nil
     }
@@ -190,49 +200,25 @@ public struct RecoveryGalleryRoot: View {
     /// last row and competes with the tab bar).
     /// C: a thin indeterminate bar under the title with the rows dimmed (reads as blocked, and
     /// dimming invites a tap that does nothing different).
+    /// The terminal page's three chip placements (`chip`, or one of them: `chip-a|b|c`).
     private var connectionChips: some View {
-        let states: [ConnectionChip.Content] = [
-            .init(word: "Connecting", symbol: nil, sentence: "Connecting to Mac Studio…"),
-            .init(word: "Reconnecting", symbol: nil, sentence: "Reconnecting to Mac Studio…"),
-            .init(word: "Mac offline", symbol: "wifi.slash", sentence: "Mac Studio is offline"),
-            .init(word: "Can't reach", symbol: "exclamationmark.triangle", sentence: "Can't reach this terminal"),
-        ]
-        func page<Chip: View>(_ alignment: Alignment, @ViewBuilder chip: () -> Chip) -> some View {
-            VStack(alignment: .leading, spacing: 2) {
-                // visible-only: a fixed gallery of six rows.
-                ForEach(0..<6, id: \.self) { i in
-                    Text(verbatim: i == 5 ? "$ " : "line \(i + 1) of the build output")
-                        .font(.system(size: 13, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.85))
-                }
-                Spacer(minLength: 0)
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(.white.opacity(0.12))
-                    .frame(height: 44)
-            }
-            .padding(12)
-            .frame(height: 210)
-            .background(Color.black)
-            .overlay(alignment: alignment) { chip().padding(alignment == .top ? .top : .bottom, alignment == .top ? 8 : 64).padding(.horizontal, 12) }
-            .environment(\.colorScheme, .dark)
-        }
+        let states = TerminalChipPage.states
         return ScrollView {
             VStack(spacing: 12) {
-                // visible-only: four fixed states.
-                ForEach(states, id: \.self) { state in
-                    galleryLabel("A · top center · \(state.word)")
-                    page(.top) { ConnectionChip(state, retry: state.symbol == nil ? nil : {}) }
+                if showsVariant("a") {
+                    // visible-only: four fixed states.
+                    ForEach(states, id: \.self) { state in
+                        galleryLabel("A · top center · \(state.word)")
+                        TerminalChipPage(variant: .a, state: state)
+                    }
                 }
-                galleryLabel("B · above the composer, leading")
-                page(.bottomLeading) { ConnectionChip(states[1]) }
-                galleryLabel("C · symbol only, trailing")
-                page(.topTrailing) {
-                    Image(systemName: "wifi.exclamationmark")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 30, height: 26)
-                        .glassEffect(.regular, in: .capsule)
-                        .accessibilityLabel(Text(verbatim: states[1].sentence))
+                if showsVariant("b") {
+                    galleryLabel("B · above the composer, leading")
+                    TerminalChipPage(variant: .b, state: states[1])
+                }
+                if showsVariant("c") {
+                    galleryLabel("C · symbol only, trailing · \(states[2].word)")
+                    TerminalChipPage(variant: .c, state: states[2])
                 }
             }
             .padding()
@@ -298,6 +284,7 @@ public struct RecoveryGalleryRoot: View {
         let states: [ConnectionBannerState] = [.reconnecting(to: "Mac Studio"), .macOffline("Mac Studio"), .offline]
         return ScrollView {
             VStack(spacing: 12) {
+                if showsVariant("a") {
                 // visible-only: three fixed link states.
                 ForEach(states, id: \.self) { state in
                     galleryLabel("A · top center · \(state.chip?.word ?? state.text)")
@@ -319,16 +306,14 @@ public struct RecoveryGalleryRoot: View {
                 .scrollDisabled(true)
                 .frame(height: 280)
                 .cmuxMobileBanner(.signedOut, retry: {})
-                galleryLabel("B · top leading")
-                list(.topLeading) { ConnectionChip(ConnectionBannerState.reconnecting(to: "Mac Studio").chip!) }
-                galleryLabel("C · symbol only, top trailing")
-                list(.topTrailing) {
-                    Image(systemName: "moon.zzz")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 30, height: 26)
-                        .glassEffect(.regular, in: .capsule)
-                        .accessibilityLabel(Text(verbatim: "Mac Studio is offline"))
+                }
+                if showsVariant("b") {
+                    galleryLabel("B · top leading")
+                    list(.topLeading) { ConnectionChip(ConnectionBannerState.reconnecting(to: "Mac Studio").chip!) }
+                }
+                if showsVariant("c") {
+                    galleryLabel("C · symbol only, top trailing · Mac offline")
+                    list(.topTrailing) { ConnectionChip.SymbolOnly(ConnectionBannerState.macOffline("Mac Studio").chip!) }
                 }
             }
             .padding(.vertical, 60)
@@ -336,6 +321,8 @@ public struct RecoveryGalleryRoot: View {
         .accessibilityIdentifier("recoveryGallery.chiplist.variants")
         .background(CmuxMobileTheme.standard.colors.bg.color)
     }
+
+    private func showsVariant(_ name: String) -> Bool { variant == nil || variant == name }
 
     private func galleryLabel(_ text: String) -> some View {
         Text(text).font(.caption.weight(.semibold)).foregroundStyle(.tertiary)

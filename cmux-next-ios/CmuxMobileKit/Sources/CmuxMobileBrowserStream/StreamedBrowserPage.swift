@@ -199,7 +199,7 @@ extension StreamedBrowserModel {
     /// (the Mac ended the page, reopening), which keeps its words.
     static func linkChip(for reason: String) -> ConnectionChip.Content? {
         guard reason == reconnectingText || reason == linkReconnectingText else { return nil }
-        return ConnectionChip.Content(word: String(localized: "Reconnecting"), symbol: nil, sentence: reason)
+        return ConnectionChip.Content(.reconnecting, sentence: reason)
     }
 }
 

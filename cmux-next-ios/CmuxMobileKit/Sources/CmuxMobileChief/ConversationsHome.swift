@@ -446,8 +446,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         // "a symbol or short thing, not a sentence. stop layout shifting").
         .overlay(alignment: .bottom) {
             if listNote(searching: searching) == .updating {
-                ConnectionChip(.init(word: String(localized: "Updating"), symbol: nil,
-                                     sentence: String(localized: "Updating…")))
+                ConnectionChip(.init(.updating, sentence: String(localized: "Updating…")))
                     .padding(.bottom, 8)
                     .accessibilityIdentifier("home.note.updating")
             }
