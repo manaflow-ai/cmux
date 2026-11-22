@@ -41,7 +41,6 @@
 // (composerStates.css), so the chat above moves one row at most, and scrolls freely: a scroll rests
 // where it stops, its end too. It stays open for its chat until closed (not across reloads);
 // prompts sent now always show.
-import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
 import { QueuedImages } from "./QueuedImages";
@@ -217,11 +216,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   readImage,
   onSideChat,
   commands,
-  wakeNoteDelayMs = RESUME_NOTE_DELAY_MS,
 }: {
-  /// How long a prompt held for a waking Cloud machine waits before its note says so (afterDelay.ts);
-  /// the gallery's settled variants pass 0.
-  wakeNoteDelayMs?: number;
   queue: AcpmuxSnapshot["queue"];
   /// The chat the queue belongs to: a long queue opened stays open for it.
   chat?: string;
@@ -294,13 +289,6 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   const [unfolded, setUnfolded] = useState(() => chat !== undefined && openQueues.has(chat));
   // The person's prompts only: another agent's message draws in the transcript.
   const shown = ownQueue(queue).filter((entry) => !leaving.has(entry.id));
-  // A waking machine stays out of sight at first (cloudWake.ts, afterDelay.ts): the held prompt shows
-  // at once, as a sent one does, and its note's line is there from the same frame, empty, until the
-  // wake has taken longer than the threshold; then "Waking the machine…" fades into it.
-  const wakeNoteShown = useAfterDelay(
-    shown.some((entry) => entry.waking),
-    wakeNoteDelayMs,
-  );
   // The list's fit, hold and refocus layout effects (below) run when something it draws from changes
   // (its rows and their state, the fold, the open edit, the notes, the skill words and the strings),
   // never on a render that changed none of them, so such a render reads no row's box. A row's own
@@ -393,7 +381,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
     const pad = parseFloat(current.ownerDocument.defaultView?.getComputedStyle(current).paddingBottom ?? "") || 0;
     const need = last ? offsets(current, last).bottom + pad : 0;
     if (need < parseFloat(current.style.minHeight || "0") - 0.5) release(current);
-  }, [queue, leaving, sentNow, editing, dropped, open, unfolded, paused, pauseReason, wakeNoteShown, skills, t]);
+  }, [queue, leaving, sentNow, editing, dropped, open, unfolded, paused, pauseReason, skills, t]);
   // A held list gives room back when the stack around it grows (a permission card or a question
   // arrives under the pointer, the pane shortens): past the room the pane leaves the stack, or by
   // what a part above it has had to give up since the hold began (bottomStack.css shrinks those
@@ -609,7 +597,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
       rows.disconnect();
       for (const row of current.querySelectorAll(":scope > .acpmux-queued")) rows.observe(row);
     }
-  }, [queue, leaving, sentNow, editing, dropped, open, unfolded, paused, pauseReason, wakeNoteShown, skills, t]);
+  }, [queue, leaving, sentNow, editing, dropped, open, unfolded, paused, pauseReason, skills, t]);
   useEffect(
     () => () => {
       const document = list.current?.ownerDocument;
@@ -632,7 +620,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
       focusNext.current = undefined;
       focusRoute(into, "system", "the queue changed: the composer");
     }
-  }, [queue, leaving, sentNow, editing, dropped, open, unfolded, paused, pauseReason, wakeNoteShown, skills, t]);
+  }, [queue, leaving, sentNow, editing, dropped, open, unfolded, paused, pauseReason, skills, t]);
   const act = (id: string, action: () => Promise<boolean>) => {
     setLeaving((current) => new Set(current).add(id));
     const restore = () =>
@@ -1007,7 +995,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
     <>
       {!entry.next && (
         <span className="acpmux-hidden-label">
-          {t(entry.waking ? "composer.heldForWake" : entry.held ? "composer.heldForTrust" : "composer.queued")}
+          {t(entry.held && !entry.waking ? "composer.heldForTrust" : "composer.queued")}
         </span>
       )}
       {editing === entry.id ? (
@@ -1149,20 +1137,17 @@ export const ComposerQueue = React.memo(function ComposerQueue({
         )}
         {/* One flat keyed list: a row keeps its element (and focus) when a row before it leaves. */}
         {visible.flatMap((entry, index) => [
-          // The prompts the folder's trust holds follow one note that says so (trustHeld.ts); those
-          // a waking Cloud machine holds, one that says it wakes (cloudWake.ts).
-          entry.held && (!visible[index - 1]?.held || !visible[index - 1]?.waking !== !entry.waking) && (
+          // The prompts the folder's trust holds follow one note that says so (trustHeld.ts). Those a
+          // waking Cloud machine holds wait as any queued prompt does, with no note at all: the wake
+          // reads as thinking (cloudWake.ts; Leo, 2026-11-22: "i want it to just work").
+          entry.held && !entry.waking && (!visible[index - 1]?.held || visible[index - 1]?.waking) && (
             <li
-              key={entry.waking ? "held-for-wake" : "held-for-trust"}
+              key="held-for-trust"
               className="acpmux-queue-paused acpmux-queue-held"
-              data-held-for={entry.waking ? "wake" : "trust"}
+              data-held-for="trust"
               aria-hidden="true"
             >
-              {entry.waking ? (
-                wakeNoteShown && <span data-enter="fade">{t("composer.heldForWake")}</span>
-              ) : (
-                <span>{t("composer.heldForTrust")}</span>
-              )}
+              <span>{t("composer.heldForTrust")}</span>
             </li>
           ),
           // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- A row takes focus from ↑ on the prompt and has its keys (edit, move, send now, remove); its buttons do the same by pointer.

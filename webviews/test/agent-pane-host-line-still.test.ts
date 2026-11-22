@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture prompts and the host line's stand-in text, not shipped UI.
-// The host's line above the composer (HostError.tsx: "Reconnecting…", or a refusal and its Retry) moves
+// The host's line above the composer (HostError.tsx: the waiting line, or a refusal and its Retry) moves
 // no transcript row when it comes or goes while the view follows the latest row (Leo, 2026-11-16, after
 // restarting his NIGHTLY: "it said something went wrong with a retry button just above the composer ...
 // and then it layout shifted as it drew and tried to settle"). Before, the room under the last row took

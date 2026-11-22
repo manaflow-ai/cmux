@@ -106,8 +106,9 @@ test("a queued Retry holds Restart acpmux until the handshake settles", async ()
 
 // Leo, 2026-11-12, after the machine hosting a chat's agent rebooted: "the recovery needs to be a
 // lot better and it shouldn't talk so much bullshit"; "try what? no, it should just automatically
-// do stuff". A failure the pane clears by asking again by itself is one quiet line.
-test("a late failure the pane retries by itself is only Reconnecting…, with no button and no reassurance", async () => {
+// do stuff"; 2026-11-22: "i dont wanna see reconnecting to the Mac in a toast, i want it to just
+// connect"). A failure the pane clears by asking again by itself draws nothing.
+test("a late failure the pane retries by itself draws nothing: no line, no button, no reassurance", async () => {
   const container = installDom();
   await act(async () => {
     root = createRoot(container);
@@ -119,7 +120,7 @@ test("a late failure the pane retries by itself is only Reconnecting…, with no
       />,
     );
   });
-  expect(container.textContent).toBe("Reconnecting…");
+  expect(container.innerHTML).toBe("");
   expect(buttons(container)).toEqual([]);
   expect(container.querySelector('[role="alert"]')).toBeNull();
   expect(container.querySelector(".acpmux-host-line-note")).toBeNull();
@@ -197,13 +198,13 @@ test("a reconnecting or slow peer renders no card, no line and no Retry", async 
   }
 });
 
-test("a machine gone for minutes (rebooting) is only Reconnecting…, never acpmux's words or Retry", async () => {
+test("a machine gone for minutes (rebooting) draws nothing, never Reconnecting…, acpmux's words or Retry", async () => {
   const container = installDom();
   await act(async () => {
     root = createRoot(container);
     root.render(<PaneHostLine error={new Error(LEOS)} failingForMs={5 * 60_000} />);
   });
-  expect(container.textContent).toBe("Reconnecting…");
+  expect(container.textContent).toBe("");
   expect(buttons(container)).toEqual([]);
   expect(container.textContent).not.toContain("peer_unreachable");
   expect(container.textContent).not.toContain("acpmux machine ls");
@@ -290,12 +291,14 @@ test("one host line at a time: a long wait replaces an earlier failure's line", 
   expect(buttons(container)).toEqual(["Restart agent service"]);
 });
 
-test("a wait the host cannot restart keeps its time and shows no button", async () => {
+test("a wait the host cannot restart draws nothing, however long", async () => {
   const container = installDom();
   await act(async () => {
     root = createRoot(container);
     root.render(<HostWaitingLine since={0} now={40_000} />);
   });
-  expect(container.textContent).toContain("Waiting for the agent service (0:40)");
+  expect(container.textContent).toBe("");
   expect(buttons(container)).toEqual([]);
+  await act(async () => root!.render(<HostWaitingLine since={0} now={3_600_000} />));
+  expect(container.textContent).toBe("");
 });

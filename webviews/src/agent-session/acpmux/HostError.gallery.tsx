@@ -215,14 +215,15 @@ export default componentEntry<Props>({
     },
     // Leo, 2026-11-12, after the machine hosting the agent rebooted: "the recovery needs to be a lot
     // better and it shouldn't talk so much bullshit"; "try what? no, it should just automatically
-    // do stuff". Picked: "automatic", one quiet line however long the outage, no button.
+    // do stuff"; 2026-11-22: "i dont wanna see reconnecting to the Mac in a toast, i want it to just
+    // connect"). Picked: "automatic", nothing at all however long the outage.
     automatic: {
       props: {
         message: "Couldn't connect to the agent.",
         initialRetrying: false,
         withRetry: true,
       },
-      note: "Picked. A recovery still failing after 25 s (a machine rebooting, an agent service starting): only Reconnecting…, the line a short reconnect shows. No Retry, no Details, no reassurance; a message sent meanwhile waits in the composer and goes once the agent is back.",
+      note: "Picked. A recovery still failing after 25 s (a machine rebooting, an agent service starting): nothing is drawn, however long. No Reconnecting…, no Retry, no Details; a message sent meanwhile waits and goes once the agent is back, and says so only past two minutes, on its own message.",
     },
     "outage-named": {
       props: { message: "", initialRetrying: false, withRetry: false, outage: "named" },
@@ -300,10 +301,10 @@ export default componentEntry<Props>({
       note: "Alternate, not shipped: a spinner and a muted line. Draws the eye to a wait the person cannot shorten.",
     },
     // The machine is still unreachable after two minutes (rebooting, Leo 2026-11-12): the pane keeps
-    // asking by itself, so the line is only Reconnecting…. Picked: "peer-gone".
+    // asking by itself, so nothing is drawn (Leo 2026-11-22). Picked: "peer-gone".
     "peer-gone": {
       props: { message: "Can't reach box.", detail: PEER_WORDS, initialRetrying: false, withRetry: true },
-      note: "Picked. A machine unreachable for two minutes: only Reconnecting…; acpmux's words and Retry never show, since the pane asks again by itself.",
+      note: "Picked. A machine unreachable for two minutes: nothing is drawn; acpmux's words and Retry never show, since the pane asks again by itself.",
     },
     "peer-gone-details": {
       props: {

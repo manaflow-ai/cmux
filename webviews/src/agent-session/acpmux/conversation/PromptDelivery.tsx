@@ -1,7 +1,7 @@
 // A sent prompt's way to the agent (plans/cmux-next/composer-delivery-DESIGN.md). One state per row,
-// said in one place: while the prompt is on its way (after a second, so a fast send shows nothing)
-// its footer's time slot says so ("Sending" or "Sending
-// when ready") with a clock, and the footer stays shown; once acpmux took it the slot is its time
+// said in one place: while the prompt is on its way (after a second, so a fast send shows nothing;
+// one held for its machine only after SEND_LATE_MS) its footer's time slot says so ("Sending", or
+// "Not sent yet · goes when {machine} is back") with a clock, and the footer stays shown; once acpmux took it the slot is its time
 // again and the bubble's read check (UserBubble.tsx) says how far it got. Nothing else on the row
 // speaks to delivery meanwhile: before, a "Still sending" label beside a bubble whose footer already
 // said "just now", and a free "Not sent yet" line under it, said two things at once (Leo,
@@ -10,9 +10,10 @@
 // (sendFailure.ts), under the last of them: one plain sentence, the fix when there is one (Trust
 // folder), Retry, Edit, Remove and Details: the hop it stopped at, the refuser's own words and
 // code, each hop's time and the ids, and Copy debug info.
-import { useContext, useEffect, useId, useState } from "react";
+import { useContext, useId, useState } from "react";
 import { PROMPT_PENDING_AFTER_MS, type AcpmuxRow, type PromptDelivery } from "../model";
-import { useT, type StringKey } from "../i18n";
+import { useT, type StringKey, type Translate } from "../i18n";
+import { SEND_LATE_MS, usePastSince } from "../sendWhenReady";
 import { isTrustCause, retryHelps, sendCause } from "../sendFailure";
 import { copyText } from "./clipboard";
 import { Clock } from "./icons";
@@ -26,35 +27,38 @@ const HOP_LABEL = {
   agent: "prompt.delivery.hop.agent",
 } as const satisfies Record<NonNullable<PromptDelivery["hop"]>, StringKey>;
 
-/// What a prompt still on its way says: the one sentence its footer shows.
-export function pendingLabel(delivery: PromptDelivery): StringKey {
-  return delivery.waitingForHost ? "prompt.delivery.whenReady" : "prompt.delivery.sending";
+/// What a prompt still on its way says: the one sentence its footer shows. One held for its machine
+/// (or this Mac's acpmux) past SEND_LATE_MS says it has not gone yet and goes once the machine is
+/// back, naming the machine when the chat runs on another one (`connection`).
+export function pendingLabel(delivery: PromptDelivery, t: Translate): string {
+  if (!delivery.waitingForHost) return t("prompt.delivery.sending");
+  return delivery.connection
+    ? t("prompt.delivery.late", { machine: delivery.connection })
+    : t("prompt.delivery.lateHere");
 }
 
-/// Whether `delivery` shows as pending now: on its way, and either past its first second or held
-/// for the host (whose words show at once). Re-renders once when the second passes. A prompt that
-/// waits behind the running turn (`queued`: a steer, or one acpmux holds for the turn's end) says
-/// nothing of it: its bubble and its Send now already do, and the slot keeps its time (Leo,
-/// 2026-11-17: "Queued, sends when the turn ends" / "it's not really useful to see ever"). Held for
-/// the host, it still says "Sending when ready".
+/// Whether `delivery` shows as pending now: on its way and past its first second. A prompt held
+/// for its agent's machine or this Mac's acpmux (`waitingForHost`) says nothing at all while the
+/// link comes back, however long that takes, until it has waited past SEND_LATE_MS (Leo,
+/// 2026-11-22: "i dont wanna see reconnecting to the Mac in a toast, i want it to just connect");
+/// then once, quietly, in this slot. Re-renders once when its bound passes. A prompt that waits
+/// behind the running turn (`queued`: a steer, or one acpmux holds for the turn's end) says nothing
+/// of it: its bubble and its Send now already do, and the slot keeps its time (Leo, 2026-11-17:
+/// "Queued, sends when the turn ends" / "it's not really useful to see ever").
 export function usePendingShown(delivery: PromptDelivery | undefined, queued = false): boolean {
   const sending = delivery?.state === "sending";
+  const held = delivery?.waitingForHost === true;
   const sentAt = delivery?.sentAt ?? 0;
-  const [late, setLate] = useState(() => Date.now() - sentAt >= PENDING_AFTER_MS);
-  useEffect(() => {
-    if (!sending || late) return;
-    const timer = setTimeout(() => setLate(true), Math.max(0, PENDING_AFTER_MS - (Date.now() - sentAt)));
-    return () => clearTimeout(timer);
-  }, [sending, late, sentAt]);
-  if (delivery?.waitingForHost === true) return sending;
-  return sending && late && !queued;
+  const late = usePastSince(sending ? sentAt : undefined, held ? SEND_LATE_MS : PENDING_AFTER_MS);
+  if (held) return late;
+  return late && !queued;
 }
 
 /// The footer's time slot while the prompt is on its way: a clock and its one sentence, in the
 /// slot the age takes once it lands, so the row moves nothing when it does.
 export function PendingDelivery({ delivery }: { delivery: PromptDelivery }) {
   const t = useT();
-  const label = t(pendingLabel(delivery));
+  const label = pendingLabel(delivery, t);
   return (
     <output className="cv-user__time cv-user__pending-state" data-delivery={delivery.state} aria-label={label}>
       <Clock size={12} />
