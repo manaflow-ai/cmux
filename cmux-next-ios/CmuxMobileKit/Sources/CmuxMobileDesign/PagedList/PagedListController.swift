@@ -1114,8 +1114,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         for indexPath in collectionView.indexPathsForVisibleItems.sorted() {
             guard let id = dataSource.itemIdentifier(for: indexPath), case .row = id,
                   let cell = collectionView.cellForItem(at: indexPath) else { continue }
-            let layer = cell.layer.presentation() ?? cell.layer
-            rows.append((id, layer.convert(CGPoint(x: 0, y: layer.bounds.minY), to: windowLayer).y))
+            _ = cell
+            guard let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { continue }
+            rows.append((id, attributes.frame.minY))
         }
         querying += 1
         let reading = referenceRow()?.id
