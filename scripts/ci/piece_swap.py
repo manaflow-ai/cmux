@@ -261,7 +261,7 @@ def live_verdicts(culprit: str, pieces: list[Piece], cwd: Path | None = None) ->
         for piece in pieces:
             names = live.parse_name_status(git("diff", "--no-renames", "--name-status", f"{culprit}^1", culprit, "--", *piece.files, cwd=cwd))
             diffs = live.parse_diff(git("diff", "--no-renames", "-U0", f"{culprit}^1", culprit, "--", *piece.files, cwd=cwd))
-            out[piece.id] = live.classify(names, diffs)[0]
+            out[piece.id] = live.classify(names, diffs)["verdict"]
         return out
     except Exception as err:  # the verdict is advice; a parse change there never stops a manifest
         return {"_error": str(err)[:200]}
@@ -276,6 +276,7 @@ def manifest(culprit: str, classifier: Classifier, cwd: Path | None = None, live
         "subject": subject,
         "parents": parents(culprit, cwd=cwd),
         "pieces": [{**asdict(p), **({"live_apply": verdicts[p.id]} if p.id in verdicts else {})} for p in pieces],
+        **({"live_apply_error": verdicts["_error"]} if "_error" in verdicts else {}),
     }
 
 
