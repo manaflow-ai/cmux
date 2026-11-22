@@ -1,0 +1,266 @@
+{
+  "version": 1,
+  "build": "4496387397801",
+  "notes": "notes/4496387397801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 49371,
+      "title": "Fast gates: a test change no longer makes check:compiler-bails check every file",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48904,
+      "title": "Agent chat: a held reply's fade follows relayout and is never cut short; Fork map no longer rescans the chat per streamed row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48942,
+      "title": "acpmux: the hub carrier serves beside the cmux link; --via-machine takes a machine name; a dial to a carrier that is off says so",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48828,
+      "title": "perf(webviews): share Intl formatters across rows, and lint new ones in row code",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49470,
+      "title": "ci(next): turn the Mac scheduler grant off until a granted run reads back",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49041,
+      "title": "acpmux: record the sidebar mirror stream again (taskList); hibernate-together test reads stop order",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49263,
+      "title": "Screen Sharing viewer: look A is the default; #48677 review follow-ups F1-F5",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48941,
+      "title": "cmux remote: refusals name the next command (revoked, expired, claimed invitation, unknown ids, no daemon)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48047,
+      "title": "acpmux: disconnect/reconnect stress harness that counts lost and duplicate messages",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47178,
+      "title": "cmux-next-ios-sim: listperf cases ws-heavy-live, feed-live and ws-2000",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48846,
+      "title": "ci: run the feat-cmux-next web checks in the post-merge batch tier",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49254,
+      "title": "ci: conformance skips feat-cmux-next PRs with contract (Tier A); check refuses fail-open reads of a skipped job",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49159,
+      "title": "chat: a tool's live line ends when a notice lands mid-turn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49179,
+      "title": "tests: build fast-gates deepen fixtures with one git fast-import, not a process per commit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49268,
+      "title": "acpmux: CI-only chatgpt.import of a Codex auth.json",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47001,
+      "title": "Require native compatibility before app-try live swaps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47065,
+      "title": "perf cron: a power part stores the app's mW idle and scrolling",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49016,
+      "title": "ci: draft heads skip the remaining heavy PR workflows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46367,
+      "title": "cmux NEXT: the gooey corner is a public setting a theme or setup can pick (appearance.cornerFlush, default flush)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48956,
+      "title": "tests: the docs-only workflow test parses each workflow once (guard group head pass 706 s -> about 230 s)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49204,
+      "title": "customize: a look's New Tab page shows on the next New Tab",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48964,
+      "title": "iOS: send typed input exactly once across a dropped link",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49359,
+      "title": "measure: launch-ready ends when its app is quit from outside",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48812,
+      "title": "agent.openSessionTab/openSessionWorkspace: answer the shown tab, skip stale bindings, fail a failed reveal",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48959,
+      "title": "cmux-next CI guard group: timeout 25 -> 35 min, temporary",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48625,
+      "title": "Agent chat: the pane's snapshot redraw yields to keys (a transition)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46965,
+      "title": "Fix app try compatibility for changes outside live binaries",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49320,
+      "title": "chat switch: the hat band's settled mark renders nothing before first paint",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49237,
+      "title": "backend-migrations (feat-cmux-next): a clean plan starts no gate VM",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49280,
+      "title": "ci: the PR pipeline as one step table, slice 3 (eight bun, node and Python checks become steps; the job runs on cmux-linux)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48947,
+      "title": "iOS Workspaces: list loading rows take over from the page's without a blink",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/48947/after-workspaces-list-handoff.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 48955,
+      "title": "acpmux tests: judge base reds from the base's own last run, not a rebuild",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49300,
+      "title": "ci(next): PR autofix looks once for the generated-files pack instead of waiting 10 minutes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49291,
+      "title": "fix(screen-eval): require complete video and OCR repeat receipts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47184,
+      "title": "measure: hello-world AppKit LaunchServices floor (throwaway experiment, do not merge)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48748,
+      "title": "iOS: a press wash takes the button's shape (no gray square behind jump to bottom)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48244,
+      "title": "acpmux placement: never auto-place on a machine only the mesh hub reaches",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49177,
+      "title": "acpmux: an inbox digest never steers past the person's waiting prompt",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49177/hv-0ae6fa1d48b6-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 49069,
+      "title": "ci(nightly): nightly-next-one stops uploading a second copy of the DMG while it holds the signing slot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48283,
+      "title": "bench: composer typing into a long draft (--draft N)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49318,
+      "title": "cmux-next pre-push gate: a merge push costs its own range (798 s -> 194 s)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49194,
+      "title": "Agent chat font packs: font family settings, font files and community themes (takes over #46075)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
