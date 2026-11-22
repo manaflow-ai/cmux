@@ -94,6 +94,29 @@ const github = { rest: {
     },
   },
 } };
+// limitedFor: {'group.method': seconds}. Each named read is rate limited (primary
+// quota dry) for that long after its first call; setTimeout advances the clock.
+const waits = [];
+if (scenario.limitedFor) {
+  global.setTimeout = (resolve, ms) => { waits.push(ms); scenario.nowMs += ms; resolve(); };
+  github.hook = { wrap: (_event, wrapper) => {
+    for (const [name, seconds] of Object.entries(scenario.limitedFor)) {
+      const [group, method] = name.split('.');
+      const original = github.rest[group][method];
+      let resetMs = null;
+      github.rest[group][method] = (...args) => wrapper(async () => {
+        if (resetMs === null) resetMs = Date.now() + seconds * 1000;
+        if (Date.now() < resetMs) {
+          throw Object.assign(new Error('API rate limit exceeded for installation'), {
+            status: 403,
+            response: { headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(resetMs / 1000) } },
+          });
+        }
+        return original(...args);
+      }, { method: 'GET', url: name });
+    }
+  } };
+}
 // Classify with the real script in the real checkout, so the workflow and this
 // contract cannot disagree about what reaches the app.
 const exec = { getExecOutput: async (command, args, options) => {
@@ -112,7 +135,7 @@ const exec = { getExecOutput: async (command, args, options) => {
 const run = new Function('github', 'context', 'core', 'process', 'exec',
   `return (async () => {\n${scenario.script}\n})();`);
 run(github, context, core, process, exec).then(() => {
-  console.log(JSON.stringify({ outputs, notices, warnings, tables }));
+  console.log(JSON.stringify({ outputs, notices, warnings, tables, waits }));
 }).catch((e) => { console.error(e); process.exit(1); });
 """
 
@@ -145,6 +168,7 @@ def run_decide(
     tag_age_hours: float = 0.5,
     interval: str = "2",
     get_commit_fails: bool = False,
+    limited_for=None,
     schedule: str = "47 8 * * *",
     extra_env=None,
     comparison=None,
@@ -170,6 +194,7 @@ def run_decide(
                 "tagSha": tag_sha,
                 "tagAgeHours": tag_age_hours,
                 "getCommitFails": get_commit_fails,
+                "limitedFor": limited_for,
                 "schedule": schedule,
                 "compare": APP_CHANGE if comparison is None else comparison,
                 "classifier": classifier,
@@ -214,6 +239,26 @@ def ci_scripts():
     finally:
         sys.path[:] = original_path
     return detect, nightly
+
+
+def test_decide_waits_once_through_an_hourly_reset() -> None:
+    # Run 44849687076: the core budget was dry for 29 minutes; the old 20-minute
+    # cap gave up first. One read limited for 50 minutes now waits it out.
+    result = run_decide(event="workflow_dispatch", limited_for={"git.getRef": 3000})
+    assert sum(result["waits"]) >= 3000 * 1000
+    assert should_build(result)
+
+
+def test_decide_rate_limit_waits_share_one_decision_window() -> None:
+    # A push reads the tag, then compares paths. Each read is limited for 50
+    # minutes: 100 minutes of waiting with a cap per request. With one 65-minute
+    # window for the decision, the comparison gives up when it closes, and a
+    # failed lookup builds, as before.
+    result = run_decide(event="push", tag_age_hours=3,
+                        limited_for={"git.getRef": 3000,
+                                     "repos.compareCommitsWithBasehead": 3000})
+    assert sum(result["waits"]) <= 65 * 60 * 1000, result["waits"]
+    assert should_build(result)
 
 
 def test_decision_summary_distinguishes_push_throttle_from_manual_build() -> None:
@@ -270,9 +315,9 @@ def test_paths_that_reach_the_app_still_build() -> None:
         "Resources/bin/open-app",
         "cmux.xcodeproj/project.pbxproj",
         "package.json",
-        # The app bundles skills/cmux-cua as a folder resource, so its
+        # The app bundles skills/cmux-computer-use as a folder resource, so its
         # Markdown ships while other skills' Markdown does not.
-        "skills/cmux-cua/SKILL.md",
+        "skills/cmux-computer-use/SKILL.md",
         # Nightly signs and publishes; those helpers run in no PR lane.
         "scripts/sign-cmux-bundle.sh",
         "scripts/sparkle_generate_appcast.sh",
@@ -375,6 +420,22 @@ def test_what_the_nightly_ships_is_read_back_from_the_project() -> None:
     )
     assert not detect.classify_files(["daemon/remote/src/lib.rs"]).release_build
     assert nightly.build_inputs_changed(["daemon/remote/src/lib.rs"])[0]
+
+
+def test_an_embedded_package_product_is_not_a_bundled_file() -> None:
+    """A copy-files entry for a Swift package product (productRef, no fileRef) is built from package sources.
+
+    81b17999 (CMUX-629) embeds CmuxNextApp.framework that way; reading every entry as a file reference
+    raised "missing pbx field fileRef" and broke every nightly input decision on feat-cmux-next.
+    """
+    _, nightly = ci_scripts()
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        project = (ROOT / "cmux.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
+        (root / "cmux.xcodeproj").mkdir()
+        (root / "cmux.xcodeproj/project.pbxproj").write_text(project, encoding="utf-8")
+        bundled = nightly.bundled_paths(root)
+    assert "CmuxNextApp" not in " ".join(bundled), bundled
 
 
 def test_decide_checks_out_before_it_classifies() -> None:

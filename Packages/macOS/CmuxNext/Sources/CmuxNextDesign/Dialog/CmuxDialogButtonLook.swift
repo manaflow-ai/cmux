@@ -15,6 +15,11 @@ public import CmuxNextDesignTokens
 ///
 /// A solid fill carries its own contrast whatever shows through the glass; a translucent one is
 /// fit over ``cardSurfaces(_:)``.
+///
+/// A disabled button (`isEnabled: false`) is dimmed in its colors, not by fading the whole view: its
+/// fill goes halfway to the card (a translucent one to half its alpha) and its title halfway to the
+/// fill, then back toward its pole until it reads at ``disabledMinimumContrast``. A view faded to 45%
+/// read its title at 1.1:1 on a light theme's Sign In button (NativeControlContrastAuditTests).
 public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
     public enum State: Sendable, CaseIterable { case rest, hover, pressed }
 
@@ -40,14 +45,19 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
     /// The least contrast of every ink on every surface under it.
     public static let minimumContrast = 4.5
 
+    /// The least contrast of a disabled button's inks: dimmer than an enabled title, still legible
+    /// (WCAG exempts disabled controls; cmux holds them above its 2.5:1 legible floor).
+    public static let disabledMinimumContrast = 3.0
+
     /// `quiet` draws a destructive button as red text with no fill at rest, a faint danger wash under the
     /// pointer (``CmuxDialogSpec/Layout/safeDefault``: the choices a person should not reach for first).
+    /// `isEnabled: false` gives the disabled look (see the type's discussion).
     public init(role: CmuxDialogButton.Role, tokens: ThemeTokens, state: State = .rest, filledDestructive: Bool = true,
-                quiet: Bool = false, card: [ThemeRGB]? = nil) {
+                quiet: Bool = false, isEnabled: Bool = true, card: [ThemeRGB]? = nil) {
         let card = card ?? Self.cardSurfaces(tokens)
         // Hover and pressed move a solid fill toward the card a little, a translucent one up a step.
         let step = switch state { case .rest: 0.0; case .hover: 0.1; case .pressed: 0.2 }
-        let fill: ThemeRGB
+        var fill: ThemeRGB
         var ink: ThemeRGB
         switch role {
         case .default:
@@ -70,11 +80,27 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
             fill = tokens.selectionFill.withAlpha(min(1, tokens.selectionFill.alpha * (1 + step * 3)))
             ink = tokens.textPrimary.withAlpha(1)
         }
-        let surfaces = card.map { fill.composited(over: $0) }
-        ink = Self.readable(ink, over: surfaces)
+        if !isEnabled, let base = card.first {
+            fill = fill.alpha < 1 ? fill.withAlpha(fill.alpha * 0.5) : fill.mixed(toward: base, 0.5)
+        }
+        var surfaces = card.map { fill.composited(over: $0) }
+        if isEnabled, role == .cancel || role == .normal {
+            // A translucent gray over grounds no one ink reads on (a mid-tone theme's popover glass over a white and a
+            // black page) densifies until one does: Hot Dog Stand's Stop read 4.08:1 in black over the page and its
+            // Open Agent Activity 2.66:1 in the gray the passes ended on.
+            for _ in 0..<12 where fill.alpha < 1 && !Self.fits(Self.readable(ink, over: surfaces), over: surfaces) {
+                fill = fill.withAlpha(min(1, fill.alpha + 0.08))
+                surfaces = card.map { fill.composited(over: $0) }
+            }
+        }
+        if isEnabled {
+            ink = Self.readable(ink, over: surfaces)
+        } else if let under = surfaces.first {
+            ink = Self.readable(ink.mixed(toward: under, 0.5), over: surfaces, minimum: Self.disabledMinimumContrast)
+        }
         self.fill = fill
         title = ink
-        keyHint = surfaces.first.map { Self.readable(ink.mixed(toward: $0, 0.3), over: surfaces) } ?? ink
+        keyHint = isEnabled ? surfaces.first.map { Self.readable(ink.mixed(toward: $0, 0.3), over: surfaces) } ?? ink : ink
         self.surfaces = surfaces
         // The surface the glass card really shows (the scrimmed window), for the focus gap.
         self.card = card.count > 2 ? card[2] : card.first ?? fill.withAlpha(1)
@@ -96,6 +122,31 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
         return [glass.composited(over: scrimmed), tokens.opaqueOverlayFill(lift: lift), scrimmed]
     }
 
+    /// The card a button on a floating menu or popover sits on (``Glass/makeMenuPanel(content:cornerRadius:interactive:)``,
+    /// the omnibar's bookmark bubble): the menu glass (the theme's glass tint at the menu level, then the theme veil,
+    /// ``GlassMenuMaterial/veil``) over the theme's own window, the opaque popup surface (Reduce Transparency), and the
+    /// glass over the brightest and the darkest page. No scrim dims what is behind a popover as one dims a dialog's
+    /// window, so a button's inks are fit over any page that can show through (a1273: the bubble's More… and Remove).
+    /// The third surface is the theme's window again: the focus ring's gap sits on the glass the card really shows.
+    public static func menuCardSurfaces(_ tokens: ThemeTokens, lift: Double = 0.14) -> [ThemeRGB] {
+        let tint = tokens.glassTint.withAlpha(min(1, tokens.glassTint.alpha * GlassLevel.menu.tintStrength))
+        let veil = tokens.surfaceBackground.withAlpha(Double(GlassMenuMaterial.veil))
+        func glass(over page: ThemeRGB) -> ThemeRGB { veil.composited(over: tint.composited(over: page)) }
+        let own = glass(over: tokens.windowBackground.withAlpha(1))
+        // glass-opaque-allow: a contrast reference only (the card under Reduce Transparency); nothing paints it here
+        return [own, tokens.opaqueOverlayFill(lift: lift), own, glass(over: white), glass(over: black)]
+    }
+
+    /// The ground a button sits on outside any card (a Home page, a settings pane, a sheet's own window): the window's
+    /// background, and in a see-through window that background over the worst desktop for the theme (white behind a
+    /// dark theme, black behind a light one), as the theme's own text is fit. A gray Cancel fit to the dialog card read
+    /// 1.65:1 there instead (Hot Dog Stand, NativeControlContrastAuditTests). All three surfaces are that ground: the
+    /// focus ring's gap sits on it too.
+    public static func windowSurfaces(_ tokens: ThemeTokens) -> [ThemeRGB] {
+        let ground = tokens.windowBackground.composited(over: tokens.isDark ? white : black)
+        return [ground, ground, ground]
+    }
+
     static let white = ThemeRGB(red: 1, green: 1, blue: 1)
     static let black = ThemeRGB(red: 0, green: 0, blue: 0)
 
@@ -106,15 +157,30 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
         return deep
     }
 
+    /// Whether `ink` reads at `minimum` on every surface.
+    static func fits(_ ink: ThemeRGB, over surfaces: [ThemeRGB], minimum: Double = minimumContrast) -> Bool {
+        surfaces.allSatisfy { ink.contrast(with: $0) >= minimum }
+    }
+
     /// `ink` moved toward its pole until it reads at ``minimumContrast`` on every surface. A move for
     /// one surface can lower the contrast on another, so the passes repeat until all read (a few at
     /// most: the card's surfaces are near one another).
+    ///
+    /// When no ink reads on every surface (a mid-tone theme's popover glass over both a white and a black page), the
+    /// passes stop on a gray between the poles that reads on none: Hot Dog Stand's Stop read 3.68:1 and Open Agent
+    /// Activity 2.66:1 on its red glass. Then the ink is the one of that gray, white and black that reads on the most
+    /// surfaces, and of those the one whose worst contrast is highest.
     static func readable(_ ink: ThemeRGB, over surfaces: [ThemeRGB], minimum: Double = minimumContrast) -> ThemeRGB {
         let target = minimum + 0.05
         var fitted = ink
         for _ in 0..<4 where !surfaces.allSatisfy({ fitted.contrast(with: $0) >= target }) {
             fitted = surfaces.reduce(fitted) { ThemeTokens.readable($0, over: $1, minimum: target) }
         }
-        return fitted
+        guard !surfaces.allSatisfy({ fitted.contrast(with: $0) >= target }) else { return fitted }
+        func score(_ candidate: ThemeRGB) -> (reads: Int, worst: Double) {
+            (surfaces.filter { candidate.contrast(with: $0) >= target }.count,
+             surfaces.map { candidate.contrast(with: $0) }.min() ?? 0)
+        }
+        return [fitted, white, black].max { score($0) < score($1) } ?? fitted
     }
 }

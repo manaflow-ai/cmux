@@ -11,7 +11,7 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows) struct ShaderWallpaperTests {
     @Test func everyShaderIsAPickerChoiceTheSettingReadsBack() {
         let ids = BackdropCatalog.shaders.map(\.id)
-        #expect(ids == ["shader:currents", "shader:ripples", "shader:aurora", "shader:field"])
+        #expect(ids == ["shader:currents", "shader:ripples", "shader:aurora", "shader:field", "shader:aero"])
         for choice in BackdropCatalog.shaders {
             #expect(BackdropSelection(id: choice.id) == choice, "\(choice.id) does not read back")
             #expect(choice.pickerCollection?.id == BackdropShader.collection)
@@ -41,6 +41,22 @@ import Testing
         // float2, float2, 4 floats, then float4[4] at 32: 96 bytes in Metal.
         #expect(MemoryLayout<BackdropShaderUniforms>.stride == 96)
         #expect(MemoryLayout<BackdropShaderUniforms>.offset(of: \.rings) == 32)
+    }
+
+    /// Slow dark gradients band in an 8-bit drawable; every shader's last step is the 1-step
+    /// triangular dither (reading note motion-backgrounds-color, "Banding and dithering").
+    @Test func everyShaderEndsInTheDither() {
+        let source = BackdropShaderSource.source
+        for shader in BackdropShader.allCases {
+            let start = source.range(of: "fragment float4 \(shader.fragmentName)(")
+            #expect(start != nil, "\(shader) has no fragment")
+            guard let start else { continue }
+            let rest = source[start.upperBound...]
+            let end = rest.range(of: "\n    fragment ")?.lowerBound ?? rest.endIndex
+            let returns = rest[..<end].components(separatedBy: "return float4(").dropFirst()
+            #expect(!returns.isEmpty && returns.allSatisfy { $0.hasPrefix("dither(") },
+                    "\(shader) returns a color that skips the dither: it bands in dark gradients")
+        }
     }
 
     @Test func everyShaderCompilesAndDrawsAStillThatIsNotFlat() throws {

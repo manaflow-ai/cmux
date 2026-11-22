@@ -219,16 +219,6 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(planned["layers"], ["rust"])
         self.assertFalse(planned["needs_build"], planned["build"])
 
-    def test_ffi_drift_still_needs_a_build_for_a_daemon_change(self):
-        # Review of #43811: the head's daemon would speak FFI changes merged after the nightly, which it does not link.
-        tip = self.advance_base({"cmux-tui/crates/cmux-app-ffi/src/lib.rs": "pub fn ffi() -> u32 { 2 }\n"})
-        head = self.fx.commit({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"},
-                              "change", parent=tip)
-        planned = self.plan(head)
-        self.assertTrue(planned["needs_build"])
-        self.assertIn("Rust the app links (FFI), in the commits the app lacks", planned["build"])
-        self.assertEqual(planned["layers"], [])
-
     PIN = ('{"url": "https://github.com/manaflow-ai/cmux/releases/download/'
            'cmux-app-ffi-%s/CCmuxAppFFI.xcframework.zip", "checksum": "%s"}\n')
 
@@ -245,16 +235,17 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(planned["layers"], ["rust"])
         self.assertFalse(planned["needs_build"], planned["build"])
 
-    def test_ffi_drift_that_moves_the_pin_still_needs_a_build(self):
-        self.fx.base = self.fx.commit({hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "0" * 64)}, "pin",
-                                      parent=self.fx.base)
+    def test_ffi_drift_that_moves_the_pin_swaps_the_daemon_applied_onto_the_app(self):
+        # Before cmuxterm-hq#13435 this needed a build; the change's own commits on the app's commit keep its pin.
+        pin = self.PIN % ("a" * 40, "0" * 64)
+        self.fx.base = self.fx.commit({hv.FFI_PIN_FILE: pin}, "pin", parent=self.fx.base)
         tip = self.advance_base({"cmux-tui/crates/cmux-app-ffi/src/lib.rs": "pub fn ffi() -> u32 { 2 }\n",
                                  hv.FFI_PIN_FILE: self.PIN % ("b" * 40, "1" * 64)})
         head = self.fx.commit({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"},
                               "change", parent=tip)
         planned = self.plan(head)
-        self.assertTrue(planned["needs_build"])
-        self.assertIn("Rust the app links (FFI), in the commits the app lacks", planned["build"])
+        self.assert_onto_app(planned, self.fx.base, {hv.FFI_PIN_FILE: pin,
+                                                     "cmux-tui/crates/cmux-app-ffi/src/lib.rs": "pub fn ffi() -> u32 { 1 }\n"})
 
     def test_a_repin_the_app_lacks_puts_the_fork_s_release_in_first(self):
         # 2026-11-17: 7 of the 8 Rust looks that failed planned `rust` here, then ended `hot-apply.py apply --parts
@@ -274,12 +265,13 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(planned["ffi_baseline"]["app_pin_source"], "a" * 40)
         with unittest.mock.patch.object(h.ffi_part, "additive", return_value=["drops ffi_old()"]):
             planned = self.plan(head)
-        self.assertTrue(planned["needs_build"])
-        self.assertEqual(planned["build"]["Rust the app links (FFI), in the commits the app lacks"], [hv.FFI_PIN_FILE])
+        # The app cannot take the fork's release: since cmuxterm-hq#13435 the change's own commits go onto the app's
+        # commit, which keeps the app's release, instead of needing a build.
+        self.assert_onto_app(planned, self.fx.base, {hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "0" * 64)})
         self.assertNotIn("ffi_baseline", planned)
         self.assertTrue(any("drops ffi_old()" in note for note in planned["notes"]), planned["notes"])
 
-    def test_a_repin_the_app_lacks_with_rust_the_swift_build_reads_still_needs_a_build(self):
+    def test_a_repin_the_app_lacks_with_rust_the_swift_build_reads_goes_onto_the_app(self):
         # Review of cmux#46195: the fork's release brings the library up, not what the Swift build reads itself;
         # hot-apply leaves that, then holds the daemon back, so the look would end in exit 3 again.
         self.fx.base = self.fx.commit({hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "0" * 64)}, "pin",
@@ -291,8 +283,8 @@ class PlanTest(unittest.TestCase):
         with unittest.mock.patch.object(h.ffi_part, "additive", return_value=[]), \
                 unittest.mock.patch.object(h, "swift_read_rust", return_value=["cmux-tui/include/cmux.h"]):
             planned = self.plan(head)
-        self.assertTrue(planned["needs_build"], planned)
-        self.assertIn("Rust the app links (FFI), in the commits the app lacks", planned["build"])
+        # Since cmuxterm-hq#13435 the change's own commits go onto the app's commit instead: its header and pin.
+        self.assert_onto_app(planned, self.fx.base, {hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "0" * 64)})
         self.assertNotIn("ffi_baseline", planned)
 
     def test_a_repin_of_the_same_release_is_no_release_change(self):
@@ -308,7 +300,7 @@ class PlanTest(unittest.TestCase):
         self.assertFalse(planned["needs_build"], planned["build"])
         self.assertNotIn("ffi_baseline", planned)
 
-    def test_a_change_branched_before_an_app_a_repin_ahead_needs_a_build(self):
+    def test_a_change_branched_before_an_app_a_repin_ahead_goes_onto_the_app(self):
         # cmux#44876's look: the change forked before the NIGHTLY, which pinned a newer release; hot-apply holds the
         # daemon back (an older release does not go in), so the plan must not say `rust`.
         self.fx.base = self.fx.commit({hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "0" * 64)}, "pin",
@@ -319,9 +311,8 @@ class PlanTest(unittest.TestCase):
         app = self.fx.commit({hv.FFI_PIN_FILE: self.PIN % ("b" * 40, "1" * 64)}, "repin", parent=self.fx.base)
         with unittest.mock.patch.object(hv.hot().ffi_part, "additive", return_value=["drops ffi_new()"]):
             planned = self.plan(head, base=app)
-        self.assertTrue(planned["needs_build"], planned)
-        self.assertIn("Rust the app links (FFI): the app's release is not the change's", planned["build"])
-        self.assertNotIn("rust", planned["layers"])
+        # Since cmuxterm-hq#13435 the change's own commits go onto the app's commit: the app's newer release.
+        self.assert_onto_app(planned, app, {hv.FFI_PIN_FILE: self.PIN % ("b" * 40, "1" * 64)})
 
     def test_a_checkout_without_the_xcode_project_reads_the_rules_root(self):
         # The 2026-11-18 swap-vs-dev-build sample planned from such a checkout: with no project file every cmux-tui
@@ -392,14 +383,63 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(planned["layers"], [])
         self.assertFalse(planned["needs_build"])
 
-    def test_rust_branched_before_newer_app_rust_needs_build(self):
+    def assert_onto_app(self, planned: dict, app: str, files: dict) -> str:
+        """PLANNED swaps in the daemon of the change's own commits applied onto APP: a commit whose parent is APP
+        and whose FILES read as given (the app's other Rust, the change's own)."""
+        self.assertEqual(planned["layers"], ["rust"])
+        self.assertFalse(planned["needs_build"], planned["build"])
+        onto = planned["daemon_from"]
+        self.assertRegex(onto, r"^[0-9a-f]{40}$")
+        self.assertEqual(self.fx.git("rev-parse", f"{onto}^1"), app)
+        for path, text in files.items():
+            self.assertEqual(self.fx.git("show", f"{onto}:{path}") + "\n", text, path)
+        self.assertEqual(planned["tree_key"], hv.hot().tree_key(self.fx.repo, onto))
+        self.assertEqual(planned["head"], planned["marker_sha"])
+        self.assertTrue(any("applied onto the app's commit" in note for note in planned["notes"]), planned["notes"])
+        return onto
+
+    def test_rust_branched_before_newer_app_rust_swaps_the_daemon_applied_onto_the_app(self):
+        # cmuxterm-hq#13435: 73 of 132 needs-build steps in a week were this class, and none for the PR's own paths.
         head = self.fx.change({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() {}\n"})
-        app = self.fx.commit({"cmux-tui/crates/cmux-tui/Cargo.toml": '[package]\nname = "cmux-tui"\nversion = "1.0.0"\n'},
-                             "the app's newer Rust", parent=self.fx.base)
+        newer = '[package]\nname = "cmux-tui"\nversion = "1.0.0"\n'
+        app = self.fx.commit({"cmux-tui/crates/cmux-tui/Cargo.toml": newer}, "the app's newer Rust",
+                             parent=self.fx.base)
         planned = self.plan(head, base=app)
         self.assertEqual(planned["fork"], self.fx.base)
+        onto = self.assert_onto_app(planned, app, {"cmux-tui/crates/cmux-tui/Cargo.toml": newer,
+                                                   "cmux-tui/crates/cmux-tui/src/main.rs": "fn main() {}\n"})
+        self.assertEqual(self.plan(head, base=app)["daemon_from"], onto, "the same change plans the same commit")
+
+    def test_rust_branched_before_conflicting_app_rust_still_needs_a_build(self):
+        head = self.fx.change({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"})
+        app = self.fx.commit({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"theirs\"); }\n"},
+                             "the app's newer Rust", parent=self.fx.base)
+        planned = self.plan(head, base=app)
         self.assertTrue(planned["needs_build"])
         self.assertIn("Rust the app has and the change lacks", planned["build"])
+        self.assertNotIn("daemon_from", planned)
+        self.assertTrue(any("do not apply cleanly" in note for note in planned["notes"]), planned["notes"])
+
+    def test_ffi_drift_swaps_the_daemon_applied_onto_the_app(self):
+        # cmuxterm-hq#13435: 59 of 132. The head's daemon would speak FFI changes merged after the nightly; the
+        # change's own commits applied onto the nightly's commit speak the FFI the nightly links.
+        tip = self.advance_base({"cmux-tui/crates/cmux-app-ffi/src/lib.rs": "pub fn ffi() -> u32 { 2 }\n"})
+        head = self.fx.commit({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"},
+                              "change", parent=tip)
+        planned = self.plan(head)
+        self.assert_onto_app(planned, self.fx.base, {
+            "cmux-tui/crates/cmux-app-ffi/src/lib.rs": "pub fn ffi() -> u32 { 1 }\n",
+            "cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"})
+
+    def test_the_change_s_own_ffi_still_needs_a_build_after_drift(self):
+        tip = self.advance_base({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"drift\"); }\n",
+                                 "cmux-tui/crates/cmux-app-ffi/src/lib.rs": "pub fn ffi() -> u32 { 2 }\n"})
+        head = self.fx.commit({"cmux-tui/crates/cmux-app-ffi/src/lib.rs": "pub fn ffi() -> u32 { 3 }\n"},
+                              "change", parent=tip)
+        planned = self.plan(head)
+        self.assertTrue(planned["needs_build"])
+        self.assertIn("Rust the app links (FFI)", planned["build"])
+        self.assertNotIn("rust", planned["layers"])
 
     def test_web_branched_before_the_app_stays_hot(self):
         head = self.fx.change({"webviews/src/app.tsx": "export const title = 'y'\n"})
@@ -510,6 +550,380 @@ class PlanTest(unittest.TestCase):
         self.assertTrue(receipt["plan"]["needs_build"])
         self.assertIn("plan", receipt["phases"])
 
+    def fake_app(self, commit: str) -> Path:
+        import plistlib
+        app = Path(self.tmp.name) / "cmux NIGHTLY.app"
+        (app / "Contents").mkdir(parents=True, exist_ok=True)
+        (app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CMUXCommit": commit, "CFBundleVersion": "1"}))
+        return app
+
+    def test_run_on_uncarried_app_change_exits_3_with_its_plan_and_makes_no_copy(self):
+        """A resource or manifest change still needs a complete build and makes no copy."""
+        head = self.fx.change({"Packages/macOS/CmuxNext/Resources/Info.plist": "plist\n"})
+        app = self.fake_app(self.fx.base)
+        made = []
+        with unittest.mock.patch.object(hv.Side, "run", lambda side, *a, **k: made.append(a) or ""):
+            code, text = self.cli("run", "--source", f"sha:{head}", "--app", str(app), "--repo", str(self.fx.repo),
+                                  "--side", "try-test")
+        self.assertEqual(code, 3)
+        result = json.loads(text.strip().splitlines()[-1])
+        self.assertTrue(result["plan"]["needs_build"])
+        self.assertTrue(any("Swift" in why for why in result["plan"]["build"]), result["plan"]["build"])
+        self.assertEqual((result["side"], result["copy"]), ("try-test", None))
+        self.assertEqual(made, [])
+
+    def test_swift_app_fallback_is_only_for_the_carried_swift_layer(self):
+        self.assertTrue(hv.can_build_swift_app({"needs_build": True, "build": {"Swift": ["App.swift"]}}))
+        self.assertFalse(hv.can_build_swift_app({
+            "needs_build": True,
+            "build": {"Swift, resources or manifests": ["Resources/Info.plist"]},
+        }))
+        self.assertFalse(hv.can_build_swift_app({
+            "needs_build": True,
+            "build": {"Swift": ["App.swift"], "Rust the app links (FFI)": ["pin.json"]},
+        }))
+        self.assertTrue(hv.can_build_swift_app({
+            "needs_build": True, "build": {"Swift, resources or manifests": ["App.swift"]},
+        }))
+        self.assertFalse(hv.can_build_swift_app({
+            "needs_build": True, "build": {"Swift, resources or manifests": ["Packages/App/Package.swift"]},
+        }))
+
+    def test_fleet_zip_fallback_preserves_app_archive_with_ditto(self):
+        scratch = Path(self.tmp.name) / "zip-fallback"
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append(argv)
+            if argv[1:3] == ["build", "cmux"]:
+                return subprocess.CompletedProcess(argv, 0, '{"id":"zip-job"}', "")
+            if "--bundle" in argv:
+                (Path(argv[3]) / "partial").write_text("partial")
+                return subprocess.CompletedProcess(argv, 3, "", "no bundle")
+            if argv[0] == "ditto":
+                bundle = Path(argv[-1])
+                self.assertFalse((bundle / "partial").exists())
+                app = bundle / "cmux DEV.app/Contents"
+                app.mkdir(parents=True)
+                (app / "Info.plist").write_text("plist")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with unittest.mock.patch.object(hv, "_ci_client", return_value="/fake/cmux-ci"), \
+                unittest.mock.patch.object(hv.subprocess, "run", side_effect=run):
+            app = hv.build_swift_app(self.fx.repo, {"head": self.fx.base}, f"sha:{self.fx.base}", scratch)
+        self.assertEqual(app.name, "cmux DEV.app")
+        self.assertEqual(calls[-1][:3], ["ditto", "-x", "-k"])
+
+    def test_fleet_artifact_selects_outer_app_not_embedded_helpers(self):
+        bundle = Path(self.tmp.name) / "bundle"
+        outer = bundle / "App.app"
+        contents = outer / "Contents"
+        nested = contents / "Frameworks/Helper.app/Contents"
+        nested.mkdir(parents=True)
+        (nested / "Info.plist").write_text("plist")
+        (contents / "Info.plist").write_text("plist")
+        self.assertEqual(hv._artifact_app(bundle), outer)
+
+    def test_failed_fleet_steps_say_why_instead_of_crashing(self):
+        scratch = Path(self.tmp.name) / "scratch"
+
+        def fails_on(step, code, out):
+            def run(argv, **kwargs):
+                if argv[1] == step:
+                    return subprocess.CompletedProcess(argv, code, out, "")
+                if argv[1:3] == ["build", "cmux"]:
+                    return subprocess.CompletedProcess(argv, 0, '{"id":"job-9"}', "")
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            return run
+
+        for step, code, out, said in (("build", 1, "builder refused\n", "builder refused"),
+                                      ("build", 0, "not json", "no job id: not json"),
+                                      ("wait", 4, "job timed out\n", "job timed out"),
+                                      ("artifact", 2, "no artifact\n", "cmux-ci artifact job-9: no artifact"),
+                                      # A step that failed and said nothing: each of the 3 messages says so, and
+                                      # does not end at its colon.
+                                      ("build", 1, "", "app-try:%s: no output" % self.fx.base),
+                                      ("build", 0, "", "no job id: no output"),
+                                      ("artifact", 2, "", "cmux-ci artifact job-9: no output")):
+            with self.subTest(step=step, code=code), \
+                    unittest.mock.patch.object(hv, "_ci_client", return_value="/fake/cmux-ci"), \
+                    unittest.mock.patch.object(hv.subprocess, "run", side_effect=fails_on(step, code, out)):
+                with self.assertRaises(hv.LookError) as raised:
+                    hv.build_swift_app(self.fx.repo, {"head": self.fx.base}, f"sha:{self.fx.base}", scratch)
+                self.assertIn(said, str(raised.exception))
+
+    def test_swift_app_fallback_builds_a_clean_ref_with_cmux_ci(self):
+        head = self.fx.change({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift": "struct App { let x = 3 }\n"})
+        scratch = Path(self.tmp.name) / "scratch"
+        planned = {"head": head}
+        ci = "/fake/cmux-ci"
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append((argv, kwargs))
+            if argv[1:3] == ["build", "cmux"]:
+                return subprocess.CompletedProcess(argv, 0, '{"id":"job-1"}\n', "")
+            if argv[1] == "wait":
+                return subprocess.CompletedProcess(argv, 0, "done\n", "")
+            bundle = Path(argv[3])
+            app = bundle / "cmux DEV.app/Contents"
+            (app / "Resources").mkdir(parents=True)
+            (app / "Info.plist").write_bytes(b"plist")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with unittest.mock.patch.object(hv, "_ci_client", return_value=ci), \
+                unittest.mock.patch.object(hv.subprocess, "run", side_effect=run):
+            built = hv.build_swift_app(self.fx.repo, planned, f"sha:{head}", scratch)
+        self.assertEqual(built.name, "cmux DEV.app")
+        self.assertEqual(calls[0][0], [ci, "build", "cmux", "--builder", "linux", "--backend-mode", "local",
+                                      "--tag", f"app-try-{head[:12]}", "--ref", head, "--workspace", f"app-try:{head}"])
+        self.assertEqual(calls[0][1]["cwd"], self.fx.repo)
+        self.assertEqual(calls[1][0], [ci, "wait", "--timeout", str(hv.APPLY_SECONDS), "job-1"])
+
+    def test_swift_app_fallback_uses_the_exact_dirty_working_tree(self):
+        head = self.fx.change({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift": "struct App { let x = 5 }\n"})
+        (self.fx.repo / "Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift").write_text("struct App { let x = 6 }\n")
+        scratch = Path(self.tmp.name) / "scratch"
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append((argv, kwargs))
+            if argv[1:3] == ["build", "cmux"]:
+                return subprocess.CompletedProcess(argv, 0, '{"id":"job-2"}\n', "")
+            if argv[1] == "wait":
+                return subprocess.CompletedProcess(argv, 0, "done\n", "")
+            bundle = Path(argv[3]); app = bundle / "cmux DEV.app/Contents"
+            app.mkdir(parents=True); (app / "Info.plist").write_bytes(b"plist")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        planned = {"head": head}
+        with unittest.mock.patch.object(hv, "_ci_client", return_value="/fake/cmux-ci"), \
+                unittest.mock.patch.object(hv, "resolve_tree", return_value=self.fx.repo), \
+                unittest.mock.patch.object(hv.subprocess, "run", side_effect=run):
+            hv.build_swift_app(self.fx.repo, planned, f"dir:{self.fx.repo}", scratch)
+        self.assertIn("--working-tree", calls[0][0])
+        self.assertNotIn("--ref", calls[0][0])
+        self.assertEqual(calls[0][1]["cwd"], self.fx.repo)
+
+    def test_run_on_swift_uses_the_fleet_app_before_launch(self):
+        self.assert_run_app_case(swift=True)
+
+    def test_run_without_swift_keeps_scratch_for_live_overlays(self):
+        self.assert_run_app_case(swift=False)
+
+    def assert_run_app_case(self, swift):
+        app = self.fake_app(self.fx.base)
+        abi = app / hv.hot().APP_ABI
+        abi.parent.mkdir(parents=True, exist_ok=True)
+        abi.write_text('{"abi": 3}\n')
+        files = {"webviews/src/app.tsx": "export const title = 'new'\n"}
+        if swift:
+            files["Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift"] = "struct App { let x = 4 }\n"
+        head = self.fx.change(files)
+        built = Path(self.tmp.name) / "cmux DEV.app"
+        (built / "Contents").mkdir(parents=True)
+        calls = []
+
+        tmp = self.tmp.name
+        class FakeSide:
+            def __init__(self, name):
+                self.name = name
+
+            def exists(self):
+                return False
+
+            def run(self, *args, **kwargs):
+                calls.append(args)
+                return "try-test: pid 123" if args[0] == "launch" else ""
+
+            def remember(self, **fields):
+                calls.append(("remember", fields))
+
+            def socket(self):
+                return "/tmp/try-test.sock"
+
+            def app(self):
+                return Path(tmp) / "try-test.app"
+
+            def stop(self):
+                return []
+
+        scratch_paths = []
+
+        def apply_overlay(rules, planned, src_tree, side, scratch):
+            self.assertIsInstance(scratch, Path)
+            self.assertTrue(scratch.is_dir())
+            (scratch / "overlay-input").write_text("payload")
+            scratch_paths.append(scratch)
+            return {"how": "test overlay"}
+
+        with unittest.mock.patch.object(hv, "Side", FakeSide), \
+                unittest.mock.patch.object(hv, "build_swift_app", return_value=built) as app_build, \
+                unittest.mock.patch.object(hv, "rules_for", return_value=self.fx.repo), \
+                unittest.mock.patch.object(hv, "resolve_tree", return_value=None), \
+                unittest.mock.patch.object(hv, "apply_web", side_effect=apply_overlay) as apply_web, \
+                unittest.mock.patch.object(hv, "control_socket", return_value="/tmp/try-test.sock"), \
+                unittest.mock.patch.object(hv.sys, "platform", "darwin"):
+            code, text = self.cli("run", "--source", f"sha:{head}", "--app", str(app),
+                                  "--repo", str(self.fx.repo), "--side", "try-test")
+        self.assertEqual(code, 0)
+        result = json.loads(text.strip().splitlines()[-1])
+        if swift:
+            self.assertEqual(result["applied"]["app"]["how"], "fleet app build (re-sealed side instance)")
+            self.assertEqual(calls[0][:3], ("make", "--from", str(built)))
+            app_build.assert_called_once()
+            apply_web.assert_not_called()
+        else:
+            self.assertEqual(calls[0][:3], ("make", "--from", str(app)))
+            app_build.assert_not_called()
+            apply_web.assert_called_once()
+            self.assertFalse(scratch_paths[0].exists())
+
+    def test_run_needs_an_app(self):
+        code, _ = self.cli("run", "--source", f"dir:{self.fx.repo}", "--app", hv.NO_APP, "--repo", str(self.fx.repo),
+                           "--side", "try-test")
+        self.assertEqual(code, 2)
+
+    def test_extract_keeps_the_swapped_code_as_a_branch_and_a_patch(self):
+        self.fx.git("checkout", "-q", "--detach", self.fx.base)
+        (self.fx.repo / "webviews/src/app.tsx").write_text("export const title = 'kept'\n")
+        head = hv.resolve_source(self.fx.repo, f"dir:{self.fx.repo}")["head"]
+        state = {"try_head": head, "try_fork": self.fx.base, "try_repo": str(self.fx.repo)}
+        out = Path(self.tmp.name) / "kept.patch"
+        with unittest.mock.patch.object(hv.Side, "exists", lambda side: True), \
+                unittest.mock.patch.object(hv.Side, "state", lambda side: state):
+            code, text = self.cli("extract", "--side", "try-test", "--out", str(out))
+        self.assertEqual(code, 0)
+        result = json.loads(text.strip().splitlines()[-1])
+        self.assertEqual(result["branch"], "cmux-try/try-test")
+        self.assertEqual(self.fx.git("rev-parse", "refs/heads/cmux-try/try-test"), head)
+        self.assertEqual(result["files"], ["webviews/src/app.tsx"])
+        self.assertIn("+export const title = 'kept'", out.read_text())
+        self.assertEqual(self.fx.git("status", "--porcelain"), "M webviews/src/app.tsx")  # working tree as it was
+
+    def test_extract_without_a_run_is_a_usage_error(self):
+        with unittest.mock.patch.object(hv.Side, "exists", lambda side: True), \
+                unittest.mock.patch.object(hv.Side, "state", lambda side: {}):
+            code, _ = self.cli("extract", "--side", "try-test")
+        self.assertEqual(code, 2)
+
+    def test_stop_remove_deletes_the_copy(self):
+        calls = []
+        with unittest.mock.patch.object(hv.Side, "stop", lambda side: []), \
+                unittest.mock.patch.object(hv.Side, "exists", lambda side: True), \
+                unittest.mock.patch.object(hv.Side, "run", lambda side, *a, **k: calls.append(a) or ""):
+            self.assertEqual(self.cli("stop", "--side", "try-test", "--remove")[0], 0)
+            self.assertEqual(calls, [("remove",)])
+            calls.clear()
+            self.assertEqual(self.cli("stop", "--side", "try-test")[0], 0)
+            self.assertEqual(calls, [])
+
+
+class ApplyRustTest(unittest.TestCase):
+    """apply_rust over a plan whose daemon is the change applied onto the app's commit (daemon_from)."""
+
+    HEAD, ONTO = "1" * 40, "2" * 40
+
+    class StubSide:
+        def __init__(self, root: Path):
+            self.root = root
+
+        def app(self) -> Path:
+            return self.root / "copy.app"
+
+        def dir(self) -> Path:
+            return self.root / "side"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="hot-verify-apply-")
+        self.root = Path(self.tmp.name)
+        self.calls: list[list[str]] = []
+        h = hv.hot()
+        self.saved = h.published
+        self.published = False
+        h.published = lambda key: self.published
+
+    def tearDown(self):
+        hv.hot().published = self.saved
+        self.tmp.cleanup()
+
+    def apply(self, planned: dict, src_tree: Path | None = None, binary: Path | None = None) -> dict:
+        def run(argv, **kw):
+            self.calls.append([str(a) for a in argv])
+            return subprocess.CompletedProcess(argv, 0, stdout='{"phases": {}}\n', stderr="")
+        with unittest.mock.patch.object(hv.subprocess, "run", run), \
+                unittest.mock.patch.object(hv.shutil, "which", lambda name: "/usr/bin/" + name):
+            return hv.apply_rust(self.root, planned, src_tree, self.StubSide(self.root), self.root, binary)
+
+    def test_an_unbuilt_daemon_onto_the_app_is_never_the_head_s(self):
+        planned = {"head": self.HEAD, "daemon_from": self.ONTO, "tree_key": "k"}
+        with self.assertRaisesRegex(hv.LookError, "--rust-binary"):
+            self.apply(planned)
+        self.assertEqual(self.calls, [], "neither the head's published daemon nor a build of the head's tree")
+
+    def test_a_given_binary_goes_in_for_the_commit_onto_the_app(self):
+        binary = self.root / "cmux-tui"
+        applied = self.apply({"head": self.HEAD, "daemon_from": self.ONTO, "tree_key": "k"}, binary=binary)
+        (argv,) = self.calls
+        self.assertIn(self.ONTO, argv)
+        self.assertNotIn(self.HEAD, argv)
+        self.assertEqual(argv[argv.index("--binary") + 1], str(binary))
+        self.assertEqual(applied["how"], "given binary of the change applied onto the app's commit")
+
+    def test_a_published_daemon_onto_the_app_is_fetched_by_its_commit(self):
+        self.published = True
+        self.apply({"head": self.HEAD, "daemon_from": self.ONTO, "tree_key": "k"})
+        (argv,) = self.calls
+        self.assertIn(self.ONTO, argv)
+        self.assertNotIn("--binary", argv)
+
+    def test_a_working_tree_is_not_built_for_a_daemon_onto_the_app(self):
+        # A dir: source's working tree is the head's: building it would bring the skew back.
+        tree = self.root / "tree"
+        (tree / "cmux-tui").mkdir(parents=True)
+        (tree / "cmux-tui/Cargo.toml").write_text("[workspace]\n")
+        with self.assertRaisesRegex(hv.LookError, "--rust-binary"):
+            self.apply({"head": self.HEAD, "daemon_from": self.ONTO, "tree_key": "k"}, src_tree=tree)
+        self.assertFalse(any(argv[0] == "cargo" for argv in self.calls))
+
+    def test_a_given_binary_without_daemon_from_is_refused(self):
+        # Review: a binary the worker built for its plan's daemon_from, given to a look whose own plan has none,
+        # would go in labelled as the head's daemon.
+        with self.assertRaisesRegex(hv.LookError, "daemon_from"):
+            self.apply({"head": self.HEAD, "tree_key": "k"}, binary=self.root / "cmux-tui")
+        self.assertEqual(self.calls, [])
+
+    def test_a_plan_without_daemon_from_applies_the_head_as_before(self):
+        self.published = True
+        self.apply({"head": self.HEAD, "tree_key": "k"})
+        (argv,) = self.calls
+        self.assertIn(self.HEAD, argv)
+
+    def test_the_copy_s_acpmux_daemons_take_the_change_and_the_receipt_says_which(self):
+        # 2026-11-21 hot-swap end to end: an acpmux change's look left the copy's acpmux daemon on the old build,
+        # and the look's receipt kept only hot-apply's phases, so nothing said so.
+        self.published = True
+        left = [{"home": "/h/old", "pid": 7, "why": "its launch environment is unreadable"}]
+        stdout = json.dumps({"phases": {"swap": 1.0}, "steps": {
+            "rust": {"to": "x", "acpmux_left_on_old_build": left},
+            "acpmux": [{"home": "/h/new", "from_pid": 5, "pid": 6}]}}) + "\n"
+
+        def run(argv, **kw):
+            self.calls.append([str(a) for a in argv])
+            return subprocess.CompletedProcess(argv, 0, stdout=stdout, stderr="")
+        with unittest.mock.patch.object(hv.subprocess, "run", run):
+            applied = hv.apply_rust(self.root, {"head": self.HEAD, "tree_key": "k"}, None,
+                                    self.StubSide(self.root), self.root)
+        for planned in ({"head": self.HEAD, "tree_key": "k"}, {"head": self.HEAD, "daemon_from": self.ONTO,
+                                                               "tree_key": "k"}):
+            self.calls.clear()
+            self.apply(planned)
+            (argv,) = self.calls
+            self.assertIn("--restart-acpmux", argv)
+        self.assertEqual(applied["acpmux"], [{"home": "/h/new", "from_pid": 5, "pid": 6}])
+        self.assertEqual(applied["acpmux_left_on_old_build"], left)
+        self.assertEqual(applied["phases"], {"swap": 1.0})
+
 
 class PublishedPullRequestWebTest(unittest.TestCase):
     """look --pr N: a pull request's web layer comes from the bundles CI published for its head."""
@@ -547,6 +961,181 @@ class PublishedPullRequestWebTest(unittest.TestCase):
             self.assertIsNone(hv.published_web_key(Path("/nonexistent"), planned))
 
 
+NIGHTLY_FEED_XML = """<?xml version="1.0" encoding="utf-8"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"
+     xmlns:cmux="https://cmux.com/xml-namespaces/cmux"><channel>
+<item><title>1.0.0-nightly.2</title><sparkle:shortVersionString>1.0.0-nightly.2</sparkle:shortVersionString>
+<enclosure url="https://files-next.cmux.com/nightly-next/n2.dmg" length="1" type="application/octet-stream"/>
+<cmux:sourceCommit>{nightly}</cmux:sourceCommit></item>
+<item><title>no commit</title><enclosure url="https://files-next.cmux.com/nightly-next/n0.dmg"/></item>
+</channel></rss>"""
+TIP_FEED_XML = """<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel>
+<item><title>1.0.0-tip.9</title><sparkle:shortVersionString>1.0.0-tip.9</sparkle:shortVersionString>
+<sparkle:fullReleaseNotesLink>https://github.com/manaflow-ai/cmux/commit/{tip}</sparkle:fullReleaseNotesLink>
+<enclosure url="https://files.cmux.com/nightly-next/tip/t9.dmg" length="1" type="application/octet-stream"/></item>
+<item><title>plain http</title>
+<sparkle:fullReleaseNotesLink>https://github.com/manaflow-ai/cmux/commit/{tip}</sparkle:fullReleaseNotesLink>
+<enclosure url="http://example.com/t.dmg"/></item>
+</channel></rss>"""
+
+
+class GoldenCopyTest(unittest.TestCase):
+    """`cmux app try .` copied only the installed NIGHTLY: a checkout at the feat-cmux-next tip exited 3 against a
+    nightly 354 commits behind it whose app FFI pin the commits since had moved (2026-11-18). `run --pick` takes the
+    nearest published build the tree goes into instead."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="hot-verify-golden-")
+        self.root = Path(self.tmp.name)
+        self.fx = Fixture(self.root)
+        self.c1 = self.fx.commit({"docs/notes.md": "one\n"}, "c1", parent=self.fx.base)
+        self.c2 = self.fx.commit({"docs/notes.md": "two\n"}, "c2")
+        self.fx.git("push", "-q", "origin", f"{self.c2}:refs/heads/feat-cmux-next")
+        self.fx.git("fetch", "-q", "origin")
+        self.ahead = self.fx.commit({"docs/notes.md": "three\n"}, "after the tree")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def feeds(self, nightly: str, tip: str):
+        texts = {hv.NIGHTLY_FEED: NIGHTLY_FEED_XML.format(nightly=nightly), hv.TIP_FEED: TIP_FEED_XML.format(tip=tip)}
+        return unittest.mock.patch.object(hv, "fetch_text", side_effect=texts.get)
+
+    def test_feeds_name_their_commits_both_ways(self):
+        nightly = hv.appcast_builds(NIGHTLY_FEED_XML.format(nightly="abc1234"), "nightly")
+        self.assertEqual([(b["commit"], b["label"]) for b in nightly], [("abc1234", "1.0.0-nightly.2")])
+        tip = hv.appcast_builds(TIP_FEED_XML.format(tip="d" * 40), "tip")
+        self.assertEqual([b["url"] for b in tip], ["https://files.cmux.com/nightly-next/tip/t9.dmg"])
+        self.assertEqual(hv.appcast_builds("not xml", "tip"), [])
+
+    def test_candidates_are_nearest_first_and_never_ahead_of_the_tree(self):
+        with self.feeds(self.fx.base, self.c1), unittest.mock.patch.object(hv, "cmux_ci", return_value=None):
+            found = hv.golden_candidates(self.fx.repo, self.c2, None, [])
+        self.assertEqual([(b["kind"], b["commit"], b["behind"]) for b in found],
+                         [("tip", self.c1, 1), ("nightly", self.fx.base, 2)])
+        with self.feeds(self.ahead, self.c1), unittest.mock.patch.object(hv, "cmux_ci", return_value=None):
+            found = hv.golden_candidates(self.fx.repo, self.c2, self.c1, [])
+        self.assertEqual(found, [], "a build after the tree and the installed app's commit are not candidates")
+
+    def test_a_nightly_wins_a_tie_with_a_dev_build(self):
+        with self.feeds(self.c1, self.c1[:9]), unittest.mock.patch.object(hv, "cmux_ci", return_value=None):
+            found = hv.golden_candidates(self.fx.repo, self.c2, None, [])
+        self.assertEqual([b["kind"] for b in found], ["nightly"], "the same commit is one candidate")
+
+    def test_the_nearest_finished_fleet_build(self):
+        tool = self.root / "cmux-ci"
+        jobs = {self.c1: [{"kind": "cmux", "state": "running", "artifact": "sha256:x", "id": "j0"},
+                          {"kind": "cmux", "state": "done", "artifact": "sha256:y", "id": "j1", "tag": "ahead-c1"}]}
+        tool.write_text("#!/usr/bin/env python3\nimport json, sys\n"
+                        f"jobs = {json.dumps(jobs)}\nprint(json.dumps(jobs.get(sys.argv[3], [])))\n")
+        tool.chmod(0o755)
+        with unittest.mock.patch.object(hv, "cmux_ci", return_value=str(tool)):
+            found = hv.fleet_build(self.fx.repo, self.c2, [])
+        self.assertEqual(found, {"kind": "fleet", "commit": self.c1, "job": "j1", "label": "ahead-c1"})
+
+    def test_pick_keeps_the_installed_app_when_it_fits_and_moves_off_it_when_it_does_not(self):
+        app = self.root / "cmux NIGHTLY.app"
+        (app / "Contents").mkdir(parents=True)
+        (app / "Contents/Info.plist").write_bytes(b"")
+
+        def fake_plan(repo, source, the_app, base):
+            commit = base or self.fx.base
+            return {"head": self.c2, "base": commit, "fork": commit, "layers": ["rust"],
+                    "needs_build": commit != self.c1 or self.fit_installed is False and the_app is not None,
+                    "build": {} if commit == self.c1 else {"Rust the app links (FFI)": ["pin"]}, "notes": []}
+
+        self.fit_installed = False
+        found = [{"kind": "nightly", "commit": self.fx.base, "behind": 2, "identity": "nightly", "label": "n"},
+                 {"kind": "fleet", "commit": self.c1, "behind": 1, "identity": "dev", "label": "ahead", "job": "j"}]
+        with unittest.mock.patch.object(hv, "plan", side_effect=fake_plan), \
+                unittest.mock.patch.object(hv, "golden_candidates", return_value=found):
+            chosen = hv.pick_golden(self.fx.repo, "dir:.", app)
+        self.assertEqual((chosen["kind"], chosen["commit"], chosen["job"]), ("fleet", self.c1, "j"))
+        self.assertIn("1 commit behind", chosen["why"])
+        self.assertIn("needs one (Rust the app links (FFI))", chosen["why"])
+        self.assertEqual(len(chosen["tried"]), 2)
+        with unittest.mock.patch.object(hv, "plan", side_effect=fake_plan), \
+                unittest.mock.patch.object(hv, "golden_candidates", return_value=found[:1]):
+            chosen = hv.pick_golden(self.fx.repo, "dir:.", app)
+        self.assertEqual(chosen["kind"], "installed")
+        self.assertTrue(chosen["plan"]["needs_build"])
+        self.assertTrue(chosen["why"].startswith("no published build takes this tree"))
+
+    def test_a_fleet_dev_build_is_stamped_with_its_commit(self):
+        import plistlib
+        app = self.root / "cmux DEV ahead.app"
+        (app / "Contents").mkdir(parents=True)
+        (app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.cmuxterm.app.debug.x"}))
+        hv.stamp_commit(app, self.c1)
+        self.assertEqual(hv.app_info(app)["commit"], self.c1)
+        hv.stamp_commit(app, self.c2)
+        self.assertEqual(hv.app_info(app)["commit"], self.c1, "a commit the app names is kept")
+
+    def test_a_run_waits_for_no_page_reload_and_a_look_does(self):
+        tree = self.root / "tree"
+        (tree / "webviews").mkdir(parents=True)
+        side = unittest.mock.Mock(env=lambda: {})
+        ok = subprocess.CompletedProcess([], 0, "", "")
+        for settle, waits in ((False, []), (True, [hv.SETTLE_DEV_SERVER])):
+            slept = []
+            with unittest.mock.patch.object(hv.shutil, "which", return_value="/bin/bun"), \
+                    unittest.mock.patch.object(hv.subprocess, "run", return_value=ok), \
+                    unittest.mock.patch.object(hv.time, "sleep", side_effect=slept.append):
+                done = hv.apply_web(self.fx.repo, {"head": self.c2}, tree, side, self.root, settle=settle)
+            self.assertEqual(done["how"], "dev server")
+            self.assertEqual(slept, waits)
+
+    def test_no_published_daemon_and_no_cargo_says_so(self):
+        """A fleet Mac (2026-11-19) has no cargo, and the tree's daemon was not published: hot-apply said only
+        `exited 1: apply 4.0 s: key 3.2, plan 0.4, fetch 0.3`."""
+        tree = self.root / "tree"
+        (tree / "cmux-tui").mkdir(parents=True)
+        side = unittest.mock.Mock(app=lambda: self.root / "copy.app", dir=lambda: self.root)
+        with unittest.mock.patch.object(hv.shutil, "which", return_value=None), \
+                unittest.mock.patch.object(hv.hot(), "published", return_value=False), \
+                unittest.mock.patch.object(hv.subprocess, "run", side_effect=AssertionError("ran hot-apply")):
+            with self.assertRaisesRegex(hv.LookError, "no cargo on this Mac"):
+                hv.apply_rust(self.root, {"head": self.c2, "tree_key": "k" * 40}, tree, side, self.root)
+
+    def test_a_local_cargo_build_says_how_long_first(self):
+        tree = self.root / "tree"
+        cold = hv.cargo_note("k" * 64, tree)
+        self.assertIn("about 10 min (cold", cold)
+        self.assertIn("cmux-ci build cmux", cold)
+        (tree / "cmux-tui/target/release").mkdir(parents=True)
+        (tree / "cmux-tui/target/release/cmux-tui").write_text("")
+        self.assertIn("about 4 min (warm)", hv.cargo_note(None, tree))
+
+    def test_cleanup_keeps_a_golden_app_another_try_is_cloning(self):
+        """fetch_golden let the cache lock go before the try cloned its app, so another try's cleanup could delete
+        the app mid-clone (review on #46939). A try now holds the app's in-use lock until its clone is made."""
+        import fcntl
+        root = self.root / "golden"
+        root.mkdir()
+        names = [f"nightly-{n:012d}" for n in range(hv.GOLDEN_KEEP + 1)]
+        for age, name in enumerate(names):
+            (root / name).mkdir()
+            (root / name / hv.GOLDEN_READY).write_text("{}\n")
+            os.utime(root / name, (1000 - age, 1000 - age))
+        oldest = names[-1]
+        held = contextlib.ExitStack()
+        build = {"kind": "nightly", "commit": oldest}
+        with unittest.mock.patch.object(hv, "golden_root", return_value=root), \
+                unittest.mock.patch.object(hv, "golden_app", side_effect=lambda p: p):
+            self.assertEqual(hv.fetch_golden(build, held), root / oldest)
+            # The held app is now the newest; age it so it is the one past GOLDEN_KEEP.
+            os.utime(root / oldest, (1, 1))
+            other = {"kind": "nightly", "commit": names[0]}
+            hv.fetch_golden(other)
+            self.assertTrue((root / oldest).is_dir(), "an app a try holds is never removed")
+            held.close()
+            hv.fetch_golden(other)
+            self.assertFalse((root / oldest).exists(), "once let go, the cleanup removes it")
+        with hv.golden_use_lock(root, oldest) as free:
+            fcntl.flock(free, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
 class MarkerTest(unittest.TestCase):
     def test_marker_matches_hq(self):
         import re
@@ -562,6 +1151,55 @@ class MarkerTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             hv.marker("a" * 40, "x", [], "pr")
         self.assertIn("app=1.2-345", hv.marker("a" * 40, "1.2 345", ["web"], "pr"))
+
+
+class WhyFailedTest(unittest.TestCase):
+    # The stderr of `cargo build --release -p cmux-tui` that `cmux app try .` ran on cmux17 (2026-11-19), cut.
+    ZIG_TOO_OLD = """warning: `cmux-supervise-core` (lib) generated 2 warnings
+error: failed to run custom build command for `ghostty-vt-sys v0.1.0 (/Users/cmux/try-bench/bench/cmux-tui/crates/ghostty-vt-sys)`
+
+Caused by:
+  process didn't exit successfully: `.../build-script-build` (exit status: 101)
+  --- stderr
+  src/build/Config.zig:132:17: error: invalid builtin function: '@backingInt'
+                  @backingInt(std.Target.wasm.Feature.simd128),
+  build.zig:28:45: error: no field named 'root' in struct 'Build'
+  src/build/zig.zig:13:9: error: Your Zig version v0.16.0 does not meet the required build version of v0.17.0
+          @compileError(std.fmt.comptimePrint(
+      4 reference(s) hidden; use '-freference-trace=6' to see all references
+
+  thread 'main' (10585823) panicked at crates/ghostty-vt-sys/build.rs:148:9:
+  zig build of libghostty-vt failed with exit status: 2
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+warning: build failed, waiting for other jobs to finish...
+"""
+
+    def test_a_failed_build_says_its_cause_not_its_last_lines(self):
+        old = self.ZIG_TOO_OLD.strip()[-300:]
+        self.assertNotIn("Your Zig version", old)  # what the engine printed before
+        said = hv.why_failed(self.ZIG_TOO_OLD, 300)
+        self.assertIn("Your Zig version v0.16.0 does not meet the required build version of v0.17.0", said)
+        self.assertIn("zig build of libghostty-vt failed", said)
+        self.assertLessEqual(len(said), 300)
+
+    def test_a_build_script_panic_keeps_its_message(self):
+        out = ("error: failed to run custom build command for `ghostty-vt-sys v0.1.0`\n"
+               "  thread 'main' panicked at crates/ghostty-vt-sys/build.rs:30:9:\n"
+               "  ghostty-next is not a checkout of manaflow-ai/ghostty-next. Run `git submodule update --init "
+               "ghostty-next` at the cmux repo root, or set CMUX_GHOSTTY_SRC to a manaflow-ai/ghostty-next checkout.\n"
+               "  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+               "warning: build failed, waiting for other jobs to finish...\n")
+        self.assertIn("git submodule update --init ghostty-next", hv.why_failed(out, 300))
+
+    def test_output_with_no_error_line_keeps_its_end(self):
+        self.assertEqual(hv.why_failed("one\ntwo\nthree", 5), "three")
+        self.assertEqual(hv.why_failed("", 300), "")
+        self.assertEqual(hv.why_failed(None, 300), "")
+
+    def test_rustc_and_git_errors_count(self):
+        self.assertEqual(hv.why_failed("ok\nerror[E0425]: cannot find value `x`\n  --> a.rs:1:1", 300),
+                         "error[E0425]: cannot find value `x`")
+        self.assertEqual(hv.why_failed("fatal: not a git repository\n", 300), "fatal: not a git repository")
 
 
 class BrowserEngineTest(unittest.TestCase):

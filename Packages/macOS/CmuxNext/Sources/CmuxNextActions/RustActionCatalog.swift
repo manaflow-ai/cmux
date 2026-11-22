@@ -32,10 +32,11 @@ nonisolated struct RustActionCatalog: Sendable {
     /// Every `op:` suggestion source an argument names, by source name (`op:closed.list`).
     let listSources: [String: ActionCatalogListSource]
 
-    /// In the language the app's own strings resolve to: the bundle negotiates the person's whole
-    /// preference list against the localizations it ships (Swedish, Japanese, English gives
-    /// Japanese), as `String(localized:bundle:)` does.
-    static let shared: RustActionCatalog = load(language: Bundle.module.preferredLocalizations.first ?? Locale.preferredLanguages.first ?? "en")
+    /// In the language the app's own strings resolve to: the main bundle negotiates the person's
+    /// whole preference list against the 21 localizations the app declares (Swedish, Japanese,
+    /// English gives Japanese). Not `Bundle.module`: a NIGHTLY ships only English in its module
+    /// bundles and downloads the person's language on first use (`LanguagePacks`).
+    static let shared: RustActionCatalog = load(language: Bundle.main.preferredLocalizations.first ?? Locale.preferredLanguages.first ?? "en")
 
     private static let log = Logger(subsystem: "com.cmuxterm.next", category: "action-catalog")
 
