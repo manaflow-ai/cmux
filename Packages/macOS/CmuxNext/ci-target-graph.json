@@ -535,9 +535,7 @@
       ],
       "reads": [
         "Native/OptChat/optchat-chief/inspector/index.html",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextWebUpdates/",
+        "Packages/macOS/CmuxNext/",
         "Resources/cmux-themes/",
         "Resources/ghostty/themes/",
         "Resources/markdown-viewer/ondine.min.js",
