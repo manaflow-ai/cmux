@@ -87,6 +87,20 @@ pub enum State {
     Failed,
 }
 
+/// `_meta.acpmux.after` of a queued `session/prompt`: the delivery id this one waits behind. The
+/// outbox holds it until that delivery settles (`server/outbox.rs` `deliver`), so two messages a
+/// batch sends one session arrive in its order without the sender sending the second again.
+pub const AFTER_KEY: &str = "after";
+
+impl Delivery {
+    /// The delivery this one waits behind, while that one is in this outbox and not settled.
+    pub fn waits_behind(&self, outbox: &Outbox) -> Option<String> {
+        let after = self.request.pointer("/_meta/acpmux/after").and_then(Value::as_str)?;
+        (after != self.id && outbox.get(after).is_some_and(|d| !d.settled()))
+            .then(|| after.to_owned())
+    }
+}
+
 /// One message to deliver.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1058,6 +1072,29 @@ mod tests {
             created_at: now,
             updated_at: now,
         }
+    }
+
+    /// cmuxterm-hq#17418: a message queued behind another to the same session waits in the
+    /// outbox until that one settles (delivered or failed), never as an error to its sender; one
+    /// naming a delivery this outbox does not hold, or itself, goes at once.
+    #[test]
+    fn a_delivery_after_another_waits_until_that_one_settles() {
+        let outbox = Outbox::default();
+        outbox.add(delivery(1)).unwrap();
+        let mut second = delivery(2);
+        second.request["_meta"]["acpmux"][AFTER_KEY] = json!("d-1");
+        outbox.add(second).unwrap();
+        let second = outbox.get("d-2").unwrap();
+        assert_eq!(second.waits_behind(&outbox).as_deref(), Some("d-1"));
+        outbox.update("d-1", |d| d.state = State::Delivered);
+        assert_eq!(second.waits_behind(&outbox), None);
+        outbox.update("d-1", |d| d.state = State::Failed);
+        assert_eq!(second.waits_behind(&outbox), None);
+        let mut stray = delivery(3);
+        stray.request["_meta"]["acpmux"][AFTER_KEY] = json!("mesh:elsewhere");
+        assert_eq!(stray.waits_behind(&outbox), None);
+        stray.request["_meta"]["acpmux"][AFTER_KEY] = json!("d-3");
+        assert_eq!(stray.waits_behind(&outbox), None);
     }
 
     /// An open delivery past [`OPEN_ON_PEER_FOR_MS`] is not dropped: it fails, saying why, and

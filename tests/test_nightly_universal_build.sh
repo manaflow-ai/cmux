@@ -418,10 +418,12 @@ if ! awk '
   job == "republish" && /gh api .*git\/ref\/tags\/\$CHANNEL_RELEASE_TAG/ { saw_guard=1 }
   job == "republish" && /gh api .*commits\/\$CHANNEL_RELEASE_TAG/ { saw_branch_read=1 }
   # The publication moves the tag to the resolved build commit, not the tip.
-  job == "republish" && index($0, "\"$current_sha\" != \"${{ needs.published-build.outputs.resolve_build_sha }}\"") { saw_build_sha=1 }
+  # The step script compares against RESOLVE_BUILD_SHA, which the step env: sets from published-build.
+  job == "republish" && index($0, "\"$current_sha\" != \"$RESOLVE_BUILD_SHA\"") { saw_build_cmp=1 }
+  job == "republish" && index($0, "RESOLVE_BUILD_SHA: ${{ needs.published-build.outputs.resolve_build_sha }}") { saw_build_env=1 }
   job == "republish" && /publish-release-assets\.py/ { saw_republish=1 }
   job == "republish" && /Upload revised appcasts to R2/ { saw_r2=1 }
-  END { exit !(saw_publish_need && saw_matrix && saw_delta_need && saw_guard && !saw_branch_read && saw_build_sha && saw_republish && saw_r2) }
+  END { exit !(saw_publish_need && saw_matrix && saw_delta_need && saw_guard && !saw_branch_read && saw_build_cmp && saw_build_env && saw_republish && saw_r2) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: post-publication delta generation must be matrixed, stale-guarded, and republished to GitHub and R2"
   exit 1

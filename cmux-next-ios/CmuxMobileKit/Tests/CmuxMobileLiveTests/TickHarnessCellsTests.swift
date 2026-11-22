@@ -10,7 +10,7 @@ import Testing
 // seeded faults, on virtual time (TickHarness.swift). Each prints one MATRIX
 // line with the virtual time covered and the wall time spent.
 //
-// Leo, 2026-11-10: "[forget] soaks we just slam shit and artificially tick
+// Leo, 2026-11-10: "[forget] soaks we just slam s*** and artificially tick
 // stuff into oblivion" (connectivity, CPU, RAM, disk).
 
 private let studio = LinkMachine.Target(macID: "m1", name: "Studio", isOnline: true)
@@ -127,7 +127,7 @@ private func runReconnects(drops target: Int, seed: UInt64) -> ReconnectRun {
                 }
             case .scheduleRetry(let gen, let after):
                 clock.schedule(.machine(.retryDue(generation: gen)), after: after)
-            case .close, .probe, .quickProbe:
+            case .close, .probe, .quickProbe, .keepStandby, .promoteStandby, .closeStandby:
                 break
             }
         }

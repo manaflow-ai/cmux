@@ -6,7 +6,7 @@ import "../shared/desktop";
 import "../shared/transientMaterial";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
-import { createStrings } from "../shared/i18n";
+import { renderLocalized } from "../shared/localizedRoot";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { AppsPage } from "./AppsPage";
 import table from "./generated/strings.json";
@@ -39,13 +39,15 @@ export function mountAppsPage(
   }
   // The host opens a listing or the Installed tab on an open page by setting the fragment.
   window.addEventListener("hashchange", () => store.applyRoute(window.location.hash));
-  const strings = createStrings(table);
-  document.documentElement.lang = strings.language;
-  document.title = strings.t("store.window.title");
-  createRoot(root).render(
-    <UiProvider container={root} dir={languageDirection(strings.language)}>
-      <AppsPage store={store} strings={strings} />
-    </UiProvider>,
+  renderLocalized(
+    createRoot(root),
+    table,
+    (strings) => (
+      <UiProvider container={root} dir={languageDirection(strings.language)}>
+        <AppsPage store={store} strings={strings} />
+      </UiProvider>
+    ),
+    (strings) => strings.t("store.window.title"),
   );
   return store;
 }

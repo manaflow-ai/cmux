@@ -4,7 +4,7 @@
 extension SettingsPageLayout {
     /// The sidebar's sections: what a person looks for together sits together under one small header.
     public static let sidebarSections: [SidebarSection] = [
-        SidebarSection(id: "app", title: nil, categories: [generalCategory, updatesCategory]),
+        SidebarSection(id: "app", title: nil, categories: [generalCategory, customizeCategory, updatesCategory]),
         SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [appearanceCategory, sidebarCategory, tabsCategory]),
         SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
         SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, chiefCategory, modelsCategory]),
@@ -21,16 +21,26 @@ extension SettingsPageLayout {
     private static let generalCategory = CategorySpec(
         id: "general", title: section(.general), symbol: "gearshape",
         groups: [
+            GroupSpec(group: "settings.group.language"),
             GroupSpec(group: "settings.group.window"),
             GroupSpec(group: "settings.group.quit"),
             GroupSpec(group: "settings.group.history"),
             GroupSpec(group: "settings.group.workspaceHibernation"),
             GroupSpec(group: "settings.group.autoArchive"),
+            // Machine cleanup: agent worktrees and build caches on this Mac (acpmux hub/worktree_care.rs).
+            GroupSpec(group: "settings.group.storage"),
             GroupSpec(group: "settings.group.picker"),
             GroupSpec(group: "settings.group.tasks"),
             GroupSpec(group: "settings.group.announcements"),
         ],
         lead: [.textSize], actions: [.general], aliases: [.general]
+    )
+
+    /// One click per customization (Leo 2026-11-22, ask-931361017e): only the checklist card, right after General so it is found first.
+    private static let customizeCategory = CategorySpec(
+        id: "customize", title: SettingsText.keyed("settings.category.customize", "Customize"), symbol: "switch.2",
+        groups: [],
+        lead: [.customizeChecklist]
     )
 
     /// The app update's status, how this Mac updates, then every channel's recent builds (docs/release-rings.md in hq). After the groups: the Web UI card (the web half of Updates; NIGHTLY only), then the channels.
@@ -71,7 +81,7 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.sidebar"),
             // The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf) is claimed here so the Sidebar card stays under it too.
             GroupSpec(keys: ["sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient", "sidebar.floatOnHover"], title: SettingsText.keyed("settings.pageGroup.sidebarLayout", "Sidebar Layout")),
-            GroupSpec(keys: ["workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree", "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.settleFinished", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"], title: SettingsText.keyed("settings.pageGroup.sidebarWorkspaces", "Sidebar Workspaces")),
+            GroupSpec(keys: ["workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree", "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.settleFinished", "sidebar.showAutomaticSessions", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"], title: SettingsText.keyed("settings.pageGroup.sidebarWorkspaces", "Sidebar Workspaces")),
             GroupSpec(group: "settings.group.workspaceRows"),
             GroupSpec(keys: ["sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps", "home.channelsEnabled"], title: SettingsText.keyed("settings.pageGroup.sidebarExtras", "Sidebar Buttons and Spaces")),
             GroupSpec(keys: ["sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting", "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.hoverCards.maxRows"], title: SettingsText.keyed("settings.pageGroup.workspaceCards", "Workspace Hover Cards")),
@@ -150,11 +160,11 @@ extension SettingsPageLayout {
     private static let chatCategory = CategorySpec(
         id: "chat", title: SettingsText.keyed("settings.category.chat", "Chat"), symbol: "bubble.left",
         groups: [
-            GroupSpec(keys: ["agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom", "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand", "agentPane.display.thinking.jumpButton", "agentPane.needsYou.enabled", "agentPane.showMachineLoadWarnings"], title: SettingsText.keyed("settings.pageGroup.transcript", "Transcript")),
-            GroupSpec(keys: ["agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap", "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle", "agentPane.display.unreadBanner", "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement"], title: SettingsText.keyed("settings.pageGroup.chatLayout", "Chat Layout")),
+            GroupSpec(keys: ["agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom", "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand", "agentPane.display.thinking.jumpButton", "agentPane.needsYou.enabled", "agentPane.display.finishSound", "agentPane.showMachineLoadWarnings"], title: SettingsText.keyed("settings.pageGroup.transcript", "Transcript")),
+            GroupSpec(keys: ["agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap", "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle", "agentPane.display.unreadBanner", "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner", "agentPane.display.rail.side", "agentPane.display.rail.show", "agentPane.display.rail.control", "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement"], title: SettingsText.keyed("settings.pageGroup.chatLayout", "Chat Layout")),
             GroupSpec(keys: ["agentPane.display.font.ui", "agentPane.display.font.uiFamily", "agentPane.display.font.preset", "agentPane.display.font.proseFamily", "agentPane.display.font.faces", "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.family", "agentPane.display.code.scale"], title: SettingsText.keyed("settings.pageGroup.chatText", "Chat Text")),
-            GroupSpec(keys: ["agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking", "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement", "agentPane.display.promptCoach"], title: SettingsText.keyed("settings.pageGroup.messageBox", "Message Box")),
-            GroupSpec(keys: ["agentPane.links.outsideRoots", "agentPane.images.remote", "agentPane.editedFiles.show", "agentPane.editedFiles.maxRows", "agentPane.editedFiles.scope"], title: SettingsText.keyed("settings.pageGroup.filesLinks", "Files and Links")),
+            GroupSpec(keys: ["agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking", "agentPane.composerLook", "agentPane.emptyChatComposerPosition", "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement", "agentPane.display.promptCoach"], title: SettingsText.keyed("settings.pageGroup.messageBox", "Message Box")),
+            GroupSpec(keys: ["agentPane.links.outsideRoots", "agentPane.links.openCitationsInEditor", "agentPane.images.remote", "agentPane.editedFiles.show", "agentPane.editedFiles.maxRows", "agentPane.editedFiles.scope"], title: SettingsText.keyed("settings.pageGroup.filesLinks", "Files and Links")),
             GroupSpec(group: "settings.group.chats"),
         ]
     )
@@ -217,6 +227,7 @@ extension SettingsPageLayout {
         id: "notifications", title: section(.notifications), symbol: "bell",
         groups: [
             GroupSpec(group: "settings.group.banners"),
+            GroupSpec(group: "settings.group.notificationDelivery"),
             // Per-event sounds, volume, timing and the burst cooldown (notifications.json's sounds list); its per-level maps stay off the page.
             GroupSpec(group: "settings.group.sounds"),
             GroupSpec(group: "settings.group.dismissal"),
