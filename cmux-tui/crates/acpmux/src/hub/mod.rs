@@ -1831,12 +1831,10 @@ impl Hub {
         self.events.subscribe()
     }
 
-    /// [`Hub::subscribe`] for a connection's fan-out task: each event's fan-out clock waits for
-    /// it until the seat drops (`gauges.fanout`).
-    pub(crate) fn subscribe_fanout(
-        &self,
-    ) -> (broadcast::Receiver<HubEvent>, list_guard::FanoutSeat) {
-        self.events.subscribe_fanout()
+    /// Which connections each event wakes (`server/interest.rs`): a connection's fan-out reads
+    /// its own inbox, not [`Hub::subscribe`].
+    pub(crate) fn fanout_router(&self) -> &Arc<crate::server::interest::Router> {
+        self.events.router()
     }
 
     pub fn mailbox(&self) -> &Mailbox {
