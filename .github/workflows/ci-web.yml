@@ -788,6 +788,12 @@ jobs:
           CMUX_WEB_TEST_DURATIONS: ${{ runner.temp }}/webviews-durations/manifest.json
           # From web-subarea-scope's handoff (pull requests only): a file red on the base's push gets no alone retry.
           CMUX_WEB_TEST_BASE_REDS: ${{ github.event_name == 'pull_request' && format('{0}/webviews-durations/base-reds.json', runner.temp) || '' }}
+          # Pull requests only: once 5 alone retries have run and none passed, the rest of the red files keep their
+          # first run for react-apps-base-check, which replays them on the base and re-runs alone on the head any it
+          # would charge (run-webviews-tests.sh). Shard 1 of run 44987019885 spent 23 min retrying 38 files alone and
+          # none passed. A push keeps every retry: its verdicts are the base's history. Undo: the repository variable
+          # CMUX_WEB_TEST_RETRY_BREAKER=0.
+          CMUX_WEB_TEST_RETRY_BREAKER: ${{ github.event_name == 'pull_request' && (vars.CMUX_WEB_TEST_RETRY_BREAKER || '5') || '0' }}
           CMUX_WEB_TEST_DURATIONS_OUT: ${{ runner.temp }}/webviews-durations-out/shard${{ matrix.shard }}.json
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
