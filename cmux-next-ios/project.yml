@@ -15,7 +15,8 @@ configs:
   # the Demo build. Built by scripts/demo-build.sh --config Production.
   Production: release
   # TestFlight: the shipping build for App Store Connect app "cmux INTERNAL"
-  # (bundle dev.cmux.app.internal, ASC app id 6791408425). Everything
+  # (bundle dev.cmux.app.internal, ASC app id 6791408425). The App Store
+  # submission is cmux INTERNAL, built by this configuration. Everything
   # Production has (no DEBUG, production Stack project) plus the production
   # Worker, App Store distribution signing, push (production APNs) and Sign in
   # with Apple. Built only by scripts/testflight-build.sh. See
@@ -28,16 +29,18 @@ configs:
   # `scripts/testflight-build.sh --config TestFlightStaging`; production
   # (TestFlight) stays the default.
   TestFlightStaging: release
-  # AppStore: the public App Store build, App Store Connect app "cmux" (bundle
-  # com.cmux.app, the record the classic ios/ app used; this app replaces it as
-  # an update). The TestFlight configuration with the production identity:
-  # production Stack project, Worker and Cloud, App Store signing, push and Sign
-  # in with Apple. Built only by `scripts/testflight-build.sh --config AppStore`,
-  # by hand or from the one-off rc/ upload workflow
+  # AppStore: a build for App Store Connect app "cmux" (bundle com.cmux.app,
+  # ASC 6783338052, the record the classic ios/ app used). It is NOT the App
+  # Store submission: the App Store submission is cmux INTERNAL
+  # (dev.cmux.app.internal, ASC 6791408425), built by the TestFlight
+  # configuration above (Leo, 2026-11-22). This configuration is the
+  # TestFlight configuration with the com.cmux.app identity: production Stack
+  # project, Worker and Cloud, App Store signing, push and Sign in with Apple.
+  # Built only by `scripts/testflight-build.sh --config AppStore`, by hand or
+  # from the one-off rc/ upload workflow
   # (.github/workflows/ios-appstore-next-review.yml on rc/cnx-ios-appstore-review);
-  # main's ios-app-store.yml and ios-appstore-upload.yml still build the
-  # classic ios/ app. Its version is its own (MARKETING_VERSION below): the
-  # public App Store history starts at 1.0.0 with this app. A phone updating from the
+  # main's ios-appstore-upload.yml still builds the classic ios/ app. Its
+  # version is its own (MARKETING_VERSION below). A phone updating from the
   # classic app keeps its Keychain items and settings: ClassicLeftovers
   # (CmuxMobileLive) deletes them once at the first launch.
   AppStore: release
@@ -176,10 +179,10 @@ settings:
       # 7WLXT3NR37.com.cmux.app.push; the App Group (when on) is group.com.cmux.app.
       CMUX_MOBILE_APP_BUNDLE_ID: com.cmux.app
       CMUX_MOBILE_DISPLAY_NAME: cmux
-      # The App Store version, independent of the INTERNAL lane's base
+      # The com.cmux.app version, independent of the INTERNAL lane's base
       # MARKETING_VERSION (1.2.0 above, which must not go down on
-      # dev.cmux.app.internal). The App Store record's history starts at 1.0.0
-      # with cmux-next. testflight-build.sh --config AppStore,
+      # dev.cmux.app.internal; the App Store submission is cmux INTERNAL on
+      # that 1.2.x base, not this record). testflight-build.sh --config AppStore,
       # app_review_gate.py `version --lane appstore` and asc_review_package.py
       # read this value; the review package
       # (cmux-next-ios/AppStoreReview/metadata/version/<it>) is named for it.
