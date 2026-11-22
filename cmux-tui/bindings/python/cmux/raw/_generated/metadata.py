@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'c4c62e7fbfe4e66865a0aa7df09ab7f10d07542c41f38893093dbbc851208e7c'
+IR_SHA256 = 'd023b42d4c69f747f8259a2068725f4d5f42a99b8207071158e1d75e5c6394f1'
 
 
 @dataclass(frozen=True)
@@ -3172,6 +3172,7 @@ COMMANDS = {
             'expect_agent': CommandFieldMetadata(None, 'send-expect-agent-v1'),
             'expect_foreground': CommandFieldMetadata(None, 'send-expect-foreground-v1'),
             'flow': CommandFieldMetadata(None, None),
+            'key': CommandFieldMetadata(None, 'send-key-v1'),
             'paste': CommandFieldMetadata(7, None),
             'submit': CommandFieldMetadata(None, 'send-expect-agent-v1'),
             'surface': CommandFieldMetadata(None, None),
@@ -3652,6 +3653,7 @@ COMMANDS = {
             'end_terminals': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'force': CommandFieldMetadata(10, 'daemon-handoff-force-v1'),
             'generation': CommandFieldMetadata(None, None),
+            'if_idle': CommandFieldMetadata(12, 'daemon-stop-if-idle-v1'),
             'keep_layout': CommandFieldMetadata(12, 'end-terminals-keep-layout-v1'),
             'pid': CommandFieldMetadata(None, None),
             'restart': CommandFieldMetadata(12, None),
@@ -4191,6 +4193,7 @@ EVENTS = {
     'agent-inventory-changed': EventMetadata('agent-inventory-changed', 12, 'agent-inventory-watch-v1', ('control',), 'emitted'),
     'agent-inventory-watch-ended': EventMetadata('agent-inventory-watch-ended', 12, 'agent-inventory-watch-v1', ('control',), 'emitted'),
     'agent-presence-changed': EventMetadata('agent-presence-changed', 12, 'agent-presence-v1', ('subscribe',), 'emitted'),
+    'agent-session-share-changed': EventMetadata('agent-session-share-changed', 12, 'agent-session-share-events-v1', ('subscribe',), 'emitted'),
     'bell': EventMetadata('bell', 5, None, ('subscribe',), 'emitted'),
     'bookmarks-changed': EventMetadata('bookmarks-changed', 12, 'bookmarks-v1', ('subscribe',), 'emitted'),
     'browser-state': EventMetadata('browser-state', 6, None, ('attach-browser',), 'emitted'),

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c4c62e7fbfe4e66865a0aa7df09ab7f10d07542c41f38893093dbbc851208e7c. */
+/* cmux-tui mux protocol 12, IR d023b42d4c69f747f8259a2068725f4d5f42a99b8207071158e1d75e5c6394f1. */
 
 
 import type * as T from "./types.js";
@@ -2419,6 +2419,7 @@ export interface SendRequest extends CmuxRequestBase {
   "expect_agent"?: (T.SendExpectAgent) | null;
   "expect_foreground"?: (string) | null;
   "flow"?: (bigint) | null;
+  "key"?: (string) | null;
   "paste"?: boolean;
   "submit"?: boolean;
   "surface"?: (T.Id) | null;
@@ -2756,6 +2757,7 @@ export interface ShutdownDaemonRequest extends CmuxRequestBase {
   "end_terminals"?: boolean;
   "force"?: boolean;
   "generation": string;
+  "if_idle"?: boolean;
   "keep_layout"?: boolean;
   "pid": number;
   "restart"?: (boolean) | null;
