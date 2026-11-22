@@ -57,6 +57,21 @@ await requireBrowserLane("transcript-tail-scroll.test.ts", async () => {
     const rows = document.querySelectorAll<HTMLElement>(".acpmux-row");
     return rows[rows.length - 1]!.getBoundingClientRect().top;
   };
+  /// The blank band between the scroller's top and the first row drawn in it, as the frame painted
+  /// it: 0 when a row reaches the view's top. The room held for unloaded history showed as such a
+  /// band over a short tail at the view's foot for as long as no page came (Leo, 2026-11-11).
+  const blankTop = () => {
+    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const view = scroller.getBoundingClientRect();
+    let first = Number.POSITIVE_INFINITY;
+    for (const row of document.querySelectorAll<HTMLElement>(".acpmux-row")) {
+      const rect = row.getBoundingClientRect();
+      if (rect.height > 0 && rect.bottom > view.top && rect.top < view.bottom) first = Math.min(first, rect.top);
+    }
+    return Number.isFinite(first) ? Math.max(0, first - view.top) : view.height;
+  };
+  /// At most the thread's own top padding: no row-sized band lies empty over the rows.
+  const MAX_BLANK_TOP = 64;
   /// Whether a page of older history has landed yet (runs in the page).
   const landed = () =>
     (window as unknown as { __older: { asks: { landed?: number }[] } }).__older.asks.some(
@@ -112,7 +127,26 @@ await requireBrowserLane("transcript-tail-scroll.test.ts", async () => {
 
   // Two prompts (shorter than the view) and four (a little over a view), as Leo's "last three".
   for (const tail of [6, 12]) {
-    test(`a ${tail}-row tail: a scroll up is never pushed back down, and the late page lands above in place`, async () => {
+    const short = tail === 6;
+    test(`a ${tail}-row tail: no blank band over it while its older history loads`, async () => {
+      const page = await open(tail);
+      // The rows reach the view's top in every frame before the page lands: a short tail draws from
+      // the top, as a short chat does, and a longer one fills the view at its latest row.
+      const bands: number[] = [];
+      for (let frame = 0; frame < 10; frame += 1) {
+        await page.evaluate(() => window.cmuxPaintFrame());
+        bands.push((await page.evaluate(blankTop)) as number);
+      }
+      expect((await page.evaluate(landed)) as boolean).toBe(false);
+      console.log(`transcript-tail-scroll ${tail} rows blank top: ${JSON.stringify(bands)}`);
+      expect(Math.max(...bands)).toBeLessThanOrEqual(MAX_BLANK_TOP);
+      // And once the page lands, at the latest row.
+      await page.waitForFunction(landed, undefined, { timeout: PAGE_MS + 5000 });
+      for (let frame = 0; frame < 10; frame += 1) await page.evaluate(() => window.cmuxPaintFrame());
+      expect((await page.evaluate(blankTop)) as number).toBeLessThanOrEqual(MAX_BLANK_TOP);
+      await page.close();
+    });
+    test(`a ${tail}-row tail: a scroll up is never pushed back down, and the late page lands above ${short ? "it" : "in place"}`, async () => {
       const page = await open(tail);
       const tops = await wheelUp(page, STEPS);
       const offsets = (await page.evaluate(
@@ -124,13 +158,16 @@ await requireBrowserLane("transcript-tail-scroll.test.ts", async () => {
       // The whole scroll happened while the first page was still being read.
       expect(waiting).toBe(true);
       expect(backs).toEqual({ rows: 0, offsets: 0 });
-      // The page lands: the rows in view stay where they are drawn.
+      // The page lands: the rows in view stay where they are drawn. A tail shorter than the view drew
+      // from the view's top with nothing to scroll; the page that overflows it opens the chat at its
+      // latest row, with no blank band over the rows.
       const before = tops.at(-1)!;
       await page.waitForFunction(landed, undefined, {
         timeout: PAGE_MS + 5000,
       });
       for (let frame = 0; frame < 10; frame += 1) await page.evaluate(() => window.cmuxPaintFrame());
-      expect(Math.abs(((await page.evaluate(latestTop)) as number) - before)).toBeLessThanOrEqual(1);
+      if (short) expect((await page.evaluate(blankTop)) as number).toBeLessThanOrEqual(MAX_BLANK_TOP);
+      else expect(Math.abs(((await page.evaluate(latestTop)) as number) - before)).toBeLessThanOrEqual(1);
       // And the reader goes on up into it.
       const after = await wheelUp(page, 10);
       expect(after.at(-1)! - after[0]!).toBeGreaterThan(5 * STEP);

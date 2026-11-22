@@ -270,6 +270,33 @@ describe("olderReserve", () => {
     expect(step.state?.prompts).toBe(50);
   });
 
+  test("rows shorter than the view hold no room; it is estimated once they fill the view", () => {
+    // Two turns (400px) under a 700px view: room above them would show as a blank band at the
+    // latest row, over the tail at the view's foot.
+    const short = turns(48, 50);
+    const input = (rows: AcpmuxRow[], earlier: number) => ({
+      sessionId: "s",
+      rows,
+      rowTop: (index: number) => index * 100,
+      rowsHeight: rows.length * 100,
+      canLoadOlder: true,
+      earlier,
+      viewHeight: 700,
+    });
+    const first = olderReserve(undefined, input(short, 48));
+    expect(first.reserve).toBe(0);
+    // A page lands and the rows fill the view: the room is estimated then (8 turns at 200px, 40 left).
+    const filled = olderReserve(first.state, input(turns(40, 50), 40));
+    expect(filled.reserve).toBe(8160);
+    // Rows that shrink under the view again (a rewrap) give the room up, and seed it again after.
+    const shrunk = olderReserve(filled.state, { ...input(turns(40, 50), 40), rowsHeight: 600 });
+    expect(shrunk.reserve).toBe(0);
+    expect(shrunk.state?.unseeded).toBe(true);
+    expect(olderReserve(shrunk.state, input(turns(40, 50), 40)).reserve).toBe(8160);
+    // No view yet (a hidden pane): the room is held as before.
+    expect(olderReserve(undefined, { ...input(short, 48), viewHeight: 0 }).reserve).toBeGreaterThan(0);
+  });
+
   test("a chat held whole before opens with the exact room", () => {
     const rows = turns(40, 50);
     // From the last whole visit: 7321px of history above the first loaded prompt.
