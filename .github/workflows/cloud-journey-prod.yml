@@ -18,12 +18,13 @@ name: Cloud journey (production, hourly)
 # only the post-bind check when the receipt says installed (probe.json login_path: receipt or copy).
 #
 # A red run opens one issue per model, or rewrites the open one's body; the next green run of that model closes it.
-# Secrets: the production agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in the cmux-next-cloud-journey
-# environment (they shadow the repository's pair, the dev Stack account, which production rejects), and for the real
-# model CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN (same environment), else the repository's CLAUDE_CODE_OAUTH_TOKEN. The staging preclaim below runs in cmux-next-vm-image-dev with that
-# environment's staging pair and the repository's Claude token; production names stay intact.
-# They reach the one run step through env; the journey sends them only in headers and request bodies and scrubs them
-# from its output.
+# Sign-in: no stored password. The job's GitHub OIDC token (id-token: write) goes to the API's
+# POST /v1/auth/github-actions (backend/apps/api/src/ci-session.ts on feat-cmux-next), which opens a short Stack session
+# of the production agent test account only for a token whose repository, ref (refs/heads/main) and workflow
+# (this file at main) match its trust row exactly. The real model also takes CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN (the
+# cmux-next-cloud-journey environment's), else the repository's CLAUDE_CODE_OAUTH_TOKEN. The staging preclaim below
+# runs in cmux-next-vm-image-dev with that environment's staging pair and the repository's Claude token.
+# The journey sends every token only in headers and scrubs them from its output.
 #
 # The schedule registers from main; the scripts it runs always come from feat-cmux-next, never a pull request's head:
 # the job holds the production account and a Claude login, so no unreviewed code runs with them. Try a change with
@@ -81,12 +82,15 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     # The cmux-tui build (warm from the rust cache) comes before the journey's own 25 minutes.
     timeout-minutes: 75
+    # Holds the journey's own Claude login (CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN); sign-in needs no secret.
     environment: cmux-next-cloud-journey
     permissions:
       contents: read
       issues: write
       # The red-journey step lists recent cmux VM production deploys (gh run list / view).
       actions: read
+      # The OIDC token the journey signs in with.
+      id-token: write
     env:
       # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
       GH_BUDGET_WAIT_MAX_SECONDS: "900"
@@ -186,8 +190,6 @@ jobs:
         # Leaves the job time to upload the artifact and open the issue.
         timeout-minutes: 25
         env:
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           # The journey's own Claude login first (a cmux-next-cloud-journey environment secret, as backend.yml's
           # journey-production reads it): the repository's CLAUDE_CODE_OAUTH_TOKEN is shared with claude.yml and
           # its weekly limit turned the real leg into skips (run 44649399953). Falls back while it is not set.
@@ -203,7 +205,7 @@ jobs:
           mkdir -p "$out"
           probe=cloud-chat-replies-production
           [ "$MODEL" = stub ] || probe=cloud-chat-replies-production-real-model
-          bun scripts/cmux-next/cloud-journey.ts --backend prod --model "$MODEL" --out "$out" --probe-out "$out/probe.json" --probe "$probe" --skip sync,pause \
+          bun scripts/cmux-next/cloud-journey.ts --backend prod --sign-in oidc --model "$MODEL" --out "$out" --probe-out "$out/probe.json" --probe "$probe" --skip sync,pause \
             --preclaim-login "$CMUX_TUI"
           code=$?
           { echo "### Production, $MODEL model"; echo; cat "$out/summary.md" 2>/dev/null || echo "(no summary written)"; } >> "$GITHUB_STEP_SUMMARY"
