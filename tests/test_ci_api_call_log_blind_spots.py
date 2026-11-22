@@ -145,6 +145,23 @@ class BlindSpots(unittest.TestCase):
         self.assertEqual(len(named), 2, calls)
         self.assertTrue(all(c[-1].endswith(f"tok={token}]") for c in named), calls)
 
+    def test_a_path_without_curl_or_python_still_has_neither(self) -> None:
+        # workers/iroh-v2's deploy guard refuses when `command -v curl` fails; a wrapper function named curl made it
+        # succeed on a PATH with no curl (PR #49486's iroh-v2 backend job, 2026-11-21). The child bash inherits the
+        # step's BASH_ENV, as a test harness's does.
+        bare = self.root / "bare"
+        bare.mkdir()
+        for tool in ("bash", "date", "mkdir", "cp", "chmod", "dirname", "cat", "rm", "readlink", "mktemp", "tr", "awk"):
+            found = shutil.which(tool)
+            if found:
+                (bare / tool).symlink_to(found)
+        check = 'for c in curl python3 python; do command -v "$c" >/dev/null && echo "has $c" || echo "no $c"; done'
+        # A shell that drops them from its own PATH later keeps the functions, but running one is still "not found".
+        later = 'for c in curl python3; do "$c" --version >/dev/null 2>&1 && r=0 || r=$?; echo "$c $r"; done'
+        done = self.step(f"PATH={bare} bash -c '{check}'; PATH={bare}; {later}")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.splitlines(), ["no curl", "no python3", "no python", "curl 127", "python3 127"])
+
     def test_the_log_stays_on_through_2026_11_22_and_then_switches_off(self) -> None:
         real_date = shutil.which("date")
         for hour, on in (("2026112213", True), ("2026112300", False)):
