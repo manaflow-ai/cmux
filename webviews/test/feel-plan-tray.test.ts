@@ -44,9 +44,8 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
     states: { open: { selector: TRAY, attr: "data-open" } },
   };
 
-  // Red on feat-cmux-next today; the plan-display-proper lane is fixing the tray's drag.
-  const FIX = "the plan-display-proper lane";
-  const SNAP = `${FIX}: the list stops between lines (it sizes to raw px)`;
+  // Green since the plan-display-proper fix (#50154): the rim lands on a whole line, a shaky hand folds
+  // it once, and a click on the rim changes nothing.
   const { scenario, testFor } = feelStage({
     entry: "agent-pane.feel-plan-tray",
     variant: "fifty",
@@ -55,16 +54,6 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
     prepare: async (page) => {
       await page.evaluate(() => localStorage.removeItem("cmux.agentPane.hatListHeight"));
       await page.waitForSelector(`${TRAY}[data-open] ${LIST}`);
-    },
-    known: {
-      "drag-slow--60": SNAP,
-      "drag-fast--60": SNAP,
-      "drag-jitter--60": SNAP,
-      "drag-burst--60": SNAP,
-      "drag-slow-40": SNAP,
-      "fold-hysteresis": `${FIX}: a shaky hand at the fold point folds and opens it 9 times`,
-      "rim-click": `${FIX}: a click on the rim folds the hat`,
-      "rim-wobble-3px": `${FIX}: a click on the rim folds the hat`,
     },
   });
 
