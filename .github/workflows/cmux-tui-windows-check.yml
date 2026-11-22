@@ -31,6 +31,8 @@ on:
     paths:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
       - "schemas/settings/source/general.json"
+      - "schemas/type-scale/scene-type.json"
+      - "webviews/src/apps/scene/fixtures/design-check-scenes.json"
       - "web/public/tui/install-static.sh"
       - "cmux-tui/**"
       - "ghostty-next"
