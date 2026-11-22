@@ -645,8 +645,11 @@ extension LiveCoordinator {
     func sendPaint(_ samples: [TerminalPaintTally.Sample], program: String?, macID: String) async {
         guard store.macCapabilities[macID]?.contains("phone-frames-v1") == true,
               let owner = session(macID: macID), let link = owner.servedLink else { return }
-        var rtt: Int?
-        if case .connected(_, _, let measured) = owner.link.phase { rtt = measured.map(Int.init) }
+        let rtt: Int? = if case .connected(_, _, let measured) = owner.link.phase {
+            measured.map(Int.init)
+        } else {
+            nil
+        }
         guard let channel = try? await LinkDeadline.run(
             timeout: .seconds(10),
             operation: { try await link.openChannel(service: "phone-frames", args: [:]) },
