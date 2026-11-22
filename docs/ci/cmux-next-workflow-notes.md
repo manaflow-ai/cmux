@@ -958,6 +958,10 @@ both jobs waited on it side by side, about 15 runner-min each per push (and on a
 GNU `timeout`, the reader said `none` and the gateway compiled the head again). When compile-status
 passed with no handoff, this job skips the gateway and reads that verdict on Linux in seconds; any
 other compile-status outcome keeps the gateway or Linux choice above.
+When compile-status read no result in its 40-min wait (its `state` output `none`), this job does
+not wait again: the Linux reader hands to the Mac fallback at once and a gateway compiles without
+reading first. The fallback then starts after one wait (compile-status's 40 min), not two in a row;
+before this order it started after the fast check's own 20 min, a rare path (the fleet never recorded the push).
 
 ## note-65
 

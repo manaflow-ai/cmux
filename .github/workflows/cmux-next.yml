@@ -5700,6 +5700,8 @@ jobs:
           GATEWAY: ${{ !(needs.compile-status.result == 'success' && needs.compile-status.outputs.handoff == '') && needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner || '' }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-283
           RESULTS: https://gh-events.cmux.com/compile-checks/v1
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-64 (none: compile-status already waited 40 min for nothing)
+          SEEN: ${{ needs.compile-status.outputs.state }}
         run: |
           set -uo pipefail
           # No idle gateway: read the fleet's compile of this push, fail closed (only this sha, repo,
@@ -5708,6 +5710,7 @@ jobs:
             [[ "$REF" =~ ^[0-9a-f]{40}$ ]] || { echo "verdict=unavailable" >> "$GITHUB_OUTPUT"; exit 0; }
             reply="$RUNNER_TEMP/compile-check.json"
             deadline=$((SECONDS + ${WAIT_SECONDS:-1200}))
+            [[ "${SEEN:-}" != none ]] || deadline=$SECONDS  # no second wait: the Mac fallback starts now
             state="" reads=0 last="" ok_at=$SECONDS  # ok_at: the last usable answer (200 or 404), from before the first read
             # The results service is a cache, not a dependency: an origin down on two reads 30 s apart
             # (no connection, or the edge's 52x/530) hands the gate to the Mac fallback now, not after
@@ -5767,7 +5770,7 @@ jobs:
           fi
           # One compile per head: the tip check's verdict for this exact head, when it has one; "none" compiles here.
           word=none
-          if [[ -f scripts/ci/fleet_compile_result.py ]] && command -v python3 >/dev/null; then
+          if [[ "${SEEN:-}" != none && -f scripts/ci/fleet_compile_result.py ]] && command -v python3 >/dev/null; then
             word="$(timeout 960 python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" --wait 900 --no-record 300)" || word=none
           fi
           status=0
@@ -7481,6 +7484,8 @@ jobs:
     permissions: {}
     outputs:
       handoff: ${{ steps.wait.outputs.handoff }}
+      # What the wait read (pass, fail, unavailable, ...; none: no result in the wait). release-compile-fast reads it.
+      state: ${{ steps.wait.outputs.state }}
     steps:
       - name: Mint the cmux-bot status token
         id: token
@@ -7596,6 +7601,7 @@ jobs:
           done
           # No usable answer when the wait or the bound ran out (a stalled read, a 530, no connection): the service down.
           [[ -z "$down" && -n "$last" ]] && down="$last for $((SECONDS - ok_at)) s"
+          echo "state=${state:-none}" >> "$GITHUB_OUTPUT"
           if [[ -n "$down" ]]; then
             # Why: docs/ci/cmux-next-workflow-notes.md#note-83 (compile-status-handoff)
             if [[ "$FALLBACK" == true ]]; then
