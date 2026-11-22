@@ -1,12 +1,12 @@
 // l10n-allow-file: gallery fixtures (sample chats and titles), not shipped UI.
 // A fork's "Forked from <chat>" line (ForkedFromLine.tsx, #50086): the parent chat's name is a link
 // that opens it, with the session hover card, where it was plain text. The fork opens under its
-// parent's title plus " (fork)" (acpmux hub/titles.rs, #50024). `gone` is a fork whose parent left
+// parent's title plus " (fork)" (acpmux hub/titles.rs, #50024). The line's text is the English
+// notice.forkedFrom string (Localizable.xcstrings): strings are not loaded when a gallery file is. `gone` is a fork whose parent left
 // the list: the line stays plain text. Titles are made up.
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { SESSION_ID, assistant, chat, row, session, summary, user } from "../../../gallery/fixtures/acpmux";
-import { translate } from "../i18n";
 
 const PARENT_ID = "gallery-parent";
 const PARENT = "Three-Dish Picnic Menu";
@@ -21,10 +21,10 @@ const history = [
 function forked(parentListed: boolean) {
   const line = parentListed
     ? row("notice", 12, {
-        text: translate("notice.forkedFrom", { chat: PARENT }),
+        text: `Forked from ${PARENT}. Everything above is from that chat.`,
         forkedFrom: { parentId: PARENT_ID, chat: PARENT },
       })
-    : row("notice", 12, { text: translate("notice.forkedFromGone") });
+    : row("notice", 12, { text: "Forked from another chat. Everything above is from that chat." });
   const sessions = [
     session({ sessionId: SESSION_ID, title: FORK }),
     ...(parentListed ? [session({ sessionId: PARENT_ID, title: PARENT, status: "idle" })] : []),
