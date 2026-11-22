@@ -98,7 +98,7 @@ function flush() {
         const answer = value.sites?.[url];
         const kept = sites.get(url);
         // A newer answer never takes away an icon or title an older one gave.
-        sites.set(url, answer || kept ? { ...(kept ?? {}), ...(answer ?? {}) } : null);
+        sites.set(url, answer || kept ? { ...kept, ...answer } : null);
       }
       if (value.policy) policy = { ...policy, ...value.policy };
     })
