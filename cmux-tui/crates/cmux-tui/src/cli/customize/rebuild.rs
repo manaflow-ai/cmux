@@ -13,7 +13,8 @@
 //! - When the pointer is there, refresh takes it as any newer layer
 //!   (`Step::Take`): web-dev.json points at the new folder and the app swaps.
 //! - When CI says it could not build it (the change conflicts on the app's
-//!   commit, a check failed, or no build came within [`WAIT_MS`]), the entry
+//!   commit; any other failure twice, since the first may be CI's own, as
+//!   its GitHub rate limit; or no build within [`WAIT_MS`]), the entry
 //!   turns off with the reason as its one quiet note: the app's own pages
 //!   are back. A later app commit asks again, and a rebuild that then works
 //!   turns it back on.
@@ -57,9 +58,13 @@ const POLL_MS: u64 = 60_000;
 const RUN_EVERY: u32 = 3;
 /// How long one `gh` call may take.
 const GH_TIMEOUT: Duration = Duration::from_secs(30);
-/// The step that applies the change onto the base in
-/// cmux-next-web-bundle-publish.yml: failing there is a conflict.
-const APPLY_STEP: &str = "Apply the pull request or ref onto its base";
+/// What cmux-next-web-bundle-publish.yml says (`::error::`, an annotation on
+/// the failed job) when the change does not apply on the base. A failure
+/// without it (the CI installation's GitHub rate limit, a runner that died)
+/// says nothing about the change, so it is asked again once first.
+const CONFLICT_SAYS: &str = "does not apply onto";
+/// How many times a rebuild that failed for no reason of its own is asked.
+const TRIES: u32 = 2;
 
 /// One rebuild refresh asked CI for.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,6 +87,9 @@ pub(super) struct Rebuild {
     /// so a later rebuild that works turns it back on.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub off_by_rebuild: bool,
+    /// How many times CI was asked for this head on this base.
+    #[serde(default)]
+    pub tries: u32,
 }
 
 impl Rebuild {
@@ -95,7 +103,9 @@ impl Rebuild {
 pub(super) enum Run {
     Building,
     Built,
-    /// Why, in a few words.
+    /// The change does not apply on the base.
+    Conflict,
+    /// It failed otherwise: why, in a few words.
     Failed(String),
     /// gh did not answer (or there is no run to ask about).
     Unknown,
@@ -105,7 +115,8 @@ pub(super) enum Run {
 /// commit than the app's.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Verdict {
-    /// Nothing asked for this head on this app yet: ask CI.
+    /// Nothing asked for this head on this app yet, or it failed for no
+    /// reason of its own and has a try left: ask CI.
     Ask,
     /// CI is building it: the current bundle stays on, with this note.
     Wait(String),
@@ -132,6 +143,8 @@ pub(super) fn verdict(
         return Verdict::Failed(why.clone());
     }
     match rebuild.run.map_or(Run::Unknown, run) {
+        Run::Conflict => Verdict::Off(off_note(app, "it conflicts with what changed since")),
+        Run::Failed(_) if rebuild.tries.max(1) < TRIES => Verdict::Ask,
         Run::Failed(why) => Verdict::Off(off_note(app, &why)),
         Run::Unknown if rebuild.late(now_ms) => Verdict::Off(off_note(
             app,
@@ -165,32 +178,44 @@ fn off_note(app: &str, why: &str) -> String {
     )
 }
 
-/// What `gh run view --json status,conclusion,jobs` says of a run.
-pub(super) fn run_state(run: &Value) -> Run {
+/// What `gh run view --json status,conclusion,jobs` says of a run, with
+/// the messages of its failed job's annotations (`said`).
+pub(super) fn run_state(run: &Value, said: &[String]) -> Run {
     let field = |key: &str| run.get(key).and_then(Value::as_str).unwrap_or_default();
     if field("status") != "completed" {
         return if field("status").is_empty() { Run::Unknown } else { Run::Building };
     }
     match field("conclusion") {
-        "success" => Run::Built,
-        "cancelled" => Run::Failed("its CI run was cancelled".to_owned()),
-        _ => {
-            let failed = run
-                .get("jobs")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|job| job.get("steps").and_then(Value::as_array))
-                .flatten()
-                .find(|step| step.get("conclusion").and_then(Value::as_str) == Some("failure"))
-                .and_then(|step| step.get("name").and_then(Value::as_str));
-            Run::Failed(match failed {
-                Some(APPLY_STEP) => "it conflicts with what changed since".to_owned(),
-                Some(step) => format!("CI failed at \"{step}\""),
-                None => "CI failed".to_owned(),
-            })
-        }
+        "success" => return Run::Built,
+        "cancelled" => return Run::Failed("its CI run was cancelled".to_owned()),
+        _ => {}
     }
+    if said.iter().any(|message| message.contains(CONFLICT_SAYS)) {
+        return Run::Conflict;
+    }
+    let step = failed_job(run)
+        .and_then(|job| job.get("steps").and_then(Value::as_array))
+        .into_iter()
+        .flatten()
+        .find(|step| step.get("conclusion").and_then(Value::as_str) == Some("failure"))
+        .and_then(|step| step.get("name").and_then(Value::as_str));
+    let message = said
+        .iter()
+        .find(|message| !message.starts_with("Process completed with exit code"))
+        .map(|message| format!(": {}", message.chars().take(120).collect::<String>()))
+        .unwrap_or_default();
+    Run::Failed(match step {
+        Some(step) => format!("CI failed at \"{step}\"{message}"),
+        None => format!("CI failed{message}"),
+    })
+}
+
+/// The first job of `run` that failed.
+fn failed_job(run: &Value) -> Option<&Value> {
+    run.get("jobs")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|job| job.get("conclusion").and_then(Value::as_str) == Some("failure"))
 }
 
 /// The run `gh workflow run` named in what it printed.
@@ -227,7 +252,7 @@ pub(super) enum Look {
 pub(super) fn look(open: &[Seen], now_ms: u64) -> Look {
     let finished = |seen: &Seen| {
         seen.found
-            || matches!(seen.run, Some(Run::Built | Run::Failed(_)))
+            || matches!(seen.run, Some(Run::Built | Run::Conflict | Run::Failed(_)))
             || now_ms.saturating_sub(seen.asked_ms) > WAIT_MS
     };
     if open.iter().any(finished) {
@@ -344,10 +369,30 @@ pub(super) fn ask_run(id: u64) -> Run {
         ["run", "view", &id.to_string(), "-R", REPO, "--json", "status,conclusion,jobs"]
             .map(str::to_owned)
             .into();
-    gh(&args, GH_TIMEOUT)
-        .ok()
-        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-        .map_or(Run::Unknown, |run| run_state(&run))
+    let Some(run) =
+        gh(&args, GH_TIMEOUT).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok())
+    else {
+        return Run::Unknown;
+    };
+    // Only a failed run costs the second call: what its failed job said.
+    let said = failed_job(&run)
+        .and_then(|job| job.get("databaseId").and_then(Value::as_u64))
+        .filter(|_| run.get("conclusion").and_then(Value::as_str) == Some("failure"))
+        .map(|job| {
+            let args: Vec<String> = [
+                "api",
+                &format!("repos/{REPO}/check-runs/{job}/annotations"),
+                "--jq",
+                ".[].message",
+            ]
+            .map(str::to_owned)
+            .into();
+            gh(&args, GH_TIMEOUT)
+                .map(|text| text.lines().map(str::to_owned).collect::<Vec<_>>())
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
+    run_state(&run, &said)
 }
 
 /// Starts the waiter in the background, on its own: it outlives this
@@ -388,7 +433,7 @@ pub(super) fn wait(
     }
     let http = Http::with_timeout(Duration::from_secs(30))?;
     let started = now();
-    let mut refreshes = 0;
+    let mut refreshes: u32 = 0;
     for round in 0u32.. {
         let rebuilds = Rebuilds::load(customize);
         let ask_runs = round % RUN_EVERY == 0;

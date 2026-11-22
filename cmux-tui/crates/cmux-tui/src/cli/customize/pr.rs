@@ -631,7 +631,12 @@ fn keep_rebuild(
     app: &str,
     now_ms: u64,
 ) {
-    let off_by_rebuild = rebuilds.by_name.get(name).is_some_and(|r| r.off_by_rebuild);
+    let before = rebuilds.by_name.get(name);
+    let off_by_rebuild = before.is_some_and(|r| r.off_by_rebuild);
+    // Asked again for the same head on the same app: one more try.
+    let tries = before
+        .filter(|r| r.head == head && r.base == app)
+        .map_or(1, |r| r.tries.max(1).saturating_add(1));
     rebuilds.by_name.insert(
         name.to_owned(),
         Rebuild {
@@ -642,6 +647,7 @@ fn keep_rebuild(
             pointer: published.exact_pointer(head, app).unwrap_or_default(),
             failed: None,
             off_by_rebuild,
+            tries,
         },
     );
 }

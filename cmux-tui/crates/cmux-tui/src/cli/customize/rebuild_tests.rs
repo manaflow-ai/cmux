@@ -3,6 +3,7 @@ use serde_json::json;
 
 use super::*;
 
+const APPLY_STEP: &str = "Apply the pull request or ref onto its base";
 const NOW: u64 = 10 * 60 * 60_000;
 
 fn head() -> String {
@@ -23,6 +24,7 @@ fn asked() -> Rebuild {
         pointer: "https://files.cmux.com/cmux-next-web/pr/7/a-c.json".to_owned(),
         failed: None,
         off_by_rebuild: false,
+        tries: 1,
     }
 }
 
@@ -56,10 +58,9 @@ fn a_rebuild_is_asked_for_once_per_head_and_app_commit() {
 #[test]
 fn a_rebuild_ci_could_not_build_falls_back_to_the_apps_own_pages() {
     let rebuild = asked();
-    let conflict = Run::Failed("it conflicts with what changed since".to_owned());
     match verdict(Some(&rebuild), &head(), &app(), NOW, |run| {
         assert_eq!(run, 42);
-        conflict.clone()
+        Run::Conflict
     }) {
         Verdict::Off(note) => {
             assert!(note.contains("conflicts with what changed since"), "{note}");
@@ -100,30 +101,41 @@ fn a_failed_rebuild_is_not_asked_again_on_the_same_app() {
     assert_eq!(verdict(Some(&failed), &head(), &"d".repeat(40), NOW, no_gh), Verdict::Ask);
 }
 
+fn run_state_of(run: &Value) -> Run {
+    run_state(run, &[])
+}
+
 #[test]
 fn what_ci_says_of_a_run() {
     let step = |name: &str, conclusion: &str| json!({"name": name, "conclusion": conclusion});
-    let run = |status: &str, conclusion: &str, steps: Value| json!({"status": status, "conclusion": conclusion, "jobs": [{"steps": steps}]});
-    assert_eq!(run_state(&run("queued", "", json!([]))), Run::Building);
-    assert_eq!(run_state(&run("in_progress", "", json!([]))), Run::Building);
-    assert_eq!(run_state(&run("completed", "success", json!([]))), Run::Built);
+    let run = |status: &str, conclusion: &str, steps: Value| {
+        json!({"status": status, "conclusion": conclusion,
+               "jobs": [{"conclusion": conclusion, "steps": steps}]})
+    };
+    assert_eq!(run_state_of(&run("queued", "", json!([]))), Run::Building);
+    assert_eq!(run_state_of(&run("in_progress", "", json!([]))), Run::Building);
+    assert_eq!(run_state_of(&run("completed", "success", json!([]))), Run::Built);
     assert_eq!(
-        run_state(&run(
+        run_state_of(&run(
             "completed",
             "failure",
             json!([step("Set up job", "success"), step(APPLY_STEP, "failure")])
         )),
-        Run::Failed("it conflicts with what changed since".to_owned())
+        Run::Failed(format!("CI failed at \"{APPLY_STEP}\""))
     );
     assert_eq!(
-        run_state(&run("completed", "failure", json!([step("Build the web bundles", "failure")]))),
+        run_state_of(&run(
+            "completed",
+            "failure",
+            json!([step("Build the web bundles", "failure")])
+        )),
         Run::Failed("CI failed at \"Build the web bundles\"".to_owned())
     );
     assert_eq!(
-        run_state(&run("completed", "cancelled", json!([]))),
+        run_state_of(&run("completed", "cancelled", json!([]))),
         Run::Failed("its CI run was cancelled".to_owned())
     );
-    assert_eq!(run_state(&json!({})), Run::Unknown);
+    assert_eq!(run_state(&json!({}), &[]), Run::Unknown);
 }
 
 #[test]
@@ -189,4 +201,52 @@ fn status_names_an_entry_a_failed_rebuild_turned_off_in_one_line() {
     assert_eq!(off_lines(&rebuilds, |_| true), "  pr-8 is off: could not be rebuilt\n");
     // Turned back on by the person, or removed: nothing to say.
     assert_eq!(off_lines(&rebuilds, |name| name != "pr-8"), "");
+}
+
+/// A failed run as `gh run view --json status,conclusion,jobs` gives it
+/// (run 45034547898, 2026-11-22: the rebuild of #50293 on d185ea0).
+fn failed_at_apply() -> Value {
+    json!({"status": "completed", "conclusion": "failure", "jobs": [
+        {"databaseId": 137245262121u64, "name": "build the web bundles for this source key",
+         "conclusion": "failure", "steps": [
+            {"name": "Set up job", "conclusion": "success"},
+            {"name": APPLY_STEP, "conclusion": "failure"},
+            {"name": "Build the web bundles", "conclusion": "skipped"}]},
+        {"databaseId": 137245978894u64, "name": "publish the web bundles to files.cmux.com",
+         "conclusion": "skipped", "steps": []}]})
+}
+
+#[test]
+fn only_a_change_that_does_not_apply_is_a_conflict() {
+    let run = failed_at_apply();
+    let conflict = [
+        "#50293 (d76f7ba1c7c9) does not apply onto d185ea0477ad: it conflicts with what changed since; rebase it".to_owned(),
+        "Process completed with exit code 1.".to_owned(),
+    ];
+    assert_eq!(run_state(&run, &conflict), Run::Conflict);
+    // The same step failing on the CI installation's GitHub rate limit (what
+    // the live run above did) is no conflict.
+    let said = ["Process completed with exit code 1.".to_owned()];
+    assert_eq!(run_state(&run, &said), Run::Failed(format!("CI failed at \"{APPLY_STEP}\"")));
+    let named = ["base must be a full commit sha".to_owned()];
+    assert_eq!(
+        run_state(&run, &named),
+        Run::Failed(format!("CI failed at \"{APPLY_STEP}\": base must be a full commit sha"))
+    );
+}
+
+#[test]
+fn a_rebuild_that_failed_for_no_reason_of_its_own_is_asked_again_once() {
+    let flake = || Run::Failed(format!("CI failed at \"{APPLY_STEP}\""));
+    assert_eq!(verdict(Some(&asked()), &head(), &app(), NOW, |_| flake()), Verdict::Ask);
+    let again = Rebuild { tries: 2, ..asked() };
+    match verdict(Some(&again), &head(), &app(), NOW, |_| flake()) {
+        Verdict::Off(note) => assert!(note.contains("CI failed at"), "{note}"),
+        other => panic!("{other:?}"),
+    }
+    // A conflict is not asked again: it would conflict again.
+    assert!(matches!(
+        verdict(Some(&asked()), &head(), &app(), NOW, |_| Run::Conflict),
+        Verdict::Off(_)
+    ));
 }
