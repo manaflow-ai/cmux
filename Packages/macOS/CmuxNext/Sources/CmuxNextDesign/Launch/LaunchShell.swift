@@ -49,11 +49,12 @@ public final class LaunchShell {
 
     /// Stage 0 for this launch, from the app's bundle id (its Application Support folder and
     /// Info.plist build); nil (an agent launch, a test window, an update relaunch behind) shows nothing.
-    public static func atLaunch(bundleID: String?, mark: @escaping @Sendable (String) -> Void) -> LaunchShell {
+    /// `session` is the daemon session name: with it, stage 0 shows no image of another session's windows.
+    public static func atLaunch(bundleID: String?, session: String?, mark: @escaping @Sendable (String) -> Void) -> LaunchShell {
         guard let bundleID, let support = FileManager().urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return LaunchShell(prepared: nil, mark: mark)
         }
-        return prepare(support: support.appending(path: bundleID, directoryHint: .isDirectory),
+        return prepare(support: support.appending(path: bundleID, directoryHint: .isDirectory), appSupport: support, session: session,
                        build: LaunchShellPaths.build(info: Bundle.main.infoDictionary ?? [:]), mark: mark)
     }
 
@@ -61,8 +62,10 @@ public final class LaunchShell {
     /// state) and starts the image's decode on its own queue. In `main`, after
     /// `NSApplication.shared`; nothing waits for it. `launch_shell.plan_start` and `plan_ready` time
     /// the read. `support` is the app's Application Support folder (the launch record's, the image
-    /// store's, and `launch-times.jsonl`).
-    public static func prepare(support: URL, build: String, mark: @escaping @Sendable (String) -> Void) -> LaunchShell {
+    /// store's, and `launch-times.jsonl`); `appSupport` (Library/Application Support) and `session`
+    /// name the registry id this home last saw live, nil for no session check.
+    public static func prepare(support: URL, appSupport: URL? = nil, session: String? = nil, build: String,
+                               mark: @escaping @Sendable (String) -> Void) -> LaunchShell {
         let displays = NSScreen.screens.map { screen in
             CmuxLaunchShellDisplay(x: screen.frame.minX, y: screen.frame.minY, width: screen.frame.width,
                                    height: screen.frame.height, scale: screen.backingScaleFactor)
@@ -71,10 +74,13 @@ public final class LaunchShell {
         mark("launch_shell.plan_start")
         var plan = CmuxLaunchShellPlan()
         let read = build.withCString { build in support.path.withCString { supportDir in
-            displays.withUnsafeBufferPointer { displays in
-                var now = CmuxLaunchShellNow(build: build, appearance: dark ? 1 : 0, displays: displays.baseAddress, display_count: displays.count, support_dir: supportDir)
-                return cmux_launch_shell_plan(LaunchShellPaths.record(in: support).path, LaunchShellPaths.images(in: support).path, &now, &plan)
-            }
+            withOptionalCString(appSupport?.path) { appSupport in withOptionalCString(session) { session in
+                displays.withUnsafeBufferPointer { displays in
+                    var now = CmuxLaunchShellNow(build: build, appearance: dark ? 1 : 0, displays: displays.baseAddress, display_count: displays.count,
+                                                 support_dir: supportDir, app_support: appSupport, daemon_session: session)
+                    return cmux_launch_shell_plan(LaunchShellPaths.record(in: support).path, LaunchShellPaths.images(in: support).path, &now, &plan)
+                }
+            } }
         } }
         mark("launch_shell.plan_ready")
         guard read, plan.shows_window else { return LaunchShell(prepared: nil, mark: mark) }
@@ -399,4 +405,10 @@ public enum LaunchShellReplay {
             return nil
         }
     }
+}
+
+/// `body` gets the string's C form for the call, or NULL for nil.
+private func withOptionalCString<R>(_ string: String?, _ body: (UnsafePointer<CChar>?) -> R) -> R {
+    guard let string else { return body(nil) }
+    return string.withCString { body($0) }
 }
