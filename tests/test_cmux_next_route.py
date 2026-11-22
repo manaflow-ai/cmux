@@ -2079,6 +2079,30 @@ class HotOnlyRoute(unittest.TestCase):
                                      [f"hot_only={hot}", f"hot_layers={layers}"])
 
 
+def sparse_includes(patterns: list[str], path: str) -> bool:
+    """Whether a non-cone sparse checkout of `patterns` (gitignore syntax, last match wins) checks out `path`."""
+    keep = False
+    for raw in patterns:
+        negated = raw.startswith("!")
+        pattern = raw[1:] if negated else raw
+        anchored, directory = pattern.startswith("/"), pattern.endswith("/")
+        pattern = pattern.strip("/")
+        regex, index = "", 0
+        while index < len(pattern):
+            if pattern.startswith("**/", index):
+                regex, index = regex + "(?:.*/)?", index + 3
+            elif pattern.startswith("**", index):
+                regex, index = regex + ".*", index + 2
+            elif pattern[index] in "*?":
+                regex, index = regex + ("[^/]*" if pattern[index] == "*" else "[^/]"), index + 1
+            else:
+                regex, index = regex + re.escape(pattern[index]), index + 1
+        regex = ("" if anchored else "(?:.*/)?") + regex + ("/.*" if directory else "(?:/.*)?")
+        if re.fullmatch(regex, path):
+            keep = not negated
+    return keep
+
+
 def workflow_step(workflow: str, job: str, step: str) -> dict:
     import yaml
     document = yaml.safe_load((ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8"))
@@ -2095,7 +2119,8 @@ class HotAwareWorkflows(unittest.TestCase):
     HOT = ["webviews/src/agent-session/pane.tsx", "cmux-tui/crates/acpmux/src/lib.rs"]
     APP = ["webviews/src/agent-session/pane.tsx", f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"]
 
-    def run_step(self, script: str, cwd: Path, changed: list[str], labels: str = "") -> tuple[object, dict, str]:
+    def run_step(self, script: str, cwd: Path, changed: list[str], labels: str = "",
+                 extra_env: dict[str, str] | None = None) -> tuple[object, dict, str]:
         """Run a workflow step's script in `cwd` with a git whose merge-commit diff is `changed`."""
         import os
         import shutil
@@ -2116,6 +2141,7 @@ class HotAwareWorkflows(unittest.TestCase):
             env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
             env.update(PATH=f"{scratch_path / 'bin'}:{env.get('PATH', '')}", RUNNER_TEMP=scratch,
                        GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary), EVENT_LABELS=labels)
+            env.update(extra_env or {})
             done = subprocess.run(["bash", "-c", script], cwd=cwd, env=env, capture_output=True, text=True,
                                   timeout=120)
             values = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines()
@@ -2135,6 +2161,55 @@ class HotAwareWorkflows(unittest.TestCase):
         self.assertEqual(self.guards_route(self.APP)["hot_only"], "false")
         self.assertEqual(self.guards_route(self.HOT, labels="full-ci")["hot_only"], "false")
         self.assertEqual(self.guards_route(self.HOT, labels="dev-build")["hot_only"], "false")
+
+    def test_guards_hot_route_reads_only_its_blobless_sparse_checkout(self):
+        """The hot-only route's checkout is blobless and sparse, like path_route's (#49560): its full merge-commit
+        clone was 55 s median of 2,317 portable-placement jobs on 2026-11-21 (4,393 runner-min a day). Every file and
+        directory the route step opens, for a hot, an app and an unread change, is inside the sparse patterns, so
+        it routes from the sparse checkout as from a full one."""
+        import os
+        import tempfile
+        checkout = workflow_step("cmux-next-guards.yml", "portable-placement",
+                                 "Check out the merge commit and its base (hot-only route)")["with"]
+        self.assertEqual(checkout.get("filter"), "blob:none")
+        self.assertIs(checkout.get("sparse-checkout-cone-mode"), False)
+        patterns = [line.strip() for line in str(checkout.get("sparse-checkout") or "").splitlines() if line.strip()]
+        self.assertTrue(patterns, "the hot-route checkout lists no sparse patterns")
+        if not (ROOT / "App").is_dir():
+            self.skipTest("needs a full checkout to see what the route reads")
+        step = workflow_step("cmux-next-guards.yml", "portable-placement", "Route the pull request (cmux_next_route.py --hot-only)")
+        root = str(ROOT.resolve())
+        outside: set[str] = set()
+        with tempfile.TemporaryDirectory() as hooks:
+            # Every Python the step starts loads this (PYTHONPATH) and logs what it opens or lists.
+            Path(hooks, "sitecustomize.py").write_text(
+                "import atexit, os, sys\n"
+                "_seen = set()\n"
+                "def _hook(event, args):\n"
+                "    if event in ('open', 'os.listdir', 'os.scandir') and args and isinstance(args[0], (str, os.PathLike)):\n"
+                "        _seen.add((event, os.path.abspath(os.fspath(args[0]))))\n"
+                "sys.addaudithook(_hook)\n"
+                "def _write():\n"
+                "    with open(os.environ['ROUTE_OPEN_LOG'], 'a', encoding='utf-8') as log:\n"
+                "        log.writelines(f'{event}\\t{path}\\n' for event, path in sorted(_seen))\n"
+                "atexit.register(_write)\n", encoding="utf-8")
+            log = Path(hooks, "opened.log")
+            for changed in (self.HOT, self.APP, ["zz-unread/never-read.txt"]):
+                done, _, _ = self.run_step(step["run"], ROOT, changed,
+                                           extra_env={"PYTHONPATH": hooks, "ROUTE_OPEN_LOG": str(log)})
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            for line in log.read_text(encoding="utf-8").splitlines():
+                event, path = line.split("\t", 1)
+                if not path.startswith(root + os.sep):
+                    continue
+                relative = path[len(root) + 1:]
+                if relative.startswith(".git/") or relative == ".git":
+                    continue
+                # A listed directory must be whole in the checkout; an opened file only itself.
+                probe = f"{relative}/x" if event != "open" or os.path.isdir(path) else relative
+                if os.path.exists(path) and not sparse_includes(patterns, probe):
+                    outside.add(relative)
+        self.assertEqual(sorted(outside), [], "the hot-only route reads these outside its sparse checkout")
 
     def test_tooling_tests_skips_the_mini_only_when_hot(self):
         import yaml
