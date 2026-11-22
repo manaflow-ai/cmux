@@ -1,7 +1,7 @@
 public import CoreGraphics
 import MessagesLabSidebar
 
-/// The Home list's header: search and the Unread toggle on one row, in a band as tall as the
+/// The Home list's header: search, the Unread toggle and New Chief on one row, in a band as tall as the
 /// transcript's header (Messages' toolbar row). Only the search field's width changes with the
 /// list's width. Compose is never in the list: as in Messages it sits at the chat's top-left
 /// (`HomeChatColumnView`) at every width (the user, 2026-10-21). The avatar-only list (below
@@ -14,7 +14,7 @@ import MessagesLabSidebar
 ///
 /// Under the window's traffic lights (the window's sidebar closed, the list at the window's left
 /// edge) the header is Messages' (the user, 2026-10-28, "we should just match"): the lights have
-/// the top row to themselves with the Unread toggle at its right end on their line, and the
+/// the top row to themselves with the Unread toggle and New Chief at its right end on their line, and the
 /// search field spans the list on the row under them. In the avatar-only list the circles, and an
 /// open search, sit under the lights too. Beside the window's sidebar (the lights clear of the
 /// list) the header keeps that shape with nothing on the lights' line, so the sidebar's toggle
@@ -35,7 +35,7 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
     /// The avatar-only list's least margin beside its two circles.
     static let edge: CGFloat = 4
 
-    /// The avatar-only list: the search circle and the Unread toggle, no search field or compose.
+    /// The avatar-only list: the search circle and the Unread toggle, no search field, New Chief or compose.
     public private(set) var compact: Bool
     /// The search capsule; zero-sized in the avatar-only list while the search is closed.
     public private(set) var search: CGRect
@@ -44,6 +44,8 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
     public private(set) var searchIcon: CGRect = .zero
     /// The Unread toggle; zero-sized only while an open search covers the avatar-only list's band.
     public private(set) var filter: CGRect
+    /// New Chief (another Chief in one click); zero-sized in the avatar-only list.
+    public private(set) var newChief: CGRect = .zero
     /// The list's compose button: always zero-sized (compose is the chat's, `HomeChatColumnView`).
     public private(set) var compose: CGRect = .zero
     /// An open search in the avatar-only list covers the band until it closes.
@@ -77,6 +79,9 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
 
     /// The list at `width` shows avatars only, and so circles for its header row.
     public static func isCompact(width: CGFloat) -> Bool { width < CmuxSidebarView.compactBelow }
+
+    /// The buttons right of the search field (the Unread toggle, New Chief).
+    static let trailingButtons: CGFloat = 2
 
     /// - Parameters:
     ///   - width: The list's width.
@@ -116,29 +121,33 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
         }
         buttonsCovered = false
         if let controls = windowControls, let searchY = underLights {
-            let filterX = width - Self.inset - side
-            // A circle centred on the lights' line, as tall as fits under the window's top.
+            // The toggle's left edge with New Chief after it, in the search row's order.
+            let filterX = width - Self.inset - Self.trailingButtons * side - Self.gap
+            // Circles centred on the lights' line, as tall as fits under the window's top.
             let d = (min(side, 2 * (controls.midY - Self.topMargin)) / 2).rounded(.down) * 2
             let onLine = CGRect(x: width - Self.inset - d, y: (controls.midY - d / 2).rounded(), width: d, height: d)
             // The search row's height in the window is one, wherever the toggle sits. The lights'
             // row (`homeLightsRow`) is the same with the lights over the list or clear of it, so
             // a toggle of the window's sidebar moves neither the row nor the toggle.
             let rowY = max(searchY, (onLine.maxY + Self.rowGap).rounded(.up))
-            // The toggle at the top row's right end, on the lights' line, when it clears them
-            // (a list narrower than the lights and the toggle keeps it on the search row).
+            // The two buttons at the top row's right end, on the lights' line, when they clear
+            // them (a list narrower than the lights and the buttons keeps them on the search row).
             if filterX >= controls.maxX + Self.gap {
-                filter = onLine
+                newChief = onLine
+                filter = onLine.offsetBy(dx: -(Self.gap + d), dy: 0)
                 search = CGRect(x: Self.inset, y: rowY, width: max(0, width - 2 * Self.inset), height: side)
             } else {
-                let field = max(Self.minimumField, width - 2 * Self.inset - (side + Self.gap))
+                let field = max(Self.minimumField, width - 2 * Self.inset - Self.trailingButtons * (side + Self.gap))
                 search = CGRect(x: Self.inset, y: rowY, width: field, height: side)
                 filter = CGRect(x: search.maxX + Self.gap, y: rowY, width: side, height: side)
+                newChief = CGRect(x: filter.maxX + Self.gap, y: rowY, width: side, height: side)
             }
             listTop = max(Self.band, search.maxY + Self.rowGap)
             return
         }
-        let field = max(Self.minimumField, width - 2 * Self.inset - (side + Self.gap))
+        let field = max(Self.minimumField, width - 2 * Self.inset - Self.trailingButtons * (side + Self.gap))
         search = CGRect(x: Self.inset, y: y, width: field, height: side)
         filter = CGRect(x: search.maxX + Self.gap, y: y, width: side, height: side)
+        newChief = CGRect(x: filter.maxX + Self.gap, y: y, width: side, height: side)
     }
 }
