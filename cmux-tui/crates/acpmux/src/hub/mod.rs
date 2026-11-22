@@ -35,6 +35,7 @@ mod aside;
 mod asks_below;
 mod atomic_json;
 pub use crate::build_info::{build, install_build, version_line};
+mod append_lock;
 pub(crate) mod auto_resume;
 mod bg_notify;
 mod bg_tasks;
@@ -2108,7 +2109,7 @@ impl Hub {
             close_lock: Mutex::new(()),
             harness_use: RwLock::new(()),
             idle_refusal_logged: AtomicU64::new(0),
-            append_lock: StdMutex::new(()),
+            append_lock: Default::default(),
             time_breakdown: StdMutex::new(Default::default()),
             meta_writer: Default::default(),
             message_ids: StdMutex::new(None),
