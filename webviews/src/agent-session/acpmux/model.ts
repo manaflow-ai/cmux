@@ -183,6 +183,10 @@ export type AcpmuxSince = {
   seq: number;
   turns: number;
   recap?: AcpmuxRecap;
+  /// A return by hand to a chat that stayed on screen (direct.ts `attentionChanged`), not a chat
+  /// picked: a line in view at once sits over rows the reader already had in front of them, and is
+  /// read without drawing (conversation/unreadState.ts `noteUnreadSide`).
+  inPlace?: true;
 };
 
 /// A turn the agent ran on its own, which nobody prompted (acpmux `background_turn` records): a
@@ -2723,12 +2727,11 @@ function fallbackRowHeight(
   // A recap's heading and bullet points; the unread divider already supplies its heading.
   if (row.kind === "recap")
     return finish(recapHeight(row.recap?.text ?? "", width, metrics().lineHeight, currentLanguage()));
+  // The unread line takes no height (conversation/SinceDivider.tsx: it lies over the gap it
+  // marks, so it never moves a row); only its recap, which is content, does.
   if (row.kind === SINCE_DIVIDER)
     return finish(
-      28 +
-        (row.since?.recap
-          ? recapHeight(row.since.recap.text, width, metrics().lineHeight, currentLanguage(), false)
-          : 0),
+      row.since?.recap ? recapHeight(row.since.recap.text, width, metrics().lineHeight, currentLanguage(), false) : 0,
     );
   // A memory offer (conversation/MemoryOfferCard.tsx): its file line, a 24px diff line per open fact
   // and the heading's, Accept all under two or more, in its 1px edges and 8px of row margins; settled,
