@@ -144,7 +144,7 @@ fn pause<C: ControlPlane>(ctx: &mut Ctx<'_, C>, id: &str, key: &str) -> Result<V
         Err(error) if error.code == codes::AUTH_REQUIRED => return Err(error),
         Err(error) if error.code == codes::NOT_FOUND => json!({"machine":id, "status":"skipped"}),
         Err(error) => json!({"machine": id, "status": "failed", "error": {
-            "code": error.upstream_code.as_deref().unwrap_or(&error.code), "message": error.message,
+            "code": error.upstream_code.as_deref().unwrap_or(error.code), "message": error.message,
             "retryable": error.retryable || super::delete_retry::indeterminate(&error)
                 || matches!(error.code, codes::BAD_RESPONSE | codes::RATE_LIMITED),
         }}),

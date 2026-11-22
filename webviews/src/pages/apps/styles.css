@@ -1437,7 +1437,6 @@ code {
   color: var(--page-text-2);
   font: inherit;
   font-size: var(--text-detail);
-  cursor: pointer;
 }
 
 .apps-customize-link:hover {
@@ -1482,7 +1481,6 @@ code {
   color: var(--page-text-2);
   font: inherit;
   font-size: var(--text-caption);
-  cursor: pointer;
 }
 
 .apps-customize-look:hover {

@@ -643,6 +643,8 @@ jobs:
             scripts/cmux-next/perf-cron.py
             scripts/cmux-next/perf-budgets.py
             scripts/cmux-next/perf-budgets.json
+            scripts/cmux-next/perf-budget-table.py
+            scripts/cmux-next/perf-budget-table.tsv
             scripts/cmux-next/perf-profile-split.py
             scripts/perf-bench
           sparse-checkout-cone-mode: false
@@ -695,7 +697,10 @@ jobs:
           python3 -I scripts/cmux-next/perf-cron.py report --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/perf-cron" \
             ${results[@]+"${results[@]}"} --run-url "$RUN_URL" --issues $FINISH \
             --output "$GITHUB_OUTPUT" | tee "$RUNNER_TEMP/report.log"
-          { echo "### perf cron report"; echo; sed -n 's/^perf-cron report: //p' "$RUNNER_TEMP/report.log"; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### perf cron report"; echo; sed -n 's/^perf-cron report: //p' "$RUNNER_TEMP/report.log"
+            # The budget of every producer (scripts/cmux-next/perf-budget-table.tsv): "Budget: N over, N not measured",
+            # then each row over or not measured.
+            echo; sed -n 's/^perf-cron budget: \(.*\)$/- \1/p' "$RUNNER_TEMP/report.log"; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save the state for the next tick
         if: ${{ steps.report.outputs.changed == 'true' }}

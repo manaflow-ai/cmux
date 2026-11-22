@@ -8618,7 +8618,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>8</integer>
+			<integer>6</integer>
 			<key>pfm_name</key>
 			<string>browser.omnibar.maxRows</string>
 			<key>pfm_range_max</key>
