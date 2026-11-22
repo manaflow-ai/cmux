@@ -372,6 +372,14 @@ fn a_tracked_secret_kept_on_the_mac_is_listed_refused_and_git_status_is_clean() 
     let w = world(20);
     const KEY: &str = "-----BEGIN PRIVATE KEY----- a test key that stays on the Mac\n";
     write(&w.local.join("cmux/test/fixtures/server.key"), KEY);
+    // Committed long ago, as a repository's test keys are: a key written in the index's own
+    // second is racily clean, and git would read its bytes to check it.
+    let old = Command::new("touch")
+        .args(["-d", "2026-01-01 00:00:00"])
+        .arg(w.local.join("cmux/test/fixtures/server.key"))
+        .status()
+        .unwrap();
+    assert!(old.success());
     git(&w.local.join("cmux"), &["add", "-f", "test/fixtures/server.key"]);
     git(&w.local.join("cmux"), &["commit", "-qm", "a test key"]);
     let state = w.home.parent().unwrap().join("state");
@@ -391,7 +399,8 @@ fn a_tracked_secret_kept_on_the_mac_is_listed_refused_and_git_status_is_clean() 
     let error = std::fs::File::open(folder.join("cmux/test/fixtures/server.key")).unwrap_err();
     // EACCES (Linux's 13).
     assert_eq!(error.raw_os_error(), Some(13), "{error}");
-    assert_eq!(git(&folder.join("cmux"), &["status", "--short"]), "");
+    let status = git(&folder.join("cmux"), &["status", "--short"]);
+    assert_eq!(status, "", "git status on the machine: {status}");
     // Every other file still reads, from the Mac.
     assert_eq!(std::fs::read_to_string(folder.join("cmux/README.md")).unwrap(), "# cmux\n");
     assert!(!crossed(KEY.as_bytes()), "the key's bytes crossed the link");
