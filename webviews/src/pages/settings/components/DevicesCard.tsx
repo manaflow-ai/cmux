@@ -24,6 +24,7 @@ import type {
   DevicesState,
   DevicesTone,
 } from "../ops";
+import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
 
 export function DevicesCard() {
   const store = useStore();
@@ -326,9 +327,13 @@ function DeviceRow({ device, labels }: { device: DevicesDevice; labels: DevicesL
           {device.fingerprint && (
             <div className="row-help" data-device-fingerprint="">
               {labels.fingerprint}{" "}
-              <code className="font-mono selectable" aria-description={device.fingerprintFull ?? undefined}>
-                {device.fingerprint}
-              </code>
+              <WithFacts facts={[{ value: device.fingerprintFull ?? "", code: true }]}>
+                {(facts) => (
+                  <code {...facts} className="font-mono selectable">
+                    {device.fingerprint}
+                  </code>
+                )}
+              </WithFacts>
               {device.fingerprintFull && (
                 <>
                   {" "}

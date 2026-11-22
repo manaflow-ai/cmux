@@ -281,6 +281,7 @@ fn list_pages_follow_the_cursor() {
 fn machine_list_relays_disk_health_to_the_app() {
     let mut s = server();
     let disk_health = json!({
+        "state": "healthy",
         "free_mb": 4096,
         "used_mb": 12288,
         "total_mb": 16384,
