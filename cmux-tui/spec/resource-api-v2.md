@@ -1096,7 +1096,12 @@ cursor and recovery instructions.
 `resource-operations-v2.json` is normative for every transported operation's
 class, flat selector scopes, parameter fields and requiredness, result type,
 structured errors, and stream item/end types. `resource-operations-v2.schema.json`
-defines the catalog format. Unknown parameter and result fields are rejected.
+defines the catalog format. A request parameter the operation does not declare
+is dropped before the operation runs (the daemon logs its name once, never its
+value), so a newer client's field never refuses a request on an older daemon;
+an operation whose params say `"unknown_params": "refuse"` (`terminal.close`,
+whose guards must not go unread) refuses it with `validation.invalid`. Unknown
+result fields are rejected.
 
 | Class | Semantics |
 | --- | --- |

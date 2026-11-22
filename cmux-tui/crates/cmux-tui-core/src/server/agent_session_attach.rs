@@ -479,7 +479,6 @@ fn unsent_reason(stream: &OutboundStream) -> Option<&'static str> {
 
 /// Page params shared by attach and events.
 #[derive(Deserialize, Default)]
-#[serde(deny_unknown_fields)]
 struct PageParams {
     surface: SurfaceId,
     #[serde(default)]
@@ -518,9 +517,10 @@ enum AgentSessionCommand {
 }
 
 impl AgentSessionCommand {
-    /// The command of one frame object without `id` and `cmd`. Every params
-    /// struct denies unknown fields, so a session id, cwd, command, agent or
-    /// MCP server param is a bad request.
+    /// The command of one frame object without `id` and `cmd`. A param no
+    /// struct declares (a newer page's field, or a session id, cwd, command,
+    /// agent or MCP server param) is dropped unread: no request is refused
+    /// over a field this daemon does not know.
     fn parse(cmd: &str, params: Value) -> Option<Self> {
         use serde_json::from_value;
         Some(match cmd {
@@ -550,13 +550,11 @@ impl AgentSessionCommand {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SurfaceParams {
     surface: SurfaceId,
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ForkParams {
     surface: SurfaceId,
     through_seq: u64,
@@ -566,7 +564,6 @@ struct ForkParams {
 
 /// `agent-session-typing`: the person starts (`on`) or stops typing in the attached chat.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct TypingParams {
     surface: SurfaceId,
     on: bool,
@@ -574,7 +571,6 @@ struct TypingParams {
 
 /// `agent-session-view`: whether the person's window shows the attached chat now.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ViewParams {
     surface: SurfaceId,
     visible: bool,
@@ -590,7 +586,6 @@ struct ViewParams {
 
 /// `agent-session-set-model`: the model the attached chat uses from its next turn.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SetModelParams {
     surface: SurfaceId,
     model_id: String,
@@ -598,7 +593,6 @@ struct SetModelParams {
 
 /// `agent-session-set-mode`: one of the modes the attached chat's agent reported.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SetModeParams {
     surface: SurfaceId,
     mode_id: String,
@@ -606,7 +600,6 @@ struct SetModeParams {
 
 /// `agent-session-set-config`: one value of a config option the attached chat's agent reported.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SetConfigParams {
     surface: SurfaceId,
     config_id: String,
@@ -615,7 +608,6 @@ struct SetConfigParams {
 
 /// `agent-session-btw`: the person's side question about the attached chat.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct BtwParams {
     surface: SurfaceId,
     question: String,
@@ -625,7 +617,6 @@ struct BtwParams {
 /// `start` with `agent`, `finish` with `login_id` and Claude's `code`, `api_key` with `agent` and
 /// `key`, `cancel` with `login_id`).
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct LoginParams {
     surface: SurfaceId,
     op: String,
@@ -747,7 +738,6 @@ fn is_setting_id(value: &str) -> bool {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct MediaParams {
     surface: SurfaceId,
     path: String,
@@ -764,7 +754,6 @@ struct MediaParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct PromptParams {
     surface: SurfaceId,
     prompt_id: String,
@@ -781,7 +770,6 @@ struct PromptParams {
 /// its queue place; `agent-session-queue-decline` drops it. acpmux's `_acpmux/queue_approve`
 /// and `_acpmux/queue_decline` on the tab's own session. The owner's only.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct QueueDecisionParams {
     surface: SurfaceId,
     prompt_id: String,
@@ -792,7 +780,6 @@ struct QueueDecisionParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct PermissionParams {
     surface: SurfaceId,
     permission_id: String,
@@ -819,7 +806,6 @@ struct PermissionParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct AnsweredBy {
     device: String,
     feed_item: String,

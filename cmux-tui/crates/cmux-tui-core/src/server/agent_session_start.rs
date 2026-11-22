@@ -16,7 +16,7 @@
 //! machine never starts here. The client names only an agent kind
 //! (`harness`, resolved by acpmux from its own config), an optional model (`model`), and a folder (`cwd`,
 //! absolute; acpmux checks it), and on the caller's own Cloud VM a mode (`mode`, below). No command, env, policy, peer, preset,
-//! workspace or MCP server param exists (unknown fields are a bad request).
+//! workspace or MCP server param exists (an unknown field is dropped unread).
 //! The daemon itself names the tab's workspace to acpmux on `session/new`
 //! (`_meta.acpmux.workspaceId`, which picks the session's display), from the
 //! tab's place in this store; a tab with no workspace, or whose workspace key
@@ -374,7 +374,6 @@ impl Drop for StartSlot {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct StartParams {
     surface: SurfaceId,
     #[serde(default)]

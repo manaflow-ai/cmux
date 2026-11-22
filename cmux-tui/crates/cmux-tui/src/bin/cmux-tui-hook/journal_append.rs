@@ -226,6 +226,7 @@ impl Sender {
         };
         // A daemon from before `live_prompt` refuses unknown parameters: the event goes once more
         // without the prompt, so a version skew never loses a turn start (the prompt is optional).
+        // Newer daemons ignore an unknown param instead; this stays for the older ones that refuse.
         let mut current = Cow::Borrowed(line);
         let mut unanswered = 0_u32;
         loop {
