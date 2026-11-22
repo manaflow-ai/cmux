@@ -145,6 +145,24 @@ class Judge(unittest.TestCase):
         self.assertEqual(verdict.action, heal.NONE)
         self.assertIn("conflicts", verdict.reason)
 
+    def test_a_lint_that_refused_to_run_is_no_red(self):
+        good = sh(self.h.repo, "rev-parse", "HEAD")
+        bad = self.h.commit("web: broke (#14)", {"RED": "type error\n"})
+
+        def lint(base, head, repo, fix):
+            raise heal.NotLinted("web-lint: refused; nothing was linted. This worktree is a sparse checkout")
+
+        verdict = self.judge(good, bad, bad, lint)
+        self.assertEqual((verdict.action, verdict.culprit), (heal.NONE, ""))
+        self.assertIn("could not run", verdict.reason)
+
+    def test_the_real_lint_turns_a_refusal_into_no_verdict(self):
+        fake = Path(self.h.dir.name) / "fake_lint.py"
+        fake.write_text("import sys\nprint('web-lint: refused; nothing was linted. sparse', file=sys.stderr)\nsys.exit(1)\n")
+        with mock.patch.object(heal, "LINT", fake):
+            with self.assertRaises(heal.NotLinted):
+                heal.lint("a" * 40, "b" * 40)
+
     def test_a_long_range_is_not_probed(self):
         good = sh(self.h.repo, "rev-parse", "HEAD")
         for i in range(heal.MAX_PROBES + 1):

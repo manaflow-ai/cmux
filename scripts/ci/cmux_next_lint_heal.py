@@ -70,6 +70,7 @@ LINT = ROOT / "scripts" / "web_lint_prepush.py"
 # A push run's range is one to a few commits; a dispatch may name a longer one (a nightly's red). Past this many
 # commits the range is not searched: each probe is a lint run of minutes.
 MAX_PROBES = 12
+NOT_LINTED = "refused; nothing was linted"
 AUTOFIX, REVERT, NONE = "autofix", "revert", "none"
 BOT = ("cmux-next lint heal", "41898282+github-actions[bot]@users.noreply.github.com")
 
@@ -90,9 +91,19 @@ def lint(base: str, head: str | None, repo: Path | None = None, fix: bool = Fals
     argv += ["--fix"] if fix else ["--head", head or "HEAD"]
     print(f"::group::lint {base[:12]}..{(head or 'working tree')[:12]}{' --fix' if fix else ''}", flush=True)
     try:
-        return subprocess.run(argv, cwd=repo or ROOT).returncode == 0
+        done = subprocess.run(argv, cwd=repo or ROOT, stderr=subprocess.PIPE, text=True)
+        sys.stderr.write(done.stderr)
     finally:
         print("::endgroup::", flush=True)
+    refused = next((line for line in done.stderr.splitlines() if NOT_LINTED in line), "")
+    if refused:
+        raise NotLinted(refused)
+    return done.returncode == 0
+
+
+class NotLinted(RuntimeError):
+    """web_lint_prepush.py refused and linted nothing (a sparse checkout, an unreadable range): no verdict, never a red.
+    The first local run on the #49052 incident counted such refusals as reds and named a culprit it never linted."""
 
 
 @dataclass
@@ -130,6 +141,13 @@ def revert_commit(tree: Path, culprit: str) -> bool:
 
 
 def judge(before: str, sha: str, tip: str, *, run_lint: Lint = lint, work: Path | None = None) -> Verdict:
+    try:
+        return judge_range(before, sha, tip, run_lint=run_lint, work=work)
+    except NotLinted as error:
+        return Verdict(NONE, f"the lint could not run, so nothing is judged: {error}")
+
+
+def judge_range(before: str, sha: str, tip: str, *, run_lint: Lint, work: Path | None) -> Verdict:
     commits = first_parent_range(before, sha, cwd=ROOT)
     if not commits:
         return Verdict(NONE, f"no first-parent commits in {before[:12]}..{sha[:12]}")
