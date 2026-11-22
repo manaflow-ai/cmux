@@ -1552,6 +1552,13 @@ export type SessionDetail = {
    */
   depth: number;
   /**
+   * The name every human-visible surface shows for it (tab, sidebar row, lists, chat header,
+   * notices, a message's sender): its handle when one was given (`acpmux rename @ Mango
+   * --handle`), absent otherwise (a derived handle is no name a person chose; show `name`).
+   * Its former names and handles are `formerNames` ("Mango (fka claude-sr2-coord-old)").
+   */
+  displayName?: (string | null);
+  /**
    * The harness's current reasoning effort, when it reports one.
    * Additive for older clients and peers.
    */
@@ -1593,6 +1600,11 @@ export type SessionDetail = {
    * a peer on an older acpmux.
    */
   hasDraft?: boolean;
+  /**
+   * The icon it set (`session_icon.rs`), drawn like a harness `iconSpec`; absent draws the
+   * harness mark.
+   */
+  icon?: (SessionIcon | null);
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */
@@ -1860,6 +1872,28 @@ export type SessionEvent = {
   sessionId: string;
 } & Record<string, unknown>;
 
+/** The icon clients draw for one chat. */
+export type SessionIcon = ({
+  brand: string;
+  kind: "brand";
+  source?: string;
+} & Record<string, unknown> | {
+  kind: "emoji";
+  source?: string;
+  text: string;
+} & Record<string, unknown> | {
+  hue: number;
+  kind: "symbol";
+  name: string;
+  source?: string;
+  text: string;
+} & Record<string, unknown> | {
+  data: string;
+  kind: "image";
+  mime: string;
+  source?: string;
+} & Record<string, unknown>);
+
 export interface SessionNewParams {
   _meta?: RequestMeta;
   additionalDirectories?: unknown;
@@ -1932,6 +1966,13 @@ export type SessionSummary = {
    */
   depth: number;
   /**
+   * The name every human-visible surface shows for it (tab, sidebar row, lists, chat header,
+   * notices, a message's sender): its handle when one was given (`acpmux rename @ Mango
+   * --handle`), absent otherwise (a derived handle is no name a person chose; show `name`).
+   * Its former names and handles are `formerNames` ("Mango (fka claude-sr2-coord-old)").
+   */
+  displayName?: (string | null);
+  /**
    * The harness's current reasoning effort, when it reports one.
    * Additive for older clients and peers.
    */
@@ -1973,6 +2014,11 @@ export type SessionSummary = {
    * a peer on an older acpmux.
    */
   hasDraft?: boolean;
+  /**
+   * The icon it set (`session_icon.rs`), drawn like a harness `iconSpec`; absent draws the
+   * harness mark.
+   */
+  icon?: (SessionIcon | null);
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */
