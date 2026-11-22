@@ -166,7 +166,8 @@ test("a background task an agent named reads as what it does, then its name", as
   );
   const named = container.querySelector<HTMLElement>(".cv-bgtask__title")!;
   expect(named.textContent).toBe("Waiting 14m · hold");
-  expect(named.title).toBe("sleep 840; echo t");
+  expect(named.title).toBe("");
+  expect(named.getAttribute("aria-description")).toBe("sleep 840; echo t");
   expect(container.querySelector(".cv-bgtask__command")).toBeNull();
 });
 
