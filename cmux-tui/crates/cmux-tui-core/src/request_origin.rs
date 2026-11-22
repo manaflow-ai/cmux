@@ -55,8 +55,9 @@ pub(crate) const CONFIRMATION_TTL_MS: u64 = 60_000;
 /// macOS keeps from it (Full Disk Access) by asking the daemon instead.
 /// A language pack ensure reads the app bundle's manifest and writes the
 /// app's cache folder by path, and downloads: only the app itself asks.
-pub(crate) const USER_ONLY_OPERATIONS: [&str; 13] = [
+pub(crate) const USER_ONLY_OPERATIONS: [&str; 14] = [
     "apps.install",
+    "apps.update",
     "apps.uninstall",
     "apps.enable",
     crate::state::agent_folder::OPERATION,
