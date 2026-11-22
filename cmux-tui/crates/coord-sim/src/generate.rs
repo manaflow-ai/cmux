@@ -152,7 +152,7 @@ pub fn parse_size(s: &str) -> Result<u64, String> {
         .map_or((s, 1), |(u, m)| (s.get(..s.len() - u.len()).unwrap_or(""), *m));
     let num = num.trim();
     let v: f64 = num.parse().map_err(|_| format!("bad size {s:?}"))?;
-    if !(v >= 0.0) {
+    if v.is_nan() || v < 0.0 {
         return Err(format!("bad size {s:?}"));
     }
     Ok((v * mult as f64).round() as u64)

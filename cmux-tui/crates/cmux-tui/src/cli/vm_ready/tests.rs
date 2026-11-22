@@ -160,6 +160,11 @@ fn a_configured_vm_is_ready_once_running_applied_and_its_secrets_delivered() {
     assert_eq!(answer["target"], "vm:vm-1");
     assert_eq!(answer["machine_config"]["state"], "done");
     assert_eq!(answer["secrets"]["delivered"], json!(["API_KEY"]));
+    // Each wait's reads 3 s apart: running on the third list, applied on the third read, delivered on the second.
+    assert_eq!(
+        answer["stages"],
+        json!({"created": 0, "running": 6000, "machine_config": 12000, "secrets": 15000, "total": 15000})
+    );
     assert_eq!(
         answer["next"]["start_agent"],
         "cmux vm start-session --target vm:vm-1 --agent claude"
@@ -206,6 +211,8 @@ fn a_vm_with_no_config_is_ready_once_running() {
     let answer = new_and_wait(&mut fake, &request).unwrap();
     assert_eq!(answer["machine_id"], "vm-2");
     assert!(answer.get("machine_config").is_none());
+    assert_eq!(answer["stages"], json!({"created": 0, "running": 0, "total": 0}));
+    assert!(answer.get("claim_to_bound").is_none());
     assert_eq!(fake.verbs(), strings(&["new-machine", "list-machines"]));
 }
 
@@ -253,4 +260,24 @@ fn a_create_refusal_is_the_answer() {
     let error = new_and_wait(&mut fake, &request).unwrap_err();
     assert_eq!(error["code"], "cloud.quota.exceeded");
     assert_eq!(fake.verbs(), strings(&["new-machine"]));
+}
+
+/// A create that answers the broker's own stage times (`stages_ms`) has them as cloud-journey.ts's
+/// `claimToBoundSplit` reads them: each named stage the running sum up to it.
+#[test]
+fn the_creates_own_stage_times_are_the_claim_to_bound_split() {
+    let request = parse(&strings(&["--wait"]), || "vm-made".into()).unwrap().unwrap();
+    let created = json!({"machine_id": "vm-3", "status": "provisioning", "stages_ms": [
+        {"step": "claim", "ms": 120}, {"step": "join", "ms": 30}, {"step": "guest_bind", "ms": 400},
+        {"step": "other", "ms": 5}, {"step": "connect_info", "ms": 45}, {"step": "bound", "ms": 0},
+    ]});
+    let mut fake = Fake::new(vec![
+        ("new-machine", vec![created]),
+        ("list-machines", vec![listed(&[row("vm-3", "vm-made", "running")])]),
+    ]);
+    let answer = new_and_wait(&mut fake, &request).unwrap();
+    assert_eq!(
+        answer["claim_to_bound"],
+        json!({"claim_answer_ms": 120, "join_ms": 150, "guest_bind_ms": 550, "connect_info_ms": 600, "bound_ms": 600})
+    );
 }

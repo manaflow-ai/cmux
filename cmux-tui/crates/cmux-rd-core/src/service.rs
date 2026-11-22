@@ -35,9 +35,25 @@ pub mod caps {
     /// viewer draws the cursor itself. A viewer that does not offer it keeps the cursor in
     /// the picture.
     pub const CURSOR: &str = "cursor";
+    /// The stage ledger (screen-share-under-100ms.md D8): after each frame's last shard the
+    /// host sends its times for that frame in a `FrameTimes` datagram.
+    pub const LEDGER: &str = "ledger";
+    /// Clipboard text both ways (`clipboard` control messages, cmux-rd-proto `clipboard`):
+    /// the host applies the viewer's text and sends its own only in a control session.
+    pub const CLIPBOARD_TEXT: &str = "clipboard.text";
     /// Every named cap.
-    pub const ALL: [&str; 8] =
-        [INPUT_SERVICE, TILE, UP_MEDIA, BULK, STREAM_OPEN, CLOCK, LINK_UDP, CURSOR];
+    pub const ALL: [&str; 10] = [
+        INPUT_SERVICE,
+        TILE,
+        UP_MEDIA,
+        BULK,
+        STREAM_OPEN,
+        CLOCK,
+        LINK_UDP,
+        CURSOR,
+        LEDGER,
+        CLIPBOARD_TEXT,
+    ];
 }
 
 /// Why a hello is refused.

@@ -68,6 +68,12 @@ pub(crate) fn app_token(team: &str) -> Result<AppToken, String> {
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_globals(args).ok()?;
     let rest = split(&command_args)?;
+    // `cmux auth handoff …` (auth_handoff.rs) has its own verbs and help.
+    #[cfg(unix)]
+    if let Some(("handoff", handoff)) = rest.split_first().map(|(verb, tail)| (verb.as_str(), tail))
+    {
+        return Some(super::auth_handoff::run(&global, handoff));
+    }
     Some(match parse(rest) {
         Ok(invocation) => run(&global, invocation),
         Err(error) => {

@@ -28,6 +28,10 @@ export interface HarnessOverride {
   docsUrl?: string;
   /** Feed models for a "catalog" harness. */
   sources?: HarnessSource[];
+  /** The harness runs any model id its provider serves: a picker offers catalog models its own
+   *  menu lacks. Gemini CLI's ACP menu is a list fixed in each release (0.69.0 names no Gemini 4
+   *  model) while `--model`/`set_model` take any Gemini API id. */
+  runsAnyModel?: boolean;
   /** The harness id of a feed model: its feed id ("claude-opus-4-8"). Always the feed id today. */
   defaultModel?: string;
   /** Effort a model starts on when it offers it. */
@@ -95,9 +99,11 @@ export const HARNESS_OVERRIDES: HarnessOverride[] = [
     sources: [
       { provider: "openai", include: ["gpt-"], exclude: ["gpt-oss", "gpt-realtime", "gpt-image", "gpt-audio", "*-latest", "*-nano", "*-pro"], minReleaseDate: "2026-04-01" },
     ],
-    // New Codex chats start on GPT-6.1 Sol at medium effort (Lawrence 2026-10-13).
-    defaultModel: "gpt-6.1-sol",
+    // New Codex chats start on GPT-6.2 Sol at high effort, what `codex` in a terminal runs
+    // (cmux#48354, 2026-11-20); other Codex models still start at medium.
+    defaultModel: "gpt-6.2-sol",
     defaultEffort: "medium",
+    models: { "gpt-6.2-sol": { defaultEffort: "high" } },
     dropEfforts: ["none"],
     familyNames: {
       "gpt-sol": "Sol",
@@ -120,8 +126,8 @@ export const HARNESS_OVERRIDES: HarnessOverride[] = [
     sources: [
       {
         provider: "vercel",
-        include: ["anthropic/claude-", "openai/gpt-5", "openai/gpt-6", "google/gemini-3", "xai/grok-", "deepseek/", "moonshotai/", "zai/", "alibaba/qwen3-coder"],
-        exclude: [DATED, "*-[0-9][0-9][0-9][0-9]", ...GATEWAY_VARIANTS],
+        include: ["anthropic/claude-", "openai/gpt-", "google/gemini-", "xai/grok-", "deepseek/", "moonshotai/", "zai/", "alibaba/qwen3-coder"],
+        exclude: [DATED, "*-[0-9][0-9][0-9][0-9]", "openai/gpt-oss", "openai/gpt-realtime", "openai/gpt-live", "openai/gpt-image", "openai/gpt-audio", "google/gemini-embedding", ...GATEWAY_VARIANTS],
         minReleaseDate: "2026-01-01",
       },
     ],
@@ -145,10 +151,11 @@ export const HARNESS_OVERRIDES: HarnessOverride[] = [
       },
     ],
     defaultModel: "gemini-3.1-pro-preview",
+    runsAnyModel: true,
     // Gemini CLI has no effort setting.
     dropEfforts: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
     shortNamePrefix: "Gemini ",
-    familyNames: { "gemini-pro": "Pro", "gemini-flash": "Flash", "gemini-flash-lite": "Flash Lite" },
+    familyNames: { gemini: "Gemini", "gemini-pro": "Pro", "gemini-flash": "Flash", "gemini-flash-lite": "Flash Lite" },
   },
   // Every other harness acpmux runs (discover.rs), so the picker lists them installed or not (Leo
   // 2026-10-26: "show all harnesses, all models (pi, opencode, prime intellect, etc…)").
