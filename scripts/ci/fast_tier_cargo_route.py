@@ -10,8 +10,8 @@ path is
 - a file the job's steps or the script entries run (JOB_INPUTS, SCRIPT_INPUTS);
 - or the pull request carries the full-ci label.
 Any other change (Swift, web, docs, other CI) cannot move the job's verdict, so the pull request skips the job
-(a job-level `if:`, which reports skipped). Every feat-cmux-next push still runs it, and the merge car runs the
-cargo kind itself when no passing fast-tier-cargo check covers it (scripts/ci/car_guards.py REUSE).
+(a job-level `if:`, which reports skipped). Every feat-cmux-next push still runs it, and the merge car runs its own
+cargo kind (cargo_affected.py's crates) whatever this job's result (scripts/ci/car_guards.py REUSE leaves cargo out).
 
 Over 11-13..19 the job was 2.94% of pull request runner-minutes and its own red was the only real red on 6 of
 9,361 heads (0.06%): cmuxterm-hq docs/ci/bottleneck-and-skip-candidates-2026-11-21.md.

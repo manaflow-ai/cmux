@@ -206,8 +206,9 @@ class CarGuards(unittest.TestCase):
                          "the checks job runs a fixed test list, not the car's focused python tests")
         self.assertEqual(car_guards.reused_kinds({"web / Web tests (1)": "success"}), set(),
                          "ci-web's Web tests are web/, not webviews/: never reused")
-        self.assertEqual(car_guards.reused_kinds({"cmux-next fast tier (cargo)": "success"}), {"cargo"},
-                         "the cargo job never stands in for the Swift fast tier")
+        self.assertEqual(car_guards.reused_kinds({"cmux-next fast tier (cargo)": "success"}), set(),
+                         "the cargo fast tier runs two fixed entries, not cargo_affected's crates, and never "
+                         "stands in for the Swift fast tier")
         self.assertEqual(car_guards.reused_kinds({"cmux-next fast tier": "success", "cmux-next swift test": "skipped"}), set(),
                          "a skipped tier proved nothing")
 

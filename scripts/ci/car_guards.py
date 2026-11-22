@@ -80,10 +80,12 @@ LINUX_LANES = {"linux-guard"}
 # The PR checks that already cover a kind exactly. A kind is reused when at least one check
 # matches and every matching check passed (a skipped tier proved nothing). Python and webviews
 # are never reused: no PR job runs the car's focused set (the checks job runs a fixed list, and
-# ci-web's `web / Web tests` is web/, not webviews/).
+# ci-web's `web / Web tests` is web/, not webviews/). Cargo is never reused either: the car runs
+# cargo_affected.py's crates, and `cmux-next fast tier (cargo)` runs only fast-tier.json's two fixed
+# entries, so its pass skipped every other crate the car reached. #48195 landed a page request the
+# agent pane relay refuses because the car took that pass for cmux-agent-pane-policy's tests.
 REUSE = {
     "guard": ("cmux-next checks (god files, concurrency, crash safety, l10n)",),
-    "cargo": ("cmux-next fast tier (cargo)",),
     "swift": ("cmux-next fast tier", "cmux-next swift test"),
 }
 PASSING = {"success", "neutral"}

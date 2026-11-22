@@ -59,6 +59,11 @@
           "name": "acpmux protocol IR is current",
           "crates": ["cmux-tui/crates/acpmux"],
           "inputs": ["scripts/cmux-next/cargo-locks.py"]
+        },
+        "agent-pane-policy": {
+          "name": "agent pane relay allowlist (cmux-agent-pane-policy tests)",
+          "crates": ["cmux-tui/crates/cmux-agent-pane-policy"],
+          "inputs": ["scripts/cmux-next/cargo-locks.py"]
         }
       }
     },
