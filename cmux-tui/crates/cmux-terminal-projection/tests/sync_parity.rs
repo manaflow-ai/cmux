@@ -822,6 +822,23 @@ fn viewport_sync_matches_ghostty_over_a_lossy_channel() {
         total.bytes / 1024,
         total.kept
     );
+    // Recorded reads, one redraw per PTY read, as the host would send them.
+    for (i, chunking, loss, sc) in &results {
+        if chunking == "reads" && *loss == 0 {
+            let mut p = sc.payloads.clone();
+            p.sort_unstable();
+            let _ = writeln!(
+                out,
+                "{} by its {} recorded reads at 0%: diff payload p50 {} B, p90 {} B, max {} B over {} redraws",
+                corpora[*i].name,
+                corpora[*i].steps.as_ref().map_or(0, Vec::len),
+                pct(&p, 50),
+                pct(&p, 90),
+                p.last().copied().unwrap_or(0),
+                p.len()
+            );
+        }
+    }
     // Per drop rate: what the channel cost.
     for loss in LOSS_RATES {
         let (mut d, mut b, mut u) = (0, 0, 0);
