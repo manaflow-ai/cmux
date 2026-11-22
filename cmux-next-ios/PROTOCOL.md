@@ -967,7 +967,10 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   other), faviconHash?, thumbHash?, thumbW, thumbH, thumbMime, screenHash?, screenCols,
   screenRows, frameHash?, capturedAtMs}`; in a partial row an absent field is unchanged
   and a `null` hash is cleared. `tabId` is the tab's daemon surface id as a decimal
-  string, so it lasts one daemon run. Revs of different epochs are unrelated. A tab naming
+  string, so it lasts one daemon run. Revs of different epochs are unrelated. `epoch` names
+  the host process and the daemon run its tab ids came from: it is new at each hostd start
+  and each time hostd reconnects to the daemon (taken as a new run), and a new one drops
+  every row, order and held picture of the old, so a phone gets a manifest. A tab naming
   an agent session the phone's chat exposure blocks is hidden, and every tab is while the
   exposure is unavailable. Browser favicons and thumbnails come from the Mac app on its
   stdin line `{"type":"tab_picture","surface": <daemon surface u64>, "part": "thumb" |

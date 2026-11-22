@@ -230,6 +230,31 @@ fn a_resume_from_another_or_no_epoch_gets_a_manifest() {
     assert!(matches!(&drain(&mut same, &p)[..], [Message::Delta(d)] if d.epoch == "e1"));
 }
 
+#[test]
+fn a_new_epoch_sends_a_manifest_to_an_open_and_a_resuming_phone() {
+    let mut p = producer();
+    let mut open = Session::without_push();
+    open.on_message(Message::Viewport(Viewport::default())).unwrap();
+    assert!(matches!(&drain(&mut open, &p)[..], [Message::Manifest(m)] if m.epoch == "e1"));
+    let old_rev = p.rev();
+
+    p.new_epoch("e2");
+    p.observe(browser("a", "New A", b"fav", b"new"));
+    let out = drain(&mut open, &p);
+    assert!(
+        matches!(&out[..], [Message::Manifest(m)] if m.epoch == "e2" && m.rows.len() == 1 && m.rows[0].title == "New A"),
+        "{out:?}"
+    );
+
+    let mut back = Session::without_push();
+    back.on_message(Message::Resume(Resume { epoch: "e1".into(), rev: old_rev })).unwrap();
+    let out = drain(&mut back, &p);
+    assert!(
+        matches!(&out[..], [Message::Manifest(m)] if m.epoch == "e2" && m.rows.len() == 1),
+        "{out:?}"
+    );
+}
+
 fn only(id: &'static str) -> RowFilter {
     RowFilter::new(move |tab| tab == id)
 }

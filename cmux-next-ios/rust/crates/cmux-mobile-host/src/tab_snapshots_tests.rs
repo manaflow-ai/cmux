@@ -37,6 +37,36 @@ fn offer_image_refuses_bad_input_and_keeps_pictures_for_tabs_not_listed_yet() {
     assert_eq!(row(&tabs, "2").favicon_hash, Some(cmux_tab_snapshots::BlobHash::of(b"early")));
 }
 
+#[test]
+fn a_new_daemon_run_drops_every_id_of_the_old_one_under_a_new_epoch() {
+    let tabs = Tabs::new("e");
+    tabs.offer_image("3", Part::Favicon, b"early".to_vec(), 0, 0, Mime::Png, 1);
+    // The first connection is the run the epoch began with: nothing goes.
+    assert!(!tabs.daemon_run("unused"));
+    assert_eq!(tabs.epoch(), "e");
+    tabs.set_tabs(vec![tab("1", Kind::Browser, json!({})), tab("3", Kind::Browser, json!({}))]);
+    assert_eq!(row(&tabs, "3").favicon_hash, Some(cmux_tab_snapshots::BlobHash::of(b"early")));
+    tabs.offer_image("1", Part::Thumb, b"thumb1".to_vec(), 576, 768, Mime::Jpeg, 2);
+    tabs.set_screen("1", "old".into());
+    // A picture for a surface the old run had not listed yet.
+    tabs.offer_image("5", Part::Thumb, b"pending5".to_vec(), 576, 768, Mime::Jpeg, 3);
+    let rev = tabs.rev();
+
+    assert!(tabs.daemon_run("e2"));
+    assert_eq!(tabs.epoch(), "e2");
+    assert!(tabs.tab_ids().is_empty());
+    assert_eq!(tabs.stored_blobs(), 0);
+    assert!(tabs.rev() > rev);
+    assert!(tabs.lock().producer.delta_since(rev).is_none(), "no delta crosses the runs");
+    // The new run reuses 1 and 5 for other tabs: none of the old pictures,
+    // screen or title come back.
+    tabs.set_tabs(vec![tab("5", Kind::Terminal, json!({})), tab("1", Kind::Browser, json!({}))]);
+    assert_eq!(tabs.tab_ids(), ["5", "1"]);
+    let (one, five) = (row(&tabs, "1"), row(&tabs, "5"));
+    assert_eq!((one.thumb_hash, one.screen_hash, five.thumb_hash), (None, None, None));
+    assert!(!tabs.set_screen("3", "gone".into()), "an old run's tab is not listed");
+}
+
 const JPEG: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3];
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\nrest";
 

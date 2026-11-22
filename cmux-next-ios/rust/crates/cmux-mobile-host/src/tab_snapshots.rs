@@ -19,6 +19,14 @@
 //! `tab_picture` control line ([`PictureFile`]); [`offer_file`] reads them in
 //! line order and hands them to [`Tabs::offer_image`].
 //!
+//! A tab's id is its daemon surface id, which only means something within
+//! one run of the daemon: a new run numbers its surfaces again from its
+//! saved state, so an old id can name another tab. The host learns of no
+//! run id, so every time the feeder connects to the daemon again it treats
+//! the daemon as a new run ([`Tabs::daemon_run`]): every row, the order and
+//! the pictures held for tabs go, under a new epoch, and each phone gets a
+//! manifest of the new run's tabs.
+//!
 //! Each phone also sees only the tabs its chat exposure allows, by the rule
 //! the `daemon` service applies to its replies
 //! (`acpmux_policy::filter_daemon_response`): a tab naming a blocked agent
@@ -126,6 +134,8 @@ struct State {
     producer: Producer,
     tabs: HashMap<String, Known>,
     pictures: HashMap<String, Pictures>,
+    /// A feeder reached the daemon at least once.
+    fed: bool,
 }
 
 struct Life {
@@ -166,13 +176,15 @@ fn now_ms() -> i64 {
 }
 
 impl Tabs {
-    /// `epoch`: fresh per host start (see `Producer::new`).
+    /// `epoch`: fresh per host start (see `Producer::new`); a new one per
+    /// daemon run after the first ([`Tabs::daemon_run`]).
     pub fn new(epoch: impl Into<String>) -> Self {
         Self {
             state: Mutex::new(State {
                 producer: Producer::new(epoch, 0, HISTORY_CAP, RECENT_BLOB_CAP),
                 tabs: HashMap::new(),
                 pictures: HashMap::new(),
+                fed: false,
             }),
             changed: watch::channel(0).0,
             life: Mutex::new(Life { phones: 0, feeder: false, feeds: 0 }),
@@ -358,6 +370,30 @@ impl Tabs {
                 .map(|(id, _)| id.clone())
                 .collect(),
         )
+    }
+
+    /// The feeder reached the daemon. The first time, the daemon is the one
+    /// this host's epoch began with. Every later time it may be a new run of
+    /// the daemon, whose surface ids are not the old run's: every row, the
+    /// order and every picture held go, and `epoch` replaces the epoch, so a
+    /// phone, open or resuming, gets a manifest of the tabs listed from now
+    /// on. Returns true when it started over.
+    pub fn daemon_run(&self, epoch: impl Into<String>) -> bool {
+        let mut state = self.lock();
+        if !std::mem::replace(&mut state.fed, true) {
+            return false;
+        }
+        state.producer.new_epoch(epoch);
+        state.tabs.clear();
+        state.pictures.clear();
+        drop(state);
+        self.bump();
+        true
+    }
+
+    /// The producer's epoch now.
+    pub fn epoch(&self) -> String {
+        self.lock().producer.epoch().to_owned()
     }
 
     /// Counts a phone in and starts the feeder on `socket` if none runs.
@@ -674,6 +710,9 @@ async fn feed_once(tabs: &Tabs, socket: &Path) -> Result<(), String> {
     let (query_read, mut query_write) = queries.into_split();
     let mut query_read = BufReader::new(query_read);
     query(&mut query_read, &mut query_write, &hello("tabs-query-hello"), "tabs-query-hello").await?;
+    if tabs.daemon_run(uuid::Uuid::new_v4().to_string()) {
+        tracing::debug!("tabs feeder reconnected: a new epoch");
+    }
 
     let mut list_dirty = true;
     let mut dirty: HashSet<String> = HashSet::new();

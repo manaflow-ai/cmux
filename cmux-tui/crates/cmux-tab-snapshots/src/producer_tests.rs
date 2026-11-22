@@ -138,3 +138,26 @@ fn set_order_bumps_rev_only_on_change_and_rides_in_the_delta() {
     // A delta from after the reorder carries no order.
     assert_eq!(p.delta_since(base + 1).unwrap().order, None);
 }
+
+#[test]
+fn a_new_epoch_drops_every_row_and_every_delta_before_it() {
+    let mut p = Producer::new("e1", 0, 16, 0);
+    p.observe(browser("7", "Old", b"fav", b"thumb"));
+    p.observe(browser("8", "Old 2", b"fav", b"thumb2"));
+    let old_rev = p.rev();
+    p.new_epoch("e2");
+    assert_eq!(p.epoch(), "e2");
+    assert!(p.rows().is_empty());
+    assert_eq!(p.store().stats().blobs, 0, "the old rows' blobs are released");
+    assert!(p.rev() > old_rev, "no rev of the old epoch is one of the new");
+    assert!(p.delta_since(old_rev).is_none());
+    assert!(p.delta_since(0).is_none());
+    let m = p.manifest();
+    assert_eq!((m.epoch.as_str(), m.rows.len()), ("e2", 0));
+    // The same id in the new run is a new tab, not a change of the old one.
+    assert!(p.observe(browser("7", "New", b"fav", b"other")));
+    let d = p.delta_since(old_rev + 1).unwrap();
+    assert_eq!(d.epoch, "e2");
+    assert_eq!(d.changed.len(), 1);
+    assert_eq!(d.changed[0].title.as_deref(), Some("New"));
+}
