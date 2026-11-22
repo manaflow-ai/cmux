@@ -12,19 +12,19 @@
   "appearance.appTheme": "followTerminal",
   // background: the page. foreground: the ink. selection: a highlighter under the text, not the
   // accent. accent: the link and focus ink.
-  "colors": { "background": "#faf8f3", "foreground": "#1b1a17", "selection": "#ebe1c4", "accent": "#2a4b9b" },
+  "colors": { "background": "#faf8f3", "foreground": "#111110", "selection": "#ebe1c4", "accent": "#2a4b9b" },
   "appearance.accent": "theme",
   // The terminal: the page and ink above, the cursor in the ink, and sixteen colors at a soft
   // chroma, each readable over the page (the Folio look's palette, solved in OKLCH over a page
   // within one step of this one).
   "ghostty": [
     "background = #faf8f3",
-    "foreground = #1b1a17",
-    "cursor-color = #1b1a17",
+    "foreground = #111110",
+    "cursor-color = #111110",
     "cursor-text = #faf8f3",
     "selection-background = #ebe1c4",
-    "selection-foreground = #1b1a17",
-    "palette = 0=#1b1a17",
+    "selection-foreground = #111110",
+    "palette = 0=#111110",
     "palette = 1=#a84f45",
     "palette = 2=#217840",
     "palette = 3=#816603",

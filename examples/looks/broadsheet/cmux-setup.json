@@ -3,7 +3,7 @@
   "id": "manaflow-ai/broadsheet-look",
   "name": "Broadsheet",
   "tagline": "cmux as a reading instrument: one type scale, a 4 px baseline, a 70-character measure, hairline rules for boxes.",
-  "description": "Broadsheet v0.1, a design-system proposal as a drop-in look. What agents produce is writing (plans, reports, diffs, logs), so the hierarchy is built from type, measure and rhythm, not from boxes: reading text at 16 px on a 24 px line in a column about 70 characters wide, code and tool output at 13 px on a 20 px line, chrome at 13 px in 28 px rows, every line height a multiple of 4 px, your prompt and the tool cards drawn with a faint wash or a hairline in place of a filled bubble, a sidebar and tab strip one quiet step of lightness off the page with a hairline between them, and color kept for links and status. Built only from public surfaces: two theme files (Broadsheet, light, the default; Broadsheet Dark), settings, and two stylesheets of public tokens. Remove it and everything you had comes back.",
+  "description": "Broadsheet v0.1, a design-system proposal as a drop-in look. What agents produce is writing (plans, reports, diffs, logs), so the hierarchy is built from type, measure and rhythm, not from boxes: reading text at 16 px on a 24 px line in a 560 px column (35 em, about 70 characters), code at 13 px, chrome at 13 px in 28 px rows, your prompt and the tool cards drawn with a faint wash or a hairline in place of a filled bubble, a sidebar and tab strip one quiet step of lightness off the page with a hairline between them, and color kept for links and status. Built only from public surfaces: two theme files (Broadsheet, light, the default; Broadsheet Dark), settings, and two stylesheets of public tokens. Remove it and everything you had comes back.",
   "version": "0.1.0",
   "license": "MIT",
   "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/looks/broadsheet",
@@ -24,7 +24,7 @@
     "agentPane.display.code.scale": 0.8125,
     // The measure: a 680 px column, about 70 characters of 16 px text after the gutters
     // (the default 800 px column at 14 px runs past 100).
-    "agentPane.display.width": 680,
+    "agentPane.display.width": 560,
 
     // The Markdown viewer in the same hand: 16 px on a 24 px line, code at 13 px, 70 characters.
     "markdown.font.preset": "system",
@@ -34,7 +34,6 @@
     "markdown.layout.width": 70,
 
     // Sidebar groups are separated by a hairline and a larger gap, never by a card.
-    "sidebar.density": "compact",
     "sidebar.sectionLook": "lines",
 
     // The address field: a 6 px corner (the tab's), no shadow.
