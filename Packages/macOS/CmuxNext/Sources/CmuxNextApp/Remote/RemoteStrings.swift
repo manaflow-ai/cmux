@@ -109,8 +109,7 @@ enum RemoteStrings {
         case .connecting, .connected:
             if let failure = session.daemonFailure { return plainFailure(failure.error, machine: session.host.label) }
             return session.lastError ?? (session.staticInstallStaged ? staticInstallStaged : nil)
-        case .reconnecting:
-            return String(localized: "remote.status.reconnecting", defaultValue: "The connection dropped. cmux reconnects on its own; programs keep running on the machine.", table: "Remote", bundle: .module.inAppLanguage)
+        case .reconnecting: return nil // redials on its own, nothing to do: no sentence (Leo, 2026-11-22, "remove them all")
         case .authFailed:
             return String(format: String(localized: "remote.status.authFailed.plain", defaultValue: "SSH sign-in to %@ failed. Check your key or agent, then choose Reconnect Machine. Choose Copy Error for the details.", table: "Remote", bundle: .module.inAppLanguage), session.host.label)
         case .hostKeyUntrusted:

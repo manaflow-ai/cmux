@@ -12,9 +12,10 @@ import Testing
 
 /// Leo, 2026-11-08: after a restart the session owner restored for 30 minutes, the window said only
 /// "cmux's background service isn't connected", and clicks on chats did nothing. While `server ensure
-/// --restore-progress` reports the restore, the app now publishes it (`DaemonRecovery.restoring`), the
-/// launch window says "Restoring sessions… <time>" and the sidebar shows the same status card; both go
-/// once the ensure answers.
+/// --restore-progress` reports the restore, the app now publishes it (`DaemonRecovery.restoring`); once it has
+/// lasted the shared connection quiet time the launch window says "Restoring your sessions…" (no clock: Leo,
+/// 2026-11-22, "entire classes of bullshit fucking error/status bullshit. fuck em. remove them all") and the sidebar
+/// shows the same status card; under it nothing says so; both go once the ensure answers.
 ///
 /// The app runs its real startup path against a stand-in `cmux-tui` script (as DaemonRestartTests):
 /// `server status` finds no owner, the first `server ensure` prints three progress lines a second
@@ -150,33 +151,45 @@ struct DaemonRestoreProgressTests {
 
     @Test func theRestoreShowsWhileTheEnsureWaitsAndGoesWhenItAnswers() async throws {
         let started = ContinuousClock.now
-        let launched = try await Self.launch()
+        // Injected waits a second apart: two under the shared quiet time, two past it.
+        let launched = try await Self.launch(waits: [0, 5_000, 10_000, 15_000])
         defer { launched.stop() }
         let recovery = launched.services.daemon.recovery
         var waited: [UInt64] = []
         var shownAt: ContinuousClock.Instant?
         var clearedAt: ContinuousClock.Instant?
+        var saidUnderTheBound: [UInt64] = []
         // Samples the published report until it came and went; only the suite's time limit ends a run that never
         // gets there (as DaemonRestartTests' wait).
         while clearedAt == nil, !Task.isCancelled {
             if let report = recovery.restoring {
                 if waited.last != report.waitedMs { waited.append(report.waitedMs) }
-                let title = RefusalStrings.restoringSessions(waitedMs: report.waitedMs)
-                if shownAt == nil, launched.view?.titleText == title { shownAt = .now }
+                let said = launched.view?.titleText == RefusalStrings.restoringSessions
+                if report.waitedMs < DaemonRecovery.restoringQuietMs {
+                    if said || recovery.restoringText != nil { saidUnderTheBound.append(report.waitedMs) }
+                } else if shownAt == nil, said {
+                    shownAt = .now
+                }
             } else if !waited.isEmpty {
                 clearedAt = .now
             }
             try? await Task.sleep(for: .milliseconds(50))  // test harness sampling of the app's own steps
         }
-        let shown = try #require(shownAt, "the launch window never said the sessions are restoring")
+        #expect(saidUnderTheBound.isEmpty, "a restore under the shared quiet time said so: \(saidUnderTheBound)")
+        #expect(DaemonRecovery.restoringQuietMs == UInt64(QuietHold.connectionDelay.components.seconds) * 1000)
+        let shown = try #require(shownAt, "the launch window never said the sessions are restoring past the bound")
         let cleared = try #require(clearedAt)
         #expect(waited.count >= 2, "progress lines did not reach the app as they came: \(waited)")
         #expect(waited == waited.sorted() && Set(waited).count == waited.count, "the time shown stepped back: \(waited)")
         #expect(recovery.restoring == nil)
-        #expect(launched.view?.titleText != RefusalStrings.restoringSessions(waitedMs: waited.last ?? 0))
-        let card = SidebarNoticeCard.restoring(RefusalStrings.restoringSessions(waitedMs: 65_000))
-        #expect(card.title == RefusalStrings.restoringSessions(waitedMs: 65_000))
-        #expect(card.dismissLabel == nil && card.actions.isEmpty, "the status card asks the person for something")
+        #expect(recovery.restoringText == nil)
+        #expect(launched.view?.titleText != RefusalStrings.restoringSessions)
+        // The line names no running clock.
+        #expect(RefusalStrings.restoringSessions.rangeOfCharacter(from: .decimalDigits) == nil)
+        let card = SidebarNoticeCard.restoring(RefusalStrings.restoringSessions, withDetails: true)
+        #expect(card.title == RefusalStrings.restoringSessions)
+        #expect(card.dismissLabel == nil && card.actions.map(\.id) == [SidebarNoticeCard.detailsAction],
+                "the status card carries one quiet Details and nothing else")
         func ms(_ instant: ContinuousClock.Instant) -> Int64 {
             let elapsed = instant - started
             return elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000
@@ -187,7 +200,7 @@ struct DaemonRestoreProgressTests {
     /// Stands in for "connected" in the usable-during-restore probe: the stand-in's socket never answers, so the
     /// ensure's answer is the moment a live daemon would connect.
     @Observable @MainActor final class Answered { var value = false }
-    /// What the held open and its toasts did, read by the test.
+    /// What the held open and its toasts did, read by the test (it shows none while it waits).
     @MainActor private final class Seen { var ranAt: ContinuousClock.Instant?; var toasts: [String] = [] }
 
     /// Leo, 2026-11-09: "updates need to be able to autorepair instead of getting the user to do this or that". A
@@ -232,7 +245,7 @@ struct DaemonRestoreProgressTests {
         let longest = try #require(waited.last)
         #expect(longest >= 290_000, "the reported restore was not 5 minutes: \(longest) ms")
         #expect(!sawUnavailable, "the startup deadline showed a failure while the restore reported progress")
-        #expect(seen.toasts == [RefusalStrings.pendingOpenWaits], "the held click said something else: \(seen.toasts)")
+        #expect(seen.toasts.isEmpty, "the held click said something: \(seen.toasts)")
         let clicked = try #require(clickedAt), ran = try #require(seen.ranAt)
         let elapsed = ran - clicked
         let ranAfterMs = elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000

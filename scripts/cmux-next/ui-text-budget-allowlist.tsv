@@ -60,7 +60,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.br
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.install.body	36	25
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.status.authFailed.plain	21	20
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.status.hostKey.plain	29	12
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.status.reconnecting	14	12
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.status.staticInstallStaged	28	12
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.status.unreachable.plain	17	12
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.update.body	32	25

@@ -1,6 +1,7 @@
 public import CmuxNextDaemon
 public import CmuxNextFiles
 public import Foundation
+import CmuxNextWakeups
 
 /// A machine's `fs-v1` ops, on its daemon's read link; tests pass a fake.
 public protocol RemoteFileClient: AnyObject {
@@ -325,10 +326,15 @@ public final class RemoteFilePageFiles: FilePageFiles {
 /// it stats the file, reads it when the revision moved (every poll for a symlink, whose own
 /// revision does not move when its target is written), and reports content whose hash differs
 /// from ``knownHash`` (nil: deleted). A machine that stops answering is reported once through
-/// `onUnavailable` with the reason, and once more (nil) when it answers again.
+/// `onUnavailable` with the reason, once it has not answered for the shared connection quiet time
+/// (``quietPolls``, Leo 2026-11-22: "entire classes of bullshit fucking error/status bullshit. fuck em. remove them
+/// all"): a drop that heals under it says nothing and the page keeps its last text. Once more (nil) when it answers again.
 public final class RemoteFileChangeWatch: FilePageWatching {
     /// How often the file's revision is asked.
     public static let interval: Duration = .seconds(2)
+    /// Polls in a row the machine must miss before the page hears it is not connected: ``interval``s covering the shared
+    /// connection quiet time (``QuietHold/connectionDelay``, `NoticeTiming.connectionQuiet`'s copy).
+    public static let quietPolls = Int((QuietHold.connectionDelay / interval).rounded(.up))
 
     /// The watched file on the machine.
     public let url: URL
@@ -343,6 +349,8 @@ public final class RemoteFileChangeWatch: FilePageWatching {
     private var revision: String?
     /// Why the machine does not answer now (as the page shows it); nil while it does.
     public private(set) var unavailable: String?
+    /// Polls in a row the machine has not answered (``quietPolls``).
+    private var missedPolls = 0
 
     init(url: URL, files: RemoteFilePageFiles, inWorkspace: @escaping () -> Bool, clock: any Clock<Duration>,
          onChange: @escaping (FileSnapshot?) -> Void, onUnavailable: @escaping (String?) -> Void) {
@@ -396,6 +404,11 @@ public final class RemoteFileChangeWatch: FilePageWatching {
                 knownHash = nil
                 onChange(nil)
             case .unavailable(let reason):
+                // Not connected waits the quiet time; a refusal the machine answered with (no files, denied) shows now.
+                if reason == RemoteFilePageFiles.remoteOffline(files.machine) {
+                    missedPolls += 1
+                    guard missedPolls >= Self.quietPolls else { return }
+                }
                 guard unavailable != reason else { return }
                 unavailable = reason
                 onUnavailable(reason)
@@ -422,6 +435,7 @@ public final class RemoteFileChangeWatch: FilePageWatching {
     }
 
     private func available() {
+        missedPolls = 0
         guard unavailable != nil else { return }
         unavailable = nil
         onUnavailable(nil)

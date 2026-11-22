@@ -99,7 +99,7 @@ final class RemoteTerminalPlaceholderView: NSView, PaneCommitMotionPicture {
         connect.isHidden = state != .offline || onConnect == nil
         setSnapshot(snapshot)
         reconnectHold.update(state == .reconnecting) { [weak self] in self?.status.isHidden = false }
-        status.isHidden = reconnectHold.held
+        status.isHidden = reconnectHold.held || (state == .offline && connect.isHidden) // offline only with Connect (Leo, 2026-11-22)
         setAccessibilityLabel(status.stringValue)
     }
 
@@ -112,6 +112,7 @@ final class RemoteTerminalPlaceholderView: NSView, PaneCommitMotionPicture {
 
     var snapshotText: String { snapshotView.string }
     var statusText: String { status.stringValue }
+    var statusDrawn: Bool { !status.isHidden } // tests
 
     @objc private func connectPressed() { onConnect?() }
 }

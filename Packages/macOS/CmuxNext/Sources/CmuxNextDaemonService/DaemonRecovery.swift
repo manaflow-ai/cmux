@@ -48,8 +48,16 @@ public final class DaemonRecovery {
     /// ``restoring`` is set: changes only when a restore starts or ends, not at each progress line, so the sidebar's rows
     /// (stale while it restores) and the startup deadline (it waits a restore out) follow it without a redraw per line.
     public private(set) var isRestoring = false
-    /// ``restoring`` in the person's words ("Restoring sessions… 4m 12s"); nil while none.
-    public var restoringText: String? { restoring.map { RefusalStrings.restoringSessions(waitedMs: $0.waitedMs) } }
+    /// ``restoring`` in the person's words ("Restoring your sessions…"), once it has waited the shared connection quiet
+    /// time (``QuietHold/connectionDelay``, `NoticeTiming.connectionQuiet`'s copy): a restore that ends under it draws
+    /// nothing, and past it one calm line with no running clock (Leo, 2026-11-22). Nil while none, or still under it.
+    /// The owner's progress lines arrive every few seconds, so the line shows within one of them past the bound.
+    public var restoringText: String? {
+        guard let restoring, restoring.waitedMs >= Self.restoringQuietMs else { return nil }
+        return RefusalStrings.restoringSessions
+    }
+    /// ``QuietHold/connectionDelay`` in milliseconds, against ``RestoreProgressReport/waitedMs``.
+    nonisolated static let restoringQuietMs = UInt64(QuietHold.connectionDelay.components.seconds) * 1000
     /// When the restore ``restoring`` reports began, and its owner; nil after a start that worked.
     @ObservationIgnored private var restoreBegan: (pid: Int32?, at: Date)?
     /// A Restart runs (up to 20 s of probe and stop, then the new owner's start).
