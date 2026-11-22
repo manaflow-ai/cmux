@@ -9,6 +9,7 @@
 //! themselves, which is what makes the backend attachable.
 
 mod agent_hooks;
+mod agent_status;
 pub mod backoff;
 mod browser;
 mod browser_provider;
@@ -32,6 +33,7 @@ mod journal_plugin;
 mod journal_reducers;
 mod model;
 mod mux;
+mod output_store;
 mod pairing;
 pub mod provider_management;
 #[cfg(unix)]
@@ -41,6 +43,7 @@ mod resource_api;
 mod resource_mutation;
 pub mod resource_name;
 mod resource_router;
+mod resource_screen;
 mod resource_selector;
 mod resource_tab;
 mod shell_integration;
@@ -49,6 +52,7 @@ mod sidebar_resource;
 pub mod sizing_policy;
 mod stream_interrupt;
 mod surface;
+mod terminal_command;
 mod terminal_metadata;
 mod workspace_registry;
 
@@ -60,10 +64,13 @@ pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
 #[cfg(unix)]
 pub mod unix_process_scope;
+pub mod wait_pattern;
 
 pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, agent_hook_journal_ingress,
+    hook_monotonic_now, stamp_agent_hook_monotonic, stamp_agent_hook_observed_at,
 };
+pub use agent_status::AgentStatus;
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub use journal_ingress::{FrontendFocusTarget, FrontendJournalEvent};
@@ -85,6 +92,10 @@ pub use mux::{
     RunPlacement, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
     SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult,
     WorkspacePlacement, ZoomMode, ZoomState,
+};
+pub use mux::{
+    DEFAULT_TERMINAL_REAP_GRACE, HeldTerminalReaper, MAX_TERMINAL_REAP_GRACE, TerminalReaper,
+    prepare_terminal_reaper, start_terminal_reaper, validate_terminal_reap_grace,
 };
 pub use mux::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
@@ -110,8 +121,11 @@ pub use workspace_registry::{
     JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
     JournalSensitivity, JournalSubject, PersistentSessionStateReset,
     PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
-    RegistryCommit, RegistryEvent, RegistrySnapshot, RegistryWorkspace, SessionJournalPage,
-    SessionJournalRecord, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
+    RegistryCommit, RegistryEvent, RegistryIntegrityFailure, RegistryRecovery, RegistrySnapshot,
+    RegistryStartupDamage, RegistryWorkspace, SessionJournalPage, SessionJournalRecord,
+    UnrecoverableInterruptedCreations, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation,
+    WorkspaceRegistry, quarantine_session_registry, recover_registry_after_failed_open,
+    registry_startup_damage,
 };
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};

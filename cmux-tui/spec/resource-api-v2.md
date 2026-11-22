@@ -225,6 +225,13 @@ metadata at the same level as terminal IDs; remote clients receive it like the
 rest of the agent value. An ended hook session still publishes a `delete`
 change for the agent.
 
+An ended hook session leaves the roster, so its agent value is gone. The
+terminal value in `session.snapshot` then keeps the last hook session of its
+terminal as `extra.agent_session_id` (with `extra.agent`, the adapter, when
+known), so a client can still resume it (`cmux agent resume`). The daemon keeps
+this in memory only: it is not journaled, a daemon restart forgets it, and a
+closed terminal drops it. Terminal values without one have no such fields.
+
 ```json
 {
   "id": "agent_4f0c9f2a8e1b3d5c7a9e0b2d4f6a8c1e",

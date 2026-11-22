@@ -12,9 +12,6 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 CLAIM = "scripts/ci/signing-runner-claim.sh"
-SIGNING_HOOKS = [line.split()[0] for line in
-                 (ROOT / "scripts/ci/glaeda-signing-hooks.txt").read_text().splitlines()
-                 if line.strip() and not line.startswith("#")]
 FIRST_SIGNING_HOOK = "2695209c13db5fe7514daf76d3e8e547b9569ad9a545225e52f7e07dd83d69e4"
 OLD_HOOK = "fb0442d31e23f01326118b7d6be2effd0ba91bff9a0b59c62016c39bc23116da"
 
@@ -45,18 +42,15 @@ class ClaimScriptTests(unittest.TestCase):
                     refused = self.run_claim(tmp, **env)
                     self.assertEqual(refused.returncode, 1, refused.stdout)
                     self.assertIn("did not give the job the whole mini", refused.stdout)
-            for sha in ("", OLD_HOOK, SIGNING_HOOKS[0][:12], "x" * 64, ".*", ".*.*", "[0-9a-f]*",
-                        SIGNING_HOOKS[0] + " ", "#", SIGNING_HOOKS[0][:63] + "."):
+            # Any hook version passes with an exclusive claim: a new glaeda hook release never fails a
+            # signing job (the sha allowlist is gone, as on feat-cmux-next since #41694).
+            for sha in ("", OLD_HOOK, FIRST_SIGNING_HOOK, "6f0315903ea6" + "0" * 52, "x" * 64):
                 with self.subTest(sha=sha):
-                    refused = self.run_claim(tmp, RUNNER_NAME="cmux12-glaeda-3", GLAEDA_JOB_CLAIM="exclusive",
-                                             GLAEDA_HOOK_SHA256=sha)
-                    self.assertEqual(refused.returncode, 1, refused.stdout)
-                    self.assertIn("is not one", refused.stdout)
-            for sha in SIGNING_HOOKS:
-                with self.subTest(listed=sha):
                     passed = self.run_claim(tmp, RUNNER_NAME="cmux12-glaeda-3", GLAEDA_JOB_CLAIM="exclusive",
                                             GLAEDA_HOOK_SHA256=sha)
                     self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
+                    self.assertIn("holds the whole mini", passed.stdout)
+            self.assertFalse((ROOT / "scripts/ci/glaeda-signing-hooks.txt").exists())
             (tmp / "keychains" / "build.keychain-db").write_text("left by a killed job")
             claimed = self.run_claim(tmp, RUNNER_NAME="cmux12-glaeda-3", GLAEDA_JOB_CLAIM="exclusive",
                                      GLAEDA_HOOK_SHA256=FIRST_SIGNING_HOOK)

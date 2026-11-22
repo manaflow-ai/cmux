@@ -1,5 +1,8 @@
 import { DELETED_ACCOUNT_ACTOR_ID } from "../auth/deletedAccount";
 import { requirePersonalPlanIdForSubscription } from "./subscriptionPlan";
+import { isNextPlanId, nextPlanIdForSubscription, type NextPlanId } from "./nextPlans";
+import { billingPlanIdFromMetadata } from "./teamResolution";
+import { activeNextPlanForUser, syncNextPlanMetadata } from "./nextPlanBilling";
 export { personalPlanIdForSubscription } from "./subscriptionPlan";
 import { findIdentitySnapshotUserIdsByEmail } from "../auth/identitySnapshot";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
@@ -35,6 +38,7 @@ import {
   type PersonalPlanId,
   type ProMetadataJson,
   TEAM_PLAN_ID,
+  isPaidPlanId,
   isPersonalPlanId,
   syncProPlanMetadata,
   syncTeamPlanMetadata,
@@ -64,6 +68,7 @@ import {
   type PurchaseMagicLinkDeliveryStore,
 } from "./emailVerificationDelivery";
 import { planItem } from "./subscriptionItems";
+import { withTeamMetadataMutation } from "../teams/mutationLease";
 
 export { canonicalizeEmailForMatching } from "./emailMatching";
 
@@ -265,8 +270,8 @@ type UserCheckoutPostCommitSync = {
   stackApp: StackBillingApp | null | undefined;
   deferProMetadataUntilVerification?: boolean;
   sendRecoveryMagicLink?: boolean;
-  /** The personal plan the checkout bought (pro or max), from its Price. */
-  plan: PersonalPlanId;
+  /** The plan the checkout bought (go, pro, max, next_pro or next_max), from its Price. */
+  plan: PersonalPlanId | NextPlanId;
 };
 
 type CheckoutCompletionLockedResult = {
@@ -479,7 +484,7 @@ export async function recordCheckoutCompletion(
           deferProMetadataUntilVerification:
             input.deferProMetadataUntilVerification,
           sendRecoveryMagicLink: input.sendRecoveryMagicLink,
-          plan: requirePersonalPlanIdForSubscription(subscription, input.session.metadata),
+          plan: userPlanIdForSubscription(subscription, input.session.metadata),
         },
         result: { scope: "user", stackUserId, subscriptionId: subscription.id },
       };
@@ -1810,7 +1815,13 @@ async function syncUserCheckoutAfterCommit(
         }
         return;
       }
-      await syncProPlanMetadata(user, true, mutationLease, input.plan);
+      if (isNextPlanId(input.plan)) {
+        // Only the committed rows decide: a checkout replayed after the
+        // subscription was cancelled must not grant the plan again.
+        await syncNextPlanMetadata(user, await activeNextPlanForUser(db, input.stackUserId), mutationLease);
+      } else {
+        await syncProPlanMetadata(user, true, mutationLease, input.plan);
+      }
       if (input.sendRecoveryMagicLink && input.email) {
         await requestPurchaseMagicLink(
           db,
@@ -1954,8 +1965,7 @@ export async function applySubscriptionUpdate(
       )
       : await db.transaction((tx) => applyTeamUpdate(tx, { kind: "legacy-team" }));
     if ("skipped" in lockedResult) return { skipped: true };
-    const team = await loadStackTeam(teamScope.stackTeamId, dependencies.stackApp);
-    await syncTeamPlanMetadata(team, isActive, subscriptionSeats(subscription));
+    await syncStackTeamPlanMetadata(db, teamScope.stackTeamId, dependencies.stackApp, isActive, subscriptionSeats(subscription));
     return lockedResult;
   }
 
@@ -2015,31 +2025,80 @@ export async function applySubscriptionUpdate(
   );
   if ("skipped" in lockedResult) return { skipped: true };
 
+  const retainsAccess = await syncUserSubscriptionMetadata(
+    db,
+    subscription,
+    lockedResult.stackUserId,
+    isActive,
+    dependencies,
+  );
+  return userSubscriptionUpdateResult(lockedResult.stackUserId, isActive, !isActive && retainsAccess);
+}
+
+/**
+ * A user-scoped result. `retainsAccess` is set only on a lapse that leaves
+ * the person entitled (a cmux NEXT subscription ended, or a classic
+ * entitlement remains), so route tokens and API keys must not be revoked.
+ * It rides on the declared result type, which callers read with `in`.
+ */
+function userSubscriptionUpdateResult(stackUserId: string, isActive: boolean, retainsAccess: boolean) {
+  return { scope: "user" as const, stackUserId, isActive, ...(retainsAccess ? { retainsAccess: true } : {}) };
+}
+
+/**
+ * Mirrors a user-scoped subscription into Stack metadata and reports whether
+ * the person keeps access after a lapse (a cmux NEXT subscription ended, or
+ * a classic entitlement remains).
+ */
+async function syncUserSubscriptionMetadata(
+  db: BillingDb,
+  subscription: Stripe.Subscription,
+  stackUserId: string,
+  isActive: boolean,
+  dependencies: BillingPurchaseDependencies,
+): Promise<boolean> {
+  let retainsAccess = false;
   await syncStackUserMetadataWithAccountDeletionGuard({
     db,
-    stackUserId: lockedResult.stackUserId,
+    stackUserId,
     stackApp: dependencies.stackApp ?? getStackServerApp(),
     sync: async (freshUser, mutationLease) => {
+      // Every user-scoped update re-mirrors the best active NEXT row, so a
+      // subscription switched from a NEXT Price to a classic one clears it.
+      const nextMetadata = await syncNextPlanMetadata(
+        freshUser,
+        await activeNextPlanForUser(db, stackUserId),
+        mutationLease,
+      );
+      // A cmux NEXT subscription never touches the classic plan, TestFlight,
+      // or classic access.
+      if (nextPlanIdForSubscription(subscription)) {
+        retainsAccess = true;
+        return;
+      }
+      const user = nextMetadata ? withClientMetadata(freshUser, nextMetadata) : freshUser;
       // Label the mirror with the plan this subscription's Price sells, so a
       // Billing Portal switch between Pro and Max lands as `cmuxPlan` change.
       const currentMetadata = await syncProPlanMetadata(
-        freshUser,
+        user,
         isActive,
         mutationLease,
         requirePersonalPlanIdForSubscription(subscription),
       );
-      if (!isActive) {
-        await removeUserFromTestflightOnLapse(
-          freshUser,
-          lockedResult.stackUserId,
-          currentMetadata,
-          dependencies,
-          mutationLease,
-        );
-      }
+      if (isActive) return;
+      // Another active classic subscription, an App Store plan or a paid
+      // operator grant still entitles the person: their access stays.
+      retainsAccess = await hasActiveUserProSubscription(db, stackUserId) ||
+        isPaidPlanId(billingPlanIdFromMetadata(currentMetadata));
+      await removeUserFromTestflightOnLapse(user, stackUserId, currentMetadata, dependencies, mutationLease);
     },
   });
-  return { scope: "user", stackUserId: lockedResult.stackUserId, isActive };
+  return retainsAccess;
+}
+
+/** `user` as seen after a metadata write this sync already made. */
+function withClientMetadata<User extends StackBillingUser>(user: User, metadata: Record<string, unknown>): User {
+  return Object.create(user, { clientReadOnlyMetadata: { value: metadata, writable: true } }) as User;
 }
 
 function isAccountDeletionInProgress(user: StackBillingUser): boolean {
@@ -2292,6 +2351,29 @@ async function loadOptionalStackUser(
   return app.getUser(stackUserId);
 }
 
+/**
+ * Mirrors the Team subscription into the team's metadata under the team lease
+ * that admin grants and VM deals also hold, reading the team inside it, so a
+ * concurrent admin write is never overwritten with a stale metadata copy.
+ */
+async function syncStackTeamPlanMetadata(
+  db: BillingDb,
+  stackTeamId: string,
+  stackApp: StackBillingApp | null | undefined,
+  isTeam: boolean,
+  seats: number | null,
+): Promise<void> {
+  // Decide under the lease: a read taken before it can be stale by the time
+  // the lease is held, and "nothing to write" from it would leave a
+  // concurrent writer's seats in place. syncTeamPlanMetadata skips the write
+  // itself when the leased read already matches Stripe.
+  await withTeamMetadataMutation(db, stackTeamId, async (lease) => {
+    const team = await loadStackTeam(stackTeamId, stackApp);
+    await lease.refresh();
+    await syncTeamPlanMetadata(team, isTeam, seats);
+  });
+}
+
 async function loadStackTeam(
   stackTeamId: string,
   stackApp: StackBillingApp | null | undefined,
@@ -2451,11 +2533,13 @@ async function recordTeamCheckoutCompletion(input: {
     });
   }
   if (lockedResult.postCommitTeamSync) {
-    const team = await loadStackTeam(
+    await syncStackTeamPlanMetadata(
+      db,
       lockedResult.postCommitTeamSync.stackTeamId,
       lockedResult.postCommitTeamSync.stackApp,
+      true,
+      subscriptionSeats(input.subscription),
     );
-    await syncTeamPlanMetadata(team, true, subscriptionSeats(input.subscription));
   }
 
   return lockedResult.result;
@@ -2635,9 +2719,18 @@ async function updateExistingUserStripeSubscription(
  * payload without a lookup key; unrecognized plans are rejected before persistence or entitlement sync.
  */
 
+/** A user-scoped subscription's plan: a cmux NEXT plan, else a personal classic plan. */
+function userPlanIdForSubscription(
+  subscription: Stripe.Subscription,
+  sessionMetadata?: Stripe.Metadata | null,
+): PersonalPlanId | NextPlanId {
+  return nextPlanIdForSubscription(subscription, sessionMetadata) ??
+    requirePersonalPlanIdForSubscription(subscription, sessionMetadata);
+}
+
 function stripeSubscriptionValues(input: StripeSubscriptionValuesInput) {
   const { subscription } = input;
-  const plan = input.scope === "team" ? TEAM_PLAN_ID : requirePersonalPlanIdForSubscription(subscription);
+  const plan = input.scope === "team" ? TEAM_PLAN_ID : userPlanIdForSubscription(subscription);
   return {
     id: subscription.id,
     customerId: input.customerId,
