@@ -131,7 +131,8 @@ const hasGrantTable = (sql: SqlStorage) => sql.exec<{ n: number }>(`SELECT COUNT
 export const inferencePlanOf = async (sql: SqlStorage, state: TeamState | null, entity: string, stack: StackServer | undefined, stackUser: string | undefined, user: string, now = Date.now(), testGrants = false): Promise<PlanAnswer> => {
   const answer = await sourcePlanOf(sql, state, entity, stack, stackUser, user, now)
   const granted = testGrants && !(answer.ok && answer.paid) ? testPlanGrant(sql) : null
-  return granted === null ? answer : { ok: true, paid: true, user_limit_usd: memberLimit(state, user).limit_usd, plan: granted }
+  // The grant stands in for cmuxPlan only; the record's cmux NEXT plan (next_plan) is kept as read.
+  return granted === null ? answer : { ok: true, paid: true, user_limit_usd: memberLimit(state, user).limit_usd, plan: granted, next_plan: answer.ok ? (answer.next_plan ?? null) : null }
 }
 
 const sourcePlanOf = async (sql: SqlStorage, state: TeamState | null, entity: string, stack: StackServer | undefined, stackUser: string | undefined, user: string, now: number): Promise<PlanAnswer> => {
