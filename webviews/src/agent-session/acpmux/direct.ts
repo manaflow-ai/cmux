@@ -11506,9 +11506,16 @@ export class AcpmuxDirectClient {
           ...(promptId ? { promptId } : {}),
           ...(typeof msg.turnId === "string" ? { turnId: msg.turnId } : {}),
           // Each image keeps the bytes and size the pane's own row drew it with, so the echo lands
-          // at the same size (imageEntries.ts withSentShapes).
+          // at the same size (imageEntries.ts withSentShapes). A prompt that waited in the queue has
+          // no row of its own: its attachments are the shape source.
           ...(promptImages(msg.images).length > 0 && {
-            images: withSentShapes(promptImages(msg.images), optimisticRow?.images),
+            images: withSentShapes(
+              promptImages(msg.images),
+              optimisticRow?.images ??
+                (fallbackPromptId
+                  ? attachedImages(this.optimisticPromptAttachments.get(fallbackPromptId) ?? [])
+                  : undefined),
+            ),
           }),
           ...(inlineParts?.length ? { inlineParts } : {}),
           // The blocks the composer sent as pastes, by where they sit in the text acpmux recorded;
