@@ -17,6 +17,11 @@ terminal beside a Chromium page and checks:
              and a page click plus keys in each reach that page alone; two-pages*.png are the window's snapshots
   prompts    (C16) alert, confirm, prompt, an <input type=file> click and a download each show something (a dialog, a
              panel, a window, a popup or a download record) instead of being cancelled in silence
+  file_after_popup
+             (also with prompts) a window.open popup's <input type=file> shows its sheet on the popup window, the popup
+             closes while that sheet is up, and then the opener's chooser must still work: a sheet shows, a new request
+             reaches the app (debug.cef file_dialogs.received grows), Escape delivers 'cancel' to the page, and a
+             second chooser does the same (other-Mac run on 6e420b7b: every later chooser of that app cancelled at once)
 
 Every row prints `PASS|FAIL|INFO | name | detail`; --json writes the rows and the raw readouts. Exits 0 when no row
 fails. The app is quit at the end. Fleet GUI host only (debug.key needs no event-posting grant).
@@ -30,7 +35,9 @@ parser.add_argument("--out", default=tempfile.mkdtemp(prefix="in-tree-live-"))
 parser.add_argument("--json")
 parser.add_argument("--in-tree", dest="in_tree", choices=["on", "off"], default="on")
 parser.add_argument("--idle", type=float, default=8.0)
-parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,two_pages")
+parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,file_after_popup,two_pages")
+parser.add_argument("--close-popup", dest="close_popup", choices=["script", "window"], default="script",
+                    help="file_after_popup: the popup closes itself (window.close() from its opener) or its window closes")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 CHECKS = set(opts.checks.split(","))
@@ -46,9 +53,10 @@ PAGE = """<!doctype html><html><head><title>in-tree probe</title></head>
 <body style="background:#246;color:#fff;font:16px sans-serif">
 <input id="field" style="font-size:20px;width:300px" placeholder="probe field">
 <input id="file" type="file" onclick="window.__file.push('click')" oncancel="window.__file.push('cancel')" onchange="window.__file.push('change')"> <a id="dl" href="/download" download="in-tree-probe.txt">download</a>
+<button id="pop" style="font-size:20px" onclick="window.__pop = window.open('/popup', 'probepopup', 'width=520,height=420')">popup</button>
 <pre id="log"></pre>
 <script>
-window.__keys = []; window.__steal = 0; window.__results = {}; window.__file = [];
+window.__keys = []; window.__steal = 0; window.__results = {}; window.__file = []; window.__popupFile = [];
 const field = document.getElementById('field');
 field.addEventListener('keydown', e => window.__keys.push(e.key));
 document.addEventListener('keydown', e => { if (e.target !== field) window.__keys.push('doc:' + e.key); });
@@ -63,10 +71,19 @@ window.later = (name, f) => { setTimeout(() => { try { window.__results[name] = 
 </script></body></html>"""
 
 
+# The popup's page is one file input over the whole page (a click anywhere opens its chooser); it reports to its opener.
+POPUP = """<!doctype html><html><head><title>in-tree popup</title></head><body style="margin:0;background:#462">
+<input id="file" type="file" style="position:fixed;left:0;top:0;width:100vw;height:100vh;opacity:0.6"
+ onclick="window.opener.__popupFile.push('click')" oncancel="window.opener.__popupFile.push('cancel')">
+<script>window.opener.__popupFile.push('ready');</script></body></html>"""
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/download"):
             body, kind = b"in-tree download probe\n", "application/octet-stream"
+        elif self.path.startswith("/popup"):
+            body, kind = POPUP.encode(), "text/html"
         else:
             body, kind = PAGE.encode(), "text/html"
         self.send_response(200)
@@ -208,6 +225,115 @@ def tab_count():
 def terminal_text():
     reply = rpc("surface.read_text")
     return reply.get("text", "") if isinstance(reply, dict) else ""
+
+
+def file_dialogs():
+    reply = (rpc("debug.cef") or {}).get("file_dialogs") or {}
+    return dict(reply, received=int(reply.get("received") or 0))
+
+
+def sheets():
+    """The app's open panels and sheets (shown or not), with their parent window: an Open panel left on a closed window
+    shows here."""
+    return [{k: w.get(k) for k in ("id", "kind", "title", "visible", "parent", "class")}
+            for w in ((rpc("debug.window_list") or {}).get("windows") or [])
+            if w.get("kind") == "sheet" or "OpenPanel" in str(w.get("class")) or w.get("title") == "Open"]
+
+
+def popup_index():
+    panels = (rpc("debug.popups") or {}).get("panels") or []
+    return next((i for i, p in enumerate(panels) if "/popup" in str(p.get("url") or "") and p.get("visible")), None)
+
+
+def page_list(name, tab):
+    value = page_eval(f"JSON.stringify(window.{name})", tab).get("value")
+    try:
+        return json.loads(value) if isinstance(value, str) else []
+    except ValueError:
+        return []
+
+
+def click_file_input(tab):
+    rect = page_eval("JSON.stringify((r => [r.x + r.width / 2, r.y + r.height / 2])("
+                     "document.getElementById('file').getBoundingClientRect()))", tab)
+    try:
+        x, y = json.loads(rect["value"])
+        return {"rect": [x, y], "click": rpc("debug.mouse", {"target": "page", "x": x, "y": y})}
+    except Exception as error:
+        return {"error": repr(error), "rect": rect}
+
+
+def opener_chooser(tab, label):
+    """One chooser in the opener: a page click on its file input must show a visible sheet and reach the app; Escape
+    must cancel it and the page must get 'cancel'."""
+    action("tab.focus", target=f"tab:{tab}")
+    page_eval("window.__file = []; true", tab)
+    before = file_dialogs()
+    fired = click_file_input(tab)
+    shown = wait(lambda: (lambda d, s: (d, s) if d["received"] > before["received"] and any(w["visible"] for w in s) else None)(
+        file_dialogs(), sheets()), 6)
+    after, now_sheets = (shown if shown else (file_dialogs(), sheets()))
+    if label == "first":
+        rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "file-after-popup-opener-sheet.png")})
+    rpc("debug.key", {"key": "escape"})
+    cancelled = wait(lambda: "cancel" in page_list("__file", tab), 4)
+    if not cancelled and any(w["visible"] for w in sheets()):
+        rpc("debug.key", {"key": "escape"})  # a second Escape, so a later step starts with no sheet
+    return {"sheet_shown": bool(shown), "request_reached_app": after["received"] > before["received"],
+            "page_got_cancel": bool(cancelled), "received": [before["received"], after["received"]],
+            "answered": file_dialogs().get("answered"), "last": after.get("last"), "input_events": page_list("__file", tab),
+            "sheets": now_sheets, "fired": fired}
+
+
+def file_after_popup(tab):
+    """prompts.file_after_popup: a popup's chooser closed with its popup must not break later choosers (6e420b7b)."""
+    record("file_after_popup")
+    action("tab.focus", target=f"tab:{tab}")
+    page_eval("window.__popupFile = []; true", tab)
+    rect = page_eval("JSON.stringify((r => [r.x + r.width / 2, r.y + r.height / 2])("
+                     "document.getElementById('pop').getBoundingClientRect()))", tab)
+    try:
+        x, y = json.loads(rect["value"])
+        opened = rpc("debug.mouse", {"target": "page", "x": x, "y": y})
+    except Exception as error:
+        opened = {"error": repr(error), "rect": rect}
+    index = wait(lambda: (lambda i: i + 1 if i is not None and "ready" in page_list("__popupFile", tab) else None)(popup_index()), 15)
+    if not index:
+        row(False, "prompts.file_after_popup.popup", {"open_click": opened, "popups": json.dumps(rpc("debug.popups"))[:400],
+                                                      "popup_events": page_list("__popupFile", tab)})
+        return
+    time.sleep(1.0)  # test harness: the popup moves into its own window and draws
+    index = popup_index()
+    before = file_dialogs()
+    clicked = rpc("debug.mouse", {"target": "page", "popup": index})
+    shown = wait(lambda: (lambda d, s: (d, s) if d["received"] > before["received"] and any(w["visible"] for w in s) else None)(
+        file_dialogs(), sheets()), 6)
+    rpc("debug.popups", {"snapshot_dir": os.path.join(opts.out, "file-after-popup-popups")})
+    popup_sheet = {"click": clicked, "sheet_shown": bool(shown), "file_dialogs": file_dialogs(), "sheets": sheets(),
+                   "popup_events": page_list("__popupFile", tab)}
+    RAW["file_after_popup_popup_sheet"] = popup_sheet
+    row(bool(shown), "prompts.file_after_popup.popup_sheet", popup_sheet)
+    if not shown:
+        rpc("debug.key", {"key": "escape"})
+        rpc("debug.popups", {"action": "close"})
+        return
+    # Close the popup while its sheet is up.
+    if opts.close_popup == "script":
+        closed_by = page_eval("window.__pop.close(); true", tab)
+    else:
+        closed_by = rpc("debug.popups", {"action": "close"})
+    gone = wait(lambda: popup_index() is None, 8)
+    time.sleep(1.5)  # test harness: the popup's browser closes (OnBeforeClose cancels its pending chooser)
+    after_close = {"closed_by": opts.close_popup, "close": closed_by, "popup_gone": gone is not None,
+                   "file_dialogs": file_dialogs(), "sheets": sheets(), "popup_events": page_list("__popupFile", tab)}
+    RAW["file_after_popup_closed"] = after_close
+    row("INFO", "prompts.file_after_popup.closed", after_close)
+    for label in ("first", "second"):
+        result = opener_chooser(tab, label)
+        RAW[f"file_after_popup_opener_{label}"] = result
+        row(result["sheet_shown"] and result["request_reached_app"] and result["page_got_cancel"],
+            f"prompts.file_after_popup.opener_{label}", result)
+        time.sleep(0.5)  # test harness: the sheet closes
 
 
 if os.path.exists(SOCKET):
@@ -387,6 +513,8 @@ try:
             rpc("debug.key", {"key": "escape"})
             time.sleep(0.5)  # test harness: the prompt closes
         RAW["prompt_results"] = page_eval("JSON.stringify(window.__results)", page_tab)
+    if "file_after_popup" in CHECKS:
+        file_after_popup(page_tab)
     if "two_pages" in CHECKS:
         record("two_pages")
         # Two Chromium pages side by side in one workspace: the terminal's pane (left) gets a second page, so both panes

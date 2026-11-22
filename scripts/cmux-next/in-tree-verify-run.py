@@ -12,7 +12,7 @@ Runs each part with the step's --app and --tag, in its own folder under --out, a
   live-off        in-tree-live-checks.py --in-tree off (C20)
   prompts         permission-prompts-live.py --engines chromium with CMUX_IN_TREE_PAGES=1 (C16)
 
---parts picks a subset (comma-separated).
+--parts picks a subset (comma-separated). --live-checks passes in-tree-live-checks.py its --checks (default: all).
 """
 import json, os, platform, subprocess, sys, time
 
@@ -55,6 +55,8 @@ def part(name):
         report = os.path.join(folder, "in-tree-live.json")
         cmd = ["in-tree-live-checks.py", "--app", APP, "--tag", TAG, "--out", folder, "--json", report,
                "--in-tree", name.split("-")[1]]
+        if value("--live-checks"):
+            cmd += ["--checks", value("--live-checks")]
     elif name == "prompts":
         env["CMUX_IN_TREE_PAGES"] = "1"
         cmd = ["permission-prompts-live.py", "--tag", TAG, "--app", APP, "--out", folder, "--engines", "chromium"]
