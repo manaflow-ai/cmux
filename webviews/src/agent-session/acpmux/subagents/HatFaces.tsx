@@ -158,12 +158,16 @@ export function HatFaces({
     >
       <span className="acpmux-hat-faces__row">
         {shown.map((face, index) => (
+          // The faces sit inside the hat's header <button>, so a nested <button> is invalid HTML; the
+          // header keeps keyboard focus and opens the list, and a click on a face is the pointer shortcut.
+          // oxlint-disable-next-line jsx-a11y/click-events-have-key-events
           <span
             key={face.key}
             className="acpmux-hat-face"
             data-hat-face={face.key}
             data-state={face.state}
             style={{ "--hat-face-index": index, zIndex: index + 1 } as CSSProperties}
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="button"
             tabIndex={-1}
             aria-label={`${face.name}, ${face.stateText}`}
