@@ -5,7 +5,7 @@
 // Cloud section and opens the host's create flow. It defaults to this computer. The machines come
 // from acpmux (`_acpmux/status` peers, by URL scheme, and the hosts its chats ran on); with
 // previews off the row keeps its plain Computer menu.
-import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -13,6 +13,7 @@ import { translate as t } from "../src/agent-session/acpmux/i18n";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { teardownDom } from "./support/domTeardown";
+import { labelExposure } from "./support/labelExposure";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -2098,5 +2099,46 @@ test("a machine that crosses the unavailable time while the list is closed is gr
     expect(doc().querySelector(".acpmux-env-popover [data-row-motion]")).toBeNull();
   } finally {
     Date.now = realNow;
+  }
+});
+
+// The machine chip's live dot while the picked machine's link dips and comes back on its own (Leo,
+// 2026-11-14: "i also want all our connectivity stuff to shut up and load faster"): a link that comes
+// up in 0.8 s or heals in 6 s never draws "Not connected"; one down for 15 s says so once it has lasted
+// the shared bound (afterDelay.ts LINK_DOWN_SAID_MS), and a refused sign-in says so at once.
+test("three chips: the machine chip's dot stays quiet through a link that comes back inside the bound", async () => {
+  const { LINK_DOWN_SAID_MS } = await import("../src/agent-session/acpmux/afterDelay");
+  await mount(true, shipped);
+  const prompt = host.querySelector("textarea")!;
+  prompt.focus();
+  await press(prompt, { key: "™", code: "Digit2", altKey: true, metaKey: true });
+  expect(machineButton()?.getAttribute("aria-label")).toBe(`${t("composer.machine")}: gpu-box`);
+  const dot = () => machineButton()?.querySelector(".acpmux-env-live");
+  const notConnected = () => dot()?.getAttribute("data-connected") === "false";
+  const link = (state: string) => () =>
+    updateProps({ peerConnected: { "gpu-box": state === "connected" }, peerStates: { "gpu-box": state } });
+  jest.useFakeTimers();
+  try {
+    const timeline = (down: string, healsAt: number) => [
+      { at: 0, apply: link(down) },
+      { at: healsAt, apply: link("connected") },
+    ];
+    expect(await labelExposure("machine-chip.connect-800ms", timeline("connecting", 800), 2_000, notConnected)).toBe(0);
+    expect(await labelExposure("machine-chip.reconnect-6s", timeline("reconnecting", 6_000), 8_000, notConnected)).toBe(
+      0,
+    );
+    const lasting = await labelExposure(
+      "machine-chip.lasting-15s",
+      timeline("reconnecting", 15_000),
+      17_000,
+      notConnected,
+    );
+    expect(lasting).toBe(15_000 - LINK_DOWN_SAID_MS);
+    expect(dot()?.getAttribute("data-connected")).toBe("true");
+    // A refused sign-in needs the person: it is said at once.
+    await link("authFailed")();
+    expect(notConnected()).toBe(true);
+  } finally {
+    jest.useRealTimers();
   }
 });
