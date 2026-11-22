@@ -34,6 +34,16 @@ impl Brain {
         if spawned.is_empty() || said || quiet || nudged {
             return;
         }
+        // The loop guard refuses every send: a note turn could post nothing.
+        // The ids wait for the person's next turn (budget_hold.rs).
+        if self.budget_held() {
+            (self.log)(&format!(
+                "turn {key} started {} and posted no text under the loop guard; held for the person's next message",
+                spawned.join(", ")
+            ));
+            self.hold_spawns(spawned);
+            return;
+        }
         (self.log)(&format!(
             "turn {key} started {} and posted no text; queuing a {NO_TEXT_TAG} note",
             spawned.join(", ")
