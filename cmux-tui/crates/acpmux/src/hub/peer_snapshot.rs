@@ -91,7 +91,7 @@ const UNREAD_KEYS: usize = if cfg!(test) { 8 } else { 4096 };
 const QUEUED_BYTES: u64 = if cfg!(test) { 64 << 10 } else { 16 << 20 };
 /// How long new records wait before their write, so a streaming turn writes every few seconds,
 /// not on every token.
-const FLUSH_AFTER: Duration = Duration::from_millis(if cfg!(test) { 10 } else { 30000 });
+const FLUSH_AFTER: Duration = Duration::from_millis(if cfg!(test) { 10 } else { 2000 });
 const RETRY_FIRST: Duration = Duration::from_millis(if cfg!(test) { 10 } else { 1000 });
 const RETRY_MAX: Duration = Duration::from_secs(60);
 /// The longest a read or a flush waits for the store's thread.
