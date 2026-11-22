@@ -11,8 +11,8 @@
 //
 // The node side (`popupMoves`) names every change of those numbers after a popup's first frames
 // (src/ui/popupSettle.ts settles a box once it drew the same for two frames) that no input explains
-// (POPUP_INPUT_MS after one given while the popup is open; the input that opened it explains
-// nothing). A row is matched across frames by its text's start, so a row that
+// (POPUP_INPUT_MS after one given to that popup: a key while it is open, a press in it; the press
+// or key that opened it explains nothing). A row is matched across frames by its text's start, so a row that
 // arrives or leaves late is no move; a row that stays and slides sideways, or grows taller, is.
 import type { Page } from "playwright";
 import { POPUP_INPUT_MS } from "../../src/ui/popupSettle";
@@ -47,8 +47,15 @@ export type PopupFrame = {
 };
 export type PopupRecord = {
   frames: PopupFrame[];
-  /** Input times, ms on the same clock as `PopupFrame.t` (negative: before the first frame). */
-  inputs: number[];
+  /** The person's input: when (ms on the same clock as `PopupFrame.t`; negative: before the first
+   *  frame) and which popups it was given to. A bare number is input to every popup. */
+  inputs: (number | PopupInput)[];
+};
+export type PopupInput = {
+  at: number;
+  /** The ids of the popups already drawn when it came (a press: only those it landed in). The
+   *  press or key that opens a popup is no input to that popup. */
+  popups: string[];
 };
 
 /** The default: every visible shared popup that keeps the shared rule (no `data-popup-settle`). */
@@ -78,7 +85,8 @@ function definePopupStill(defaultSelector: string) {
   const ids = new WeakMap<Element, string>();
   let next = 0;
   let frames: PopupFrame[] = [];
-  let inputs: number[] = [];
+  let inputs: { at: number; popups: string[] }[] = [];
+  let recorded = defaultSelector;
   let origin: number | undefined;
   let stopLoop: (() => void) | undefined;
   const now = () => performance.now();
@@ -139,14 +147,26 @@ function definePopupStill(defaultSelector: string) {
       rows,
     };
   };
-  const onInput = () => {
-    if (stopLoop) inputs.push(now());
+  // As ui/popupSettle.ts frees a box: a key or a typed letter counts for every open popup, a press
+  // only for the popup it lands in. These listeners run before the page's own, so the popups in
+  // the document are the ones the person acted on: one their input opens is not there yet.
+  const given = (target: EventTarget | null, press: boolean) =>
+    [...document.querySelectorAll<HTMLElement>(recorded)]
+      .filter((popup) => {
+        const rect = popup.getBoundingClientRect();
+        if (!(rect.width > 0 && rect.height > 0)) return false;
+        return !press || (target instanceof Node && popup.contains(target));
+      })
+      .map(idOf);
+  const onInput = (event: Event) => {
+    if (stopLoop) inputs.push({ at: now(), popups: given(event.target, event.type === "pointerdown") });
   };
   for (const kind of ["keydown", "beforeinput", "input", "pointerdown"])
     addEventListener(kind, onInput, { capture: true, passive: true });
   window.cmuxPopupStill = {
     start(selector = defaultSelector) {
       stopLoop?.();
+      recorded = selector;
       frames = [];
       inputs = [];
       origin = undefined;
@@ -160,14 +180,14 @@ function definePopupStill(defaultSelector: string) {
       });
     },
     mark() {
-      inputs.push(now());
+      inputs.push({ at: now(), popups: given(null, false) });
     },
     count: () => frames.length,
     stop() {
       stopLoop?.();
       stopLoop = undefined;
       const zero = origin ?? 0;
-      return { frames, inputs: inputs.map((at) => round(at - zero)) };
+      return { frames, inputs: inputs.map((input) => ({ ...input, at: round(input.at - zero) })) };
     },
   };
 }
@@ -215,21 +235,17 @@ export function popupMoves(
   const failures: string[] = [];
   const seen = new Map<string, number>();
   const last = new Map<string, PopupShot>();
-  /** When each popup had drawn once (its second frame). */
-  const born = new Map<string, number>();
   const px = (value: number) => String(Math.round(value * 10) / 10);
   const time = (frame: PopupFrame) => `frame ${frame.index} (t=${Math.round(frame.t)} ms)`;
   for (const frame of frames) {
     for (const shot of frame.popups) {
       const count = (seen.get(shot.id) ?? 0) + 1;
       seen.set(shot.id, count);
-      // Only input given to a popup that had already drawn excuses it: the press or key that opened
-      // it does not (data that lands right after open is the very shift this names). A frame's time
-      // is its start, a few ms before the press it then draws, so "already drawn" is the popup's
-      // second frame, not its first.
-      if (count === 2) born.set(shot.id, frame.t);
-      const from = born.get(shot.id);
-      const excused = from !== undefined && inputs.some((at) => at > from && frame.t >= at && frame.t - at <= inputMs);
+      const excused = inputs.some((input) => {
+        const at = typeof input === "number" ? input : input.at;
+        const mine = typeof input === "number" || input.popups.includes(shot.id);
+        return mine && frame.t >= at && frame.t - at <= inputMs;
+      });
       const before = last.get(shot.id);
       last.set(shot.id, shot);
       if (!before || count <= allowFirstFrames || excused) continue;

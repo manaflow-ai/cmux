@@ -99,12 +99,16 @@ describe("popupMoves", () => {
   });
 
   test("the input that opened the popup excuses nothing", () => {
-    // The press lands 20 ms before the popup's first frame; its rows arrive 50 ms after it.
-    const moves = popupMoves({ frames: frames(shot(315), shot(315), shot(315), shot(530)), inputs: [-20] });
-    expect(moves).toEqual(["popup .acpmux-folder-popover grew 315 -> 530 px wide at frame 3 (t=50 ms) with no input"]);
-    // The same press read a few ms after the start of the frame that first draws the popup.
-    expect(popupMoves({ frames: frames(shot(315), shot(315), shot(315), shot(530)), inputs: [6] })).toHaveLength(1);
-    // Nor does input to a first popup excuse a second one that opened after it.
+    // The press that opens it comes before it is drawn: it is given to no popup.
+    const shots = frames(shot(315), shot(315), shot(315), shot(530));
+    const grew = ["popup .acpmux-folder-popover grew 315 -> 530 px wide at frame 3 (t=50 ms) with no input"];
+    expect(popupMoves({ frames: shots, inputs: [{ at: -20, popups: [] }] })).toEqual(grew);
+    expect(popupMoves({ frames: shots, inputs: [{ at: 6, popups: [] }] })).toEqual(grew);
+    // A press in the popup, or a key while it is open, is input to it.
+    expect(popupMoves({ frames: shots, inputs: [{ at: 20, popups: [".acpmux-folder-popover@0"] }] })).toEqual([]);
+  });
+
+  test("input to one popup does not excuse another", () => {
     const other: PopupShot = { ...shot(180), id: ".ui-menu@1", name: ".ui-menu" };
     const wider = { ...other, box: { ...other.box, width: 240 } };
     const list: PopupFrame[] = [
@@ -114,7 +118,7 @@ describe("popupMoves", () => {
       { index: 3, t: 72, popups: [shot(315), other] },
       { index: 4, t: 90, popups: [shot(315), wider] },
     ];
-    expect(popupMoves({ frames: list, inputs: [30] })).toEqual([
+    expect(popupMoves({ frames: list, inputs: [{ at: 30, popups: [".acpmux-folder-popover@0"] }] })).toEqual([
       "popup .ui-menu grew 180 -> 240 px wide at frame 4 (t=90 ms) with no input",
     ]);
   });
