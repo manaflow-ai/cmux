@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentCursor
 import CmuxNextCompat
 import CmuxNextCloud
 import CmuxNextCloudUI
@@ -15,6 +16,7 @@ import CmuxNextRemoteViewSessions
 import CmuxNextSettings
 import Foundation
 import Observation
+import QuartzCore
 
 extension AppServices {
     /// Open Desktop's `cmux-rd` viewer: the machine's desktop host over the carrier, a new
@@ -201,4 +203,40 @@ extension AppServices {
         _ = registry.perform("cloudOpenDesktop", invocation: ActionInvocation(
             target: ActionTargetRef(kind: .machine, id: machine), arguments: [:], origin: .user))
     }
+
+    /// The loaded Cloud machines, by id, for the Chief's computer.
+    @MainActor
+    var cloudMachineRecords: [(id: String, machine: CloudMachine)] {
+        machines.cloud.map { ($0.machineID, $0.machine) }
+    }
+
+    /// The Chief's computer's live view: `machine`'s desktop stream, watching only; nil when it serves none.
+    @MainActor
+    func chiefComputerLiveFeed(machine: String, name: String, agentActs: @escaping () -> Bool) -> (any HomeChiefComputerLiveFeed)? {
+        guard machines.session(machine)?.machine.opensCarrierDesktop == true else {
+            RemoteDesktopWatchFeed.logger.error("computer live: machine serves no carrier desktop")
+            return nil
+        }
+        guard let transport = cloudDesktopRdTransport(machine: machine)?(false) else {
+            RemoteDesktopWatchFeed.logger.error("computer live: no transport")
+            return nil
+        }
+        return RemoteDesktopWatchFeed(name: name, transport: transport, agentActs: agentActs)
+    }
+
+    /// Draws the branded agent cursor over a Chief's screen: a Linux screen capture does not include it.
+    @MainActor
+    func chiefComputerPointerPainter(chief: @escaping () -> String) -> (CALayer) -> (CGPoint?) -> Void {
+        { layer in
+            let session = "chief-computer"
+            let host = AgentCursorLayerHost(hostLayer: layer, color: AgentCursorStack.sessionColor, label: { _ in chief() })
+            return { point in
+                guard let point else { return host.apply(.remove(session: session)) }
+                host.apply(.confine(session: session, bounds: layer.bounds))
+                host.apply(.place(session: session, point: point))
+            }
+        }
+    }
 }
+
+extension RemoteDesktopWatchFeed: HomeChiefComputerLiveFeed {}

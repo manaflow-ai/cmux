@@ -513,7 +513,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
             transcript.setChiefAvatar(picture: picture, text: text)  // the header and the first-run hero
             card.setAvatar(picture: picture, text: text ?? transcript.shownMonogram)
             // The expanded computer page shows the same face.
-            (control.services.pages.provider(.chiefComputer) as? ChiefComputerPageService)?
+            (control.services.pages.provider(.chiefComputer) as? ChiefComputerPages)?
                 .setAvatar(conversation: control.conversation.rawValue, picture: picture, text: text)
         }
     }
@@ -615,7 +615,7 @@ extension HomeHostView {
         let popup = ChiefComputerWiring.makePopup(host: services, conversation: conversation, suppressed: { [weak self, weak services] in
             guard let self else { return false }
             if card.isShown, card.popover?.profile.selectedTab == .computer { return true }
-            return (services?.pages.provider(.chiefComputer) as? ChiefComputerPageService)?.shows(conversation, in: window) ?? false
+            return (services?.pages.provider(.chiefComputer) as? ChiefComputerPages)?.shows(conversation, in: window) ?? false
         }, open: { [weak self] in _ = self?.openProfile(.computer) })
         computerPopup = popup
         addSubview(popup)

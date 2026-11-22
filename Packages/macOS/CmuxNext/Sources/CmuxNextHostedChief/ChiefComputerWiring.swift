@@ -38,7 +38,8 @@ public protocol ChiefComputerHost: AnyObject, Sendable {
     func chiefComputerControlSource(agent: String?, machine: String?) -> HomeChiefComputerControlSource?
     func openChiefComputerDesktop(machine: String)
     func showChiefSettings()
-    func upgradeToPaidPlan()
+    /// Starts the paid plan's Checkout (Pro) from a Cloud refusal; returns once it opens.
+    func upgradeToPaidPlan() async
     func moveDefaultChiefToCloud()
 }
 
@@ -161,7 +162,10 @@ public enum ChiefComputerWiring {
             return machineGone(picked, listed: host.cloudMachinesListed, in: host.cloudMachineRecords.map(\.id))
         }
         view.name = { [weak host] in host?.chiefDisplayName(conversation) ?? HomeStrings.chiefName }
-        view.onUpgrade = { [weak host] in host?.upgradeToPaidPlan() }
+        view.onUpgrade = { [weak host] in
+            // task-owner: one Checkout start; ends when it opens
+            Task { await host?.upgradeToPaidPlan() }
+        }
         view.onMoveToCloud = { [weak host] in
             // The move runs on the app's Chief; another Chief's page goes to the settings instead.
             guard let host else { return }
