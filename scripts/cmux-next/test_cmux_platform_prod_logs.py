@@ -340,6 +340,16 @@ class ProjectionTests(unittest.TestCase):
         for leak in (TEAM, VM, "hunter2", "token=abc", "free text"):
             self.assertNotIn(leak, text)
 
+    def test_the_spare_gateway_read_keeps_its_booleans_and_mode(self):
+        # cmux-platform#1629: the 2026-11-22 09:13Z gateway claim's line was dropped unlisted (hq#18324).
+        for mode, kept in (("gateway", "gateway"), (None, "null"), ("unread", "unread")):
+            with self.subTest(mode=mode):
+                row = logs.line(event({"msg": "cloud.spare.gateway_read", "team": TEAM, "lacks": True,
+                                       "shared": False, "host": "yes", "mode": mode}))
+                self.assertEqual(row["log"], {"msg": "cloud.spare.gateway_read", "team": logs.base.tag(TEAM),
+                                              "mode": kept, "lacks": True, "shared": False})
+                self.assertNotIn(TEAM, json.dumps(row))
+
     def test_the_msg_allowlist_is_exact_constant_ids(self):
         self.assertIn(LISTED, logs.PLATFORM_MSGS)
         self.assertIn("machines.spare.claim", logs.PLATFORM_MSGS)

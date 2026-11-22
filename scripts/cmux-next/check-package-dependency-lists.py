@@ -72,7 +72,6 @@ IMPORT_BASELINE = frozenset((
     "CmuxNextApp: CmuxNextFileGrid",
     "CmuxNextBridge: CmuxNextDesign", "CmuxNextBridge: CmuxNextWakeups",
     "CmuxNextControlTests: CmuxNextDesign",
-    "CmuxNextCookieImport: CmuxNextCompat",
     "CmuxNextPaletteTests: CmuxNextDesign",
     "CmuxNextPhoneAccessTests: CmuxNextMobile",
 ) + tuple(f"CmuxNextAppTests: {module}" for module in (
