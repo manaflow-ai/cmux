@@ -34,6 +34,9 @@ fn subscribed_event_name_matches_the_wire_event() {
         MuxEvent::MachineUsageChanged(None),
         MuxEvent::AppsChanged(Arc::new(json!({"event": "apps-changed", "app": "a"}))),
         MuxEvent::TasksChanged(Arc::new(json!({"event": "tasks-changed", "lost": true}))),
+        MuxEvent::AgentSessionShareChanged { session: "s".into() },
+        MuxEvent::ComputerUseActivity(Arc::new(json!({"event": "computer-use-activity"}))),
+        MuxEvent::ComputerUsePreview(Arc::new(json!({"event": "computer-use-preview"}))),
     ];
     for event in &events {
         let wire = subscribed_event_json(event);
