@@ -35,6 +35,13 @@
     webviews_test_history.py early-known EARLY_DIR --sha BASE_SHA --replay FILES --known BASE.json
         take into BASE (known's output) the verdicts react-apps-base-early's artifacts in EARLY_DIR hold for the
         FILES list (known's replay list) at BASE_SHA, and rewrite FILES with the files still to replay
+    webviews_test_history.py replay-key PATH...
+        print the key of what a base replay ran with (the files, or the files in the folders, PATH names)
+    webviews_test_history.py replay-save OUT --sha BASE_SHA --key KEY --files FILES --results BASE.json
+        write to OUT (REPLAY_FILE) the verdicts a base replay of FILES gave at BASE_SHA, for the next base check
+    webviews_test_history.py replays-before OUT_DIR --repo R --sha BASE_SHA --key KEY --run-id ID
+        write to OUT_DIR (early-shared.json, for early-known) the newest other base checks' replays of BASE_SHA at
+        KEY; one list and at most REPLAY_READS downloads; any failure writes nothing
     webviews_test_history.py heads SHARDS_DIR (--count K | --matrix JSON) --out DIR
         join the K head shards' (or the matrix's: a pull request runs only the shards webviews_pr_shards.py picks)
         react-apps-head-results-shardI artifacts under SHARDS_DIR into one in DIR (their
@@ -395,6 +402,102 @@ def early_known(early: list[dict], base_sha: str, replay: list[str],
     return out, left
 
 
+# Another pull request's react-apps-base-check replay of the same merge parent. Pull requests open at once share the
+# feat-cmux-next head as their merge parent, and each replayed the same base reds on it alone, one file at a time: over
+# 11-22 11:30-13:30Z the base check's median went 633 s -> 998 s, and job 137208914928 replayed 145 files on a broken
+# base for 55 min until it was cancelled. Each base check uploads its first replay's verdicts as REPLAY_ARTIFACT + the
+# merge parent's sha; the next one on that sha takes them for the files it would replay, as it takes
+# react-apps-base-early's (early_known), only when they ran with the same runner, workflow and font pin (replay_key).
+# An artifact, not a cache: a cache a pull request saves is read by that ref alone.
+REPLAY_ARTIFACT = "webviews-base-replay-"
+REPLAY_FILE = "replay.json"
+REPLAY_PAGE = 30  # uploads listed for one merge parent, newest first
+REPLAY_READS = 3  # downloads at most: each is one request on the repository's shared token quota
+
+
+def replay_key(paths: list[Path]) -> str:
+    """The key of what a base replay ran with: each file's name and bytes (the head's runner, its ci-web.yml with the
+    replay's widths and retries, the font pin). Another pull request's replay counts only at the same key."""
+    digest = hashlib.sha256()
+    for path in sorted(paths, key=lambda p: p.name):
+        digest.update(path.name.encode() + b"\0" + path.read_bytes() + b"\0")
+    return digest.hexdigest()[:20]
+
+
+def replay_entry(sha: str, key: str, files: list[str], found: dict[str, bool]) -> dict:
+    """A base replay's verdicts to share ({"sha", "key", "files", "results"}): the files it ran and their own results,
+    none of the history's or another run's (the compare joins those into the same results file)."""
+    ran = {f for f in files if f}
+    results = {name: ok for name, ok in found.items() if isinstance(ok, bool) and name.split(" > ", 1)[0] in ran}
+    return {"sha": sha, "key": key, "files": sorted({name.split(" > ", 1)[0] for name in results}), "results": results}
+
+
+def shared_replay(entries: list[dict], sha: str, key: str) -> dict:
+    """ENTRIES (newest first) folded into one early_known entry for SHA: each file takes the newest entry at SHA and KEY
+    that ran it, whole (never one test from one replay and its sibling from another)."""
+    files: list[str] = []
+    results: dict[str, bool] = {}
+    for item in entries:
+        if not isinstance(item, dict) or item.get("sha") != sha or len(sha) != 40 or item.get("key") != key or not key:
+            continue
+        ran, found = item.get("files"), item.get("results")
+        if not isinstance(ran, list) or not isinstance(found, dict):
+            continue
+        for file in (str(f) for f in ran):
+            names = {str(n): ok for n, ok in found.items()
+                     if isinstance(ok, bool) and str(n).split(" > ", 1)[0] == file}
+            if file in files or not names:
+                continue
+            files.append(file)
+            results.update(names)
+    return {"sha": sha, "files": sorted(files), "results": results}
+
+
+def replays_before(repo: str, sha: str, key: str, run_id: int, out: Path, get=None) -> str:
+    """Write to OUT the other base checks' replays of merge parent SHA at KEY (shared_replay, as early-shared.json for
+    early-known); say what was read. Only this repository's runs other than RUN_ID: a fork's run could upload any
+    verdict. One list and at most REPLAY_READS downloads; any failure writes nothing, and every file replays."""
+    get = get or _get
+    api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+    name = f"{REPLAY_ARTIFACT}{sha}"
+    token = os.environ.get("GITHUB_TOKEN")
+    if not re.fullmatch(r"[0-9a-f]{40}", sha) or not key:
+        return "no merge parent sha or replay key: every file replays"
+    query = urllib.parse.urlencode({"name": name, "per_page": REPLAY_PAGE})
+    entries = []
+    try:
+        status, _, body = get(f"{api}/repos/{repo}/actions/artifacts?{query}", token)
+        if status != 200:
+            return f"listing the {name} artifacts answered {status}"
+        listing = json.loads(body)
+        items = listing.get("artifacts") if isinstance(listing, dict) else None
+        found = []
+        for item in items if isinstance(items, list) else []:
+            run = item.get("workflow_run") if isinstance(item, dict) and isinstance(item.get("workflow_run"), dict) else {}
+            if (item.get("name") != name or item.get("expired") or run.get("id") == run_id or not run.get("repository_id")
+                    or run.get("head_repository_id") != run.get("repository_id")):
+                continue
+            found.append(item)
+        found.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+        for item in found[:REPLAY_READS]:
+            status, headers, body = get(str(item.get("archive_download_url") or ""), token)
+            if status in (301, 302, 303, 307, 308):
+                location = headers.get("Location") or headers.get("location") or ""
+                status, _, body = get(location, None) if location.startswith("https://") else (status, {}, b"")
+            if status != 200 or len(body) > MAX_BYTES:
+                continue
+            with zipfile.ZipFile(io.BytesIO(body)) as archive:
+                entries.append(json.loads(archive.read(REPLAY_FILE)))
+    except (OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
+        return f"reading the {name} artifacts failed: {error}"
+    shared = shared_replay(entries, sha, key)
+    if not shared["files"]:
+        return f"no other base check's replay of {sha[:12]} at this runner ({len(entries)} read)"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "early-shared.json").write_text(json.dumps(shared, sort_keys=True) + "\n", encoding="utf-8")
+    return f"{len(entries)} other base checks' replays of {sha[:12]}: verdicts for {len(shared['files'])} files"
+
+
 def flaky_only(replay: list[str], flaky_names: set[str], head: dict[str, bool]) -> tuple[list[str], list[str]]:
     """(the files still to replay, the files whose every red head name is flaky on the base).
 
@@ -726,6 +829,21 @@ def main(argv: list[str]) -> int:
     ek.add_argument("--sha", required=True)
     ek.add_argument("--replay", required=True)
     ek.add_argument("--known", required=True)
+    ek.add_argument("--source", default="react-apps-base-early", help="whose verdicts these are, for the log line")
+    rk = sub.add_parser("replay-key")
+    rk.add_argument("paths", nargs="+")
+    rs = sub.add_parser("replay-save")
+    rs.add_argument("out")
+    rs.add_argument("--sha", required=True)
+    rs.add_argument("--key", required=True)
+    rs.add_argument("--files", required=True)
+    rs.add_argument("--results", required=True)
+    rb = sub.add_parser("replays-before")
+    rb.add_argument("out")
+    rb.add_argument("--repo", required=True)
+    rb.add_argument("--sha", required=True)
+    rb.add_argument("--key", required=True)
+    rb.add_argument("--run-id", type=int, required=True)
     fo = sub.add_parser("flaky-only")
     fo.add_argument("flaky")
     fo.add_argument("--replay", required=True)
@@ -770,6 +888,26 @@ def main(argv: list[str]) -> int:
             with open(args.summary, "a", encoding="utf-8") as handle:
                 handle.write(summary)
         return 1 if args.fail and found else 0
+    if args.command == "replay-key":
+        dirs = [Path(p) for p in args.paths]
+        print(replay_key([f for d in dirs for f in (sorted(d.iterdir()) if d.is_dir() else [d]) if f.is_file()]))
+        return 0
+    if args.command == "replays-before":
+        print(f"other base replays: {replays_before(args.repo, args.sha, args.key, args.run_id, Path(args.out))}")
+        return 0
+    if args.command == "replay-save":
+        # Best effort: anything unreadable shares nothing (exit 0, no file), and the next base check replays as before.
+        try:
+            files = [line.strip() for line in Path(args.files).read_text(encoding="utf-8").splitlines() if line.strip()]
+            found = json.loads(Path(args.results).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return 0
+        entry = replay_entry(args.sha, args.key, files, found if isinstance(found, dict) else {})
+        if entry["files"] and re.fullmatch(r"[0-9a-f]{40}", args.sha) and args.key:
+            Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.out).write_text(json.dumps(entry, sort_keys=True) + "\n", encoding="utf-8")
+        print(f"base replay verdicts shared for {len(entry['files'])} files")
+        return 0
     if args.command == "passed-before":
         print(f"files passed at the previous head: {passed_before(args.repo, args.branch, args.shard, args.run_id, Path(args.out))}")
         return 0
@@ -867,7 +1005,7 @@ def main(argv: list[str]) -> int:
         if not isinstance(known_now, dict):
             return 1
         merged, left = early_known(early, args.sha, replay, known_now)
-        print(f"react-apps-base-early answers for {len(replay) - len(left)} of {len(replay)} files to replay")
+        print(f"{args.source} answers for {len(replay) - len(left)} of {len(replay)} files to replay")
         known_path.write_text(json.dumps(merged, sort_keys=True) + "\n", encoding="utf-8")
         replay_path.write_text("".join(f"{file}\n" for file in left), encoding="utf-8")
         return 0

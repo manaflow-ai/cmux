@@ -1416,7 +1416,7 @@ jobs:
         id: history
         if: ${{ steps.head.outputs.reds != '0' }}
         continue-on-error: true
-        timeout-minutes: 2
+        timeout-minutes: 3
         env:
           GITHUB_TOKEN: ${{ github.token }}
           BASE_REF: ${{ github.base_ref }}
@@ -1442,6 +1442,24 @@ jobs:
           python3 "$runner/webviews_test_history.py" early-known "$RUNNER_TEMP/base-early" --sha "$(git rev-parse HEAD)" \
             --replay "$RUNNER_TEMP/base-replay-files" --known "$RUNNER_TEMP/base-known.json" ||
             echo "the early base results are unread: their files replay"
+          # Pull requests open at once share their merge parent, and each replayed the same base reds on it one file at
+          # a time (job 137208914928: 145 files, 55 min, cancelled with no verdict). Another base check's first replay of
+          # this merge parent with the same runner, workflow and font pin (replay-key) answers for the files it ran, as
+          # the early run's do; the share step below uploads this one's. Unread or none: every file replays.
+          base_sha="$(git rev-parse HEAD 2>/dev/null)" || base_sha=""
+          mkdir -p "$RUNNER_TEMP/replay-key"
+          git show "${GITHUB_SHA:-}:.github/workflows/ci-web.yml" > "$RUNNER_TEMP/replay-key/ci-web.yml" 2>/dev/null &&
+            replay_key="$(python3 "$runner/webviews_test_history.py" replay-key "$runner" "$RUNNER_TEMP/replay-key/ci-web.yml" \
+              "$RUNNER_TEMP/pin-browser-test-font.sh")" || replay_key=""
+          echo "base_sha=$base_sha" >> "${GITHUB_OUTPUT:-/dev/null}"
+          echo "replay_key=$replay_key" >> "${GITHUB_OUTPUT:-/dev/null}"
+          if [ -s "$RUNNER_TEMP/base-replay-files" ] && [ -n "$replay_key" ] && [ -n "$base_sha" ]; then
+            { timeout 60 python3 "$runner/webviews_test_history.py" replays-before "$RUNNER_TEMP/base-shared" --repo "$GITHUB_REPOSITORY" \
+                --sha "$base_sha" --key "$replay_key" --run-id "$GITHUB_RUN_ID" &&
+              python3 "$runner/webviews_test_history.py" early-known "$RUNNER_TEMP/base-shared" --source "other base checks" \
+                --sha "$base_sha" --replay "$RUNNER_TEMP/base-replay-files" --known "$RUNNER_TEMP/base-known.json"; } ||
+              echo "the other base checks' replays are unread: their files replay"
+          fi
           # A file whose head reds are all flaky on the base only warns, whatever its replay says (guards_new_reds.py
           # --flaky), so it is not replayed; the compare step below adds to this list, never drops from it.
           flaky="$RUNNER_TEMP/flaky-on-base"
@@ -1543,8 +1561,18 @@ jobs:
             # incorrectly treating the head map as a base verdict.
             printf '{}\n' > "$BASE_RESULTS"
           else
+            # The first replay ends where the budget does, leaving REPLAY_RESERVE for the head re-run and the verdict:
+            # unbounded, jobs 137208914928 (145 files on a broken base), 137191597954 and 137197541174 replayed until
+            # the 55-minute cut with no verdict and nothing to share. A file it does not reach has no base result, so
+            # its reds stay the change's (never excused); in that window every finished job's replay ended by 1467 s.
+            first_started="$(cat "$RUNNER_TEMP/job-started" 2>/dev/null || echo 0)" first_stop=""
+            [[ "$first_started" =~ ^[0-9]+$ ]] || first_started=0
+            if [ "$first_started" -gt 0 ] && [ "${JOB_TIMEOUT_MINUTES:-0}" -gt 0 ]; then
+              first_stop=$(( first_started + JOB_TIMEOUT_MINUTES * 60 - ${REPLAY_RESERVE:-0} ))
+            fi
             CMUX_WEB_TEST_FILES="$(cat "$files")" \
               CMUX_WEB_TEST_RESULTS="$BASE_RESULTS" \
+              CMUX_WEB_TEST_STOP_AT="$first_stop" \
               env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES \
               bash "$RUNNER_TEMP/head-results/runner/run-webviews-tests.sh" || true
           fi
@@ -1624,6 +1652,31 @@ jobs:
           echo "rerun=$([ "$status" -ne 0 ] && python3 "$runner/webviews_test_history.py" rerun-fits "$RUNNER_TEMP/head-rerun-files" \
             --shards "$RUNNER_TEMP/head-results/shards.json" --cap 25 && echo true || echo false)" >> "${GITHUB_OUTPUT:-/dev/null}"
           exit "$status"
+
+      # This replay's own verdicts (its files, not the history's or the shared ones it joined), for the next base check
+      # on the same merge parent (replays-before above). Before the head is checked out again: HEAD is the merge parent.
+      - name: Share the base replay's verdicts
+        if: ${{ !cancelled() && steps.history.outputs.replay_key != '' && steps.history.outputs.replay != '0' && steps.base.outcome != 'skipped' }}
+        continue-on-error: true
+        env:
+          BASE_SHA: ${{ steps.history.outputs.base_sha }}
+          REPLAY_KEY: ${{ steps.history.outputs.replay_key }}
+        run: |
+          [ "$(git rev-parse HEAD)" = "$BASE_SHA" ] || { echo "HEAD is not the merge parent: nothing shared"; exit 0; }
+          python3 "$RUNNER_TEMP/head-results/runner/webviews_test_history.py" replay-save "$RUNNER_TEMP/base-replay-share/replay.json" \
+            --sha "$BASE_SHA" --key "$REPLAY_KEY" --files "$RUNNER_TEMP/base-files" --results "$RUNNER_TEMP/base-results.json"
+
+      - name: Upload the base replay's verdicts
+        if: ${{ !cancelled() && steps.history.outputs.replay_key != '' && steps.history.outputs.replay != '0' && steps.base.outcome != 'skipped' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: webviews-base-replay-${{ steps.history.outputs.base_sha }}
+          overwrite: true
+          path: ${{ runner.temp }}/base-replay-share/
+          if-no-files-found: ignore
+          # Read by the base checks on the same merge parent, which feat-cmux-next replaces within the hour.
+          retention-days: 1
 
       # A red the base replay passed is re-run once, alone, on the head before it is charged to the
       # change: the head shard retries a red file alone only while its retry budget lasts, so a late
