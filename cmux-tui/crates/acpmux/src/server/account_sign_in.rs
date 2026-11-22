@@ -90,12 +90,12 @@ pub fn resolve(id: &str, accounts: &[Value]) -> Result<Target, LoginError> {
         }
         return Ok(Target::Github { login: login.to_owned() });
     }
-    let row = accounts.iter().find(|a| a["id"] == id).ok_or_else(|| unknown(id))?;
-    let family = row["family"].as_str().unwrap_or_default();
+    let row = accounts.iter().find(|a| field(a, "id") == Some(id)).ok_or_else(|| unknown(id))?;
+    let family = field(row, "family").unwrap_or_default();
     if !matches!(family, "codex" | "claude") {
         return Err(unknown(id));
     }
-    if row["key"].as_bool().unwrap_or(false) {
+    if flag(row, "key") {
         return Err(LoginError::new(
             reason::UNSUPPORTED,
             format!("{id} is an API key, not a sign-in: edit its key instead"),
@@ -104,8 +104,8 @@ pub fn resolve(id: &str, accounts: &[Value]) -> Result<Target, LoginError> {
     Ok(Target::Listed {
         id: id.to_owned(),
         family: family.to_owned(),
-        home: row["home"].as_str().map(PathBuf::from),
-        builtin: row["builtin"].as_bool().unwrap_or(false),
+        home: field(row, "home").map(PathBuf::from),
+        builtin: flag(row, "builtin"),
     })
 }
 
@@ -121,15 +121,20 @@ pub fn new_account(
     taken: impl Fn(&str) -> bool,
 ) -> (String, String) {
     let ids: std::collections::HashSet<&str> =
-        accounts.iter().filter_map(|a| a["id"].as_str()).collect();
+        accounts.iter().filter_map(|a| field(a, "id")).collect();
     let names: std::collections::HashSet<&str> =
-        accounts.iter().filter_map(|a| a["name"].as_str()).collect();
+        accounts.iter().filter_map(|a| field(a, "name")).collect();
     let base = match family {
         "codex" => "ChatGPT",
         "claude" => "Claude",
         other => other,
     };
-    let mut n = (accounts.iter().filter(|a| a["family"] == family).count() + 1).max(2);
+    let mut n = accounts
+        .iter()
+        .filter(|a| field(a, "family") == Some(family))
+        .count()
+        .saturating_add(1)
+        .max(2);
     loop {
         let id = format!("{family}-{n}");
         let name = format!("{base} {n}");
@@ -138,7 +143,7 @@ pub fn new_account(
             let name = typed.map(|t| t.chars().take(NAME_MAX).collect()).unwrap_or(name);
             return (id, name);
         }
-        n += 1;
+        n = n.saturating_add(1);
     }
 }
 
@@ -372,7 +377,7 @@ async fn sign_in(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
     );
     // An add nobody finished or cancelled: its home goes with the sign-in's expiry.
     tokio::spawn(async move {
-        tokio::time::sleep(login::EXPIRY + std::time::Duration::from_secs(5)).await;
+        tokio::time::sleep(login::EXPIRY.saturating_add(std::time::Duration::from_secs(5))).await;
         let stale = {
             let mut table = lock_pending();
             match table.get(&login_id) {
@@ -518,8 +523,8 @@ async fn switch(hub: &Arc<Hub>, id: &str) -> Result<Value, RpcError> {
             Ok(json!({"account": id, "default": true}))
         }
         Target::Listed { id, family, builtin, .. } => {
-            let row = listed.iter().find(|a| a["id"] == id.as_str());
-            if row.is_some_and(|r| r["enabled"] == false) {
+            let row = listed.iter().find(|a| field(a, "id") == Some(id.as_str()));
+            if row.is_some_and(|r| r.get("enabled").and_then(Value::as_bool) == Some(false)) {
                 return Err(RpcError::invalid_params(format!(
                     "{id} is turned off: turn it on before making it a default"
                 )));
@@ -568,7 +573,7 @@ async fn sign_out(hub: &Arc<Hub>, id: &str) -> Result<Value, RpcError> {
             let store = home.unwrap_or_else(|| cli.store(agent));
             let route = listed
                 .iter()
-                .any(|a| a["id"] == id.as_str() && a["builtin"] != true)
+                .any(|a| field(a, "id") == Some(id.as_str()) && !flag(a, "builtin"))
                 .then_some(id.as_str());
             if let Err(e) = hub.login_changed(agent.name(), &store, route).await {
                 tracing::warn!(agent = agent.name(), error = %e.message, "account sign-out: mark chats");
@@ -607,4 +612,14 @@ pub fn rows(accounts: &[github::GhAccount]) -> Vec<Value> {
             })
         })
         .collect()
+}
+
+/// A row's string field.
+fn field<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
+    row.get(key).and_then(Value::as_str)
+}
+
+/// A row's flag: true only when it is `true`.
+fn flag(row: &Value, key: &str) -> bool {
+    row.get(key).and_then(Value::as_bool) == Some(true)
 }

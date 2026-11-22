@@ -51,18 +51,20 @@ pub async fn run(cmd: AccountCmd, json_out: bool) -> Result<()> {
     let client = crate::daemon::connect(true).await?;
     match cmd {
         AccountCmd::SignIn { account, family, name } => {
-            let mut params = json!({});
+            let mut params = serde_json::Map::new();
             for (key, value) in [("account", account), ("family", family), ("name", name)] {
                 if let Some(v) = value {
-                    params[key] = json!(v);
+                    params.insert(key.to_owned(), json!(v));
                 }
             }
+            let params = Value::Object(params);
             let started = client.request(method::MUX_ACCOUNT_SIGN_IN, params).await?;
-            let Some(login_id) = started["loginId"].as_str().map(str::to_owned) else {
+            let Some(login_id) = started.get("loginId").and_then(Value::as_str).map(str::to_owned)
+            else {
                 bail!("the daemon started no sign-in");
             };
             show_start(&started, json_out);
-            let code = if started["needsCode"] == true { Some(read_code(json_out)?) } else { None };
+            let code = if flag(&started, "needsCode") { Some(read_code(json_out)?) } else { None };
             let finish = json!({"loginId": login_id, "code": code});
             let done = tokio::select! {
                 done = client.request(method::MUX_ACCOUNT_SIGN_IN_FINISH, finish) => done?,
@@ -75,8 +77,8 @@ pub async fn run(cmd: AccountCmd, json_out: bool) -> Result<()> {
             };
             if json_out {
                 print_json(&done);
-            } else if done["signedIn"] == true {
-                println!("signed in: {}", done["account"].as_str().unwrap_or("(account)"));
+            } else if flag(&done, "signedIn") {
+                println!("signed in: {}", text(&done, "account").unwrap_or("(account)"));
             } else {
                 bail!("not signed in");
             }
@@ -127,13 +129,13 @@ pub async fn run(cmd: AccountCmd, json_out: bool) -> Result<()> {
 /// The link and code to show, on stderr when `--json` keeps stdout for the result.
 fn show_start(started: &Value, json_out: bool) {
     let mut lines = Vec::new();
-    if let Some(url) = started["url"].as_str() {
+    if let Some(url) = text(started, "url") {
         lines.push(format!("Open {url}"));
     }
-    if let Some(code) = started["userCode"].as_str() {
+    if let Some(code) = text(started, "userCode") {
         lines.push(format!("and enter the code {code}"));
     }
-    if started["needsCode"] == true {
+    if flag(started, "needsCode") {
         lines.push("then paste the code the page shows here.".to_owned());
     } else {
         lines.push("Waiting for the browser (Ctrl-C cancels)...".to_owned());
@@ -179,12 +181,20 @@ pub fn rows(reply: &Value) -> Vec<String> {
             };
             format!(
                 "{:<28} {:<7} {:<24} {:<10}{}",
-                a["id"].as_str().unwrap_or_default(),
-                a["family"].as_str().unwrap_or_default(),
-                a["name"].as_str().unwrap_or_default(),
+                text(a, "id").unwrap_or_default(),
+                text(a, "family").unwrap_or_default(),
+                text(a, "name").unwrap_or_default(),
                 signed,
-                if a["default"] == true { " default" } else { "" },
+                if flag(a, "default") { " default" } else { "" },
             )
         })
         .collect()
+}
+
+fn text<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
+    v.get(key).and_then(Value::as_str)
+}
+
+fn flag(v: &Value, key: &str) -> bool {
+    v.get(key).and_then(Value::as_bool) == Some(true)
 }

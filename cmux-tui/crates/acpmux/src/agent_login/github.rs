@@ -140,8 +140,8 @@ pub fn parse_status_text(text: &str) -> Vec<GhAccount> {
         match out.iter().position(|a| a.login == login) {
             Some(i) => last = Some(i),
             None => {
+                last = Some(out.len());
                 out.push(GhAccount { login: login.to_owned(), active: false, signed_in });
-                last = Some(out.len() - 1);
             }
         }
     }
@@ -164,7 +164,8 @@ fn gh(cli: &Cli, args: &[&str]) -> Command {
 /// The github.com accounts gh has, read in at most [`ACCOUNTS_WAIT`]: `--json hosts` first,
 /// else the text. No gh, no answer in time, or nothing gh says it has: none.
 pub async fn accounts(cli: &Cli) -> Vec<GhAccount> {
-    let deadline = Instant::now() + ACCOUNTS_WAIT;
+    let now = Instant::now();
+    let deadline = now.checked_add(ACCOUNTS_WAIT).unwrap_or(now);
     let left = || deadline.saturating_duration_since(Instant::now());
     let json = gh(cli, &["auth", "status", "--hostname", HOST, "--json", "hosts"]);
     match crate::complete::run::run(json, None, left()).await {

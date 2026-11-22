@@ -67,7 +67,11 @@ pub(super) async fn handle(
             let listed = tokio::task::spawn_blocking(move || {
                 list(dir.as_deref(), &routes::bindings(&state))
                     .into_iter()
-                    .filter(|a| filter.as_deref().is_none_or(|f| a["family"] == f))
+                    .filter(|a| {
+                        filter
+                            .as_deref()
+                            .is_none_or(|f| a.get("family").and_then(Value::as_str) == Some(f))
+                    })
                     .collect::<Vec<_>>()
             });
             let (listed, github) = tokio::join!(listed, github);
