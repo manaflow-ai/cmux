@@ -586,7 +586,7 @@ export function PermissionCard({
     </div>
   );
   const scopeBlock = !writing && scopeLine && (
-    <p className="acpmux-permission-scope" data-scope-kind={permission.scope?.kind} aria-description={scopeLine}>
+    <p className="acpmux-permission-scope" data-scope-kind={permission.scope?.kind}>
       {scopeText && <span id={targetId}>{scopeText}</span>}
       {scopeText && alwaysScope && " · "}
       {alwaysScope && <span id={ruleId}>{alwaysScope}</span>}
