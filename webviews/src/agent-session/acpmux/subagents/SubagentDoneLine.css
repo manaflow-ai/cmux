@@ -24,3 +24,12 @@
   opacity: 1;
   transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
 }
+/* Its new-result dot (ReactionMark.tsx) sits at the trailing edge, after the time (cmux#49580):
+   at rest the time is invisible but keeps its width, so a dot before it floated a time's width in
+   from the edge, and on hover the time appeared after it. Pinned last, the dot keeps one place in
+   both states, on the edge every row's trailing column ends at; the time fades in before it, the
+   trailing column's own gap between them. */
+.cv-subagent-done-row[data-report-look="compact"] .cv-subagent-done__trail > .cv-reaction-mark {
+  order: 1;
+  margin-right: 0;
+}
