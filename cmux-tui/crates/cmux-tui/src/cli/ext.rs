@@ -596,6 +596,55 @@ fn reload(global: &GlobalArgs, app: Option<&str>, json_out: bool) -> i32 {
     }
 }
 
+/// How long a `customize` verb waits for the daemon to load the folder it
+/// rewrote. Past it the verb returns anyway: the daemon's watch still loads it.
+const CUSTOMIZE_LOAD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How the daemon took a customization folder a `customize` verb rewrote.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum FolderLoad {
+    /// It read the folder: the views in it are what cmux shows now.
+    Loaded,
+    /// It refused the folder, with why (its views stay as they were).
+    Refused(String),
+    /// No daemon runs, it is in safe mode, it is older than
+    /// `apps-reload-local` or it did not answer in time: its watch loads the
+    /// folder when it can, as before.
+    NotAsked,
+}
+
+/// Asks the daemon to load the customization folder now and waits for its
+/// answer (`apps-reload-local`, the pass its folder watch runs): a
+/// `customize use` returns with the look's views (its New Tab page, its
+/// sidebar section) loaded, instead of seconds before the watch's late event
+/// on a loaded Mac, when a New Tab page opened at once found no app to show
+/// and showed cmux's own page for its whole life. Best effort: the verb
+/// is a file change and works with no daemon.
+pub(super) fn load_customize_folder(global: &GlobalArgs, folder: &std::path::Path) -> FolderLoad {
+    let (sender, wakes) = channel();
+    let Ok(mut daemon) = daemon::Daemon::connect(global, sender, wakes) else {
+        return FolderLoad::NotAsked;
+    };
+    let folder = folder.display().to_string();
+    let Ok(asked) = daemon.send(json!({ "cmd": "apps-reload-local", "folders": [&folder] })) else {
+        return FolderLoad::NotAsked;
+    };
+    let answer = daemon.wait(std::time::Instant::now() + CUSTOMIZE_LOAD_DEADLINE, |value| {
+        (value.get("id").and_then(Value::as_str) == Some(asked.as_str()))
+            .then(|| daemon::answer(value))
+    });
+    // An older daemon refuses the request it cannot parse: its watch loads the folder.
+    let Ok(Ok(data)) = answer else { return FolderLoad::NotAsked };
+    if data.field("safeMode").as_bool() == Some(true) {
+        return FolderLoad::NotAsked;
+    }
+    let refused = data.field("rejected").as_array().into_iter().flatten().find_map(|rejected| {
+        (rejected.field("dir").as_str() == Some(folder.as_str()))
+            .then(|| rejected.field("issue").as_str().unwrap_or("refused").to_owned())
+    });
+    refused.map_or(FolderLoad::Loaded, FolderLoad::Refused)
+}
+
 /// The daemon's `apps-reload` answer, or an exit code and message.
 fn reload_call(global: &GlobalArgs, app: Option<&str>) -> Result<Value, (i32, String)> {
     let (sender, wakes) = channel();

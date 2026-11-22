@@ -2,15 +2,3 @@
 #   <control> | <enabled|disabled> | <floor>
 # A failing reading passes while it reads at least the floor; raise or drop a line as fixes land.
 # Each run prints its worst reading per control as 'native-control-contrast baseline:' lines.
-CmuxDialogButtonView cancel | disabled | 2.39
-CmuxDialogButtonView cancel | enabled | 3.91
-CmuxDialogButtonView normal | disabled | 2.39
-CmuxDialogButtonView normal | enabled | 3.91
-OverflowButton | disabled | 1.39
-SwiftUI Button (cmuxPressFill) | enabled | 2.30
-ThemedBezelButton | disabled | 2.39
-ThemedBezelButton | enabled | 1.81
-ThemedCheckbox | enabled | 2.30
-ThemedDefaultButton | enabled | 1.81
-ThemedPopUpButton | disabled | 2.39
-ThemedPopUpButton | enabled | 1.89
