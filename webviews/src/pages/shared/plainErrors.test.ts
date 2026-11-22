@@ -29,6 +29,11 @@ const ALLOWED: readonly { file: string; line: string; why: string }[] = [
     why: "the page's reply to the host, not shown",
   },
   { file: "shared/daemonSocket.ts", line: 'failure.message ?? "pairing failed"', why: "builds the error" },
+  {
+    file: "home-channels/cloudHome.ts",
+    line: 'const text = error instanceof Error ? error.message : String(error ?? "");',
+    why: "cloudReason: the Cloud read's reason that Leo's #46646 says (test/home-cloud-read-failure.test.ts)",
+  },
   { file: "shared/daemonSocket.ts", line: "String(error.message ?? code)", why: "builds the error" },
   {
     file: "home-channels/daemonHome.ts",

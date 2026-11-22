@@ -17,9 +17,11 @@ test("background activity has one secondary tone; a row's words light on hover o
   expect(css).not.toContain(".cv-tool:focus-within");
   expect(css).not.toMatch(/\.cv-tool:not\([^)]*\):focus-within:not/);
   expect(css).toMatch(/\.cv-tool\.is-run:hover > \.cv-tool__text \{\s*color: var\(--cv-text\);/);
-  // A thought's button ends with its chevron: the pointer on the empty line after an opened
-  // thought's words is not on the button, so the words go back to their rest tone (Lucas, 2026-11-06).
-  expect(css).toMatch(/\.cv-thought\.is-toggle \{[^}]*width: fit-content;\s*max-width: 100%;/);
+  // A thought's button spans its whole line, so a click anywhere along it opens it (Leo, #48711: "a
+  // Thought line opens on a click anywhere along it"); it no longer ends at its chevron.
+  const thought = css.match(/\.cv-thought\.is-toggle \{([^}]*)\}/)?.[1] ?? "";
+  expect(thought).toContain("max-width: 100%;");
+  expect(thought).not.toContain("width: fit-content");
   // A step row draws nothing more on hover (agent-pane-step-rows.test.ts).
   expect(css).not.toMatch(/\.cv-tool:hover(,| \.cv-tool__(chevron|detail))/);
   // Only the "Worked for" button lifts; the live line has nothing behind it (transcript-row-hover-scope.test.ts).

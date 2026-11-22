@@ -15,6 +15,7 @@ import { TranscriptReadOnly } from "./readOnly";
 import { ToolRow } from "./ToolRow";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { describedText, shownText } from "../../../../test/support/factsCard";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -103,8 +104,11 @@ test("a Read is one static row named by its file, its full path on hover, with n
   const row = container.querySelector("div.cv-tool");
   expect(row).not.toBeNull();
   expect(row!.getAttribute("aria-expanded")).toBeNull();
-  expect(container.querySelector(".cv-tool__text")?.textContent).toBe("Read foo.ts");
-  expect(container.querySelector(".cv-tool__file")?.getAttribute("title")).toBe("/work/app/src/foo.ts");
+  expect(shownText(container.querySelector(".cv-tool__text"))).toBe("Read foo.ts");
+  // The full path is the name's hover card and description (chips/FactsHoverCard.tsx), not a title.
+  const file = container.querySelector(".cv-tool__file")!;
+  expect(file.hasAttribute("title")).toBe(false);
+  expect(describedText(file)).toBe("/work/app/src/foo.ts");
   await act(async () => (row as HTMLElement).click());
   expect(container.querySelector(".cv-filepeek")).toBeNull();
   expect(container.querySelector(".cv-tool-detail")).toBeNull();

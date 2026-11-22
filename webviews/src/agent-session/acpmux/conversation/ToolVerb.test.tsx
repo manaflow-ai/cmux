@@ -17,6 +17,7 @@ import { ToolRow } from "./ToolRow";
 import { ToolVerbColumn } from "./ToolVerb";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { shownText } from "../../../../test/support/factsCard";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -108,7 +109,7 @@ test("a turn's tool rows put their verbs in one column as wide as the widest", a
   expect(verbs).toEqual(["Checked", "Read", "Searched"]);
   // Each subject follows its verb on the row: the words read as they did.
   const rows = [...container.querySelectorAll(".cv-tool, .cv-command")].map((row) =>
-    row.querySelector(".cv-tool__text, .cv-command__text")!.textContent!.trim(),
+    shownText(row.querySelector(".cv-tool__text, .cv-command__text")).trim(),
   );
   expect(rows).toEqual(["Checked git status", "Read App.tsx", "Searched for cv-tool"]);
   // The turn's element carries every verb, so each verb's box is as wide as the widest.
@@ -130,7 +131,7 @@ test("the transcript's tool rows have no verb column: each subject follows its v
   expect(container.querySelector(".cv-tool__verb")).toBeNull();
   expect(container.querySelector("[data-tool-verbs]")).toBeNull();
   const rows = [...container.querySelectorAll(".cv-tool, .cv-command")].map((row) =>
-    row.querySelector(".cv-tool__text, .cv-command__text")!.textContent!.trim(),
+    shownText(row.querySelector(".cv-tool__text, .cv-command__text")).trim(),
   );
   expect(rows).toEqual(["Checked git status", "Read App.tsx"]);
 });

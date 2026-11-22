@@ -85,14 +85,19 @@ const opened: Step[] = [
   ["mux", "turn_result", { turnId: "t2", status: "completed" }],
 ];
 
-test("user_message(turnId) > turn_started > tool_call: the Working for line has the head gap over it", async () => {
+test("user_message(turnId) > turn_started > tool_call: the Working for line stands over the message, a block gap under the footer", async () => {
+  // Since #49052 (66beef47be66) the turn's "Working for" stands over the message that started it, in
+  // the place "Worked for" takes at the turn's end (Leo, 2026-11-17: "the jostles and shifts and spacing
+  // are still bad here"): the row over the line is the turn before's footer, the message is right under it.
   for (const count of [7, 8]) {
     const { view, gap } = await after(opened, count, true);
     const line = view.find((row) => row.kind === "working" && !row.below)!;
-    const above = view[view.indexOf(line) - 1]!;
-    expect(above.kind).toBe("user");
-    expect(above.incoming?.kind).toBe("message");
-    expect(gap(line.id)).toBe(TRANSCRIPT_RUN_GAP);
+    const at = view.indexOf(line);
+    expect(view[at - 1]!.kind).toBe("turnSummary");
+    const message = view[at + 1]!;
+    expect(message.kind).toBe("user");
+    expect(message.incoming?.kind).toBe("message");
+    expect(gap(line.id)).toBe(TRANSCRIPT_BLOCK_GAP);
   }
   // turn_result: the line becomes "Worked for" and the message folds into it, so the row over it is the turn
   // before's footer: the block gap a footer stands over "Worked for" (rowGapTable.test.ts footer -> worked).
@@ -122,9 +127,17 @@ for (const fold of [undefined, "runs"] as const)
       expect(view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(0);
       expect(view.some((row) => row.kind === "activity")).toBe(true);
     }
-    // The agent's paragraph ends the run: it folds then, still mid-turn, as a run of calls does.
+    // The agent's paragraph ends the run. By default (live-turn-work `open`, #48766) nothing folds while
+    // the turn runs (Leo, 2026-11-21: "i thought we dont fold while you're still going"): every call
+    // stays in sight on its own line.
     const said = await after(steered, 8, true);
-    expect(said.view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(1);
+    expect(said.view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(0);
+    expect(said.view.some((row) => row.kind === "activity")).toBe(true);
+    // Under `runs` (the Codex app's way) the paragraph folds the run then, still mid-turn.
+    globalThis.cmuxExperiments = { ...(fold && { "claude-turn-fold": fold }), "live-turn-work": "runs" };
+    const runs = await after(steered, 8, true);
+    expect(runs.view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(1);
+    globalThis.cmuxExperiments = fold ? { "claude-turn-fold": fold } : undefined;
     // And at turn_result it is folded too.
     const done = await after(steered, steered.length, false);
     const rows: AcpmuxRow[] = done.view;
@@ -214,6 +227,12 @@ test("turn_result (ended on work) > user_message(turnId, notice) > turn_started:
     const notice = view[at]!;
     expect(notice.incoming).toBeDefined();
     expect(view.slice(0, at).some((row) => row.kind === "worked")).toBe(true);
-    expect(gap(notice.id)).toBe(TRANSCRIPT_BLOCK_GAP);
+    // The turn before ends on its footer row (G04, #49465), not its "Worked for". Once the notice's
+    // turn starts, its "Working for" stands over the notice (#49052, 66beef47be66), under that footer
+    // with the block gap; before, the notice stands under the footer with it.
+    const top = count === 7 ? view[at - 1]! : notice;
+    if (count === 7) expect(top.kind).toBe("working");
+    expect(view[view.indexOf(top) - 1]!.kind).toBe("turnSummary");
+    expect(gap(top.id)).toBe(TRANSCRIPT_BLOCK_GAP);
   }
 });
