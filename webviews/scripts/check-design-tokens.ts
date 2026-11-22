@@ -283,6 +283,8 @@ function key(finding: Omit<Finding, "line">): string {
 
 /** Sheets and components that may use tokens only (see the header). Paths under src/. */
 export const TOKEN_ONLY_FILES: readonly string[] = [
+  "agent-session/acpmux/StartRecovery.tsx",
+  "agent-session/acpmux/startRecovery.css",
   "agent-session/acpmux/conversation/unread.css",
   "agent-session/acpmux/conversation/SinceDivider.tsx",
   "agent-session/acpmux/jumpPair.css",
