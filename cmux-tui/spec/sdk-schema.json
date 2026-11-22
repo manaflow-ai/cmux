@@ -19044,6 +19044,20 @@
       "constraints": [
        "true when a replacement daemon follows (`server restart`), false when the session stops (`server stop`). The daemon repeats it as `restart` on the daemon-shutdown event; omit it (or send null) when unknown."
       ]
+     },
+     "if_idle": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "daemon-stop-if-idle-v1",
+      "constraints": [
+       "Stop only while no other client is connected and no terminal is launching, adopting or running; otherwise refuse with error_code daemon_busy, error_details {clients:[{client,name,kind}],terminals}, and keep serving. Checked under the handoff reservation, which refuses new clients, so none can start work between the check and the stop."
+      ]
      }
     },
     "additional_properties": false
@@ -19060,7 +19074,8 @@
     "end_terminals:true ends every terminal and removes its tabs before the handoff; without it terminal hosts stay alive for the next owner. Clients must require terminal-reap-v1 before sending end_terminals:true.",
     "keep_layout:true (with end_terminals:true) ends every terminal but keeps the tabs of placed terminals, so the next owner shows the same screens, splits and tabs, each dead until a frontend starts a new shell in it; keep_layout without end_terminals is refused. Clients must require end-terminals-keep-layout-v1 before sending keep_layout:true.",
     "The daemon exits only after the success response is queued.",
-    "restart is repeated on the daemon-shutdown event, so an attached TUI reconnects after a restart and exits after a stop."
+    "restart is repeated on the daemon-shutdown event, so an attached TUI reconnects after a restart and exits after a stop.",
+    "Clients must require daemon-stop-if-idle-v1 before sending if_idle:true: an older daemon ignores the field and stops."
    ]
   },
   "pairing-response": {

@@ -992,6 +992,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/turn_shots",
+      "params": {
+        "$ref": "#/types/TurnShotsParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/mail/send",
       "params": {
         "$ref": "#/types/MailSendParams"
@@ -8079,6 +8087,17 @@
         "level": true,
         "peer": true,
         "sessionId": true
+      },
+      "type": "object"
+    },
+    "TurnShotsParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true,
+        "turnId": true
       },
       "type": "object"
     },
