@@ -625,6 +625,8 @@ export function promptBlocks(
 
 /// A file or folder on this computer that a link chip names (``linkAttachment``).
 export type LinkItem = { path: string; folder: boolean };
+/// The host's paths for a gesture's files, by index: a file it named no path for has none.
+export type KnownPaths = readonly (LinkItem | undefined)[];
 
 /// How files came in from the person's own gesture, for the host's record of where they are
 /// (`chat.attach.dropped`): a drop on the page, a paste, or the person's pick in the composer's
