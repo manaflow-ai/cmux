@@ -419,11 +419,16 @@ fn env_u64(name: &str, default: u64) -> u64 {
 
 /// Reads (and drops) notifications until the link has been quiet for one round trip, the
 /// jitter and two retransmissions (a segment lost twice), or `deadline`.
-async fn settle(link: &mut Link, profile: &LinkProfile, deadline: Instant) {
+/// Returns the newest record seq it read, so the app's held copy stays known.
+async fn settle(link: &mut Link, profile: &LinkProfile, deadline: Instant) -> u64 {
     let rto = profile.rto_min_ms.max(2 * profile.rtt_ms);
     let quiet = Duration::from_millis(300.max(profile.rtt_ms + profile.jitter_ms + 3 * rto));
-    while let Next::Frame(..) = link.notification((Instant::now() + quiet).min(deadline)).await {}
+    let mut last = 0;
+    while let Next::Frame(_, v) = link.notification((Instant::now() + quiet).min(deadline)).await {
+        last = last.max(event_seq(&v).unwrap_or(0));
+    }
     link.pending.clear();
+    last
 }
 
 /// Duress: the agent streams (a chunk every 50 ms, about a model's token rate) while the app
@@ -549,7 +554,7 @@ async fn streaming_and_redial(
     end_turn(control).await;
     let _ = control.answer(turn, BOUND).await;
     let mut l = out?;
-    settle(&mut l, &shaper.profile(), Instant::now() + BOUND).await;
+    let _ = settle(&mut l, &shaper.profile(), Instant::now() + BOUND).await;
     Some(l)
 }
 
@@ -577,8 +582,11 @@ async fn cold_and_warm(
             return None;
         }
     };
+    // The newest record the app holds; the iOS reopen sends it as afterSeq.
+    let mut last = 0u64;
     match link.attach(session, None, deadline).await {
         Ok((at, reply)) if !rows(&reply).is_empty() => {
+            last = rows(&reply).into_iter().max().unwrap_or(0);
             emit(&k, "first_content_ms", Some(ms(at - start)));
             emit_bytes(&k, shaper);
         }
@@ -606,6 +614,7 @@ async fn cold_and_warm(
         loop {
             match link.notification(deadline).await {
                 Next::Frame(at, v) => {
+                    last = last.max(event_seq(&v).unwrap_or(0));
                     let p = v["params"].to_string();
                     if v["method"] == method::MUX_EVENT
                         && p.contains("user_message")
@@ -629,9 +638,29 @@ async fn cold_and_warm(
     // Let the ping's turn finish arriving before the reopen. A fixed pause was shorter than one
     // round trip on a slow link: the turn's tail was still in flight and the warm reply queued
     // behind it (the shaper delivers in order), so warm measured the ping turn too.
-    settle(&mut link, &shaper.profile(), deadline).await;
+    last = last.max(settle(&mut link, &shaper.profile(), deadline).await);
 
+    // Warm is the app's reopen: it draws its own copy first (AcpmuxHub.swift:679) and attaches
+    // with afterSeq = the newest record it holds (AcpmuxHub.swift:1730, :1780 at 3492894eabe5). Its first content
+    // is local; this measures the attach reply, the point the reopened chat is known current.
     let k = Key { phase: "warm", ..k };
+    shaper.reset_counters();
+    let start = Instant::now();
+    match link.attach(session, Some(last), start + BOUND).await {
+        Ok((at, _)) => {
+            emit(&k, "first_content_ms", Some(ms(at - start)));
+            emit_bytes(&k, shaper);
+        }
+        Err(e) => {
+            emit(&k, "first_content_ms", None);
+            emit_error(&k, "first_content_ms", &e);
+            return None;
+        }
+    }
+    settle(&mut link, &shaper.profile(), start + BOUND).await;
+
+    // For comparison: a reopen that fetches the whole opening page again (afterSeq none).
+    let k = Key { phase: "warm-full", ..k };
     shaper.reset_counters();
     let start = Instant::now();
     match link.attach(session, None, start + BOUND).await {

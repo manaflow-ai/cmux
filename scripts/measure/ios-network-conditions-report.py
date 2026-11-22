@@ -29,7 +29,7 @@ METRIC_ORDER = [
     "bytes_up",
     "round_trips",
 ]
-PHASE_ORDER = ["cold", "warm", "streaming", "reconnect"]
+PHASE_ORDER = ["cold", "warm", "warm-full", "streaming", "reconnect"]
 
 
 def first_content_summary(rows: list[dict]) -> list[str]:
