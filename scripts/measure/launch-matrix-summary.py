@@ -5,8 +5,8 @@ usage: launch-matrix-summary.py RUNS_JSONL REPORT_JSON
 
 Each LM-TABLE holds, per number, median, min, max and n over the scenario's launches that had a window (errors are
 counted, not summarised): the times from the open request (proc_start, window_on_screen, first_visible_frame,
-interactive) and the resources at first interactive (at_*) and after the idle settle (settled_*). frame_sources
-and interactive_blockers say which numbers are fallbacks. report.json holds the tables and every run.
+interactive) and the resources at first interactive (at_*) and after the idle settle (settled_*). frame_sources,
+interactive_evidence and interactive_blockers say which numbers are fallbacks. report.json holds the tables and every run.
 """
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ def table(app: str, scenario: str, runs: list[dict]) -> dict:
     row = {"app": app, "scenario": scenario, "n": len(runs), "errors": len(runs) - len(done),
            "frame_sources": sorted({r.get("frame_source", "?") for r in done}),
            "interactive_blockers": sorted({r["interactive_blocker"] for r in done if r.get("interactive_blocker")}),
+           "interactive_evidence": sorted({r["interactive_evidence"] for r in done if r.get("interactive_evidence")}),
            "load_median": stats([r.get("load") for r in runs])}
     for key in TIMES:
         row[key] = stats([r.get(key) for r in done])

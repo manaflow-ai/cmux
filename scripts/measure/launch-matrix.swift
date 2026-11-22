@@ -16,12 +16,12 @@
 //   window_on_screen    the first on-screen layer-0 window >= 300x200 owned by any process of the app's tree,
 //                       CGWindowList polled every <= 4 ms
 //   first_visible_frame the first capture of that window whose pixels are not one colour (frame_source says how:
-//                       "screencapture" in-probe when the probe holds Screen Recording, else "cuadriver" through
-//                       CuaDriver's zoom of the window (frame_resolution_ms: that capture's own length), else "window",
-//                       window_on_screen again)
+//                       "cuadriver" through CuaDriver's zoom of the window (frame_resolution_ms: that capture's own
+//                       length), else "window", window_on_screen again)
 //   interactive         the first key that was accepted: once the window holds still, a harmless letter is posted to
 //                       the app's pid (CuaDriver press_key, background delivery) every round until the window's pixels
-//                       change; the time is that key's post. interactive_rounds, interactive_resolution_ms. null with
+//                       change, or CuaDriver reads the key back from the focused control (interactive_evidence: pixels
+//                       or ax_readback); the time is that key's post. interactive_rounds, interactive_resolution_ms. null with
 //                       interactive_blocker when no key was taken in 30 s (a login wall, onboarding) or no route exists
 //   at_interactive, settled  resources over the app's whole tree (the app, its descendants, and every process whose
 //                       responsible pid is the app's: XPC services): procs, threads, rss_mb, footprint_mb, cpu_ms
@@ -188,8 +188,14 @@ func uniform(_ g: [UInt8]) -> Bool {
 
 func differs(_ a: [UInt8], _ b: [UInt8]) -> Bool { zip(a, b).contains { abs(Int($0) - Int($1)) > 10 } }
 
-func cuaKey(_ pid: pid_t) -> Bool {
-    cuaCall("press_key", ["pid": Int(pid), "key": ProcessInfo.processInfo.environment["LM_KEY"] ?? "a", "delivery_mode": "background"]) != nil
+// Posts the key to the window (without window_id CuaDriver only lists candidate windows and posts nothing). nil when
+// no post happened; else whether CuaDriver read the key back from the focused control ("effect": "confirmed").
+func cuaKey(_ w: Window) -> Bool? {
+    guard let data = cuaCall("press_key", ["pid": Int(w.pid), "window_id": w.id, "delivery_mode": "background",
+                                           "key": ProcessInfo.processInfo.environment["LM_KEY"] ?? "a"]),
+          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any], obj["candidates"] == nil else { return nil }
+    let content = (obj["structuredContent"] as? [String: Any]) ?? obj
+    return (content["effect"] as? String) == "confirmed"
 }
 
 // MARK: open, quit
@@ -328,7 +334,7 @@ case "run", "growth":
     }
     // first_visible_frame and interactive.
     var frameAt: Double?, frameSource = "window", frameRes: Double?
-    var interactiveAt: Double?, blocker: String?, rounds = 0, interactiveRes: Double?
+    var interactiveAt: Double?, blocker: String?, rounds = 0, interactiveRes: Double?, evidence: String?
     let cuaOK = (g["cuadriver"] as? Bool) == true
     if let w = o.win, pid > 0 {
         if cuaOK {
@@ -350,10 +356,13 @@ case "run", "growth":
                 if differs(g, p) { prev = g; stableSince = nil; continue }
                 stableSince = g
                 let pressed = now()
-                guard cuaKey(pid) else { blocker = "CuaDriver press_key failed"; break }
+                guard let confirmed = cuaKey(w) else { blocker = "CuaDriver press_key failed"; break }
                 rounds += 1
+                if confirmed { interactiveAt = pressed; interactiveRes = round1(now() - pressed); evidence = "ax_readback"; break }
                 guard let after = cuaCapture(w) else { continue }
-                if differs(after, stableSince!) { interactiveAt = pressed; interactiveRes = round1(now() - pressed); break }
+                if differs(after, stableSince!) {
+                    interactiveAt = pressed; interactiveRes = round1(now() - pressed); evidence = "pixels"; break
+                }
                 prev = after
             }
             if interactiveAt == nil, blocker == nil { blocker = rounds == 0 ? "window never held still for 30 s" : "no key changed the window in 30 s (\(rounds) keys)" }
@@ -367,6 +376,7 @@ case "run", "growth":
     row["interactive"] = since(interactiveAt)
     row["interactive_blocker"] = json(interactiveAt == nil ? (blocker ?? "no window") : nil)
     row["interactive_rounds"] = rounds
+    row["interactive_evidence"] = json(evidence)
     row["interactive_resolution_ms"] = json(interactiveRes)
     if pid > 0, kill(pid, 0) == 0 {
         if interactiveAt == nil, let w = o.window { spin { now() - w >= 2000 } }
