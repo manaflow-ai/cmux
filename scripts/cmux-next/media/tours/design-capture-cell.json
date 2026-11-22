@@ -1,0 +1,191 @@
+{
+ "title": "Design capture vehicle (cell): look cell in light and dark, the showcase window and Settings, 1440x900 (never merge)",
+ "launch_args": [
+  "--showcase"
+ ],
+ "settings": {},
+ "customize": true,
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Window 1440x900",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      80,
+      80,
+      1440,
+      900
+     ]
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "debug.window_frame is DEBUG only"
+  },
+  {
+   "title": "Workspace Look",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Look"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:Look",
+    "focus"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Install cell: cmux setup install, and what it wrote",
+   "daemon": true,
+   "cmux": [
+    "workspace",
+    "name:Look",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "clear; export CMUX_NEXT_CONFIG_FILE=\"${CMUX_NEXT_CONFIG_FILE:-$(dirname \"$CMUX_CUSTOMIZE_DIR\")/cmux-next.json}\"; echo \"config=$CMUX_NEXT_CONFIG_FILE customize=$CMUX_CUSTOMIZE_DIR\"; cmux setup install github.com/manaflow-ai/cmux/examples/looks/cell@lane/design-captures-tour --yes 2>&1 | tail -c 1500; echo; echo \"exit=$? settings:\"; head -c 600 \"$CMUX_NEXT_CONFIG_FILE\"\r"
+   ],
+   "wait": 30
+  },
+  {
+   "title": "Showcase: workspaces, an agent chat, unread notifications",
+   "rpc": {
+    "method": "debug.showcase.seed",
+    "params": {
+     "focus": true,
+     "dense": true
+    }
+   },
+   "wait": 5,
+   "optional": "the showcase fixture is DEBUG only"
+  },
+  {
+   "title": "light",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "light"
+    }
+   },
+   "wait": 2.5,
+   "shot": false
+  },
+  {
+   "title": "collect window-light",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.5,
+   "collect": "window-light.png"
+  },
+  {
+   "title": "dark",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 2.5,
+   "shot": false
+  },
+  {
+   "title": "collect window-dark",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.5,
+   "collect": "window-dark.png"
+  },
+  {
+   "title": "Settings",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "openSettings",
+     "args": {
+      "setting": "appearance.theme"
+     },
+     "focus": true
+    }
+   },
+   "wait": 4
+  },
+  {
+   "title": "collect settings-dark",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.5,
+   "collect": "settings-dark.png"
+  },
+  {
+   "title": "light",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "light"
+    }
+   },
+   "wait": 2.5,
+   "shot": false
+  },
+  {
+   "title": "collect settings-light",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.5,
+   "collect": "settings-light.png"
+  },
+  {
+   "title": "system",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "system"
+    }
+   },
+   "wait": 2.5,
+   "shot": false
+  }
+ ]
+}
