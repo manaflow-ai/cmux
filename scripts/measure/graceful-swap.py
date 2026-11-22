@@ -281,6 +281,10 @@ def analyze(movie: Path, marks_path: Path, regions: list, out: Path, label: str,
     return result
 
 
+class FilmMissing(Exception):
+    """The recorder wrote no film for a run (its reason)."""
+
+
 def record(args, trigger: str | None = None, out: Path | None = None) -> dict:
     trigger = trigger or args.trigger
     out = out or args.out
@@ -300,7 +304,16 @@ def record(args, trigger: str | None = None, out: Path | None = None) -> dict:
     if run.returncode:
         sys.exit(f"record failed: {run.stderr.strip()[-800:]}")
     movie = out / "recording.mp4"
-    subprocess.run(["scp", "-q", f"{args.host}:{remote}/recording.mp4", str(movie)], check=True)
+    if subprocess.run(["scp", "-q", f"{args.host}:{remote}/recording.mp4", str(movie)]).returncode:
+        # The recorder wrote no film (ScreenCaptureKit said "no displays available" for one run on air-blue,
+        # 2026-11-22): its session.json says why. The trigger did run, so a latency series counts it as missed
+        # and goes on with the next save instead of ending.
+        session = subprocess.run(["ssh", args.host, f"cat {remote}/session.json"], capture_output=True, text=True)
+        try:
+            why = json.loads(session.stdout).get("video", {}).get("error") or "no recording.mp4"
+        except ValueError:
+            why = "no recording.mp4"
+        raise FilmMissing(why)
     probe = None
     if args.probe_file:
         probe = out / "probe.ndjson"
@@ -325,7 +338,11 @@ def latency(args) -> dict:
     runs = []
     for i in range(args.runs):
         trigger = args.trigger_b if (i % 2 and args.trigger_b) else args.trigger
-        result = record(args, trigger, args.out / f"run-{i:02d}")
+        try:
+            result = record(args, trigger, args.out / f"run-{i:02d}")
+        except FilmMissing as missing:
+            print(f"run {i}: no film ({missing}); counted as missed", file=sys.stderr)
+            result = {"video": {"fps": None}, "regions": {}, "film_missing": str(missing)}
         runs.append(result)
     regions = {name for name, _ in args.region}
     summary: dict = {"version": VERSION, "label": args.label, "runs": len(runs), "watch": args.watch,
