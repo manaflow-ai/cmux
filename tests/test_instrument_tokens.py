@@ -102,11 +102,17 @@ class InstrumentTokenTests(unittest.TestCase):
                          tokens.changelog_problems(data, (ROOT / tokens.CHANGELOG).read_text()))
 
     def test_off_token_entries_are_where_they_say(self):
-        self.assertEqual([], tokens.stale_off_token(self.data))
-        card = self.token('corner.card')
-        self.assertTrue(card['offToken'], 'the transcript cards draw raw corners; the list names them')
-        card['offToken'][0]['line'] += 100000
-        self.assertIn('refresh the entry', tokens.stale_off_token(self.data)[0])
+        # Other PRs move these lines, so a stale entry is a warning in --check, never a test red;
+        # this checks the mechanism on a file of its own.
+        self.assertTrue(self.token('corner.card')['offToken'], 'the transcript cards draw raw corners; the list names them')
+        with tempfile.TemporaryDirectory() as tmp:
+            sheet = Path(tmp) / 'a.css'
+            sheet.write_text('.x {\n  border-radius: 8px;\n}\n')
+            data = {'tokens': [{'name': 'corner.card', 'offToken': [
+                {'file': 'a.css', 'line': 2, 'value': '8px', 'on': 'x'}]}]}
+            self.assertEqual([], tokens.stale_off_token(data, Path(tmp)))
+            data['tokens'][0]['offToken'][0]['line'] = 3
+            self.assertIn('refresh the entry', tokens.stale_off_token(data, Path(tmp))[0])
 
     def test_off_token_entry_shape(self):
         self.token('corner.card')['offToken'].append({'file': 'x.css', 'value': '8px'})
