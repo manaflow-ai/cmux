@@ -559,6 +559,7 @@ async fn answer_session(
         session_id: first.session_id.clone(),
         video: None,
         session_exposure: context.session_exposure.clone(),
+        route: None,
     };
     let session_id = first.session_id.clone();
     let timeline = Timeline::new();
@@ -594,6 +595,8 @@ async fn answer_session(
         }
     };
     let path = *connected.path.borrow();
+    peer.route =
+        Some(crate::services::LinkRoute { path: connected.path.clone(), peer: connected.peer.clone() });
     if let Some(cmux_mobile_link::media::MediaLane::Out(video)) = connected.link.media() {
         peer.video = Some(video);
     }

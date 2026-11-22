@@ -276,6 +276,10 @@ pub struct Summary {
     pub clock_rtt_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rtt_ms: Option<u64>,
+    /// The link's route when the report came: `direct-lan`, `direct-wan`, `direct`, `relay`
+    /// or `none` (`cmux_mobile_link::dial::route_name`); hostd decides it, the phone never says.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<&'static str>,
     /// (a) hostd read the redraw to its last byte handed to the socket.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mac: Option<Part>,
@@ -344,6 +348,7 @@ pub fn summarize(
         offset_ms: offset.map(round),
         clock_rtt_ms: best.map(|c| round(c.rtt_ms())),
         rtt_ms: report.rtt_ms,
+        path: None,
         mac: Part::of(mac),
         wire: Part::of(wire),
         phone_paint: Part::of(paint),

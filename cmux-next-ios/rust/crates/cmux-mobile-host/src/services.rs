@@ -34,6 +34,23 @@ pub struct Peer {
     /// phone and this Mac negotiated one.
     pub video: Option<cmux_mobile_link::media::VideoOut>,
     pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+    /// The link's path and a direct path's peer address, for its route
+    /// ([`cmux_mobile_link::dial::route_name`]); `None` off a dialed link.
+    pub route: Option<LinkRoute>,
+}
+
+/// What the link's route is read from.
+#[derive(Debug, Clone)]
+pub struct LinkRoute {
+    pub path: tokio::sync::watch::Receiver<cmux_mobile_link::dial::LinkPath>,
+    pub peer: cmux_mobile_link::dial::PeerAddr,
+}
+
+impl LinkRoute {
+    /// The route now: `direct-lan`, `direct-wan`, `direct`, `relay` or `none`.
+    pub fn name(&self) -> &'static str {
+        cmux_mobile_link::dial::route_name(*self.path.borrow(), *self.peer.borrow())
+    }
 }
 
 /// Serve one incoming channel to completion. With pairing on, only `auth`
@@ -138,9 +155,11 @@ pub async fn serve(
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
         "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
         "phone-frames" => {
-            crate::phone_frames::serve(
+            let route = peer.route.clone();
+            crate::phone_frames::serve_on(
                 &peer.device_id,
                 &crate::phone_frames::default_path(),
+                &move || route.as_ref().map(LinkRoute::name),
                 &sender,
                 receiver,
             )
