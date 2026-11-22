@@ -14,6 +14,7 @@ export const ThinkingRow = memo(
         starting={row.queued !== undefined}
         since={row.at}
         doing={row.doing}
+        activityDots={row.id === LIVE_THINKING}
         doingAt={row.doingAt}
         doingShell={row.doingShell}
         sendTo={row.doingSendTo}
