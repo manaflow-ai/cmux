@@ -546,18 +546,18 @@ fn home_inbox_window(
     let deleted_chiefs = super::chief_registry_resource::deleted_chiefs(mux);
     let typing = mux.conversation_typing_all();
     let read = mux.with_conversations(|store| {
-        let states = store.inbox_states(&principal)?;
         let running = store.running_run_authors(now_ms)?;
-        let input = cmux_conversation::HomeInboxInput {
+        // The caller's pins and marks: the store reads its own.
+        let mut input = cmux_conversation::HomeInboxInput {
             me: &principal,
-            states: home_list_states(states),
+            states: Default::default(),
             chief_names,
             typing,
             running,
             deleted_chiefs,
             preview_words: preview_words(),
         };
-        store.home_window(&input, window, scope)
+        store.home_window(&mut input, window, scope)
     })?;
     let total = read.order.total();
     let ids = matches!(window, cmux_conversation::HomeWindow::Ids(_));

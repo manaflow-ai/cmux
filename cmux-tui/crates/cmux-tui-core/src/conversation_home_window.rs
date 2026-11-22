@@ -7,8 +7,12 @@
 //! participants, titles, times, pins: one query), then the window's own heads
 //! and last messages. The order is kept until the store changes (SQLite's
 //! `total_changes()` for this connection, `PRAGMA data_version` for any
-//! other) or the caller, its pins or the deleted Chiefs differ, so a Home
-//! open after no change reads only its window.
+//! other) or the caller or the deleted Chiefs differ, so a Home open after
+//! no change reads only its window.
+//!
+//! The caller's pins and marks are the store's own (`inbox_state`, the same
+//! connection, so a pin bumps `total_changes()`): they are read here, all of
+//! them only when the order is built, else only the window's.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -28,8 +32,6 @@ struct OrderKey {
     me: String,
     scope: HomeScope,
     deleted_chiefs: BTreeSet<String>,
-    /// The caller's pins, sorted: `(id, pinned, position)`.
-    pins: Vec<(String, bool, Option<u64>)>,
 }
 
 /// The last order built, and what it was built from.
@@ -51,16 +53,27 @@ pub(crate) struct HomeWindowRead {
 
 impl ConversationStore {
     /// The window of `input.me`'s Home list (local conversations in `scope`).
+    /// `input.states` is not read: the caller's pins and marks are read from
+    /// the store (all of them only when the order is built).
     pub(crate) fn home_window(
         &mut self,
-        input: &HomeInboxInput<'_>,
+        input: &mut HomeInboxInput<'_>,
         window: &HomeWindow,
         scope: HomeScope,
     ) -> anyhow::Result<HomeWindowRead> {
         let (order, ordered_now) = self.home_order(input, scope)?;
         let transaction = self.connection.transaction()?;
+        let selected = order.select(window);
+        // The window's own pins and marks: a row reads only its own.
+        input.states.clear();
+        for (_, id) in &selected {
+            let state = super::inbox::load(&transaction, input.me, id)?;
+            if state != Default::default() {
+                input.states.insert((*id).to_owned(), home_state(state));
+            }
+        }
         let mut rows = Vec::new();
-        for (at, id) in order.select(window) {
+        for (at, id) in selected {
             // A conversation that went since the order was read: not in the window.
             let Some(head) = load_head(&transaction, id)? else { continue };
             let last = load_message_by_seq(&transaction, id, head.last_seq)?;
@@ -74,45 +87,27 @@ impl ConversationStore {
     /// was made from changed, else read again.
     fn home_order(
         &mut self,
-        input: &HomeInboxInput<'_>,
+        input: &mut HomeInboxInput<'_>,
         scope: HomeScope,
     ) -> anyhow::Result<(Arc<HomeOrder>, bool)> {
         let total_changes: i64 =
             self.connection.query_row("SELECT total_changes()", [], |row| row.get(0))?;
         let data_version: i64 =
             self.connection.query_row("PRAGMA data_version", [], |row| row.get(0))?;
-        // The kept order's key is checked in place: no copy or sort of the
-        // caller's pins on an open after no change.
-        if let Some((kept, order)) = &self.home_order_cache.kept
-            && kept.total_changes == total_changes
-            && kept.data_version == data_version
-            && kept.me == input.me
-            && kept.scope == scope
-            && kept.deleted_chiefs == input.deleted_chiefs
-            && kept.pins.len() == input.states.len()
-            && kept.pins.iter().all(|(id, pinned, position)| {
-                input
-                    .states
-                    .get(id)
-                    .is_some_and(|state| state.pinned == *pinned && state.pin_position == *position)
-            })
-        {
-            return Ok((Arc::clone(order), false));
-        }
-        let mut pins: Vec<(String, bool, Option<u64>)> = input
-            .states
-            .iter()
-            .map(|(id, state)| (id.clone(), state.pinned, state.pin_position))
-            .collect();
-        pins.sort_unstable();
         let key = OrderKey {
             total_changes,
             data_version,
             me: input.me.to_string(),
             scope,
             deleted_chiefs: input.deleted_chiefs.clone(),
-            pins,
         };
+        if let Some((kept, order)) = &self.home_order_cache.kept
+            && *kept == key
+        {
+            return Ok((Arc::clone(order), false));
+        }
+        input.states =
+            self.inbox_states(input.me)?.into_iter().map(|(id, s)| (id, home_state(s))).collect();
         let heads = self.home_heads()?;
         let refs: Vec<HomeHead<'_>> =
             heads.iter().map(|(summary, activity_at)| HomeHead { summary, activity_at }).collect();
@@ -167,3 +162,12 @@ impl ConversationStore {
 #[cfg(test)]
 #[path = "conversation_home_window_tests.rs"]
 mod tests;
+
+/// A pin and mark as the Home projection reads them.
+fn home_state(state: super::inbox::InboxState) -> cmux_conversation::HomeListState {
+    cmux_conversation::HomeListState {
+        pinned: state.pinned,
+        pin_position: state.pin_position,
+        marked_unread: state.marked_unread,
+    }
+}

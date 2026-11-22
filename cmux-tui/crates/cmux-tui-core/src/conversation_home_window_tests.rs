@@ -93,20 +93,44 @@ fn seeded_store(n: usize, seed: u64) -> ConversationStore {
     store
 }
 
-fn input(rng: &mut Rng, n: usize) -> HomeInboxInput<'static> {
+/// A caller's input with its pins and marks, which are written to `store`
+/// too (the window reads them there).
+fn input(rng: &mut Rng, n: usize, store: &mut ConversationStore) -> HomeInboxInput<'static> {
     let mut states = HashMap::new();
     for _ in 0..(n / 50).max(3) {
         let id = format!("conv_{:06}", rng.below(n as u64));
         let pinned = rng.below(2) == 0;
-        let position = (rng.below(2) == 0).then(|| rng.below(4));
+        // The store keeps a pin as its position.
+        let position = pinned.then(|| rng.below(4));
         states.insert(
             id,
             HomeListState { pinned, pin_position: position, marked_unread: rng.below(2) == 0 },
         );
     }
+    for (id, state) in &states {
+        store
+            .connection
+            .execute(
+                "INSERT OR REPLACE INTO inbox_state(participant, conversation, pin_position,
+                                                     marked_unread) VALUES(?1, ?2, ?3, ?4)",
+                params![
+                    LOCAL_USER,
+                    id,
+                    state.pin_position.map(|p| p as i64),
+                    i64::from(state.marked_unread)
+                ],
+            )
+            .unwrap();
+    }
+    HomeInboxInput { me: LOCAL_USER, states, ..ask(&HomeInboxInput::default()) }
+}
+
+/// What a window read is given: the caller and the registry, no pins (the
+/// store reads its own).
+fn ask(_: &HomeInboxInput<'_>) -> HomeInboxInput<'static> {
     HomeInboxInput {
         me: LOCAL_USER,
-        states,
+        states: HashMap::new(),
         chief_names: BTreeMap::from([("agent_0".to_string(), "Chief Zero".to_string())]),
         typing: HashMap::new(),
         running: HashMap::new(),
@@ -143,7 +167,7 @@ fn the_owner_window_is_the_same_cut_of_the_whole_list() {
         let mut rng = Rng(seed);
         let n = 1 + rng.below(400) as usize;
         let mut store = seeded_store(n, seed);
-        let input = input(&mut rng, n);
+        let input = input(&mut rng, n, &mut store);
         for _ in 0..6 {
             let window = if rng.below(3) == 0 {
                 HomeWindow::Ids(
@@ -158,7 +182,7 @@ fn the_owner_window_is_the_same_cut_of_the_whole_list() {
                 }
             };
             let (cut, total, _) = whole_then_cut(&mut store, &input, &window);
-            let read = store.home_window(&input, &window, HomeScope::All).unwrap();
+            let read = store.home_window(&mut ask(&input), &window, HomeScope::All).unwrap();
             assert_eq!(read.rows, cut, "seed {seed} {window:?}");
             assert_eq!(read.order.total(), total, "seed {seed}");
         }
@@ -168,12 +192,12 @@ fn the_owner_window_is_the_same_cut_of_the_whole_list() {
 #[test]
 fn a_store_change_orders_again() {
     let mut store = seeded_store(50, 3);
-    let input = input(&mut Rng(3), 50);
+    let input = input(&mut Rng(3), 50, &mut store);
     let first = HomeWindow::Range { offset: 0, limit: 5 };
-    let before = store.home_window(&input, &first, HomeScope::All).unwrap();
+    let before = store.home_window(&mut ask(&input), &first, HomeScope::All).unwrap();
     assert!(before.ordered_now);
     assert!(
-        !store.home_window(&input, &first, HomeScope::All).unwrap().ordered_now,
+        !store.home_window(&mut ask(&input), &first, HomeScope::All).unwrap().ordered_now,
         "no change: the kept order"
     );
     let people: Vec<cmux_conversation::Participant> = serde_json::from_value(json!([
@@ -182,14 +206,15 @@ fn a_store_change_orders_again() {
     ]))
     .unwrap();
     let made = store.create("home-window-new", LOCAL_USER, "New", &people).unwrap().summary.id;
-    let read =
-        store.home_window(&input, &HomeWindow::Ids(vec![made.clone()]), HomeScope::All).unwrap();
+    let read = store
+        .home_window(&mut ask(&input), &HomeWindow::Ids(vec![made.clone()]), HomeScope::All)
+        .unwrap();
     assert!(read.ordered_now, "a new conversation orders again");
     assert_eq!(read.rows.len(), 1);
     // Not every seeded conversation is in this caller's list; the new one is.
     assert_eq!(read.order.total(), before.order.total() + 1);
     let (cut, _, _) = whole_then_cut(&mut store, &input, &first);
-    assert_eq!(store.home_window(&input, &first, HomeScope::All).unwrap().rows, cut);
+    assert_eq!(store.home_window(&mut ask(&input), &first, HomeScope::All).unwrap().rows, cut);
 }
 
 fn netcond(when: &str, phase: &str, scale: &str, metric: &str, value: f64) {
@@ -224,7 +249,7 @@ fn home_open_cost_by_list_length() {
     let mut warm_after = Vec::new();
     for (n, scale) in [(100, "1x"), (1_000, "10x"), (10_000, "100x"), (100_000, "1000x")] {
         let mut store = seeded_store(n, 7);
-        let input = input(&mut Rng(7), n);
+        let input = input(&mut Rng(7), n, &mut store);
         let (before_ms, before_rows) = best(3, || {
             let (cut, _, built) = whole_then_cut(&mut store, &input, &window);
             (cut, built)
@@ -236,7 +261,7 @@ fn home_open_cost_by_list_length() {
         // Cold: the order is read from the store (as after any change).
         let (cold_ms, cold_rows) = best(3, || {
             store.home_order_cache = Default::default();
-            let read = store.home_window(&input, &window, HomeScope::All).unwrap();
+            let read = store.home_window(&mut ask(&input), &window, HomeScope::All).unwrap();
             assert!(read.ordered_now);
             let built = read.rows.len();
             (read, built)
@@ -244,7 +269,7 @@ fn home_open_cost_by_list_length() {
         netcond("after", "cold", scale, "home_open_ms", cold_ms);
         netcond("after", "cold", scale, "rows_built", cold_rows as f64);
         let (warm_ms, warm_rows) = best(5, || {
-            let read = store.home_window(&input, &window, HomeScope::All).unwrap();
+            let read = store.home_window(&mut ask(&input), &window, HomeScope::All).unwrap();
             assert!(!read.ordered_now);
             let built = read.rows.len();
             (read, built)
@@ -257,4 +282,36 @@ fn home_open_cost_by_list_length() {
     }
     let (first, last) = (warm_after[0], warm_after[warm_after.len() - 1]);
     println!("warm home open 1x {first} ms, 1000x {last} ms, ratio {:.3}", last / first.max(1e-9));
+}
+
+#[test]
+#[ignore = "profile: run by name"]
+fn home_open_profile_split() {
+    for n in [100, 100_000] {
+        let mut store = seeded_store(n, 7);
+        let input = input(&mut Rng(7), n, &mut store);
+        let window = HomeWindow::Range { offset: 0, limit: FIRST_SCREEN };
+        let (heads_ms, _) = best(3, || {
+            let heads = store.home_heads().unwrap();
+            let len = heads.len();
+            (heads, len)
+        });
+        let heads = store.home_heads().unwrap();
+        let refs: Vec<cmux_conversation::HomeHead<'_>> = heads
+            .iter()
+            .map(|(summary, activity_at)| cmux_conversation::HomeHead { summary, activity_at })
+            .collect();
+        let (order_ms, _) = best(3, || {
+            let order = cmux_conversation::HomeOrder::scoped(&refs, &input, HomeScope::All);
+            (order, 0)
+        });
+        store.home_window(&mut ask(&input), &window, HomeScope::All).unwrap();
+        let (key_ms, _) =
+            best(5, || (store.home_order(&mut ask(&input), HomeScope::All).unwrap(), 0));
+        let (warm_ms, _) =
+            best(5, || (store.home_window(&mut ask(&input), &window, HomeScope::All).unwrap(), 0));
+        println!(
+            "profile n={n} heads_query={heads_ms} order_build={order_ms} warm_key={key_ms} warm_total={warm_ms}"
+        );
+    }
 }

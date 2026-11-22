@@ -15,7 +15,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use crate::home::{SortKey, build_row, channels_of, listed};
+use crate::home::{SortKey, activity_key, build_row, channels_of, listed};
 use crate::{HomeInboxInput, HomeRow, Summary};
 
 /// One conversation's head as the order reads it: the summary (its last
@@ -112,15 +112,23 @@ impl HomeOrder {
     /// list's rows are.
     pub fn scoped(heads: &[HomeHead<'_>], input: &HomeInboxInput<'_>, scope: HomeScope) -> Self {
         let channels = channels_of(heads.iter().map(|head| head.summary), input.me);
-        let mut keyed: Vec<SortKey<'_>> = heads
+        let held: Vec<&HomeHead<'_>> = heads
             .iter()
             .filter(|head| scope.holds(head.summary) && listed(head.summary, input, &channels))
-            .map(|head| {
+            .collect();
+        // Each time's sort key once, not on every comparison (a sort of N
+        // heads compares N log N times): the key of a key is itself.
+        let times: Vec<std::borrow::Cow<'_, str>> =
+            held.iter().map(|head| activity_key(head.activity_at)).collect();
+        let mut keyed: Vec<SortKey<'_>> = held
+            .iter()
+            .zip(&times)
+            .map(|(head, time)| {
                 let state = input.states.get(&head.summary.id).copied().unwrap_or_default();
                 SortKey {
                     pinned: state.pinned,
                     pin_position: state.pin_position.filter(|_| state.pinned),
-                    activity_at: head.activity_at,
+                    activity_at: time,
                     id: &head.summary.id,
                 }
             })
