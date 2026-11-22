@@ -531,6 +531,34 @@
   flex: none;
   min-width: 0;
 }
+/* A faint hairline between sections, in the middle of the gap, as the reference app's session info draws
+   one between Outputs, Subagents and Sources (Leo, 2026-11-19: "there should be a faint divider between the
+   sections there on session info idk why it doesnt show up there"). The glance layout's divider above
+   targeted `.acpmux-session-info-group` siblings, which the one reorderable list no longer draws, so no rule
+   matched and none showed. Its color is the theme's `separator` token (--agent-border, AgentPaneTheme.swift;
+   `cmux customize schema theme`), so a theme or look restyles it with every other separator, light or dark;
+   --acpmux-session-info-divider lets a look set this one alone. Not beside the Show more line, which draws its
+   own rule, and not while a section is dragged. SessionInfo.gallery.tsx sectionDividers keeps it drawn.
+   The color falls back on the line itself, not on a panel root: the sections also draw without
+   .acpmux-session-info around them (a gallery body, the browser test), and an unset variable there made the
+   border-top invalid, so the rule matched and drew nothing. */
+.acpmux-session-info-slot:not([data-slot="more"]):not(:empty)
+  + .acpmux-session-info-slot:not([data-slot="more"]):not(:empty)::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: calc(-1 * var(--grid-gap) / 2);
+  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-session-info-divider, var(--agent-border));
+  pointer-events: none;
+}
+@media (prefers-contrast: more) {
+  .acpmux-session-info-slot::before {
+    border-top-color: var(--acpmux-session-info-divider, var(--agent-border-strong));
+  }
+}
+.acpmux-session-info-sections[data-dragging] > .acpmux-session-info-slot::before {
+  content: none;
+}
 /* The panel's Show more line (SessionInfoSectionList, sectionOrder.ts MORE_LINE): its words on the rows'
    icon column, in the same place open or closed. Open, it reads Show less with a hairline to the row's
    end, a divider over the sections it holds. No hover fill, as every fold. */
@@ -669,7 +697,7 @@ button.acpmux-session-info-port:hover,
 }
 .acpmux-session-info-section[data-revealed] {
   /* A tint over the glass, never the page color (which would flash the card opaque). */
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  background: var(--ds-surface-inset);
 }
 .acpmux-session-info-section .ui-disclosure-trigger,
 .acpmux-session-info-section__head {
@@ -1149,7 +1177,7 @@ button.acpmux-session-info-port:hover,
   padding: 0 var(--grid-base);
   overflow: hidden;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  background: var(--ds-surface-inset);
   color: var(--agent-muted);
   font-size: var(--text-detail);
   line-height: 16px;
@@ -1426,7 +1454,7 @@ button.acpmux-session-info-port:focus-visible {
 }
 .acpmux-session-info-task--command > .acpmux-session-info-stop:hover:not(:disabled) {
   color: var(--agent-status-failure);
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  background: var(--ds-surface-hover);
 }
 .acpmux-session-info-task--command:has(> .acpmux-session-info-stop:hover) > .acpmux-session-info-task__open {
   background: none;
@@ -1694,7 +1722,7 @@ button.acpmux-session-info-scope__parent:focus-visible {
   border: 1px solid color-mix(in srgb, var(--agent-text) 18%, transparent);
   border-radius: 6px;
   color: var(--agent-text);
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-surface-inset);
 }
 .acpmux-cloud-repository-list {
   display: grid;
@@ -1720,7 +1748,7 @@ button.acpmux-session-info-scope__parent:focus-visible {
 }
 .acpmux-cloud-repository-option:hover,
 .acpmux-cloud-repository-option:focus-visible {
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  background: var(--ds-surface-hover);
 }
 .acpmux-cloud-repository-option:disabled {
   cursor: wait;

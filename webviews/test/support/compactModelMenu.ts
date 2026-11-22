@@ -1,6 +1,5 @@
 import { expect } from "bun:test";
 import type { Page } from "playwright";
-import { MODEL_PICKER } from "../../src/agent-session/acpmux/composerSelectors";
 
 // Started chats without fork targets still use the list menu.
 export const COMPACT_MODEL_MENU = ":is(.acpmux-cols, .acpmux-quick-menu)";
@@ -37,13 +36,7 @@ export async function highlightOtherModel(page: Page): Promise<string> {
   );
 }
 
-/** A model click in columns holds the pick until the menu closes. */
+/** A model click closes the menu in columns as in the list (David Beyer 2026-11-20): waits for it to go. */
 export async function finishModelClick(page: Page): Promise<void> {
-  if (await page.locator(".acpmux-cols:not([data-closed])").count()) {
-    expect(await page.evaluate(() => document.activeElement?.matches(".acpmux-cols-search input[type=search]"))).toBe(
-      true,
-    );
-    await page.locator(MODEL_PICKER).click();
-  }
   await page.locator(COMPACT_MODEL_MENU).first().waitFor({ state: "detached" });
 }

@@ -963,3 +963,122 @@ async fn leave_on_a_copied_home_never_revokes_the_original_and_removes_only_the_
         "the copy called the hub"
     );
 }
+
+/// A daemon on `home` (its own socket there), once it is ready.
+#[cfg(target_os = "linux")]
+async fn joined_daemon(home: &Path) -> tokio::process::Child {
+    use tokio::io::AsyncBufReadExt;
+    let mut child = cli(home)
+        .args(["daemon", "run", "--ready-fd", "1", "--log", "info"])
+        .env("ACPMUX_SOCKET", home.join("s.sock"))
+        .env("ACPMUX_CATALOG_FETCH", "0")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut lines = tokio::io::BufReader::new(child.stdout.take().unwrap()).lines();
+    let ready = tokio::time::timeout(Duration::from_secs(60), async {
+        while let Some(line) = lines.next_line().await.unwrap() {
+            if serde_json::from_str::<Value>(&line).is_ok_and(|v| v["ready"] == true) {
+                return true;
+            }
+        }
+        false
+    })
+    .await
+    .unwrap();
+    assert!(ready, "the daemon exited before its ready line");
+    // Its later log lines go nowhere, without filling the pipe.
+    tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} });
+    child
+}
+
+/// `share-host status --json` from the daemon on `home`, once `done` says it settled (30 s at most).
+#[cfg(target_os = "linux")]
+async fn share_host_status(home: &Path, done: impl Fn(&Value) -> bool) -> Value {
+    let by = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let out = tokio::time::timeout(
+            Duration::from_secs(10),
+            cli(home)
+                .args(["share-host", "status", "--json"])
+                .env("ACPMUX_SOCKET", home.join("s.sock"))
+                .output(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let status: Value = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
+        if done(&status) || std::time::Instant::now() >= by {
+            return status;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// A joined Linux machine needs no step on it to share its screen (design D11; Leo, 2026-11-16:
+/// "if you've connected to a headlessly running mini why... would it need anything?"): its
+/// daemon runs `~/.local/bin/cmux-rd linux-host enable --non-interactive --hub <the join's
+/// device hub>` at its start, with `ACPMUX_HOME` its own home, and says so in `share-host
+/// status`. Without cmux-rd it says that instead.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_joined_linux_daemon_sets_up_cmux_rds_screen_host_by_itself() {
+    let _account = AccountConsentRestored::new();
+    let home = tempfile::tempdir().unwrap();
+    let home = home.path();
+    // The local deployment: its platform (where the heartbeats go, refused here) and its device hub.
+    joined_home(home, "http://localhost:8788");
+    let user_home = daemon_env::home(home);
+    std::fs::create_dir_all(user_home.join(".local/bin")).unwrap();
+
+    let mut daemon = joined_daemon(home).await;
+    let status = share_host_status(home, |s| s["state"] != "not_started").await;
+    assert_eq!(status["state"], "not_installed", "{status}");
+    assert!(status["detail"].as_str().unwrap().contains("cmux-rd is not installed"), "{status}");
+    stop_daemon(&mut daemon).await;
+
+    let rd = user_home.join(".local/bin/cmux-rd");
+    let seen = home.join("rd-seen");
+    std::fs::write(
+        &rd,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$ACPMUX_HOME\" \"$@\" > '{}'\necho 'This desktop is shared as \"test\" (dev1), view only.'\n",
+            seen.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&rd, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut daemon = joined_daemon(home).await;
+    let status = share_host_status(home, |s| s["state"] != "setting_up").await;
+    assert_eq!(status["state"], "set_up", "{status}");
+    assert_eq!(status["running"], true);
+    assert_eq!(status["hub"], "http://localhost:8791");
+    assert_eq!(status["cmuxRd"], json!(rd));
+    let ran = std::fs::read_to_string(&seen).unwrap();
+    let home_text = home.display().to_string();
+    assert_eq!(
+        ran.lines().collect::<Vec<_>>(),
+        [
+            home_text.as_str(),
+            "linux-host",
+            "enable",
+            "--non-interactive",
+            "--hub",
+            "http://localhost:8791"
+        ]
+    );
+    stop_daemon(&mut daemon).await;
+}
+
+/// Stops a daemon this test started (SIGTERM, as a restart's handoff), and waits for it.
+#[cfg(target_os = "linux")]
+async fn stop_daemon(daemon: &mut tokio::process::Child) {
+    if let Some(pid) = daemon.id() {
+        // SAFETY: the pid of the child this test spawned and has not reaped.
+        unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+    }
+    if tokio::time::timeout(Duration::from_secs(20), daemon.wait()).await.is_err() {
+        daemon.kill().await.unwrap();
+    }
+}
