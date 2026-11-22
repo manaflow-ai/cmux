@@ -444,7 +444,8 @@ await requireBrowserLane("agent-pane-replies-survive-failures-browser.test.ts", 
             ).toBe(true);
           }
           // What streamed before the API refused shows, and so does the 529 the harness streamed as its
-          // message. A failed turn's card says why with a Retry while it is the chat's last; once a
+          // message. A failed turn's card says why with a Retry while it is the chat's last (`wayOn`, read
+          // as each failure lands); once a
           // later turn completes it no longer draws (#48464: a stale "ran into a problem" card clears
           // once the chat goes on).
           expect(has(FINAL.partial), report).toBe(true);
@@ -455,7 +456,8 @@ await requireBrowserLane("agent-pane-replies-survive-failures-browser.test.ts", 
           ).toBe(false);
           console.log(`way on: ${wayOn.join("\n")}`);
           for (const line of wayOn) expect(WAY_ON.test(line.split("]")[0]!), line).toBe(true);
-          expect(wayOn.find((line) => line.startsWith("t-429:")) ?? "", wayOn.join("\n")).toContain("API Error: 429");
+          // The 429's card says why in words (the raw error is behind Copy error).
+          expect(wayOn.find((line) => line.startsWith("t-429:")) ?? "", wayOn.join("\n")).toMatch(/rate limited/i);
           expect(errors, errors.join("\n")).toEqual([]);
         } finally {
           await p.close();

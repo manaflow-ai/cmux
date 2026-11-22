@@ -354,8 +354,11 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       // the prompt coming down and the answer going up together.
       expect(after.prompt - before.prompt).toBeGreaterThan(8);
       expect(after.prompt - before.prompt + (after.answer - before.answer)).toBeGreaterThan(40);
+      // Since the exit lead (#48554) and the asides staying out of the fold, the prompt's own move is
+      // about 12 px; a 2 px margin at each end left a 8 px window one dropped frame on a loaded
+      // runner could cut to two frames. Every frame drawn part way counts.
       const between = folding.filter(
-        (sample) => sample.prompt > before.prompt + 2 && sample.prompt < after.prompt - 2,
+        (sample) => sample.prompt > before.prompt + 0.5 && sample.prompt < after.prompt - 0.5,
       ).length;
       expect(between).toBeGreaterThanOrEqual(3);
       const steps = folding.slice(1).map((sample, index) => sample.prompt - folding[index]!.prompt);
