@@ -5,6 +5,7 @@ import CmuxMobileDesign
 import CmuxMobileMarkdown
 import CmuxMobileModel
 import Observation
+import OSLog
 import SwiftUI
 import UIKit
 
@@ -192,7 +193,8 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         view.sectionFooterHeight = 0
         view.delegate = self
         view.register(UITableViewCell.self, forCellReuseIdentifier: Self.headerID)
-        view.register(FeedRowCell.self, forCellReuseIdentifier: FeedRowCell.reuseID)
+        // Row cells are not registered: the provider takes one from the reuse pool, else the spare
+        // made before the first scroll (`spare`), else a new one.
         let refresh = UIRefreshControl()
         refresh.addAction(UIAction { [weak self, weak refresh] _ in
             Task { @MainActor in
@@ -215,8 +217,9 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
                     if let self { cell.contentConfiguration = UIHostingConfiguration { self.header }.margins(.all, 0) }
                     return cell
                 }
-                let cell = tableView.dequeueReusableCell(withIdentifier: FeedRowCell.reuseID, for: indexPath)
-                guard let self, let row = cell as? FeedRowCell, let layout = self.layout(for: id) else { return cell }
+                let row = (tableView.dequeueReusableCell(withIdentifier: FeedRowCell.reuseID) as? FeedRowCell)
+                    ?? self?.takeSpare() ?? self?.newRowCell() ?? FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
+                guard let self, let layout = self.layout(for: id) else { return row }
                 row.delegate = self
                 row.apply(layout, item: self.items[id], settled: self.rowsSettled)
                 return row
@@ -490,6 +493,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             _ = FeedListPlan.fresh(plan.inserted, seen: &everShown)
         }
         if !plan.inserted.isEmpty || !plan.reconfigure.isEmpty { scheduleWarmUp(plan.inserted + plan.reconfigure) }
+        scheduleSpare()
         // Rows that left the list: only when some did (an insert or a move removes none).
         if plan.orderChanged, previousOrder.count + plan.inserted.count != shownOrder.count {
             let present = shownSet
@@ -519,6 +523,94 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private var warmed: Set<String> = []
     private var warmQueue: [FeedRowLayout] = []
     private var warmScheduled = false
+
+    // MARK: The first scroll's spare cell
+
+    /// One row cell built before the first scroll, filled with the list's heaviest row (a
+    /// permission card: its command block, quote and option buttons) and parked in the table off
+    /// screen, so its layers are drawn once. The first scroll needs one more cell than the screen
+    /// shows before any cell leaves it for the reuse pool; that cell was a new one, built and drawn
+    /// for the first time inside one frame's commit, the frame the Feed dropped at base and head
+    /// (profiles 4d3840dc/e01a6632: init 2, apply 4, layout 1-2, first draw 3, backing store 2 ms).
+    private var spare: FeedRowCell?
+    private var spareScheduled = false
+    /// Spares built and taken, and row cells the provider had to make itself (tests).
+    private(set) var sparesMade = 0
+    private(set) var sparesTaken = 0
+    private(set) var newCells = 0
+    /// New cells the provider made before the spare was taken (tests: none once it is parked).
+    private(set) var newCellsBeforeSpare = 0
+    /// How long the list must have been still before the spare is built (one idle build).
+    static let spareStillness: CFTimeInterval = 0.5
+
+    private func newRowCell() -> FeedRowCell {
+        newCells += 1
+        if sparesTaken == 0, spare != nil { newCellsBeforeSpare += 1 }
+        return FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
+    }
+
+    private func takeSpare() -> FeedRowCell? {
+        guard let cell = spare else { return nil }
+        spare = nil
+        cell.removeFromSuperview()
+        cell.accessibilityElementsHidden = false
+        cell.isUserInteractionEnabled = true
+        cell.prepareForReuse()
+        sparesTaken += 1
+        return cell
+    }
+
+    /// Builds the spare once the list has rows and has been still `spareStillness` (never while it
+    /// moves); one build for the Feed's life.
+    private func scheduleSpare() {
+        guard spare == nil, sparesMade == 0, !spareScheduled, !shownOrder.isEmpty else { return }
+        spareScheduled = true
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(Int(Self.spareStillness * 1000)))
+            guard let self else { return }
+            self.spareScheduled = false
+            guard let view = self.collectionView, view.window != nil, !view.isTracking, !view.isDecelerating,
+                  CACurrentMediaTime() - self.lastScroll >= Self.spareStillness else {
+                self.scheduleSpare()
+                return
+            }
+            self.buildSpare(in: view)
+        }
+    }
+
+    private func buildSpare(in view: UITableView) {
+        // The heaviest row the list holds: a permission card with its command, else the tallest.
+        var best: FeedRowLayout?
+        for id in shownOrder.prefix(200) {
+            guard let key = shownKeys[id], let layout = layouts.cached(key) else { continue }
+            if case .permission = key.item.kind {
+                best = layout
+                break
+            }
+            if layout.height > (best?.height ?? 0) { best = layout }
+        }
+        guard let layout = best else { return }
+        #if DEBUG
+        let t0 = CACurrentMediaTime()
+        #endif
+        let cell = FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
+        cell.delegate = self
+        // Off screen, in the table: drawn at the next commit like any row, never seen or read.
+        cell.frame = CGRect(x: 0, y: -layout.height - 4000, width: CGFloat(layout.key.width), height: layout.height)
+        cell.isUserInteractionEnabled = false
+        cell.accessibilityElementsHidden = true
+        cell.apply(layout, item: items[layout.key.item.id], settled: false)
+        view.addSubview(cell)
+        cell.layoutIfNeeded()
+        spare = cell
+        sparesMade += 1
+        #if DEBUG
+        if FeedStressRig.shared.config.isActive {
+            Logger(subsystem: "dev.cmux.mobile", category: "frames").notice(
+                "FRAMELOG list-stress feed-spare made=\(self.sparesMade, privacy: .public) kind=\(String(describing: layout.key.item.kind).prefix(12), privacy: .public) ms=\((CACurrentMediaTime() - t0) * 1000, format: .fixed(precision: 2), privacy: .public)")
+        }
+        #endif
+    }
     private lazy var warmCell: FeedRowCell = {
         let cell = FeedRowCell(style: .default, reuseIdentifier: nil)
         cell.frame = CGRect(x: 0, y: 0, width: max(width, 1), height: 100)
@@ -914,6 +1006,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             self.settleTask = nil
             self.rowsSettled = true
             self.visibleCells.forEach { $0.scrollSettled() }
+            self.scheduleSpare()
         }
     }
 
