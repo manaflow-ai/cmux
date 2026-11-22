@@ -243,12 +243,16 @@ export interface AcpmuxRequests {
   "_acpmux/chats_window": { params: unknown; result: unknown };
   "_acpmux/chats_window_close": { params: unknown; result: unknown };
   "_acpmux/transfer_abort": { params: unknown; result: unknown };
+  "_acpmux/transfer_base": { params: unknown; result: unknown };
   "_acpmux/transfer_begin": { params: unknown; result: unknown };
   "_acpmux/transfer_commit": { params: unknown; result: unknown };
   "_acpmux/transfer_finish": { params: unknown; result: unknown };
   "_acpmux/transfer_forget": { params: unknown; result: unknown };
+  "_acpmux/transfer_prepare": { params: unknown; result: unknown };
   "_acpmux/transfer_read": { params: unknown; result: unknown };
   "_acpmux/transfer_receive": { params: unknown; result: unknown };
+  "_acpmux/transfer_stage": { params: unknown; result: unknown };
+  "_acpmux/transfer_stage_finish": { params: unknown; result: unknown };
   "_acpmux/transfer_write": { params: unknown; result: unknown };
   "_acpmux/handoff_prepare": { params: HandoffPrepareParams; result: unknown };
   "_acpmux/handoff_get": { params: HandoffGetParams; result: unknown };
@@ -649,12 +653,16 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/chats_window_close", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chats_window_changed", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/transfer_abort", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/transfer_base", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_begin", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_commit", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_finish", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_forget", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/transfer_prepare", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_read", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_receive", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/transfer_stage", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/transfer_stage_finish", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_write", kind: "request", acp: false, typed: false },
   { name: "_acpmux/handoff_prepare", kind: "request", acp: false, typed: true },
   { name: "_acpmux/handoff_get", kind: "request", acp: false, typed: true },
