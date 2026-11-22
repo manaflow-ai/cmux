@@ -252,11 +252,63 @@ class SelectTest(unittest.TestCase):
         self.assertIsNone(self.change("webviews/src/preloaded.ts"))
         self.assertIsNone(self.change("webviews/test/preload.ts"))
 
-    def test_build_inputs_unmapped_assets_and_names_in_data_files_run_everything(self) -> None:
-        self.assertIsNone(self.change("webviews/package.json"))
-        self.assertIsNone(self.change("webviews/src/page.css"))
-        self.assertIsNone(self.change("cmux-tui/assets/fixture-icons.svg"))
-        self.assertIsNone(self.change("scripts/ci/webviews_affected.py"))
+    def test_inputs_every_test_loads_run_everything(self) -> None:
+        for path in ("webviews/package.json", "webviews/bun.lock", "webviews/bunfig.toml", "webviews/tsconfig.json",
+                     "webviews/reactCompiler.mjs", "scripts/ci/webviews_affected.py", "scripts/ci/run-webviews-tests.sh",
+                     ".github/workflows/ci-web.yml"):
+            with self.subTest(path=path):
+                self.assertIsNone(self.change(path))
+
+    def test_unmapped_assets_and_names_in_data_files_select_the_always_set(self) -> None:
+        # A css a page links, or a file a fixture names: only Vite, a browser or a file read loads them, and every
+        # test doing those is always-run.
+        self.assertEqual(self.change("webviews/src/page.css"), ALWAYS)
+        self.assertEqual(self.change("cmux-tui/assets/fixture-icons.svg"), ALWAYS)
+        (self.root / "webviews/test/fixture.test.ts").write_text('import data from "../src/fixture.json";\n')
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "fixture importer")
+        self.assertEqual(self.change("cmux-tui/assets/fixture-icons.svg"), with_always("webviews/test/fixture.test.ts"))
+
+    def test_a_name_in_a_resolution_config_runs_everything(self) -> None:
+        (self.root / "shared").mkdir()
+        (self.root / "shared/aliased-module.ts").write_text("export const a = 1;\n")
+        (self.root / "tools").mkdir()
+        (self.root / "tools/check-colors.py").write_text("x = 1\n")
+        (self.root / "webviews/tsconfig.json").write_text('{"compilerOptions": {"paths": {"@a": ["../shared/aliased-module.ts"]}}}\n')
+        (self.root / "webviews/package.json").write_text('{"scripts": {"colors": "python3 ../tools/check-colors.py"}}\n')
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "fixture configs")
+        self.assertIsNone(self.change("shared/aliased-module.ts"))
+        # A package.json script is a shell command: a test running it spawns a process, so it is always-run.
+        self.assertEqual(self.change("tools/check-colors.py"), ALWAYS)
+        (self.root / "webviews/package.json").write_text(
+            '{"imports": {"#colors": "../tools/check-colors.py"}, "scripts": {}}\n')
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "fixture imports map")
+        self.assertIsNone(self.change("tools/check-colors.py"))
+
+    def test_vite_configs_scripts_and_helpers_outside_the_preload_select_their_tests(self) -> None:
+        (self.root / "webviews/scripts").mkdir(parents=True, exist_ok=True)
+        (self.root / "webviews/test/support").mkdir(parents=True, exist_ok=True)
+        (self.root / "webviews/vite.config.ts").write_text('export default {};\n')
+        (self.root / "webviews/scripts/table.mjs").write_text("export const t = 1;\n")
+        (self.root / "webviews/test/support/helper.ts").write_text("export const h = 1;\n")
+        (self.root / "webviews/test/helped.test.ts").write_text(
+            'import { h } from "./support/helper";\nimport { t } from "../scripts/table.mjs";\n')
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "fixture helpers")
+        # Vite builds and serves pages; every test that runs it, a browser, or reads a bundle is always-run.
+        self.assertEqual(self.change("webviews/vite.config.ts"), ALWAYS)
+        self.assertEqual(self.change("webviews/test/support/helper.ts"), with_always("webviews/test/helped.test.ts"))
+        self.assertEqual(self.change("webviews/scripts/table.mjs"), with_always("webviews/test/helped.test.ts"))
+        wa.NARROW = False
+        try:
+            self.assertIsNone(self.change("webviews/vite.config.ts"))
+            self.assertIsNone(self.change("webviews/scripts/table.mjs"))
+            self.assertIsNone(self.change("webviews/src/page.css"))
+            self.assertIsNone(self.change("cmux-tui/assets/fixture-icons.svg"))
+        finally:
+            wa.NARROW = True
 
     def test_the_cli_prints_paths_under_webviews_or_nothing(self) -> None:
         self.change("webviews/src/leaf.ts")
