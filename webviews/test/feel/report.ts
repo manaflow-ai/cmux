@@ -37,6 +37,8 @@ export function writeReport(component: string, results: ScenarioResult[]): strin
       ),
     ),
     "",
+    ...results.filter((result) => result.known).map((result) => `- ${result.scenario}: known red, ${result.known}`),
+    "",
     ...results.filter((result) => result.video).map((result) => `- ${result.scenario}: ${result.video}`),
   ];
   const markdown = `${lines.join("\n")}\n`;

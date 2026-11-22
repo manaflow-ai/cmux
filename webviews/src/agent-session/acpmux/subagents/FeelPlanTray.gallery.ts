@@ -33,18 +33,31 @@ const command = (line: string, description: string, minutes: number) =>
     startedAt: minutesAgo(minutes),
   });
 
+const COMMANDS = [
+  ["bun test webviews/src/agent-session/acpmux/subagents --timeout 30000", "run the hat tests"],
+  ["cmux-ci compile-check --app --ref HEAD", "compile on the fleet"],
+  ["bun run gallery:dev", "serve the gallery"],
+  ["cargo test -p cmux-motion", "test the springs"],
+  ["scripts/web-lint.sh", "lint the web UI"],
+] as const;
+
+/// As many background commands as plan steps: the hat's list holds them, so a drag up has lines to show.
+const commands = (count: number, huge: boolean) =>
+  Array.from({ length: count }, (_, i) => {
+    const [line, description] = COMMANDS[i % COMMANDS.length]!;
+    return command(
+      huge ? `${line} # ${HUGE}` : count > COMMANDS.length ? `${line} # ${i + 1}` : line,
+      description,
+      2 - i / count,
+    );
+  });
+
 const snapshot = (count: number, huge = false) =>
   chat(
     [
       user("Land the tray change: compile, test and update the spec", 3),
       row("plan", 2.9, { plan: plan(count, huge) }),
-      activity(
-        [
-          command("bun test webviews/src/agent-session/acpmux/subagents --timeout 30000", "run the hat tests", 2),
-          command("cmux-ci compile-check --app --ref HEAD", "compile on the fleet", 1.5),
-        ],
-        2,
-      ),
+      activity(commands(count, huge), 2),
       assistant("The tests and the compile are running.", 0.5),
     ],
     { isWorking: true },
@@ -66,9 +79,17 @@ export default agentPaneEntry({
   anchors: [{ selector: ".acpmux-header" }, { selector: ".acpmux-composer" }],
   covers: ["agent-session/acpmux/subagents/SubagentTray.tsx", "agent-session/acpmux/subagents/trayResize.ts"],
   variants: {
-    one: { note: "One plan step and two commands.", play: opened, snapshot: snapshot(1) },
-    five: { note: "Five plan steps and two commands.", play: opened, snapshot: snapshot(5) },
-    fifty: { note: "Fifty plan steps: the list scrolls in place under the cap.", play: opened, snapshot: snapshot(50) },
-    huge: { note: "Five steps of huge text: each cut at the row's edge.", play: opened, snapshot: snapshot(5, true) },
+    one: { note: "One plan step and one command.", play: opened, snapshot: snapshot(1) },
+    five: { note: "Five plan steps and five commands.", play: opened, snapshot: snapshot(5) },
+    fifty: {
+      note: "Fifty plan steps and fifty commands: the list scrolls in place under the cap.",
+      play: opened,
+      snapshot: snapshot(50),
+    },
+    huge: {
+      note: "Five steps and commands of huge text: each cut at the row's edge.",
+      play: opened,
+      snapshot: snapshot(5, true),
+    },
   },
 });

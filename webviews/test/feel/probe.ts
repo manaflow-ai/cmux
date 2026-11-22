@@ -47,11 +47,19 @@ function defineFeelProbe() {
   } catch {
     // Not Chromium: no layout-shift scores, every frame reads 0.
   }
-  const textWidth = (element: Element) => {
-    const range = document.createRange();
-    range.selectNodeContents(element);
-    return Math.round(range.getBoundingClientRect().width * 10) / 10;
+  // The words a reader sees: the element's text without what a transition keeps for its leaving
+  // part (`aria-hidden`, as trayMotion.tsx's outgoing words are), and the width it is drawn at.
+  const shownText = (element: Element): string => {
+    let text = "";
+    const walk = (node: Node) => {
+      if (node.nodeType === Node.TEXT_NODE) text += node.textContent ?? "";
+      else if (node instanceof Element && node.getAttribute("aria-hidden") === "true") return;
+      else for (const child of node.childNodes) walk(child);
+    };
+    walk(element);
+    return text;
   };
+  const textWidth = (element: Element) => Math.round(element.getBoundingClientRect().width * 10) / 10;
   const read = (t: number): Trace["frames"][number] => {
     const boxes: Trace["frames"][number]["boxes"] = {};
     for (const [name, selector] of Object.entries(spec.boxes ?? {})) {
@@ -66,7 +74,7 @@ function defineFeelProbe() {
     const texts: Trace["frames"][number]["texts"] = {};
     for (const [name, selector] of Object.entries(spec.texts ?? {})) {
       const element = document.querySelector(selector);
-      texts[name] = element ? { text: element.textContent ?? "", width: textWidth(element) } : null;
+      texts[name] = element ? { text: shownText(element), width: textWidth(element) } : null;
     }
     const states: Trace["frames"][number]["states"] = {};
     for (const [name, { selector, attr }] of Object.entries(spec.states ?? {})) {
