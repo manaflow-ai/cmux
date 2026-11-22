@@ -42,7 +42,7 @@ import Testing
         #expect(shownTextButtons(in: view).isEmpty, "the Update Available card still shows a text button: \(shownTextButtons(in: view).map(\.title))")
         #expect(view.closeButton.label == "Hide")
         #expect(view.closeButton.accessibilityLabel() == "Hide")
-        #expect(view.closeButton.toolTip == "Hide")
+        #expect(view.closeButton.themedToolTip == "Hide")
         let close = view.convert(view.closeButton.frame, from: view.closeButton.superview)
         let title = view.convert(view.titleLabel.frame, from: view.titleLabel.superview)
         expectCenteredOnTitle(close, title, font: view.titleLabel.font ?? .systemFont(ofSize: 13), "Update Available")
@@ -89,7 +89,7 @@ import Testing
         #expect(!view.closeButton.isHidden, "\(layout): the Update Ready card shows no x")
         #expect(shownTextButtons(in: view).isEmpty, "\(layout): the Update Ready card still shows a text button")
         #expect(view.closeButton.accessibilityLabel() == "Hide")
-        #expect(view.closeButton.toolTip == "Hide")
+        #expect(view.closeButton.themedToolTip == "Hide")
         let close = view.closeButton.frame, title = view.titleLabel.frame
         expectCenteredOnTitle(close, title, font: view.titleLabel.font ?? .systemFont(ofSize: 13), "Update Ready \(layout)")
         #expect(close.maxY <= view.button.frame.minY, "\(layout): the x \(close) overlaps the Restart button \(view.button.frame)")

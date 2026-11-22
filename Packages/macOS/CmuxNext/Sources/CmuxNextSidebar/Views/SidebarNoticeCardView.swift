@@ -371,7 +371,7 @@ final class SidebarNoticeCardView: NSView {
     private func frames(for notice: SidebarNoticeCard, width: CGFloat) -> Frames {
         let trailingWidth = notice.trailing == nil ? 0 : trailingButton.fittingWidth
         let key = FramesKey(notice: notice, width: width, trailingWidth: trailingWidth, placement: glyphPlacement,
-                            scale: [Self.padding, Metrics.space1, Metrics.space2, Metrics.cardRowGap, Metrics.space4, Typography.caption.pointSize,
+                            scale: [Self.padding, Self.cardCornerRadius, Metrics.space1, Metrics.space2, Metrics.cardRowGap, Metrics.space4, Typography.caption.pointSize,
                                     Typography.bodyEmphasized.pointSize, SidebarUpdateButton.font.pointSize, SidebarUpdateButton.height],
                             faces: [Typography.caption.fontName, Typography.bodyEmphasized.fontName, SidebarUpdateButton.font.fontName])
         if let measured, measured.key == key { return measured.frames }
@@ -409,7 +409,9 @@ final class SidebarNoticeCardView: NSView {
         // the x: only that row leaves it room. The detail and the bar span the whole inner width in every
         // stage (Lawrence 2026-11-07: "cancel button is ugly not taking up full width here").
         let trailingRoom = notice.trailing == nil ? 0 : trailingWidth + Metrics.space1
-        let closeRoom = (notice.dismissLabel == nil ? 0 : closeSide) + trailingRoom
+        // The x's room from the text's edge: its corner inset can exceed the padding (a rounder corner at a looser density).
+        let corner = Metrics.cornerControl(outerRadius: cardCornerRadius, side: closeSide)
+        let closeRoom = (notice.dismissLabel == nil ? 0 : max(closeSide, corner.padding + closeSide - pad)) + trailingRoom
         let titleX = pad + (showsGlyph && !frames.glyphRow ? glyphSide + Metrics.space2 : 0)
         let bodyX = placement == .column ? titleX : pad
         var y = pad
