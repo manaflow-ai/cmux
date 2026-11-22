@@ -3,6 +3,7 @@
 //! the phone's grid, and kept up to date by repainting only from the first
 //! row that changed.
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use crate::style::{Color, Style};
@@ -66,9 +67,19 @@ pub fn wrap_line(
             units.push((at - spacers, *cell));
         }
     }
-    // Trailing blanks that draw nothing go (the host row's empty end).
+    // Trailing blanks that draw nothing go (the host row's empty end). Laid
+    // out as the host's lines exactly, only cells never written go, as
+    // Ghostty's own reflow trims them: a space the program printed is a
+    // cell of the line (a right-aligned row's padding, a line ending in a
+    // space), and its rows wrap on the phone as on a resized Mac.
     while let Some((_, cell)) = units.last() {
-        if cell.is_empty_or_space() && term.styles.get(cell.style).is_invisible_when_blank() {
+        let style = term.styles.get(cell.style);
+        let trimmed = if compact {
+            cell.is_empty_or_space() && style.is_invisible_when_blank()
+        } else {
+            cell.ch == 0 && cell.kind != WIDE && style.bg == Color::Default
+        };
+        if trimmed {
             units.pop();
         } else {
             break;
@@ -334,6 +345,134 @@ pub fn rows_back(term: &Terminal, end: usize, cols: usize, want: usize, compact:
     start
 }
 
+/// The host's last lines laid out at some width, as a terminal of that
+/// width holds them (Ghostty's reflow): which rows continue a soft wrap,
+/// where the content ends, and the cursor's row.
+struct Shape {
+    /// Per row: it continues the row above it (a soft wrap).
+    continues: Vec<bool>,
+    /// Rows through the last line with something in it, or the cursor's.
+    end: usize,
+    cursor: usize,
+    /// Rows above `continues` (at least: an older line takes one or more).
+    above: usize,
+}
+
+impl Shape {
+    /// The host's lines from `want` host rows above its screen on, at `cols`.
+    fn of(term: &Terminal, cols: usize, compact: bool, want: usize) -> Option<Shape> {
+        let history_len = term.history.len();
+        let from = line_start(term, history_len.saturating_sub(want));
+        let (cursor_x, cursor_y) = term.primary_cursor();
+        let rows: Vec<&Row> =
+            term.history.iter().skip(from).chain(term.primary_rows().iter()).collect();
+        let cursor_row = history_len - from + cursor_y;
+        let mut continues = Vec::new();
+        let mut keep = 0;
+        let mut cursor = None;
+        let mut start = 0;
+        while start < rows.len() {
+            let mut end = start;
+            while end + 1 < rows.len() && rows.get(end).is_some_and(|r| r.wrapped) {
+                end += 1;
+            }
+            let in_line =
+                (start..=end).contains(&cursor_row).then(|| (cursor_row - start, cursor_x));
+            let line = rows.get(start..=end).unwrap_or_default();
+            let wrapped = wrap_line(term, line, term.cols, cols, in_line, compact);
+            if let Some((row, _)) = wrapped.cursor {
+                cursor = Some(continues.len() + row);
+            }
+            continues.extend((0..wrapped.rows.len()).map(|k| k > 0));
+            if !wrapped.empty {
+                keep = continues.len();
+            }
+            start = end + 1;
+        }
+        let cursor = cursor?;
+        Some(Shape { continues, end: keep.max(cursor + 1), cursor, above: from })
+    }
+
+    /// Rows below the cursor's, with `pad` rows below the content.
+    fn below_cursor(&self, pad: usize) -> usize {
+        self.end + pad - self.cursor - 1
+    }
+
+    /// Soft-wrap continuations from the top of the active area (the last
+    /// `rows` rows) down to the cursor's row.
+    fn wraps_to_cursor(&self, pad: usize, rows: usize) -> usize {
+        if self.below_cursor(pad) >= rows {
+            return 0;
+        }
+        let top = (self.end + pad).saturating_sub(rows);
+        self.continues.get(top..=self.cursor).map_or(0, |c| c.iter().filter(|&&w| w).count())
+    }
+
+    /// A change of rows only (PageList.resizeWithoutReflow): fewer rows trim
+    /// blank ones from the bottom first; more rows pull scrollback down when
+    /// the cursor is on the last row, else add blank rows at the bottom.
+    fn rows_changed(&self, rows: usize, pad: usize, new_rows: usize) -> usize {
+        match new_rows.cmp(&rows) {
+            Ordering::Less => pad - pad.min(rows - new_rows),
+            Ordering::Greater if self.below_cursor(pad) == 0 => {
+                pad + new_rows.saturating_sub(self.above + self.end + pad)
+            }
+            Ordering::Greater => pad + (new_rows - rows),
+            Ordering::Equal => pad,
+        }
+    }
+}
+
+/// A change of columns (PageList.resizeCols): the lines re-wrap, blank rows
+/// at the bottom are dropped, the grid is filled to `rows`, and rows are
+/// added so the cursor keeps the rows it had below it (less the rows its
+/// own lines grew by above it).
+fn reflowed(before: &Shape, pad: usize, after: &Shape, rows: usize) -> usize {
+    let remaining = before.below_cursor(pad).min(rows.saturating_sub(1));
+    let wrapped_before = before.wraps_to_cursor(pad, rows);
+    let pad = rows.saturating_sub(after.above + after.end);
+    let current = after.below_cursor(pad);
+    if current >= rows {
+        return pad;
+    }
+    let grew = after.wraps_to_cursor(pad, rows).saturating_sub(wrapped_before);
+    pad + remaining.saturating_sub(grew).saturating_sub(current)
+}
+
+/// The blank rows a terminal keeps below the host's content after it is
+/// resized from `old` (cols, rows, blank rows below the content) to `new`
+/// (cols, rows), the way Ghostty resizes a grid: a phone that rotates
+/// keeps the rows a Mac resized the same way would. None: no cursor on the
+/// primary screen to lay out by.
+pub fn rows_below_after_resize(
+    term: &Terminal,
+    compact: bool,
+    old: (usize, usize, usize),
+    new: (usize, usize),
+) -> Option<usize> {
+    let ((old_cols, old_rows, pad), (cols, rows)) = (old, new);
+    let want = old_rows.max(rows) + 1;
+    let before = Shape::of(term, old_cols, compact, want)?;
+    if cols == old_cols {
+        return Some(before.rows_changed(old_rows, pad, rows));
+    }
+    let after = Shape::of(term, cols, compact, want)?;
+    Some(if cols < old_cols {
+        // Rows first, then the columns (PageList.resize).
+        let pad = before.rows_changed(old_rows, pad, rows);
+        reflowed(&before, pad, &after, rows)
+    } else {
+        let pad = reflowed(&before, pad, &after, old_rows);
+        after.rows_changed(old_rows, pad, rows)
+    })
+}
+
+/// The blank rows the host's own grid has below its content.
+pub fn host_rows_below(term: &Terminal) -> Option<usize> {
+    let shape = Shape::of(term, term.cols, false, term.rows + 1)?;
+    Some(shape.continues.len().saturating_sub(shape.end))
+}
+
 /// What a feed gives the phone's terminal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Paint {
@@ -375,6 +514,15 @@ pub struct View {
     /// Right-anchored rows wider than the phone are laid out at its width
     /// ([`compact_anchored`]). Set before the first paint.
     pub compact: bool,
+    /// Blank rows the phone's grid has below its content (the last line
+    /// with something in it, or the cursor's row), as of the last paint.
+    pub rows_below: usize,
+    /// The grid's rows as a resize leaves them ([`rows_below_after_resize`]):
+    /// a reset keeps the blank rows below the content it had, and new output
+    /// takes them before the grid grows. None: the host's screen decides.
+    grid_below: Option<usize>,
+    /// No paint yet: the grid's rows were set for this host state.
+    fresh: bool,
 }
 
 impl View {
@@ -395,7 +543,16 @@ impl View {
             bytes_out: 0,
             resets: 0,
             compact: true,
+            rows_below: 0,
+            grid_below: None,
+            fresh: true,
         }
+    }
+
+    /// The blank rows below the content the phone's grid starts with (a
+    /// resize's, [`rows_below_after_resize`]). Set before the first paint.
+    pub fn set_rows_below(&mut self, rows: Option<usize>) {
+        self.grid_below = rows;
     }
 
     pub fn request_reset(&mut self) {
@@ -459,7 +616,12 @@ impl View {
             term.reset_needed = false;
             self.needs_reset = true;
             self.line_cache.clear();
+            if !self.fresh {
+                // A full reset or a host resize: its screen decides again.
+                self.grid_below = None;
+            }
         }
+        self.fresh = false;
         if self.settled_host < term.history_dropped {
             // An unsettled line longer than the scrollback lost its start.
             self.needs_reset = true;
@@ -560,7 +722,13 @@ impl View {
         // The host's screen is a screen: at least the phone's rows of it, so a
         // cleared screen keeps its prompt at the top as on the host.
         let screen_floor = self.rows.min(live.len());
-        let mut live_len = keep.max(cursor_end).max(screen_floor);
+        let content_end = keep.max(cursor_end);
+        let mut live_len = match self.grid_below {
+            // A reset keeps the grid's blank rows; output takes them first.
+            Some(below) if reset => content_end + below,
+            Some(_) => content_end,
+            None => content_end.max(screen_floor),
+        };
         // The phone's terminal never takes rows back: what it shows stays as long.
         let shown_end = self.shown_end();
         let new_settled_end = self.settled_end + settled_rows as u64;
@@ -569,6 +737,10 @@ impl View {
             live_len = min_len;
         }
         live.resize(live_len, ProjectedRow::default());
+        self.rows_below = live_len - content_end;
+        if self.grid_below.is_some() {
+            self.grid_below = Some(self.rows_below);
+        }
         // 3. Rows from the old settled end: the newly settled ones, then the live ones.
         let mut tail = newly;
         tail.extend(live.iter().cloned());

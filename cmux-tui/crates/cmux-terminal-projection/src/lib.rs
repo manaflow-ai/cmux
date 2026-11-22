@@ -108,8 +108,28 @@ impl Projection {
         if self.viewport() == Some((cols, rows)) {
             return Vec::new();
         }
+        // The grid it resizes from: the phone's, or the host's at first.
+        let old = match &self.view {
+            Some(old) => Some((old.cols, old.rows, old.rows_below)),
+            None => project::host_rows_below(&self.term)
+                .map(|below| (self.term.cols, self.term.rows, below)),
+        };
+        self.set_viewport_from(cols, rows, old)
+    }
+
+    /// A new view at `cols` x `rows`, its grid's rows as a terminal resized
+    /// from `old` (cols, rows, blank rows below the content) has them.
+    fn set_viewport_from(
+        &mut self,
+        cols: usize,
+        rows: usize,
+        old: Option<(usize, usize, usize)>,
+    ) -> Vec<Segment> {
         let mut view = View::new(cols, rows);
         view.compact = self.compact;
+        view.set_rows_below(old.and_then(|old| {
+            project::rows_below_after_resize(&self.term, self.compact, old, (cols, rows))
+        }));
         if let Some(old) = &self.view {
             view.bytes_out = old.bytes_out;
             view.resets = old.resets;
@@ -144,10 +164,11 @@ impl Projection {
             return Vec::new();
         }
         self.compact = compact;
-        let Some((cols, rows)) = self.viewport() else { return Vec::new() };
+        let Some(old) = &self.view else { return Vec::new() };
+        let (cols, rows, below) = (old.cols, old.rows, old.rows_below);
         // A fresh view at the same grid: its line cache was written the other way.
         self.view = None;
-        self.set_viewport(cols, rows)
+        self.set_viewport_from(cols, rows, Some((cols, rows, below)))
     }
 
     /// Host scrollback rows the phone's terminal does not hold yet (older
