@@ -1,5 +1,5 @@
 import React, { memo, useEffect, useRef, useState, useSyncExternalStore, useLayoutEffect } from "react";
-import { Keycap } from "../Keycap";
+import { KeyHint } from "../../../ui/KeyHint";
 import { useT } from "../i18n";
 import { inlineText } from "../question/inlineText";
 import { answerPrompt, type NextStepAsk } from "./nextStepAsk";
@@ -157,7 +157,7 @@ export const NextStepCard = memo(function NextStepCard({
               onClick={() => send(option.label)}
             >
               {option.key ? t(option.key) : inlineText(option.label)}
-              {index === 0 && registerKey && <Keycap>⌘↩</Keycap>}
+              {index === 0 && registerKey && <KeyHint keys="⌘↩" aria-hidden="true" />}
             </button>
           ))}
         </div>

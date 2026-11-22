@@ -7,7 +7,7 @@ import { COMPOSER_READY_EVENT } from "../composerFocus";
 import { Check, ChevronDown, ChevronLeft, ChevronRight } from "../conversation/icons";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { ANSWER_HOLD_MS, useAnswerHold } from "../answerHold";
-import { Keycap } from "../Keycap";
+import { KeyHint } from "../../../ui/KeyHint";
 import { NativeError } from "../nativeError";
 import { knownRefusalText } from "../transportErrors";
 import {
@@ -511,7 +511,7 @@ function PendingQuestion({
                 onClick={skip}
               >
                 {inlineText(reject.label)}
-                <Keycap>esc</Keycap>
+                <KeyHint keys="esc" aria-hidden="true" />
               </button>
             )}
           </WithFacts>
@@ -523,7 +523,7 @@ function PendingQuestion({
             onClick={() => dispatch({ type: "number", value: consent.accept + 1 })}
           >
             {inlineText(accept.label)}
-            <Keycap>↩</Keycap>
+            <KeyHint keys="↩" aria-hidden="true" />
           </button>
         </div>
       </fieldset>
@@ -719,7 +719,7 @@ function PendingQuestion({
               onClick={skip}
             >
               {t("question.skip")}
-              <Keycap>esc</Keycap>
+              <KeyHint keys="esc" aria-hidden="true" />
             </button>
             {action === "next" ? (
               <button
@@ -742,8 +742,7 @@ function PendingQuestion({
               >
                 {t(promptCard ? "composer.send" : "question.submit")}
                 <span className="acpmux-question-keys">
-                  <Keycap>⌘</Keycap>
-                  <Keycap>↩</Keycap>
+                  <KeyHint keys="⌘↩" aria-hidden="true" />
                 </span>
               </button>
             )}

@@ -1,4 +1,4 @@
-import { keycapLegend } from "../../ui/keycapLegend";
+import { KeyHint } from "../../ui/KeyHint";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -651,7 +651,7 @@ export function NewTabPage({
                 >
                   <KindIcon kind={option} />
                   <span>{t(NEW_TAB_LABELS.kinds[option])}</span>
-                  {hotkeys[option] && <kbd>{hotkeys[option]}</kbd>}
+                  {hotkeys[option] && <KeyHint keys={hotkeys[option]!} />}
                 </button>
               ))}
             </fieldset>
@@ -756,7 +756,7 @@ export function NewTabPage({
                   </span>
                   <span className="acpmux-omni-action" data-popup-skip>
                     {row.type === "ask" ? t(NEW_TAB_LABELS.ask, { agent }) : t(NEW_TAB_LABELS.rows[row.type])}
-                    {index === selected && <kbd>{keycapLegend("↩")}</kbd>}
+                    {index === selected && <KeyHint keys="↩" />}
                   </span>
                 </div>
               ))}

@@ -3,6 +3,7 @@ import { useLocationShortcut } from "./composerControls";
 import { MacBookGlyph } from "./MacBookGlyph";
 import { Combobox } from "../../ui/Combobox";
 import { ContextMenu } from "../../ui/ContextMenu";
+import { KeyHint } from "../../ui/KeyHint";
 import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { translate as t, type StringKey } from "./i18n";
@@ -941,7 +942,7 @@ export function EnvironmentPicker({
                   </span>
                 </span>
               )}
-            {number !== undefined && digits && <kbd className="acpmux-env-key">⌥⌘{number}</kbd>}
+            {number !== undefined && digits && <KeyHint keys={`⌥⌘${number}`} className="acpmux-env-key" />}
             <span className="acpmux-location-check" aria-hidden="true">
               {(environment.id === checkedRow || (savedLocal && isLocal(environment))) && <CheckIcon />}
             </span>

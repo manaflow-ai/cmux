@@ -175,6 +175,7 @@ function GlassSystemGallery({ mode }: Props) {
           whiteSpace: "nowrap",
         }}
       >
+        {/* key-hint-allow: a sample label naming the glass level, not a drawn shortcut. */}
         chip · a tooltip ⌘K
       </div>
     </div>

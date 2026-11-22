@@ -113,12 +113,6 @@
 .acpmux-next-step__answer.is-primary:hover {
   opacity: 0.9;
 }
-.acpmux-next-step__answer.is-primary .acpmux-keycap {
-  margin: 0 -4px 0 2px;
-  border-color: color-mix(in srgb, var(--acpmux-base) 30%, transparent);
-  color: inherit;
-  opacity: 0.7;
-}
 .acpmux-next-step__answer:disabled {
   opacity: 0.6;
 }

@@ -76,7 +76,7 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
                 text: card.textContent ?? "",
                 buttons: answers.length,
                 lines: new Set(answers.map((box) => Math.round(box.top))).size,
-                keycap: card.querySelector(".acpmux-next-step__answer.is-primary .acpmux-keycap") !== null,
+                keycap: card.querySelector(".acpmux-next-step__answer.is-primary .ui-key-hint") !== null,
                 right: card.getBoundingClientRect().right,
                 width: document.documentElement.clientWidth,
               };

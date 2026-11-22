@@ -7,6 +7,8 @@ import { usePopupHost } from "../../ui/UiProvider";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { isMousePress } from "../../ui/pressRelease";
 import { registerPicker } from "./pickerOpeners";
+import { KeyHint } from "../../ui/KeyHint";
+import { hintIsKey } from "./composerPickerModel";
 
 import { useT } from "./i18n";
 import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
@@ -279,7 +281,12 @@ export function PaletteMenu({
                           <span className="acpmux-menu-label">{choice.name}</span>
                           {choice.description && <span className="acpmux-menu-description">{choice.description}</span>}
                         </span>
-                        {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+                        {choice.hint &&
+                          (hintIsKey(choice.hint) ? (
+                            <KeyHint keys={choice.hint} className="acpmux-menu-hint" />
+                          ) : (
+                            <span className="acpmux-menu-hint acpmux-menu-arg">{choice.hint}</span>
+                          ))}
                       </div>
                     );
                   })}

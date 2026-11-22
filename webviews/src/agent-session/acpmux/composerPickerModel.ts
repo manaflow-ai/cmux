@@ -73,6 +73,12 @@ export type Choice = {
   recommended?: boolean;
 };
 
+/// A menu row's trailing hint is a key ("⌃⌥⌘P", "@", "/"), drawn as the one key hint (ui/KeyHint), or an
+/// argument placeholder ("<harness>", "[session-id]"), drawn as text, never as a key.
+export function hintIsKey(hint: string): boolean {
+  return /^[⌃⌥⇧⌘]+\S/u.test(hint) || Array.from(hint).length === 1;
+}
+
 /// Plan modes (an id ending in "plan") read and propose without editing; the toggle sits apart from the permission chip.
 export function isPlan(modeId: string): boolean {
   return /(^|[-_])plan$/i.test(modeId);

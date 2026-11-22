@@ -6,6 +6,7 @@
 // two never stack. No new strings: the name, key and address are the button's own.
 import { createPortal } from "react-dom";
 import { HOVER_INTENT } from "../../../ui/hoverIntent";
+import { KeyHint } from "../../../ui/KeyHint";
 import { interfaceScale } from "../../../ui/interfaceScale";
 import { HeaderIcon } from "./HeaderIcon";
 
@@ -74,7 +75,7 @@ export function HeaderToolPreview({ target }: { target: HeaderToolPreviewTarget 
       </div>
       <div className="acpmux-header-preview-text">
         <span className="acpmux-header-preview-name">{target.label}</span>
-        {target.shortcut && <kbd className="acpmux-header-preview-key">{target.shortcut}</kbd>}
+        {target.shortcut && <KeyHint keys={target.shortcut} className="acpmux-header-preview-key" />}
       </div>
       {target.title && target.title !== target.label && (
         <div className="acpmux-header-preview-detail">{target.title}</div>

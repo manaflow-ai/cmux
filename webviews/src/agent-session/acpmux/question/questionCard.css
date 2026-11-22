@@ -217,7 +217,7 @@
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--acpmux-question-edge);
 }
-.acpmux-question-ask[data-prompt-card] .acpmux-question-footer .acpmux-question-actions :is(.acpmux-keycap, .acpmux-question-keys) { display: none; }
+.acpmux-question-ask[data-prompt-card] .acpmux-question-footer .acpmux-question-actions :is(.ui-key-hint, .acpmux-question-keys) { display: none; }
 .acpmux-question-footer .acpmux-question-other :is(input, textarea) {
   margin: 0;
   padding: 0;

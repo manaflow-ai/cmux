@@ -1892,8 +1892,12 @@
   pointer-events: none;
   letter-spacing: var(--text-caption--letter-spacing);
 }
-/* A machine's ⌥⌘ key, and Other devices' count of machines a chat can start on now: quiet, before the check or chevron. */
-.acpmux-env-row :is(.acpmux-env-key, .acpmux-env-count) {
+/* A machine's ⌥⌘ key (ui/KeyHint), and Other devices' count of machines a chat can start on now: quiet, before the check or chevron. */
+.acpmux-env-row .acpmux-env-key {
+  flex: none;
+  margin-left: auto;
+}
+.acpmux-env-row .acpmux-env-count {
   flex: none;
   margin-left: auto;
   padding: 0;

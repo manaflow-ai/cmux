@@ -220,6 +220,10 @@
   line-height: var(--text-caption--line-height);
   letter-spacing: var(--text-caption--letter-spacing);
 }
+/* The column's ink is already the secondary one: its key hint (ui/KeyHint) takes it as is. */
+.ui-menu-shortcut > .ui-key-hint {
+  color: inherit;
+}
 :where(.ui-field) {
   font-family: inherit;
   font-size: var(--text-body);
