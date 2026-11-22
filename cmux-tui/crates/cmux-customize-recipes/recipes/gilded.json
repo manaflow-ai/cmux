@@ -1,0 +1,9 @@
+{
+  "cmuxProfile": 1,
+  "name": "gilded",
+  "description": "Klimt's The Kiss behind dark glass, gold-leaf accent on cards, serif pages.",
+  "settings": {
+    "appearance.themeFile": "gilded",
+    "markdown.font.preset": "serif"
+  }
+}
