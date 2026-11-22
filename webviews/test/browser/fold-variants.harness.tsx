@@ -409,7 +409,7 @@ async function run(
         requestAnimationFrame(tick);
       }
       flushSync(() => show({ rows, working: state.working, sends, look, ...options }));
-      if (sampling) window.__transcriptMotion!.rows?.(rows.map((row) => row.id));
+      if (sampling) window.__transcriptMotion!.rows?.(rows.map((row) => [row.id, JSON.stringify(row)] as const));
       // An `open` reader action scrolls nothing: it takes the plain branch below.
       if (step.type === "reader" && stray && !("open" in step.reader)) {
         if (sampling) window.__transcriptMotion!.mark(`input:${step.label}`);
