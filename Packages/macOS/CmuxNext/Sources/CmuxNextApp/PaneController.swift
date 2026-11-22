@@ -469,6 +469,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if !elsewhere { elsewhereNotice = nil }
         let ownsView = guestTerminal?.key == key || elsewhere // not the cache's surface: the ledger never hears of it
         if case .browser(let entry) = content {
+            (entry.tab as? CEFTab)?.willShow(inPane: BrowserPaneID(rawValue: "pane-" + paneKey)) // its pane's Chromium window
             _ = BenchSpans.measure("switch.bindChrome") { view.browserChrome.bind(entry.tab, state: entry.state) }
         }
         DebugTabSwitch.mark(self, "content")
