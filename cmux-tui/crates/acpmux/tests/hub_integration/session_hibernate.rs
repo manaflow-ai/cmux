@@ -233,34 +233,45 @@ async fn idle_sessions_hibernate_at_once_not_one_after_another() {
     // When each process was first seen ended: a server at its SIGTERM, a harness at its SIGKILL.
     let mut told: Vec<Option<Duration>> = vec![None; N];
     let mut ended: Vec<Option<Duration>> = vec![None; N];
+    let mut ended_when_told = vec![0usize; N];
     let deadline = began + Duration::from_secs(20);
     while ended.iter().any(Option::is_none) {
         assert!(std::time::Instant::now() < deadline, "a harness outlived its hibernation");
         let all: Vec<u32> = sidecars.iter().chain(&harnesses).copied().collect();
         let running = tokio::task::spawn_blocking(move || running_of(&all)).await.unwrap();
         let at = began.elapsed();
-        for (seen, pids) in [(&mut told, &sidecars), (&mut ended, &harnesses)] {
-            for (slot, pid) in seen.iter_mut().zip(pids) {
-                if slot.is_none() && !running.contains(pid) {
-                    *slot = Some(at);
-                }
+        for (slot, pid) in ended.iter_mut().zip(&harnesses) {
+            if slot.is_none() && !running.contains(pid) {
+                *slot = Some(at);
+            }
+        }
+        // How many harnesses were seen ended by the snapshot that first saw a server ended.
+        let ended_now = ended.iter().flatten().count();
+        for ((slot, count), pid) in told.iter_mut().zip(&mut ended_when_told).zip(&sidecars) {
+            if slot.is_none() && !running.contains(pid) {
+                *slot = Some(at);
+                *count = ended_now;
             }
         }
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     let first_end = ended.iter().flatten().min().copied().unwrap();
-    let told_in_grace = told.iter().flatten().filter(|t| **t < first_end).count();
+    // One poll can see a server and its harness both ended, so a stop told in the same poll as
+    // the first harness's end is not told after it. One after another, the k-th stop is told only
+    // after k - 1 harnesses ended; together, at most the one the poll saw.
+    let told_in_grace = ended_when_told.iter().filter(|n| **n <= 1).count();
     eprintln!(
-        "{N} slow harnesses: told {told:?}, ended {ended:?}; {told_in_grace} told before the \
-         first ended at {first_end:?}"
+        "{N} slow harnesses: told {told:?}, ended {ended:?}; {told_in_grace} told with at most \
+         one harness ended (the first at {first_end:?}): {ended_when_told:?}"
     );
-    // One after another, no stop is told before the harness before it ended: one at most. Most
-    // of them, not all: under a loaded suite the pass's reads spread the stops (602 to 813 ms in
-    // a full run, the first end at 985 ms), and a pass two or four at a time still fails here.
+    // One after another, two stops at most are told by then. Most of them, not all: under a
+    // loaded suite the pass's reads spread the stops, and a pass two or four at a time still
+    // fails here.
     assert!(
         told_in_grace > N / 2,
-        "{told_in_grace} of {N} slow harnesses were told to stop before the first one ended \
-         (at {first_end:?}): they stop one after another (told {told:?}, ended {ended:?})"
+        "{told_in_grace} of {N} slow harnesses were told to stop with at most one harness ended: \
+         they stop one after another (told {told:?}, ended {ended:?}, harnesses ended when told \
+         {ended_when_told:?})"
     );
     r.until("an idle session never hibernated", || ids.iter().all(|id| r.status(id) == "idle"))
         .await;

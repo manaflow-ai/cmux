@@ -24,6 +24,18 @@ use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
+/// `text` as the daemon delivers it from session `session` of `harness`: the `Sent-by` line it
+/// writes after every send from inside a session (`sent_by.rs`).
+pub(super) fn signed(text: &str, session: &str, harness: &str) -> String {
+    let sender = acpmux::sent_by::Sender {
+        host: acpmux::sent_by::this_host(),
+        session: session.to_owned(),
+        harness: Some(harness.to_owned()),
+        model: None,
+    };
+    format!("{}\n\n{}", text.trim_end_matches(['\n', '\r']), acpmux::sent_by::line(&sender))
+}
+
 pub(super) fn hub_env(env: Value) -> Arc<Hub> {
     hub_policy(env, "approve-all")
 }
@@ -751,7 +763,7 @@ async fn a_prompt_sent_from_inside_another_session_records_that_session_as_its_s
     lane.call("session/prompt", prompt(&receiver, "p-given", "hi", Some(&given))).await;
 
     let from_lane = person.user_message(&receiver, "p-lane").await;
-    assert_eq!(from_lane["text"], "report from the lane", "{from_lane}");
+    assert_eq!(from_lane["text"], signed("report from the lane", &name, "codex"), "{from_lane}");
     // With the sending session's id and harness family, bound from its caller token.
     let stamped = json!({"kind": "session_message", "from": sender, "fromName": name, "to": receiver,
                          "fromSessionId": sender, "fromHarness": "codex", "verified": true});
@@ -783,6 +795,7 @@ async fn a_queued_agent_message_reads_whole_and_names_its_senders_session_and_ha
     let mut person = Client::open(&hub);
     let sender = person.new_session(json!({"harness": "fake"})).await;
     let receiver = person.new_session(json!({"harness": "fake"})).await;
+    let sender_name = hub.resolve(&sender).unwrap().meta().name;
     person.busy(&receiver).await;
     let whole = format!("report: {}end", "x".repeat(1200));
     let mut lane = open_in_session(&hub, &sender).await;
@@ -803,6 +816,7 @@ async fn a_queued_agent_message_reads_whole_and_names_its_senders_session_and_ha
     let read = person
         .call("_acpmux/queue_text", json!({"sessionId": receiver, "promptId": "p-long"}))
         .await;
+    let whole = signed(&whole, &sender_name, "codex");
     assert_eq!(read["text"], json!(whole), "{read}");
     assert_eq!(read["prompt"][0]["text"], json!(whole), "{read}");
     assert_eq!(read["turnId"], row["turnId"], "{read}");
