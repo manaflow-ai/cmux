@@ -1,9 +1,5 @@
 # Hairline
 
-![The Hairline look in Dark](screenshots/hairline-dark.png)
-
-![The Hairline look in Light](screenshots/hairline-light.png)
-
 cmux flat and quiet. Every surface is an opaque neutral fill: no glass, no wallpaper and no shadows.
 Edges are one-pixel lines. One corner radius runs through panes, tabs, cards, the composer and
 popovers, and buttons sit 2 px inside it. Focus is a two-pixel ring, not a glow or a tint. Text
@@ -38,7 +34,7 @@ cmux setup remove manaflow-ai/hairline-look
 
 | Part | Why |
 | --- | --- |
-| A flat toast (opaque, 1 px border, the look's radius, no shadow) | The toast is drawn natively, and no setting or theme key reaches its material, border or shadow. Its radius follows the pane radius plus its own padding. |
+| A flat toast (opaque, 1 px border, the look's radius, no shadow) | The toast is drawn natively, and no setting or theme key reaches its material, border or shadow yet. #49661 adds `notifications.toast.style` with a `flat` choice; the look will set it once that lands. |
 | Opaque menus and popovers | Native menus and popovers are always glass. Only the system's Reduce Transparency makes them opaque. |
 | Inter in the window chrome | No setting picks the chrome's font family. `appearance.metrics.chromeFontSize` sets only its size. |
 | The focus ring from a theme file | `focusRing.*` are not theme-file keys, so the setup sets them and they don't change when you switch palettes. |
