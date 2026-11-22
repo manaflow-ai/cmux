@@ -97,7 +97,7 @@ fn case(a: RawAlert, class: &str, put_off: &[&str]) {
         assert!(!out.is_error, "{first} on {class}: {:?}", out.body);
         assert_eq!(out.body["pressed"], json!(first));
         assert_eq!(out.body["dismissed"], true);
-        assert_eq!(presses(&d), [(a.window_id.clone(), (*first).to_string())]);
+        assert_eq!(presses(&d), [(a.window_id, (*first).to_string())]);
         assert_eq!(e.call(&ctx(), "list_alerts", &json!({})).body["alerts"], json!([]));
     }
 }
@@ -434,7 +434,7 @@ fn the_mode_still_applies_and_other_tools_still_refuse_the_protected_processes()
     parts.config = on();
     parts.sleep = Arc::new(|_| {});
     let e = Engine::new(parts);
-    for i in 0..owners.len() {
+    for (i, owner) in owners.iter().enumerate() {
         let id = format!("5{i}");
         let calls: [(&str, Value); 4] = [
             ("click", json!({"window_id": id, "x": 10.0, "y": 300.0})),
@@ -444,13 +444,7 @@ fn the_mode_still_applies_and_other_tools_still_refuse_the_protected_processes()
         ];
         for (tool, args) in calls {
             let out = e.call(&ctx(), tool, &args);
-            assert_eq!(
-                code(&out),
-                Some("app_protected"),
-                "{tool} on {}: {:?}",
-                owners[i],
-                out.body
-            );
+            assert_eq!(code(&out), Some("app_protected"), "{tool} on {}: {:?}", owner, out.body);
         }
     }
     assert!(d.events().is_empty(), "{:?}", d.events());

@@ -168,7 +168,7 @@ fn every_row_stays_inside_the_put_off_titles() {
                         | "password"
                         | "other"
                         | "unreadable"
-                ) && !(owner == "SecurityAgent")
+                ) && owner != "SecurityAgent"
                 {
                     assert!(put_off_titles(&a, class).is_empty(), "{owner} {class}");
                 }
