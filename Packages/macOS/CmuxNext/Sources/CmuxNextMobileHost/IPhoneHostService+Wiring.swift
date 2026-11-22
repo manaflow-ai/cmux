@@ -71,6 +71,7 @@ extension IPhoneHostService {
         follow { settings()?.snapshot.mobile.allowIPhoneConnections ?? false }
         defer {
             followWorkspaceFolders()
+            followBrowserWorkspaceSource()
             followNewChatPicks()
         }
         followAccount { Self.account(of: auth, signedIn: auth.isSignedIn) }
