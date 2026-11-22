@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
+import { emitted, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { queuePauseReason } from "../queuePause";
 import { composerRows, composerView, sameComposerView } from "./composerView";
 
@@ -32,7 +32,7 @@ const snapshot = (rows: AcpmuxRow[], connection = "connected", commands = [{ nam
     type: "snapshot",
     protocolVersion: 1,
     rows,
-    connection,
+    ...emitted(connection),
     commands,
     queue: [],
     sessions: [],
