@@ -4,7 +4,7 @@ import Foundation
 /// Localized text of the Accounts screen (Localizable.xcstrings in this module).
 enum AccountsStrings {
     static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static func group(_ group: AIProvider.Group) -> String {

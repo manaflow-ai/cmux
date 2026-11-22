@@ -312,10 +312,15 @@ impl Hub {
         // then takes it instead of starting cold. Never with this session's own env, route or
         // disallowed tools, nor in a folder a sub-session start checked: a pooled harness started
         // wherever the path led. Never for an agent's create (`starter`): the warm agent is kept
-        // for the person's next chat, which never waits behind a lane's start.
+        // for the person's next chat, which never waits behind a lane's start. A Claude Code chat
+        // only the person made: a pooled one started for the person (`pool/start.rs`) and asked
+        // for a next-prompt suggestion after every turn, which Claude Code decides once, at
+        // `initialize` (`host_level.rs` `start_params`).
         let shaped = fixed_id.is_none()
             && adopt.is_none()
             && starter.is_none()
+            && (profile.kind != crate::config::HarnessKind::ClaudeStdio
+                || super::host_level::made_for_a_person(meta.created_by.as_ref(), person))
             && meta.session_env.is_empty()
             && route.is_none()
             && meta.tools.off.is_empty()
@@ -1531,6 +1536,7 @@ impl Hub {
             }
             self.set_status(session, SessionStatus::Ready);
             self.note_launch(session, &child);
+            self.note_start_level(session, &child, true);
             self.save_meta(session);
             let meta_now = session.meta();
             self.remember_models(&meta_now.harness, &meta_now);
@@ -1636,6 +1642,7 @@ impl Hub {
         self.cap_full_access(session, &child, profile, off).await?;
         self.set_status(session, SessionStatus::Ready);
         self.note_launch(session, &child);
+        self.note_start_level(session, &child, true);
         self.save_meta(session);
         let meta_now = session.meta();
         self.remember_models(&meta_now.harness, &meta_now);
