@@ -772,6 +772,28 @@ mod timeout_tests {
         assert!(error.contains("read step stalled after 15s"));
     }
 
+    /// A send relay listing that never answers ends at the far budget, well before the total,
+    /// so `ls` prints this machine's rows (#50974's case: gcp-codex-swarm-02/03, 2026-11-22).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_relay_listing_that_never_answers_gives_up_before_the_total() {
+        let budget = ListBudget {
+            deadline: tokio::time::Instant::now() + crate::cli::ls_far::FAR_BUDGET * 2,
+            machine: "local".to_owned(),
+            route: "local daemon",
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let far = crate::cli::ls_far::start_with(
+            Some(crate::cli::ls_far::tests::stalled_relay()),
+            dir.path().join(crate::cli::ls_far::CACHE_FILE),
+            None,
+            crate::cli::ls_far::FAR_BUDGET,
+        );
+        let read = bounded_total(&budget, "read", far.finish()).await;
+        let relay = read.expect("the relay listing outlived the listing's total").relay.unwrap();
+        assert!(relay.rows.is_empty() && relay.missed.is_some(), "a warning, not rows");
+    }
+
     /// A stalled local read is a `timeout` to retry, naming the step and the budget, never
     /// `daemon_unreachable` (the daemon answered the connect).
     #[tokio::test(start_paused = true)]
