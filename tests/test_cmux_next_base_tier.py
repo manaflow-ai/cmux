@@ -137,6 +137,28 @@ QUEUED_MAC = [job("cmux-next path routing", "completed", "success"), job("cmux-n
               job("cmux-next generated files", "queued"), job("cmux app scheme compile (Debug)", "queued")]
 
 
+class Previous(unittest.TestCase):
+    """A base tier run's checks job compares against the tip the run before it tested (workflow note-26)."""
+
+    def firsts(self, runs):
+        return tier.base_tier_runs(FakeApi(runs, TIP), tier.REPO)
+
+    def test_the_run_before_tips(self):
+        firsts = self.firsts([(OLD, T0), (MID, T0 + 900), (TIP, T0 + 1800)])
+        self.assertEqual(tier.previous(firsts, TIP), MID)
+
+    def test_tip_not_listed_yet_is_the_newest(self):
+        self.assertEqual(tier.previous(self.firsts([(OLD, T0), (MID, T0 + 900)]), TIP), MID)
+
+    def test_a_rerun_of_an_older_tip_after_tip_does_not_count(self):
+        firsts = self.firsts([(OLD, T0), (TIP, T0 + 900), (MID, T0 + 1800)])
+        self.assertEqual(tier.previous(firsts, TIP), OLD)
+
+    def test_no_earlier_run_is_none(self):
+        self.assertIsNone(tier.previous(self.firsts([(TIP, T0)]), TIP))
+        self.assertIsNone(tier.previous(self.firsts([]), TIP))
+
+
 class CancelSuperseded(unittest.TestCase):
     """Once the tip has a base tier run, older ones whose Mac jobs never started are cancelled."""
 
@@ -207,7 +229,7 @@ class CancelSuperseded(unittest.TestCase):
 
     def test_no_dispatch_cancels_nothing(self):
         # Not due (no cmux-next push path changed): the last run is the newest verdict and stays.
-        api = FakeApi([(OLD, T0)], TIP, files=["README.md"])
+        api = FakeApi([(OLD, T0)], TIP, files=["docs/blog/notes.md"])
         api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
         self.assertIsNone(kick(api, Clock(T0 + 20 * 60)))
         self.assertEqual(api.cancelled, [])
@@ -280,7 +302,7 @@ class Kick(unittest.TestCase):
 
     def test_a_tip_whose_landings_change_no_cmux_next_push_path_is_left_alone(self):
         # The same paths that start a cmux-next push run: a docs-only burst runs no base tier.
-        api = FakeApi([(OLD, T0)], TIP, files=["README.md", "docs/blog/post.md"])
+        api = FakeApi([(OLD, T0)], TIP, files=["docs/blog/notes.md", "docs/blog/post.md"])
         self.assertIsNone(kick(api, Clock(T0 + 20 * 60)))
         self.assertEqual(api.dispatched, [])
 
