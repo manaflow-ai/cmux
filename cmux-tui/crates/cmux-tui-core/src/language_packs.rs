@@ -175,11 +175,13 @@ impl Outcome {
         match self {
             Self::Bundled => json!({"state": "bundled"}),
             Self::Ready { root, chromium_pak } => {
-                let mut reply = json!({"state": "ready", "root": root.to_string_lossy()});
+                let mut reply = serde_json::Map::new();
+                reply.insert("state".into(), Value::from("ready"));
+                reply.insert("root".into(), Value::from(root.to_string_lossy()));
                 if let Some(pak) = chromium_pak {
-                    reply["chromium_pak"] = Value::from(pak.to_string_lossy());
+                    reply.insert("chromium_pak".into(), Value::from(pak.to_string_lossy()));
                 }
-                reply
+                Value::Object(reply)
             }
             Self::Unavailable(code) => json!({"state": "unavailable", "code": code.wire_name(),
                 "message": code.message()}),
@@ -302,10 +304,10 @@ pub(crate) fn ensure(request: &Request) -> Outcome {
 /// carries one. A folder whose pinned pak is not a regular file is not this pack: verify.
 fn ready(pack: &Pack, root: PathBuf) -> Outcome {
     let chromium_pak = pack.chromium_pak(&root);
-    if let Some(pak) = chromium_pak.as_ref() {
-        if !std::fs::symlink_metadata(pak).is_ok_and(|meta| meta.is_file()) {
-            return Outcome::Unavailable(Code::Verify);
-        }
+    if let Some(pak) = chromium_pak.as_ref()
+        && !std::fs::symlink_metadata(pak).is_ok_and(|meta| meta.is_file())
+    {
+        return Outcome::Unavailable(Code::Verify);
     }
     Outcome::Ready { root, chromium_pak }
 }
@@ -562,7 +564,8 @@ pub(crate) fn unpack(archive: &Path, into: &Path) -> Result<(), Code> {
             if unpacked > UNPACKED_LIMIT {
                 return Err(Code::Verify);
             }
-            out.write_all(&buffer[..read]).map_err(|_| Code::Io)?;
+            let chunk = buffer.get(..read).ok_or(Code::Verify)?;
+            out.write_all(chunk).map_err(|_| Code::Io)?;
         }
     }
     Ok(())
