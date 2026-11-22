@@ -156,6 +156,19 @@ impl Hub {
         }))
     }
 
+    /// The model `name`'s newest chat that was asked for none reported: the one the harness
+    /// starts on by itself, for a harness with no live list.
+    fn model_started_unasked(&self, name: &str) -> Option<String> {
+        let all: Vec<Arc<Session>> =
+            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
+        newest_first(all).iter().find_map(|s| {
+            let meta = s.meta.lock().unwrap_or_else(|e| e.into_inner());
+            (meta.harness == name && meta.model_request.is_none())
+                .then(|| current_model(&meta))
+                .flatten()
+        })
+    }
+
     /// What `name` offers a new chat in `cwd` (module docs). `remote_modes`: for a remote
     /// device, the modes it may start a chat in.
     async fn composer_offer(
@@ -196,6 +209,7 @@ impl Hub {
         let start_model = field("model")
             .or_else(|| super::start_defaults::profile_model(profile, &saved.env))
             .or_else(|| own_default().map(|m| m.id))
+            .or_else(|| self.model_started_unasked(name))
             .map(|model| {
                 super::start_defaults::catalog_model(curated.as_ref(), &model)
                     .map_or(model, |listed| listed.id.clone())
