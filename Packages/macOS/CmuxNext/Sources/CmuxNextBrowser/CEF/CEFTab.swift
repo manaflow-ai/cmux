@@ -287,6 +287,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The pane host of a background tab an agent drives from a window of its own (`CEFPaneHost+AgentHosts`):
     /// the tab goes back there when its pane shows it.
     @ObservationIgnored weak var homeHost: CEFPaneHost?
+    /// The App pane that shows this tab next (`willShow(inPane:)`): its view joins that pane's Chromium window when it appears.
+    @ObservationIgnored var shownPane: BrowserPaneID?
+    /// The host this tab left for a pane host whose window it waits for (`CEFPaneHost.move`): it goes back there if the fork cannot move it in.
+    @ObservationIgnored weak var regroupedFrom: CEFPaneHost?
     /// The fork could not move this tab into an agent window: it stays in its pane's window from then on.
     @ObservationIgnored var agentWindowRefused = false
     @ObservationIgnored unowned let runtime: CEFRuntime
@@ -530,6 +534,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             // Stays when the fork cannot move it home or its pane's window is gone: shown from its own window.
             host.returnHome(self)
         }
+        // A pane's web tabs share its Chromium window: the ones it does not show are Chromium background tabs.
+        if !parked, let shownPane { host.regroup(self, into: shownPane) }
         // A tab that could not move out went home: presenting it there would take the pane's page window.
         if parked, host.visibleTab != nil, host.visibleTab !== self, !host.holdsOwnTab { return }
         host.present(self, in: view)
@@ -573,6 +579,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         runtime.recordRendererExit(exit, tab: self, pressure: pressure, reloads: owed)
         if owed, host.visibleTab === self, !isOccluded { reloadOwedAfterExit() }
     }
+
+    /// The App shows this tab in its pane `pane` next (before it binds the tab's page there): the tab joins that
+    /// pane's Chromium window when its view appears (`CEFPaneHost.regroup`), so the pane's other tabs are background tabs.
+    public func willShow(inPane pane: BrowserPaneID) { shownPane = pane }
 
     func contentDidDisappear() {
         host.conceal(self)

@@ -17,10 +17,29 @@ public struct StatusMapping {
     let turns: AgentTurnStateStore
     /// This client's seen OSC 7501 `done` and `error` records.
     let seen: ProgramStatusSeenStore
+    /// Shared workspace-row seen state for every mapped status source.
+    let statusSeen: SidebarStatusSeenStore
 
-    public init(turns: AgentTurnStateStore = .shared, seen: ProgramStatusSeenStore = .shared) {
+    public init(turns: AgentTurnStateStore = .shared, seen: ProgramStatusSeenStore = .shared,
+                statusSeen: SidebarStatusSeenStore = .init()) {
         self.turns = turns
         self.seen = seen
+        self.statusSeen = statusSeen
+    }
+
+    /// Marks every source that contributes a workspace row as seen.
+    @discardableResult
+    public func markSeen(tabs: [TabModel], status: WorkspaceStatus?, workspaceID: String) -> Bool {
+        statusSeen.markSeen(tabs.flatMap(reports) + reports(status), workspaceID: workspaceID)
+    }
+
+    /// A look at `tab` (focus, a click, opening it; typing and the timeout do not call this) sees its
+    /// workspace row's symbols, as it reads the row's blue dot. O(1) lookup by the
+    /// store's indexes; client view state, the daemon keeps the reports.
+    @discardableResult
+    public func markSeen(workspaceOf tab: TabModel, in store: DaemonStore) -> Bool {
+        guard let pane = store.pane(holding: tab), let workspace = store.workspace(containing: pane.handle) else { return false }
+        return markSeen(tabs: workspace.screens.flatMap(\.panes).flatMap(\.tabs), status: workspace.status, workspaceID: workspace.id)
     }
 
     /// The reports one tab contributes.
@@ -171,9 +190,10 @@ public struct StatusMapping {
     }
 
     /// A workspace's merged status over its tabs and its `cmux status set` entries.
-    public func summary(tabs: [TabModel], status: WorkspaceStatus? = nil) -> StatusSummary {
+    public func summary(tabs: [TabModel], status: WorkspaceStatus? = nil, workspaceID: String? = nil) -> StatusSummary {
         let superseded = supersededFailures(tabs)
-        return StatusStack.resolve(tabs.flatMap(reports).filter { !superseded.contains($0.id) } + reports(status), honoring: honored)
+        let reports = tabs.flatMap(reports).filter { !superseded.contains($0.id) } + reports(status)
+        return StatusStack.resolve(statusSeen.visible(reports, workspaceID: workspaceID ?? status?.workspaceID.rawValue), honoring: honored)
     }
 
     /// The report ids (`acp:<session>`) of each failed or lost agent chat that another chat of the same
@@ -206,7 +226,7 @@ public struct StatusMapping {
     /// A workspace's merged status, each tab's own (a hover card tab row's mark) and whether any tab has
     /// agent work, from one read of each tab's reports: ``summary(tabs:status:)``, ``summary(_:)``
     /// per tab and ``isWorking(tabs:)`` at once (u9696, Lawrence's scratch/a-hover-tabs).
-    public func summaries(tabs: [TabModel], status: WorkspaceStatus? = nil)
+    public func summaries(tabs: [TabModel], status: WorkspaceStatus? = nil, workspaceID: String? = nil)
         -> (workspace: StatusSummary, tabs: [StatusIndicatorState], working: Bool) {
         let honored = honored
         let superseded = supersededFailures(tabs)
@@ -214,17 +234,20 @@ public struct StatusMapping {
         var states: [StatusIndicatorState] = []
         states.reserveCapacity(tabs.count)
         var working = false
+        let seenWorkspace = workspaceID ?? status?.workspaceID.rawValue
         for tab in tabs {
             let own = reports(tab)
-            if own.isEmpty {
+            let visible = statusSeen.visible(own, workspaceID: seenWorkspace)
+            if visible.isEmpty {
                 states.append(.idle)
                 continue
             }
-            states.append(StatusStack.resolve(own, honoring: honored).state)
-            working = working || own.contains { $0.state.isWorking }
-            all += own.filter { !superseded.contains($0.id) }
+            states.append(StatusStack.resolve(visible, honoring: honored).state)
+            working = working || visible.contains { $0.state.isWorking }
+            all += visible.filter { !superseded.contains($0.id) }
         }
-        return (StatusStack.resolve(all + reports(status), honoring: honored), states, working)
+        let workspaceReports = statusSeen.visible(all + reports(status), workspaceID: seenWorkspace)
+        return (StatusStack.resolve(workspaceReports, honoring: honored), states, working)
     }
 
     /// The reports of a workspace's status entries that carry a state (`cmux status set --state`,
