@@ -70,6 +70,7 @@
           "symbol": "gearshape",
           "note": "General holds the app itself: windows, quitting, history and housekeeping. The sidebar, tabs and panes, the New Tab page, the viewers and chats each have their own page (settings overhaul, 2026-11-07).",
           "groups": [
+            {"group": "settings.group.language"},
             {"group": "settings.group.window"},
             {"group": "settings.group.quit"},
             {"group": "settings.group.history"},
@@ -297,7 +298,8 @@
               "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle",
               "agentPane.display.unreadBanner",
               "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner",
-              "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement",
+              "agentPane.display.rail.side", "agentPane.display.rail.show", "agentPane.display.rail.control",
+              "agentPane.display.sessionInfo.placement",
               "agentPane.display.environment.placement"
             ]},
             {"title": {"key": "settings.pageGroup.chatText", "text": "Chat Text"}, "keys": [
@@ -311,7 +313,7 @@
               "agentPane.display.promptCoach"
             ]},
             {"title": {"key": "settings.pageGroup.filesLinks", "text": "Files and Links"}, "keys": [
-              "agentPane.links.outsideRoots", "agentPane.images.remote", "agentPane.editedFiles.show",
+              "agentPane.links.outsideRoots", "agentPane.links.openCitationsInEditor", "agentPane.images.remote", "agentPane.editedFiles.show",
               "agentPane.editedFiles.maxRows", "agentPane.editedFiles.scope"
             ]},
             {"group": "settings.group.chats"}
@@ -375,6 +377,7 @@
           "note": "A core cmux feature: banners, sounds, the attention ring and the feed for agents, terminal programs and `cmux notify`.",
           "groups": [
             {"group": "settings.group.banners"},
+            {"group": "settings.group.notificationDelivery"},
             {"group": "settings.group.sounds", "note": "Per-event sounds, volume, timing and the burst cooldown (notifications.json's sounds list); its per-level maps stay off the page."},
             {"group": "settings.group.dismissal"},
             {"group": "settings.group.attention"},

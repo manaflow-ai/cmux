@@ -46,10 +46,13 @@ pub trait Pasteboard {
 /// sync on for this session (`serve`'s setup `"clipboard": true`; `host` never offers it), and
 /// only where the host has a clipboard it can watch (macOS). Off by default: a new way for
 /// the shared machine's clipboard to leave it is opt-in until a person decides otherwise.
+/// With `link` only, as its one caller (`serve`).
+#[cfg(feature = "link")]
 pub fn offered(opted_in: bool) -> bool {
     opted_in && available()
 }
 
+#[cfg(feature = "link")]
 fn available() -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -96,6 +99,18 @@ pub struct Counters {
     pub view_refused: u64,
     pub write_failed: u64,
     pub local_too_large: u64,
+}
+
+impl Counters {
+    /// The session log's line for these counts; `None` when nothing was refused.
+    pub fn log_line(&self) -> Option<String> {
+        (*self != Self::default()).then(|| {
+            format!(
+                "cmux-rd host: clipboard: {} refused in view, {} writes failed, {} local texts over {MAX_CLIPBOARD_TEXT} bytes",
+                self.view_refused, self.write_failed, self.local_too_large
+            )
+        })
+    }
 }
 
 pub struct ClipboardChannel {
@@ -252,6 +267,7 @@ mod tests {
         c.and_then(Control::into_clipboard_part).map(|p| p.text)
     }
 
+    #[cfg(feature = "link")]
     #[test]
     fn the_cap_is_never_offered_unless_the_person_sharing_turned_it_on() {
         assert!(!offered(false));
@@ -270,6 +286,16 @@ mod tests {
         assert_eq!(ch.counters().view_refused, 1);
         assert_eq!(ch.on_part(part(2, "ok"), true), Received::Applied(2));
         assert_eq!(board.0.borrow().writes, vec!["ok".to_owned()]);
+    }
+
+    #[test]
+    fn the_session_log_names_refusals_and_says_nothing_without_them() {
+        let board = Shared::default();
+        let mut ch = ClipboardChannel::new(Box::new(board), 0);
+        assert_eq!(ch.counters().log_line(), None);
+        ch.on_part(part(1, "secret"), false);
+        let line = ch.counters().log_line().expect("a refusal is logged");
+        assert!(line.contains("1 refused in view"), "{line}");
     }
 
     #[test]
