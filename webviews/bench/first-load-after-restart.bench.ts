@@ -158,7 +158,9 @@ if (!BRIDGE && (LINK.rttMs > 0 || LINK.bps > 0)) throw new Error("LINK needs TRA
 const GATE = process.env.GATE === "1";
 const TRACE = process.env.TRACE === "1";
 /// PROFILE=1 (MODE=reopen-spare): a CPU profile of each adopt, from the event to the newest answer drawn,
-/// printed as the functions with the most self time over all rounds (an unminified build).
+/// printed as the functions with the most self time over all rounds (an unminified build). MODE=reopen and
+/// reopen-no-copy: the warm renderer's profile from navigation to the live page showing the newest answer, the
+/// same tables, busy ms per 250 ms, and the recorded page's long tasks (over 50 ms) per round.
 const PROFILE = process.env.PROFILE === "1";
 const SOURCES = process.env.SOURCES === "1";
 /// The theme key the copy is written under and the host says the page gets now (shared.ts `misfit`):
@@ -563,13 +565,61 @@ type CpuProfile = {
   samples: number[];
   timeDeltas: number[];
 };
-/// PROFILE=1: self ms per function over every round's adopt, and how many adopts were profiled.
-const selfMs = new Map<string, number>();
-/// Inclusive ms: each function counted once per sample it is on the stack of.
-const totalMs = new Map<string, number>();
-/// A built-in's (no url: style reads, layout, DOM calls) self ms by the nearest bundle function that called it.
-const nativeByCaller = new Map<string, number>();
-let profiled = 0;
+/// PROFILE=1: per profiled kind (the spare's adopt, a reopen, a reopen with no copy): self ms per function over
+/// every round, inclusive ms (each function counted once per sample it is on the stack of), a built-in's (no url:
+/// style reads, layout, DOM calls) self ms by the nearest bundle function that called it, and how many rounds.
+type ProfileSums = {
+  selfMs: Map<string, number>;
+  totalMs: Map<string, number>;
+  nativeByCaller: Map<string, number>;
+  /// Busy ms per 250 ms bucket of the window (a reopen's, from navigation), summed over the rounds.
+  busyByBucket: number[];
+  /// Per 500 ms bucket: inclusive ms of the page's own functions (React's work loop left out), over the rounds.
+  ownByBucket: Map<number, Map<string, number>>;
+  /// CDP Performance.getMetrics of the recorded page at the end of each round.
+  metrics: Record<string, number>[];
+  profiled: number;
+};
+const profileSums = new Map<string, ProfileSums>();
+const sumsFor = (label: string): ProfileSums => {
+  let sums = profileSums.get(label);
+  if (!sums) {
+    sums = {
+      selfMs: new Map(),
+      totalMs: new Map(),
+      nativeByCaller: new Map(),
+      busyByBucket: [],
+      ownByBucket: new Map(),
+      metrics: [],
+      profiled: 0,
+    };
+    profileSums.set(label, sums);
+  }
+  return sums;
+};
+/// React's own scheduler and reconciler frames, left out of the per-bucket table so the pane's functions show.
+const REACT_FRAME =
+  /^(perform|render|workLoop|begin|complete|commit|flush|recursively|update[A-Z]|mount[A-Z]|reconcile|process|run|call|dispatch|scheduleUpdate|batched|exports\.)/;
+/// PROFILE=1: the vite build the profile's urls name, so a printed `file:line` shows the line it is.
+let profileSourceDir: string | undefined;
+const sourceLines = new Map<string, string[]>();
+function sourceLine(key: string): string {
+  const match = / ([^ :]+\.js):(\d+)$/.exec(key);
+  if (!match || !profileSourceDir) return "";
+  const [, file, line] = match;
+  let lines = sourceLines.get(file!);
+  if (!lines) {
+    const found = [path.join(profileSourceDir, "assets", file!), path.join(profileSourceDir, file!)].find((at) =>
+      fs.existsSync(at),
+    );
+    lines = found ? fs.readFileSync(found, "utf8").split("\n") : [];
+    sourceLines.set(file!, lines);
+  }
+  const text = (lines[Number(line) - 1] ?? "").trim().replace(/\s+/g, " ").slice(0, 110);
+  return text ? `  | ${text}` : "";
+}
+/// PROFILE=1 (reopen, reopen-no-copy): the recorded page's long tasks (over 50 ms), ms from navigation, per round.
+const longTasksByMode = new Map<string, { start: number; duration: number }[][]>();
 /// MODE=reopen-spare: how long each adopt event's own task ran (ms), the synchronous React pass
 /// `useSessionAdoption` flushes inside the event, before the browser can paint anything.
 const adoptSyncMs: number[] = [];
@@ -585,53 +635,121 @@ const bump = (map: Map<string, number>, key: string, ms: number) => map.set(key,
 /// Adds the samples of one adopt: from its first busy sample (the event's own turn, right after the
 /// profiler started) for the time it took to the newest answer drawn (`untilMs - atMs`), plus a frame.
 function addProfile(profile: CpuProfile, atMs: number, untilMs: number): void {
+  let from: number | undefined;
+  const span = untilMs - atMs + 17;
+  addSamples(sumsFor("reopen-spare adopt"), profile, (t, frame) => {
+    if (from === undefined) {
+      if (OUTSIDE.has(frame.functionName)) return undefined;
+      from = t;
+    }
+    return t - from > span ? undefined : t - from;
+  });
+}
+/// Adds the samples of a reopen's page: the renderer's main thread (every page of the warm renderer shares it)
+/// from navigation to `untilMs` (ms from navigation). `stopAtMs` is when the profile ended on the page's clock,
+/// so a sample's time from navigation is `stopAtMs` less its time before the profile's end.
+function addReopenProfile(mode: string, profile: CpuProfile & { endTime: number }, stopAtMs: number, untilMs: number) {
+  let total = 0;
+  for (const delta of profile.timeDeltas) total += delta;
+  // The profile's own clock: its last sample is near `endTime`; one sample interval of error is far below 1 ms.
+  const startAtMs = stopAtMs - total / 1000;
+  addSamples(sumsFor(mode), profile, (t) => {
+    const at = startAtMs + t;
+    return at < 0 || at > untilMs ? undefined : at;
+  });
+}
+/// `keep(t, frame)`: the sample's time on the window's clock (ms) to count it, else undefined.
+function addSamples(
+  sums: ProfileSums,
+  profile: CpuProfile,
+  keep: (t: number, frame: ProfileNode["callFrame"]) => number | undefined,
+): void {
   const byId = new Map(profile.nodes.map((node) => [node.id, node]));
   const parent = new Map<number, number>();
   for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
   let t = 0;
-  let from: number | undefined;
-  const span = untilMs - atMs + 17;
   profile.samples.forEach((id, index) => {
     const ms = profile.timeDeltas[index] / 1000;
     t += ms;
     const node = byId.get(id);
     if (!node) return;
     const frame = node.callFrame;
-    if (from === undefined) {
-      if (OUTSIDE.has(frame.functionName)) return;
-      from = t;
-    }
-    if (t - from > span || frame.functionName === "(idle)") return;
-    bump(selfMs, nodeKey(frame), ms);
+    const at = keep(t, frame);
+    if (at === undefined || frame.functionName === "(idle)") return;
+    const bucket = Math.max(0, Math.floor(at / 250));
+    sums.busyByBucket[bucket] = (sums.busyByBucket[bucket] ?? 0) + ms;
+    bump(sums.selfMs, nodeKey(frame), ms);
     const seen = new Set<string>();
     let caller: string | undefined;
-    for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) {
-      const up = byId.get(at);
-      if (!up || up.callFrame.functionName === "(root)") break;
-      const key = nodeKey(up.callFrame);
-      if (!seen.has(key)) bump(totalMs, key, ms);
+    const half = Math.max(0, Math.floor(at / 500));
+    let own = sums.ownByBucket.get(half);
+    if (!own) sums.ownByBucket.set(half, (own = new Map()));
+    for (let up: number | undefined = id; up !== undefined; up = parent.get(up)) {
+      const node = byId.get(up);
+      if (!node || node.callFrame.functionName === "(root)") break;
+      const key = nodeKey(node.callFrame);
+      if (!seen.has(key)) {
+        bump(sums.totalMs, key, ms);
+        if (node.callFrame.url && !REACT_FRAME.test(node.callFrame.functionName || "(anonymous)")) bump(own, key, ms);
+      }
       seen.add(key);
-      if (caller === undefined && at !== id && up.callFrame.url) caller = key;
+      if (caller === undefined && up !== id && node.callFrame.url) caller = key;
     }
-    if (!frame.url && caller) bump(nativeByCaller, `${frame.functionName} <- ${caller}`, ms);
+    if (!frame.url && caller) bump(sums.nativeByCaller, `${frame.functionName} <- ${caller}`, ms);
   });
-  profiled += 1;
+  sums.profiled += 1;
 }
 function printProfile(): void {
-  if (!profiled) return;
-  const total = [...selfMs.values()].reduce((a, b) => a + b, 0);
-  const top = (title: string, map: Map<string, number>, count: number) => {
-    console.log(title);
-    for (const [key, ms] of [...map].sort((a, b) => b[1] - a[1]).slice(0, count))
-      console.log(`  ${(ms / profiled).toFixed(2).padStart(7)} ms  ${key}`);
-  };
-  top(
-    `reopen-spare adopt profile: ${(total / profiled).toFixed(1)} ms busy per adopt (n=${profiled}), top self time:`,
-    selfMs,
-    30,
-  );
-  top("reopen-spare adopt profile, inclusive:", totalMs, 45);
-  top("reopen-spare adopt profile, built-ins by caller:", nativeByCaller, 20);
+  for (const [label, sums] of profileSums) {
+    const { profiled } = sums;
+    if (!profiled) continue;
+    const total = [...sums.selfMs.values()].reduce((a, b) => a + b, 0);
+    const top = (title: string, map: Map<string, number>, count: number) => {
+      console.log(title);
+      for (const [key, ms] of [...map].sort((a, b) => b[1] - a[1]).slice(0, count))
+        console.log(`  ${(ms / profiled).toFixed(2).padStart(7)} ms  ${key}${sourceLine(key)}`);
+    };
+    const per = label === "reopen-spare adopt" ? "adopt" : "round";
+    top(
+      `${label} profile: ${(total / profiled).toFixed(1)} ms busy per ${per} (n=${profiled}), top self time:`,
+      sums.selfMs,
+      30,
+    );
+    top(`${label} profile, inclusive:`, sums.totalMs, 45);
+    top(`${label} profile, built-ins by caller:`, sums.nativeByCaller, 20);
+    if (label === "reopen-spare adopt") continue;
+    console.log(
+      `${label} profile, busy ms per 250 ms from navigation: ${Array.from(sums.busyByBucket, (ms, at) => `${at * 250}:${((ms ?? 0) / profiled).toFixed(0)}`).join(" ")}`,
+    );
+    for (const [half, own] of [...sums.ownByBucket].sort((a, b) => a[0] - b[0]))
+      top(
+        `${label} profile, ${half * 500}-${half * 500 + 500} ms from navigation, the pane's own (inclusive):`,
+        own,
+        12,
+      );
+    const metricNames = [
+      "RecalcStyleCount",
+      "RecalcStyleDuration",
+      "LayoutCount",
+      "LayoutDuration",
+      "ScriptDuration",
+      "TaskDuration",
+      "Nodes",
+    ];
+    for (const name of metricNames) {
+      const values = sums.metrics.map((m) => m[name] ?? 0).sort((a, b) => a - b);
+      const mid = values[Math.floor(values.length / 2)] ?? 0;
+      console.log(
+        `${label} page metric ${name}: p50 ${name.endsWith("Duration") ? `${(mid * 1000).toFixed(0)} ms` : mid}`,
+      );
+    }
+  }
+  for (const [mode, rounds] of longTasksByMode)
+    rounds.forEach((tasks, round) =>
+      console.log(
+        `${mode} round ${round} long tasks (start+duration ms from navigation): ${tasks.map((task) => `${task.start.toFixed(0)}+${task.duration.toFixed(0)}`).join(" ") || "none"}`,
+      ),
+    );
 }
 
 type Round = {
@@ -742,6 +860,7 @@ try {
   ]);
 
   const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "first-load-bench-"));
+  if (PROFILE) profileSourceDir = out;
   releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
   const work = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "first-load-bench-work-"));
   releases.push(["bundles", () => fs.rmSync(work, { recursive: true, force: true })]);
@@ -1206,12 +1325,54 @@ try {
       downMode = isReopen(mode) || isRefused(mode) ? undefined : mode;
       downUntil = isReopen(mode) ? 0 : Date.now() + DOWN_MS;
       const upAt = downUntil;
+      // PROFILE=1 (reopen, reopen-no-copy): the renderer's CPU profile from before navigation (DevTools carries a
+      // started profile over the page's move into the warm renderer), and the recorded page's long tasks.
+      const cdp = PROFILE && mode !== "reopen-spare" && isReopen(mode) ? await context.newCDPSession(page) : null;
+      if (cdp) {
+        await page.addInitScript(() => {
+          const tasks: { start: number; duration: number }[] = [];
+          (window as unknown as { __benchLongTasks: typeof tasks }).__benchLongTasks = tasks;
+          try {
+            new PerformanceObserver((list) => {
+              for (const entry of list.getEntries()) tasks.push({ start: entry.startTime, duration: entry.duration });
+            }).observe({ type: "longtask", buffered: true });
+          } catch {
+            // No long task timing in this engine.
+          }
+        });
+        await cdp.send("Performance.enable");
+        await cdp.send("Profiler.enable");
+        await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+        await cdp.send("Profiler.start");
+      }
       wireT0 = Date.now();
       await Promise.all(pages.map((one) => one.goto(url, { waitUntil: "commit" })));
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
         timeout: windowMs + 60_000,
         polling: 250,
       });
+      if (cdp) {
+        const seen = await page.evaluate(() => ({
+          now: performance.now(),
+          live: (window as unknown as BenchWindow).__firstLoad.liveLatestAt,
+          tasks:
+            (window as unknown as { __benchLongTasks?: { start: number; duration: number }[] }).__benchLongTasks ?? [],
+        }));
+        const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile & { endTime: number } };
+        const { metrics } = (await cdp.send("Performance.getMetrics")) as {
+          metrics: { name: string; value: number }[];
+        };
+        sumsFor(mode).metrics.push(Object.fromEntries(metrics.map((m) => [m.name, m.value])));
+        await cdp.detach();
+        addReopenProfile(mode, profile, seen.now, seen.live || windowMs);
+        const rounds = longTasksByMode.get(mode) ?? [];
+        rounds.push(seen.tasks.filter((task) => task.duration > 50));
+        longTasksByMode.set(mode, rounds);
+        const span = profile.timeDeltas.reduce((a, b) => a + b, 0) / 1000;
+        console.log(
+          `${mode} profile: ${profile.samples.length} samples over ${span.toFixed(0)} ms, ends ${seen.now.toFixed(0)} ms from navigation, live ${seen.live.toFixed(0)}`,
+        );
+      }
       if (TRACE) console.log(`${mode} relaunch bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
       if (WIRE_TRACE) {
         // The page's own launch marks (perf.ts `launchTimeline`), on the same clock as the wire lines.

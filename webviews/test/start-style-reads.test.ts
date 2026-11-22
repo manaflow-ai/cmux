@@ -103,8 +103,8 @@ test("the column's page zoom loads with no computed read and follows the host's 
   reads = 0;
   root().style.setProperty("--cmux-ui-scale", "1.25");
   // A module of its own (the query), so its load-time read happens here, in this window.
-  const { uiScale } =
-    (await import("../src/agent-session/acpmux/chatWidth.ts?start-style-reads")) as typeof import("../src/agent-session/acpmux/chatWidth");
+  const fresh = "../src/agent-session/acpmux/chatWidth.ts?start-style-reads";
+  const { uiScale } = (await import(fresh)) as typeof import("../src/agent-session/acpmux/chatWidth");
   expect(uiScale()).toBe(1.25);
   root().style.setProperty("--cmux-ui-scale", "1.5");
   dom.window.dispatchEvent(new dom.window.Event("cmux-ui-scale-change"));
