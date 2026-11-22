@@ -113,6 +113,8 @@ extension SettingsSchema {
         "updates.channel": .userOnly,
         // Web UI updates download and run new page code from files.cmux.com.
         "updates.web": .network,
+        // Live background updates download and run new daemon binaries from files.cmux.com.
+        "updates.daemon": .network,
         // How long a nightly waits before it restarts into an update: the person's call.
         "updates.idleInstallMaxWaitSeconds": .userOnly, "updates.idleInstallQuietSeconds": .userOnly,
         // On, cmux restarts into a downloaded update by itself once idle: the person's call.

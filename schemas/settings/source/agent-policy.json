@@ -1365,6 +1365,13 @@
       ]
     },
     {
+      "agent": "network",
+      "why": "Live background updates download and run new daemon binaries from files.cmux.com.",
+      "keys": [
+        "updates.daemon"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "How long a nightly waits before it restarts into an update: the person's call.",
       "keys": [
