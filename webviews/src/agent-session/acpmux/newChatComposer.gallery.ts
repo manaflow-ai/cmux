@@ -4,8 +4,9 @@
 // strange."). It is the chat's own composer (Composer.tsx, ComposerBox.tsx): the same glass card,
 // spacing and quiet row as a started chat, and the folder and computer are the location strip's chips
 // (ComposerContext.tsx) a few px over the card, as the New Tab draws them. The card keeps its own
-// four corners and whole rim. A chat in the workspace's private folder says so in the folder chip's
-// menu, whose Add folder… is the host's workspace folder sheet; no sentence stands over the card.
+// four corners and whole rim. For a chat in the workspace's private folder the folder chip's menu
+// offers Add folder…, the host's workspace folder sheet; no sentence stands over the card, and no
+// note line sits under the menu's actions.
 // `started` and `started-codex` are chats after their first send, to set beside; the `alt-*`
 // variants are the strip's Debug styles (agentPane.debug.topStripStyle) over the same component.
 // test/new-chat-composer.test.ts measures it.
@@ -93,7 +94,7 @@ export default agentPaneEntry({
       ),
     },
     "folder-menu": {
-      note: "Play: open the folder chip: the private-folder note and Add folder… are in its menu.",
+      note: "Play: open the folder chip: Add folder… heads the actions fixed under its folders, and nothing sits under them.",
       ready: PRIVATE,
       snapshot: fresh(),
       play: openFolderMenu,

@@ -247,7 +247,7 @@ final class NotificationCenterService {
     /// another one, so a ring stays until its own pane is clicked. A click
     /// outside the panes (sidebar, titlebar, tab bar gaps) reads nothing. A
     /// left press on a pane's tab strip waits for its mouse-up (``noteMouseUp(in:at:)``):
-    /// it may start dragging the tab or the pane, and the ring goes with it.
+    /// it may start dragging the tab or the pane, and the ring goes with it. A ring the click reads blinks out at once (cmux#46908).
     /// `screen`: where it went down before dispatch (a titlebar press may have moved the window
     /// since); `synthetic`: the app's own input (`SyntheticInput`), whose button is no hardware's.
     func noteMouseDown(in window: NSWindow?, at location: NSPoint, left: Bool = true,
@@ -262,6 +262,7 @@ final class NotificationCenterService {
             beginStripPress(tab: press.tab, target: interactionTarget(tabID: press.tab, in: window), at: screen ?? window.convertPoint(toScreen: location), synthetic: synthetic)
             return
         }
+        if let pane = press.pane, content(of: window)?.layoutModel.enterAttention(pane, click: true) == true { return }
         interacted(.click, tabID: press.tab, in: window)
     }
 
@@ -271,11 +272,11 @@ final class NotificationCenterService {
     /// page, reads the tab that has the keyboard, which the click gave it.
     /// `onStrip`: the press is on the pane's tab strip, found from the pane's own
     /// strip rather than a window hit test (in the top row the titlebar takes that).
-    func clickedTab(in window: NSWindow?, at location: NSPoint) -> (tab: String, onStrip: Bool)? {
+    func clickedTab(in window: NSWindow?, at location: NSPoint) -> (tab: String, onStrip: Bool, pane: LayoutPaneID?)? {
         guard let services, let window else { return nil }
         let host = CmuxApplication.accessibilityWindow(for: window) ?? window
         guard let controller = services.windows.controllers.first(where: { $0.window === host }),
-              controller.state.page == nil, let content = controller.content else { return focusedTab(in: window).map { ($0, false) } }
+              controller.state.page == nil, let content = controller.content else { return focusedTab(in: window).map { ($0, false, nil) } }
         let inHost = host === window ? location : host.convertPoint(fromScreen: window.convertPoint(toScreen: location))
         let root = content.layoutView
         let point = root.convert(inHost, from: nil)
@@ -290,13 +291,11 @@ final class NotificationCenterService {
         let tab = (model.tabs.first { $0.id == shown } ?? model.tabs[min(max(model.defaultTabIndex, 0), model.tabs.count - 1)]).id
         let strip = content.panes[pane]?.view.stripView
         let onStrip = strip.map { $0.window === host && !$0.isHiddenOrHasHiddenAncestor && $0.bounds.contains($0.convert(inHost, from: nil)) } ?? false
-        return (tab, onStrip)
+        return (tab, onStrip, pane)
     }
 
-    /// A window's settled focus changed (window key, app active, workspace or
-    /// keyboard target): the viewed tab counts as focused while the window is
-    /// key and cmux is active. The viewed-tab rules read it (one path for a
-    /// focus and for an unread mark that lands on a viewed tab).
+    /// A window's settled focus or key holder changed: the viewed-tab rules read it (one path for a focus and for an
+    /// unread mark that lands on a viewed tab); a tab is viewed while its window holds the keys and cmux is active.
     func focusDidSettle(_ state: FocusState, in controller: WindowController) {
         viewedRevision &+= 1
     }
@@ -482,29 +481,29 @@ final class NotificationCenterService {
     /// acpmux reads a turn that ends in a shown chat at once, as before #22678, and a turn that
     /// ends unseen rings through its unread notification like any tab (cmux#34447). A chat the person is looking at
     /// (the focused content of the key window) never rings, and a burst pulses once: a finish
-    /// within `burstWindow` of the last pulse rings at rest (cmuxterm-hq#2959).
+    /// within `burstWindow` of the last pulse rings at rest (cmuxterm-hq#2959). Only the chat's own tabs are read, from
+    /// the store's index by session id: a turn end of any chat on any machine never walks every tab of every workspace
+    /// (design audit 2026-11-18 finding 7).
     func agentTurnEnded(session: String) {
         guard let services else { return }
-        agentTurnEnded(session: session, in: services.daemon.store.workspaces)
+        agentTurnEnded(session: session, in: services.daemon.store)
     }
 
-    func agentTurnEnded(session: String, in workspaces: [WorkspaceModel],
+    func agentTurnEnded(session: String, in store: DaemonStore,
                         rings: Bool = DesignSettings.shared.attention.rings(agentChat: true),
                         viewed: ((String) -> Bool)? = nil, now: ContinuousClock.Instant = .now) {
         guard rings else { return }
-        for workspace in workspaces {
-            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-            where tab.agentSession?.session == session && !(viewed?(tab.id) ?? isViewed(tab.id)) {
-                agentFinishGeneration &+= 1
-                agentFinished[tab.id] = agentFinishGeneration
-                if let last = lastAgentPulse, now - last < Self.burstWindow {
-                    quietAgentFinishes.insert(tab.id)
-                } else {
-                    quietAgentFinishes.remove(tab.id)
-                    lastAgentPulse = now
-                }
-                note("agent turn ended \(tab.id)")
+        for tab in store.tabs(agentSession: session)
+        where tab.agentSession?.session == session && !(viewed?(tab.id) ?? isViewed(tab.id)) {
+            agentFinishGeneration &+= 1
+            agentFinished[tab.id] = agentFinishGeneration
+            if let last = lastAgentPulse, now - last < Self.burstWindow {
+                quietAgentFinishes.insert(tab.id)
+            } else {
+                quietAgentFinishes.remove(tab.id)
+                lastAgentPulse = now
             }
+            note("agent turn ended \(tab.id)")
         }
     }
 

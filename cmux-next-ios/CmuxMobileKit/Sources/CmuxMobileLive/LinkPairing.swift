@@ -27,6 +27,11 @@ public struct LinkPairing: Sendable {
     /// A scanned pairing code waiting for its Mac's challenge (``PairInvite``).
     public let invites: PairInvites
 
+    /// This app's bundle id, sent with `auth` as `bundleId` (PROTOCOL.md "Pairing"): a tagged dev
+    /// Mac pairs its own tag's phone app (`dev.cmux.mobile.<tag>`) without its Allow prompt
+    /// (SECURITY.md "Dev auto-approve"). Every other Mac ignores it. Nil sends none.
+    public var bundleID: String? = Bundle.main.bundleIdentifier
+
     // Network exchange and the Mac's Allow prompt have different budgets.
     static let defaultHandshakeTimeout: Duration = .seconds(15)
     static let defaultApprovalTimeout: Duration = .seconds(180)
@@ -157,6 +162,7 @@ public struct LinkPairing: Sendable {
             ]
             let pushArgs = macID.flatMap { pushKeyArgs(mac: $0) }
             if let pushArgs { args.merge(pushArgs) { a, _ in a } }
+            if let bundleID, !bundleID.isEmpty { args["bundleId"] = bundleID }
             let channelArgs = args
             let channel = try await LinkDeadline.run(
                 timeout: handshakeTimeout,
@@ -348,7 +354,7 @@ public struct LinkPairing: Sendable {
         try await LinkDeadline.run(
             timeout: deadline - clockNow(),
             timeoutError: LinkError(code: approval ? "timeout" : "reply_timeout",
-                                   message: "The Mac didn't answer. Retry."),
+                                   message: "pairing reply timed out"),
             operation: operation,
             onCancel: { await channel.close(code: "eof", reason: "pairing ended") }
         )
