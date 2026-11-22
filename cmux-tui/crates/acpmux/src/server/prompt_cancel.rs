@@ -100,7 +100,10 @@ impl PromptStop {
     pub(super) fn watch(self: &Arc<Self>, on_accepted: OnAccepted) -> OnAccepted {
         let this = self.clone();
         Some(Box::new(move |v: Value| {
-            if let Some(id) = v.get("promptId").and_then(Value::as_str) {
+            // A duplicate (a retry of a prompt id the chat already took) names the first run's
+            // prompt: that run belongs to its own request, so cancelling this one never stops it.
+            let duplicate = v.get("duplicate").and_then(Value::as_bool) == Some(true);
+            if let Some(id) = v.get("promptId").and_then(Value::as_str).filter(|_| !duplicate) {
                 this.state.lock().unwrap_or_else(|e| e.into_inner()).prompt = Some(id.to_owned());
                 this.stop_if_due();
             }

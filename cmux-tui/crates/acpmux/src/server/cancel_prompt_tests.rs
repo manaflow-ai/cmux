@@ -129,6 +129,45 @@ async fn a_cancelled_prompt_settles_its_turn_and_the_next_prompt_runs() {
     assert_eq!(s.queued(), 0, "nothing waits in the queue");
 }
 
+/// A retry of a running prompt's id is a duplicate: cancelling the retry's request answers it
+/// cancelled and leaves the first run's turn running; only the first request's cancel stops it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_cancelled_duplicate_never_stops_the_first_run() {
+    let hub = hub();
+    let mut c = Client::connect(&hub);
+    let new =
+        c.call(1, "session/new", json!({"cwd": std::env::temp_dir(), "mcpServers": []})).await;
+    let sid = new["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{new}")).to_owned();
+    let s = hub.resolve(&sid).unwrap();
+
+    c.send(Message::request(10, "session/prompt", prompt(&sid, "until-cancel", "p-first"))).await;
+    let deadline = tokio::time::Instant::now() + WAIT;
+    while hub.agent_pending_requests(&sid).await != Some(1) {
+        assert!(tokio::time::Instant::now() < deadline, "the prompt never reached its agent");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    let mut again = prompt(&sid, "until-cancel", "p-first");
+    again["_meta"]["acpmux"]["resend"] = json!(true);
+    c.send(Message::request(11, "session/prompt", again)).await;
+    // The retry is taken as a duplicate of the first run before it is cancelled.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    c.send(Message::notification(method::CANCEL_REQUEST, json!({"requestId": 11}))).await;
+    let cancelled = c.answer(11, WAIT).await.expect("the cancel answered the retry");
+    assert_eq!(
+        cancelled["error"]["code"],
+        json!(crate::request_cancel::REQUEST_CANCELLED),
+        "{cancelled}"
+    );
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(s.turn().is_some(), "the retry's cancel stopped the first run");
+    assert!(c.answer_to(10).is_none(), "the first run was answered by the retry's cancel");
+
+    c.send(Message::notification(method::CANCEL_REQUEST, json!({"requestId": 10}))).await;
+    c.answer(10, WAIT).await.expect("the cancel answered the first run");
+    until("the first run's turn is still running", || s.turn().is_none()).await;
+}
+
 /// Where in a prompt's life its request is cancelled (the detector of the class "a cancel path
 /// skips the cleanup the normal finish takes"): one seam per await stage of a prompt.
 #[derive(Debug, Clone, Copy)]
