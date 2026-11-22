@@ -106,9 +106,7 @@ async fn forwards_a_call_to_the_proxy_and_streams_its_answer_as_frames() {
     let body: Vec<u8> = got[1..got.len() - 1]
         .iter()
         .flat_map(|f| {
-            base64::engine::general_purpose::STANDARD
-                .decode(f["data"].as_str().unwrap())
-                .unwrap()
+            base64::engine::general_purpose::STANDARD.decode(f["data"].as_str().unwrap()).unwrap()
         })
         .collect();
     assert_eq!(String::from_utf8(body).unwrap(), "event: a\ndata: 1\n\nevent: b\ndata: 2\n\n");
@@ -131,17 +129,14 @@ async fn forwards_a_call_to_the_proxy_and_streams_its_answer_as_frames() {
 #[tokio::test]
 async fn claude_codes_session_header_reaches_the_proxy() {
     let (base, upstream) =
-        fake_upstream("HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}")
-            .await;
+        fake_upstream("HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}").await;
     let provider = Provider::new(
         Upstream::Proxy { base: format!("{base}/v1"), key_file: None },
         test_client(),
     );
     let mut call = pending("/v1/messages", r#"{"model":"m"}"#);
-    call.headers.push((
-        "x-claude-code-session-id".into(),
-        "01a20179-9d24-7071-82aa-7b1b4f55d76f".into(),
-    ));
+    call.headers
+        .push(("x-claude-code-session-id".into(), "01a20179-9d24-7071-82aa-7b1b4f55d76f".into()));
     let (tx, mut rx) = mpsc::channel(32);
     answer(&provider, "c1", call, &tx).await;
     let got = frames(&mut rx).await;
@@ -293,10 +288,7 @@ async fn a_messages_call_goes_out_with_claude_codes_borrowed_sign_in() {
     let lower = request.to_ascii_lowercase();
     assert!(request.starts_with("POST /v1/messages?beta=true HTTP/1.1"), "{request}");
     assert!(lower.contains("authorization: bearer oat-1"));
-    assert!(
-        lower.contains("anthropic-beta: claude-code-20250219,oauth-2025-04-20"),
-        "{request}"
-    );
+    assert!(lower.contains("anthropic-beta: claude-code-20250219,oauth-2025-04-20"), "{request}");
     assert_eq!(lower.matches("anthropic-beta:").count(), 1, "{request}");
     assert!(!lower.contains("x-cmux-machine"));
     // Never refreshed: the refresh token is not sent anywhere.
@@ -343,11 +335,8 @@ fn refuses_plain_http_to_the_api_and_two_upstreams() {
     assert!(parse(&args(&["--codex-auth", "/a"]), &no_env).is_err());
     // A credential in the URL would be logged with it.
     assert!(
-        parse(
-            &args(&["--api", "https://a.dev", "--upstream", "https://u:secret@b.dev"]),
-            &no_env
-        )
-        .is_err()
+        parse(&args(&["--api", "https://a.dev", "--upstream", "https://u:secret@b.dev"]), &no_env)
+            .is_err()
     );
     assert!(
         parse(&args(&["--api", "https://a.dev", "--upstream", "https://u@b.dev"]), &no_env)
@@ -355,14 +344,7 @@ fn refuses_plain_http_to_the_api_and_two_upstreams() {
     );
     assert!(
         parse(
-            &args(&[
-                "--api",
-                "https://a.dev",
-                "--upstream-key-file",
-                "/k",
-                "--codex-auth",
-                "/a"
-            ]),
+            &args(&["--api", "https://a.dev", "--upstream-key-file", "/k", "--codex-auth", "/a"]),
             &no_env
         )
         .is_err()
@@ -455,9 +437,8 @@ fn the_relay_never_carries_gemini_or_grok_paths() {
 
 #[test]
 fn refuses_an_upstream_with_a_fragment() {
-    let parse_up = |up: &str| {
-        parse(&args(&["--api", "https://a.dev", "--upstream", up]), &no_env).map(|_| ())
-    };
+    let parse_up =
+        |up: &str| parse(&args(&["--api", "https://a.dev", "--upstream", up]), &no_env).map(|_| ());
     assert!(parse_up("https://h#f").is_err());
     assert!(parse_up("https://h/v1#").is_err());
     assert!(parse_up("https://h/v1").is_ok());
