@@ -149,7 +149,7 @@ struct RestoreOrder {
 }
 
 /// The domains whose ops this module answers.
-const DOMAINS: [&[u8]; 9] = [
+const DOMAINS: [&[u8]; 10] = [
     b"window_restore_",
     b"window_notifications_",
     b"window_history_",
