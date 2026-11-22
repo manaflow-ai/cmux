@@ -127,6 +127,13 @@ SCREENSHOTS_DIR = "cmux-next-ios/AppStoreReview/screenshots/en-US"
 HISTORY_FILE = "cmux-next-ios/AppStoreReview/rejection-history.json"
 # The App Review notes App Store Connect gets (asc_review_package.py sync-notes).
 REVIEW_NOTES = "cmux-next-ios/AppStoreReview/review-notes-asc.txt"
+# cmux INTERNAL's record gets its own notes (asc_review_package.py --config
+# TestFlight sync-notes): its build sells nothing, so they promise no purchase.
+REVIEW_NOTES_BY_LANE = {"internal-submission": "cmux-next-ios/AppStoreReview/review-notes-asc-internal.txt"}
+# The app's own list of bundles whose App Store record has no subscriptions
+# (CmuxMobileBilling's BillingPurchaseAvailability): their plans screen is
+# read-only, with no purchase, restore, manage or renewal-terms control.
+APPS_WITHOUT_SUBSCRIPTIONS = re.compile(r"\bappsWithoutSubscriptions\s*:\s*Set<String>\s*=\s*\[([^\]]*)\]")
 # Blockers the app already had when pushes and pull requests started failing on
 # new ones; a fix removes its entry, and nothing is ever added to dodge a red.
 KNOWN_BLOCKERS_FILE = "cmux-next-ios/AppStoreReview/known-blockers.json"
@@ -158,6 +165,12 @@ APPSTORE_ENTITLEMENTS = (
 )
 UITEST_DIR = "cmux-next-ios/UITests"
 STORE_RULES = "scripts/cmux-next/check-app-store-rules.py"
+
+
+def apps_without_subscriptions(texts: dict[Path, str]) -> set[str]:
+    """The bundle ids the app's sources list in appsWithoutSubscriptions."""
+    return {bundle for text in texts.values() for match in APPS_WITHOUT_SUBSCRIPTIONS.finditer(text)
+            for bundle in re.findall(r'"([\w.-]+)"', match.group(1))}
 
 
 @dataclasses.dataclass
@@ -486,6 +499,25 @@ class Lint:
         if not storekit:
             return
         self.ran("subscriptions")
+        notes_rel = REVIEW_NOTES_BY_LANE.get(self.lane, REVIEW_NOTES)
+        notes_path = self.root / notes_rel
+        notes = notes_path.read_text(errors="ignore") if notes_path.is_file() else ""
+        notes = "\n".join(line for line in notes.splitlines() if not line.startswith("##"))
+        bundle = LANE_BUNDLE_ID.get(self.lane, APPSTORE_BUNDLE_ID)
+        if self.strict and bundle in apps_without_subscriptions(texts):
+            # The app itself offers no purchase in this bundle, so the reviewer
+            # must not be sent looking for one (2.1): the notes name the "Plan"
+            # row and promise no Subscribe, Restore Purchases, Manage
+            # Subscription or Sandbox purchase, and the selling rules do not apply.
+            promised = sorted(set(re.findall(r'"Subscribe"|"Restore Purchases"|"Manage Subscription"|\bSandbox\b', notes)))
+            problems = [f"promises {', '.join(promised)}"] if promised else []
+            if '"Plan"' not in notes:
+                problems.append('never names "Plan"')
+            if problems:
+                self.add("iap.review-notes", "2.1(b)", "blocker",
+                         f"the review notes ({notes_rel}) {'; '.join(problems)}, but {bundle} offers no purchase "
+                         "(appsWithoutSubscriptions): Settings > \"Plan\" shows the current plan read-only", notes_rel)
+            return
         joined = "\n".join(texts.values())
         where = self.rel(storekit[0])
         if not re.search(r"\"Restore Purchases\"", joined) or not re.search(r"\bAppStore\.sync\(\)", joined):
@@ -506,9 +538,6 @@ class Lint:
         if descriptions and not any(re.search(r"terms-of-service|/terms\b|EULA", d, re.I) for d in descriptions):
             self.add("metadata.subscription-terms", "3.1.2", "blocker",
                      "the app sells subscriptions but no store description links its Terms of Use (EULA)", METADATA_DIR)
-        notes_path = self.root / REVIEW_NOTES
-        notes = notes_path.read_text(errors="ignore") if notes_path.is_file() else ""
-        notes = "\n".join(line for line in notes.splitlines() if not line.startswith("##"))
         problems = []
         if re.search(r"sells? (no|nothing)|no (digital goods|in-app purchases?)|no StoreKit", notes, re.I):
             problems.append("says the app sells nothing")
@@ -519,8 +548,8 @@ class Lint:
             problems.append("does not say purchases are made in the Sandbox")
         if problems:
             self.add("iap.review-notes", "2.1(b)", "blocker",
-                     f"the review notes ({REVIEW_NOTES}) {'; '.join(problems)}: the reviewer must find the subscriptions "
-                     "(Settings > \"Plan\") and Restore Purchases", REVIEW_NOTES)
+                     f"the review notes ({notes_rel}) {'; '.join(problems)}: the reviewer must find the subscriptions "
+                     "(Settings > \"Plan\") and Restore Purchases", notes_rel)
 
     def check_apple_sign_in_ships(self) -> None:
         """Debug builds hide the Apple button (CMUX_MOBILE_APPLE_SIGN_IN = NO);
