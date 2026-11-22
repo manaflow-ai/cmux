@@ -109,7 +109,9 @@ export function SettleMomentDesigns({ design }: SettleMomentDesignsProps) {
       <div className="acpmux-shell toast-gallery smd-chat">
         <div className="acpmux-main" data-dock="float">
           <div className="acpmux-stage toast-gallery-stage">
-            <p className="toast-gallery-row">Merged #123 into main. The login redirect keeps the return path now.</p>
+            <p className="toast-gallery-row">
+              Merged pull request 123 into main. The login redirect keeps the return path now.
+            </p>
           </div>
           <div className="acpmux-dock">
             <ToastLayer queue={queue} />
