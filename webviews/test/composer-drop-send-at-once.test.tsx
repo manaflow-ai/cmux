@@ -307,6 +307,13 @@ test("a prompt whose file failed to go fails its row with the host's words, neve
     () => new Relay() as unknown as WebSocket,
   );
   try {
+    // The host's store of unsent prompts: a failed prompt is kept there, as any failed send is.
+    const kept: { sessionId: string; promptId: string; error?: string }[] = [];
+    client.setUnsentPromptStore({
+      read: async () => [],
+      put: async (sessionId, record) => void kept.push({ sessionId, promptId: record.promptId, error: record.error }),
+      remove: async () => undefined,
+    });
     // The chat open now: its first prompt started it.
     await client.send("hello").catch(() => undefined);
     const before = prompts.length;
@@ -323,6 +330,9 @@ test("a prompt whose file failed to go fails its row with the host's words, neve
     const row = rows.find((each) => each.kind === "user" && each.text?.startsWith("look\n"));
     expect(row?.failed).toBe(true);
     expect(row?.error).toContain("The disk is full.");
+    // Its delivery record gives the row Edit, Remove, Details and Retry; a reload keeps it.
+    expect((row as { delivery?: { state?: string } } | undefined)?.delivery?.state).toBe("failed");
+    expect(kept.some((record) => record.error?.includes("The disk is full."))).toBe(true);
   } finally {
     client.close?.();
   }
