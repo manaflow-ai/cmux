@@ -408,13 +408,16 @@ function endUndoStep(view: EditorView) {
  * ends before the paste and again once its event is done (a microtask: ProseMirror inserts a paste
  * it is left after the handlers return), so neither the words typed before it nor the next paste or
  * key joins it. `open` is set for that event, so the edits it makes (text and attachments together)
- * stay one step. */
-function beginPasteStep(view: EditorView, open: { current: boolean }) {
+ * stay one step. `joins` set: the paste goes in where a chip was just taken out for it (Edit in
+ * Prompt), and joins that removal's step, so one undo brings the chip back. */
+function beginPasteStep(view: EditorView, open: { current: boolean }, joins: { current: boolean }) {
   if (open.current) return;
   open.current = true;
-  endUndoStep(view);
+  if (joins.current) joins.current = false;
+  else endUndoStep(view);
   queueMicrotask(() => {
     open.current = false;
+    joins.current = false;
     endUndoStep(view);
   });
 }
@@ -771,6 +774,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const plainPasteAt = useRef(-Infinity);
   // Set during a paste event: its edits are its one undo step (`beginPasteStep`).
   const inPasteStep = useRef(false);
+  // Set when a chip's node went out for what takes its place (`removeInline` with `caret`: Edit in
+  // Prompt, Keep as .txt): the next insert is in the same undo step, so an undo brings the chip back.
+  const joinsStep = useRef(false);
   literalNow.current = literal;
   const plainInputNow = useRef(plainInput || literal);
   plainInputNow.current = plainInput || literal;
@@ -1168,7 +1174,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   // A copy made in a composer goes back in by the surface's own plan; a link it ends
                   // in gets the space every pasted link gets.
                   const pasteFrom = editorView.state.selection.from;
-                  beginPasteStep(editorView, inPasteStep);
+                  joinsStep.current = false;
+                  beginPasteStep(editorView, inPasteStep, joinsStep);
                   if (latest.current.onPasteFirst?.(event)) {
                     event.preventDefault();
                     spaceAfterPastedLink(editorView, pasteFrom);
@@ -1214,7 +1221,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               },
               handleTextInput: (editorView, _from, _to, text) => beforeInput(editorView, text),
               handlePaste: (editorView, event, slice) => {
-                beginPasteStep(editorView, inPasteStep);
+                beginPasteStep(editorView, inPasteStep, joinsStep);
                 if (literalNow.current) {
                   const data = event.clipboardData;
                   const text = data?.getData("text/plain") || htmlText(data?.getData("text/html") ?? "");
@@ -1734,13 +1741,16 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           // or the words typed before them (https://github.com/manaflow-ai/cmux/issues/49644).
           // "restore" makes no step.
           if (at === "restore" || inPasteStep.current) return insertInline(current, ids, replace, at);
-          endUndoStep(current);
+          if (joinsStep.current) joinsStep.current = false;
+          else endUndoStep(current);
           const went = insertInline(current, ids, replace, at);
           endUndoStep(current);
           return went;
         },
         removeInline: (id, caret) => {
-          if (view.current) removeInline(view.current, id, caret);
+          if (!view.current) return;
+          removeInline(view.current, id, caret);
+          joinsStep.current = caret === true;
         },
         plainPaste: () => {
           plainPasteAt.current = performance.now();
