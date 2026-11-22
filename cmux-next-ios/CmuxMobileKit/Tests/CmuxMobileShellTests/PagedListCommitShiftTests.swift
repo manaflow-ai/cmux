@@ -20,7 +20,8 @@ import UIKit
 
     /// The rows, which a test changes in place (a row that grows, as a Chief that starts typing).
     @Observable final class Rows {
-        var items: [Row] = (0 ..< 200).map { Row(id: $0) }
+        var items: [Row]
+        init(_ items: [Row] = (0 ..< 200).map { Row(id: $0) }) { self.items = items }
     }
 
     private struct Screen: View {
@@ -57,12 +58,12 @@ import UIKit
         let container: UIView
     }
 
-    private func host() throws -> Hosted {
+    private func host(rows initial: [Row]? = nil) throws -> Hosted {
         let seen = Seen()
         let probe = PagedListProbe()
         probe.frameShift = { seen.shifts.append($0) }
         probe.drawnShift = { shift, _ in seen.drawn.append(shift) }
-        let rows = Rows()
+        let rows = initial.map(Rows.init) ?? Rows()
         let list = Screen(rows: rows, probe: probe)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         let root = UIViewController()
@@ -185,6 +186,9 @@ import UIKit
         let before = try #require(top(of: 11, in: list))
         hosted.rows.items[10].tall = true
         settle()
+        // The fixture's own check: the row grew (a test whose row never grows passes on any code).
+        let grown = try #require(list.layoutAttributesForItem(at: IndexPath(item: 10, section: 0)))
+        #expect(abs(grown.frame.height - 82) < 0.5, "row 10 measured \(grown.frame.height) pt, not 82: the grow did not reach the list")
         let after = try #require(top(of: 11, in: list))
         #expect(abs(after - before) <= 0.5, "the row under the cut row moved \(after - before) pt")
     }
@@ -192,14 +196,14 @@ import UIKit
     /// The cut row is the only row on screen (taller than the list): nothing below it is in view, so
     /// it keeps its own top while it grows, and what the reader sees of it stays put.
     @Test func aRowAloneOnScreenCutByTheTopEdgeKeepsItsTopWhenItGrows() throws {
-        let hosted = try host()
+        // Row 10 is 1200 pt from the start: the fixture does not depend on a grow to set itself up.
+        var initial = (0 ..< 200).map { Row(id: $0) }
+        initial[10].huge = 1200
+        let hosted = try host(rows: initial)
         defer { hosted.window.isHidden = true }
         let list = hosted.list
-        // Row 10 on screen first, so the list measures it at its new height (a row out of view keeps
-        // its old one until it comes in).
-        list.setContentOffset(CGPoint(x: 0, y: 10 * 60 - 100 - list.adjustedContentInset.top), animated: false)
-        settle()
-        hosted.rows.items[10].huge = 1200
+        // Bring row 10 on screen so the list measures it, then place its top 100 pt above the list's.
+        list.setContentOffset(CGPoint(x: 0, y: 10 * 60 - list.adjustedContentInset.top), animated: false)
         settle()
         let row = try #require(list.layoutAttributesForItem(at: IndexPath(item: 10, section: 0)))
         #expect(row.frame.height >= 1199, "row 10 measured \(row.frame.height) pt")
@@ -210,6 +214,8 @@ import UIKit
         let before = try #require(top(of: 10, in: list))
         hosted.rows.items[10].huge = 1300
         settle()
+        let grown = try #require(list.layoutAttributesForItem(at: IndexPath(item: 10, section: 0)))
+        #expect(grown.frame.height >= 1299, "row 10 measured \(grown.frame.height) pt, not 1300: the grow did not reach the list")
         let after = try #require(top(of: 10, in: list))
         #expect(abs(after - before) <= 0.5, "the row alone on screen moved \(after - before) pt")
     }
