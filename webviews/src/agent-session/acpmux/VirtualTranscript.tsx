@@ -781,8 +781,6 @@ const RowFrame = React.memo(function RowFrame({
 /// row other than a reply and the live line changed (a call finished, a thought grew, a steer
 /// landed). O(1): the last ARRIVAL_TAIL rows, by id and version.
 const ARRIVAL_TAIL = 6;
-/// How long after a click's capture declared a fold's transition the change it sets still plays in it.
-const DECLARED_FOLD_MS = 50;
 /// Sent thinking markers live only for the recent sends that can still be in their landing window.
 /// This keeps the identity side table constant-size even when a long transcript is retained.
 const SENT_PROMPT_ID_LIMIT = 32;
@@ -2239,22 +2237,15 @@ function TranscriptView({
   // The list the motion owner drives (set by the scroller's effect below), and the fold the click's
   // capture already declared a transition for (`declareFold`).
   const motionListRef = useRef<MotionList | undefined>(undefined);
-  const declaredFold = useRef<{ rowId: string; at: number } | undefined>(undefined);
+  const declaredFold = useRef<string | undefined>(undefined);
   // A disclosure's change (useDisclosure.ts, transcriptDisclosureModel.ts) as one transition of the
   // motion owner, anchored on the row it is drawn in. A click on a fold toggle already declared its
   // transition in the capture phase: the change it sets plays inside that one, never a second.
   const runDisclosure = useCallback<RunDisclosure>((anchorRow, apply) => {
     const list = motionListRef.current;
     if (!list) return apply();
-    const declared = declaredFold.current;
     const playing = runningTransition(list);
-    if (
-      declared?.rowId === anchorRow &&
-      performance.now() - declared.at < DECLARED_FOLD_MS &&
-      playing &&
-      !playing.ended
-    )
-      return apply();
+    if (declaredFold.current === anchorRow && playing && !playing.ended) return apply();
     transition(list, {
       cause: "disclosure",
       anchorRow,
@@ -6946,7 +6937,11 @@ function TranscriptView({
         anchorRow: rowId,
         ms: FOLD_HOLD_MIN_MS + FOLD_SETTLE_MS,
       });
-      declaredFold.current = { rowId, at: performance.now() };
+      // The click's own setter runs in this task (`runDisclosure`): it plays in this transition.
+      declaredFold.current = rowId;
+      setTimeout(() => {
+        if (declaredFold.current === rowId) declaredFold.current = undefined;
+      });
     };
     // First on the window, so a fling's momentum held after a jump reaches no other listener.
     const removeMomentumHold = installMomentumHold(node, scrollRunning);
