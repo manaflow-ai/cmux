@@ -16,11 +16,12 @@ doctest = false
 default = ["http"]
 # The app server uses only scoped lifecycle requests; credentials and HTTP
 # remain in its existing host relay. Default clients retain their HTTP API.
-http = ["dep:bytes", "dep:cmux-cloud-environment", "dep:futures", "dep:getrandom", "dep:progenitor-client", "dep:regress", "dep:reqwest", "dep:tokio", "dep:openapiv3", "dep:prettyplease", "dep:progenitor", "dep:syn"]
+http = ["dep:bytes", "dep:cmux-build-space", "dep:cmux-cloud-environment", "dep:futures", "dep:getrandom", "dep:progenitor-client", "dep:regress", "dep:reqwest", "dep:tokio", "dep:openapiv3", "dep:prettyplease", "dep:progenitor", "dep:syn"]
 
 [dependencies]
 url.workspace = true
 bytes = { workspace = true, optional = true }
+cmux-build-space = { workspace = true, optional = true }
 cmux-cloud-environment = { workspace = true, optional = true }
 cmux-cloud-machine.workspace = true
 cmux-cloud-wire.workspace = true
@@ -46,6 +47,7 @@ serde_json.workspace = true
 syn = { version = "=3.0.6", features = ["full"], optional = true }
 
 [dev-dependencies]
+cmux-build-space = { workspace = true, features = ["testing"] }
 cmux-cloud-config.workspace = true
 rustls.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util"] }

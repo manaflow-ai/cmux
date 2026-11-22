@@ -34,7 +34,12 @@ import CmuxNextWakeups
 @MainActor
 public final class GlassParityPlayground {
     nonisolated enum Kind: String, CaseIterable, Sendable {
-        case menu, popover, card, tooltip, dialog, toast
+        case menu, popover, card, tooltip, dialog, toast, chrome
+    }
+
+    /// The menu's row under the pointer: none, hovered (the highlight), or pressed (the press fill).
+    nonisolated enum RowState: String, CaseIterable, Sendable {
+        case rest, hover, pressed
     }
 
     nonisolated enum Backdrop: String, CaseIterable, Sendable {
@@ -51,6 +56,11 @@ public final class GlassParityPlayground {
     }
 
     /// Everything a capture depends on that the playground sets itself.
+    /// How the text on the glass is rasterized: `standard` is what the app ships (AppKit's own text beside
+    /// the pages', which follow it under `appearance.fontSmoothing` `auto`); `flat` draws both with font
+    /// smoothing off; `smooth` both with it on.
+    nonisolated enum TextRendering: String, Sendable { case standard, flat, smooth }
+
     nonisolated struct Scenario: Equatable, Sendable {
         var backdrop: Backdrop = .wallpaper
         var mode: Mode = .host
@@ -62,6 +72,10 @@ public final class GlassParityPlayground {
         var offset: CGFloat = 0
         /// The window key and its app active, else inactive.
         var active = true
+        /// The menu's highlighted row (``menuRow``): none, hovered or pressed.
+        var row: RowState = .rest
+        /// How the text is rasterized on each side (``TextRendering``).
+        var text: TextRendering = .standard
 
         var stem: String {
             var parts = [backdrop.rawValue]
@@ -70,6 +84,8 @@ public final class GlassParityPlayground {
             if offset != 0 { parts.append("s\(Int(offset.rounded()))") }
             parts.append(mode.rawValue)
             parts.append(active ? "active" : "inactive")
+            if row != .rest { parts.append(row.rawValue) }
+            if text != .standard { parts.append("text-\(text.rawValue)") }
             return parts.joined(separator: "-")
         }
     }
@@ -83,6 +99,14 @@ public final class GlassParityPlayground {
     /// The content box inside a surface where its text draws (left out of the material diff).
     static let textInset = NSEdgeInsets(top: 8, left: 10, bottom: 0, right: 10)
     static let textHeight: CGFloat = 38
+    /// The menu's one row (in the menu, below its text): a native menu row's box at the menu's highlight
+    /// inset, where the hover and pressed cells draw its highlight.
+    static var menuRow: CGRect {
+        let inset = MenuMetrics.highlightInset
+        return CGRect(x: inset, y: 47, width: surfaceSize(.menu).width - inset * 2, height: 20)
+    }
+    /// The native row highlight's corner (``PopupRowView``'s, `PopupStyle.standard.rowCornerRadius`).
+    static var menuRowRadius: CGFloat { PopupStyle.standard.rowCornerRadius }
 
     static func surfaceSize(_ kind: Kind) -> CGSize {
         switch kind {
@@ -97,7 +121,7 @@ public final class GlassParityPlayground {
         case .popover, .card: Metrics.panelCornerRadius
         case .tooltip: 6
         case .dialog: 16
-        case .toast: Metrics.surfaceCornerRadius
+        case .toast, .chrome: Metrics.surfaceCornerRadius
         }
     }
 
@@ -124,6 +148,7 @@ public final class GlassParityPlayground {
         case .tooltip: "Tooltip"
         case .dialog: "Dialog"
         case .toast: "Toast"
+        case .chrome: "Chrome"
         }
     }
 
@@ -134,7 +159,9 @@ public final class GlassParityPlayground {
     var pages: [Column: PageWebView] = [:]
     var hosts: [Column: GlassParityHostLayer] = [:]
     private var backdropView: GlassParityBackdropView?
-    private var nativeLayer: NSView?
+    private(set) var nativeLayer: NSView?
+    /// The native menu's row highlight (``Scenario/row``).
+    private var menuRowView: GlassParityRowFill?
     private var ready: Set<Column> = []
     /// The Mac's desktop picture for the `image` backdrop, read off the main actor once.
     private var picture: NSImage?
@@ -155,10 +182,14 @@ public final class GlassParityPlayground {
                 "left": .number(rect.minX), "top": .number(rect.minY),
                 "width": .number(rect.width), "height": .number(rect.height),
                 "radius": .number(Self.radius(kind)),
+                "row": .string(kind == .menu ? scenario.row.rawValue : RowState.rest.rawValue),
                 "title": .string(Self.title(kind)), "detail": .string(Self.detail(kind)),
             ]
         }
-        return ["mode": .string(scenario.mode.rawValue), "cells": .array(cells)]
+        let row = Self.menuRow
+        return ["mode": .string(scenario.mode.rawValue), "text": .string(scenario.text.rawValue), "cells": .array(cells),
+                "menu_row": ["left": .number(row.minX), "top": .number(row.minY), "width": .number(row.width),
+                             "height": .number(row.height), "radius": .number(Self.menuRowRadius)]]
     }
 
     /// A page's report of its surfaces' boxes (host mode): the App's glass goes there.
@@ -169,7 +200,7 @@ public final class GlassParityPlayground {
         var surfaces: [GlassParityHostLayer.Surface] = []
         for item in list {
             guard let id = item["id"]?.stringValue, let name = item["level"]?.stringValue,
-                  let level = GlassLevel(rawValue: name), level != .chrome,
+                  let level = GlassLevel(rawValue: name),
                   let left = item["left"]?.doubleValue, let top = item["top"]?.doubleValue,
                   let right = item["right"]?.doubleValue, let bottom = item["bottom"]?.doubleValue,
                   right >= left, bottom >= top else {
@@ -202,7 +233,10 @@ public final class GlassParityPlayground {
     /// is attached, and waits until both pages painted (and, in host mode, the App drew their glass).
     /// Answers what it shows.
     func show(_ scenario: Scenario, scale: CGFloat?) async -> JSONValue {
-        let reload = window == nil || scenario.mode != self.scenario.mode
+        // Every scenario starts from new glass, native and host alike: Liquid Glass keeps an adaptive look with
+        // memory (over the same backdrop the tooltip's glass settled on two or three looks, by the backdrops it
+        // saw before: fleet step 368e35ec), so glass views with different pasts drifted apart by up to 12 levels.
+        // New views have the same (no) past. The pages reload so each reports its surfaces to new host glass.
         self.scenario = scenario
         let window = window ?? makeWindow()
         self.window = window
@@ -219,19 +253,32 @@ public final class GlassParityPlayground {
             view.offset = scenario.offset
             view.needsDisplay = true
         }
-        if reload {
-            ready = []
-            for host in hosts.values { host.apply([]) }
-            for page in pages.values { page.reload() }
+        if let native = nativeLayer {
+            for view in native.subviews { view.removeFromSuperview() } // visible-only: the seven fixed test surfaces, all on screen
+            for kind in Kind.allCases { native.addSubview(nativeSurface(kind)) }
         }
+        ready = []
+        for host in hosts.values { host.apply([]) }
+        for page in pages.values { page.reload() }
         // Every page loads and reports while shown; the capture solos one renderer at a time after.
         solo(nil)
+        // Active: the app active and the playground key (the harness launches the app without the no-activate switch
+        // for these cells; under it macOS may refuse, and `status().key` says so). Activation lands a few frames
+        // later and the app's own main window takes key as it does, so the playground asks for key again once the
+        // app is active. Inactive: the harness hands activation to another app (`open -a Finder`, before this
+        // call); here the playground only comes to the front without asking for it.
         if scenario.active {
             NSApp.activate()
             window.makeKeyAndOrderFront(nil)
+            await poll(until: { NSApp.isActive }, limit: .seconds(3))
+            // The app's own main window may take key as activation lands, after this asked: ask again until key.
+            await poll(until: {
+                if !window.isKeyWindow { window.makeKeyAndOrderFront(nil) }
+                return window.isKeyWindow
+            }, limit: .seconds(4))
         } else {
-            NSApp.deactivate()
             window.orderFrontRegardless()
+            await poll(until: { !NSApp.isActive }, limit: .seconds(3))
         }
         await wait(until: { self.ready.count >= self.pages.count }, limit: .seconds(15))
         if scenario.mode == .host {
@@ -239,6 +286,27 @@ public final class GlassParityPlayground {
         }
         await settle()
         return status()
+    }
+
+    /// Moves the backdrop under the glass every frame for `seconds` with only `column`'s renderer shown (nil:
+    /// all), so `debug.frames` around it measures the frame time of that glass over a moving backdrop.
+    func animate(seconds: Double, only column: Column?) async -> JSONValue {
+        guard let backdropView else { return ["error": "the playground is not open"] }
+        solo(column)
+        await settle()
+        let start = ContinuousClock.now
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            backdropView.animate(for: seconds) { done.resume() }
+        }
+        let elapsed = ContinuousClock.now - start
+        solo(nil)
+        var answer = status()
+        if case .object(var members) = answer {
+            members["animated_ms"] = .number(Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15)
+            members["column"] = column.map { .string($0.rawValue) } ?? .null
+            answer = .object(members)
+        }
+        return answer
     }
 
     /// Shows only `column`'s renderer (nil: all of them), so a capture holds one renderer over the backdrop.
@@ -274,7 +342,17 @@ public final class GlassParityPlayground {
             "ready": .array(ready.map { .string($0.rawValue) }.sorted { ($0.stringValue ?? "") < ($1.stringValue ?? "") }),
             "liquid_glass": .bool(Glass.isLiquidGlassAvailable),
             "desktop_picture": .bool(picture != nil),
+            "page_windows": pageWindows(in: window),
         ]
+    }
+
+    /// Each page's view rect on screen beside its child windows' frames (a Chromium page draws in a child window
+    /// the Chromium fork places), so a page drawn off its view's pixels names the offset.
+    func pageWindows(in window: NSWindow) -> JSONValue {
+        func rect(_ r: CGRect) -> JSONValue { .array([r.minX, r.minY, r.width, r.height].map { .number($0) }) }
+        var views: [String: JSONValue] = [:]
+        for (column, page) in pages { views[column.rawValue] = rect(window.convertToScreen(page.convert(page.bounds, to: nil))) }
+        return ["views": .object(views), "children": .array((window.childWindows ?? []).map { rect($0.frame) })]
     }
 
     var appearance: String {
@@ -289,11 +367,13 @@ public final class GlassParityPlayground {
         hosts = [:]
         backdropView = nil
         nativeLayer = nil
+        menuRowView = nil
+
         ready = []
     }
 
     /// Waits until `done` holds or `limit` passes, woken by the pages' reports and one deadline.
-    private func wait(until done: () -> Bool, limit: Duration) async {
+    func wait(until done: () -> Bool, limit: Duration) async {
         deadlinePassed = false
         deadline.schedule(after: limit) { @MainActor [weak self] in
             self?.deadlinePassed = true
@@ -303,6 +383,15 @@ public final class GlassParityPlayground {
             await withCheckedContinuation { waiters.append($0) }
         }
         deadline.cancel()
+    }
+
+    /// Waits until `done` holds or `limit` passes, checking every 50 ms: the app's activation and key state have
+    /// no report of the playground's own to wake on (a debug measure, never a person's).
+    private func poll(until done: () -> Bool, limit: Duration) async {
+        let end = ContinuousClock.now + limit
+        while !done(), ContinuousClock.now < end {
+            await wait(until: { false }, limit: .milliseconds(50))
+        }
     }
 
     private func wake() {
@@ -330,8 +419,7 @@ public final class GlassParityPlayground {
         // drawing AppKit skipped it under them, opaque to it, and the glass sampled nothing).
         root.wantsLayer = true
         window.contentView = root
-        let backdrop = GlassParityBackdropView(frame: stage)
-        backdrop.autoresizingMask = [.width, .height]
+        let backdrop = GlassParityBackdropView(stage: stage)
         root.addSubview(backdrop)
         backdropView = backdrop
         let native = GlassParityFlippedView(frame: stage)
@@ -363,15 +451,32 @@ public final class GlassParityPlayground {
         case .menu: Glass.makeMenuPanel(cornerRadius: radius, interactive: false)
         // The native popovers' one transient material (the palette, page info, which-key).
         case .popover, .card: Glass.makeOverlayPanel(cornerRadius: radius, interactive: false, tone: .neutralGlass(.transient))
-        case .tooltip: Glass.makeSurface(.tooltip, cornerRadius: radius, interactive: false)
+        // The tooltip window's whole surface: its glass, legibility tint and shadow (TooltipPanel).
+        case .tooltip: Glass.makeTooltipGlass(cornerRadius: radius)
         case .dialog: Glass.makeSurface(.sheet, cornerRadius: radius, interactive: false)
         case .toast: Glass.makeSurface(.toast, cornerRadius: radius, interactive: false)
+        // Docked glass (the tab strip's, a drag ghost's): the theme's glass at the chrome level's tint.
+        case .chrome: Self.chromeGlass(cornerRadius: radius)
         }
         surface.translatesAutoresizingMaskIntoConstraints = true
         surface.frame = Self.surfaceRect(kind)
         // Pinned to the content view: it is laid out later, and autoresizing from its empty first frame
         // pushed the labels out of the surface.
-        let text = GlassParityTextView(frame: CGRect(origin: .zero, size: surface.frame.size), title: Self.title(kind), detail: Self.detail(kind))
+        if kind == .menu {
+            let row = GlassParityRowFill(frame: CGRect(origin: .zero, size: surface.frame.size), row: Self.menuRow, radius: Self.menuRowRadius)
+            row.state = scenario.row
+            row.translatesAutoresizingMaskIntoConstraints = false
+            surface.contentView.addSubview(row)
+            NSLayoutConstraint.activate([
+                row.leadingAnchor.constraint(equalTo: surface.contentView.leadingAnchor),
+                row.trailingAnchor.constraint(equalTo: surface.contentView.trailingAnchor),
+                row.topAnchor.constraint(equalTo: surface.contentView.topAnchor),
+                row.bottomAnchor.constraint(equalTo: surface.contentView.bottomAnchor),
+            ])
+            menuRowView = row
+        }
+        let text = GlassParityTextView(frame: CGRect(origin: .zero, size: surface.frame.size), title: Self.title(kind), detail: Self.detail(kind),
+                                       smoothing: scenario.text != .flat)
         text.translatesAutoresizingMaskIntoConstraints = false
         surface.contentView.addSubview(text)
         NSLayoutConstraint.activate([
@@ -380,6 +485,14 @@ public final class GlassParityPlayground {
             text.topAnchor.constraint(equalTo: surface.contentView.topAnchor),
             text.bottomAnchor.constraint(equalTo: surface.contentView.bottomAnchor),
         ])
+        return surface
+    }
+
+    /// Docked glass as the native chrome draws it (the tab strip's, a drag ghost's): the theme's glass
+    /// at the chrome level's tint (``GlassLevel/chrome``).
+    private static func chromeGlass(cornerRadius: CGFloat) -> OverlaySurfaceView {
+        let surface = Glass.makeOverlayPanel(cornerRadius: cornerRadius, interactive: false)
+        surface.tintLevel = .chrome
         return surface
     }
 
@@ -403,8 +516,8 @@ public final class GlassParityPlayground {
 
     // MARK: Control
 
-    /// `debug.glass_parity {backdrop?, mode?, color?, opacity?, offset?, active?, scale?, measure?, dir?,
-    /// close?}` (the App routes it here): opens or reconfigures the playground (``show(_:scale:)``; a key
+    /// `debug.glass_parity {backdrop?, mode?, color?, opacity?, offset?, active?, row?, scale?, measure?, dir?,
+    /// animate?, column?, close?}` (`animate`: seconds of a moving backdrop under `column`'s glass alone) (the App routes it here): opens or reconfigures the playground (``show(_:scale:)``; a key
     /// left out keeps its value) and, with `measure`, captures every renderer and diffs them into `dir`
     /// (default a folder in the temporary directory). `close` closes it.
     public func handle(_ params: [String: JSONValue], capture: ([String: JSONValue]) async -> JSONValue) async -> JSONValue {
@@ -430,8 +543,24 @@ public final class GlassParityPlayground {
         if let opacity = params["opacity"]?.doubleValue { next.opacity = CGFloat(min(max(opacity, 0), 1)) }
         if let offset = params["offset"]?.doubleValue { next.offset = CGFloat(min(max(offset, -200), 200)) }
         if let active = params["active"]?.boolValue { next.active = active }
+        if let name = params["row"]?.stringValue {
+            guard let row = RowState(rawValue: name) else { return ["error": .string("unknown row \(name)")] }
+            next.row = row
+        }
+        if let name = params["text"]?.stringValue {
+            guard let text = TextRendering(rawValue: name) else { return ["error": .string("unknown text \(name)")] }
+            next.text = text
+        }
         let scale = params["scale"]?.doubleValue.map { CGFloat($0) }
         let shown = await show(next, scale: scale)
+        if let seconds = params["animate"]?.doubleValue {
+            var only: Column?
+            if let name = params["column"]?.stringValue {
+                guard let column = Column(rawValue: name) else { return ["error": .string("unknown column \(name)")] }
+                only = column
+            }
+            return await animate(seconds: min(max(seconds, 0.5), 20), only: only)
+        }
         guard params["measure"]?.boolValue == true else { return shown }
         let directory = params["dir"]?.stringValue.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true).appending(path: "glass-parity", directoryHint: .isDirectory)

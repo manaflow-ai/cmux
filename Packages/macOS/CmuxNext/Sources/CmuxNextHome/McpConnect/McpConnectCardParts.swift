@@ -128,7 +128,7 @@ struct McpConnectControls: View {
                 Text(McpConnectStrings.keyPrivate).font(colors.caption).foregroundStyle(colors.tertiary)
                 HStack(spacing: 8) {
                     if case .key(_, optional: true) = flow.card.auth {
-                        Button(McpConnectStrings.skipKey) { actions.submitKey(McpConnectKey("")) }
+                        CmuxDialogActionButton(McpConnectStrings.skipKey, hint: nil) { actions.submitKey(McpConnectKey("")) }
                     }
                     Spacer(minLength: 0)
                     CmuxDialogActionButton(McpConnectStrings.cancel, hint: .escape, action: actions.cancel)
@@ -173,7 +173,7 @@ struct McpConnectPhaseLine: View {
             if busy { ThemedSpinner(size: 12).frame(width: 12, height: 12) }
             Text(text).font(colors.body).foregroundStyle(colors.secondary)
             Spacer(minLength: 0)
-            Button(McpConnectStrings.cancel, action: cancel)
+            CmuxDialogActionButton(McpConnectStrings.cancel, hint: .escape, action: cancel)
         }
     }
 }

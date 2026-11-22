@@ -24,8 +24,8 @@ pub(crate) struct Ctx<'a, C> {
     control_plane: &'a mut C,
     pub(crate) projection: &'a mut Projection,
     /// The caller's idempotency key: `Some` exactly for mutations. Every
-    /// wire call of the op carries it unchanged, so a retry with the same
-    /// key reaches the backend's ledger row (contract 1.1).
+    /// ordinary mutation carries it unchanged. Composed operations derive stable
+    /// child keys, so retrying each target reaches the backend's ledger row.
     key: Option<&'a str>,
     /// The request's origin, sent with each mutation.
     origin: Option<&'static str>,
@@ -55,11 +55,25 @@ impl<'a, C: ControlPlane> Ctx<'a, C> {
     /// the host) also clears the projection: a signed-out Mac shows no
     /// machines.
     pub(crate) fn wire(&mut self, op: &str, params: Value) -> Result<WireResult, CloudError> {
+        self.wire_key(op, params, self.key)
+    }
+
+    pub(crate) fn key(&self) -> Option<&str> {
+        self.key
+    }
+
+    /// A composed operation's reads have no key; its mutations use stable child keys.
+    pub(crate) fn wire_key(
+        &mut self,
+        op: &str,
+        params: Value,
+        key: Option<&str>,
+    ) -> Result<WireResult, CloudError> {
         let call = WireCall {
             op: op.to_owned(),
             params,
-            idempotency_key: self.key.map(str::to_owned),
-            origin: self.key.and(self.origin),
+            idempotency_key: key.map(str::to_owned),
+            origin: key.and(self.origin),
             expected_backend: None,
             expected_team: None,
             expected_revision: None,
@@ -69,10 +83,6 @@ impl<'a, C: ControlPlane> Ctx<'a, C> {
 
     pub(crate) fn origin(&self) -> Option<&'static str> {
         self.origin
-    }
-
-    pub(crate) fn key(&self) -> Option<&str> {
-        self.key
     }
 
     /// The host checks these non-secret fences against the exact credential

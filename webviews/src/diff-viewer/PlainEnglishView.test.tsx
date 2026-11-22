@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 import { parsePatchFiles } from "@pierre/diffs";
 import { PlainEnglishView, type PlainEnglishFile } from "./PlainEnglishView";
 import { SummaryStore, type SummaryFileDiff } from "./hunkSummaries";
+import { installVirtualSizes } from "../../test/support/virtualSizes";
 
 // Plain English asks only for the hunks in or near the window: a 40-file change costs the hunks
 // on screen. Each row keeps its height while its sentence loads, then shows the sentence.
@@ -59,6 +60,8 @@ function installDom(): HTMLElement {
   };
   for (const key of Object.keys(globals)) saved.set(key, scope[key]);
   Object.assign(scope, globals);
+  // The view is windowed: a viewport tall enough for every row here, as a browser would lay it out.
+  installVirtualSizes(dom.window, (element) => (element.classList.contains("plain-english") ? 10_000 : 54));
   return dom.window.document.getElementById("root")!;
 }
 

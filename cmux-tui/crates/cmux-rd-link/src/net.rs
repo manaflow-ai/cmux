@@ -22,15 +22,28 @@
 use crate::endpoint::{Endpoint, EndpointEvent, MAX_PATHS, Route};
 use crate::turn::{TurnClient, TurnEvent, TurnReceive};
 use crate::{KeyPair, LinkError, Role};
+use cmux_rd_proto::{DatagramDeparture, DatagramHeader, MAX_DEPARTURE_RECEIPTS};
 use cmux_transport::PathKind;
 use cmux_transport::stun::{TransactionId, binding_request, parse_binding_success};
+use std::collections::VecDeque;
 use std::io;
 use std::mem::size_of_val;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::os::fd::{AsRawFd, RawFd};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Instant;
+
+#[path = "media_queue.rs"]
+mod media_queue;
+#[path = "no_path.rs"]
+mod no_path;
+#[path = "socket.rs"]
+mod socket;
+
+use media_queue::{MediaFrame, MediaQueue};
+use socket::send_to_observed;
 
 /// STUN requests are retried this often until each server answers or gives up.
 const STUN_RETRY_US: u64 = 300_000;
@@ -165,20 +178,39 @@ enum Command {
     RemoteCandidate(Candidate),
     StunLater(Later<SocketAddr>),
     TurnLater(Later<TurnServer>),
-    Datagram(Vec<u8>),
     Control(Vec<u8>),
+    Datagram(Vec<u8>),
     NetworkChange,
+    PeerLost(Option<u64>),
     Close,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NetStats {
+    pub departure_overflows: u64,
+    pub queue_frames: usize,
+    pub queue_datagrams: usize,
+    pub dropped_frames: u64,
+    pub dropped_datagrams: u64,
+    pub dropped_replaced_frames: u64,
+    pub dropped_replaced_datagrams: u64,
+    pub dropped_evicted_for_protected_frames: u64,
+    pub dropped_evicted_for_protected_datagrams: u64,
+    pub dropped_rejected_protected_frames: u64,
+    pub dropped_rejected_protected_datagrams: u64,
 }
 
 /// A running driver. Dropping it closes the link and stops the thread.
 pub struct Net {
+    departures: mpsc::Receiver<DatagramDeparture>,
+    departure_overflows: Arc<AtomicU64>,
     commands: mpsc::Sender<Command>,
     events: mpsc::Receiver<NetEvent>,
     command_wake: Pipe,
     event_wake: Pipe,
     thread: Option<thread::JoinHandle<()>>,
     local_addr: SocketAddr,
+    media_queue: Arc<Mutex<MediaQueue>>,
 }
 
 /// A non-blocking pipe used as a wake-up: a byte means "look at the queue".
@@ -341,12 +373,20 @@ impl Net {
         endpoint.set_keep_awake(keep_awake_us());
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
+        let (departure_tx, departure_rx) = mpsc::sync_channel(MAX_DEPARTURE_RECEIPTS);
+        let departure_overflows = Arc::new(AtomicU64::new(0));
+        let media_queue = Arc::new(Mutex::new(MediaQueue::default()));
         let command_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
         let event_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
         let mut driver = Driver {
+            departures: departure_tx,
+            departure_overflows: Arc::clone(&departure_overflows),
+            departure_wake: false,
             socket,
             endpoint,
             commands: command_rx,
+            media_queue: Arc::clone(&media_queue),
+            pending_datagrams: VecDeque::new(),
             command_fd: command_wake.read,
             events: event_tx,
             event_fd: event_wake.write,
@@ -396,12 +436,15 @@ impl Net {
             .spawn(move || driver.run())
             .map_err(|e| LinkError::Io(e.to_string()))?;
         Ok(Self {
+            departures: departure_rx,
+            departure_overflows,
             commands: command_tx,
             events: event_rx,
             command_wake,
             event_wake,
             thread: Some(thread),
             local_addr,
+            media_queue,
         })
     }
 
@@ -451,6 +494,32 @@ impl Net {
         self.command(Command::Datagram(datagram));
     }
 
+    /// Queues one complete encoded frame. If a frame is already pending, it
+    /// is evicted as a whole so no stale fragments survive into the next one.
+    pub fn send_datagram_frame(&self, datagrams: Vec<Vec<u8>>, droppable: bool) {
+        if let Ok(mut queue) = self.media_queue.lock() {
+            queue.push(MediaFrame { datagrams, droppable });
+        }
+        self.command_wake.wake();
+    }
+
+    /// Drain at most one bounded batch, without waiting for the driver.
+    pub fn drain_departures(&self, out: &mut Vec<DatagramDeparture>) {
+        out.extend(self.departures.try_iter().take(MAX_DEPARTURE_RECEIPTS));
+    }
+
+    pub fn departure_overflows(&self) -> u64 {
+        self.departure_overflows.load(Ordering::Relaxed)
+    }
+
+    /// A snapshot of the bounded media queue and its drop counters.
+    pub fn stats(&self) -> NetStats {
+        let mut stats =
+            self.media_queue.lock().map_or_else(|_| NetStats::default(), |queue| queue.stats());
+        stats.departure_overflows = self.departure_overflows();
+        stats
+    }
+
     /// One control record (ordered, reliable).
     pub fn send_control(&self, record: Vec<u8>) {
         self.command(Command::Control(record));
@@ -459,6 +528,14 @@ impl Net {
     /// The machine's network changed (interface, address, wake from sleep).
     pub fn network_changed(&self) {
         self.command(Command::NetworkChange);
+    }
+
+    /// Fails the link ([`NetEvent::Failed`]) once the established peer sent
+    /// nothing for `after` ([`crate::PEER_LOST_US`] for a viewer): a host that
+    /// died without a close. `None` (the default) waits forever.
+    pub fn set_peer_lost(&self, after: Option<std::time::Duration>) {
+        let us = after.map(|d| u64::try_from(d.as_micros()).unwrap_or(u64::MAX));
+        self.command(Command::PeerLost(us));
     }
 }
 
@@ -508,9 +585,15 @@ struct StunQuery {
 }
 
 struct Driver {
+    departures: mpsc::SyncSender<DatagramDeparture>,
+    departure_overflows: Arc<AtomicU64>,
+    departure_wake: bool,
     socket: UdpSocket,
     endpoint: Endpoint,
     commands: mpsc::Receiver<Command>,
+    media_queue: Arc<Mutex<MediaQueue>>,
+    /// Protected one-datagram sends received before the Noise link is ready.
+    pending_datagrams: VecDeque<Vec<u8>>,
     command_fd: RawFd,
     events: mpsc::Sender<NetEvent>,
     event_fd: RawFd,
@@ -533,6 +616,28 @@ struct Driver {
 }
 
 impl Driver {
+    fn drain_media(&mut self, now: u64) -> Result<(), LinkError> {
+        if !self.endpoint.link().is_established() {
+            return Ok(());
+        }
+        let frame = self.media_queue.lock().ok().and_then(|mut queue| queue.pop());
+        let Some(frame) = frame else { return Ok(()) };
+        for datagram in frame.datagrams {
+            self.send_media_datagram(&datagram, now)?;
+        }
+        Ok(())
+    }
+
+    fn drain_pending_datagrams(&mut self, now: u64) -> Result<(), LinkError> {
+        if !self.endpoint.link().is_established() {
+            return Ok(());
+        }
+        while let Some(datagram) = self.pending_datagrams.pop_front() {
+            self.send_media_datagram(&datagram, now)?;
+        }
+        Ok(())
+    }
+
     fn emit(&self, event: NetEvent) {
         if let NetEvent::Candidate(c) = &event {
             let mut gathered = self.gathered.get();
@@ -548,23 +653,46 @@ impl Driver {
         }
     }
 
-    fn send(&mut self, route: Route, packet: &[u8], now: u64) {
-        match route {
-            Route::Udp(addr) => {
-                let _ = self.socket.send_to(packet, addr);
-            }
-            Route::Relay { relay, peer } => {
-                let Some(r) = self.relays.get_mut(usize::from(relay)) else { return };
-                if let Some(wrapped) = r.client.send(peer, packet, now) {
-                    let _ = self.socket.send_to(&wrapped, r.server);
+    fn send_media_datagram(&mut self, datagram: &[u8], now: u64) -> Result<(), LinkError> {
+        // Preserve identity before sealing; never infer departure from enqueue.
+        let header = DatagramHeader::decode(datagram).ok().map(|(header, _)| header);
+        for transmit in self.endpoint.send_datagram(datagram)? {
+            if let Some((departed_us, wire_bytes)) =
+                self.send(transmit.route, &transmit.packet, now)
+                && let Some(header) = header.filter(|header| {
+                    matches!(
+                        header.kind,
+                        cmux_rd_proto::DatagramKind::Video
+                            | cmux_rd_proto::DatagramKind::Fec
+                            | cmux_rd_proto::DatagramKind::UpMedia
+                    )
+                })
+            {
+                let receipt = DatagramDeparture { header, departed_us, wire_bytes };
+                if self.departures.try_send(receipt).is_ok() {
+                    self.departure_wake = true;
+                } else {
+                    self.departure_overflows.fetch_add(1, Ordering::Relaxed);
                 }
+            }
+        }
+        Ok(())
+    }
+
+    fn send(&mut self, route: Route, packet: &[u8], now: u64) -> Option<(u64, usize)> {
+        match route {
+            Route::Udp(addr) => send_to_observed(&self.socket, packet, addr),
+            Route::Relay { relay, peer } => {
+                let r = self.relays.get_mut(usize::from(relay))?;
+                let wrapped = r.client.send(peer, packet, now)?;
+                send_to_observed(&self.socket, &wrapped, r.server)
             }
         }
     }
 
     fn flush(&mut self, now: u64) -> Result<(), LinkError> {
         for t in self.endpoint.poll_transmit(now)? {
-            self.send(t.route, &t.packet, now);
+            let _ = self.send(t.route, &t.packet, now);
         }
         for event in self.endpoint.take_events() {
             self.emit(NetEvent::Endpoint(event));
@@ -734,6 +862,12 @@ impl Driver {
     }
 
     fn deadline_ms(&self, now: u64) -> i32 {
+        if self.endpoint.link().is_established()
+            && (self.media_queue.lock().is_ok_and(|queue| !queue.frames.is_empty())
+                || !self.pending_datagrams.is_empty())
+        {
+            return 0;
+        }
         let stun = self.stun.iter().filter(|q| !q.done).map(|q| q.next_us).min();
         let later =
             (self.stun_later.is_some() || self.turn_later.is_some()).then_some(now + LATER_POLL_US);
@@ -749,30 +883,29 @@ impl Driver {
         }
     }
 
-    /// What this side gathered, what the peer sent, and how many packets it
-    /// heard: a failure says whether the handshake ever reached this side
-    /// (`heard 0`: a NAT, firewall or missing route dropped it) and which
-    /// routes each side had. Counts only, never an address.
-    fn routes_seen(&self) -> String {
-        let [host, srflx, relay] = self.gathered.get();
+    /// What this side gathered and what the peer sent, by kind, for a failure's reason
+    /// ([`no_path`]): whether the handshake ever reached this side and which routes each
+    /// side had. Counts only, never an address.
+    fn candidate_counts(&self) -> (no_path::Counts, no_path::Counts) {
         let mut peer = [0u32; 3];
         for c in &self.remote {
             if let Some(n) = peer.get_mut(kind_index(c.kind)) {
                 *n += 1;
             }
         }
-        let [p_host, p_srflx, p_relay] = peer;
-        format!(
-            "local host {host} srflx {srflx} relay {relay}; \
-             peer host {p_host} srflx {p_srflx} relay {p_relay}; heard {}",
-            self.heard
-        )
+        (self.gathered.get(), peer)
     }
 
     fn run(&mut self) {
-        if let Err(e) = self.serve() {
-            self.emit(NetEvent::Failed(format!("{e} ({})", self.routes_seen())));
-        }
+        let Err(error) = self.serve() else { return };
+        // Counted after the run: what was gathered and heard by the time it failed.
+        let (local, peer) = self.candidate_counts();
+        let why = match error {
+            // No path at all: say so in words the viewer's failed card can show.
+            LinkError::HandshakeTimeout => no_path::handshake_timeout(local, peer, self.heard),
+            e => format!("{e} ({})", no_path::counts(local, peer, self.heard)),
+        };
+        self.emit(NetEvent::Failed(why));
     }
 
     fn serve(&mut self) -> Result<(), LinkError> {
@@ -803,22 +936,24 @@ impl Driver {
                         self.stun_later = (!self.relay_only).then_some(later);
                     }
                     Command::TurnLater(later) => self.turn_later = Some(later),
-                    Command::Datagram(d) => {
+                    Command::Control(r) => self.endpoint.send_control(r, now)?,
+                    Command::Datagram(datagram) => {
+                        // Input, cursor and repair traffic never replaces queued video.
                         if self.endpoint.link().is_established() {
-                            for t in self.endpoint.send_datagram(&d)? {
-                                self.send(t.route, &t.packet, now);
-                            }
+                            self.send_media_datagram(&datagram, now)?;
+                        } else {
+                            self.pending_datagrams.push_back(datagram);
                         }
                     }
-                    Command::Control(r) => self.endpoint.send_control(r, now)?,
                     Command::NetworkChange => {
                         self.endpoint.set_local_networks(cmux_transport::local_networks());
                         self.endpoint.on_network_change();
                     }
+                    Command::PeerLost(us) => self.endpoint.set_peer_lost(us),
                     Command::Close => {
                         if self.endpoint.link().is_established() {
                             for t in self.endpoint.close()? {
-                                self.send(t.route, &t.packet, now);
+                                let _ = self.send(t.route, &t.packet, now);
                             }
                         }
                         for r in &mut self.relays {
@@ -872,60 +1007,14 @@ impl Driver {
                     Err(_) => break,
                 }
             }
+            self.flush(now)?;
+            self.drain_pending_datagrams(now)?;
+            self.drain_media(now)?;
+            if std::mem::take(&mut self.departure_wake) {
+                // One wake per driver turn, not a syscall per media datagram.
+                // SAFETY: one byte to the nonblocking event pipe owned by Net.
+                unsafe { libc::write(self.event_fd, [1u8].as_ptr().cast(), 1) };
+            }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn set_socket_buffer(socket: &UdpSocket, option: libc::c_int, value: i32) {
-        // SAFETY: the descriptor is open for the borrow of `socket`, and the
-        // option value points at a live integer of the length passed.
-        let result = unsafe {
-            libc::setsockopt(
-                socket.as_raw_fd(),
-                libc::SOL_SOCKET,
-                option,
-                (&value as *const i32).cast(),
-                size_of_val(&value) as libc::socklen_t,
-            )
-        };
-        assert_eq!(result, 0, "setsockopt failed: {}", io::Error::last_os_error());
-    }
-
-    fn socket_buffer(socket: &UdpSocket, option: libc::c_int) -> i32 {
-        let mut value = 0i32;
-        let mut length = size_of_val(&value) as libc::socklen_t;
-        // SAFETY: the descriptor is open, and the kernel writes at most the
-        // size of `value` bytes to the pointer and length supplied.
-        let result = unsafe {
-            libc::getsockopt(
-                socket.as_raw_fd(),
-                libc::SOL_SOCKET,
-                option,
-                (&mut value as *mut i32).cast(),
-                &mut length,
-            )
-        };
-        assert_eq!(result, 0, "getsockopt failed: {}", io::Error::last_os_error());
-        value
-    }
-
-    #[test]
-    fn grow_udp_buffers_expands_both_queues() {
-        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
-        // Use a small starting point so the assertion does not depend on the
-        // host's default buffers already being larger than our request.
-        set_socket_buffer(&socket, libc::SO_SNDBUF, 4096);
-        set_socket_buffer(&socket, libc::SO_RCVBUF, 4096);
-        let before =
-            [socket_buffer(&socket, libc::SO_SNDBUF), socket_buffer(&socket, libc::SO_RCVBUF)];
-        grow_udp_buffers(&socket);
-        let after =
-            [socket_buffer(&socket, libc::SO_SNDBUF), socket_buffer(&socket, libc::SO_RCVBUF)];
-        assert!(after[0] > before[0], "send buffer did not grow: {before:?} -> {after:?}");
-        assert!(after[1] > before[1], "receive buffer did not grow: {before:?} -> {after:?}");
     }
 }

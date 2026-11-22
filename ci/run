@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+"""The one runner entry of the PR pipeline: `ci/run route|run ...` (the CI v2 design, "One step table").
+
+  ci/run route --paths-file F                 which steps of ci/steps.toml a change routes, by job
+  ci/run run --job JOB [--paths-file F]       run that job's routed steps here
+
+A workflow, a lane and a laptop start a job's steps the same way. The runner is scripts/ci/ci_steps.py
+(Python, stdlib only).
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import ci_steps  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(ci_steps.main())

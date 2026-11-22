@@ -1046,6 +1046,20 @@ pub static ACTIONS: &[Action] = &[
         is_debug_only: true,
         ..Action::DEFAULT
     },
+    // Every tooltip state on the real tooltip surface, light, dark and an accent theme, with a live toolbar to hover
+    // (Lawrence 2026-11-20: "tooltips everywhere needs to be redesigned to be better and consistent").
+    Action {
+        id: "debug.tooltipGallery",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.tooltipGallery", "Tooltip Gallery"),
+        keywords: &["tooltip", "tooltips", "hover", "help", "shortcut", "keycap", "gallery", "playground", "debug"],
+        category: "settings",
+        symbol: "questionmark.bubble",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-tooltip-gallery",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "debug.tabBarPlayground",
         group: GROUP,
@@ -1067,6 +1081,19 @@ pub static ACTIONS: &[Action] = &[
         symbol: "paintpalette",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-all-themes-playground",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "debug.envSecretsPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.envSecretsPlayground", "Environment Secrets Playground"),
+        keywords: &["environment", "variables", "secrets", "env", "cloud", "keys", "hosts", "playground", "variants", "debug"],
+        category: "settings",
+        symbol: "key.horizontal",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::VARIANT.optional(), args::STATE.optional(), args::DARK.optional()],
+        cli_name: "action debug-env-secrets-playground",
         is_debug_only: true,
         ..Action::DEFAULT
     },

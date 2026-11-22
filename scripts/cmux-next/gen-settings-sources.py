@@ -96,6 +96,14 @@ lost its choice rows) counts as drift under --check and is deleted when writing.
 
     python3 scripts/cmux-next/gen-settings-sources.py           # write the copies
     python3 scripts/cmux-next/gen-settings-sources.py --check   # exit 1 when a copy drifted
+    python3 scripts/cmux-next/gen-settings-sources.py --swift-out DIR   # write the Swift into DIR
+
+--swift-out DIR writes (or with --check compares) the Swift files in DIR instead of the Schema
+directory, under the same file names, and removes from DIR only the generated files it no longer
+writes. It is for a build step that generates the Swift where it compiles it (a SwiftPM build-tool
+plugin may write only inside its work directory, RFD 0045); a file whose text is unchanged is not
+rewritten, so an incremental build does not recompile it. Without --check it skips the export
+key check below (a build step generates; the lints run --check).
 """
 import json, os, re, sys
 
@@ -882,8 +890,10 @@ def load_page_layout(section_ids):
             fail(src, "section_actions.%s is a list of unique action ids" % section)
     category_ids, group_keys, claimed, legacy_ids = [], set(), set(), []
     for run in data["sidebar_sections"]:
-        if set(run) != {"id", "title", "categories"} or not IDENT.match(run["id"]) or not run["categories"]:
-            fail(src, "a sidebar section has id, title (or null) and a non-empty categories list: %r" % run.get("id"))
+        if not {"id", "title", "categories"} <= set(run) <= {"id", "title", "collapsed", "categories"} \
+                or not IDENT.match(run["id"]) or not run["categories"] or not isinstance(run.get("collapsed", False), bool):
+            fail(src, "a sidebar section has id, title (or null), an optional collapsed bool and a non-empty categories list: %r"
+                 % run.get("id"))
         check_text(src, run["id"] + ".title", run["title"], optional=True)
         for category in run["categories"]:
             cid = category.get("id", "")
@@ -1000,6 +1010,9 @@ public nonisolated struct SettingsPageLayout: Sendable {{
         public var title: SettingText?
         /// The categories of the run, in sidebar order.
         public var categories: [CategorySpec]
+        /// The page draws the run closed under its header (More) until a person opens it, and
+        /// opens it while one of its categories is shown: the sidebar's top level stays short.
+        public var collapsed = false
     }}
 
     /// A resolved group card: its rows in display order.
@@ -1054,8 +1067,9 @@ def page_categories_swift(data):
            "    /// The sidebar's sections: what a person looks for together sits together under one small header.",
            "    public static let sidebarSections: [SidebarSection] = ["]
     for run in data["sidebar_sections"]:
-        out.append("        SidebarSection(id: %s, title: %s, categories: %s)," % (
-            swift_string(run["id"]), title(run["title"]), swift_list(run["categories"], lambda c: c["id"] + "Category")))
+        out.append("        SidebarSection(id: %s, title: %s, categories: %s%s)," % (
+            swift_string(run["id"]), title(run["title"]), swift_list(run["categories"], lambda c: c["id"] + "Category"),
+            ", collapsed: true" if run.get("collapsed") else ""))
     out += ["    ]", "", "    private static func section(_ section: SettingsSection) -> SettingText {",
             "        SettingText(key: section.titleKey, text: section.title)", "    }"]
     for run in data["sidebar_sections"]:
@@ -1439,8 +1453,37 @@ def export_key_drift(loaded):
     return problems
 
 
-def main():
-    check = "--check" in sys.argv[1:]
+def parse_args(argv):
+    """(check, swift_out): --check, and --swift-out DIR (an absolute or working-directory path)."""
+    check, swift_out, rest = False, None, list(argv)
+    while rest:
+        arg = rest.pop(0)
+        if arg == "--check":
+            check = True
+        elif arg == "--swift-out" and rest:
+            swift_out = os.path.abspath(rest.pop(0))
+        elif arg.startswith("--swift-out="):
+            swift_out = os.path.abspath(arg.split("=", 1)[1])
+        else:
+            print("usage: gen-settings-sources.py [--check] [--swift-out DIR]", file=sys.stderr)
+            sys.exit(2)
+    return check, swift_out
+
+
+def main(argv=None):
+    check, swift_out = parse_args(sys.argv[1:] if argv is None else argv)
+    if swift_out is not None and not check:
+        os.makedirs(swift_out, exist_ok=True)
+    out_dir = swift_out if swift_out is not None else os.path.join(ROOT, SCHEMA_DIR)
+
+    def target(path):
+        """Where the generated file `path` (repo-relative, in SCHEMA_DIR) is written."""
+        if swift_out is None:
+            return os.path.join(ROOT, path)
+        if not path.startswith(SCHEMA_DIR + "/") or "/" in path[len(SCHEMA_DIR) + 1:]:
+            fail(path, "a generated Swift file outside %s cannot be written with --swift-out" % SCHEMA_DIR)
+        return os.path.join(swift_out, path[len(SCHEMA_DIR) + 1:])
+
     outputs = {RETIRED_SWIFT: retired_swift(load_retired())}
     seen_keys = {entry["key"] for entry in load_retired()}
     sections = load_sections()
@@ -1457,7 +1500,7 @@ def main():
     outputs.update(row_fact_outputs())
     drifted = []
     for path, text in outputs.items():
-        full = os.path.join(ROOT, path)
+        full = target(path)
         current = open(full, encoding="utf-8").read() if os.path.exists(full) else None
         if current == text:
             continue
@@ -1466,22 +1509,23 @@ def main():
         else:
             with open(full, "w", encoding="utf-8") as handle:
                 handle.write(text)
-            print("wrote " + path)
+            print("wrote " + (path if swift_out is None else full))
     # Generated files this script no longer writes.
     marker = "// GENERATED by scripts/cmux-next/gen-settings-sources.py"
-    for name in sorted(os.listdir(os.path.join(ROOT, SCHEMA_DIR))):
+    for name in sorted(os.listdir(out_dir)) if os.path.isdir(out_dir) else []:
         path = SCHEMA_DIR + "/" + name
         if not name.endswith(".generated.swift") or path in outputs:
             continue
-        with open(os.path.join(ROOT, path), encoding="utf-8") as handle:
+        with open(os.path.join(out_dir, name), encoding="utf-8") as handle:
             if not handle.read(len(marker)) == marker:
                 continue
         if check:
             drifted.append(path + " (no longer generated)")
         else:
-            os.remove(os.path.join(ROOT, path))
-            print("removed " + path)
-    stale_export = export_key_drift(loaded)
+            os.remove(os.path.join(out_dir, name))
+            print("removed " + (path if swift_out is None else os.path.join(out_dir, name)))
+    # A build step that writes the Swift elsewhere generates; it does not lint the committed export.
+    stale_export = export_key_drift(loaded) if swift_out is None or check else []
     if stale_export:
         print("%s is not the sources' export (an export from another base?):\n  %s\nregenerate it: "
               "scripts/cmux-next/regenerate-settings-exports.sh (a Mac or the PR's cmux-next-generated-patch artifact)"

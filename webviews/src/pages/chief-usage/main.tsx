@@ -5,7 +5,7 @@
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
-import { createStrings } from "../shared/i18n";
+import { renderLocalized } from "../shared/localizedRoot";
 import table from "./generated/strings.json";
 import { ChiefUsagePage } from "./ChiefUsagePage";
 import { MockChiefUsageProvider } from "./mockProvider";
@@ -16,10 +16,12 @@ import "./styles.css";
 
 export function mountChiefUsagePage(root: HTMLElement, client: PageClient | null = defaultClient()): ChiefUsageStore {
   const store = new ChiefUsageStore(client);
-  const strings = createStrings(table);
-  document.documentElement.lang = strings.language;
-  document.title = strings.t("chiefUsage.page.title");
-  createRoot(root).render(<ChiefUsagePage store={store} strings={strings} />);
+  renderLocalized(
+    createRoot(root),
+    table,
+    (strings) => <ChiefUsagePage store={store} strings={strings} />,
+    (strings) => strings.t("chiefUsage.page.title"),
+  );
   void store.start();
   return store;
 }

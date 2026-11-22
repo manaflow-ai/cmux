@@ -165,11 +165,43 @@ import Testing
         #expect(plain.atLeast(cpu: 4, memoryMb: 16_384, diskMb: 65_536) == (4, 16_384, 65_536))
         let md = CloudMachineRequest(startChatKey: "k", sizedFor: nil, team: nil, size: .md)
         #expect(md.atLeast(cpu: 4, memoryMb: 16_384, diskMb: 65_536) == (4, 16_384, 65_536))
-        let xl = CloudMachineRequest(startChatKey: "k", sizedFor: nil, team: nil, size: .xl)
+        let xl = CloudMachineRequest(startChatKey: "k", sizedFor: nil, team: nil, size: .xl, planMax: .xxl)
         #expect(xl.atLeast(cpu: 4, memoryMb: 16_384, diskMb: 65_536) == (16, 32_768, 131_072))
         // A team start grows the disk as the workspace machine's ensure does: cmux NEXT Max, 90 GiB, `xl` at 136 GiB.
         let grown = CloudMachineRequest(startChatKey: "k", sizedFor: nil, team: nil, size: .xl,
-                                        diskMb: CloudChatSize.grownDiskMb(.xl, bytes: 90 * gib, planMax: .xxl))
+                                        diskMb: CloudChatSize.grownDiskMb(.xl, bytes: 90 * gib, planMax: .xxl), planMax: .xxl, bytes: 90 * gib)
         #expect(grown.atLeast(cpu: 4, memoryMb: 16_384, diskMb: 65_536) == (16, 32_768, 136 * 1_024))
+    }
+
+    /// The create a start sends for `folder` GiB under `planMax`, on the default machine (4 vCPU, 16 GB, 64 GB).
+    func asked(folder: Int64, planMax: CloudChatSize?) throws -> (cpu: Int, memoryMb: Int, diskMb: Int) {
+        let size = try #require(CloudChatSize.planned(bytes: folder * gib, planMax: planMax))
+        let request = CloudMachineRequest(startChatKey: "k", sizedFor: nil, team: nil, size: size,
+                                          diskMb: CloudChatSize.grownDiskMb(size, bytes: folder * gib, planMax: planMax), planMax: planMax, bytes: folder * gib)
+        return request.atLeast(cpu: 4, memoryMb: 16_384, diskMb: 65_536)
+    }
+
+    /// A plan capped at 4 vCPU (its largest size `md`): a folder that needs a larger disk gets the disk and stays at
+    /// 4 vCPU. It asked `lg`'s 8 or `xl`'s 16 vCPU, which the server refuses with the upgrade though the disk is the plan's.
+    @Test func aLargeFolderOnAPlanCappedAtFourVCPUAsksFourVCPUAndALargerDisk() throws {
+        #expect(try asked(folder: 30, planMax: .md) == (4, 16_384, 65_536))
+        #expect(try asked(folder: 60, planMax: .md) == (4, 16_384, 131_072))
+    }
+
+    /// An automatic size never asks more vCPUs or memory than the plan's largest size has, never less than the default
+    /// machine on any axis, and its disk still holds the folder. With no plan known only the disk is raised.
+    @Test(arguments: [Int64(1), 10, 21, 30, 52, 53, 60, 90, 116], [CloudChatSize?.none, .sm, .md, .lg, .xl, .xxl])
+    func anAutomaticSizeStaysWithinThePlanAndAboveTheDefault(folder: Int64, planMax: CloudChatSize?) throws {
+        let size = try asked(folder: folder, planMax: planMax)
+        #expect(size.cpu >= 4 && size.memoryMb >= 16_384 && size.diskMb >= 65_536, "below the default machine")
+        #expect(size.cpu <= max(4, planMax?.cpu ?? 4), "\(size.cpu) vCPU on \(planMax?.rawValue ?? "no plan")")
+        #expect(size.memoryMb <= max(16_384, planMax?.memoryMb ?? 16_384), "\(size.memoryMb) MB on \(planMax?.rawValue ?? "no plan")")
+        #expect(Int64(size.diskMb) * 1_048_576 >= (folder + 12) * gib, "the disk asked does not hold the folder")
+    }
+
+    /// A folder no disk asked holds keeps its size's whole row: the server refuses that create with the upgrade, where a
+    /// create within the plan would make a machine the folder cannot be copied to.
+    @Test func aFolderPastThePlansDiskStillAsksTheSizeTheServerRefuses() throws {
+        #expect(try asked(folder: 120, planMax: .md) == (32, 65_536, 131_072))
     }
 }

@@ -183,8 +183,10 @@ impl Hub {
                 "reason": reason,
             });
             self.append(session, "mux", "permission_auto", record);
+            // Read before the cancel: the reason names the switch that lifts it.
+            let text = self.floor_refusal_text(session, reason);
             self.remote_floor_cancel(session, reason);
-            return json!({"decision": GateDecision::Deny.as_str(), "reason": reason});
+            return json!({"decision": GateDecision::Deny.as_str(), "reason": text});
         }
         let default = self.config.read().await.permission_policy;
         let Some(policy) = gate_policy(&session.meta(), default) else {

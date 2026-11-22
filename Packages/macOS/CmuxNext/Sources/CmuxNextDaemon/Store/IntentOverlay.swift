@@ -260,8 +260,8 @@ import Foundation
             // Applied overlay first, then the hide: undone in reverse.
             if let hidden { CancelledCreation.unhide(.hiddenTab(hidden), in: store) }
             if let overlay { self.undo(overlay, in: store) }
-        case .createdWorkspace(let key, let inserted):
-            ProvisionalWorkspaceOverlay.undo(key: key, inserted: inserted, in: store)
+        case .createdWorkspace(let key, let inserted, let hidden):
+            ProvisionalWorkspaceOverlay.undo(key: key, inserted: inserted, hidden: hidden, in: store)
         case .createdTab(let surface, let pane):
             guard let tab = store.panesByHandle[pane]?.liftTab(surface: surface) else {
                 if let stray = store.tabsBySurface[surface] { store.index.remove(stray) }
