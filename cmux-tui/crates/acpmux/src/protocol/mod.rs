@@ -222,6 +222,7 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::WatchParams, session::SessionsResult>(method::MUX_WATCH),
         untyped(method::MUX_RENAME, Request),
         untyped(method::MUX_REGISTER, Request),
+        untyped(method::MUX_INBOX_RELAY, Request),
         untyped(method::MUX_OFFER_SESSION, Request),
         keyed::<params::OfferRespondParams>(method::MUX_OFFER_RESPOND, Request),
         // Sub-sessions (`server/subsessions.rs`).
@@ -290,6 +291,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_GOAL_SET, Request),
         untyped(method::MUX_GOAL_UPDATE, Request),
         untyped(method::MUX_GOAL_GET, Request),
+        untyped(method::MUX_TASK_LIST_SET, Request),
+        untyped(method::MUX_TASK_LIST_GET, Request),
         untyped(method::MUX_PLAN_BUILD, Request),
         untyped(method::MUX_PLAN_COMPARE, Request),
         untyped(method::MUX_PLAN_KEEP, Request),
@@ -365,6 +368,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TASKS, Request),
         keyed::<params::ResolveParams>(method::MUX_RESOLVE, Request),
         untyped(method::MUX_WHO_ELSE, Request),
+        untyped(method::MUX_SEND_FANOUT, Request),
         untyped(method::MUX_MEDIA_OPEN, Request),
         untyped(method::MUX_MEDIA_RANGE, Request),
         // Permissions.
@@ -483,6 +487,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_CONNECTIONS_CHATGPT_WAIT, Request),
         untyped(method::MUX_CONNECTIONS_CHATGPT_CANCEL, Request),
         untyped(method::MUX_CONNECTIONS_CHATGPT_TOKEN, Request),
+        untyped(method::MUX_CONNECTIONS_CHATGPT_IMPORT, Request),
         untyped(method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD, Request),
         untyped(method::MUX_CONNECTIONS_CREDENTIAL, Request),
         // Daemon.
@@ -500,6 +505,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/vm_host", Request),
         untyped("_acpmux/host_notice", Request),
         untyped("_acpmux/place", Request),
+        keyed::<params::MoveTargetsParams>("_acpmux/move_targets", Request),
         untyped("_acpmux/peer_add", Request),
         untyped("_acpmux/peer_lease", Request),
         keyed::<params::PeerReconnectParams>("_acpmux/peer_reconnect", Request),
@@ -534,6 +540,7 @@ pub fn registry() -> Vec<MethodDecl> {
         notification::<events::SessionEvent>(method::MUX_EVENT),
         notification::<MessageEvent>(method::MUX_MESSAGE),
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),
+        notification::<PeerRowsChanged>(method::MUX_PEER_ROWS_CHANGED),
         notification::<PermissionPending>(method::MUX_PERMISSION_PENDING),
         notification::<presence::PresenceNote>(method::MUX_PRESENCE),
         notification::<peer_state::PeerStateChanged>(method::MUX_PEER_STATE_CHANGED),

@@ -5,6 +5,16 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { RowShimmer, ShimmerEnabledContext, ShimmerText } from "../src/agent-session/acpmux/conversation/ShimmerText";
 import { startShimmerCadence } from "../src/agent-session/acpmux/conversation/shimmerCadence";
+import {
+  configureThinkingLook,
+  DEFAULT_THINKING_LOOK,
+  resolveThinkingLook,
+  THINKING_JUMP_BUTTON_KEY,
+  THINKING_SHIMMER_BAND_KEY,
+  THINKING_SHIMMER_KEY,
+  THINKING_SHIMMER_PERIOD_KEY,
+  thinkingLook,
+} from "../src/agent-session/acpmux/conversation/thinkingLook";
 import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM;
@@ -214,4 +224,72 @@ test("both React layers share visibility observation and nested groups can disab
   root = undefined;
   advance(10000);
   expect(bands.every((element) => !active(element))).toBe(true);
+});
+
+// A look's continuous shimmer (thinkingLook.ts; agentPane.display.thinking.shimmer "continuous").
+const continuous = (element: HTMLElement) => element.classList.contains("is-shimmer-continuous");
+
+test("a look's continuous shimmer loops in CSS on the wall clock's phase, with no timer, and goes back to the cadence", async () => {
+  const now = jest.spyOn(Date, "now").mockReturnValue(10_300);
+  configureThinkingLook({ [THINKING_SHIMMER_KEY]: "continuous", [THINKING_SHIMMER_PERIOD_KEY]: 1000 });
+  const element = label();
+  intersect(true);
+  expect(continuous(element)).toBe(true);
+  expect(active(element)).toBe(false);
+  // 10300 % 1000: every label started now is 300 ms into the same pass.
+  expect(element.style.getPropertyValue("--cv-shimmer-delay")).toBe("-300ms");
+  expect(jest.getTimerCount()).toBe(0);
+  // A new period restarts on the new phase.
+  configureThinkingLook({ [THINKING_SHIMMER_KEY]: "continuous", [THINKING_SHIMMER_PERIOD_KEY]: 1600 });
+  await Promise.resolve();
+  expect(element.style.getPropertyValue("--cv-shimmer-delay")).toBe("-700ms");
+  // The motion gate stops it like the cadence.
+  document.documentElement.setAttribute("data-cmux-motion", "off");
+  await Promise.resolve();
+  expect(continuous(element)).toBe(false);
+  document.documentElement.removeAttribute("data-cmux-motion");
+  await Promise.resolve();
+  expect(continuous(element)).toBe(true);
+  intersect(false);
+  expect(continuous(element)).toBe(false);
+  intersect(true);
+  // Back to the default: the one-second pass every four seconds.
+  configureThinkingLook({});
+  await Promise.resolve();
+  expect(continuous(element)).toBe(false);
+  expect(element.style.getPropertyValue("--cv-shimmer-delay")).toBe("");
+  advance(600);
+  expect(active(element)).toBe(true);
+  now.mockRestore();
+});
+
+test("the thinking look's defaults write nothing on the root; out-of-range values keep the default", () => {
+  configureThinkingLook({});
+  const root = document.documentElement;
+  expect(
+    root.getAttributeNames().filter((name) => name.startsWith("data-thinking") || name === "data-jump-button"),
+  ).toEqual([]);
+  expect(root.style.length).toBe(0);
+  expect(
+    resolveThinkingLook({
+      [THINKING_SHIMMER_KEY]: "sparkle",
+      [THINKING_SHIMMER_PERIOD_KEY]: 50,
+      [THINKING_SHIMMER_BAND_KEY]: 999,
+      [THINKING_JUMP_BUTTON_KEY]: "rocket",
+    }),
+  ).toEqual(DEFAULT_THINKING_LOOK);
+  configureThinkingLook({
+    [THINKING_SHIMMER_KEY]: "continuous",
+    [THINKING_SHIMMER_PERIOD_KEY]: 1250,
+    [THINKING_SHIMMER_BAND_KEY]: 80,
+    [THINKING_JUMP_BUTTON_KEY]: "dots",
+  });
+  expect(root.dataset.thinkingShimmer).toBe("continuous");
+  expect(root.style.getPropertyValue("--cv-shimmer-period")).toBe("1250ms");
+  expect(root.style.getPropertyValue("--cv-shimmer-band")).toBe("80px");
+  expect(root.dataset.jumpButton).toBe("dots");
+  expect(thinkingLook()).toEqual({ shimmer: "continuous", periodMs: 1250, bandPx: 80, jumpButton: "dots" });
+  configureThinkingLook({});
+  expect(root.style.length).toBe(0);
+  expect(root.dataset.jumpButton).toBeUndefined();
 });
