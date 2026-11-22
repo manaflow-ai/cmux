@@ -90,7 +90,7 @@ struct HomeRowStatus: Equatable, Sendable {
     /// its preview bubble).
     static func tileBubble(_ status: HomeRowStatus?, shortAsk: String?) -> String? {
         guard case .waiting? = status?.kind else { return nil }
-        if let shortAsk = shortAsk.map(Self.short), !shortAsk.isEmpty { return shortAsk }
+        if let shortAsk = shortAsk.map({ Self.short($0) }), !shortAsk.isEmpty { return shortAsk }
         return status?.phrase
     }
 
