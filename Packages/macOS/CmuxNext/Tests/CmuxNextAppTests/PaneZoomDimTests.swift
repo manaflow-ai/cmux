@@ -33,9 +33,9 @@ import Testing
 
     /// Where the panes of one layout show, in the layout root's coordinates: the content rect (`hole`) and the whole
     /// cell (`cell`) of the pane that the dim must leave clear, and the middle of each pane that it must cover. With a
-    /// padding round each pane's content the cell is larger than the content rect by the band of that padding.
+    /// padding the cell is larger than the content rect by its band. `free`: the dim's hole (the cell; with cards the card).
     struct Places {
-        var clear: (pane: PaneID, hole: CGRect, cell: CGRect)
+        var clear: (pane: PaneID, hole: CGRect, cell: CGRect, free: CGRect)
         var covered: [(pane: PaneID, middle: CGPoint)]
     }
 
@@ -50,7 +50,8 @@ import Testing
             let frame = root.convert(shown.bounds, from: shown)
             covered.append((other, CGPoint(x: frame.midX, y: frame.midY)))
         }
-        return Places(clear: (pane, root.convert(host.contentRect, from: host), root.convert(host.bounds, from: host)), covered: covered)
+        let content = root.convert(host.contentRect, from: host), cell = root.convert(host.bounds, from: host)
+        return Places(clear: (pane, content, cell, host.wholeCard ? content : cell), covered: covered)
     }
 
     /// What is wrong with where the dim is, against the places where the panes show: it must leave the one pane clear
@@ -58,7 +59,7 @@ import Testing
     static func misses(_ dim: (view: NSView, layer: CALayer), _ places: Places) -> [String] {
         let parts = (dim.layer.sublayers ?? []).map { $0.frame.offsetBy(dx: dim.view.frame.minX, dy: dim.view.frame.minY) }
         var found: [String] = []
-        for part in parts where part.intersects(places.clear.hole.insetBy(dx: 1, dy: 1)) {
+        for part in parts where part.intersects(places.clear.free.insetBy(dx: 1, dy: 1)) {
             found.append("the dim covers \(places.clear.pane) at \(part)")
         }
         for other in places.covered where !parts.contains(where: { $0.contains(other.middle) }) {

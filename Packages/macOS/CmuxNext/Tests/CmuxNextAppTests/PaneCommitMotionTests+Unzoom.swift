@@ -111,7 +111,8 @@ extension PaneCommitMotionTests {
 
         let dim = try #require(Dim.dim(harness), "the frame that shows the unzoom shows no dim over the other panes")
         let parts = (dim.layer.sublayers ?? []).map { Self.move(of: $0) }
-        try #require(host.contentRect != host.bounds && !host.wholeCard, "SETUP: the pane that closes has no band of padding round its content, or its clip is its card")
+        try #require(parts.count == 4 && host.contentRect != host.bounds && !host.wholeCard,
+                     "SETUP: the dim has not 4 parts, or the pane that closes has no band of padding round its content, or its clip is its card")
         let hole = Move(start: unzoom.hole, end: harness.root.convert(host.bounds, from: host))
         for part in [0, 0.5, 1] as [CGFloat] {
             let clear = hole.rect(at: part).insetBy(dx: 1, dy: 1)
