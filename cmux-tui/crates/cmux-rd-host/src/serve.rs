@@ -16,7 +16,8 @@
 //!   {"exclude_windows":[123,456]}: the app's window ids (CGWindowID) the capture leaves out,
 //!   the whole list each time, sent before the capture starts and on every change (macOS)
 //! stdout: {"key":"<this side's session key>"} first (the app signs it for the
-//!   viewer), then {"candidate":".."}, {"candidates_done":true},
+//!   viewer), then {"candidate":".."}, {"candidates_done":true} (sent once this side's host
+//!   candidates are known, the app answers then; reflexive and relayed candidates may follow it),
 //!   {"connected":true}, {"path":{"kind":"direct_wan","rtt_ms":3.2}},
 //!   and last {"ended":"<reason>"}.
 //!
@@ -430,6 +431,30 @@ pub fn run(opts: &Opts) -> Res<()> {
     Ok(())
 }
 
+/// When `candidates_done` goes to the app, which answers then: at the first host candidate
+/// (one is known at once, so a session never waits for STUN or TURN), or when gathering ends
+/// for a side with none (relay only). Once.
+#[derive(Default)]
+struct AnswerGate {
+    ready: bool,
+    said: bool,
+}
+
+impl AnswerGate {
+    fn candidate(&mut self, kind: cmux_rd_link::net::CandidateKind) {
+        self.ready |= kind == cmux_rd_link::net::CandidateKind::Host;
+    }
+
+    fn gathered(&mut self) {
+        self.ready = true;
+    }
+
+    /// True once, when the answer can go.
+    fn due(&mut self) -> bool {
+        self.ready && !std::mem::replace(&mut self.said, true)
+    }
+}
+
 /// Waits for the link and the viewer's hello and start, then streams.
 fn serve_session(
     opts: &Opts,
@@ -442,6 +467,12 @@ fn serve_session(
     let started = Instant::now();
     let mut hello = None;
     let mut start = None;
+    // The answer goes as soon as this side's host candidates are known: the reflexive and
+    // relayed ones trickle after it (the app relays them as candidates), so the viewer no longer
+    // waits for a STUN round trip and the TURN allocations (3 s at most, `RELAY_GATHER_US`)
+    // before it can even start its handshake. Relay only has no host candidate: it waits for
+    // the relay's, as before.
+    let mut answer = AnswerGate::default();
     // The current path's class and medium (wire names), from the last path change.
     let mut path_kind: Option<&'static str> = None;
     let mut path_medium: Option<&'static str> = None;
@@ -458,11 +489,10 @@ fn serve_session(
         for event in carrier.link.net.events() {
             match event {
                 NetEvent::Candidate(c) => {
-                    say(AppLine { candidate: Some(c.to_wire()), ..AppLine::default() })
+                    say(AppLine { candidate: Some(c.to_wire()), ..AppLine::default() });
+                    answer.candidate(c.kind);
                 }
-                NetEvent::CandidatesDone => {
-                    say(AppLine { candidates_done: true, ..AppLine::default() })
-                }
+                NetEvent::CandidatesDone => answer.gathered(),
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Established)) => {
                     say(AppLine { connected: true, ..AppLine::default() })
                 }
@@ -488,6 +518,11 @@ fn serve_session(
                 NetEvent::Failed(reason) => return Ok(format!("link failed: {reason}")),
                 _ => {}
             }
+        }
+        // After the whole batch: the reflexive candidate that came with the host ones still
+        // goes in the answer itself.
+        if answer.due() {
+            say(AppLine { candidates_done: true, ..AppLine::default() });
         }
         carrier.report_paths();
     }
@@ -621,6 +656,26 @@ fn serve_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_answer_goes_at_the_first_host_candidate_not_after_stun_and_turn() {
+        use cmux_rd_link::net::CandidateKind;
+        let mut gate = AnswerGate::default();
+        assert!(!gate.due(), "nothing known yet");
+        gate.candidate(CandidateKind::Host);
+        assert!(gate.due(), "a host candidate is enough to answer");
+        // Reflexive, relayed and the end of gathering come later and trickle: no second answer.
+        gate.candidate(CandidateKind::ServerReflexive);
+        gate.candidate(CandidateKind::Relay);
+        gate.gathered();
+        assert!(!gate.due());
+        // Relay only: no host candidate, so the answer waits for gathering to end.
+        let mut relay_only = AnswerGate::default();
+        relay_only.candidate(CandidateKind::Relay);
+        assert!(!relay_only.due());
+        relay_only.gathered();
+        assert!(relay_only.due());
+    }
 
     #[test]
     fn serve_preserves_frame_boundaries_before_the_link_connects() {

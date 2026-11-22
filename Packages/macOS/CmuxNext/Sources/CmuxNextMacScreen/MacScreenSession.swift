@@ -160,6 +160,7 @@ public final class MacScreenSession {
         }
         signalingOpen = false
         pendingOffer = nil
+        laterCandidates = []
         let sessionID = (signaling as? TicketSignaling)?.ticket.sessionID ?? UUID().uuidString
         tasks.append(Task { [weak self] in
             let servers = MacScreenRdServers((try? await signaling.iceServers()) ?? [])
@@ -223,7 +224,14 @@ public final class MacScreenSession {
                     }
                     answered(answer)
                 case let .candidate(candidate) where candidate.sdpMid == "cmux-rd":
-                    process.send(["candidate": candidate.candidate])
+                    // The link process reads its answer first: a candidate the host trickled
+                    // right behind its answer (which no longer waits for STUN and TURN) waits
+                    // until the answer has gone to the process.
+                    if let waiting = laterCandidates {
+                        laterCandidates = waiting + [candidate.candidate]
+                    } else {
+                        process.send(["candidate": candidate.candidate])
+                    }
                 case .bye:
                     end(L.t("macScreen.rd.hostEnded", "The other Mac ended the session."))
                     return
@@ -242,6 +250,8 @@ public final class MacScreenSession {
     @ObservationIgnored private var signalingOpen = false
     /// This side's offer, made before the socket opened.
     @ObservationIgnored private var pendingOffer: String?
+    /// The host's candidates that came before the link process had its answer (nil once it has).
+    @ObservationIgnored private var laterCandidates: [String]? = []
 
     private func sendOffer(_ text: String, signaling: any ScreenSignaling, process: MacScreenRdProcess) async {
         logger.info("cmux rd: offer sent")
@@ -337,6 +347,8 @@ public final class MacScreenSession {
             logger.info("cmux rd: link started toward the host")
             process.send(Answer(session: sessionID, peerKey: answer.key, stun: servers.stun, turn: servers.turn,
                                 candidates: answer.candidates, socket: path, relayOnly: relayOnly))
+            for candidate in laterCandidates ?? [] { process.send(["candidate": candidate]) }
+            laterCandidates = nil
         })
     }
 
