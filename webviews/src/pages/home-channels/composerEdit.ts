@@ -4,7 +4,7 @@
 // does, so the page never reads the pasteboard and a paste carries files as a real paste does.
 // Absent in a browser or the gallery: those items stay off.
 import { createContext } from "react";
-import type { ComposerEditCommand } from "../../agent-session/acpmux/Composer";
+import type { ComposerEditCommand } from "../../agent-session/acpmux/composerEditCommand";
 import type { PageClient } from "../shared/pageClient";
 
 export type { ComposerEditCommand };

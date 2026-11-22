@@ -1,5 +1,15 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-22 (lane/cloud-icon-trailing): Sidebar-Look: Leo, 2026-11-22: "im not sure we want the cloud icon at the
+  left. it makes it stick out in a slight eyesore-y way. compared to the local ones which have no icon. well. for
+  consistency, what do we want?" The leading slot is for state only. A Cloud row draws no leading cloud (the old
+  `leadsWithCloud`); its title starts where a local row's does, and a small muted cloud (`cloudMark`, textTertiary,
+  indicator size) sits in the trailing status cluster beside the bell and badges. Local rows draw nothing there. A Cloud
+  desktop's page face is `.remoteDisplay`, not `.cloud`, so its row leads with the display like any desktop. A Cloud
+  chat's or desktop's tab says "Cloud" in the trailing muted word slot, never a glyph. A new Cloud desktop workspace is
+  named after the machine's human name or its chat's title, else "Desktop", never a raw `chat-<hex>` id
+  (`CloudStrings.desktopWorkspaceName(_:chats:)`). Regression: `SidebarCloudMachineHeaderTests`,
+  `CloudChatTabBadgeTests`, `CloudDesktopPageIconTests`.
 - 2026-11-21 (a-tooltip-cuts): Sidebar-Look: Lawrence: "drastically simplify all parts of the UI" (a1315's tooltip
   cuts, picked by Chief: a tooltip is a name and a shortcut on one line; none on a control that shows its text; none on
   rows, which have hover cards). A workspace row carries no tooltip: its muted bell, usage warning triangle, badges,
@@ -310,8 +320,8 @@
   hover card tab drew `WorkspaceIcon.pagePlaceholder`. A cmux page's face now carries the tab strip's icon
   (`BrowserTabIconState.pageIcon`) as `WorkspaceIcon.page` and `SidebarTab.pageIcon`, ahead of the globe; the saved
   sidebar keeps it (`page:<icon>`). A cmux page with no icon of its own keeps the globe slot.
-  A Cloud desktop wears `.cloud`, the icon its machine has on every other surface; another computer's desktop keeps
-  `.machineRemote`. Regression: `CloudDesktopPageIconTests`.
+  A Cloud desktop wore `.cloud` until 2026-11-22 (now `.remoteDisplay`, see lane/cloud-icon-trailing); another
+  computer's desktop keeps `.machineRemote`. Regression: `CloudDesktopPageIconTests`.
 - 2026-11-12: no "Needs a newer cmux" card under the pins. Lawrence, verbatim: "get rid of “Needs a newer cmux”".
   A build whose daemon has no `cmux-app-host` beside it advertises no `apps-v1`, so an app section in the layout
   showed the apps-unavailable reason as a card; updating cmux would not change it. An app section now draws nothing
