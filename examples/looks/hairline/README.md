@@ -7,6 +7,10 @@ comes in two weights of gray: the foreground and a muted gray for everything sec
 accent is the text color itself, so links are underlined text, not blue. The chat uses a dense Inter
 at 14 px.
 
+![The Hairline look in dark zinc: a flat near-black window, a one-pixel line between sidebar and chat, an outlined card with 8 px corners](screenshots/hairline-dark.png)
+
+![The Hairline look in light zinc](screenshots/hairline-light.png)
+
 It ships three palettes, each with a dark and a light theme file:
 
 | Theme file | Grays | Radius |
@@ -14,6 +18,11 @@ It ships three palettes, each with a dark and a light theme file:
 | `hairline` (default), `hairline-light` | zinc: page `#09090B` / `#FFFFFF`, sidebar `#18181B` / `#FAFAFA`, lines `#27272A` / `#E4E4E7`, muted text `#A1A1AA` / `#71717A` | 8 px |
 | `hairline-slate`, `hairline-slate-light` | cool slate: page `#020617` / `#FFFFFF`, lines `#1E293B` / `#E2E8F0` | 6 px |
 | `hairline-stone`, `hairline-stone-light` | warm stone: page `#0C0A09` / `#FFFFFF`, lines `#292524` / `#E7E5E4` | 10 px |
+
+| Slate | Stone |
+| --- | --- |
+| ![Hairline Slate, dark](screenshots/hairline-slate-dark.png) | ![Hairline Stone, dark](screenshots/hairline-stone-dark.png) |
+| ![Hairline Slate, light](screenshots/hairline-slate-light.png) | ![Hairline Stone, light](screenshots/hairline-stone-light.png) |
 
 It is built only from public surfaces, so you can copy any part of it:
 

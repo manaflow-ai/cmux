@@ -9,10 +9,15 @@ of the page before it, and a report of the setup before the case's first `begin`
 first new tab, in each form); a case with a text in the park at that read whose field then has the letter is `typed
 only after the select` and no pass, a form's line counts the cases with such a text, and a case with no counts of
 the park at a read before the tool's acts, or with a count below 0, is `not_run` with no select; a case with a text
-in the park makes no act but a read of the park each 0.1 s, to the first read with no text or to 2.2 s after the
-sequence's last key, so a text that the app types by itself in the park's time can pass, and the late word is said
-only for a text at the last read; the record has the count at the first read, the seconds to the first empty read
-and to the last read, and a form's line the count of the cases that waited and their most seconds; a case with a
+in the park makes no act but a read of the park each 0.1 s, to the first read with no text or to 4 s after the
+sequence's last key (also when the app types or drops the text later than 2 s of the tool's clock, in each of the 7
+forms, and with a slow read before or in the wait), so a text that the app types by itself in the park's time can
+pass, and the late word is said only for a text at the last read; a text at the last read before the bound gets a
+second wait, with a second read of the journal and a new last read of the park; the record has the count at the
+first read, the seconds to the read from which the park had no text
+and to the last read, and a form's line the count of the cases that waited and their most seconds, with the cases
+that are `not_run` in their wait; a case that stops by an exception, and a workspace that does not close, have the
+exception's class name and no text of it; holds that are no list give no count; a case with a
 text in the park before its keys is `not_run` and sends no key; the journal's read comes before the last read of
 the park; a record has the journal's counts of the readiness notes, of the first new tab's focus and of the page
 entries of each tab, the app's engine word of that tab, and the count of the open New Tab key holds, with no other
@@ -350,10 +355,12 @@ class App:
     the keys of a case have numbers: 1 is the read of the hold's log, 2 the first read of the park before the tool's
     acts. `turns`: the counts that go on the park's counts at the read of a number; `blind`: the numbers of the
     reads with no `parked_typing`; `fails`: the numbers of the reads that raise. `holds`: the windows with an open
-    New Tab key hold (`new_tab_key_holds`; None: the reply has no such key)."""
+    New Tab key hold (`new_tab_key_holds`; None: the reply has no such key; a value that is no list is the reply's
+    value as it is). `slow`: the seconds that the read of a number takes on the model's clock (`clock`)."""
 
     def __init__(self, builder, notes, texts, refuse=None, motion=None, deaf=False, focus=False, lands=None, park=None, park_end=None, active=True,
-                 had=None, counts=True, query=(), journal=(), turns=None, blind=(), fails=(), holds=None):
+                 had=None, counts=True, query=(), journal=(), turns=None, blind=(), fails=(), holds=None, slow=None):
+        self.slow = slow or {}
         self.builder, self.notes, self.texts, self.refuse, self.log, self.sequences = builder, notes, texts, refuse, ["old +0ms"], []
         self.motion, self.deaf, self.calls, self.focus, self.active = motion, deaf, [], focus, active
         self.lands, self.park, self.park_end, self.counts = lands or {}, park or {}, park_end or {}, {**dict.fromkeys(M.PARK, 0), **(had or {})}
@@ -395,11 +402,13 @@ class App:
             self.keyed, self.fielded = self.keyed and not self.fielded, False
             self.reads = None if self.reads is None else self.reads + 1
             self.count(self.turns.get(self.reads, {}))
+            if self.reads in self.slow:
+                self.clock.take(self.slow[self.reads])
             if self.reads in self.fails:
                 raise KeyError("a text of the app")
             return {"new_tab_key_log": list(self.log), "app_active": self.active, "key_window": "PageWindow",
                     **({"parked_typing": {key: float(count) for key, count in self.counts.items()}} if self.has_counts and self.reads not in self.blind else {}),
-                    **({} if self.holds is None else {"new_tab_key_holds": list(self.holds)}),
+                    **({} if self.holds is None else {"new_tab_key_holds": list(self.holds) if isinstance(self.holds, list) else self.holds}),
                     **({"windows": [{"topology": panes}]} if self.focus else {})}
         if method == "debug.journal" and self.journal is not None:
             return {"stats": {"enabled": True, "lastSeq": self.seq}, "entries": self.entries[-params.get("last", 200):]}
@@ -431,13 +440,17 @@ def poll(predicate, seconds, step=0.25):
 
 
 class Clock:
-    """The model's time, in ms: a pause of the tool is the one thing that takes time (a call of the app takes none)."""
+    """The model's time, in ms: a pause of the tool takes time, and a call of the app takes none but a read that the
+    model names as slow (`take`)."""
 
     def __init__(self):
         self.ms, self.pauses = 0, []
 
     def pause(self, seconds):
         self.pauses.append(seconds)
+        self.ms += round(seconds * 1000)
+
+    def take(self, seconds):
         self.ms += round(seconds * 1000)
 
     def now(self):
@@ -711,6 +724,19 @@ class Case(unittest.TestCase):
         self.assertEqual(("pass" in record, record["letter_is"]), (False, "not run"))
         self.assertEqual(builder.actions[-1], ("closeWorkspace", "workspace:w"))
 
+    def test_a_workspace_that_does_not_close_has_the_class_name_of_the_exception_and_no_text_of_it(self):
+        letters, builder, app = self.letters(CHORD, {"t2": "x"})
+        act = builder.action
+
+        def action(name, *args, **more):
+            if name == "closeWorkspace":
+                raise RuntimeError("a text of the app")
+            return act(name, *args, **more)
+        builder.action = action
+        record = letters.case("three-key", 0)
+        self.assertEqual((record["workspace_not_closed"], record["pass"]), ("RuntimeError", True))
+        self.assertNotIn("a text", json.dumps(record))
+
     def test_run_gives_each_forms_word(self):
         letters, _, _ = self.letters(CHORD, {"t2": "x"})
         said = []
@@ -822,7 +848,7 @@ class BeforeSelect(unittest.TestCase):
 
     def test_a_forms_line_counts_its_cases_that_waited_at_the_first_read_and_has_their_most_seconds_to_an_empty_park(self):
         case = lambda first, empty, waits: {**M.judge(CHORD, "x", waits), "waits_before_select": waits,
-                                            "park_wait": {"first": first, "first_s": 0.77, "reads": 2, "empty_s": empty, "last_s": 2.27}}
+                                            "park_wait": {"first": first, "first_s": 0.77, "reads": 2, "empty_s": empty, "last_s": 4.07}}
         found = M.verdict("three-key", [case(1, 0.97, 0), case(2, 1.47, 0), case(1, None, 1), case(0, 0.77, 0), case(0, 1.9, 0), {"not_run": "why"}])
         self.assertEqual((found["waited_first_read"], found["emptied_latest_s"], found["waited_before_select"]), (3, 1.47, 1))
         # No case that waited, and cases that waited with no empty read: no seconds, and that is not 0.
@@ -900,6 +926,12 @@ class BeforeSelect(unittest.TestCase):
             self.assertEqual((record["holds_before_select"], record["pass"], record.get("not_run")), (count, True, None), holds)
             self.assertNotIn("window-", json.dumps(record))
 
+    def test_a_reply_whose_holds_are_no_list_gives_no_count_of_the_holds_and_changes_no_verdict(self):
+        for holds in ({"window-7": 1}, "window-7", 2, True):
+            record = self.letters(CHORD, {"t2": "x"}, holds=holds)[0].case("three-key", 0)
+            self.assertEqual((record["holds_before_select"], record["pass"], record.get("not_run")), (None, True, None), holds)
+            self.assertNotIn("window-", json.dumps(record))
+
     def test_an_entry_before_the_keys_is_not_counted_and_a_cut_read_says_so(self):
         # The model's journal has one focus note before each case's keys (the number 40).
         self.assertEqual(M.noted([{"seq": 40, "kind": note("page epoch=1")}, {"seq": 41, "kind": note("page epoch=2")}], 40, "t2")["readiness"]["focus"], 1)
@@ -958,11 +990,13 @@ class BeforeSelect(unittest.TestCase):
 
 class Wait(unittest.TestCase):
     """The park keeps a text for 2 s, and the tool's select comes sooner. So a case with a text in the park makes no
-    act but reads of the park, to the first read with no text or to 2.2 s after its last key: an app that types
-    the text by itself in that time can pass. The model's clock: a pause of the tool is the one thing that takes
-    time, the 3 keys take 0.07 s, and the first read of the park comes 0.77 s after the app's reply to the keys."""
+    act but reads of the park, to the first read with no text or to 4 s after its last key: an app that types
+    the text by itself in that time can pass. The park's 2 s are of the app's clock (from its own dispatch of the
+    key), and the app's drop of a text at a read ends the wait: the 4 s are for a text that stays on its way. The
+    model's clock: a pause of the tool takes time (and a read that a row names as slow), the 3 keys take 0.07 s,
+    and the first read of the park comes 0.77 s after the app's reply to the keys."""
 
-    letters = Case.letters
+    letters, ordered = Case.letters, BeforeSelect.ordered
 
     def test_a_text_that_the_app_types_by_itself_in_the_parks_time_passes(self):
         letters, builder, app = self.letters(CHORD, {"t2": "x"}, park={"parked": 1}, turns={4: {"typed": 1}})
@@ -977,18 +1011,70 @@ class Wait(unittest.TestCase):
         record = letters.case("three-key", 0)
         self.assertEqual((record["pass"], record["letter_is"], record.get("letter_also"), record["waits_before_select"]),
                          (False, "typed only after the select", ["new tab's field"], 1))
-        # One read each 0.1 s from 0.77 s to the first read at 2.27 s (2.2 s after the last key), then the last read.
-        self.assertEqual(record["park_wait"], {"first": 1, "first_s": 0.77, "reads": 17, "empty_s": None, "last_s": 2.27})
+        # One read each 0.1 s from 0.77 s to the first read at 4.07 s (4 s after the last key), then the last read.
+        self.assertEqual(record["park_wait"], {"first": 1, "first_s": 0.77, "reads": 35, "empty_s": None, "last_s": 4.07})
         keys = [round(pause, 3) for pause in app.clock.pauses].index(0.77)
-        self.assertEqual(app.clock.pauses[keys + 1:keys + 17], [M.WAIT_STEP_S] * 15 + [0.4])  # 0.4: the pause after the select
-        self.assertEqual((M.WAIT_S, M.WAIT_STEP_S), (2.2, 0.1))
+        self.assertEqual(app.clock.pauses[keys + 1:keys + 35], [M.WAIT_STEP_S] * 33 + [0.4])  # 0.4: the pause after the select
+        self.assertEqual((M.WAIT_S, M.WAIT_STEP_S), (4.0, 0.1))
 
     def test_the_wait_ends_a_fixed_time_after_the_last_key_of_a_longer_sequence(self):
-        # A switch form: its key and the wait before the 3 keys take 0.182 s, so the last read is 2.382 s after the call.
+        # A switch form: its key and the wait before the 3 keys take 0.182 s, so the last read is 4.182 s after the call.
         letters, builder, app = self.letters(CHORD, {"t3": "x"}, park={"parked": 1}, park_end={"typed": 1})
         record = letters.case("switch-previous", 0)
         self.assertEqual((record.get("not_run"), record["pass"], record["letter_is"]), (None, False, "typed only after the select"))
-        self.assertEqual(record["park_wait"], {"first": 1, "first_s": 0.882, "reads": 17, "empty_s": None, "last_s": 2.382})
+        self.assertEqual(record["park_wait"], {"first": 1, "first_s": 0.882, "reads": 35, "empty_s": None, "last_s": 4.182})
+
+    def test_the_wait_goes_on_after_2_s_of_the_tools_clock_for_a_text_that_the_app_parked_late(self):
+        # The app dispatches a key when its main thread gets to it, so the 2 s of a parked text can end later than
+        # 2 s after the key's time in the sequence: a text that the app types by itself 2.57 s after the reply is
+        # the app's own work, and the first read with no text ends the wait.
+        record = self.letters(CHORD, {"t2": "x"}, park={"parked": 1}, turns={20: {"typed": 1}})[0].case("three-key", 0)
+        self.assertEqual((record["pass"], record["letter_is"], record["waits_before_select"]), (True, "new tab's field", 0))
+        self.assertEqual(record["park_wait"], {"first": 1, "first_s": 0.77, "reads": 20, "empty_s": 2.57, "last_s": 2.57})
+        # The app's own drop of a text that only waited ends the wait too: the word of that end, and not the late word.
+        record = self.letters(CHORD, {}, park={"parked": 1}, turns={22: {"dropped_old": 1}})[0].case("three-key", 0)
+        self.assertEqual((record["pass"], record["letter_is"], record["waits_before_select"]), (False, "dropped after the bound", 0))
+        self.assertEqual(record["park_wait"], {"first": 1, "first_s": 0.77, "reads": 22, "empty_s": 2.77, "last_s": 2.77})
+
+    def test_the_wait_is_the_same_in_each_form(self):
+        for form, first, notes in (("reselect", "t3", CHORD), ("close-move", "t3", CHORD), ("from-chat", "t3", CHORD), ("three-key", "t2", CHORD),
+                                   ("switch-next", "t3", CHORD), ("switch-previous", "t3", CHORD), ("two-key", "t2", READY)):
+            # A text that stays: one read each 0.1 s to 4 s after the last key (3.3 s after the first read), then the last read.
+            record = self.letters(notes, {first: "x"}, park={"parked": 1}, park_end={"typed": 1}, motion=MOVE)[0].case(form, 0)
+            self.assertEqual((record.get("not_run"), record["pass"], record["letter_is"], record["waits_before_select"]),
+                             (None, False, "typed only after the select", 1), form)
+            wait = record["park_wait"]
+            self.assertEqual((wait["first"], wait["reads"], wait["empty_s"], wait["last_s"]), (1, 35, None, round(wait["first_s"] + 3.3, 3)), form)
+            # A text that the app types by itself 0.2 s after the first read: a pass.
+            record = self.letters(notes, {first: "x"}, park={"parked": 1}, turns={4: {"typed": 1}}, motion=MOVE)[0].case(form, 0)
+            self.assertEqual((record.get("not_run"), record["pass"], record["letter_is"], record["waits_before_select"]), (None, True, "new tab's field", 0), form)
+            wait, at = record["park_wait"], round(record["park_wait"]["first_s"] + 0.2, 3)
+            self.assertEqual((wait["first"], wait["reads"], wait["empty_s"], wait["last_s"]), (1, 4, at, at), form)
+
+    def test_a_first_read_of_the_park_that_comes_after_the_bound_gets_no_wait(self):
+        # A slow call before it (the read of the hold's log takes 4 s): the first read is 4.77 s after the reply.
+        letters, builder, app = self.letters(CHORD, {"t2": "x"}, park={"parked": 1}, park_end={"typed": 1}, slow={1: 4.0})
+        record = letters.case("three-key", 0)
+        self.assertEqual((record["pass"], record["letter_is"], record["waits_before_select"]), (False, "typed only after the select", 1))
+        self.assertEqual(record["park_wait"], {"first": 1, "first_s": 4.77, "reads": 2, "empty_s": None, "last_s": 4.77})
+        keys = [round(pause, 3) for pause in app.clock.pauses].index(0.77)
+        self.assertEqual(app.clock.pauses[keys + 1], 0.4)  # no pause of the wait: the next one is the pause after the select
+        # With no text at that late read the case passes, as each case with no text in the park.
+        record = self.letters(CHORD, {"t2": "x"}, slow={1: 4.0})[0].case("three-key", 0)
+        self.assertEqual((record["pass"], record["park_wait"]), (True, {"first": 0, "first_s": 4.77, "reads": 2, "empty_s": 4.77, "last_s": 4.77}))
+
+    def test_a_slow_read_of_the_wait_that_ends_after_the_bound_ends_the_wait(self):
+        # The second read of the park takes 5 s: it ends 5.87 s after the reply, and no read of the wait comes after it.
+        record = self.letters(CHORD, {"t2": "x"}, park={"parked": 1}, park_end={"typed": 1}, slow={3: 5.0})[0].case("three-key", 0)
+        self.assertEqual((record["pass"], record["letter_is"], record["waits_before_select"]), (False, "typed only after the select", 1))
+        self.assertEqual(record["park_wait"], {"first": 1, "first_s": 0.77, "reads": 3, "empty_s": None, "last_s": 5.87})
+        # The text left the park at that slow read: no text at the last read is a pass after the bound too.
+        record = self.letters(CHORD, {"t2": "x"}, park={"parked": 1}, turns={3: {"typed": 1}}, slow={3: 5.0})[0].case("three-key", 0)
+        self.assertEqual((record["pass"], record["letter_is"], record["waits_before_select"]), (True, "new tab's field", 0))
+        self.assertEqual(record["park_wait"], {"first": 1, "first_s": 0.77, "reads": 3, "empty_s": 5.87, "last_s": 5.87})
+        # A slow last read: `empty_s` is of the first read with no text, and `last_s` of the last read.
+        record = self.letters(CHORD, {"t2": "x"}, park={"parked": 1}, turns={4: {"typed": 1}}, slow={5: 1.0})[0].case("three-key", 0)
+        self.assertEqual((record["pass"], record["park_wait"]), (True, {"first": 1, "first_s": 0.77, "reads": 4, "empty_s": 0.97, "last_s": 1.97}))
 
     def test_a_text_that_the_app_drops_in_the_wait_has_the_word_of_its_end_and_not_the_late_word(self):
         record = self.letters(CHORD, {}, park={"parked": 1}, turns={15: {"dropped_old": 1}})[0].case("three-key", 0)
@@ -1004,14 +1090,52 @@ class Wait(unittest.TestCase):
         self.assertEqual((record["pass"], record["letter_is"], record["waits_before_select"], record["park_wait"]["first"]), (False, "typed only after the select", 2, 2))
         record = self.letters(CHORD, {"t2": "x"}, park={"parked": 2}, turns={3: {"typed": 1}}, park_end={"typed": 1})[0].case("three-key", 0)
         self.assertEqual((record["pass"], record["letter_is"], record["waits_before_select"]), (False, "typed only after the select", 1))
-        self.assertEqual(record["park_wait"], {"first": 2, "first_s": 0.77, "reads": 17, "empty_s": None, "last_s": 2.27})
+        self.assertEqual(record["park_wait"], {"first": 2, "first_s": 0.77, "reads": 35, "empty_s": None, "last_s": 4.07})
         self.assertEqual(M.verdict("three-key", [record])["waited_first_read"], 1)
 
-    def test_a_text_that_comes_into_the_park_after_an_empty_first_read_is_no_pass(self):
-        # The verdict is of the last read before the tool's acts, not of the first one.
+    def test_a_text_that_comes_into_the_park_after_an_empty_first_read_gets_a_wait_of_its_own(self):
+        # The verdict is of the last read before the tool's acts, not of the first one. A text at that read before
+        # the bound came into the park late, and the app's 2 s for it are not over: the case waits again with no
+        # other act, then reads the journal again and the park one last time.
+        record, after, _ = self.ordered(turns={3: {"parked": 1}, 5: {"typed": 1}})
+        self.assertEqual((record["pass"], record["letter_is"], record["waits_before_select"]), (True, "new tab's field", 0))
+        self.assertEqual(record["park_wait"], {"first": 0, "first_s": 0.77, "reads": 5, "empty_s": 0.97, "last_s": 0.97})
+        self.assertEqual(after, ["pause", "debug.focus", "debug.new_tab", "debug.focus", "debug.journal", "debug.focus", "pause", "debug.focus",
+                                 "pause", "debug.focus", "debug.journal", "debug.focus", "focus_pane", "tab.focus"])
+        # Such a text that stays to the bound is no pass, with the late word.
         record = self.letters(CHORD, {"t2": "x"}, turns={3: {"parked": 1}}, park_end={"typed": 1})[0].case("three-key", 0)
         self.assertEqual((record["pass"], record["letter_is"], record["waits_before_select"]), (False, "typed only after the select", 1))
-        self.assertEqual(record["park_wait"], {"first": 0, "first_s": 0.77, "reads": 2, "empty_s": 0.77, "last_s": 0.77})
+        self.assertEqual(record["park_wait"], {"first": 0, "first_s": 0.77, "reads": 36, "empty_s": None, "last_s": 4.07})
+        self.assertEqual(M.verdict("three-key", [record])["waited_first_read"], 0)  # the form's count is of the first read only
+
+    def test_a_text_that_comes_into_the_park_after_the_wait_ended_gets_a_second_wait_and_later_seconds_to_an_empty_park(self):
+        # A text left at 0.97 s, a second one is there at the last read and leaves at 1.17 s: `empty_s` is of the
+        # read from which the park had no text, and the journal's read is the one after the second wait.
+        record, after, _ = self.ordered(park={"parked": 1}, turns={4: {"typed": 1}, 5: {"parked": 1}, 7: {"typed": 1}}, journal=[note("page editing=1")])
+        self.assertEqual((record["pass"], record["waits_before_select"]), (True, 0))
+        self.assertEqual(record["park_wait"], {"first": 1, "first_s": 0.77, "reads": 7, "empty_s": 1.17, "last_s": 1.17})
+        self.assertEqual(after.count("debug.journal"), 2)
+        self.assertEqual(after[-4:], ["debug.journal", "debug.focus", "focus_pane", "tab.focus"])
+        self.assertEqual(record["journal"]["readiness"]["editing_on"], 1)
+        # The second wait is to the same bound: a text that left at 3.57 s, and a second one at the last read that
+        # stays, gives reads to 4.07 s and no pass.
+        record = self.letters(CHORD, {"t2": "x"}, park={"parked": 1}, turns={30: {"typed": 1}, 31: {"parked": 1}}, park_end={"typed": 1})[0].case("three-key", 0)
+        self.assertEqual((record["pass"], record["letter_is"], record["waits_before_select"]), (False, "typed only after the select", 1))
+        self.assertEqual(record["park_wait"], {"first": 1, "first_s": 0.77, "reads": 36, "empty_s": None, "last_s": 4.07})
+
+    def test_a_forms_line_has_the_seconds_of_a_case_that_is_not_run_in_its_wait(self):
+        run = lambda **model: self.letters(CHORD, {"t2": "x"}, park={"parked": 1}, **model)[0].case("three-key", 0)
+        stopped = run(blind=(4,))  # no counts at a read of the wait: a text at the first read, and no read with no text
+        emptied = run(turns={5: {"typed": 1}}, blind=(6,))  # no counts at the last read, after a read with no text at 1.07 s
+        good = run(turns={4: {"typed": 1}})
+        self.assertEqual([("pass" in case, case["park_wait"]["first"], case["park_wait"]["empty_s"]) for case in (stopped, emptied, good)],
+                         [(False, 1, None), (False, 1, 1.07), (True, 1, 0.97)])
+        found = M.verdict("three-key", [stopped, good])
+        self.assertEqual((found["verdict"], found["not_run"], found["waited_first_read"], found["emptied_latest_s"]), ("FAIL", 1, 2, 0.97))
+        found = M.verdict("three-key", [stopped, emptied, good, good])
+        self.assertEqual((found["verdict"], found["not_run"], found["waited_first_read"], found["emptied_latest_s"]), ("FAIL", 2, 4, 1.07))
+        found = M.verdict("three-key", [stopped])
+        self.assertEqual((found["verdict"], found["waited_first_read"], found["emptied_latest_s"]), ("NOT RUN", 1, None))
 
     def test_a_read_of_the_wait_with_no_counts_is_not_run_and_the_tool_makes_no_select(self):
         # The reads before the keys and after them had counts. 2: the first read of the park; 3: a read of the wait,
@@ -1028,7 +1152,8 @@ class Wait(unittest.TestCase):
         for park, fails in (({"parked": 1}, 4), ({}, 3)):
             letters, builder, app = self.letters(CHORD, {"t2": "x"}, park=park, fails=(fails,))
             record = letters.case("three-key", 0)
-            self.assertTrue(record.get("not_run", "").startswith("the case stopped: KeyError"), record.get("not_run"))
+            self.assertEqual(record.get("not_run"), "the case stopped: KeyError")  # the class name only
+            self.assertNotIn("a text", json.dumps(record))
             self.assertEqual(("pass" in record, record["letter_is"], record["park_wait"]["reads"]), (False, "not run", fails - 2), fails)
             self.assertEqual([action for action in builder.actions if action[0] == "tab.focus"], [], fails)
             self.assertEqual(builder.actions[-1], ("closeWorkspace", "workspace:w"))
