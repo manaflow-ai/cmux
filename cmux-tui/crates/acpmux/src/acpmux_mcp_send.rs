@@ -248,7 +248,7 @@ fn item_of(own: &Value, defaults: Option<&Value>) -> Result<Item, String> {
             .map(str::trim)
             .filter(|t| !t.is_empty())
             .map(str::to_owned),
-        notice: notice_arg(field("notice"), |k| std::env::var(k).ok())?,
+        notice: notice_arg(field("notice"), crate::tool_env::var)?,
     };
     match (&item.to, &item.tag) {
         (Some(_), Some(_)) => return Err("give to or tag, not both".to_owned()),
@@ -451,7 +451,7 @@ async fn send_one(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> Va
         Err(e) => return refusal(e),
     };
     let target = Target { index: 0, to: to.clone(), key: key.clone(), tag: None, text, file, item };
-    let (prompt, queued) = match queue(daemon, &target, sub).await {
+    let (prompt, queued) = match queue(daemon, &target, sub, None).await {
         Ok(sent) => sent,
         Err(e) => {
             return match relay(&target, &e, sub).await {
@@ -559,8 +559,8 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> 
             async move {
                 let daemon = &daemon;
                 let sub = sub.as_deref();
-                in_order(&targets, chain, deadline, move |target, wait| async move {
-                    match queue(daemon, target, sub).await {
+                in_order(&targets, chain, deadline, move |target, wait, after| async move {
+                    match queue(daemon, target, sub, after.as_deref()).await {
                         Ok((prompt, queued)) => settle(daemon, target, &prompt, queued, wait).await,
                         Err(e) => match relay(target, &e, sub).await {
                             Some(row) => row,
@@ -663,10 +663,22 @@ pub(super) async fn aliases(daemon: &Arc<Client>, targets: &[Target]) -> Vec<Vec
         looked.into_iter().map(|(name, id, _)| (name, id)).collect();
     let unresolved =
         |t: &Target| t.tag.is_none() && !matches!(resolved.get(t.key.as_str()), Some(Some(_)));
+    // An unresolved name can be the same session as another target only when one of the two
+    // names it by id: two names on one host, or a bare name and `host/name` with another last
+    // part, are two sessions. So an unresolved `host/ID` joins every target on its host, an
+    // unresolved bare id joins every target, and any other unresolved name only the targets with
+    // its last part (`lane-q`, `host-b/lane-q`; any target by that last part joins them, since
+    // a bare name may resolve to a session on a peer). Before, every unresolved name was one chain
+    // and joined its whole host, so a batch to 9 lanes on other hosts sent 7 (cmuxterm-hq#17418).
     let host_of = |key: &str| key.split_once('/').map(|(host, _)| format!("\0host:{host}"));
-    // The hosts some unresolved name is on: every target there is in its chain.
-    let dark: BTreeSet<String> =
-        targets.iter().filter(|t| unresolved(t)).filter_map(|t| host_of(&t.key)).collect();
+    let leaf = |key: &str| key.rsplit_once('/').map_or(key, |(_, leaf)| leaf).to_owned();
+    let by_id = |key: &str| uuid::Uuid::try_parse(&leaf(key)).is_ok();
+    let id_hosts: BTreeSet<String> = targets
+        .iter()
+        .filter(|t| unresolved(t) && by_id(&t.key))
+        .filter_map(|t| host_of(&t.key))
+        .collect();
+    let bare_id = targets.iter().any(|t| unresolved(t) && by_id(&t.key) && !t.key.contains('/'));
     targets
         .iter()
         .map(|t| {
@@ -674,25 +686,32 @@ pub(super) async fn aliases(daemon: &Arc<Client>, targets: &[Target]) -> Vec<Vec
             if let Some(Some(id)) = resolved.get(t.key.as_str()).filter(|_| t.tag.is_none()) {
                 names.push(id.clone());
             }
-            if skipped || unresolved(t) {
+            if skipped || (bare_id && unresolved(t)) {
                 names.push("\0unresolved".to_owned());
             }
-            if let Some(host) = host_of(&t.key).or_else(|| host_of(&t.to))
-                && dark.contains(&host)
-            {
-                names.push(host);
+            if !by_id(&t.key) {
+                names.push(format!("\0name:{}", leaf(&t.key)));
+            }
+            for key in [&t.key, &t.to] {
+                if let Some(host) = host_of(key)
+                    && id_hosts.contains(&host)
+                {
+                    names.push(host);
+                }
             }
             names
         })
         .collect()
 }
 
-/// One session's messages, in order: each is queued only once the one before it settled (the
-/// receiver took it, or refused it). The outbox runs each delivery on its own and retries it, so
-/// two queued at once can arrive swapped, and a `supersede` correction be replaced by the order
-/// it corrects. A message whose predecessor is still on its way at `deadline` is not sent; its
-/// row says so. Chains to different sessions run in bounded windows with one shared
-/// [`STATUS_WAIT`] deadline for settling their deliveries.
+/// One session's messages, in order: each is queued once the one before it settled (the
+/// receiver took it, or refused it), since the outbox runs each delivery on its own and retries
+/// it, so two queued at once could arrive swapped, and a `supersede` correction be replaced by the
+/// order it corrects. One whose predecessor is still on its way at `deadline` is queued anyway,
+/// held in the outbox behind that delivery (`after`, `server/outbox.rs`) until it settles: its
+/// row is `queued` with `after` naming it, never an error asking the sender to send it again
+/// (before, it was, and one batch took 4 calls, cmuxterm-hq#17418). Chains to different
+/// sessions run in bounded windows with one shared [`STATUS_WAIT`] deadline.
 pub(super) async fn in_order<'t, F, Fut>(
     targets: &'t [Target],
     chain: Vec<usize>,
@@ -700,28 +719,28 @@ pub(super) async fn in_order<'t, F, Fut>(
     send: F,
 ) -> Vec<(usize, Value)>
 where
-    F: Fn(&'t Target, Duration) -> Fut,
+    F: Fn(&'t Target, Duration, Option<String>) -> Fut,
     Fut: std::future::Future<Output = Value>,
 {
     let mut rows = Vec::new();
     let mut before: Option<String> = None;
     for seat in chain {
         let Some(target) = targets.get(seat) else { continue };
-        if let Some(delivery) = &before {
-            let why = format!(
-                "not sent: the message before it to {} (delivery {delivery}) is still on its way, \
-and this one must not arrive first; send it again once info {} shows that one arrived",
-                target.to, target.to
-            );
-            rows.push((seat, target.row(false, "failed", Some(why))));
-            continue;
+        let wait = if before.is_some() {
+            Duration::ZERO
+        } else {
+            deadline.saturating_duration_since(tokio::time::Instant::now())
+        };
+        let mut row = send(target, wait, before.clone()).await;
+        if let (Some(delivery), Some(fields)) = (&before, row.as_object_mut())
+            && fields.get("ok") == Some(&json!(true))
+        {
+            fields.insert("after".into(), json!(delivery));
         }
-        let wait = deadline.saturating_duration_since(tokio::time::Instant::now());
-        let row = send(target, wait).await;
         let status = row.get("status").and_then(Value::as_str).unwrap_or_default();
-        if !matches!(status, "delivered" | "failed" | "held") {
-            before = Some(row.get("deliveryId").and_then(Value::as_str).unwrap_or("?").to_owned());
-        }
+        before = (!matches!(status, "delivered" | "failed" | "held"))
+            .then(|| row.get("deliveryId").and_then(Value::as_str).unwrap_or_default().to_owned())
+            .filter(|id| !id.is_empty());
         rows.push((seat, row));
     }
     rows
@@ -742,7 +761,7 @@ async fn tag_recipients(
             Some(listed.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default());
     }
     let all = sessions.as_deref().unwrap_or_default();
-    let own = std::env::var(SESSION_ENV).ok();
+    let own = crate::tool_env::var(SESSION_ENV);
     let found = crate::cli::run::fanout::tag_targets(all, tag, own.as_deref());
     if found.is_empty() {
         return Err(format!("no live session carries the tag {tag}"));
@@ -775,8 +794,8 @@ pub(super) async fn relay(
     let relay = crate::cli::send_relay::configured()?;
     // The session's name when its environment has one, else its id (an MCP server's environment
     // carries ACPMUX_SESSION_ID alone), so the relay always names the sender.
-    let from = crate::cli::send_relay::sender(None, |k| std::env::var(k).ok()).or_else(|| {
-        std::env::var(SESSION_ENV).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
+    let from = crate::cli::send_relay::sender(None, crate::tool_env::var).or_else(|| {
+        crate::tool_env::var(SESSION_ENV).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
     });
     // The subagent that made the call (`subagent_call.rs`), named to the relay as a label.
     // parse_item already validated the explicit class; aliases use the canonical wire value.
@@ -825,6 +844,7 @@ async fn queue(
     daemon: &Arc<Client>,
     target: &Target,
     sub: Option<&Value>,
+    after: Option<&str>,
 ) -> Result<(PromptId, Value)> {
     let mut prompt = PromptId::new(None);
     prompt.subagent = sub.cloned();
@@ -861,7 +881,12 @@ async fn queue(
         .await?;
         prompt.attachments.extend(blocks);
     }
-    let request = prompt.params(&target.key, &target.text, target.item.steer, None);
+    let mut request = prompt.params(&target.key, &target.text, target.item.steer, None);
+    if let Some(after) = after
+        && let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut)
+    {
+        mux.insert(crate::hub::outbox::AFTER_KEY.into(), json!(after));
+    }
     let queued = daemon.request(method::MUX_SEND_QUEUE, json!({"request": request})).await?;
     Ok((prompt, queued))
 }
@@ -877,6 +902,11 @@ async fn settle(
     let delivery = queued.get("deliveryId").and_then(Value::as_str).unwrap_or_default().to_owned();
     let wait_ms = u64::try_from(wait.as_millis()).unwrap_or(u64::MAX);
     let ask = json!({"deliveryId": delivery, "waitMs": wait_ms});
+    // The mesh relay's note of a class it carried in the text (`server/mesh_send.rs`).
+    let notes: Vec<(&str, Value)> = ["classInline", "note"]
+        .into_iter()
+        .filter_map(|key| queued.get(key).map(|v| (key, v.clone())))
+        .collect();
     let status = daemon.request(method::MUX_SEND_STATUS, ask).await.unwrap_or(queued);
     let state = status.get("status").and_then(Value::as_str).unwrap_or("queued").to_owned();
     let accepted = status.get("accepted").cloned().unwrap_or(Value::Null);
@@ -888,6 +918,9 @@ async fn settle(
         status.get("error").and_then(Value::as_str).unwrap_or("delivery failed").to_owned()
     });
     let mut row = target.row(!refused, &state, error);
+    for (key, v) in notes {
+        row.set(key, v);
+    }
     row.set("promptId", json!(prompt.id));
     row.set("deliveryId", json!(delivery));
     row.set("sessionId", session_id);

@@ -1065,6 +1065,34 @@ button.acpmux-attachment-pasted-open:hover {
   color: var(--agent-muted);
 }
 
+/* A browser pick (composer/BrowserPickChip.tsx): its number in a round badge, the number its pin
+   shows on the page, then the person's comment as the title, the element and page under it. The
+   badge sits in the glyph slot, so a row of picks lines up like a numbered list. */
+.acpmux-browser-pick-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+  padding: 0 4px;
+  border-radius: 999px;
+  /* The accent role and the text the theme draws on it. */
+  background: var(--agent-accent);
+  color: var(--agent-on-accent, var(--agent-page-bg, #fff));
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--ds-icon-16);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-paste-chip__title > .acpmux-paste-chip__part[data-part="comment"] {
+  overflow: hidden;
+  color: var(--agent-text);
+  font-weight: var(--weight-emphasis);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* A pick in a sent message (conversation/SentUIPick.tsx): the composer's chip in the message's one
    body, its face as tall as the prompt's (two control rows), opening in place as there. */
 .cv-user__chip.acpmux-paste-chip {

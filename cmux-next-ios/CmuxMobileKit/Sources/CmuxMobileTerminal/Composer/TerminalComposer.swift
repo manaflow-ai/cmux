@@ -216,7 +216,7 @@ struct TerminalComposer: View {
                          : .regular, in: .circle)
             .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressGlass)
         .disabled(model.isUploading || !canSend)
         .contextMenu {
             Button("Send without Return", systemImage: "arrow.up.to.line") {
@@ -403,7 +403,7 @@ struct AttachmentStrip: View {
                                     .frame(width: 44, height: 44)
                                     .contentShape(.rect)
                             }
-                            .buttonStyle(.cmuxPressFill)
+                            .buttonStyle(.cmuxPressGlass)
                             .offset(x: 16, y: -16)
                             .accessibilityLabel("Remove \(attachment.name)")
                         }
