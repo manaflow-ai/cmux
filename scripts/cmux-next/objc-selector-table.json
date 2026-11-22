@@ -168,6 +168,9 @@
    "27.0": true,
    "26.6": true
   },
+  "NSButton call:highlight/1": {
+   "26.6": true
+  },
   "NSButton call:keyDown/1": {
    "26.5.2": true,
    "26.7": true,
