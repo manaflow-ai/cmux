@@ -65,6 +65,9 @@ public final class SettingsHarnesses {
     @ObservationIgnored private(set) var generation = 0
     /// The refusal text when this app cannot run updates (the App's localized string).
     @ObservationIgnored private let unsupported: (@MainActor () -> String)?
+    /// Opens a provider's sign-in page beside the window in the app's own browser, focus staying where
+    /// it was (`workspace.open_url`); nil opens nothing (SettingsHarnesses+AccountSignIn.swift).
+    @ObservationIgnored let openSignInPage: (@MainActor (URL) async -> Void)?
 
     public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
          // nil, resolved below: an async function as a default argument is compiled again into every
@@ -80,7 +83,8 @@ public final class SettingsHarnesses {
          accountsCall: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)? = nil,
          claudeStatus: (@Sendable (String, String?) async -> Data?)? = nil,
          userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
-         unsupported: (@MainActor () -> String)? = nil) {
+         unsupported: (@MainActor () -> String)? = nil,
+         openSignInPage: (@MainActor (URL) async -> Void)? = nil) {
         self.environment = environment
         self.fetch = fetch ?? { try await AcpmuxEnvironment.settingsHarnessRows($0) }
         self.fetchHealth = fetchHealth ?? { try await AcpmuxEnvironment.harnessHealth($0, refresh: $1) }
@@ -92,6 +96,7 @@ public final class SettingsHarnesses {
         self.claudeStatus = claudeStatus
         self.userHome = userHome
         self.unsupported = unsupported
+        self.openSignInPage = openSignInPage
     }
 
     /// The page's `cmux.settings.harnesses.state` (webviews/src/pages/settings/ops.ts `HarnessesState`).
