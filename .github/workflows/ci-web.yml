@@ -910,12 +910,22 @@ jobs:
           HISTORY_UPLOAD: ${{ steps.history-upload.outcome }}
           # Warn-only: the fixup patch for the hq reconciler; the type check's own red is WEBVIEWS_CHECK.
           FIXIT_UPLOAD: ${{ steps.fixit-upload.outcome }}
+          # A pull request's test step keeps going on a red (react-apps-base-check judges it), but one stopped before it
+          # wrote its results (a runner's SIGTERM, exit 143) left the shard green: a failed-job rerun never retried it,
+          # and the base check failed on every attempt with "has no webviews-head-results.json" (cmux#49337, run
+          # 44955291325, 2026-11-21). That shard is red here, so the rerun takes it again.
+          WEBVIEW_TESTS: ${{ steps.webview-tests.outcome }}
+          HEAD_RESULTS: ${{ runner.temp }}/webviews-head-results/webviews-head-results.json
           # The eager JS budget (a size cap) and the React Compiler coverage are
           # structural: for feat-cmux-next they warn (Leo 2026-10-19).
           CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
           STYLE_GATES: EAGER_JS_BUDGET REACT_COMPILER
         run: |
           failed=0
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$WEBVIEW_TESTS" = failure ] && [ ! -s "$HEAD_RESULTS" ]; then
+            echo "::error::Test webviews stopped before it wrote its results; this shard has no verdict to judge."
+            failed=1
+          fi
           if [ "$DURATIONS_UPLOAD" = failure ]; then
             echo "::warning::This shard's test durations did not upload; the next run's shard split misses them."
           fi
