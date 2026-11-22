@@ -90,7 +90,11 @@ pub(crate) fn start_link_entry(
     session_socket: &Path,
 ) -> anyhow::Result<Option<cmux_tui_core::server::RemoteEntryServer>> {
     use cmux_tui_core::server::{LinkVerifier, serve_remote_entry};
-    cloud_fs::install_file_owner();
+    if cloud_fs::install_file_owner() {
+        // Frees what archived, deleted and brought-back chats left in their projections on this
+        // machine, at start and on a timer (RFD 0007, hard case 8).
+        cmux_tui_core::projection::start_reaper(crate::acp::daemon_socket_path());
+    }
     mux.set_agent_transfer_host(cloud_fs::agent_transfer_host());
     // What a stamp's `check` means is fixed here, at daemon start, from the
     // config `main` took from the environment (G4); a real verifier is
