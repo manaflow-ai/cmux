@@ -3041,6 +3041,10 @@ mod session_shutdown;
 mod apps_store;
 
 #[cfg(unix)]
+#[path = "cli/apps_external_server.rs"]
+mod apps_external_server;
+
+#[cfg(unix)]
 #[path = "cli/stop_start_lock.rs"]
 mod stop_start_lock;
 

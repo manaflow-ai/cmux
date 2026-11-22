@@ -172,12 +172,64 @@ async fn work_outside_an_acpmux_turn_is_refused_as_busy() {
     {
         let mut m = s.meta.lock().unwrap();
         m.claude_unstored = true;
+        m.claude_unstored_work = true;
         m.turn_count = 1;
     }
     let e = hub.stop(&s, false, if_idle).await.expect_err("an unstored conversation was stopped");
     assert_eq!(refused(e), json!("unstored"));
     assert!(!closed(&s));
     s.meta.lock().unwrap().claude_unstored = false;
+    hub.stop(&s, false, if_idle).await.unwrap();
+    assert!(closed(&s));
+}
+
+/// An agent-side failure no automatic continuation picks up (a 503 would be continued first,
+/// `auto_resume.rs`; once that gives up, its turn ends the same way).
+const ERR: &str = "the agent failed this prompt";
+
+/// An unstored conversation after one failed turn of `text`: what its end marks.
+async fn unstored_after(text: &str) -> (Arc<Hub>, Arc<Session>) {
+    let (hub, s) = chat().await;
+    s.meta.lock().unwrap().claude_unstored = true;
+    let e = prompt(&hub, &s, text).await.unwrap().expect_err("the turn did not fail");
+    assert!(e.message.contains(ERR), "{}", e.message);
+    let m = s.meta();
+    assert!(m.claude_unstored, "a failed turn cleared the unstored mark");
+    assert!(m.turn_count > 0);
+    (hub, s)
+}
+
+/// cmux#48917: a Claude chat whose restarted conversation only got agent errors (a 503, no
+/// output) is not kept from `--if-idle` or hibernation: waking it starts the same fresh
+/// conversation its restart did. A failed turn whose agent did work keeps the refusal, and a
+/// streamed copy of the error is not work.
+#[tokio::test]
+async fn an_unstored_conversation_is_kept_only_when_its_agent_did_work() {
+    let if_idle = StopCondition { if_idle: true, expect_revision: None };
+    let refused = |e: RpcError| reason(&e).1;
+    let err = ERR;
+
+    for no_work in [format!("fail: {err}"), format!("echo-fail: {err}")] {
+        let (hub, s) = unstored_after(&no_work).await;
+        assert!(!s.meta().claude_unstored_work, "{no_work}: an error-only turn counted as work");
+        assert!(hub.idle_eligible(&s), "{no_work}: an error-only unstored chat kept awake");
+        hub.stop(&s, false, if_idle).await.expect("an error-only unstored chat was refused");
+        assert!(closed(&s));
+    }
+
+    let (hub, s) = unstored_after(&format!("work-then-fail: {err}")).await;
+    assert!(s.meta().claude_unstored_work, "a turn that called a tool did no work");
+    assert!(!hub.idle_eligible(&s), "an unstored chat whose agent worked went idle");
+    let e = hub.stop(&s, false, if_idle).await.expect_err("an unstored chat with work was stopped");
+    assert_eq!(refused(e), json!("unstored"));
+    assert!(!closed(&s));
+    // A later error-only turn keeps the work its conversation did.
+    let _ = prompt(&hub, &s, &format!("fail: {err}")).await.unwrap();
+    assert!(s.meta().claude_unstored_work, "an error-only turn forgot the conversation's work");
+    // A turn that ends Ok stores the conversation: both marks go.
+    prompt(&hub, &s, "hello").await.unwrap().expect("the turn failed");
+    let m = s.meta();
+    assert!(!m.claude_unstored && !m.claude_unstored_work);
     hub.stop(&s, false, if_idle).await.unwrap();
     assert!(closed(&s));
 }

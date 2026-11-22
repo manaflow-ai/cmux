@@ -53,6 +53,8 @@ mod codex_wrapper;
 mod computer_use_worker;
 mod config;
 mod daemon_build;
+#[cfg(unix)]
+mod files_lister;
 mod headless;
 mod heap_profile;
 #[cfg(unix)]
@@ -65,6 +67,8 @@ mod own_build_helpers;
 mod page_listener;
 mod private_mode;
 mod screen_detection_status;
+#[cfg(unix)]
+mod scroll_probe;
 #[cfg(unix)]
 mod share_room;
 #[cfg(unix)]
@@ -1991,12 +1995,40 @@ fn run_main() {
     // `cmux acp …` (and `cmux harness|chats …` = `cmux acp harness|chats …`) runs acpmux in
     // this process. It needs none of the mux's provider credentials or signal handlers.
     #[cfg(unix)]
-    if let Some(head @ ("acp" | "harness" | "chats")) = raw_args.first().map(String::as_str) {
+    if let Some(head) = raw_args.first().map(String::as_str)
+        && (matches!(head, "acp" | "harness" | "chats" | "board")
+            || cli::agent_engine_requested(&raw_args))
+    {
         discard_provider_secret_environment();
         // From raw_args, not args_os: `cmux help chats` became `chats --help` there, and
         // std::env::args() above already refused argv that is not UTF-8.
         let args = cli::acp_scope_args(&raw_args);
         client_log::exit(acp::run_scope(head, args));
+    }
+    #[cfg(unix)]
+    if let Some(args) = cli::agent_acp_scope_args(&raw_args) {
+        discard_provider_secret_environment();
+        client_log::exit(acp::run_as(args, "cmux agent"));
+    }
+    // Windows machine join installs the session engine as its own executable.
+    // Launch that binary so its daemon and agent hosts use the Windows install.
+    #[cfg(windows)]
+    if cli::agent_engine_requested(&raw_args) {
+        discard_provider_secret_environment();
+        let result = std::env::home_dir()
+            .ok_or_else(|| io::Error::other("cannot locate the Windows user profile"))
+            .and_then(|home| {
+                cmux_process::Command::new(home.join(".local/bin/acpmux.exe"))
+                    .args(cli::acp_scope_args(&raw_args))
+                    .status()
+            });
+        match result {
+            Ok(status) => client_log::exit(status.code().unwrap_or(1)),
+            Err(error) => {
+                eprintln!("cmux agent: cannot run the Windows session engine: {error}");
+                client_log::exit(1);
+            }
+        }
     }
     // `cmux host enable|serve|dial|…`: remote hosting, on every platform
     // (plans/cmux-next/remote-hosts.md). The other `host` verbs are the

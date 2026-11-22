@@ -14,10 +14,13 @@
 //!    shows the click or the typing.
 //! 5. Screenshots go through [`crate::frame`]; accessibility frames come back
 //!    in the pixels of the agent's latest screenshot of that window.
-//! 6. An acting call returns the window as it is after acting: a fixed wait
-//!    ([`Settle::floor`]), then screenshots until the pixels differ from what
-//!    the agent last saw, up to [`Settle::ceiling`], plus its tree. One round
-//!    trip per step; `observe: false` skips it.
+//! 6. An acting call returns the window as it is after acting: a wait of at
+//!    most [`Settle::floor`] (cut short by the app's accessibility signal),
+//!    then one screenshot. Only when the app has no watched signals, or
+//!    signalled a change the pixels do not show yet, do more screenshots
+//!    follow until the pixels differ from what the agent last saw, up to
+//!    [`Settle::ceiling`]. Plus its tree. One round trip per step;
+//!    `observe: false` skips it.
 //! 7. One audit line per call.
 
 use std::collections::HashMap;
@@ -176,6 +179,7 @@ fn refusal_caption(code: &str) -> Option<&'static str> {
         "foreground_not_allowed" => "Foreground input is off",
         "person_in_control" => "You're in control",
         "approval_denied" | "approval_unavailable" => "Not approved",
+        crate::locked::CODE => "Mac is locked",
         stop::STOPPED_CODE => stop::STOPPED_CAPTION,
         _ => return None,
     })
@@ -250,7 +254,9 @@ impl PersonActivity for NoTakeover {
 pub const TAKEOVER_WAIT: Duration = Duration::from_secs(15);
 
 /// How an acting call waits before it reports the window's new state: a
-/// fixed `floor` first (most apps redraw within it), then a screenshot every
+/// `floor` first (most apps redraw within it; the app's accessibility signal
+/// ends it early, and a watched app that signals nothing and shows nothing
+/// new after it gets no more screenshots), then a screenshot every
 /// `step` until the pixels differ from what the agent last saw, never past
 /// `ceiling`. A fixed delay with change detection, not "until quiet": an app
 /// that keeps animating never holds the reply past the ceiling.
@@ -781,6 +787,16 @@ impl Engine {
         args: &Value,
     ) -> Result<(ToolOutput, Option<TargetApp>), ToolOutput> {
         let config = self.config();
+        // Before anything is read or posted: a locked screen admits only what
+        // cannot reach its password field ([`crate::locked`]). A batch's
+        // steps come back here one by one.
+        let kind = crate::locked::kind_of(tool.name, args);
+        if !crate::locked::admits(kind, config.while_locked) && self.desktop.screen_locked() {
+            let (message, detail) = crate::locked::refusal(tool.name, kind, config.while_locked);
+            let mut out = ToolOutput::error(crate::locked::CODE, message);
+            set_key(&mut out.body, "whileLocked", detail);
+            return Err(out);
+        }
         match tool.name {
             "status" => Ok((self.status(&config), None)),
             "list_machines" => Ok((
@@ -1089,6 +1105,8 @@ impl Engine {
             "cursor": config.show_cursor,
             "cloud_vm": config.cloud_vm,
             "menus": config.menus.as_str(),
+            "screen_locked": self.desktop.screen_locked(),
+            "while_locked": config.while_locked,
         }))
     }
 
@@ -1597,9 +1615,12 @@ impl Engine {
 
     /// Waits as `mode` says after an acting call and adds the window's
     /// screenshot and tree to `out` as `state`:
-    /// - adaptive: [`Settle`]: a floor, then a screenshot every step until it
-    ///   differs from what the agent last saw, up to the ceiling (elapsed
-    ///   time, captures included); an unchanged window returns no image.
+    /// - adaptive: [`Settle`]: a floor (ended early by the app's signal and
+    ///   its burst), then a screenshot every step until it differs from what
+    ///   the agent last saw, up to the ceiling (elapsed time, captures
+    ///   included); an unchanged window returns no image. A watched app that
+    ///   sent no signal and whose window is unchanged at the first capture
+    ///   returns then: its frames are not waited for.
     /// - anthropic: [`ANTHROPIC_SCREENSHOT_DELAY`] (none after typing), then
     ///   the screenshot, always with its image.
     /// - openai: the screenshot at once, always with its image.
@@ -1630,10 +1651,16 @@ impl Engine {
         let mut signals_then = watch.map(|w| w.signals().total());
         let shot = match mode {
             SettleMode::Adaptive => {
-                (self.sleep)(s.floor);
+                // The floor ends at the app's own signal (and its burst),
+                // not at a fixed time: a watch that can block wakes on it.
+                // The watch counts from before the action (it starts at 0
+                // then): a signal the app sent while the action ran counts.
+                let signals_before = watch.map(|_| 0u32);
+                self.wait_change(watch, signals_then.unwrap_or(0), s.floor);
                 // The newest capture that changed: a later one compares with
                 // it, so an unchanged one after it means the window held.
                 let mut changed_shot: Option<ToolOutput> = None;
+                let mut first = true;
                 loop {
                     // Checkpoint: the person's Stop ends the settle wait.
                     if let Err(stopped) = self.stops.check(&ctx.session) {
@@ -1661,7 +1688,19 @@ impl Engine {
                             } else {
                                 Some(shot)
                             };
-                            if (changed_shot.is_some() && quiet) || elapsed >= s.ceiling {
+                            // An app that listens and sent no signal since
+                            // before the action, with its window unchanged
+                            // after the floor: nothing is coming. Its frames
+                            // are not waited for (Leo: "why do we ever even
+                            // wait for screen frames?"); only an app without
+                            // signals, or one whose signals say it changed,
+                            // is watched frame by frame up to the ceiling.
+                            let silent = first
+                                && watch.is_some()
+                                && signals_now == signals_before
+                                && changed_shot.is_none();
+                            first = false;
+                            if silent || (changed_shot.is_some() && quiet) || elapsed >= s.ceiling {
                                 // One of the two is always set.
                                 match changed_shot.take().or(shot) {
                                     Some(last) => break Ok((last, elapsed)),

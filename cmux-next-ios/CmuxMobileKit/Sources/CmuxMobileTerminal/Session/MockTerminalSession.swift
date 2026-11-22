@@ -42,11 +42,21 @@ public final class MockTerminalSession: TerminalSession {
     private var transcriptBytes = 0
     private var resizeAnswer: Task<Void, Never>?
     private var answers: [(due: ContinuousClock.Instant, columns: Int, rows: Int)] = []
+    /// `historywindow`: the older rows the "Mac" holds back until the reader
+    /// scrolls near the top of the rows shown, the rows shown, and how long
+    /// the older rows' replay takes to come.
+    private var heldBack: (older: [String], shown: [String], delay: Int)?
+    /// DEBUG bench: the older-row fetches taken (`loadOlderHistory`).
+    public private(set) var historyFetches = 0
 
     private enum Program {
         case shell
         case htop(tick: Int)
         case vim(MockVim)
+        /// A full-screen agent like Claude Code: a header box on its first
+        /// rows, the transcript, and its input box on the last rows with the
+        /// cursor in it.
+        case agent
     }
 
     /// `playsIntro`: run `ls -la`, `git log` and a build when the session starts.
@@ -113,6 +123,7 @@ public final class MockTerminalSession: TerminalSession {
         case .vim(var vim):
             write(vim.render(columns: columns, rows: rows))
             program = .vim(vim)
+        case .agent: drawAgent()
         }
     }
 
@@ -155,8 +166,28 @@ public final class MockTerminalSession: TerminalSession {
         case .vim(var vim):
             replay += "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" + vim.render(columns: columns, rows: rows)
             program = .vim(vim)
+        case .agent:
+            replay += "\u{1B}[?1049h" + agentScreen()
         }
         handler?(.output(Data(replay.utf8)))
+    }
+
+    /// `historywindow`'s older rows: the Mac's reset and replay, `delay` ms
+    /// after the ask, like `DaemonTerminalSession.loadOlderHistory()`.
+    @discardableResult
+    public func loadOlderHistory() -> Bool {
+        guard let held = heldBack else { return false }
+        heldBack = nil
+        historyFetches += 1
+        let task = Task { [weak self] in
+            try? await self?.pause(held.delay)
+            guard let self, !Task.isCancelled else { return }
+            self.handler?(.output(TerminalReclaimHold.reset))
+            self.handler?(.output(Data((held.older + held.shown).map { $0 + "\r\n" }.joined().utf8)))
+            self.prompt()
+        }
+        tasks.append(task)
+        return true
     }
 
     public func stop() {
@@ -256,6 +287,7 @@ public final class MockTerminalSession: TerminalSession {
                 write(vim.render(columns: columns, rows: rows))
                 program = .vim(vim)
             }
+        case .agent: if key == .control("c") || key == .escape { exitProgram() }
         }
     }
 
@@ -346,6 +378,19 @@ public final class MockTerminalSession: TerminalSession {
                 + "› Ask Codex to do anything\r\n\r\n  ? for shortcuts                          100% context left")
             write("\u{1B}[2A\r\u{1B}[2C")
             return
+        case "historywindow":
+            // historywindow [SHOWN=150] [OLDER=2000] [MS=60]: a Mac terminal
+            // attached with its latest rows first (DaemonTerminalSession): SHOWN
+            // rows now, and OLDER more once the reader scrolls near the top,
+            // MS ms later, as the Mac delivers them: a mirror reset (ESC c)
+            // and one replay of the whole window.
+            let shown = max(1, parts.count > 1 ? Int(parts[1]) ?? 150 : 150)
+            let older = max(1, parts.count > 2 ? Int(parts[2]) ?? 2000 : 2000)
+            let delay = max(0, parts.count > 3 ? Int(parts[3]) ?? 60 : 60)
+            func row(_ index: Int) -> String { "history row \(index) " + String(repeating: "lorem ", count: 1 + index % 7) }
+            let rows = (older + 1...older + shown).map(row)
+            heldBack = ((1...older).map(row), rows, delay)
+            write(rows.map { $0 + "\r\n" }.joined())
         case "clear": write("\u{1B}[H\u{1B}[2J")
         case "echo": write(parts.dropFirst().joined(separator: " ") + "\r\n")
         case "cat": try await stream(MockOutput.file(named: parts.dropFirst().first ?? ""))
@@ -357,6 +402,12 @@ public final class MockTerminalSession: TerminalSession {
             // htop reports the mouse (button events, SGR coordinates).
             handler?(.output(Data(Self.htopMouse.utf8)))
             startHtopTicker()
+            return
+        case "claude":
+            busy = false
+            program = .agent
+            setAlternate(true, program: "claude")
+            drawAgent()
             return
         case "vim", "vi", "nvim":
             busy = false
@@ -389,6 +440,31 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     // MARK: htop
+
+    /// The agent program's screen at the current grid: its header box on
+    /// rows 1-3, transcript rows, and the input box on the last three rows
+    /// with the cursor after its prompt.
+    private func drawAgent() { write(agentScreen()) }
+
+    /// The agent screen's bytes at the current grid.
+    private func agentScreen() -> String {
+        let rule = String(repeating: "\u{2500}", count: max(10, min(60, columns - 2)))
+        var out = "\u{1B}[H\u{1B}[2J"
+        out += "\u{1B}[1;1H\u{256D}\(rule)\u{256E}"
+        out += "\u{1B}[2;1H\u{2502} \u{1B}[33m\u{273B}\u{1B}[0m Claude Code (mock)  ~/cmux-next"
+        out += "\u{1B}[3;1H\u{2570}\(rule)\u{256F}"
+        let last = max(4, rows - 3)
+        if last >= 5 {
+            for row in 5...last {
+                out += "\u{1B}[\(row);1H" + (row % 4 == 1 ? "\u{1B}[32m\u{23FA}\u{1B}[0m answer \(row - 4)" : "  transcript row \(row - 4)")
+            }
+        }
+        out += "\u{1B}[\(rows - 2);1H\u{256D}\(rule)\u{256E}"
+        out += "\u{1B}[\(rows - 1);1H\u{2502} > "
+        out += "\u{1B}[\(rows);1H\u{2570}\(rule)\u{256F}"
+        out += "\u{1B}[\(rows - 1);5H"
+        return out
+    }
 
     private func startHtopTicker() {
         let task = Task { [weak self] in

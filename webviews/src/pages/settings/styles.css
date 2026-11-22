@@ -177,11 +177,9 @@ mark {
 }
 
 .section-link {
+  --settings-nav-padding: var(--ds-space-1) var(--ds-space-2);
   display: flex;
-  align-items: center;
-  gap: var(--ds-space-2);
   width: 100%;
-  padding: var(--ds-space-1) var(--ds-space-2);
   border: 0;
   border-radius: var(--ds-radius-md);
   background: transparent;
@@ -194,15 +192,21 @@ mark {
   -webkit-user-drag: none;
 }
 
-/* Only the pointer fades in. The current-section mark snaps: a route the host opens while the
-   tab is hidden (Customize Appearance… on a kept page) must not replay a fade from the old
-   section when the tab shows again. */
-.section-link:hover {
-  background: var(--input-bg);
-  transition: background var(--motion-hover);
+.section-link-content {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: var(--settings-nav-padding);
+  border-radius: inherit;
 }
 
-.section-link[aria-current] {
+.section-link:is(:hover, :active) > .section-link-content {
+  background: var(--input-bg);
+}
+
+.section-link[aria-current] > .section-link-content {
   background: var(--accent-soft);
 }
 
@@ -294,6 +298,13 @@ mark {
   display: block;
   margin-top: var(--page-size-5);
   overflow-wrap: anywhere;
+}
+
+/* Update Automatically: the shared switch before its words (HarnessesCard). */
+.harness-auto {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
 }
 
 /* A provider's accounts under its harness row (ProviderAccounts). */
@@ -519,6 +530,12 @@ mark {
 
 .notice-text {
   flex: 1;
+}
+
+/* A row note (#44894): where the value comes from, or why it does not draw. Not a problem, so the
+   muted text color instead of the warning color. */
+.notice.row-note {
+  color: var(--muted-text);
 }
 
 .empty {
@@ -2571,37 +2588,6 @@ button.menu-disclosure {
   min-width: 0;
 }
 
-/* Settings > Personalization (PersonalizationCard): its parts under the shared jump bar (layout.css
- * .jump-bar), each a titled run of its home category's card or rows, with More in … on its right. */
-.personalization-part {
-  scroll-margin-top: var(--jump-bar-clearance);
-  margin-bottom: var(--ds-space-6);
-}
-
-.personalization-part-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--ds-space-4);
-  margin: 0 0 var(--ds-space-3);
-}
-
-.personalization-part-title {
-  margin: 0;
-  font-size: var(--text-body);
-  font-weight: var(--weight-emphasis);
-  color: var(--text);
-}
-
-.personalization-more {
-  color: var(--muted-text);
-}
-
-.personalization-more-links {
-  display: flex;
-  gap: var(--ds-space-1);
-}
-
 /* Settings > Models (ModelsCard.tsx): three groups, each title with its help and an optional + on the
    trailing edge; connection rows with a grip, the provider's mark, a switch and an overflow menu. */
 .models {
@@ -2732,7 +2718,7 @@ button.menu-disclosure {
   font-size: var(--text-detail);
 }
 
-/* Personalization > Customization Library (CustomizeLibraryCard): one row per entry, top first.
+/* Appearance > Customization Library (CustomizeLibraryCard): one row per entry, top first.
    The mark is the entry's swatches (its thumbnail is its colors and keys, never a capture); its
    order buttons show on hover and focus like the menu rows'; an entry that is off reads dimmed. */
 .library-mark {
@@ -2906,4 +2892,104 @@ button.menu-disclosure {
 .ask-cmux[data-look="link"]:hover {
   background: transparent;
   text-decoration: underline;
+}
+
+/* A font row's pictures (components/FontPreview.tsx): a tile per face choice, drawn in that face at the
+   surface's size and line height, under the row; the density tiles' look. */
+.font-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--page-size-150), 1fr));
+  gap: var(--page-size-10);
+  padding: var(--page-size-6) 0;
+}
+
+.font-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--page-size-6);
+  min-width: 0;
+  padding: var(--page-size-6);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-space-2);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.font-tile[data-on] {
+  border-color: var(--text);
+}
+
+.font-tile-picture {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  padding: var(--page-size-6) var(--page-size-10);
+  border: 1px solid var(--border);
+  border-radius: var(--page-size-6);
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+.font-tile-glyphs,
+.font-tile-line {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.font-tile-glyphs {
+  font-size: 1.6em;
+}
+
+.font-tile-name {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--page-size-6);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.font-tile-name small {
+  color: var(--muted-text);
+}
+
+.font-sample {
+  overflow: hidden;
+  margin: var(--page-size-6) 0;
+  padding: var(--page-size-6) var(--page-size-10);
+  border: 1px solid var(--border);
+  border-radius: var(--page-size-6);
+  background: var(--input-bg);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* Settings > General's Text Size card (TextSizeCard): the picker on a card of its own, ahead of every row. */
+.text-size-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-3));
+}
+
+.text-size-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+
+.text-size-card__head .group-title {
+  margin: 0;
+}
+
+.text-size-card__detail {
+  margin: 0;
+  color: var(--muted-text);
 }

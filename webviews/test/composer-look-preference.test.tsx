@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { setComposerLook, useComposerLook } from "../src/agent-session/acpmux/composerLook";
-
+import { setPreviewComposerLook, useComposerLook } from "../src/agent-session/acpmux/composerLook";
 import { OnNewTab } from "../src/agent-session/acpmux/newTabComposer";
 
 const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
@@ -25,56 +24,30 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  setComposerLook("codex");
+  setPreviewComposerLook();
   if (storageDescriptor) Object.defineProperty(globalThis, "localStorage", storageDescriptor);
   else Reflect.deleteProperty(globalThis, "localStorage");
 });
 
-test("a composer with no saved choice uses Codex without writing a preference", () => {
-  expect(currentLook()).toBe("<span>codex</span>");
+test("agent chat uses the standard composer with or without a legacy look preference", () => {
+  expect(currentLook()).toBe("<span>claude</span>");
   expect(values.size).toBe(0);
-});
-
-test("both explicit saved looks survive the default changing", () => {
-  for (const look of ["claude", "codex"] as const) {
+  for (const look of ["claude", "codex", "retired-look"]) {
     values.set("cmux.composer.look", look);
-    expect(currentLook()).toBe(`<span>${look}</span>`);
+    expect(currentLook()).toBe("<span>claude</span>");
     expect(values.get("cmux.composer.look")).toBe(look);
   }
 });
 
-test("an unknown stored look uses Codex and an explicit choice still persists", () => {
-  values.set("cmux.composer.look", "retired-look");
+test("New Tab keeps the standard composer in a gallery preview of the former layout", () => {
+  setPreviewComposerLook("codex");
   expect(currentLook()).toBe("<span>codex</span>");
-  setComposerLook("claude");
-  expect(currentLook()).toBe("<span>claude</span>");
-  expect(values.get("cmux.composer.look")).toBe("claude");
-});
-
-test("a look selection remains usable when preference storage is unavailable", () => {
-  Object.defineProperty(globalThis, "localStorage", {
-    configurable: true,
-    get: () => {
-      throw new Error("Storage unavailable");
-    },
-  });
-  setComposerLook("claude");
-  expect(currentLook()).toBe("<span>claude</span>");
-  setComposerLook("codex");
-  expect(currentLook()).toBe("<span>codex</span>");
-});
-
-test("New Tab ignores saved and unknown chat looks without rewriting storage", () => {
-  for (const saved of [null, "claude", "codex", "retired-look"]) {
-    if (saved) values.set("cmux.composer.look", saved);
-    else values.delete("cmux.composer.look");
-    expect(
-      renderToStaticMarkup(
-        <OnNewTab.Provider value={true}>
-          <Look />
-        </OnNewTab.Provider>,
-      ),
-    ).toBe("<span>claude</span>");
-    expect(values.get("cmux.composer.look") ?? null).toBe(saved);
-  }
+  expect(
+    renderToStaticMarkup(
+      <OnNewTab.Provider value={true}>
+        <Look />
+      </OnNewTab.Provider>,
+    ),
+  ).toBe("<span>claude</span>");
+  expect(values.size).toBe(0);
 });

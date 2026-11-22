@@ -11,6 +11,7 @@ export type PathInfo = { place: PathPlace; folder: boolean };
 export type SiteInfo = { icon?: string; title?: string };
 export type ReplyPolicy = {
   outsideRoots: "confirm" | "text" | "open";
+  supportsFileLine?: boolean;
   remoteImages: "click" | "never" | "always";
   /// Sites whose web images load without a click under `click` (the host's declared list,
   /// `AgentPaneSafeFetch.clickFreeImageHosts`); an older host names none.

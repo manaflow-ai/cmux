@@ -1,0 +1,4 @@
+[
+  { "key": "cmd+shift+t", "command": "cmuxConfig.starter-tests" },
+  { "key": "cmd+shift+d", "command": "cmuxConfig.starter-dev" }
+]

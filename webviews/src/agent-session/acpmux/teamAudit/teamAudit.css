@@ -5,7 +5,7 @@
 .tma-table{width:100%;border-collapse:collapse;font-size:var(--text-detail);font-variant-numeric:tabular-nums}
 .tma-table th,.tma-table td{padding:var(--ds-space-1) var(--ds-space-2);text-align:right;white-space:nowrap}
 .tma-table thead th{font-weight:var(--weight-regular);color:var(--agent-muted)}
-.tma-table tbody tr:hover{background:color-mix(in srgb,var(--agent-text) 5%,transparent)}
+.tma-table tbody tr:hover{background:var(--ds-surface-hover)}
 /* The key column takes the room the measure columns leave (width 100%) and never less than 12ch: the
    label inside does not size the column (contain: inline-size), so a long name ellipsizes only past
    that minimum, and a pane too narrow for 12ch and the measures scrolls the table sideways in

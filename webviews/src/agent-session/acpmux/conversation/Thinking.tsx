@@ -21,9 +21,12 @@ import { compactingLine } from "./compactingLine.experiment";
 import { liveLineTimes } from "./liveLineTimes.experiment";
 import { oneRowPerCall } from "./oneRowPerCall.experiment";
 import { Spinner } from "./icons";
+import { RunningTime } from "./RunningTime";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { LiveShimmer } from "./LiveShimmer";
+import { JumpDots } from "./JumpDots";
+import { useThinkingLook } from "./thinkingLook";
 import { Slot } from "../../../slots/Slot";
 import { slotVariant, useSlotVariant } from "../../../slots/registry";
 import { thinkingIndicatorSlot, type ThinkingIndicatorProps } from "../../../slots/thinkingIndicator";
@@ -186,16 +189,115 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tai
   return roll;
 }
 
+/// Whether the live line's boxes may have moved since its last commit: the two hooks below read
+/// layout (a forced layout when the commit wrote the DOM) only then, never on a commit that changed
+/// nothing drawn, as each streamed chunk does (its new `quietKey` and `heardKey`). They move when
+/// what the line draws changes (`drawn`: its words, time, counts and look, compared as effect deps
+/// are) or its node is new, both known in the commit itself; or when a box resizes with no commit
+/// of the line (the pane's width, a font, a theme's slot), which a ResizeObserver on the line and
+/// its boxes marks for the next commit. Read in layout effects only, after this hook's own.
+/// The line's boxes as last observed (`useLineMoved`): one ResizeObserver from `connect` to its
+/// cleanup, which disconnects it, and the boxes it watches, kept to the line's current ones.
+class LineBoxes {
+  /// Whether the last commit's `check` found the boxes may have moved. Read in layout effects only.
+  moved = true;
+  private node: HTMLDivElement | undefined;
+  private drawn: readonly unknown[] | undefined;
+  private resized = false;
+  private observer: ResizeObserver | undefined;
+  private boxes = new Map<Element, string>();
+
+  /// One observer for the line's life; the returned cleanup disconnects it.
+  connect(): () => void {
+    if (typeof ResizeObserver === "undefined") return () => {};
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const box = entry.borderBoxSize?.[0];
+        const size = box
+          ? `${box.inlineSize}x${box.blockSize}`
+          : `${entry.contentRect.width}x${entry.contentRect.height}`;
+        const before = this.boxes.get(entry.target);
+        this.boxes.set(entry.target, size);
+        // A box's first report is its size when observed, already read in that commit.
+        if (before !== undefined && before !== size) this.resized = true;
+      }
+    });
+    this.observer = observer;
+    return () => {
+      observer.disconnect();
+      if (this.observer === observer) this.observer = undefined;
+      this.boxes = new Map();
+      // A remount (Strict Mode's second pass) reads and observes again.
+      this.drawn = undefined;
+    };
+  }
+
+  /// This commit's check: sets `moved`, and observes the line's boxes again when what it draws changed.
+  check(node: HTMLDivElement | undefined, drawn: readonly unknown[]) {
+    const was = this.drawn;
+    const changed =
+      node !== this.node ||
+      was === undefined ||
+      was.length !== drawn.length ||
+      drawn.some((value, index) => !Object.is(value, was[index]));
+    this.moved = changed || this.resized;
+    this.resized = false;
+    this.node = node;
+    this.drawn = drawn;
+    if (changed) this.track(node);
+  }
+
+  /// Observe the line, its direct boxes (whose sizes place the counts) and the words' own box; let go
+  /// of those gone. Only while connected: the observer's cleanup lets go of every box.
+  private track(node: HTMLDivElement | undefined) {
+    const observer = this.observer;
+    if (!observer) return;
+    const boxes = new Set<Element>();
+    if (node) {
+      boxes.add(node);
+      for (const child of node.children) boxes.add(child);
+      const words = node.querySelector("output.cv-thinking");
+      if (words) boxes.add(words);
+    }
+    for (const box of this.boxes.keys())
+      if (!boxes.has(box)) {
+        observer.unobserve(box);
+        this.boxes.delete(box);
+      }
+    for (const box of boxes) if (!this.boxes.has(box)) observer.observe(box);
+  }
+}
+
+/// Whether the live line's boxes may have moved since its last commit: the two hooks below read
+/// layout (a forced layout when the commit wrote the DOM) only then, never on a commit that changed
+/// nothing drawn, as each streamed chunk does (its new `quietKey` and `heardKey`). They move when
+/// what the line draws changes (`drawn`: its words, time, counts and look, compared as effect deps
+/// are) or its node is new, both known in the commit itself; or when a box resizes with no commit
+/// of the line (the pane's width, a font, a theme's slot), which a ResizeObserver on the line and
+/// its boxes marks for the next commit. Read `moved` in layout effects only, after this hook's own.
+function useLineMoved(line: RefObject<HTMLDivElement | null>, drawn: readonly unknown[]): LineBoxes {
+  const [boxes] = useState(() => new LineBoxes());
+  // One observer for the line's life, disconnected when it unmounts.
+  useLayoutEffect(() => boxes.connect(), [boxes]);
+  useLayoutEffect(() => {
+    boxes.check(line.current ?? undefined, drawn);
+  });
+  return boxes;
+}
+
 /// The old words roll out as they were drawn (review of cmux#41078): cut at the width the words had
 /// (ellipsis and all), their time and counts from where they sat, never the full words running their
-/// tail on past it. The width as last committed, one read of the line's own box a commit, set on the
-/// roll's copies in the commit that makes them, before paint; refs only in the effect.
-function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number) {
+/// tail on past it. The width as last committed, one read of the line's own box a commit that moved
+/// it (`useLineMoved`), set on the roll's copies in the commit that makes them, before paint; refs
+/// only in the effect.
+function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number, moved: LineBoxes) {
   const drawn = useRef<{ turns: number; width?: number }>({ turns });
   useLayoutEffect(() => {
     const node = line.current;
     if (!node) return;
     const last = drawn.current;
+    // Nothing drawn moved: the width read last still holds.
+    if (turns === last.turns && !moved.moved) return;
     if (turns !== last.turns && last.width !== undefined) {
       const px = `${last.width}px`;
       const words = node.querySelector<HTMLElement>(":scope .cv-roll-out");
@@ -213,11 +315,13 @@ function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number) 
 /// time grows a digit, its words change width under one key) slides from where it was drawn on the
 /// arrival step, transform only, so it never jumps a frame. A roll moves it with the words instead
 /// (`useRoll`), and the gates that stop the roll stop this too.
-function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number) {
+function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number, moved: LineBoxes) {
   const drawn = useRef<{ turns: number; lefts: number[] }>({ turns, lefts: [] });
   useLayoutEffect(() => {
     const node = line.current;
     if (!node) return;
+    // Nothing drawn moved: the counts sit where they were read last, so none glides.
+    if (turns === drawn.current.turns && !moved.moved) return;
     const counts = [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
     const lefts = counts.map((count) => count.offsetLeft);
     const before = drawn.current;
@@ -343,6 +447,7 @@ export function Thinking({
   since,
   now = Date.now,
   doing,
+  activityDots = false,
   doingAt,
   doingShell = false,
   sendTo,
@@ -357,6 +462,7 @@ export function Thinking({
   phaseAt,
   heardAt,
   heardKey,
+  waitAt,
   turnTotal = false,
   untimed = false,
   verbKey,
@@ -372,6 +478,8 @@ export function Thinking({
   since?: number;
   now?: () => number;
   doing?: string;
+  /// The live line draws a look's working dots before its words (thinkingLook.ts `jumpButton: "dots"`).
+  activityDots?: boolean;
   doingAt?: number;
   doingShell?: boolean;
   /// The call in flight sends a message to `sendTo` (the sub-session `sendSession`, by its name
@@ -400,6 +508,9 @@ export function Thinking({
   phaseAt?: number;
   heardAt?: number;
   heardKey?: string;
+  /// "Waiting on N subagents": when that wait began (turns.ts `codexLiveTurn`), the time beside the
+  /// words ticking from it, or from when the line itself turned to the wait, whichever is later.
+  waitAt?: number;
   /// Past the turn's first step the clock reads as the turn's whole time ("2s · 4m"), after the
   /// finished step's own time when it has one, so no wait reads as that long a think or call.
   turnTotal?: boolean;
@@ -423,6 +534,7 @@ export function Thinking({
 } = {}) {
   const t = useT();
   const waiting = useContext(WaitingOnContext);
+  const { jumpButton } = useThinkingLook();
   const [answered, settled] = useAnswered(waiting);
   const [asked, grown] = useAsked(waiting);
   const startLook = starting && !waiting ? experimentArm(agentStartLook) : "thinking";
@@ -476,8 +588,16 @@ export function Thinking({
   const silentFor = silent && heard !== undefined ? formatDuration(Math.max(0, time - heard)) : undefined;
   // This stretch of thinking began when the turn's rows say (`phaseAt`), or later, when the line
   // itself turned to Thinking (a reply gone quiet, a silence that ended).
-  const stateChanged = useChangedAt(silent ? "waiting" : thinkingNow ? "thinking" : "other", now);
+  const stateChanged = useChangedAt(
+    silent ? "waiting" : thinkingNow ? "thinking" : waitsOnAgents ? "subagents" : "other",
+    now,
+  );
   const thinkingFrom = phaseAt === undefined ? stateChanged : Math.max(phaseAt, stateChanged ?? phaseAt);
+  // The subagent wait's own start: the turn's rows say when it began (`waitAt`), or later, when the
+  // line itself turned to the wait. Never the prompt: a turn that worked 5m before it waited 2m reads
+  // "Waiting on 1 subagent 2m" (Leo, 2026-11-20, on "waiting on one sub-agent for seven minutes and
+  // 39 seconds").
+  const waitFrom = waitAt === undefined ? stateChanged : Math.max(waitAt, stateChanged ?? waitAt);
   const decorative = thinkingNow && !silent;
   const label =
     doing === undefined
@@ -532,14 +652,18 @@ export function Thinking({
     : doing === undefined
       ? silent && heard !== undefined
         ? Math.max(0, time - heard)
-        : waitsOnAgents ||
-            writing ||
-            from === undefined ||
-            thinkingFrom === undefined ||
-            thinkingFrom - from < 1_000 ||
-            time - thinkingFrom < 1_000
-          ? undefined
-          : time - thinkingFrom
+        : waitsOnAgents
+          ? // A wait from the turn's start has the turn's clock alone, which is already the wait's.
+            from === undefined || waitFrom === undefined || waitFrom - from < 1_000
+            ? undefined
+            : Math.max(0, time - waitFrom)
+          : writing ||
+              from === undefined ||
+              thinkingFrom === undefined ||
+              thinkingFrom - from < 1_000 ||
+              time - thinkingFrom < 1_000
+            ? undefined
+            : time - thinkingFrom
       : done
         ? doneMs
         : undefined;
@@ -573,7 +697,11 @@ export function Thinking({
         : undefined
     : silentFor !== undefined && own === undefined
       ? silentFor
-      : (own ?? turnTime);
+      : waitsOnAgents && own === undefined && ownMs !== undefined
+        ? // One clock (the `turn` look): beside "Waiting on 1 subagent" it is the wait's, never the
+          // turn's, which read 7m 39s for a two-minute wait (Leo, 2026-11-20).
+          formatDuration(ownMs)
+        : (own ?? turnTime);
   // Background-work counts remain available when the running tray is off.
   const counts = useContext(WorkingCountsContext);
   // The label already names the subagents it waits on: no second count of them.
@@ -593,8 +721,30 @@ export function Thinking({
   const lineRef = useRef<HTMLDivElement>(null);
   // A wait draws its words plainly, like a calm compaction: no sweep says work goes on.
   const calm = compactLook === "calm" || silent;
-  useRollOutWidth(lineRef, roll.turns);
-  useCountGlide(lineRef, roll.turns);
+  // Everything the line draws that sizes or places its words and counts; a streamed chunk changes
+  // none of it (its `quietKey` and `heardKey` only time the line).
+  const moved = useLineMoved(lineRef, [
+    below,
+    waiting,
+    asked,
+    answered,
+    calm,
+    decorative,
+    compacting,
+    label,
+    lead?.lead,
+    lead?.rest,
+    verbs,
+    elapsed,
+    own,
+    turnClock,
+    timesLook,
+    tail,
+    roll.out?.tail,
+    command && !done && doing !== undefined ? doingAt : undefined,
+  ]);
+  useRollOutWidth(lineRef, roll.turns, moved);
+  useCountGlide(lineRef, roll.turns, moved);
   // The question card already asks for an answer above the composer.
   if (waiting === "question") return null;
   // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
@@ -616,7 +766,7 @@ export function Thinking({
           {parts.count}
         </span>
         {parts.error && (
-          <span className="cv-worked__count cv-retrying__error" title={parts.error}>
+          <span className="cv-worked__count cv-retrying__error">
             <span className="cv-worked__sep" aria-hidden="true">
               ·
             </span>
@@ -657,6 +807,7 @@ export function Thinking({
         </output>
       ) : (
         <span className="cv-shimmer__row">
+          {activityDots && jumpButton === "dots" && !calm && !done && !answered && <JumpDots inline />}
           {answered && (
             <span className="cv-needs-input-glyph is-answered" aria-hidden="true" onAnimationEnd={settled} />
           )}
@@ -704,10 +855,14 @@ export function Thinking({
             )}
           </output>
           {elapsed && (
+            // tooltip-allow: a time; the tooltip is the one place the whole turn's time shows.
             <span className={own ? "cv-worked__own" : "cv-worked__time"} title={turnTitle}>
               {elapsed}
             </span>
           )}
+          {/* With the turn's clock over the work ("Working for"), the line has no time of its own: a
+              call running there counts how long it has run, from a few seconds on (RunningTime.tsx). */}
+          {untimed && !elapsed && !done && !waiting && doing !== undefined && <RunningTime startedAt={doingAt} local />}
         </span>
       )}
       {own && !waiting && timesLook !== "hover" && (

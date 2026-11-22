@@ -363,6 +363,26 @@ fn a_daemon_without_the_endpoint_fails_at_once() {
     assert!(started.elapsed() < Duration::from_secs(5));
 }
 
+/// A daemon that still lacks the endpoint after the shared restart
+/// (`daemon_skew.rs`, which adds why to the refusal) fails at once, with that reason.
+#[test]
+fn a_refused_endpoint_fails_at_once_with_the_daemons_reason() {
+    let refused = Err(DaemonError::Refused {
+        code: "refused".into(),
+        message: "bad request: unknown variant `computer-use-endpoint`. the cmux daemon already \
+                  runs the installed build, which does not have it"
+            .into(),
+    });
+    let caller = caller(FakeDaemon::new(vec![refused])).with_budget(Duration::from_secs(30));
+    let started = std::time::Instant::now();
+    let Outcome::Failed { code, message } = caller.call("status", &json!({}), "c") else {
+        panic!()
+    };
+    assert_eq!(code, "computer_use_unavailable");
+    assert!(message.contains("already runs the installed build"), "{message}");
+    assert!(started.elapsed() < Duration::from_secs(5));
+}
+
 #[test]
 fn machine_goes_through_the_daemon_route_and_list_machines_is_local() {
     let daemon = FakeDaemon::new(vec![Err(DaemonError::Unreachable("unused".into()))]);

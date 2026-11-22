@@ -18,6 +18,8 @@ use cmux_rd_core::cc::{CcConfig, CongestionController, OutageEnd, PathKind};
 use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
 use cmux_rd_core::input::InputApplier;
 use cmux_rd_core::packetize::{PacketizeError, Packetizer, parity_for};
+pub use cmux_rd_core::profile::EncodeProfile;
+use cmux_rd_core::profile::refine_after_us;
 use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
 use cmux_rd_proto::{
     Arrival, ClockEstimate, ClockPing, ClockPong, DatagramHeader, DatagramKind, FRAME_PREFIX_LEN,
@@ -47,6 +49,16 @@ pub const TAIL_PROBE_US: u64 = 250_000;
 pub const TAIL_PROBES: u32 = 3;
 /// With [`EngineConfig::rtt_tail_probe`], the shortest wait before a tail probe.
 pub const TAIL_PROBE_MIN_US: u64 = 5_000;
+/// The window the idle-link copy measures the host's recent sends over (one
+/// second: its bytes compare with the target's bits per second).
+pub const IDLE_COPY_WINDOW_US: u64 = 1_000_000;
+/// A frame of one data shard goes out with a parity copy while the last
+/// [`IDLE_COPY_WINDOW_US`]'s frame bytes stay under this share of the
+/// controller's target, in percent: losing either copy then costs no
+/// tail-probe wait, and the copy costs under 1 % of the link.
+pub const IDLE_COPY_PERCENT: u64 = 1;
+/// Frames the idle-link copy remembers (more than a second at any frame rate).
+const IDLE_COPY_FRAMES: usize = 512;
 /// Most streams per peer (the viewer's CMUX_RD_SESSION_MAX_STREAMS).
 pub const MAX_STREAMS: usize = 16;
 /// Share of the target that popup streams may take together, in percent.
@@ -122,6 +134,11 @@ pub struct EncodeRequest {
     pub idr_reason: Option<IdrReason>,
     /// The congestion controller's target for this frame.
     pub target_kbps: u32,
+    /// The encoder settings for this frame (`MediaEngine::set_profile`; standard by default).
+    pub profile: EncodeProfile,
+    /// Ultra only: the screen went still, so this frame re-encodes the unchanged picture at a
+    /// low QP (visually lossless) instead of carrying new damage.
+    pub refine: bool,
 }
 
 /// Why the engine asks for a keyframe.
@@ -348,6 +365,11 @@ struct StreamState {
     sent_at_us: BTreeMap<u32, u64>,
     /// Bytes of the stream's last keyframe: what starting over costs (D12).
     last_keyframe_bytes: usize,
+    /// Ultra: when a refinement frame is due if no damage arrives first (one frame interval
+    /// after the newest frame was sent).
+    refine_due_us: Option<u64>,
+    /// The gate's pending damage is a refinement (no new damage joined it).
+    refine_pending: bool,
 }
 
 impl StreamState {
@@ -369,6 +391,8 @@ impl StreamState {
             departed_at_us: BTreeMap::new(),
             sent_at_us: BTreeMap::new(),
             last_keyframe_bytes: 0,
+            refine_due_us: None,
+            refine_pending: false,
         }
     }
 
@@ -399,7 +423,13 @@ pub struct MediaEngine {
     /// departure when the host reports it (`datagram_sent`), else its encode.
     ack_srtt_us: Option<u64>,
     ack_rttvar_us: u64,
+    /// Recent frames' send time and bytes (every stream), for the idle-link copy.
+    recent_sends: VecDeque<(u64, u64)>,
+    /// The bytes in `recent_sends`.
+    recent_bytes: u64,
     upstreams: BTreeMap<u16, Upstream>,
+    /// The encoder profile every request carries.
+    profile: EncodeProfile,
 }
 
 impl MediaEngine {
@@ -425,7 +455,10 @@ impl MediaEngine {
             ack_rtts: VecDeque::new(),
             ack_srtt_us: None,
             ack_rttvar_us: 0,
+            recent_sends: VecDeque::new(),
+            recent_bytes: 0,
             upstreams: BTreeMap::new(),
+            profile: EncodeProfile::Standard,
             cfg,
         }
     }
@@ -435,6 +468,21 @@ impl MediaEngine {
     /// it refuses those headers.
     pub fn set_fec_blocks(&mut self, on: bool) {
         self.packetizer.set_fec_blocks(on);
+    }
+
+    /// The encoder profile requests carry from now on. Leaving ultra drops any refinement
+    /// that was due.
+    pub fn set_profile(&mut self, profile: EncodeProfile) {
+        self.profile = profile;
+        if !profile.is_ultra() {
+            for state in self.streams.values_mut() {
+                state.refine_due_us = None;
+            }
+        }
+    }
+
+    pub fn profile(&self) -> EncodeProfile {
+        self.profile
     }
 
     /// Adds a display stream (a popup surface) of `width` x `height`. Its
@@ -602,19 +650,51 @@ impl MediaEngine {
         if stream == self.cfg.stream { total.saturating_sub(each * popups) } else { each }
     }
 
-    fn request(&self, stream: u16, action: FlowAction) -> Option<EncodeRequest> {
-        let state = self.streams.get(&stream)?;
+    fn request(&mut self, stream: u16, action: FlowAction) -> Option<EncodeRequest> {
+        let target_kbps = self.target_kbps(stream);
+        let profile = self.profile;
+        let state = self.streams.get_mut(&stream)?;
         match action {
-            FlowAction::Encode { damage, frame } => Some(EncodeRequest {
-                stream,
-                frame,
-                damage,
-                force_idr: state.force_idr.is_some(),
-                idr_reason: state.force_idr,
-                target_kbps: self.target_kbps(stream),
-            }),
+            FlowAction::Encode { damage, frame } => {
+                // A refinement is only a refinement while no new damage joined it, and never
+                // stands in for a keyframe.
+                let refine = std::mem::take(&mut state.refine_pending)
+                    && profile.is_ultra()
+                    && state.force_idr.is_none();
+                Some(EncodeRequest {
+                    stream,
+                    frame,
+                    damage,
+                    force_idr: state.force_idr.is_some(),
+                    idr_reason: state.force_idr,
+                    target_kbps,
+                    profile,
+                    refine,
+                })
+            }
             FlowAction::Wait => None,
         }
+    }
+
+    /// Ultra: once a stream's refinement is due, its gate gets the whole surface as damage,
+    /// marked as a refinement; the gate releases it now or when its cap and in-flight bound
+    /// allow, as any frame.
+    fn gate_poll(&mut self, stream: u16, now_us: u64) -> Option<FlowAction> {
+        let ultra = self.profile.is_ultra();
+        let state = self.streams.get_mut(&stream)?;
+        let due = state.refine_due_us.is_some_and(|due| now_us >= due);
+        if ultra && due && state.tile_of.is_none() {
+            state.refine_due_us = None;
+            // Damage already waiting in the gate means the screen is not still: that frame
+            // goes first, and its `encoded` schedules the refinement again.
+            if state.gate.has_pending() {
+                return Some(state.gate.poll(now_us));
+            }
+            state.refine_pending = true;
+            let full = state.full();
+            return Some(state.gate.damage(full, now_us));
+        }
+        Some(state.gate.poll(now_us))
     }
 
     /// The main stream's first frame: the whole surface, an IDR.
@@ -628,15 +708,19 @@ impl MediaEngine {
         let state = self.streams.get_mut(&stream)?;
         let rect = if state.started { rect } else { state.full() };
         state.started = true;
+        // New damage: this frame is not a refinement, and the next one waits for stillness.
+        state.refine_pending = false;
+        state.refine_due_us = None;
         let action = state.gate.damage(rect, now_us);
         self.request(stream, action)
     }
 
-    /// Advances time: a frame held by an fps cap may be due (the first one).
+    /// Advances time: a frame held by an fps cap may be due (the first one), or (ultra) a
+    /// still screen's refinement frame.
     pub fn poll(&mut self, now_us: u64) -> Option<EncodeRequest> {
         let ids: Vec<u16> = self.streams.keys().copied().collect();
         for stream in ids {
-            let action = self.streams.get_mut(&stream).map(|s| s.gate.poll(now_us))?;
+            let action = self.gate_poll(stream, now_us)?;
             if let Some(req) = self.request(stream, action) {
                 return Some(req);
             }
@@ -654,6 +738,12 @@ impl MediaEngine {
             .chain(self.applier.next_deadline_us())
             .chain(self.upstreams.values().filter_map(Upstream::next_deadline_us))
             .chain(self.streams.values().filter_map(|s| self.probe_due_us(s)))
+            .chain(
+                self.streams
+                    .values()
+                    .filter(|_| self.profile.is_ultra())
+                    .filter_map(|s| s.refine_due_us),
+            )
             .min()
     }
 
@@ -666,6 +756,7 @@ impl MediaEngine {
         now_us: u64,
     ) -> Result<Output, PacketizeError> {
         let loss = self.loss;
+        let idle_link = self.idle_link(now_us);
         let surface_frame = self
             .streams
             .get(&req.stream)
@@ -694,8 +785,14 @@ impl MediaEngine {
         // Tile frames are standalone, so they get keyframe-grade protection.
         // While the link is away (the controller is frozen through an outage), parity
         // only adds bytes to the burst that waits for the link to come back.
-        let parity =
-            if self.cc.frozen() { 0 } else { parity_for(data_shards, loss, enc.idr || tile) };
+        let parity = if self.cc.frozen() {
+            0
+        } else {
+            let parity = parity_for(data_shards, loss, enc.idr || tile);
+            // A one-datagram frame (a key press's) whose only copy is lost waits for
+            // the tail probe; on a nearly idle link a second copy is cheaper.
+            if data_shards == 1 && idle_link { parity.max(1) } else { parity }
+        };
         let flags = if tile {
             flags::TILE
         } else if enc.idr {
@@ -715,10 +812,19 @@ impl MediaEngine {
             }
             Err(e) => return Err(e),
         };
+        let mut frame_bytes: u64 = 0;
         for (i, d) in packets.datagrams.iter().enumerate() {
             let seq = packets.first_transport_seq.wrapping_add(i as u16);
             self.cc.on_sent_bytes(seq, now_us, d.len());
             self.loss_meter.on_sent(seq);
+            frame_bytes = frame_bytes.saturating_add(d.len() as u64);
+        }
+        self.recent_sends.push_back((now_us, frame_bytes));
+        self.recent_bytes = self.recent_bytes.saturating_add(frame_bytes);
+        while self.recent_sends.len() > IDLE_COPY_FRAMES {
+            if let Some((_, bytes)) = self.recent_sends.pop_front() {
+                self.recent_bytes = self.recent_bytes.saturating_sub(bytes);
+            }
         }
         if enc.idr && !tile {
             state.last_keyframe_bytes = packets.datagrams.iter().map(Vec::len).sum();
@@ -749,6 +855,10 @@ impl MediaEngine {
             state.force_idr = None;
         }
         state.last_frame = req.frame;
+        // Ultra: a frame that carried damage is refined once the screen stays still for one
+        // frame interval; a refinement is the last word until new damage.
+        state.refine_due_us = (self.profile.is_ultra() && !req.refine && !tile)
+            .then(|| now_us.saturating_add(refine_after_us(self.cfg.max_fps)));
         state.probe_from_us = Some(now_us);
         state.probes = 0;
         self.frames += 1;
@@ -1018,6 +1128,26 @@ impl MediaEngine {
     /// Returns the minimum recent cumulative frame-ack RTT. The history ages
     /// out when a new ACK advances, so an earlier short route cannot constrain
     /// a slower route for the rest of the session.
+    /// True while the frames sent over the last [`IDLE_COPY_WINDOW_US`] are
+    /// under [`IDLE_COPY_PERCENT`] of the controller's target, so a small
+    /// frame may go out with a copy. Forgets frames older than the window.
+    fn idle_link(&mut self, now_us: u64) -> bool {
+        while let Some(&(at, bytes)) = self.recent_sends.front() {
+            if now_us.saturating_sub(at) < IDLE_COPY_WINDOW_US {
+                break;
+            }
+            self.recent_sends.pop_front();
+            self.recent_bytes = self.recent_bytes.saturating_sub(bytes);
+        }
+        // A full history may have dropped frames still inside the window: not idle.
+        if self.recent_sends.len() >= IDLE_COPY_FRAMES {
+            return false;
+        }
+        let window_bits = self.recent_bytes.saturating_mul(8).saturating_mul(100);
+        // The window is one second, so the target's bits per second are its bits.
+        window_bits < self.cc.target_bps().saturating_mul(IDLE_COPY_PERCENT)
+    }
+
     pub fn ack_rtt_us(&self) -> Option<u64> {
         self.ack_rtts.iter().map(|(_, rtt)| *rtt).min()
     }

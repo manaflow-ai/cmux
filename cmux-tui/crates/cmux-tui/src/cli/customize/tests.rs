@@ -389,7 +389,7 @@ fn recipes_are_profiles_to_use_and_open_shows_their_guide() {
         execute(&customize, Request::Recipes { open: true }, "cli", 1_000, &opener).ok().unwrap();
     let json = answer.json();
     let recipes = json["recipes"].as_array().unwrap();
-    assert_eq!(recipes.len(), 10);
+    assert_eq!(recipes.len(), cmux_customize_recipes::RECIPES.len());
     let guide = json["guide"].as_str().unwrap().to_owned();
     assert_eq!(json["opened"], true);
     assert_eq!(*opener.calls.borrow(), vec![vec!["open".to_owned(), guide.clone()]]);
@@ -430,6 +430,10 @@ fn try_parses_a_profile_and_minutes_and_keep_and_revert_take_nothing() {
     assert_eq!(parse(&words(&["keep"])), Ok(Request::Keep));
     assert_eq!(parse(&words(&["revert"])), Ok(Request::Revert));
     assert_eq!(parse(&words(&["settle", "--wait"])), Ok(Request::Settle { wait: true }));
+    // Code to try on: the same words `use` takes, timed.
+    assert_eq!(parse(&words(&["try", "pr:43496", "-m", "5"])), tried(Some("pr:43496"), 300_000));
+    assert_eq!(parse(&words(&["try", "dir:~/src/cmux"])), tried(Some("dir:~/src/cmux"), 600_000));
+    assert_eq!(parse(&words(&["settle", "--wait", "--code"])), Ok(Request::SettleCode));
     for bad in [
         &["try", "--minutes"][..],
         &["try", "--minutes", "0"],
@@ -507,17 +511,25 @@ fn schema_lists_what_can_change_and_needs_no_store() {
     assert!(parse(&words(&["schema", "--yaml"])).is_err());
 
     // The MCP path answers from this build's tables before it opens the store.
-    let views = super::run_json(&words(&["schema", "views"]), "mcp").expect("views");
+    let views =
+        super::run_json(&crate::cli::GlobalArgs::default(), &words(&["schema", "views"]), "mcp")
+            .expect("views");
     let slots = views["views"].as_array().expect("a list of view slots");
     assert!(slots.iter().any(|slot| slot["interface"] == "cmux.section/1"));
     assert!(views.get("settings").is_none());
-    let all = super::run_json(&words(&["schema"]), "mcp").expect("the whole schema");
+    let all = super::run_json(&crate::cli::GlobalArgs::default(), &words(&["schema"]), "mcp")
+        .expect("the whole schema");
     let accent = all["settings"]
         .as_array()
         .and_then(|rows| rows.iter().find(|row| row["key"] == "appearance.accent"))
         .expect("appearance.accent is listed");
     assert!(accent.get("default").is_some() && accent.get("schema").is_some());
-    let ts = super::run_json(&words(&["schema", "--typescript"]), "mcp").expect("typescript");
+    let ts = super::run_json(
+        &crate::cli::GlobalArgs::default(),
+        &words(&["schema", "--typescript"]),
+        "mcp",
+    )
+    .expect("typescript");
     assert!(ts["source"].as_str().is_some_and(|s| s.contains("export interface CmuxSettings")));
 
     let human = Answer::Schema(

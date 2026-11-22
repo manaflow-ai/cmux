@@ -31,11 +31,13 @@ pub enum Group {
     Type,
     Widgets,
     Keys,
+    /// Looks and behavior like another app's, whole: theme file, chat stylesheet and settings.
+    Apps,
 }
 
 impl Group {
     pub const ALL: &'static [Group] =
-        &[Group::Look, Group::Layout, Group::Type, Group::Widgets, Group::Keys];
+        &[Group::Look, Group::Layout, Group::Type, Group::Widgets, Group::Keys, Group::Apps];
 
     pub fn title(self) -> &'static str {
         match self {
@@ -44,6 +46,7 @@ impl Group {
             Group::Type => "Type",
             Group::Widgets => "Widgets",
             Group::Keys => "Keys",
+            Group::Apps => "App looks",
         }
     }
 }
@@ -85,6 +88,52 @@ const CLOCK_WEATHER: &[(&str, &str)] = &[
         "customize/main.js",
         include_str!("../../../../skills/cmux-customization/templates/clock-weather/main.js"),
     ),
+];
+
+/// A look-alike carries its theme file and its chat stylesheet, kept as real
+/// files beside the recipe so they read and diff like any theme or stylesheet.
+const CODEX_APP: &[(&str, &str)] = &[
+    ("themes/codex-app.json", include_str!("../recipes/apps/codex-app/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/codex-app/agent-pane.css")),
+];
+
+const CLAUDE_CODE_APP: &[(&str, &str)] = &[
+    ("themes/claude-code-app.json", include_str!("../recipes/apps/claude-code-app/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/claude-code-app/agent-pane.css")),
+];
+
+/// Hairline carries the gallery look's own files, so the recipe and the
+/// installable look stay one design.
+const HAIRLINE: &[(&str, &str)] = &[
+    (
+        "themes/hairline.json",
+        include_str!("../../../../examples/looks/hairline/themes/hairline.json"),
+    ),
+    (
+        "themes/hairline-light.json",
+        include_str!("../../../../examples/looks/hairline/themes/hairline-light.json"),
+    ),
+    (
+        "themes/hairline-slate.json",
+        include_str!("../../../../examples/looks/hairline/themes/hairline-slate.json"),
+    ),
+    (
+        "themes/hairline-slate-light.json",
+        include_str!("../../../../examples/looks/hairline/themes/hairline-slate-light.json"),
+    ),
+    (
+        "themes/hairline-stone.json",
+        include_str!("../../../../examples/looks/hairline/themes/hairline-stone.json"),
+    ),
+    (
+        "themes/hairline-stone-light.json",
+        include_str!("../../../../examples/looks/hairline/themes/hairline-stone-light.json"),
+    ),
+    (
+        "agent-pane/theme.css",
+        include_str!("../../../../examples/looks/hairline/agent-pane/theme.css"),
+    ),
+    ("markdown/theme.css", include_str!("../../../../examples/looks/hairline/markdown/theme.css")),
 ];
 
 /// Every recipe, in the order a guide lists them.
@@ -167,6 +216,40 @@ pub const RECIPES: &[Recipe] = &[
         group: Group::Look,
         ask: "make the window see-through glass",
         profile: include_str!("../recipes/glass.json"),
+        includes: &[],
+    },
+    Recipe {
+        name: "hairline",
+        title: "Hairline: flat and neutral",
+        group: Group::Look,
+        ask: "make cmux flat and neutral: gray surfaces, one-pixel lines, one corner radius, a focus ring and no glass",
+        profile: include_str!("../recipes/hairline.json"),
+        includes: HAIRLINE,
+    },
+    Recipe {
+        name: "codex-app",
+        title: "Like the Codex app",
+        group: Group::Apps,
+        ask: "make cmux look and work like the Codex app",
+        profile: include_str!("../recipes/codex-app.json"),
+        includes: CODEX_APP,
+    },
+    Recipe {
+        name: "claude-code-app",
+        title: "Like the Claude desktop app",
+        group: Group::Apps,
+        ask: "make cmux look and work like the Claude desktop app's Code tab",
+        profile: include_str!("../recipes/claude-code-app.json"),
+        includes: CLAUDE_CODE_APP,
+    },
+    Recipe {
+        name: "claude-code-notification-levels",
+        title: "Claude Code notification levels",
+        group: Group::Apps,
+        ask: "show permission banners and question badges, with task-complete alerts off",
+        profile: include_str!(
+            "../../../../examples/looks/claude-code/notification-levels/cmux-setup.json"
+        ),
         includes: &[],
     },
 ];

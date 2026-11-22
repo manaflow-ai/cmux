@@ -78,14 +78,15 @@ pub mod skill_index;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 pub mod claude_plugin_dirs;
 mod cmux_mcp;
 pub mod project_mcp;
+mod upstreams;
 
 pub use claude_plugin_dirs::{CLAUDE_PLUGIN_DIRS_ENV, without_cmux_tui_plugins};
+pub use upstreams::{HTTP_FIELD, SHARED_FIELD, takes_http};
 
 /// Directory that overrides where the cmux binaries are looked up.
 pub const BIN_DIR_ENV: &str = "CMUX_AGENT_TOOLS_BIN_DIR";
@@ -106,6 +107,74 @@ pub const INHERITED_CALLER_ENV: [&str; 5] = [
     AGENT_SESSION_ENV,
     TOOLS_ANSWER_ENV,
 ];
+
+/// The harness families whose ACP server refuses `mcpServers` in `session/new` and
+/// `session/load`: OpenClaw's bridge answers "ACP bridge mode does not support per-session MCP
+/// servers", so the whole start failed. They get no per-session servers; the Chief registers
+/// cmux's servers in that brain's own config instead (optchat-chief `brain_home.rs`).
+pub const NO_SESSION_MCP_FAMILIES: [&str; 1] = ["openclaw"];
+
+/// Whether harness `name` (profile `profile`) takes cmux's MCP servers in its ACP session
+/// requests ([`NO_SESSION_MCP_FAMILIES`]).
+pub fn takes_session_mcp(name: &str, profile: &crate::config::HarnessProfile) -> bool {
+    !NO_SESSION_MCP_FAMILIES.contains(&crate::config::derive_family(name, profile).as_str())
+}
+
+/// Harness families that start a stdio MCP server with a scrubbed environment: Hermes passes a
+/// child only PATH, HOME, USER, LANG, LC_ALL, TERM, SHELL and TMPDIR plus the entry's own `env`
+/// (`tools/mcp_tool_config.py` `_SAFE_ENV_KEYS`). The cmux server then cannot find the session's
+/// socket and every cmux tool fails ("the cmux session socket is unavailable", cmux-ci step
+/// 20724a44bada). [`with_routing_env`] writes the routing variables into each stdio entry.
+pub const SCRUBBED_ENV_FAMILIES: [&str; 1] = ["hermes"];
+
+/// Environment names a cmux-owned MCP server reads to reach this session's daemons: the sockets
+/// and state folders of cmux, the mux and acpmux, and the Chief's tool list. Values only, never a
+/// key or a token.
+pub const ROUTING_ENV: [&str; 9] = [
+    "CMUX_TUI_SOCKET",
+    "CMUX_SOCKET_PATH",
+    "CMUX_MUX_SOCKET",
+    "CMUX_TUI_STATE_DIR",
+    "CMUX_TUI_CHIEF_TOOLS_SOCKET",
+    "CMUX_MCP_TOOLS",
+    "MUX_HOME",
+    "ACPMUX_HOME",
+    "XDG_RUNTIME_DIR",
+];
+
+/// `servers` (an ACP `mcpServers` array) with [`ROUTING_ENV`] added to each stdio entry's `env`
+/// for a harness in [`SCRUBBED_ENV_FAMILIES`]: the value from `env` (the harness's own spawn env)
+/// or else this process's. An entry's own value wins; HTTP entries and other harnesses are
+/// unchanged.
+pub fn with_routing_env(
+    mut servers: Value,
+    name: &str,
+    profile: &crate::config::HarnessProfile,
+    env: &BTreeMap<String, String>,
+) -> Value {
+    if !SCRUBBED_ENV_FAMILIES.contains(&crate::config::derive_family(name, profile).as_str()) {
+        return servers;
+    }
+    let routing: Vec<(&str, String)> = ROUTING_ENV
+        .iter()
+        .filter_map(|k| {
+            env.get(*k)
+                .cloned()
+                .or_else(|| std::env::var(k).ok())
+                .filter(|v| !v.is_empty())
+                .map(|v| (*k, v))
+        })
+        .collect();
+    for entry in servers.as_array_mut().into_iter().flatten() {
+        let Some(list) = entry.get_mut("env").and_then(Value::as_array_mut) else { continue };
+        for (k, v) in &routing {
+            if !list.iter().any(|e| e.get("name").and_then(Value::as_str) == Some(*k)) {
+                list.push(json!({"name": k, "value": v}));
+            }
+        }
+    }
+    servers
+}
 
 /// The agent memory server's name (`optchat-chief agent-memory mcp`).
 pub const MEMORY_SERVER_NAME: &str = "cmux-agent-memory";
@@ -334,6 +403,9 @@ pub struct AgentTools {
     /// Claude Code only: the project's own servers, wrapped for a start at a repository's head
     /// ([`project_mcp`]). A name of cmux's own servers keeps cmux's.
     pub project_servers: Map<String, Value>,
+    /// Servers the daemon serves for this chat over loopback HTTP ([`AgentTools::via_gateway`]),
+    /// by name: the harness reaches them there instead of starting their stdio launch.
+    pub http: BTreeMap<String, crate::mcp_gateway::Endpoint>,
 }
 
 /// Where the tools come from; `current()` reads them from this process.
@@ -598,18 +670,23 @@ pub(crate) fn gh_env(
 }
 
 /// `mcpServers` for acpmux session `session_id`'s ACP harness: [`acp_servers_with`] over
-/// [`current`], none for a session [`left_out`].
+/// [`current`], none for a session [`left_out`]. An agent that takes HTTP servers
+/// ([`takes_http`]) gets cmux's servers through the daemon's gateway (`mcp_gateway.rs`).
 pub fn acp_servers_for(
     remote_origin: bool,
     env: &BTreeMap<String, String>,
     session_id: &str,
     all_tools: bool,
+    http: bool,
+    cwd: &Path,
     codex: Option<CodexLaunch<'_>>,
 ) -> Value {
     if left_out(remote_origin, env, &[]) {
         return json!([]);
     }
-    acp_servers_with(current(), env, session_id, all_tools, codex)
+    let tools = acp_tools_with(current(), env, session_id, all_tools, codex);
+    let tools = if http { tools.via_gateway(session_id, cwd) } else { tools };
+    tools.acp_servers()
 }
 
 /// The person's own stdio `cmux` entry, whole, with the env keys, for a Codex chat whose servers
@@ -848,12 +925,23 @@ pub fn acp_servers_with(
     all_tools: bool,
     codex: Option<CodexLaunch<'_>>,
 ) -> Value {
+    acp_tools_with(tools, env, session_id, all_tools, codex).acp_servers()
+}
+
+/// [`acp_servers_with`]'s servers before they become `mcpServers`.
+fn acp_tools_with(
+    tools: AgentTools,
+    env: &BTreeMap<String, String>,
+    session_id: &str,
+    all_tools: bool,
+    codex: Option<CodexLaunch<'_>>,
+) -> AgentTools {
     let tools = tools.scoped(env);
     let tools = match codex {
         Some(launch) => tools.without_cmux_beside_an_http_entry(launch, env),
         None => tools,
     };
-    tools.for_session(session_id).listing(all_tools).folded().acp_servers()
+    tools.for_session(session_id).listing(all_tools).folded()
 }
 
 /// Whether `meta`'s harness is Codex: its family as recorded, else as `profile` derives it (a
@@ -898,6 +986,7 @@ pub fn claude_args_for(
             .without_off(env)
             .fit_skills()
             .folded()
+            .via_gateway(session_id, cwd)
     };
     AgentTools { project_servers, ..tools }
         .claude_args(&mcp_config_path(&crate::config::home(), session_id))
@@ -933,6 +1022,7 @@ pub fn remove_mcp_config(home: &Path, session_id: &str) {
     let path = mcp_config_path(home, session_id);
     let _ = crate::home_fs::remove_file(crate::bg_hook::denied_path(&path));
     let _ = crate::home_fs::remove_file(path);
+    crate::mcp_gateway::forget(home, session_id);
 }
 
 /// The tools; no file or running process decides whether a session gets
@@ -1121,6 +1211,7 @@ fn resolve_servers(inputs: &Inputs) -> AgentTools {
         displays: inputs.displays.clone(),
         cmux_for_agents: agents_get_cmux(inputs.cmux_json.as_deref()),
         project_servers: Map::new(),
+        http: BTreeMap::new(),
     }
 }
 
@@ -1349,6 +1440,10 @@ impl AgentTools {
             self.servers
                 .iter()
                 .map(|s| {
+                    if let Some(at) = self.http.get(&s.name) {
+                        let headers = [json!({"name": "Authorization", "value": at.authorization})];
+                        return json!({"type": "http", "name": s.name, "url": at.url, "headers": headers});
+                    }
                     let env: Vec<Value> =
                         s.env.iter().map(|(k, v)| json!({"name": k, "value": v})).collect();
                     json!({"name": s.name, "command": s.command, "args": s.args, "env": env})
@@ -1396,51 +1491,6 @@ impl AgentTools {
         self
     }
 
-    /// Code mode for every agent tool: the other servers, as `scoped` and
-    /// `for_session` left them (the Chief's turns keep none), go into the
-    /// `cmux` server's [`UPSTREAMS_ENV`] and leave the list. Without a
-    /// `cmux` server (cmux.json turns MCP off) they stay as they are.
-    pub fn folded(mut self) -> Self {
-        let Some(at) = self.servers.iter().position(|s| s.name == "cmux") else {
-            return self;
-        };
-        let mut cmux = self.servers.remove(at);
-        cmux.env.retain(|(k, _)| k != UPSTREAMS_ENV);
-        // acpmux's own servers run in one process (`tools_mcp.rs`): each keeps its own spec
-        // (a `cmux` that does not read `shared` starts it as before) and names the one launch.
-        let shared = shared_helper(&self.servers);
-        // Always set, `[]` too: a value a harness passes on from its own env
-        // (a preset's) must never name the servers.
-        let upstreams: Vec<Value> = self
-            .servers
-            .iter()
-            .map(|s| {
-                let env: Map<String, Value> =
-                    s.env.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
-                let mut spec =
-                    json!({"name": s.name, "command": s.command, "args": s.args, "env": env});
-                // The secret card waits for the person, not for a timer.
-                if s.name == crate::secret_mcp::SERVER_NAME {
-                    spec.set("callTimeoutSecs", json!(3600));
-                }
-                // A Computer Use call may wait for the person's approval card
-                // (Ask every time, Approved apps), plus the bridge's own retries.
-                if s.name == crate::computer_use::mcp::SERVER_NAME {
-                    spec.set("callTimeoutSecs", json!(900));
-                }
-                if let Some(shared) = &shared
-                    && crate::tools_mcp::owns(&s.name, &s.args)
-                {
-                    spec.set(SHARED_FIELD, shared.clone());
-                }
-                spec
-            })
-            .collect();
-        cmux.env.push((UPSTREAMS_ENV.to_owned(), Value::Array(upstreams).to_string()));
-        self.servers = vec![cmux];
-        self
-    }
-
     /// The servers as one Claude Code MCP config, or `None` without servers.
     pub fn mcp_config(&self) -> Option<Value> {
         if self.servers.is_empty() && self.project_servers.is_empty() {
@@ -1448,6 +1498,14 @@ impl AgentTools {
         }
         let mut servers = Map::new();
         for s in &self.servers {
+            if let Some(at) = self.http.get(&s.name) {
+                let headers = json!({"Authorization": at.authorization});
+                servers.insert(
+                    s.name.clone(),
+                    json!({"type": "http", "url": at.url, "headers": headers}),
+                );
+                continue;
+            }
             let env: Map<String, Value> =
                 s.env.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
             servers.insert(
@@ -1497,39 +1555,6 @@ impl AgentTools {
         }
         args
     }
-}
-
-/// The upstream spec field that names the process a server runs in when others run in it too
-/// (`cmux mcp serve`'s `upstream.rs`): `{command, args, env}`, the same for each of them.
-pub const SHARED_FIELD: &str = "shared";
-
-/// The one launch of acpmux's own servers in `servers` ([`crate::tools_mcp::SERVERS`]):
-/// `acpmux tools-mcp` under their prefix with every env value of theirs, all for the same
-/// session. None without such a server, or when two of them disagree (another command, prefix
-/// or value of a key): then each runs on its own, as before.
-fn shared_helper(servers: &[McpServer]) -> Option<Value> {
-    let mut launch: Option<(&PathBuf, &[String])> = None;
-    let mut env = BTreeMap::<&str, &str>::new();
-    for server in servers.iter().filter(|s| crate::tools_mcp::owns(&s.name, &s.args)) {
-        let (_, prefix) = server.args.split_last()?;
-        match launch {
-            None => launch = Some((&server.command, prefix)),
-            Some((command, first)) if *command == server.command && first == prefix => {}
-            Some(_) => return None,
-        }
-        for (key, value) in &server.env {
-            if env
-                .insert(key.as_str(), value.as_str())
-                .is_some_and(|before| before != value.as_str())
-            {
-                return None;
-            }
-        }
-    }
-    let (command, prefix) = launch?;
-    let mut args = prefix.to_vec();
-    args.push(crate::tools_mcp::ARG.to_owned());
-    Some(json!({"command": command, "args": args, "env": env}))
 }
 
 /// Write `bytes` to `path` as a 0600 file in a 0700 folder (to a temporary
@@ -1707,7 +1732,7 @@ pub(crate) fn hook_command(words: &[String], patterns: &[String]) -> String {
 }
 
 /// `words` as single-quoted shell words.
-fn quoted(words: &[String]) -> String {
+pub(crate) fn quoted(words: &[String]) -> String {
     let quoted: Vec<String> =
         words.iter().map(|w| format!("'{}'", w.replace('\'', "'\\''"))).collect();
     quoted.join(" ")

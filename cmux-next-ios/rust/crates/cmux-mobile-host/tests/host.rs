@@ -1090,7 +1090,8 @@ async fn auth_as(
     kind: &str,
 ) -> Channel {
     let mut args = serde_json::json!({"identityKey": keys.identity_hex, "approvalKey": keys.approval_hex,
-                                      "name": "Test iPhone", "action": action});
+                                      "name": "Test iPhone", "action": action,
+                                      "bundleId": "dev.cmux.mobile.test-tag"});
     if !kind.is_empty() {
         args["kind"] = serde_json::json!(kind);
         args["name"] = serde_json::json!("Studio");
@@ -1142,6 +1143,7 @@ async fn a_scanned_pairing_code_reaches_the_app_with_the_request() {
             approval_key: keys.approval_hex.clone(),
             registered_at_ms: None,
             pair_token: Some(token.into()),
+            bundle_id: Some("dev.cmux.mobile.test-tag".into()),
             kind: cmux_mobile_host::peer::PeerKind::Phone,
         }
     );
@@ -1180,6 +1182,7 @@ async fn a_token_alone_never_reaches_a_service_and_the_mac_approves_each_phone()
             approval_key: keys.approval_hex.clone(),
             registered_at_ms: None,
             pair_token: None,
+            bundle_id: Some("dev.cmux.mobile.test-tag".into()),
             kind: cmux_mobile_host::peer::PeerKind::Phone,
         }
     );
@@ -1270,8 +1273,9 @@ async fn a_mac_opens_only_what_this_mac_granted_it() {
             identity_key: keys.identity_hex.clone(),
             approval_key: String::new(),
             registered_at_ms: None,
-            // A pairing code never pre-approves a machine.
+            // A pairing code never pre-approves a machine, and a machine's bundle id is dropped.
             pair_token: None,
+            bundle_id: None,
             kind: PeerKind::Mac,
         }
     );
@@ -1757,6 +1761,7 @@ async fn device_traffic_reads_back_a_phones_bytes_over_the_link_socket() {
         identity: tokio::sync::watch::channel(None).1,
         activity: Arc::new(cmux_mobile_host::activity::Activity::memory()),
         links: Default::default(),
+        build_space: None,
     });
     let server = tokio::spawn(serve(path.clone(), dialer));
     for _ in 0..200 {

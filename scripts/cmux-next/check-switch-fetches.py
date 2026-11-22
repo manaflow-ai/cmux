@@ -52,6 +52,10 @@ ALLOWED_LISTENERS = {
     "next launch as the page hides (`chat.snapshot.put`, a write, not a read)",
     (f"{ACPMUX}/snapshotCache.ts", "visibilitychange"): "writes the reload copy as the page hides "
     "(sessionStorage, a write, not a read)",
+    (f"{ACPMUX}/conversation/SinceDivider.tsx", "focus"): "the New line's dwell clock: whether a reader "
+    "is at the pane (window focus) while the line is on screen; reads no data (#49657)",
+    (f"{ACPMUX}/conversation/SinceDivider.tsx", "visibilitychange"): "the New line's dwell clock, as "
+    "above (the page shows); reads no data",
     (f"{ACPMUX}/VirtualTranscript.tsx", "visibilitychange"): "forgets the rows still entering when "
     "the page hides, so they don't replay on return; reads no data",
     (f"{ACPMUX}/conversation/sendTuck.ts", "visibilitychange"): "ends a send's tuck animation and "

@@ -8,3 +8,10 @@ public nonisolated enum AgentPaneNewChatPlace: String, Sendable, Hashable, CaseI
     /// The person's own Cloud machine (a free one of theirs, else a new one).
     case cloud
 }
+
+/// The values of `agentPane.sessionWorktrees`.
+public nonisolated enum AgentPaneSessionWorktrees: String, Sendable, Hashable, CaseIterable {
+    case off
+    case shared
+    case project
+}

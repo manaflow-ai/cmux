@@ -2,6 +2,7 @@
 """launch-ready.sh's session=stress3 seed: 3 windows holding 60 workspaces, in a running cmux NEXT app.
 
   launch-ready-seed.py SOCKET [--windows 3] [--workspaces 60]
+  launch-ready-seed.py SOCKET --windows 1 --total-workspaces 5
 
 SOCKET is the app's release control socket (launch-ready.swift starts the app with CMUX_NEXT_SOCKET_PATH set to
 the short /tmp path launch-ready.sh gives it, and CMUX_NEXT_SOCKET_MODE allowAll). Only release socket methods: `snapshot.get`, `action.run` and `context.keys`.
@@ -13,6 +14,11 @@ move. Then it shows Home in the front window (home.show acts on the active one),
 on its relaunches, so both sessions time the same front. On every way out it ends the app with Quit and Keep
 Sessions, so the next launch with the same home is a person's relaunch of a 3-window, 60-workspace session
 (cmuxterm-hq docs/design/launch-shell-first.md, stage 1).
+
+--total-workspaces counts every workspace in snapshot.get, including Home and those created with new windows.
+It retains those workspaces, adds only the deficit, and checks the total again after showing Home. It refuses a
+fixture already larger than requested; it never deletes or moves existing workspaces. Without that option the
+legacy fixture still adds --workspaces (60 by default).
 
 Prints one `LR-SEED {json}` line: windows, this seed's workspaces in each window, the front, how long it took, and
 `error` when the session it made is not that shape. Exit 0 when the shape holds, 1 when not, 2 when the socket never
@@ -51,9 +57,12 @@ def wait(check, seconds, step=0.1):
 
 
 class Seed:
-    def __init__(self, path, windows, workspaces, front="home"):
-        self.path, self.count, self.total, self.front = path, windows, workspaces, front
+    def __init__(self, path, windows, workspaces, front="home", total_workspaces=None):
+        self.path, self.count, self.total, self.front_mode = path, windows, workspaces, front
+        self.exact_total = total_workspaces
         self.row = {"windows_asked": windows, "workspaces_asked": workspaces, "front_asked": front}
+        if total_workspaces is not None:
+            self.row.update(total_workspaces_asked=total_workspaces)
         self.keys = {}
 
     def topology(self):
@@ -97,7 +106,7 @@ class Seed:
         workspace = find()
         if not workspace:
             raise RuntimeError(f"no workspace with key {key} to close")
-        self.action("closeWorkspace", target=f"workspace:{workspace}")
+        self.action("closeWorkspace", target=f"workspace:{workspace}", args={"confirm": True})  # destructive: refused without it
         if not wait(lambda: find() is None, 10):
             raise RuntimeError(f"workspace {key} ({workspace}) still listed 10 s after closeWorkspace")
         self.row.update(closed=workspace, workspaces_left=len(self.topology().get("workspaces") or []))
@@ -112,10 +121,27 @@ class Seed:
                 raise RuntimeError(f"newWindow made no window in 30 s (windows {windows})")
             windows.append(made)
         windows = windows[: self.count]
-        self.keys = {w.get("id"): w.get("key") or w.get("id") for w in self.topology().get("windows") or []}
+        if self.exact_total is not None and self.front_mode == "home":
+            self.action("home.show")  # a newly opened window may need its own Home workspace
+        initial = self.topology()
+        prepared_front = (initial.get("focus") or {}).get("window")
+        self.keys = {w.get("id"): w.get("key") or w.get("id") for w in initial.get("windows") or []}
+        additions = self.total
+        counts = {w.get("id"): len(w.get("workspaces") or []) for w in initial.get("windows") or []}
+        if self.exact_total is not None:
+            additions = self.exact_total - len(initial.get("workspaces") or [])
+            if len(counts) != self.count or additions < 0:
+                raise RuntimeError("existing fixture exceeds the requested window or workspace total")
+            if self.front_mode == "home" and prepared_front not in windows:
+                raise RuntimeError("the prepared Home window is missing from the fixture")
+        self.row.update(initial_workspaces=len(initial.get("workspaces") or []), workspaces_added=additions)
         ours = {w: set() for w in windows}
-        for index in range(self.total):
-            window = windows[index * len(windows) // self.total]
+        for index in range(additions):
+            window = min(windows, key=counts.get) if self.exact_total is not None else windows[index * len(windows) // additions]
+            if self.exact_total is not None and self.front_mode == "home" and index == additions - 1:
+                # Creating/moving with focus=True makes this window key. Finish in the window whose Home already
+                # exists, so the final home.show cannot create an extra workspace after filling to the exact total.
+                window = prepared_front
             created = [c for c in self.action("workspace.newAtBottom").get("created") or [] if str(c).startswith("ws_")]
             if len(created) != 1:
                 raise RuntimeError(f"workspace.newAtBottom (workspace {index + 1}) created {created}, not one workspace")
@@ -127,18 +153,29 @@ class Seed:
                 if not wait(lambda: workspace in self.members(window), 10):
                     raise RuntimeError(f"workspace {workspace} is not in window {window} 10 s after the move")
             ours[window].add(workspace)
-        if self.front == "home":  # --front tab: the last workspace's terminal tab stays in front
+            counts[window] += 1
+        if self.front_mode == "home":  # --front tab: the last workspace's terminal tab stays in front
             self.action("home.show")
         final = self.topology()
         listed = {w.get("id"): set(w.get("workspaces") or []) for w in final.get("windows") or []}
         mine = set().union(*ours.values())
         self.row.update(windows=len(listed), front=(final.get("focus") or {}).get("window"),
                         ours_per_window=[len(listed.get(w, set()) & mine) for w in windows],
-                        members_per_window=[len(listed.get(w, set())) for w in windows])
+                        members_per_window=[len(listed.get(w, set())) for w in windows],
+                        all_workspaces=len(final.get("workspaces") or []))
         problems = []
         if len(listed) < self.count:
             problems.append(f"{len(listed)} windows, not {self.count}")
-        if sum(self.row["ours_per_window"]) < self.total or min(self.row["ours_per_window"]) < self.total // self.count:
+        if self.exact_total is not None:
+            if len(listed) != self.count or self.row["all_workspaces"] != self.exact_total:
+                problems.append(f"final fixture has {len(listed)} windows and {self.row['all_workspaces']} workspaces, "
+                                f"not {self.count} and {self.exact_total}")
+            ids = [w.get("id") for w in final.get("workspaces") or []]
+            if None in ids or len(set(ids)) != self.exact_total:
+                problems.append("final workspace IDs are missing or duplicated")
+            if set(listed) != set(windows) or any(not ours[w] <= listed.get(w, set()) for w in windows):
+                problems.append("the seeded windows or their workspace membership changed")
+        elif sum(self.row["ours_per_window"]) < self.total or min(self.row["ours_per_window"]) < self.total // self.count:
             problems.append(f"this seed's workspaces per window {self.row['ours_per_window']}, not {self.total} spread "
                             f"over {self.count}")
         if problems:
@@ -150,6 +187,7 @@ def main(argv=None):
     parser.add_argument("socket")
     parser.add_argument("--windows", type=int, default=3)
     parser.add_argument("--workspaces", type=int, default=60)
+    parser.add_argument("--total-workspaces", type=int, help="exact snapshot.get workspace count, including Home")
     parser.add_argument("--front-out", help="write the front just before the quit here (launch-ready.swift's shape)")
     # launch-ready.sh front=home|tab: the front the session is left on, and --stay leaves the app running (the probe
     # quits it after reading that front).
@@ -158,8 +196,12 @@ def main(argv=None):
     # launch-ready.sh snapshot=unknown: close the workspace with this model key (closeWorkspace), and nothing else.
     parser.add_argument("--close-workspace", default="")
     args = parser.parse_args(argv)
+    if not 1 <= args.windows <= 3 or not 1 <= args.workspaces <= 200:
+        parser.error("windows takes 1 to 3 and workspaces takes 1 to 200")
+    if args.total_workspaces is not None and not args.windows <= args.total_workspaces <= 200:
+        parser.error("total-workspaces takes the window count to 200")
     started = time.monotonic()
-    seed, code = Seed(args.socket, args.windows, args.workspaces, args.front), 0
+    seed, code = Seed(args.socket, args.windows, args.workspaces, args.front, args.total_workspaces), 0
     if args.close_workspace:
         seed.row = {"close_asked": args.close_workspace}
     if not wait(lambda: seed.topology().get("loaded") and seed.topology().get("windows"), 120, 0.25):
@@ -176,8 +218,11 @@ def main(argv=None):
             time.sleep(1)  # measurement script: the session's save after the last change, before the quit
             # The seed quits the app itself, so the probe reads no front at its quit; this one is what run1 must reopen.
             if args.front_out:
-                with open(args.front_out, "w") as out:
-                    json.dump(seed.front(), out)
+                try:
+                    with open(args.front_out, "w") as out:
+                        json.dump(seed.front(), out)
+                except OSError as error:
+                    seed.row["error"], code = f"front file: {error}", 1
             if args.stay:
                 seed.row["quit"] = "stay"
             else:

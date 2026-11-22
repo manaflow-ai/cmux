@@ -65,6 +65,7 @@ extension UpdaterService {
     /// Restart to Update (the Update Ready card, the footer pill): install and relaunch, at once
     /// or when the download finishes. `willRelaunch` records keep sessions.
     public func installClicked() {
+        if relaunchIntoInstalledBuild() { return }
         syncFlowPhase()
         log.append("restart to update clicked (\(flow.phase))")
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -87,6 +88,11 @@ extension UpdaterService {
     @discardableResult
     public func prepareForQuit() -> UpdateQuitAction {
         syncFlowPhase()
+        if case .downloading(let transfer) = flow.phase,
+           transfer.stage != .preparing,
+           cancelDownloadNow() {
+            log.append("quit: cancelling the active update download")
+        }
         var action = flow.handle(.quitRequested, preferences: preferences).lazy.compactMap { effect -> UpdateQuitAction? in
             if case .quit(let action) = effect { action } else { nil }
         }.first ?? .proceed
@@ -270,20 +276,33 @@ extension UpdaterService {
     /// (``follow(ring:)``) to Sparkle, and when given the idle install's wait cap and quiet window
     /// (`idleInstallMaxWaitSeconds`, `idleInstallQuietSeconds`). The ring is kept without a driver
     /// too (the probe reads it).
+    /// - Parameter installWhenIdleMinutes: Update When Idle (`updates.installWhenIdle`, off by default):
+    ///   the idle time `updates.installWhenIdleMinutes` when it is on, nil when off.
     public func configure(checkAutomatically: Bool, checkInterval: TimeInterval, downloadAutomatically: Bool,
                           metered: UpdateMeteredMode = .deferLowData, ring: String? = nil,
-                          idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil) {
+                          idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil,
+                          installWhenIdleMinutes: TimeInterval? = nil) {
         if let ring { follow(ring: ring) }
+        installWhenIdle = installWhenIdleMinutes.map { .seconds($0 * 60) }
         if let idleInstall {
             idleInstallQuiet = .seconds(idleInstall.quiet)
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
+            // The longest an automatic install waits silently on a modal, sheet, menu or composition;
+            // with Update When Idle, never before its idle time could have passed.
+            relaunchMomentHold.surfaceAfter = max(.seconds(idleInstall.maxWait), installWhenIdle ?? .zero)
         }
-        downloadSetting = (downloadAutomatically, metered)
+        // Update When Idle installs what it downloaded: it downloads found updates too.
+        downloadSetting = (downloadAutomatically || installWhenIdle != nil, metered)
         settingsApplied = true
         // `updates.downloadAutomatically` downloads found updates and stages them; it never installs
-        // them. The app restarts only on the person's click (Restart to Update), so the idle install
-        // stays off whatever the download setting says (nightly restart policy, 2026-10-27).
-        if let controller, controller.installsUpdatesWhenIdle { controller.installsUpdatesWhenIdle = false }
+        // them. The app restarts only on the person's click (Restart to Update) unless the person
+        // turned on Update When Idle (Leo, 2026-11-19: "maybe even having it as an opt-in option
+        // would be pretty interesting. Yeah, like update when idle"); nightly restart policy, 2026-10-27.
+        // Its installs wait on ``UpdateRelaunchMomentHold/idleGate`` (the app's Rust rule).
+        // The gate first: turning the policy on may hold an update already staged at once.
+        let installsWhenIdle = installWhenIdle != nil && idleInstallGate != nil
+        relaunchMomentHold.idleGate = installsWhenIdle ? idleInstallGate : nil
+        if let controller, controller.installsUpdatesWhenIdle != installsWhenIdle { controller.installsUpdatesWhenIdle = installsWhenIdle }
         stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
         tipCheck.reschedule(automatic: checkAutomatically, updater: self)
         refreshReleasePush()

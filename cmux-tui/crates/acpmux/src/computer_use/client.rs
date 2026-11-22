@@ -170,8 +170,20 @@ impl SocketDaemon {
         Ok(stream)
     }
 
-    /// `{"cmd": cmd, ...params}` on a new connection; the reply's `data`.
+    /// `{"cmd": cmd, ...params}` on a new connection; the reply's `data`. A
+    /// daemon older than the command is restarted once with the installed
+    /// build first (`daemon_skew.rs`).
     pub fn request(&self, cmd: &str, params: Value) -> Result<Value, DaemonError> {
+        crate::daemon_skew::request(self, cmd, params)
+    }
+}
+
+impl crate::daemon_skew::RawDaemon for SocketDaemon {
+    fn restart_in_place(&self, cli: &std::path::Path) -> Result<(), String> {
+        crate::daemon_skew::restart_in_place(cli, &self.path)
+    }
+
+    fn send_once(&self, cmd: &str, params: Value) -> Result<Value, DaemonError> {
         let unreachable = |e: io::Error| DaemonError::Unreachable(e.to_string());
         let mut stream = self.connect().map_err(unreachable)?;
         let id = format!("cu-{}", uuid::Uuid::now_v7().simple());
@@ -709,11 +721,13 @@ impl<D: Daemon> Caller<D> {
                         }
                     },
                     Err(DaemonError::Refused { code, message }) => {
-                        // A daemon without the command never gets it by waiting.
+                        // A daemon without the command never gets it by waiting. An older
+                        // daemon an update left running was already swapped for the
+                        // installed build once (`daemon_skew.rs`); the message says why not.
                         return Err(Outcome::Failed {
                             code: "computer_use_unavailable".into(),
                             message: format!(
-                                "cmux could not start Computer Use: {message} ({code})"
+                                "cmux could not start Computer Use: {message} ({code})."
                             ),
                         });
                     }
