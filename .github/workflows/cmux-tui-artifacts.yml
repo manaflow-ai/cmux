@@ -4630,11 +4630,14 @@ jobs:
   # NIGHTLY, cmuxterm-hq#11364): cmux-tui-team-signed.yml signs it with the NEXT nightly's identity,
   # which only ref nightly-next can hold, so this asks for a run there. It holds nothing: no job
   # needs it, it never fails the run, and a missing workflow on nightly-next (before a promotion
-  # carries it) is a warning.
+  # carries it) is a warning. A feat-cmux-next dispatch asks too: the windowed tree build
+  # (request-nightly-next.sh, publish-bot-head-tree.sh) is a dispatch, and the pushes of its key
+  # deferred before it published, so a push-only request left that tree unsigned for good and its
+  # daemon never hot-applied into a NIGHTLY (05817a1d2d3a, run 44978301534, 2026-11-22).
   request-team-signed-tree:
     name: request the Team-signed tree
     needs: [tree-preflight, publish-tree-tested]
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     continue-on-error: true
