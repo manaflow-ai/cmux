@@ -1664,6 +1664,19 @@ export default agentPaneEntry({
       ready: { draft: "Compare this with the previous result." },
       play: pasteComparison,
     },
+    // Leo, 2026-11-22: "when im pasting attachments or whatever, there's a breif moment where i see the
+    // caret at the beginning of the composer after the preview for the attachment has already shown
+    // up". The stages composer-caret-frames.browser.test.ts pastes, drops and types on, reading the
+    // caret every painted frame: an empty prompt, and one with a line of text.
+    "caret-frames-empty": {
+      note: 'Leo, 2026-11-22: "we can\'t have that". An empty prompt the caret-frames test pastes and types on; the caret stands where it ends up in every frame after the edit.',
+      snapshot: chat(finished),
+    },
+    "caret-frames-draft": {
+      note: 'Leo, 2026-11-22: "idk if there are other places where our caret/typing/perciee is lagging liek that". A line of text the caret-frames test pastes into the middle and end of.',
+      snapshot: chat(finished),
+      ready: { draft: "Compare this with the previous result." },
+    },
     "attachment-inline-reorder": {
       note: 'Leo, 2026-11-02: "I can\'t drag to reorder these inline attachments very easily anymore". Two screenshots in the text, the pointer away: no × shows. A press anywhere on a thumbnail and a drag moves it in the text (composer-inline-reorder.browser.test.ts).',
       snapshot: chat(finished),
