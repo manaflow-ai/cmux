@@ -53,6 +53,7 @@ pub(crate) struct RemoteClientMessages {
     pub known_daemon_key_unavailable: &'static str,
     pub(super) carrier_daemon_requires_carrier: &'static str,
     pub upgrade_requires_ssh: &'static str,
+    pub(super) route_is_link_socket: &'static str,
     pub(super) relay_route_not_candidate: &'static str,
     pub(super) daemon_key_changed: &'static str,
     pub known_daemon_refresh_missing: &'static str,
@@ -275,6 +276,10 @@ impl RemoteClientMessages {
         self.daemon_no_routes.replace("{fingerprint}", fingerprint)
     }
 
+    pub(crate) fn route_is_link_socket(&self, path: &str) -> String {
+        self.route_is_link_socket.replace("{path}", path)
+    }
+
     pub(crate) fn carrier_daemon_requires_carrier(&self, fingerprint: &str) -> String {
         self.carrier_daemon_requires_carrier.replace("{fingerprint}", fingerprint)
     }
@@ -335,7 +340,8 @@ instead; exclusive with --wireguard-config
   --wireguard-hub-token-stdin  read that hub's client token as one line on stdin
   --via-machine MACHINE  dial a loopback ws route (ws://127.0.0.1:PORT/) on another
 of your machines through your own carrier (acpmux), with no inbound port; MACHINE
-is an acpmux peer name or its node key (`acpmux machine status --json`, wgPublicKey)
+is a name `acpmux machine ls` lists, an acpmux peer name or its node key
+(`acpmux machine status --json`, wgPublicKey)
   --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
   --ssh-forced-command  the SSH key's forced command already runs remote-link,
 so the client never runs remote-probe or an install over it
@@ -474,6 +480,7 @@ for up to two relay fallbacks
     known_daemon_key_unavailable: "known daemon key disappeared",
     carrier_daemon_requires_carrier: "daemon {fingerprint} is known only through a trusted SSH or Unix carrier; use that carrier route or enroll this device for network access",
     upgrade_requires_ssh: "--upgrade requires SSH to be the initial route",
+    route_is_link_socket: "unix://{path} is the local socket of a running `cmux remote connect`, not a daemon route; pass the route that connect dialed (with the same --state-dir) instead",
     relay_route_not_candidate: "relay credential route {route} is not one of this connection's route candidates",
     daemon_key_changed: "daemon key changed for {name}",
     known_daemon_refresh_missing: "known daemon disappeared while refreshing its route",
@@ -617,8 +624,8 @@ ID とセッション:
 --wireguard-config とは併用できません
   --wireguard-hub-token-stdin  そのハブのクライアントトークンを標準入力から 1 行で読みます
   --via-machine マシン  自分の別のマシンのループバック ws ルート (ws://127.0.0.1:ポート/) に
-自分のキャリア (acpmux) 経由で接続します。受信ポートは不要です。マシンは acpmux のピア名か
-そのノード鍵です (`acpmux machine status --json` の wgPublicKey)
+自分のキャリア (acpmux) 経由で接続します。受信ポートは不要です。マシンは `acpmux machine ls`
+に出る名前、acpmux のピア名、またはそのノード鍵です (`acpmux machine status --json` の wgPublicKey)
   --ssh-binary パス  --remote-binary パス  --ssh-arg 引数  --no-install
   --ssh-forced-command  SSH 鍵の強制コマンドがすでに remote-link を実行するため、
 その接続では remote-probe もインストールも実行しません
@@ -754,6 +761,7 @@ ID とセッション:
     known_daemon_key_unavailable: "登録済みデーモンの鍵が見つかりません",
     carrier_daemon_requires_carrier: "デーモン {fingerprint} は信頼済みの SSH または Unix 搬送路でのみ登録されています。その搬送路を使用するか、ネットワーク接続用にこのデバイスを登録してください",
     upgrade_requires_ssh: "--upgrade を使用するには最初のルートを SSH にしてください",
+    route_is_link_socket: "unix://{path} は実行中の `cmux remote connect` のローカルソケットで、デーモンのルートではありません。その connect が接続したルートを (同じ --state-dir で) 指定してください",
     relay_route_not_candidate: "リレー認証情報のルート {route} はこの接続のルート候補に含まれていません",
     daemon_key_changed: "デーモン {name} の鍵が変更されています",
     known_daemon_refresh_missing: "ルートの更新中に登録済みデーモンが見つからなくなりました",

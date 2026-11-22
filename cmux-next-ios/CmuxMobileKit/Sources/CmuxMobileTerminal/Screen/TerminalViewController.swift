@@ -284,6 +284,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
     private var scrollMeter = ScrollMeter()
     /// G-04: in-app frame intervals (`-CmuxMobileFrameLog`).
+    #if DEBUG
+    /// cmux#48951: wheel report -> Mac output -> present (`TerminalScrollBench`).
+    let rttLog = TerminalScrollRTT()
+    #endif
     private lazy var frameLog: TerminalFrameLog = {
         let log = TerminalFrameLog(surfaceName: model.title, frameDuration: 1.0 / Double(max(60, UIScreen.main.maximumFramesPerSecond)))
         log.phaseProvider = { [weak self] in
@@ -346,6 +350,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The launch marks' first typed key and its echo on screen (`LaunchMarks`).
     private var firstEcho = TerminalFirstEcho()
+    #if DEBUG
+    /// Every typed key's echo (`InputLatencyTrace`, `terminal_key_echo`): one key
+    /// in flight at a time, given up after 2 s (a key that echoes nothing).
+    private var echoMeter = TerminalFirstEcho()
+    private var echoStart: CFTimeInterval = 0
+    #endif
 
     #if DEBUG
     /// Rig echo probe and text export (`-CmuxMobileTermProbe`, G-08/G-09).
@@ -763,6 +773,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                    firstEcho.sent(data) {
                     LaunchMarks.shared.mark("terminal_key_sent")
                 }
+                #if DEBUG
+                if InputLatencyTrace.isEnabled, model.connectionState.isAttached, !inputRefused {
+                    let now = CACurrentMediaTime()
+                    if echoMeter.step != .idle, now - echoStart > 2 { echoMeter = TerminalFirstEcho() }
+                    if echoMeter.sent(data) { echoStart = now }
+                }
+                #endif
             } else {
                 model.session.sendReply(data)
                 // A scroll or a tap is still the person's: this phone is the active device.
@@ -789,6 +806,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         surface.onPresent = { [weak self] in
             guard let self else { return }
             self.measured("present") { self.surfacePresented() }
+            #if DEBUG
+            self.rttLog.presented()
+            #endif
         }
         surface.onFocusChange = { [weak self] focused in
             guard let self else { return }
@@ -807,6 +827,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         center.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardDidShow(_:)), name: UIResponder.keyboardDidShowNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardDidHide(_:)), name: UIResponder.keyboardDidHideNotification, object: nil)
+        // A keyboard that went with no hide notification (while the app was in
+        // the background) is forgotten by the tracker: settle as after a hide.
+        keyboardTracker.subscribeToDrops(self) { [weak self] in self?.keyboardDropped() }
         #if DEBUG
         if TerminalFlickerTrace.isRequested {
             flickerTrace = TerminalFlickerTrace(host: view) { [weak self] in self?.flickerSample() }
@@ -879,12 +902,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         registerEdgeEffectScrollView()
         #if DEBUG
         frameLog.start()
+        TerminalScrollBench.install(self)
         #endif
         startBlankWatch()
         // Back on screen (a tab switch, the grid): output that arrived while
         // the page was away was laid out against stale geometry. Recompute
         // the document and, when following, rest the last row above the
         // composer on the first frame (Codex QA F8).
+        // The keyboard may have come or gone while the page was away; a
+        // keyboard on record that nothing owns now is gone (no inset for it).
+        keyboardTracker.dropKeyboardWithoutOwner()
         view.setNeedsLayout()
         view.layoutIfNeeded()
         outputSinceProbe = true
@@ -1496,6 +1523,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             pacer.arrived(at: CACurrentMediaTime())
             #if DEBUG
             if TerminalFrameLog.isEnabled { frameLog.outputArrived() }
+            rttLog.outputArrived(bytes: data.count)
             #endif
             // Per chunk: queue the bytes and nothing else. Parsing, the row
             // shift and the artifact scan happen once per display frame.
@@ -1672,6 +1700,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 model.scanOutput(data)
                 firstEcho.fed(data)
                 #if DEBUG
+                echoMeter.fed(data)
                 devProbe?.fed(data)
                 #endif
                 let transform: (@Sendable (Data) -> Data)?
@@ -2005,6 +2034,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         firstEcho.processed()
         #if DEBUG
+        echoMeter.processed()
         devProbe?.processed()
         // Every parsed byte, the reset and replay the gate holds included:
         // the bench's echo and drain offsets count them (fleet bench
@@ -2254,6 +2284,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 ? view.snapshotView(afterScreenUpdates: false) : nil
             return
         }
+        // Back in the foreground: UIKit posted no hide for a keyboard that
+        // went while the app was away, so the dock may still hold its inset.
+        keyboardTracker.dropKeyboardWithoutOwner()
         let still = backgroundStill
         backgroundStill = nil
         guard let still, freezeView == nil, view.window != nil, hostLayout.differsFromPhone else { return }
@@ -2587,6 +2620,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// last report, the last request), and the best match places it.
     private func surfacePresented() {
         if firstEcho.presented() { LaunchMarks.shared.mark("terminal_echo_presented") }
+        #if DEBUG
+        if echoMeter.presented() {
+            InputLatencyTrace.shared?.sample("terminal_key_echo", since: echoStart)
+            echoMeter = TerminalFirstEcho()
+        }
+        #endif
         if model.connectionState.isAttached { LaunchMarks.shared.mark("terminal_ready") }
         #if DEBUG
         if let probe = TerminalBenchProbe.shared {
@@ -3212,6 +3251,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
 
+    /// DEBUG demo: a fling over a full-screen app, as the wheel (T-SCROLL-12).
+    func tuiFling(velocity: CGFloat) {
+        tuiScroll.demoFling(velocityY: velocity)
+    }
+
     /// DEBUG demo: a decelerating fling with UIScrollView's normal rate, driven
     /// per display frame through the same delegate path as a finger fling.
     func fling(velocity: CGFloat) {
@@ -3654,6 +3698,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         // The rows move under a selection: it would point at other text.
         tuiScroll.dragBegan = { [weak self] in self?.tuiSelection.clear() }
+        #if DEBUG
+        tuiScroll.wheelSent = { [weak self] in self?.rttLog.wheelSent() }
+        #endif
         tuiScroll.install(in: tuiClip, surface: surface, tap: tuiTap)
     }
 
@@ -3723,6 +3770,18 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     @objc private func keyboardDidShow(_ note: Notification) {
         // A show a newer hide interrupted (the keyboard key pressed twice).
         guard !isStale(note), !endsOnScreen(note, onScreen: false) else { return }
+        keyboardStopped()
+        keyboardDidChange()
+    }
+
+    /// The tracker forgot a keyboard nothing owns (UIKit never posted its
+    /// hide): the dock's guide is already back at rest; the key row's
+    /// keyboard glyph, a TUI's rows and the saved frame follow as after a hide.
+    private func keyboardDropped() {
+        dock.keyboardWillHide()
+        dock.keyboardDidHide()
+        if model.keyboardVisible { model.keyboardVisible = false }
+        // As keyboardDidHide: output held while the keyboard moved goes out.
         keyboardStopped()
         keyboardDidChange()
     }

@@ -145,6 +145,20 @@ struct ChromiumPageHostBridgeTests {
         }
     }
 
+    /// The setup sends every call, in order, before it awaits the first answer: they come back in
+    /// about one round trip, not one each (one at a time took about 50 ms on the chat page).
+    @Test func setUpSendsEveryCallBeforeAwaitingTheFirstAnswer() async throws {
+        let page = FakeChromiumPage()
+        let bridge = ChromiumPageHostBridge(page: page, fireAndForget: ["cmuxPagePainted"])
+        let scripts = ["one()", "two()"]
+        try await bridge.setUp(documentScripts: scripts)
+        let expected = ChromiumPageHostBridge.setupCalls(handlers: ["cmuxPagePainted"], documentScripts: scripts)
+        #expect(page.calls.map(\.method) == expected.map(\.0))
+        #expect(Array(page.calls.compactMap { $0.params["source"] as? String }.suffix(2)) == scripts)
+        #expect(page.sentBeforeFirstAwait == expected.count)
+        #expect(bridge.runtimeEnabled)
+    }
+
     /// The setup leaves the Runtime domain on for the first document; its commit turns it off and adds
     /// the binding again. Measured (headless Chromium 157, cold, n=12): the chat page's modules evaluated
     /// in 116 ms with the domain on and 44 ms with it off from the commit, and the binding was there at
