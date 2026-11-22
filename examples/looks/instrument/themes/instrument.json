@@ -1,16 +1,15 @@
-// Instrument: Instrument v0.1, dark. Every fill is the ink (#f0f0f0) mixed into the surface (#1a1a1a) at a multiple of 4%:
+// Instrument: Instrument v0.1 (look 0.2.0), dark. Every fill is the ink (#f0f0f0) mixed into the surface (#1a1a1a) at a multiple of 4%:
 // frame #232323 (4%), hover #2b2b2b (8%), selected and hairline #343434 (12%), control line #3c3c3c (16%).
-// No accent hue: accent and selection are the ink; the palette's hues are for status. Corners: panes 12 = control 8 + inset 4.
+// No accent hue: no accent colour is set, so the accent is the ink and selection is the neutral fill; the palette's hues are for status. Corners: panes 12 = control 8 + inset 4.
 {
   "name": "Instrument",
-  "description": "Instrument v0.1, dark: a dense, quiet frame computed from three numbers; no accent colour, colour means status.",
+  "description": "Instrument v0.1 (look 0.2.0), dark: a dense, quiet frame computed from three numbers; no accent colour, colour means status.",
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",
   "colors": {
     "background": "#1a1a1a",
     "foreground": "#f0f0f0",
     "selection": "#343434",
-    "accent": "#f0f0f0",
     "0": "#343434",
     "1": "#ff6b6b",
     "2": "#8ad48a",
