@@ -1,3 +1,4 @@
+import { initializeParams } from "./initializeParams";
 import { pageAttention } from "./attention";
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
 import { stuckAttention } from "./loopEpisode";
@@ -327,19 +328,7 @@ export function newSessionHost(
   return cwd ? { cwd, peer } : noProject || peer ? { peer } : { ...host, peer };
 }
 
-/// The page's `initialize` params. The app's relay checks them against its params rule
-/// (AcpmuxPaneMethods+Params.swift `knownParams`), and `schemas/agent-pane/initialize-params.json`
-/// holds both sides to the same keys: a key the rule does not know refuses every connection.
-export function initializeParams() {
-  return {
-    protocolVersion: 1,
-    clientInfo: { name: "cmux-react-agent-pane", version: "1" },
-    clientCapabilities: {},
-    // A peer's list comes as one `_acpmux/peer_rows_changed`, read by the next follow
-    // (`SessionPager.peerRowsChanged`); an acpmux before it ignores the key and sends each row.
-    _meta: { acpmux: { peerRowBatches: true } },
-  };
-}
+export { initializeParams };
 
 export function newSessionParams(
   host: Pick<AcpmuxHostConfig, "cwd" | "adopt"> & { peer?: string },
@@ -3716,6 +3705,10 @@ export class AcpmuxDirectClient {
   private attachWatch?: AttachWatch;
   /// The attach `open` asked with the chat list, until the open takes it or drops it (`askEarly`).
   private earlyAttach?: EarlyAttach;
+  /// The chat's saved draft, asked with that attach (`askEarly`), until the composer's first read takes
+  /// it (`readDraft`). The page shows the chat only once the composer read its draft (draftSettleHold.ts),
+  /// and that read went out only after the attach answered: one more round trip on every relaunch.
+  private earlyDraft?: { sessionId: string; socket: WebSocket | undefined; read: Promise<unknown> };
   /// The `createdAt` of the session the rows drawn before the attach are of (`drawKeptTail`, from
   /// the tail's summary), undefined when they do not say.
   private drawnGeneration?: number;
@@ -7165,12 +7158,19 @@ export class AcpmuxDirectClient {
   private storeHold = 0;
 
   /// Reads the selected session's durable composer draft from acpmux.
+  /// The first read of the chat the open attached takes the draft asked with its attach
+  /// (`earlyDraft`), once, while it is of this connection.
   readDraft(sessionId: string): Promise<unknown> {
+    const early = this.earlyDraft;
+    this.earlyDraft = undefined;
+    if (early && early.sessionId === sessionId && early.socket === this.socket) return early.read;
     return this.request("_acpmux/draft_get", { sessionId });
   }
 
   /// Persists or clears the selected session's composer draft in acpmux.
   writeDraft(sessionId: string, text: string): Promise<unknown> {
+    // A draft read before this write is older than it.
+    if (this.earlyDraft?.sessionId === sessionId) this.earlyDraft = undefined;
     return this.request("_acpmux/draft_set", { sessionId, text });
   }
 
@@ -7683,6 +7683,11 @@ export class AcpmuxDirectClient {
     // A dropped one is never awaited: its refusal (a peer chat's machine down) is not unhandled.
     early.sent.attaching.catch(() => undefined);
     this.earlyAttach = early;
+    // The composer's draft read rides this round trip too (`earlyDraft`); read-only, so one asked
+    // now answers what the composer would ask once the client is in.
+    const read = this.request("_acpmux/draft_get", { sessionId });
+    read.catch(() => undefined);
+    this.earlyDraft = { sessionId, socket: this.socket, read };
     return early;
   }
 

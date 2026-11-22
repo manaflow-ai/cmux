@@ -66,6 +66,30 @@ function requestId(frame: string): string | number | undefined {
   }
 }
 
+/// The id of `frame` when it is a request for `method` (`BridgeSocket.prime`).
+function primedAsk(frame: string, method: string): string | number | undefined {
+  // Most frames are other requests: no parse for them.
+  if (!frame.includes(`"${method}"`)) return undefined;
+  try {
+    const message = JSON.parse(frame) as { id?: unknown; method?: unknown } | null;
+    const id = message?.id;
+    return message?.method === method && (typeof id === "string" || typeof id === "number") ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/// The id `frame` answers, when it is a reply with a string id (the primed request's).
+function replyId(frame: string): string | undefined {
+  if (!frame.includes('"cmux-early-')) return undefined;
+  try {
+    const message = JSON.parse(frame) as { id?: unknown; method?: unknown } | null;
+    return message?.method === undefined && typeof message?.id === "string" ? message.id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 const live = new Map<number, BridgeSocket>();
 
 /// Routes a host push to its connection; only paired native question refusals survive its close.
@@ -158,6 +182,13 @@ export class BridgeSocket {
   private outbox: string[] = [];
   private flushQueued = false;
   private openTimer?: ReturnType<typeof setTimeout>;
+  /// The connection's first request, sent by the socket itself the moment the host opens it, before
+  /// any client holds the socket (`prime`, earlyHandshake.ts): the client's own copy of it is answered
+  /// with its reply, under the client's id, and never sent. Frames that come before the client asks
+  /// it wait behind its reply, in order. Cleared once the client's copy was answered.
+  private primed?: { id: string; method: string; reply?: string; clientId?: string | number; held: string[] };
+  /// The primed request, until the open sends it.
+  private primedFrame?: string;
 
   constructor(
     private readonly post: Post = postNative,
@@ -184,6 +215,11 @@ export class BridgeSocket {
         this.connection = connection;
         live.set(connection, this);
         this.readyState = OPEN;
+        if (this.primedFrame !== undefined) {
+          this.outbox.push(this.primedFrame);
+          this.primedFrame = undefined;
+          this.flush();
+        }
         this.onopen?.(new Event("open"));
       },
       () => {
@@ -193,9 +229,28 @@ export class BridgeSocket {
     );
   }
 
+  /// Sends the request `method` with `params`, as the connection's first frame, as soon as the host
+  /// opens it: before any client holds this socket. A client's later request of the same method is
+  /// answered with its reply and not sent again (`primed`). Only before the open.
+  prime(method: string, params: Record<string, unknown>): void {
+    if (this.readyState !== CONNECTING || this.primed) return;
+    const id = "cmux-early-" + method;
+    this.primed = { id, method, held: [] };
+    this.primedFrame = JSON.stringify({ jsonrpc: "2.0", id, method, params });
+  }
+
   /// Queues `text`; every frame written in one task goes to the host in one bridge call, in order.
   send(text: string): void {
     if (this.readyState !== OPEN) throw new DOMException("The acpmux transport is not open", "InvalidStateError");
+    const primed = this.primed;
+    if (primed && primed.clientId === undefined) {
+      const asked = primedAsk(text, primed.method);
+      if (asked !== undefined) {
+        primed.clientId = asked;
+        if (primed.reply !== undefined) queueMicrotask(() => this.releasePrimed());
+        return;
+      }
+    }
     this.outbox.push(text);
     if (this.flushQueued) return;
     this.flushQueued = true;
@@ -214,6 +269,14 @@ export class BridgeSocket {
   receive(event: TransportEvent): void {
     for (const data of event.frames ?? []) {
       if (this.readyState !== OPEN) return;
+      const primed = this.primed;
+      if (primed) {
+        if (primed.reply === undefined && replyId(data) === primed.id) {
+          primed.reply = data;
+          if (primed.clientId !== undefined) this.releasePrimed();
+        } else primed.held.push(data);
+        continue;
+      }
       this.onmessage?.({ data });
     }
     if (event.closed) {
@@ -283,6 +346,20 @@ export class BridgeSocket {
     queueMicrotask(() => {
       if (this.readyState === OPEN) this.onmessage?.({ data: reply });
     });
+  }
+
+  /// The primed request's reply, under the id the client asked it with, then what came after it.
+  private releasePrimed(): void {
+    const primed = this.primed;
+    if (!primed || primed.reply === undefined || primed.clientId === undefined) return;
+    this.primed = undefined;
+    if (this.readyState !== OPEN) return;
+    const reply = JSON.parse(primed.reply) as Record<string, unknown>;
+    this.onmessage?.({ data: JSON.stringify({ ...reply, id: primed.clientId }) });
+    for (const data of primed.held) {
+      if (this.readyState !== OPEN) return;
+      this.onmessage?.({ data });
+    }
   }
 
   private stopOpenTimer(): void {

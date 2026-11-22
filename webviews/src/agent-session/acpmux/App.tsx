@@ -863,6 +863,7 @@ import { CloudChatHint } from "./CloudChatHint";
 import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint, useCloudChatHintClaim } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
+import { takeEarlyReady, takeEarlySocket } from "./earlyHandshake";
 import { nativeUnsentPrompts } from "./unsentPrompts";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
 import { showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
@@ -8509,7 +8510,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         acpWire.lifecycle("handshake", { reconnect });
         setWaitingSince(Date.now());
         setRestartUnavailable(false);
-        const answered = await callNative<{
+        type HandshakeAnswer = {
           protocolVersion: number;
           transport?: string;
           /// Only the browser dev slot (devHost.ts) sends these; the app never does.
@@ -8557,7 +8558,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           sandboxState?: unknown;
           /// The tab this page is (AgentPaneHandshake `tab`); an older app sends none.
           tab?: unknown;
-        }>("ready", reconnect ? { reconnect } : {})
+        };
+        // The page's first handshake went out from its entry (earlyHandshake.ts); a reconnect asks anew.
+        const early = reconnect ? undefined : takeEarlyReady<HandshakeAnswer>();
+        const answered = await (early ?? callNative<HandshakeAnswer>("ready", reconnect ? { reconnect } : {}))
           // The host cleared its toast box for this handshake: it hears the mounted composer's again.
           .finally(resendToastAvoidance);
         if (cancelled) return;
@@ -8842,7 +8846,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           mockModule
             ? () => new mockModule.MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket
             : bridge
-              ? () => new BridgeSocket() as unknown as WebSocket
+              ? // The socket the early handshake opened, with its initialize out already (earlyHandshake.ts).
+                () => (takeEarlySocket() ?? new BridgeSocket()) as unknown as WebSocket
               : undefined,
           mock ? "daemon" : "native",
           undefined,
