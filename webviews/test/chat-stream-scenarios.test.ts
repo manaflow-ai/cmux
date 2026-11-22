@@ -23,16 +23,9 @@ import { STREAM_SCENARIOS, type LiveStep, type StreamScenario } from "../src/age
 /// Scenarios red today, each with its owner (streamScenarios.ts `owner`). Filled from the first CI run; a scenario
 /// here that passes fails its test, so the list only shrinks as owners land fixes.
 const KNOWN_RED: Record<string, string> = {
-  // A summary that says the turn ended, mid-reply, ends it (direct.ts settleTurnWithHost -> hostEndedTurn), and the
-  // rest of the same message opens a second bubble with Worked for between: Leo's images/1158.png.
-  "SE-12": "helper ae03a5b84e9c36fd5 (split reply)",
-  // A daemon restart restarts segment numbering; the same messageId's next chunk opens a second bubble.
-  "TR-05": "helper ae03a5b84e9c36fd5 (split reply)",
-  // A Stop hook inside the harness: the repeated paragraph draws twice with nothing between (images/1157.png).
+  // A Stop hook inside the harness: the repeated paragraph draws twice with nothing between (images/1157.png). The
+  // agent did write it twice; acpmux records no hook prompt, so the pane has nothing to draw between (taste call 1).
   "SE-18": "helper ae03a5b84e9c36fd5 (duplicate reply)",
-  // A background turn's reply cut by the person's prompt: the rest of the message draws under the prompt, cut
-  // inside `**` (found in Leo's own chat, session b0e9114e seq 5244663-5244700).
-  "SE-29": "helper ae03a5b84e9c36fd5 (split reply)",
 };
 
 let clock: VirtualClock | undefined;

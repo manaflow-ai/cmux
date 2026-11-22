@@ -112,6 +112,14 @@ the escape hatch for any record acpmux writes.
   next call alone is a violation. A reply whose text reappears in another row is `remapped`, not folded.
 - **(c) stillness**: no row two or more turns back is rebuilt (a new row object with the same id, version
   and fold) when nothing changed it. Live lines are exempt.
+- **(i) bubble integrity** (integrity.ts), on each turn's rows at its `turn_result` and at the run's last step
+  (Leo, 2026-11-22: "you also basically said the same thing", images/1157.png; "ok, well. this happened again",
+  1158.png): `i-split-bubble`: two reply rows of one message (same `messageId`), or the first cut inside an
+  open span, with nothing but a fold or header between them (a "Worked for" whose two sides are one message);
+  `i-repeated-paragraph`: a paragraph of 40+ characters drawn twice in one turn (a row repeating its own
+  paragraph, or a row whose text is another's suffix); `i-unclosed-markdown`: a settled reply left open inside
+  `**`, a fence, `$$` or an inline backtick; `i-placeholder-after-end`. The CLI exits 1 on any of them, and
+  `--replay DIR --integrity` runs them alone on a recorded chat.
 
 ## Read the trace
 

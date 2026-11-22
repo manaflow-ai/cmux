@@ -13,6 +13,7 @@ import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import { turnViewFrom, type TurnView } from "../conversation/turns";
 import { layoutConversation, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "../model";
 import { ROW_GAP_LOOKS, TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP } from "../transcriptGrid";
+import { checkIntegrity, opensTurn as integrityTurnOpens, type IntegrityRule } from "./integrity";
 import type { SimScenario, SimStep } from "./script";
 
 /** One drawn row as a probe sees it. */
@@ -55,7 +56,7 @@ export type FoldEvent = {
 };
 
 export type Violation = {
-  rule: "a-turn-gap" | "a-head-gap" | "b-mid-turn-fold" | "b-mid-turn-shrink" | "c-rerender";
+  rule: "a-turn-gap" | "a-head-gap" | "b-mid-turn-fold" | "b-mid-turn-shrink" | "c-rerender" | IntegrityRule;
   step: number;
   at: number;
   label: string;
@@ -97,6 +98,8 @@ export type SimOptions = {
     rows: readonly AcpmuxRow[],
     step: SimStep,
   ) => readonly ({ top: number; bottom: number } | undefined)[] | undefined;
+  /** Integrity rules (integrity.ts) the scenario does not hold by design (a cancelled reply may stop inside `**`). */
+  exemptIntegrity?: readonly IntegrityRule[];
 };
 
 export type SimResult = {
@@ -163,6 +166,9 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
   const traces: StepTrace[] = [];
   const violations: Violation[] = [];
   const allFolds: FoldEvent[] = [];
+  // The message ids streamed since the last turn ended (the integrity check's `messageOf`).
+  const turnMessages = new Set<string>();
+  const exempt = new Set<string>(options.exemptIntegrity ?? []);
   const cache = new Map();
   // The browser lane: each row's drawn height at the last measured step, to see a row collapse.
   const drawnHeights = new Map<string, number>();
@@ -182,6 +188,8 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         turnEnded = false;
       }
       if (event?.kind === "turn_result") turnEnded = true;
+      const messageId = event?.kind === "agent_message_chunk" ? event.msg?.params?.update?.messageId : undefined;
+      if (typeof messageId === "string") turnMessages.add(messageId);
       const status = event?.kind === "status" ? event.msg?.status : undefined;
       if (event?.kind === "turn_started" || status === "running") {
         if (!working) workingSince = event!.at;
@@ -392,6 +400,25 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         rerendered.push(row.id);
     }
     for (const id of rerendered) flag("c-rerender", id, "rebuilt above the newest change, two or more turns back");
+
+    // (i) bubble integrity (integrity.ts) on the turn that ended, at its end and at the run's last step: one
+    // message is one bubble, no paragraph drawn twice, no settled reply cut inside a Markdown span. Only the
+    // newest turn's rows are read, so a long run pays per turn, not per row it holds.
+    const ends = step.type === "event" && bySeq.get(step.seq)?.kind === "turn_result";
+    if (ends || index === scenario.steps.length - 1) {
+      let from = rows.length;
+      while (from > 0 && !integrityTurnOpens(rows[from - 1]!)) from -= 1;
+      const byRow = new Map<string, string>();
+      for (const id of turnMessages) for (const row of client.rowsOfMessage(id)) byRow.set(row, id);
+      const turnRows = rows.slice(Math.max(0, from - 1));
+      for (const finding of checkIntegrity({
+        rows: turnRows,
+        turnEnded: ends || turnEnded,
+        messageOf: (id) => byRow.get(id),
+      }))
+        if (!exempt.has(finding.rule)) flag(finding.rule, finding.rowId, finding.detail);
+      if (ends) turnMessages.clear();
+    }
     const probes =
       rows.length <= rowsUpTo
         ? probeAt

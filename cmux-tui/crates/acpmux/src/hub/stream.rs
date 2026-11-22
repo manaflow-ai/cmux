@@ -176,10 +176,17 @@ impl Hub {
                 "agent_message_chunk" => {
                     let id = update.get("messageId").and_then(Value::as_str);
                     let turn = turn_id.as_deref().unwrap_or("-");
-                    // A turn the agent started on its own has no prompt to end the last one's.
+                    // One message is one segment, whatever turn it is read in: a prompt that ends a
+                    // background turn mid-message, or a turn that starts under it, names the same
+                    // reply, and a new segment drew its rest as a second bubble cut mid-sentence
+                    // (Leo, 2026-11-22: "ok, well. this happened again. you need to help decide what
+                    // goes on in this case and perfect it."). Chunks with no messageId still start
+                    // again at a turn change: a turn the agent started on its own has no prompt to
+                    // end the last one's.
+                    let same_message = id.is_some() && id == st.segment_message.as_deref();
                     if st.reply_segment.is_none()
                         || id != st.segment_message.as_deref()
-                        || st.segment_turn.as_deref() != Some(turn)
+                        || (!same_message && st.segment_turn.as_deref() != Some(turn))
                     {
                         // Numbered within the turn: a new turn starts again at 1.
                         if st.segment_turn.as_deref() != Some(turn) {
