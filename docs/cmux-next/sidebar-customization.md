@@ -74,10 +74,36 @@ workspace moved and ranked within its section. The watcher test writes a
 temporary \`cmux-next.json\` through an atomic replacement and observes the new
 projection without a restart.
 
+## A nav block of cmux actions: `sidebar.nav`
+
+A look (or you) can put a column of plain rows at the very top of the sidebar, each running a cmux
+action, as the Codex app's sidebar does with New chat, Search, Pull requests and Scheduled. Each entry
+is an action id (`cmux action list` names them), optionally followed by a title and an SF Symbol:
+
+```json
+{
+  "sidebar.nav": [
+    "palette.newAgentChat | New chat | square.and.pencil",
+    "search.chats | Search | magnifyingglass",
+    "palette.openWorkspacePullRequests | Pull requests | arrow.triangle.pull",
+    "automations.show | Scheduled | clock",
+    "appStore.show | Plugins | puzzlepiece.extension"
+  ]
+}
+```
+
+The rows draw in the built-in look (an icon and a label, no fill at rest, the hover fill), above
+Home, and follow `sidebar.sectionLook`. A row with no title or symbol takes the action's own. Rust
+checks the list (`cmux-layout-reducer` `sidebar_nav.rs`): an unknown id, a debug-only or destructive
+action, a duplicate, or more than 12 rows is dropped with a diagnostic, and the rest still draw. The
+rows are never written to the sidebar document, so removing the key, or the look that set it, leaves
+your sidebar as it was. Empty (the default) draws no block. Together with `sidebar.groupBy: recents`
+(Projects and Recents headers) and Pinned, this gives a sidebar the shape of the Codex app's.
+
 # Sidebar looks
 
 `sidebar.look` draws the sidebar like another app's: `claude` (the Claude desktop app), `codex`
-(the Codex app), `studio` (a coding studio: one flat list of threads, status in words and icons) or
+(the Codex app), `studio` (a coding studio: threads under a heading per project, status in words and icons) or
 `cmux`, the default, which is today's sidebar. The transcript (`agentPane.display.transcriptLook`)
 and the composer (`agentPane.display.composerLook`) use the same four names, so one word sets the
 whole window's look.
@@ -141,12 +167,12 @@ ring for work.
 }
 ```
 
-**Studio**: one flat list of threads; title and compact time; working, waiting, error and done
-each have their own icon.
+**Studio**: threads under a plain heading per project; title and compact time; working, waiting,
+error and done each have their own icon.
 
 ```json
 {
-  "sidebar.groupBy": "none",
+  "sidebar.groupBy": "folder",
   "sidebar.groupHeader.background": "sections",
   "sidebar.groupHeader.memberCount": false,
   "sidebar.groupHeader.unreadCount": false,
@@ -202,12 +228,12 @@ heights, title and detail type) so the two can be compared number by number.
 | Title | 13 to 14, regular | 13, regular | 14, medium |
 | Trailing text | none | time, 12 | time, 12 |
 | Status | a 6 pt dot at the trailing edge | a thin ring of about 12 pt, leading | a word with an icon |
-| List | by project | by project, or flat threads under Pinned | one flat list |
-| Headings | plain, about 13, no count | plain, 12 to 13, no count | none |
+| List | by project | by project, or flat threads under Pinned | by project |
+| Headings | plain, about 13, no count | plain, 12 to 13, no count | plain, no count |
 | Selection | a fill, no ring | a fill, no ring, radius about 9 | a fill, radius about 8 |
 
 What each look sets to match: Claude groups by project, hides the time, draws a dot; Codex groups by
-project, shows the time and draws the thin ring (`arc`); Studio is one flat list with the time and an
+project, shows the time and draws the thin ring (`arc`); Studio groups by project, shows the time and draws an
 icon for each status.
 
 Width and row pitch are not set by a look (No shift). To match a reference's numbers, set them

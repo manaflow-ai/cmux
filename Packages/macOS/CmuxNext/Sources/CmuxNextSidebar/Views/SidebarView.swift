@@ -156,6 +156,7 @@ public final class SidebarView: NSView {
     var observation: Task<Void, Never>?
     private var clipObservers: [any NSObjectProtocol] = []
     var lastState: RenderState?
+    var selectionTreeReveal = SidebarSelectionTreeReveal()
     /// A `renderInFrame` draw is queued for this turn's frame.
     var renderQueued = false
     /// The sections the list showed at the last render (for the provisional check).
