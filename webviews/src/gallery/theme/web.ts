@@ -129,6 +129,8 @@ export function webThemePayload(
       // no sidebar color.
       "--cmux-sidebar-surface": shade > 0 ? css(withAlpha(BLACK, shade)) : "transparent",
       "--cmux-hover": css(tokens.hoverFill),
+      // A pressed row's fill, as WebTheme.swift sends it (Palette.pressedFill).
+      "--cmux-pressed": css(tokens.pressedFill),
       "--cmux-selection": css(tokens.selectionFill),
       // The gallery has no Ghostty cursor color: the text color. Selected text is the app's one
       // highlight (WebTheme.swift), the same token native text fields use.

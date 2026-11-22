@@ -737,7 +737,8 @@ Options:
                          direct Tailscale transport). cmux-next builds default to local
                          backend mode without it, and Cloud is then unavailable.
   --prod-auth            Point this tagged Debug build at production Stack auth
-                         and cmux APIs.
+                         and cmux APIs; cmux NEXT launches on the production Cloud
+                         (CMUX_NEXT_CLOUD_ENV=prod), where your cmux.com account signs in.
                          Without it, tagged builds use the shared dev backend, which
                          needs a cmuxterm-hq checkout. Outside one, set
                          CMUX_DEV_BACKEND_MODE=local to use http://localhost:<port>.
@@ -1664,6 +1665,9 @@ reload_finalize() {
     echo
     echo "App path:"
     echo "  $APP_PATH"
+    # Sharing a build means a line, not a zipped bundle (docs/cmux-next/hot-reload.md, "Share your build").
+    echo "Share it with a teammate (one line to send; a SHA when the commit is merged):"
+    echo "  cmux app share --app $(printf '%q' "$APP_PATH")"
   fi
   if [[ -n "${CMUX_DEV_ORIGIN:-}" ]]; then
     echo
@@ -2238,6 +2242,11 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
       if [[ "$PROD_AUTH" -eq 1 ]]; then
         set_plist_env "$INFO_PLIST" CMUX_AUTH_ENVIRONMENT production
+        # cmux NEXT picks its Cloud at launch (cmux-cloud-environment `resolve`), and a DEV bundle's default is
+        # the dev Workers, with their own accounts. A production build (cmux-ci build cmux --production, the
+        # fleet's default for a build made for a person) seeds every launch with production, where the person's
+        # own cmux.com account signs in. Leo: "why is the stuff so weird to log in to dev builds?"
+        set_plist_env "$INFO_PLIST" CMUX_NEXT_CLOUD_ENV prod
       fi
       if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
         set_plist_env "$INFO_PLIST" CMUX_AUTH_CREDENTIALS_FILE "$AUTH_CREDENTIALS_FILE"
@@ -2488,7 +2497,7 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     CMUX_VM_API_BASE_URL="$CMUX_DEV_API_BASE_URL_VALUE"
   )
   if [[ "$PROD_AUTH" -eq 1 ]]; then
-    TAG_LAUNCH_ENV+=(CMUX_AUTH_ENVIRONMENT=production)
+    TAG_LAUNCH_ENV+=(CMUX_AUTH_ENVIRONMENT=production CMUX_NEXT_CLOUD_ENV=prod)
   fi
   # cmux-next Debug builds load the agent pane from this loopback Vite dev
   # server instead of the bundled page (webviews/src/agent-session/acpmux/README.md).
