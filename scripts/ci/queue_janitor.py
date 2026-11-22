@@ -753,6 +753,55 @@ def owned_linux_label(job: Mapping[str, Any]) -> str | None:
     return next((str(label) for label in job.get("labels") or () if str(label) in OWNED_POOL_LEAD_LINUX), None)
 
 
+# The owned Linux labels' runner roster (owned_linux_idle()), in each such pool entry as `online`, `busy` and `idle`.
+# runner_pools.label_evidence() calls an owned label full only while its queue waited the stall cutoff AND it has
+# no idle runner past its headroom: on 2026-11-21 at 23:46Z `cmux-fleet-linux-x64` had 19 jobs queued beside 428
+# available runners, and the queue alone moved every x64 pool to Blacksmith. An entry without `idle` (no token,
+# a refused or failed read) keeps the queue-only rule.
+OWNED_RUNNERS_KEY = "owned_runners"
+# Pages a roster listing may read here (100 runners a page): the owned pool holds about 700 runners and has held
+# 3,900, and the roster's default 5 pages would make the idle count a sample in arbitrary order.
+OWNED_ROSTER_MAX_PAGES = 50
+
+
+def owned_linux_idle(runners: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, int]]:
+    """{label: {"online", "busy", "idle"}} for each owned Linux label (OWNED_POOL_LEAD_LINUX) in a runner roster
+    (janitor_watchdog_roster.roster()). A roster cut short at its page cap undercounts idle runners, which errs
+    toward today's queue-only rule, never toward keeping a pool on a label with no room."""
+    out = {label: {"online": 0, "busy": 0, "idle": 0} for label in OWNED_POOL_LEAD_LINUX}
+    for runner in runners:
+        if str(runner.get("status") or "").lower() != "online":
+            continue
+        names = {str(label.get("name") if isinstance(label, Mapping) else label) for label in runner.get("labels") or ()}
+        for label in names & set(out):
+            out[label]["online"] += 1
+            out[label]["busy" if runner.get("busy") is True else "idle"] += 1
+    return out
+
+
+def attach_owned_idle(snapshot: dict[str, Any], token: str | None, repo: str, *, now: dt.datetime,
+                      fetch: Any = None) -> None:
+    """Copy owned_linux_idle() into the snapshot's owned Linux pool entries, read with `token` (ROUTE_TOKEN: the
+    routing App's, with the organization's Self-hosted runners: read; GITHUB_TOKEN cannot list runners). Any
+    failure leaves the entries without `idle` and says why in `owned_runners`."""
+    import janitor_watchdog_roster as roster
+
+    if not (token or fetch):
+        snapshot[OWNED_RUNNERS_KEY] = {"error": "no ROUTE_TOKEN"}
+        return
+    try:
+        counts = owned_linux_idle(roster.roster(fetch or roster.gh_fetch(str(token)), repo,
+                                                 max_pages=OWNED_ROSTER_MAX_PAGES))
+    except Exception as error:  # noqa: BLE001 - an unread roster keeps the queue-only rule
+        snapshot[OWNED_RUNNERS_KEY] = {"error": str(error)[:300]}
+        print(f"queue-janitor: owned runner roster: {error}", file=sys.stderr)
+        return
+    snapshot[OWNED_RUNNERS_KEY] = {"read_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "labels": counts}
+    for label, entry in (snapshot.get("pools") or {}).items():
+        if label in counts and isinstance(entry, dict):
+            entry.update(counts[label])
+
+
 def lane_label(job: Mapping[str, Any]) -> str | None:
     """The feat-cmux-next lane label (pr_runner_pool.LANE_LABEL: session, fast, dev, nightly) a job asked for."""
     return next((str(label) for label in job.get("labels") or () if LANE_LABEL.fullmatch(str(label))), None)
@@ -5415,6 +5464,7 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         # proved complete. A partial janitor sweep must retain its existing
         # unknown/unsafe semantics, even when runner-state has candidates.
         attach_hosted_light_candidates(snapshot, os.environ.get("CI_RUNNER_STATE"), now=now)
+        attach_owned_idle(snapshot, os.environ.get("ROUTE_TOKEN"), args.repo, now=now)
         args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
 
     if unread or listing["truncated"]:
