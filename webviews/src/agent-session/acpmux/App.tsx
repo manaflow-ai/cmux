@@ -216,6 +216,7 @@ import { acpWire } from "./wire";
 import { chatPerfCapture } from "./chatPerfCapture";
 import { acpmuxPerf } from "./perf";
 import { perfReporter, type PerfSend } from "./perfReporter";
+import { frameTally } from "./conversation/frameTally";
 import { reconciledProject, startFromContext } from "./newtab/startHint";
 import { useSameValue } from "./session-info/sameValue";
 import { drawsAsIs, setStreamingRowBlocked, streamingRow, streamingRowBlocked, textOnlyRow } from "./streamingRow";
@@ -8977,6 +8978,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         directClient.current = client;
         // The perf watch (perfReporter.ts): one status read on the page's first connect; off, nothing runs.
         perfReporter.attach((params) => client.perf(params));
+        // The always-on frame tally (conversation/frameTally.ts): the visible chat's frame gaps, to the daemon.
+        frameTally.attach((params) => client.perf(params));
         client.setFollowing(followingTranscript.current);
         client.toastSink = (text, kind) => (kind === "error" ? notices.failed(text) : notices.transient(text));
         connectedClients.connected(client);

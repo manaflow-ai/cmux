@@ -430,7 +430,8 @@ pub mod method {
     // acpmux extension namespace. Everything a plain ACP client does not need.
     pub const MUX_STATUS: &str = "_acpmux/status";
     /// The live perf commentator (`perf_watch.rs`): `{op: on|off|status|read|snapshot|report|
-    /// budgets}`; local app and unix socket only.
+    /// budgets}`, and the always-on frame tally (`frame_tally.rs`): `{op: frames|tally}`; local app
+    /// and unix socket only.
     pub const MUX_PERF: &str = "_acpmux/perf";
     /// One-request v2 upgrade. The JSON-RPC reply is the last v1 message; the
     /// transport hands the same stream to the framed v2 connection afterward.
