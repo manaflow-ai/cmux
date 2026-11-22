@@ -38,6 +38,9 @@
 // read: the chord the host sends, empty for the app's own. Anything else reads as "cmux".
 // `newChatsIn` is `agentPane.newChatsIn` ("Start New Chats In", "local" by default): "cloud" makes a
 // new chat's run location Cloud unless its composer picks another (runLocationDefault.ts).
+// `autoChatPlacement` is `agentPane.autoChatPlacement` ("Auto Chat Placement", off by default): on, a new
+// chat's place picker offers Auto, which asks acpmux where the chat starts (`_acpmux/place_chat`,
+// autoPlace.ts) and shows the verdict. Off, the picker is as before. Anything but true reads as off.
 // `cloudEnvironments` is the launch flag CLOUD_ENVIRONMENTS_ENABLED (Swift
 // AgentPaneCloudEnvironmentsFlag, read from the bundle's LSEnvironment, else the launch
 // environment; no cmux.json key): on, picking Cloud in a new
@@ -70,6 +73,7 @@ export type ComposerSettings = {
   harnessSwitch: boolean;
   showMachineLoadWarnings: boolean;
   newChatsIn: NewChatPlace;
+  autoChatPlacement: boolean;
   composerRing: ComposerRing;
   cloudEnvironments: boolean;
 };
@@ -89,6 +93,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   harnessSwitch: false,
   showMachineLoadWarnings: true,
   newChatsIn: "local",
+  autoChatPlacement: false,
   composerRing: "context",
   cloudEnvironments: false,
 };
@@ -102,6 +107,7 @@ type ComposerFlag =
   | "harnessSwitch"
   | "scrollToBottomOnSend"
   | "showMachineLoadWarnings"
+  | "autoChatPlacement"
   | "cloudEnvironments";
 
 /// The host's value; anything it does not know keeps the default.
@@ -131,6 +137,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     harnessSwitch: flag("harnessSwitch"),
     showMachineLoadWarnings: flag("showMachineLoadWarnings"),
     newChatsIn: raw.newChatsIn === "cloud" ? "cloud" : "local",
+    autoChatPlacement: flag("autoChatPlacement"),
     composerRing: raw.composerRing === "planUsage" ? "planUsage" : "context",
     cloudEnvironments: flag("cloudEnvironments"),
   };
