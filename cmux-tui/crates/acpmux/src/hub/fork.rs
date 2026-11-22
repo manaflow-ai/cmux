@@ -751,6 +751,7 @@ impl Hub {
             // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
             wait_start: false,
             throwaway: false,
+            agent_behind_seq: None,
             hibernated_ms: 0,
             idle_launch: None,
             start_level: None,
