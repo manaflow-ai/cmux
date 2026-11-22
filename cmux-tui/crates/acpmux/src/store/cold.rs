@@ -248,12 +248,9 @@ impl LocalStore {
         if !crate::home_fs::try_exists_nofollow(self.cold_path(id))?
             && crate::home_fs::try_exists_nofollow(self.cloud_stub_path(id))?
         {
-            // Offloaded: the archive comes back beside its stub and stays cold. A later offload
-            // of the same bytes removes it again.
-            let _cold = self.cold.lock_or_recover();
-            if !crate::home_fs::try_exists_nofollow(self.cold_path(id))? {
-                self.fetch_cloud_locked(id)?;
-            }
+            // Offloaded to cloud history: not searched, never fetched for a query (one search
+            // would pull every offloaded chat back). A local text index of them is the next step.
+            return Ok(());
         }
         decode_files(&self.cold_path(id), &mut |entry, part, hash| {
             if !entry.name.ends_with(".ndjson") {

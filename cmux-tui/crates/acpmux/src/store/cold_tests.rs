@@ -708,7 +708,7 @@ fn an_offloaded_chat_comes_back_from_cloud_history() {
         assert_eq!(Store::list(&store).unwrap().iter().filter(|m| m.id == "c").count(), 1);
         assert!(Store::load_startup(&store, "c").unwrap().is_some());
 
-        // Search fetches the archive and leaves the chat cold.
+        // Search skips an offloaded chat: no fetch, no hits, still offloaded.
         let query =
             crate::session_search::Query::from_params(&json!({"query": "flaky test"})).unwrap();
         let hits = crate::session_search::search_messages(
@@ -718,11 +718,9 @@ fn an_offloaded_chat_comes_back_from_cloud_history() {
             crate::session_search::TextView::Conversation,
         )
         .unwrap();
-        assert!(hits.hits.len() >= 3);
-        assert!(store.is_cold("c"));
-        // Offloading again removes the fetched copy.
-        assert!(Store::offload_cold(&store, "c").unwrap().is_some());
+        assert!(hits.hits.is_empty());
         assert!(!dir.join(COLD_FILE).exists());
+        assert!(store.is_cold("c"));
 
         // The first read fetches and thaws it, byte for byte; the stub goes.
         assert_eq!(Store::events(&store, "c", 0, usize::MAX).unwrap(), records);
