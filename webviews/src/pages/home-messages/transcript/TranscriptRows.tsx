@@ -131,7 +131,11 @@ function BubbleRow({
   const committed = !pendingKey && !row.streaming;
   const items: ContextMenuItem[] = [];
   if (failed && pendingKey) {
-    items.push({ id: "retry", label: t("home.menu.tryAgain"), onSelect: () => actions.onRetry?.(pendingKey) });
+    items.push({
+      id: "retry",
+      label: t("home.menu.tryAgain"),
+      onSelect: () => actions.onRetry?.(pendingKey),
+    });
     items.push({
       id: "discard",
       label: t("home.menu.deleteFailed"),
@@ -176,7 +180,9 @@ function BubbleRow({
       strings={strings}
     />
   ) : row.markdown ? (
-    <Markdown streaming={row.streaming}>{text}</Markdown>
+    <Markdown streaming={row.streaming} messageAt={message.createdAt}>
+      {text}
+    </Markdown>
   ) : (
     <span className="mt-text">{text}</span>
   );

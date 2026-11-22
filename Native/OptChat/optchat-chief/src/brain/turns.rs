@@ -424,6 +424,9 @@ impl Brain {
         self.turn_landed.clear();
         self.turn_posts.clear();
         self.landed_refused = false;
+        // The person wrote: the loop guard's hold ends, and what it kept
+        // from being told goes in this turn (budget_hold.rs).
+        let held_news = self.end_budget_hold(side.as_deref(), &items);
         let done = self.log_items(&items, move |next, done| {
             next.carry_answers.clear();
             let first = done.ids.first().copied().unwrap_or(first_id);
@@ -585,6 +588,7 @@ impl Brain {
             .chain(memory.iter())
             .chain(at_work.iter())
             .chain(open_items.iter())
+            .chain(held_news.iter())
             .chain(home.iter())
             .chain(resumes.iter())
             .cloned()

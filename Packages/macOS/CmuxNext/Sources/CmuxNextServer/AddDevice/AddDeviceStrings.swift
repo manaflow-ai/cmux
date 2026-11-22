@@ -6,7 +6,7 @@ import Foundation
 public nonisolated struct AddDeviceStrings {
     public nonisolated init() {}
     private static func s(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "AddDevice", bundle: .module)
+        String(localized: key, defaultValue: value, table: "AddDevice", bundle: .localizedModule)
     }
 
     static var title: String { s("addDevice.title", "Add a Device") }

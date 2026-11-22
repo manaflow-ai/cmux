@@ -571,6 +571,7 @@ class Driver:
                 self.rpc("debug.motion", {"action": "record_stop"})
                 record = None
         self.rpc("debug.journal", {"clear": True})
+        self.rpc("debug.hangs", {"clear": True})
         self.rpc("debug.frames", {"action": "start"})
         self.rpc("debug.motion", {"action": "trace_start", "targets": TRACE_TARGETS})
         time.sleep(0.25)  # bench: frames at rest before the press
@@ -579,6 +580,7 @@ class Driver:
         trace_path = os.path.join(self.out, f"{name}.trace.json")
         self.rpc("debug.motion", {"action": "trace_stop", "path": trace_path})
         frames = self.rpc("debug.frames", {"action": "stop", "raw": True})
+        hangs = self.rpc("debug.hangs", {"limit": 8})
         if record:
             self.rpc("debug.motion", {"action": "record_stop"})
         journal = self.journal_up(times["press_s"])
@@ -599,10 +601,13 @@ class Driver:
         verdict["up_from"] = "journal" if journal else "send"
         verdict["samples"] = len((drop.get("trace") or {}).get("samples") or [])
         verdict["winner_before_up"] = self.last_winner
+        verdict["stalls"] = stall_stacks(hangs)
         verdict["panes_rest_after"] = len(self.panes())
         print("PANE-DRAG drop " + json.dumps({k: verdict.get(k) for k in (
             "gesture", "kind", "drop", "landed", "note", "error", "panes_before", "panes_after", "drop_ms", "lift_ms",
             "blank_frames", "jumps", "up_from", "samples", "pixel_measured", "winner_before_up", "panes_rest_after")})[:900], flush=True)
+        for stall in verdict["stalls"][:3]:
+            print(f"PANE-DRAG stall {stall['ms']} ms ({stall['kind']}): " + " < ".join(stall["frames"]), flush=True)
         time.sleep(0.4)  # bench: idle between drops
         return verdict
 
@@ -703,6 +708,18 @@ class Driver:
             out.append(self.measure(back, (home[0] + home[2] / 2, home[1] + home[3] / 2), ["option"],
                                     {"gesture": "pane", "kind": kind, "what": "swap back"}, name + "-back"))
         return out
+
+
+def stall_stacks(hangs: dict) -> list:
+    """The main-thread stalls `debug.hangs` caught during a drop, longest first: ms, kind and the app's own frames
+    (CmuxNext, Ghostty, CEF) of each sampled stack, so a run names what held the frame."""
+    out = []
+    for record in (hangs or {}).get("records") or []:
+        frames = [str(f) for f in record.get("frames") or []]
+        ours = [f[:110] for f in frames if any(k in f for k in ("CmuxNext", "Ghostty", "ghostty", "CEF", "cef_"))][:10]
+        out.append({"ms": round(float(record.get("duration_ms") or 0), 1), "kind": record.get("kind"),
+                    "frames": ours or [f[:110] for f in frames[:10]]})
+    return sorted(out, key=lambda r: -r["ms"])
 
 
 def _load(path: str):
