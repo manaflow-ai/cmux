@@ -4,8 +4,8 @@ import Testing
 
 /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut up and load faster".
 /// The iPhone's Screen Sharing said "Connecting to {Mac}…" from the first frame of every first
-/// connect. Now a first connect says nothing for `ScreenSession.connectNoticeDelay` (1 s) and a
-/// reconnect for `reconnectNoticeDelay` (10 s), both on the session's injected `noticeClock`.
+/// connect. Now a first connect says nothing for `ScreenSession.connectNoticeDelay` and a
+/// reconnect for `reconnectNoticeDelay`, both the shared 10 s bound, both on the session's injected `noticeClock`.
 @MainActor
 struct ScreenConnectNoticeTests {
     private func session(_ clock: some Clock<Duration>) -> ScreenSession {
@@ -14,14 +14,14 @@ struct ScreenConnectNoticeTests {
         return session
     }
 
-    @Test func aFirstConnectSaysNothingUnderASecond() async {
+    @Test func aFirstConnectSaysNothingUnderTheSharedBound() async {
         let session = session(ParkedClock())
         defer { session.close() }
         session.connect()
         #expect(session.phase == .connecting && !session.isReconnecting)
         for _ in 0 ..< 50 { await Task.yield() }
         #expect(!session.connectingNoticeShown, "a connect under its notice bound draws no card")
-        #expect(ScreenSession.connectNoticeDelay == .seconds(1))
+        #expect(ScreenSession.connectNoticeDelay == .seconds(10), "one bound: schemas/notice-timing connectionQuietMs")
     }
 
     @Test func aFirstConnectThatLastsIsSaid() async {

@@ -207,9 +207,10 @@ public final class ScreenSession {
     /// A first connect has run for ``connectNoticeDelay``: only now does the view say
     /// "Connecting to …". One that answers within it (the usual case) never flashes the card.
     public private(set) var connectNoticeDue = false
-    /// How long a first connect stays silent: the wait the terminal's "Starting…" mark uses for a
-    /// link coming up (`TerminalStatusBanner.startingRevealDelay`, 1 s).
-    public nonisolated static let connectNoticeDelay: Duration = .seconds(1)
+    /// How long a first connect stays silent: the shared bound for a connection state the person
+    /// can do nothing about (`schemas/notice-timing/notice-timing.json` `connectionQuietMs`, 10 s;
+    /// hq `docs/handbook/connection-state-with-no-action-or-bound.md`), the same as a reconnect.
+    public nonisolated static let connectNoticeDelay: Duration = reconnectNoticeDelay
     @ObservationIgnored private var connectNoticeTask: Task<Void, Never>?
     /// The clock both notice waits run on; tests give it one they control.
     @ObservationIgnored public var noticeClock: any Clock<Duration> = ContinuousClock()

@@ -112,9 +112,9 @@ final class MacScreenChromeHost {
 
 /// Holds the card's in-between states back until they last (Leo, 2026-11-14: "i also want all our
 /// connectivity stuff to shut the f*** up and load faster"). Coming up (asking the hub, connecting,
-/// waiting for the first picture) says nothing for ``ScreenSession/connectNoticeDelay`` (1 s, the
-/// terminal's "Starting…" wait); Reconnecting says nothing for ``ScreenSession/reconnectNoticeDelay``
-/// (10 s, every reconnect label in the app), over the last frame. A failure, an end, a refusal or a
+/// waiting for the first picture) says nothing for ``ScreenSession/connectNoticeDelay`` and Reconnecting
+/// for ``ScreenSession/reconnectNoticeDelay``: both the shared 10 s bound (`schemas/notice-timing`
+/// `connectionQuietMs`), over the last frame. A failure, an end, a refusal or a
 /// card waiting on a person shows at once with its action. One ``QuietHold`` per kind of stretch.
 @MainActor @Observable
 final class MacScreenCardQuiet {
