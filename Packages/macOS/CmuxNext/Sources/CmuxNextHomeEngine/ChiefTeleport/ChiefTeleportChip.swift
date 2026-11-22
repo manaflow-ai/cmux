@@ -122,8 +122,9 @@ public final class ChiefTeleportChip: NSView {
         chevron.isHidden = !style.showsChevron
         dot.isHidden = style != .dot
         setAccessibilityLabel(ChiefTeleportStrings.label(text))
+        // With its words shown it needs no tooltip (a1315's cut 2); a glyph alone is named by it.
+        themedToolTip = style.showsText ? nil : text
         setAccessibilityHelp(ChiefTeleportStrings.help)
-        themedToolTip = style.showsText ? ChiefTeleportStrings.help : text
         invalidateIntrinsicContentSize()
         needsLayout = true
         needsDisplay = true

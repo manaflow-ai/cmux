@@ -7,6 +7,7 @@ import { categoryById, homes, categoryOf } from "./categories";
 import { legacyPart } from "./legacyLinks";
 import type { AgentsState, ChannelsState, KeysState, SharesState, TailnetState, LibraryListing } from "./ops";
 import { settingsKeys } from "./queries";
+import { loadCards } from "./components/cardModules";
 import type { SettingsStore } from "./store";
 
 /** How long a section's host read counts as fresh: long enough that the read a hover started is
@@ -132,7 +133,8 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
     reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
   if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
-  if (cards.has("customizeLibrary")) reads.push({ options: libraryQuery(store), revalidate: true });
+  if (cards.has("customizeLibrary") || cards.has("customizeChecklist"))
+    reads.push({ options: libraryQuery(store), revalidate: true });
   if (cards.has("keys")) reads.push({ options: keysQuery(store), revalidate: true });
   if (cards.has("tailnet")) reads.push({ options: tailnetQuery(store), revalidate: true });
   if (cards.has("channels")) {
@@ -143,14 +145,17 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
 }
 
 /**
- * Ensures every read `section` draws from is in the cache: cached data answers at once (a stale
+ * Ensures `section`'s cards' code is loaded and every read it draws from is in the cache: cached data answers at once (a stale
  * one refreshes in the background), a missing one is read. Never rejects: a failed read shows as
  * its card's own empty state, never as a route error.
  */
 export async function ensureSection(queryClient: QueryClient, store: SettingsStore, section: string): Promise<void> {
-  await Promise.all(
-    sectionReads(store, section).map(({ options, revalidate }) =>
+  const category = categoryById(section);
+  await Promise.all([
+    // The section's cards' code: each card is its own chunk (components/cardModules.tsx).
+    loadCards([...category.lead, ...category.trail]),
+    ...sectionReads(store, section).map(({ options, revalidate }) =>
       queryClient.ensureQueryData({ ...options, revalidateIfStale: revalidate }).catch(() => undefined),
     ),
-  );
+  ]);
 }

@@ -355,7 +355,12 @@ terminal may start between the check and the stop. An owner without
 `daemon-stop-if-idle-v1` (an older build) is left running: the stop fails with
 `server.if_idle_unsupported` (exit 4). `server ensure` waits for a restoring
 owner (up to 2 minutes, then `server.restore_timeout`) instead of starting
-another. An owner at its connection limit refuses each new connection with a
+another. Its `status` is `started` only for an owner this call
+spawned, that announced itself on its ready pipe (Unix) and that answers with
+the pid this call spawned (a DEV build that runs the owner under its launcher
+checks only the announcement). When that owner lost the bind to a racing
+ensure's owner, or a successor replaced it, the owner that answers is reported
+as `running` (this call started none). An owner at its connection limit refuses each new connection with a
 `type: "refused"`, `code: "server.busy"` line; `server ensure` waits for
 capacity instead of starting another owner and fails with `server.busy` after
 10 seconds of continuous refusals. `server ensure --replace-unresponsive` replaces an
