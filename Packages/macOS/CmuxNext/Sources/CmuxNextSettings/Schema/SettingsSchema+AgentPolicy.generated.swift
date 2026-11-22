@@ -296,6 +296,8 @@ extension SettingsSchema {
         "browser.openPullRequestsInGitHubPage",
         // Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.
         "models.spreadUsage",
+        // Local calculator visibility only; no recorded spending or external action.
+        "experiments.unitCost",
     ]
 
     /// True when an agent may change `descriptor`, false when it may not, nil

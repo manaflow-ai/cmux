@@ -19,7 +19,7 @@ import { QueueScreen } from "../queue/QueueScreen";
 import { createQueueCache } from "../queue/useQueue";
 import { createLedgerCache } from "../ledger/LedgerScreen";
 import { teamAudit } from "../teamAudit/teamAudit.experiment";
-import { unitCost as unitCostExperiment } from "../unitCost/unitCost.experiment";
+import { useExperimentSwitch } from "../../../experiments/switches";
 import { UnitCostScreen } from "../unitCost/UnitCostScreen";
 import { TeamAuditScreen } from "../teamAudit/TeamAuditScreen";
 import { AllChatsList } from "./AllChatsList";
@@ -70,7 +70,7 @@ export function HistoryScreen({
     if (queueKey !== undefined) queueCache.note(queueKey);
   }, [queueCache, queueKey]);
   const team = experimentArm(teamAudit) === "on" ? teamProps : undefined;
-  const unitCost = experimentArm(unitCostExperiment) === "on" ? unitCostProps : undefined;
+  const unitCost = useExperimentSwitch("unitCost") ? unitCostProps : undefined;
   const tabbed = Boolean(queue || ledger || team || unitCost);
   const shown: HistoryTab =
     (tab === "queue" && !queue) ||

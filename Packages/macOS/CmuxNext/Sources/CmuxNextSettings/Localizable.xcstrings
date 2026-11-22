@@ -1,6 +1,124 @@
 {
   "sourceLanguage": "en",
   "strings": {
+  "settings.experiments.unitCost": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unit Cost"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Stückkosten"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Coût unitaire"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "تكلفة الوحدة"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Coste unitario"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "單位成本"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "单位成本"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "단위 비용"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "単位コスト"
+        }
+      }
+    }
+  },
+  "settings.experiments.unitCost.help": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Estimate a build, CI job or session cost in History using your own assumptions."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Schätze in Verlauf die Kosten eines Builds, CI-Jobs oder einer Sitzung anhand deiner eigenen Annahmen."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Estimez le coût d’une compilation, d’une tâche CI ou d’une session dans l’historique selon vos propres hypothèses."
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "قدّر تكلفة عملية بناء أو مهمة تكامل مستمر أو جلسة في السجل باستخدام افتراضاتك الخاصة."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Estima el coste de una compilación, tarea de CI o sesión en el historial con tus propias suposiciones."
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "在歷史記錄中，使用你自己的假設估算建置、CI 工作或工作階段的成本。"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "在历史记录中，使用你自己的假设估算构建、CI 任务或会话的成本。"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "기록에서 직접 입력한 가정을 바탕으로 빌드, CI 작업 또는 세션 비용을 추정합니다."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "履歴で独自の前提条件を使い、ビルド、CIジョブ、セッションのコストを見積もります。"
+        }
+      }
+    }
+  },
     "settings.agentPane.composerLook": {
       "comment": "Settings > Agent Chat > Message Box: the row that picks the composer's look (Automatic, Codex or Claude)",
       "extractionState": "manual",

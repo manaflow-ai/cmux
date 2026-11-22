@@ -4,6 +4,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { settleReact } from "./support/domTeardown";
+import { setExperimentSwitches } from "../src/experiments/switches";
 import { experimentArm } from "../src/experiments/experiment";
 import { unitCost } from "../src/agent-session/acpmux/unitCost/unitCost.experiment";
 import { experimentById } from "../src/experiments/registry";
@@ -44,6 +45,7 @@ beforeAll(() => {
 });
 
 afterAll(async () => {
+  setExperimentSwitches({});
   await settleReact();
   dom.window.close();
   for (const [name, value] of saved) {
@@ -73,13 +75,17 @@ test("History hides the calculator by default and makes no estimate request", as
       },
     },
   };
-  scope.cmuxExperiments = {};
+  setExperimentSwitches({});
+  scope.cmuxExperiments = { "unit-cost": "on" };
   await act(async () => root.render(<HistoryScreen {...props} initialTab="unitCost" />));
   expect(host.querySelector(".ucs")).toBeNull();
   expect(host.textContent).not.toContain("Unit cost");
-  scope.cmuxExperiments = { "unit-cost": "on" };
-  await act(async () => root.render(<HistoryScreen {...props} initialTab="unitCost" />));
+  await act(async () => setExperimentSwitches({ unitCost: true }));
   expect(host.querySelector(".ucs")).not.toBeNull();
+  expect(calls).toBe(0);
+  await act(async () => setExperimentSwitches({ unitCost: false }));
+  expect(host.querySelector(".ucs")).toBeNull();
+  expect(host.textContent).not.toContain("Unit cost");
   expect(calls).toBe(0);
   await act(async () => root.unmount());
 });

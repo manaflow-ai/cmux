@@ -161,6 +161,27 @@
             "tool",
             "card"
           ]
+        },
+        {
+          "key": "experiments.unitCost",
+          "note": "Local History calculator. Off by default; turning it off hides the calculator and makes no estimate request.",
+          "title": {
+            "key": "settings.experiments.unitCost",
+            "text": "Unit Cost"
+          },
+          "help": {
+            "key": "settings.experiments.unitCost.help",
+            "text": "Estimate a build, CI job or session cost in History using your own assumptions."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "labs",
+            "cost",
+            "estimate",
+            "history"
+          ]
         }
       ]
     }
