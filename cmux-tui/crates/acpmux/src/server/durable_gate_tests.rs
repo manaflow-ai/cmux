@@ -401,16 +401,16 @@ async fn a_replay_after_a_hard_stop_sends_the_tail_past_the_saved_last_seq() {
 /// background log pass or the chat's first append) must still send the tail past the saved
 /// `lastSeq`. `catch_up_locked` marked the chat caught up before it counted the tail, so a replay
 /// that read the mark skipped the catch-up and stopped at the saved `lastSeq`. The first catch-up
-/// is held while it counts: its read of the tail waits at the journal's read fence, because
-/// another chat's append holds the appends' lock (`pause_next_log_write_on_this_thread`, set on
-/// the appending thread). The first replay says when its catch-up is under way
+/// is held while it counts: its read of the tail stops at the journal's read fence
+/// (`hold_next_read_fence_on_this_thread`, set on the first replay's thread; a read no longer
+/// waits on another chat's append, #47421). The first replay says when its catch-up is under way
 /// (`NOTE_IN_CATCH_UP`). The second says when it waits for the chat's append lock
 /// (`NOTE_BEFORE_CATCH_UP_LOCK`, the fixed code) or reads the log having skipped its catch-up
-/// (`NOTE_BEFORE_REPLAY_SCAN`, the code before), and only then is the append let go.
+/// (`NOTE_BEFORE_REPLAY_SCAN`, the code before), and only then is the first read let go.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_replay_during_another_catch_up_sends_the_tail_past_the_saved_last_seq() {
     use crate::hub::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
-    use crate::store::pause_next_log_write_on_this_thread;
+    use crate::store::hold_next_read_fence_on_this_thread;
     const WAIT: Duration = Duration::from_secs(10);
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let mut config = Config::default();
@@ -459,24 +459,15 @@ async fn a_replay_during_another_catch_up_sends_the_tail_past_the_saved_last_seq
     // The chat's log is not loaded yet: else neither replay would catch up.
     let chat = hub.resolve(CHAT).unwrap_or_else(|e| panic!("{e:?}"));
     assert!(!hub.session_log_loaded(&chat), "the chat's log was loaded before the replays");
-    // The other chat's append stops after its log write, the appends' lock held.
-    let other = hub.resolve(OTHER).unwrap_or_else(|e| panic!("{e:?}"));
     let (arrived_tx, arrived) = std::sync::mpsc::channel();
     let (release, release_rx) = std::sync::mpsc::channel::<()>();
-    let appender = {
-        let hub = hub.clone();
-        std::thread::spawn(move || {
-            pause_next_log_write_on_this_thread(arrived_tx, release_rx);
-            hub.append(&other, "mux", "note", json!({"n": 1})).seq
-        })
-    };
-    arrived.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the append never paused: {e}"));
     // The first replay: its catch-up is under way, and its read of the tail waits at the fence.
     let (under_way_tx, under_way) = std::sync::mpsc::channel();
     let first = {
         let hub = hub.clone();
         std::thread::spawn(move || {
             NOTE_IN_CATCH_UP.with(|note| *note.borrow_mut() = Some(under_way_tx));
+            hold_next_read_fence_on_this_thread(arrived_tx, release_rx);
             let mut seen = Vec::new();
             hub.scan_events(CHAT, 0, &mut |record| {
                 seen.push(record.seq);
@@ -487,6 +478,9 @@ async fn a_replay_during_another_catch_up_sends_the_tail_past_the_saved_last_seq
         })
     };
     under_way.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the first catch-up never began: {e}"));
+    arrived
+        .recv_timeout(WAIT)
+        .unwrap_or_else(|e| panic!("the first read never reached the fence: {e}"));
     // The second replay meanwhile: it says where it stopped.
     let (events_tx, events) = std::sync::mpsc::channel();
     let second = {
@@ -506,7 +500,6 @@ async fn a_replay_during_another_catch_up_sends_the_tail_past_the_saved_last_seq
     let stopped =
         events.recv_timeout(WAIT).unwrap_or_else(|e| panic!("no word from the second replay: {e}"));
     let _ = release.send(());
-    let _ = appender.join().unwrap_or_else(|_| panic!("append panicked"));
     let first = first.join().unwrap_or_else(|_| panic!("the first replay panicked"));
     let second = second.join().unwrap_or_else(|_| panic!("the second replay panicked"));
     assert_eq!(first, vec![1, 2, 3], "the first replay left out the tail");
