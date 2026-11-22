@@ -310,8 +310,21 @@ def run(argv: list[str]) -> int:
         print(f"INFTABS-BUILT workspaces={len(made)} pages={sum(len(e['pages']) for e in made)} build_s={report['build_s']} "
               f"hibernate={json.dumps(tally)}", flush=True)
         time.sleep(args.settle)  # test script: renderers exit, idle agents hibernate, the app settles
+        # Who runs in the idle window (the app's wakeup ledger, its threads' CPU, Chromium's pump counters, live
+        # pages, a stack sample after it), and where the biggest kinds keep their memory: the numbers a fix starts from.
+        attribution = bm.Attribution(app, pid, bundle, kinds=("app", "cef-gpu"))
+        pump_before = (app.call("debug.cef", timeout=30) or {}).get("pump") or {}
+        attribution.start()
         full = phase(pid, bundle, sock, "full", len(made) + sum(len(e["pages"]) for e in made), args.measure, report)
+        found = attribution.finish()
+        pump_after = (app.call("debug.cef", timeout=30) or {}).get("pump") or {}
+        pump = {key: round(value - pump_before.get(key, 0), 3) for key, value in pump_after.items()
+                if isinstance(value, (int, float)) and not isinstance(value, bool)}
+        report["full_attribution"] = {**found, "pump_delta": pump}
+        bm.print_attribution("full", found)
+        print(f"PERF-ATTR full pump window_s={found['window_s']} delta={json.dumps(pump)}", flush=True)
         kinds_table(report["phases"]["empty"], full)
+        bm.print_vmmap(full, "app,cef-renderer,tui-daemon")
         with_pages = [entry for entry in made if entry["pages"]]
         step = max(1, len(with_pages) // max(1, args.wake))
         for entry in with_pages[::step][: args.wake]:
