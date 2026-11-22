@@ -214,42 +214,58 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
   async function open(chat: string, items: readonly Item[], tabRow: boolean): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: WINDOW, height: 640 } });
     await installPaintedFrames(page);
-    // The app's side (Swift's `agentSession` handler): the handshake names the chat; the worktree pill reads the
-    // folder's git status (postNative `git.status`); a warning chat has a tail the app kept (`chat.tail.get`), drawn
-    // while its attach is out, so the attach's failure fails the open on screen (direct.ts: "failed", the header's
-    // warning, model.ts paneHeader).
+    // The app's side: the page's dev host (dev-host/host.ts, installed for `#endpoint=`) answers the page's calls;
+    // this wraps it so the worktree pill reads the folder's git status (`git.status`), and a warning chat has a tail
+    // the app kept (`chat.tail.get`), drawn while its attach is out, so the attach's failure fails the open on screen
+    // (direct.ts: "failed", the header's warning, model.ts paneHeader).
     await page.addInitScript(
-      ({ worktree, endpoint, chat, tail }) => {
+      ({ worktree, tail }) => {
         const posts: string[] = [];
         (window as unknown as { __posts: string[] }).__posts = posts;
-        (window as unknown as { webkit: unknown }).webkit = {
-          messageHandlers: {
-            agentSession: {
-              postMessage: async ({ method }: { method: string }) => {
-                posts.push(method);
-                const value =
-                  method === "ready"
-                    ? { protocolVersion: 1, transport: "acpmux-websocket", endpoint, token: "t", sessionId: chat }
-                    : method === "git.status" && worktree
-                      ? {
-                          branch: "feat/stall-history",
-                          base: "main",
-                          detached: false,
-                          worktree: { main_root: "/home/dev/uploader-main" },
-                        }
-                      : method === "chat.tail.get" && tail
-                        ? tail
-                        : null;
-                return { ok: true, value };
+        type Handler = { postMessage(message: unknown): Promise<unknown> };
+        const own = (method: string): { value: unknown } | undefined => {
+          if (method === "git.status" && worktree)
+            return {
+              value: {
+                branch: "feat/stall-history",
+                base: "main",
+                detached: false,
+                worktree: { main_root: "/home/dev/uploader-main" },
               },
-            },
-          },
+            };
+          if (method === "chat.tail.get" && tail) return { value: tail };
+          return undefined;
         };
+        const wrap = (inner: Handler, envelope: (message: unknown) => { id?: unknown; method?: string }): Handler => ({
+          postMessage: async (message) => {
+            const { id, method } = envelope(message);
+            if (method) posts.push(method);
+            const answer = method ? own(method) : undefined;
+            if (!answer) return inner.postMessage(message);
+            return id === undefined ? { ok: true, value: answer.value } : { t: "ok", id, value: answer.value };
+          },
+        });
+        const handlers: Record<string, Handler | undefined> = {};
+        const slot = (name: string, envelope: (message: unknown) => { id?: unknown; method?: string }) => {
+          let inner: Handler | undefined;
+          Object.defineProperty(handlers, name, {
+            enumerable: true,
+            get: () => (inner ? wrap(inner, envelope) : undefined),
+            set: (next: Handler) => {
+              inner = next;
+            },
+          });
+        };
+        // The page host's envelopes (`{t: "call", id, op: "cmux.agent.METHOD"}`) and the older bridge's requests.
+        slot("cmuxPage", (message) => {
+          const call = message as { t?: string; id?: unknown; op?: string };
+          return call?.t === "call" ? { id: call.id, method: String(call.op ?? "").replace(/^cmux\.agent\./, "") } : {};
+        });
+        slot("agentSession", (message) => ({ method: (message as { method?: string })?.method }));
+        (window as unknown as { webkit: unknown }).webkit = { messageHandlers: handlers };
       },
       {
         worktree: items.includes("worktree"),
-        endpoint: `ws://127.0.0.1:${daemon!.port}/`,
-        chat,
         tail: items.includes("warning")
           ? { events: eventsFor(chat), summary: sessionFor(chat), historyExhausted: true }
           : null,
