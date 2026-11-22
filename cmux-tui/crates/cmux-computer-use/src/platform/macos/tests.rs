@@ -3338,3 +3338,20 @@ fn mac_worker_watches_the_person() {
     // Whatever the HID clock says on this host, the call returns within its limit.
     let _ = watch.wait_idle(std::time::Duration::ZERO);
 }
+
+/// The panel sits so the arrow's tip is on the event's point: global (100, 50)
+/// on a 900-point-high primary screen is AppKit (99, 900 - 50 - 23).
+#[test]
+fn the_cursor_panel_puts_the_tip_on_the_point() {
+    assert_eq!(overlay::tip_origin_for_tests(Point { x: 100.0, y: 50.0 }, 900.0), (99.0, 827.0));
+}
+
+/// Off AppKit's main thread (a test thread) the worker runs without a
+/// cursor rather than touching AppKit off the main thread.
+#[test]
+fn no_app_no_cursor_and_the_work_still_runs() {
+    assert_eq!(overlay::run_with_app(|| 7), 7);
+    // No app was started by this test thread, so nothing draws.
+    let sink = crate::platform::cursor_overlay();
+    sink.show(crate::cursor::CursorEvent::Hide { session: "s".into() });
+}

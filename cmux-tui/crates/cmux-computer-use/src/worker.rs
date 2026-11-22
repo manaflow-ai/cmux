@@ -253,7 +253,12 @@ pub fn run(
     let mut parts = EngineParts::new(platform.desktop);
     parts.config = configure.config;
     parts.state_dir = configure.state_dir;
-    parts.cursor = platform.cursor;
+    // `computerUse.showCursor`: the overlay draws only while it is on (config lines change it).
+    let show_cursor = Arc::new(crate::cursor_draw::ShowCursor::new(
+        platform.cursor,
+        configure.config.show_cursor,
+    ));
+    parts.cursor = show_cursor.clone();
     parts.takeover = platform.takeover;
     parts.approver = approver.clone();
     parts.machine_name = configure.machine;
@@ -280,19 +285,26 @@ pub fn run(
             Ok(_) => {}
         }
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
-        control(&engine, &approver, &out, &message);
+        control(&engine, &approver, &show_cursor, &out, &message);
     }
     approver.close();
     server.stop();
     EXIT_OK
 }
 
-fn control(engine: &Engine, approver: &StdioApprover, out: &Out, message: &Value) {
+fn control(
+    engine: &Engine,
+    approver: &StdioApprover,
+    show_cursor: &crate::cursor_draw::ShowCursor,
+    out: &Out,
+    message: &Value,
+) {
     match message.get("type").and_then(Value::as_str).unwrap_or_default() {
         "config" => {
             if let Some(Ok(config)) =
                 message.get("config").map(|c| serde_json::from_value::<PolicyConfig>(c.clone()))
             {
+                show_cursor.set(config.show_cursor);
                 engine.set_config(config);
             }
         }

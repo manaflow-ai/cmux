@@ -17,6 +17,7 @@ mod input;
 mod key_focus;
 mod keymap;
 mod menus;
+pub mod overlay;
 mod readback;
 mod roles;
 mod sys;
@@ -34,6 +35,7 @@ use ax::{Ax, ElementCache};
 use cgwindows::CgWindow;
 
 pub use idle::person_activity;
+pub use overlay::{cursor_overlay, run_with_app};
 
 pub struct MacDesktop {
     host: Option<Arc<dyn HostServices>>,

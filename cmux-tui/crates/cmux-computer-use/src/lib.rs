@@ -24,6 +24,7 @@
 #[cfg(unix)]
 pub mod client;
 pub mod cursor;
+pub mod cursor_draw;
 pub mod desktop;
 pub mod engine;
 pub mod frame;
