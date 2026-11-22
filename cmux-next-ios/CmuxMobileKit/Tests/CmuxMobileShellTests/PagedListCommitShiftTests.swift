@@ -169,9 +169,11 @@ import UIKit
         list.setContentOffset(CGPoint(x: 0, y: 10 * 60 - list.adjustedContentInset.top), animated: false)
         settle()
         hosted.seen.shifts = []
+        #expect(Bool(false), "DIAG insert-before n=\(hosted.list.numberOfItems(inSection: 0)) model=\(hosted.rows.items.count) offset=\(hosted.list.contentOffset.y) inset=\(hosted.list.adjustedContentInset.top) visible=\(hosted.list.indexPathsForVisibleItems.map(\.item).sorted()) h10=\(hosted.list.layoutAttributesForItem(at: IndexPath(item: 10, section: 0))?.frame.height ?? -1) first=\(hosted.rows.items.prefix(3).map(\.id)) shifts=\(hosted.seen.shifts.filter { abs($0) > 0.5 }) drawn=\(hosted.seen.drawn.filter { abs($0) > 0.5 }) window=\(hosted.list.window != nil)")
         hosted.rows.items.insert(Row(id: 1000), at: 11)
         hosted.container.transform = CGAffineTransform(translationX: 0, y: 10)
         settle()
+        #expect(Bool(false), "DIAG insert-after n=\(hosted.list.numberOfItems(inSection: 0)) model=\(hosted.rows.items.count) offset=\(hosted.list.contentOffset.y) inset=\(hosted.list.adjustedContentInset.top) visible=\(hosted.list.indexPathsForVisibleItems.map(\.item).sorted()) h10=\(hosted.list.layoutAttributesForItem(at: IndexPath(item: 10, section: 0))?.frame.height ?? -1) first=\(hosted.rows.items.prefix(3).map(\.id)) shifts=\(hosted.seen.shifts.filter { abs($0) > 0.5 }) drawn=\(hosted.seen.drawn.filter { abs($0) > 0.5 }) window=\(hosted.list.window != nil)")
         #expect(abs(hosted.seen.worst - 10) < 0.5, "a 10 pt move with a row arriving next to the reader measured \(hosted.seen.shifts)")
     }
 
@@ -184,8 +186,10 @@ import UIKit
         list.setContentOffset(CGPoint(x: 0, y: 10 * 60 + 20 - list.adjustedContentInset.top), animated: false)
         settle()
         let before = try #require(top(of: 11, in: list))
+        #expect(Bool(false), "DIAG grow-before n=\(hosted.list.numberOfItems(inSection: 0)) model=\(hosted.rows.items.count) offset=\(hosted.list.contentOffset.y) inset=\(hosted.list.adjustedContentInset.top) visible=\(hosted.list.indexPathsForVisibleItems.map(\.item).sorted()) h10=\(hosted.list.layoutAttributesForItem(at: IndexPath(item: 10, section: 0))?.frame.height ?? -1) first=\(hosted.rows.items.prefix(3).map(\.id)) shifts=\(hosted.seen.shifts.filter { abs($0) > 0.5 }) drawn=\(hosted.seen.drawn.filter { abs($0) > 0.5 }) window=\(hosted.list.window != nil)")
         hosted.rows.items[10].tall = true
         settle()
+        #expect(Bool(false), "DIAG grow-after n=\(hosted.list.numberOfItems(inSection: 0)) model=\(hosted.rows.items.count) offset=\(hosted.list.contentOffset.y) inset=\(hosted.list.adjustedContentInset.top) visible=\(hosted.list.indexPathsForVisibleItems.map(\.item).sorted()) h10=\(hosted.list.layoutAttributesForItem(at: IndexPath(item: 10, section: 0))?.frame.height ?? -1) first=\(hosted.rows.items.prefix(3).map(\.id)) shifts=\(hosted.seen.shifts.filter { abs($0) > 0.5 }) drawn=\(hosted.seen.drawn.filter { abs($0) > 0.5 }) window=\(hosted.list.window != nil)")
         // The fixture's own check: the row grew (a test whose row never grows passes on any code).
         let grown = try #require(list.layoutAttributesForItem(at: IndexPath(item: 10, section: 0)))
         #expect(abs(grown.frame.height - 82) < 0.5, "row 10 measured \(grown.frame.height) pt, not 82: the grow did not reach the list")
@@ -248,8 +252,10 @@ import UIKit
         settle()
         hosted.seen.drawn = []
         let offset = list.contentOffset.y
+        #expect(Bool(false), "DIAG removeFirst-before n=\(hosted.list.numberOfItems(inSection: 0)) model=\(hosted.rows.items.count) offset=\(hosted.list.contentOffset.y) inset=\(hosted.list.adjustedContentInset.top) visible=\(hosted.list.indexPathsForVisibleItems.map(\.item).sorted()) h10=\(hosted.list.layoutAttributesForItem(at: IndexPath(item: 10, section: 0))?.frame.height ?? -1) first=\(hosted.rows.items.prefix(3).map(\.id)) shifts=\(hosted.seen.shifts.filter { abs($0) > 0.5 }) drawn=\(hosted.seen.drawn.filter { abs($0) > 0.5 }) window=\(hosted.list.window != nil)")
         hosted.rows.items.removeFirst(10)
         settle()
+        #expect(Bool(false), "DIAG removeFirst-after n=\(hosted.list.numberOfItems(inSection: 0)) model=\(hosted.rows.items.count) offset=\(hosted.list.contentOffset.y) inset=\(hosted.list.adjustedContentInset.top) visible=\(hosted.list.indexPathsForVisibleItems.map(\.item).sorted()) h10=\(hosted.list.layoutAttributesForItem(at: IndexPath(item: 10, section: 0))?.frame.height ?? -1) first=\(hosted.rows.items.prefix(3).map(\.id)) shifts=\(hosted.seen.shifts.filter { abs($0) > 0.5 }) drawn=\(hosted.seen.drawn.filter { abs($0) > 0.5 }) window=\(hosted.list.window != nil)")
         #expect(abs(list.contentOffset.y - (offset - 600)) < 0.5, "the offset moved \(list.contentOffset.y - offset) pt")
         #expect(!hosted.seen.drawn.isEmpty, "the drawn measure took no sample")
         #expect(hosted.seen.drawnWorst <= 0.5, "a swap of the rows above measured \(hosted.seen.drawn)")
@@ -264,8 +270,10 @@ import UIKit
         list.setContentOffset(CGPoint(x: 0, y: 20 * 60 - list.adjustedContentInset.top), animated: false)
         settle()
         hosted.seen.drawn = []
+        #expect(Bool(false), "DIAG removeReader-before n=\(hosted.list.numberOfItems(inSection: 0)) model=\(hosted.rows.items.count) offset=\(hosted.list.contentOffset.y) inset=\(hosted.list.adjustedContentInset.top) visible=\(hosted.list.indexPathsForVisibleItems.map(\.item).sorted()) h10=\(hosted.list.layoutAttributesForItem(at: IndexPath(item: 10, section: 0))?.frame.height ?? -1) first=\(hosted.rows.items.prefix(3).map(\.id)) shifts=\(hosted.seen.shifts.filter { abs($0) > 0.5 }) drawn=\(hosted.seen.drawn.filter { abs($0) > 0.5 }) window=\(hosted.list.window != nil)")
         hosted.rows.items.removeAll { $0.id == 20 }
         settle()
+        #expect(Bool(false), "DIAG removeReader-after n=\(hosted.list.numberOfItems(inSection: 0)) model=\(hosted.rows.items.count) offset=\(hosted.list.contentOffset.y) inset=\(hosted.list.adjustedContentInset.top) visible=\(hosted.list.indexPathsForVisibleItems.map(\.item).sorted()) h10=\(hosted.list.layoutAttributesForItem(at: IndexPath(item: 10, section: 0))?.frame.height ?? -1) first=\(hosted.rows.items.prefix(3).map(\.id)) shifts=\(hosted.seen.shifts.filter { abs($0) > 0.5 }) drawn=\(hosted.seen.drawn.filter { abs($0) > 0.5 }) window=\(hosted.list.window != nil)")
         #expect(!hosted.seen.drawn.isEmpty, "the drawn measure took no sample")
         // The anchor keeps the next row (21) where it was: nothing drawn moved.
         #expect(hosted.seen.drawnWorst <= 0.5, "the removed row was not followed by a surviving one: \(hosted.seen.drawn)")
