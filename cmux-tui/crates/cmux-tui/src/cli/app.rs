@@ -215,6 +215,8 @@ pub(super) enum AppCommand {
     /// `cmux live start|stop|status`: edit cmux's web UI while it runs (app/live.rs).
     Live(live::Command),
     Try(try_cmd::Command), // `cmux app try <PR|branch|sha>|undo|status` (app/try_cmd.rs)
+    /// `cmux app share`: the build you run as one `cmux app try` line (app/try_cmd/share.rs).
+    Share(try_cmd::ShareCommand),
     /// `cmux app publish|versions|rollback|ls`: versioned apps from this machine (app/published.rs).
     Published(cmux_apps::cli::Parsed),
     /// `cmux app launch-times`: the app's recorded launches, read from its file (app/launch_times.rs).
@@ -322,6 +324,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("keybinding", _) => keybinding::parse(rest)?,
         ("app", Some("call")) => call::parse(rest)?,
         ("app", Some("try")) => AppCommand::Try(try_cmd::parse(rest.get(1..).unwrap_or_default())?),
+        ("app", Some("share")) => {
+            AppCommand::Share(try_cmd::parse_share(rest.get(1..).unwrap_or_default())?)
+        }
         ("app", _) if published::owns(rest) => {
             AppCommand::Published(published::parse(rest).map_err(UsageError::new)?)
         }
@@ -895,6 +900,7 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
             return Ran::Done(live::run(&command));
         }
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, command)),
+        AppCommand::Share(command) => return Ran::Done(try_cmd::run_share(global, command)),
         AppCommand::Published(parsed) => return Ran::Done(published::run(global, parsed)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, command)),
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, command)),
@@ -1045,6 +1051,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             return Ran::Done(live::run(&command));
         }
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, &command)),
+        AppCommand::Share(command) => return Ran::Done(try_cmd::run_share(global, &command)),
         AppCommand::Published(parsed) => return Ran::Done(published::run(global, &parsed)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, &command)),
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, &command)),

@@ -75,6 +75,7 @@ on:
       # cmux-customize-recipes embeds the recipes guide (in the tree key).
       - docs/cmux-next/customize-recipes.md
       - examples/looks/**
+      - examples/gallery/gallery.json
       - webviews/test/fixtures/**
       # Why: docs/ci/cmux-next-workflow-notes.md#note-489
       - webviews/src/**
@@ -362,6 +363,7 @@ on:
       - docs/remote-agents-and-cloud.md
       - docs/cmux-next/customize-recipes.md
       - examples/looks/**
+      - examples/gallery/gallery.json
       - scripts/cmux-next/check-generator-inputs.sh
       # Why: docs/ci/cmux-next-workflow-notes.md#note-526
       - scripts/cmux-next/generated-autofixable.sh

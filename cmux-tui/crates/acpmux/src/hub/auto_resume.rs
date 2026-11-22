@@ -119,6 +119,9 @@ mod compact_first;
 /// A dead agent's unread steers go into its continuation.
 mod unread_steers;
 
+/// A turn the agent failed on its model goes again once, under the model's catalog id.
+mod model_reroute;
+
 /// The loop as Settings > Agents > Retry After Errors sets it (`agents.autoRetry.*`).
 mod settings;
 pub(in crate::hub) use settings::effective_delays;
@@ -127,7 +130,9 @@ pub(in crate::hub) use settings::effective_delays;
 /// ([`super::turn_errors::resume_cause`]), or a revoked token, which a chat's first send retries
 /// ([`first_send`]). A row shows such a turn's retry being decided until that is settled.
 fn retry_decided_on(error: &str) -> bool {
-    super::turn_errors::resume_cause(error, error).is_some() || first_send::retried_error(error)
+    super::turn_errors::resume_cause(error, error).is_some()
+        || first_send::retried_error(error)
+        || crate::model_catalog::is_model_error(error)
 }
 
 /// Waits before attempts 1, 2, 3 and 4, in milliseconds.
@@ -596,6 +601,19 @@ impl Hub {
             pending.replace(mark);
             drop(pending);
             self.retry_first_send(session, cut, wake);
+            return;
+        }
+        // A turn the agent failed on its model: sent again once under the model's catalog id,
+        // its wait this mark's; with no such id the mark goes as an unretried failure.
+        if let (Some(cut), None, Some(true)) = (cut.as_ref(), reason, ending)
+            && model_reroute::may_reroute(cut)
+        {
+            let wake = Arc::new(Notify::new());
+            let mark =
+                Mark::Waiting { turn: turn_id.to_owned(), retry: None, _wake: Wake(wake.clone()) };
+            pending.replace(mark);
+            drop(pending);
+            self.reroute_model_turn(session, cut, wake);
             return;
         }
         // The account's limit holds the whole chat from now on, a continuation or none: what comes
