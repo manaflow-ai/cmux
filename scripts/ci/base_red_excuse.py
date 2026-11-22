@@ -3844,6 +3844,46 @@ SAME_TREE_SUFFIX = " (same-tree)"
 # dispatched run's head_sha is the feat-cmux-next tip, not the PR head, so its red is never compared by the run: it is
 # the PR's own at that base (a merger reruns one at a stale base), never a base red (cmux#38640, 2026-11-09).
 FAST_GATES_STATUS = "cmux-next/fast-gates"
+# The controller's required-checks pool posts its verdicts as commit statuses (manaflow-checks[bot]); a failed one says
+# "failed on the cmux pool (exit 1); rerun: POST /v1/required-checks/rerun?head=<sha>". cmux#49885 at 8b11f0c2
+# (2026-11-22): 'clippy (changed cmux-tui packages)' failed there while its Actions twin of the same name was skipped by
+# path routing, so this script judged the skipped twin and said "re-run it": an Actions rerun comes back skipped, and
+# nothing moved until a person POSTed the pool's rerun by hand. Leo: "should've been caught and fixed faster. hell,
+# maybe even should've been automatic...". A pool red is never judged by its Actions twin: it is refused with the
+# base's newest status of the same context beside it and the pool's own rerun as the next step (land-judge's
+# pool_rerun_note makes that POST once per head). Its description names no failure, so the base sharing it excuses
+# nothing.
+POOL_RERUN = re.compile(r"\brerun: POST /v1/required-checks/rerun\?head=(?P<head>[0-9a-fA-F]{7,40})\b")
+POOL_CONTROLLER_DEFAULT = "http://100.89.225.106:18765"  # scripts/ci/expected_wait.py DEFAULT_CONTROLLER
+
+
+def pool_controller() -> str:
+    """The controller a pool rerun goes to: CMUX_CI_CONTROLLER, else POOL_CONTROLLER_DEFAULT."""
+    base = (os.environ.get("CMUX_CI_CONTROLLER") or "").strip()
+    return (base if base.startswith(("http://", "https://")) else POOL_CONTROLLER_DEFAULT).rstrip("/")
+
+
+def pool_status_refusal(repo: str, base: str | None, sha: str, name: str, state: str, description: str, github,
+                        evidence: "Evidence | None" = None) -> str:
+    """The refusal of required-checks pool status NAME red at SHA: the base's newest status of NAME (or why it is
+    unread) and the pool's rerun, never an Actions rerun."""
+    seen = ""
+    if base:
+        try:
+            for commit in (evidence or Evidence(repo, base, github)).status_commits():
+                statuses = github.json(f"repos/{repo}/commits/{commit}/status?per_page=100").get("statuses") or []
+                if (found := next((s for s in statuses if s.get("context") == name), None)) is not None:
+                    seen = (f"; base {commit[:12]} has it {found.get('state')}: "
+                            f"{found.get('description') or 'no description'}")
+                    break
+            else:
+                seen = f"; no recent {base} commit has a status '{name}'"
+        except (Refused, RuntimeError, OSError, ValueError, AttributeError) as why:
+            seen = f"; its {base} status is unread ({str(why)[:160]})"
+    return (f"'{name}': the required-checks pool's status is {state} at {sha[:12]} ({description}){seen}. It is "
+            "the pool's verdict, not an Actions job's (an Actions rerun of its twin comes back skipped), and its "
+            f"description names no failure to compare with the base: rerun the pool: POST {pool_controller()}"
+            f"/v1/required-checks/rerun?head={sha}")
 
 
 def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
@@ -3880,6 +3920,10 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
             return f"ignored '{name}': it gave no compile verdict, but {proof} compiled {sha} and passed"
         # Its target_url is the source run, with no job of this name (inherited_compile_red).
         return inherited_compile_red(repo, base, sha, name, github, evidence)
+    if state in ("failure", "error") and (pool := POOL_RERUN.search(status.get("description") or "")) \
+            and sha.lower().startswith(pool["head"].lower()):
+        raise Refused(pool_status_refusal(repo, base, sha, name, state, status.get("description") or "", github,
+                                          evidence))
     url = status.get("target_url") or ""
     match = re.fullmatch(r"https://github\.com/" + re.escape(repo) + r"/actions/runs/(\d+)(?:/job/\d+)?/?", url)
     if match:
