@@ -533,6 +533,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var isFocusedInWorkspace: Bool { workspace?.focus.state.pane == paneKey }
 
     func content(for key: String) -> TabContent? {
+        if makesPageView(key), services.launchPages.defers("\(paneKey)/\(key)", show: { [weak self] in if let self, self.currentTabKey == key { self.showSelected() } }) { return nil } // none before the first frame: the pane's ground until then
         if key.hasPrefix(LocalPageTab.prefix) { return services.pages.view(for: key).map(TabContent.page) }
         if let mirrored = mirroredContent(for: key) { return mirrored }
         if key.hasPrefix(LocalBrowserTab.prefix) {
@@ -559,6 +560,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
         default:
             return nil
         }
+    }
+
+    /// `key`'s content would be a new page view (a local page or browser tab, a store browser or page tab), not
+    /// a terminal or native view. An agent tab defers in `AgentTabContent`, behind its last frame.
+    private func makesPageView(_ key: String) -> Bool {
+        if key.hasPrefix(LocalPageTab.prefix) || key.hasPrefix(LocalBrowserTab.prefix) { return existingContent(for: key) == nil }
+        guard let tab = pane.tabs.first(where: { $0.id == key }) else { return false }
+        let page = tab.kind == .browser || (tab.kind == .conversation && tab.agentSession == nil && tab.page != nil)
+        return page && existingContent(for: key) == nil
     }
 
     /// The shown tab's live content. Never creates a surface.
