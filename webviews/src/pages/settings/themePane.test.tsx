@@ -20,7 +20,13 @@ afterEach(() => {
 
 const card = (page: Rendered) => page.container.querySelector<HTMLElement>('[data-card="theme"]')!;
 const themeRow = (page: Rendered, kind: string) => card(page).querySelector<HTMLElement>(`[data-theme-row="${kind}"]`);
-const STUDIO_KEYS = ["appearance.theme", "appearance.appTheme", "appearance.accent", "appearance.themeFile"];
+const STUDIO_KEYS = [
+  "appearance.theme",
+  "appearance.appTheme",
+  "appearance.accent",
+  "appearance.selection",
+  "appearance.themeFile",
+];
 
 test("the Theme page draws each theme key once, in one card, with no second App Theme group", async () => {
   page = await renderPage({ path: "/settings/theme" });

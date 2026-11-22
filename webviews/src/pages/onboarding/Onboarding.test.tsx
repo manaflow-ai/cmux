@@ -161,7 +161,9 @@ describe("cmux tools", () => {
     const html = render(agentToolsState("found"));
     const words = text(html);
     expect(words).toContain("Use cmux Tools in Your Agents?");
-    expect(words).toContain("Agents you start in cmux get cmux’s tools, Computer Use included");
+    expect(words).toContain(
+      "Claude Code and Codex in cmux’s terminals and agent chats get cmux’s tools, Computer Use included.",
+    );
     expect(words).toContain("cmux never changes your agents’ own settings.");
     expect(html).toContain('data-agent="claude"');
     expect(html).toContain('data-agent="codex"');

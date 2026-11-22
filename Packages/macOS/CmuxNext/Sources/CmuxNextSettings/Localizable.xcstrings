@@ -6863,7 +6863,7 @@
         "de": {"stringUnit": {"state": "needs_review", "value": "Ein zweiter Ton für Seitenleiste und Tableiste"}},
         "es": {"stringUnit": {"state": "needs_review", "value": "Un segundo tono para la barra lateral y la barra de pestañas"}},
         "fr": {"stringUnit": {"state": "needs_review", "value": "Un second ton pour la barre latérale et la barre d'onglets"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Un secondo tono per la barra laterale e la barra delle schede"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Un secondo tono per barra laterale e barra delle schede"}},
         "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーとタブバーに別のトーン"}},
         "km": {"stringUnit": {"state": "needs_review", "value": "ពណ៌ទីពីរសម្រាប់របារចំហៀង និងរបារផ្ទាំង"}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바와 탭 막대용 두 번째 톤"}},
@@ -230818,7 +230818,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Qualité d’image et bande passante quand vous regardez un autre Mac"
+            "value": "Qualité d’image et débit quand vous regardez un autre Mac"
           }
         },
         "it": {
@@ -230866,7 +230866,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Качество изображения и пропускная способность при просмотре другого Mac"
+            "value": "Качество изображения и трафик при просмотре другого Mac"
           }
         },
         "th": {
@@ -230878,13 +230878,13 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği"
+            "value": "Başka bir Mac'i görüntülerken kalite ve bant genişliği"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Якість зображення і пропускна здатність під час перегляду іншого Mac"
+            "value": "Якість зображення і трафік під час перегляду іншого Mac"
           }
         },
         "vi": {
