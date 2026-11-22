@@ -1,4 +1,4 @@
-import AppKit
+package import AppKit
 package import CmuxNextDaemon
 package import CmuxNextSettings
 
