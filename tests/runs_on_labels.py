@@ -46,15 +46,8 @@ GITHUB_HOSTED = re.compile(r"(?:ubuntu|macos|windows)(?:-.*)?")
 # What scripts/ci/cloud_overflow_switch.py points LINUX_RUNNER at while Blacksmith is down (HOSTED_LINUX).
 OVERFLOW_HOSTED_LINUX = "ubuntu-24.04"
 
-# The GCP fleet's Linux label. tree-preflight's linux-placement step (scripts/ci/portable_job_placement.py
-# with REQUIRE_LIVE_CAPACITY) emits it only when the runner census shows an idle Linux member, else ''.
 GCP_FLEET_LINUX = "cmux-fleet-linux-x64"
-FLEET_LINUX_OUTPUTS = ("needs.tree-preflight.outputs.linux_runner",)
-# Our persistent GCP build-lane runners (Ubuntu, one label each). The cmux-tui tree's short jobs take it on
-# attempt 1 of a nightly-path run (cmux-tui-artifacts.yml's jobs: comment).
 GCP_LANE_BUILD_LINUX = "cmux-gcp-lane-build-x64"
-# The nightly-only build-lane runner, registered with this label alone; only the release path names it
-# (tests/test_release_runner_reserved.py). Attempt 1 of the nightly path takes it, attempt 2 the label above.
 GCP_NIGHTLY_LINUX = "cmux-gcp-nightly-x64"
 
 TOKEN = re.compile(
@@ -412,15 +405,10 @@ def disallowed_labels(runs_on, variables: Mapping[str, Iterable[str]] | None = N
                       root: Path = ROOT) -> dict[str, str]:
     """label -> why it may not run this job; empty when every label is Blacksmith or declared fleet Linux.
 
-    A FLEET_LINUX_OUTPUTS step output reads as the GCP build-lane label it can only hold.
-
     GitHub-hosted labels and the personal workstation are refused first, even if a fleet declares them.
     """
-    fleet_linux = declared_fleet_linux_labels(root) | {GCP_FLEET_LINUX, GCP_LANE_BUILD_LINUX, GCP_NIGHTLY_LINUX}
+    fleet_linux = declared_fleet_linux_labels(root) | {"cmux-linux", GCP_FLEET_LINUX, GCP_LANE_BUILD_LINUX, GCP_NIGHTLY_LINUX}
     personal = personal_machine_names()
-    if isinstance(runs_on, str):
-        for output in FLEET_LINUX_OUTPUTS:
-            runs_on = runs_on.replace(output, f"'{GCP_LANE_BUILD_LINUX}'")
     labels = resolve_labels(runs_on, variables=variables)
     if not labels:
         return {"[]": "no label at all: an empty runs-on never schedules"}
