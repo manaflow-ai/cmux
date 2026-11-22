@@ -82,7 +82,7 @@ lint's subscription rules apply once the judged sources use StoreKit:
 | `iap.disclosure` | 3.1.2 | the plans screen lacks the auto-renewal terms, the Terms of Use link or the Privacy Policy link |
 | `iap.manage` (warning) | 3.1.2 | no in-app Manage Subscription |
 | `metadata.subscription-terms` | 3.1.2 | no store description links the Terms of Use (EULA) |
-| `iap.review-notes` | 2.1(b) | `review-notes-asc.txt` says the app sells nothing, or never names "Plan", "Restore Purchases", "Manage Subscription" or the Sandbox (the 2026-11-07 "could not locate the in-app purchases") |
+| `iap.review-notes` | 2.1(b) | `review-notes-asc.txt` says the app sells nothing, or never names "Plan", "Restore Purchases", "Manage Subscription" or the Sandbox (the 2026-11-07 "could not locate the in-app purchases"). Lane internal-submission reads `review-notes-asc-internal.txt`; when the sources list its bundle (`dev.cmux.app.internal`) in `appsWithoutSubscriptions`, the rule inverts (the notes must name "Plan" and promise no "Subscribe", "Restore Purchases", "Manage Subscription" or Sandbox) and `iap.restore`, `iap.disclosure`, `iap.manage` and `metadata.subscription-terms` do not apply |
 
 App Review buys in the Sandbox against production. Production grants a
 Sandbox purchase only to the emails in `APPLE_IAP_SANDBOX_ACCOUNT_EMAILS`

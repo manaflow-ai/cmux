@@ -16,13 +16,21 @@
 //! On by default for every chat started from a local folder, whatever its size and whether or
 //! not it is a git repository: a chat started from a GitHub repository the person picked is
 //! cloned on the machine instead, by its own path, never this one. `cmux link project disable` (or
-//! `CMUX_PROJECTED_FOLDERS=0`) turns it off, and `enable` turns it back on. What the agent writes
-//! stays on the machine until Bring Back applies it here ([`super::project_back`]).
+//! `CMUX_PROJECTED_FOLDERS=0`) turns it off, and `enable` turns it back on.
+//!
+//! What the agent writes lands in the mount's upper layer on the machine and stays there until
+//! Bring Back applies it here. `cmux link sync pull` takes it home like a copy's edits: the server
+//! keeps a base for it here as it projects ([`keep_base`]), each file named by its size and mtime
+//! ([`stand_in`]), so a pull reads and hashes only what the machine changed, and a file this Mac
+//! changed since is a conflict. `project back` plans the same from the upper layer and its
+//! whiteouts ([`super::project_back`]).
 //!
 //!     cmux link project serve --socket S --at REMOTE [--name N] FOLDER
 //!     cmux link project back --socket S --at REMOTE FOLDER
+//!     cmux link project release --socket S --at REMOTE FOLDER [--why archived|deleted]
 //!     cmux link project enable | disable | status
 
+use std::collections::BTreeMap;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::os::unix::fs::{FileExt as _, FileTypeExt as _, MetadataExt as _};
 use std::os::unix::net::UnixStream;
@@ -64,6 +72,8 @@ pub(crate) enum NotProjected {
 struct Listed {
     manifest: Manifest,
     served: Vec<Option<Served>>,
+    /// The symlinks kept as symlinks, as a push records them.
+    links: BTreeMap<String, super::Linked>,
 }
 
 fn ok(answer: &Value) -> bool {
@@ -95,9 +105,11 @@ pub(crate) fn run(args: &[String]) -> i32 {
         },
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
         Some("back") => super::project_back::back_command(args.get(1..).unwrap_or_default()),
+        Some("release") => super::project_back::release_command(args.get(1..).unwrap_or_default()),
         _ => Err(anyhow::anyhow!(
             "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
-             REMOTE | back --socket S --at REMOTE FOLDER | enable | disable | status | moves on|off"
+             REMOTE | back --socket S --at REMOTE FOLDER | release --socket S --at REMOTE FOLDER [--why \
+             archived|deleted] | enable | disable | status | moves on|off"
         )),
     };
     match outcome {
@@ -495,9 +507,21 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     // Every attached folder is projected, a small one too (`--any-size` stays for old callers).
     let _ = any_size;
     let encoded = listed.manifest.encode()?;
-    let (stream, mut answer) = dial(&socket, &name, &at, &encoded)?;
+    // Bring Back's base, kept here while the machine mounts the folder.
+    let (dialed, kept) = std::thread::scope(|scope| {
+        let kept = scope.spawn(|| keep_base(&folder, &at, &listed));
+        (dial(&socket, &name, &at, &encoded), kept.join())
+    });
+    let (stream, mut answer) = dialed?;
     if !ok(&answer) {
         return Ok(answer);
+    }
+    // The folder is mounted and the chat can start; without a base, Bring Back says so
+    // (`sync_no_base`) rather than guess.
+    match kept {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => eprintln!("cmux link project: no base for Bring Back: {error:#}"),
+        Err(_) => eprintln!("cmux link project: no base for Bring Back: its thread panicked"),
     }
     if let Some(data) = answer.get_mut("data").and_then(Value::as_object_mut) {
         data.insert("listed_ms".into(), json!(listed_ms));
@@ -727,17 +751,17 @@ fn list(folder: &Path) -> anyhow::Result<Listed> {
         });
         kept.push((relative, Served { file, size, mtime_ns: mtime }));
     }
-    for (relative, linked) in set.links {
-        let mtime = std::fs::symlink_metadata(folder.join(&relative))
+    for (relative, linked) in &set.links {
+        let mtime = std::fs::symlink_metadata(folder.join(relative))
             .map(|meta| mtime_ns(&meta))
             .unwrap_or(0);
         items.push(Item {
-            path: relative,
+            path: relative.clone(),
             kind: Kind::Link,
             mode: 0o777,
             size: 0,
             mtime_ns: mtime,
-            link: Some(linked.target),
+            link: Some(linked.target.clone()),
         });
     }
     let manifest = Manifest::build(root_mtime, items)?;
@@ -750,7 +774,61 @@ fn list(folder: &Path) -> anyhow::Result<Listed> {
             *slot = Some(file);
         }
     }
-    Ok(Listed { manifest, served })
+    Ok(Listed { manifest, served, links: set.links })
+}
+
+/// What a projected file's bytes are named by in Bring Back's base until a pull reads them: its
+/// size and modification time on this Mac when the folder was projected. Its bytes are this Mac's
+/// file's for as long as that file still has both ([`stand_in_matches`]); a pull hashes only the
+/// files the machine changed.
+pub(super) fn stand_in(size: u64, mtime_ns: i64) -> String {
+    format!("{STAND_IN}s{size}-n{mtime_ns}")
+}
+
+const STAND_IN: &str = "projected:";
+
+/// Whether `sha256` is a [`stand_in`], not a hash.
+pub(super) fn is_stand_in(sha256: &str) -> bool {
+    sha256.starts_with(STAND_IN)
+}
+
+/// Whether this Mac's file `meta` is still the one the [`stand_in`] `sha256` names.
+pub(super) fn stand_in_matches(sha256: &str, meta: &std::fs::Metadata) -> bool {
+    meta.is_file() && sha256 == stand_in(meta.len(), mtime_ns(meta))
+}
+
+/// Keeps Bring Back's base for `folder` projected at `at`: the files as [`list`] found them (by
+/// [`stand_in`], their revision the one the machine's `fs-v1` gives a file of that size and mtime,
+/// which the projection reports for every file it did not change), the symlinks, and in git the
+/// branch and staged changes. `cmux link sync pull` merges against it as against a push's record.
+fn keep_base(folder: &Path, at: &str, listed: &Listed) -> anyhow::Result<()> {
+    let manifest = &listed.manifest;
+    let mut files = BTreeMap::new();
+    for index in 0..u32::try_from(manifest.len()).unwrap_or(u32::MAX) {
+        let Some(entry) = manifest.entry(index).filter(|entry| entry.kind == Kind::File) else {
+            continue;
+        };
+        let mtime_ms = u64::try_from(entry.mtime_ns / 1_000_000).ok();
+        files.insert(
+            manifest.path_of(index),
+            super::Pushed {
+                sha256: stand_in(entry.size, entry.mtime_ns),
+                permissions: entry.mode,
+                revision: cmux_tui_core::fs_ops::revision(entry.size, mtime_ms),
+            },
+        );
+    }
+    let git = local::GitDirs::of(folder)?.map(|_| super::git_back::base_of(folder)).transpose()?;
+    let repos = super::git_back::nested_bases(folder, files.keys());
+    let base = super::Manifest {
+        version: 1,
+        files,
+        git,
+        links: listed.links.clone(),
+        projected: true,
+        repos,
+    };
+    super::base::save(folder, at, &base)
 }
 
 fn mtime_ns(meta: &std::fs::Metadata) -> i64 {
