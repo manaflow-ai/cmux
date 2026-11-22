@@ -640,7 +640,9 @@ pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
 /// Scopes `main` routes by their first word, before the cmux global options
 /// are read, whose own parser takes `--json` right after the scope word:
 /// acpmux's (`--json` is a global clap option there).
-const JSON_AFTER_SCOPE: &[&str] = &["acp", "agent", "harness", "chats", "board"];
+/// `agent` is not one of them: its verbs acpmux runs (agent_engine_requested, agent_acp_scope_args) take
+/// `--json` after the scope, and its app verbs (`agent list`, `agent open`) read the cmux global one where it is.
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats", "board"];
 
 /// `cmux --json <scope> …` for a scope `main` routes by its first word: the
 /// leading `--json` moves to just after the scope word (to the end for `host`
@@ -673,7 +675,7 @@ pub(crate) fn hoist_leading_json(args: &mut Vec<String>) {
         let end = args.iter().position(|w| w == "--").unwrap_or(args.len());
         args.insert(end, "--json".to_owned());
     } else if only_json
-        && (JSON_AFTER_SCOPE.contains(&scope.as_str()) || agent_engine_requested(rest))
+        && (JSON_AFTER_SCOPE.contains(&scope.as_str()) || agent_runs_in_acpmux(rest))
     {
         // acpmux's global `--json`, right after the scope word: never after a verb whose
         // trailing words are another program's (`acp gh pr list`).
@@ -687,6 +689,18 @@ pub(crate) fn hoist_leading_json(args: &mut Vec<String>) {
 fn harness_tab_run(words: &[String]) -> bool {
     matches!(words, [harness, run, ..] if harness == "harness" && run == "run")
         && words.iter().take_while(|w| *w != "--").any(|w| w == "--tab")
+}
+
+/// Whether `args` (`agent VERB …`) runs in acpmux, through the engine grammar or as one of its aliases
+/// (`agent ls`), rather than as one of the app's own `agent` verbs. The engine check comes first: it
+/// reads clap's static subcommand table, while the alias check builds acpmux's whole parser, whose
+/// unoptimized frames pass a 2 MiB test thread's stack.
+fn agent_runs_in_acpmux(args: &[String]) -> bool {
+    #[cfg(unix)]
+    let alias = || agent_acp_scope_args(args).is_some();
+    #[cfg(not(unix))]
+    let alias = || false;
+    agent_engine_requested(args) || alias()
 }
 
 /// Existing terminal agent commands and app actions keep their own dispatch.

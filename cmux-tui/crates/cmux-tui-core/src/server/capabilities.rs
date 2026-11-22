@@ -333,6 +333,7 @@ pub(super) fn advertised_capabilities(
         SERVER_STATS_CAPABILITY,
         PROCESS_CENSUS_CAPABILITY,
         DAEMON_SHUTDOWN_RESTART_CAPABILITY,
+        DAEMON_STOP_IF_IDLE_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
         TERMINAL_TAIL_PIN_CAPABILITY,
@@ -528,6 +529,8 @@ pub(super) fn advertised_capabilities(
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     #[cfg(unix)]
     capabilities.push(crate::shell_runs::CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(crate::language_packs::CAPABILITY);
     capabilities
 }
 

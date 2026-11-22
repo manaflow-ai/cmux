@@ -12708,6 +12708,9 @@
         "ty": "string",
         "required": true
       },
+      "/if_idle": {
+        "ty": "boolean"
+      },
       "/keep_layout": {
         "ty": "boolean"
       },
