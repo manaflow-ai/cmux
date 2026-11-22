@@ -2224,7 +2224,8 @@
           "text" : "Advanced"
         },
         "trail" : [
-          "advancedActions"
+          "advancedActions",
+          "extensions"
         ]
       },
       {

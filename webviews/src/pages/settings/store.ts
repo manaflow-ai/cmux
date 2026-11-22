@@ -55,6 +55,8 @@ import {
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
+  type ExtensionsAnswer,
+  type ExtensionsVerb,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -944,6 +946,20 @@ export class SettingsStore {
   async shares(): Promise<SharesState | null> {
     const reply = await this.request("cmux.settings.shares.list", {});
     return reply.ok ? reply.value : null;
+  }
+
+  /** Settings > Advanced > Extensions: one `cmux.settings.extensions.run` verb. Answers the CLI's
+   * JSON, with a refusal in its own words as `refusal`; null when the host has no CLI or no daemon. */
+  async extensions(verb: ExtensionsVerb): Promise<{ answer: ExtensionsAnswer | null; refusal: string | null }> {
+    const reply = await this.request("cmux.settings.extensions.run", { verb });
+    if (!reply.ok)
+      return {
+        answer: null,
+        refusal: verb === "meters" || verb === "status" ? null : userMessage(reply.error, SETTINGS_SENTENCES),
+      };
+    const answer = reply.value ?? {};
+    if (answer.code) return { answer: null, refusal: answer.message || answer.code };
+    return { answer, refusal: null };
   }
 
   /** Appearance > Customization Library: one `cmux customize library` verb. Answers the

@@ -988,6 +988,39 @@ export type TailnetState = {
   error?: string;
 };
 
+/** One installed extension's meter (`cmux --json apps meters`, the daemon's `apps.meters`,
+ * cmux-tui-core apps/meters.rs): its budget step and host, and its scene batches since cmux started. */
+export type ExtensionMeter = {
+  app: string;
+  step: "normal" | "slowed" | "paused";
+  /** Why the budget paused it, in words. */
+  paused?: string;
+  /** Why the listing says it cannot run (safe mode, paused, failed). */
+  runState?: string;
+  host: string;
+  crashes: number;
+  mounts: number;
+  widgets: number;
+  slowedMounts: number;
+  batches: { in: number; out: number };
+  held: number;
+};
+
+/** A safe mode bisect (`cmux --json safe-mode bisect`, cmux-tui-core apps/safe_mode_bisect.rs). */
+export type ExtensionBisect = { suspects: string[]; running: string[]; held: string[]; steps: number; found?: string };
+
+/** What `cmux.settings.extensions.run` asks the bundled CLI for. */
+export type ExtensionsVerb = "meters" | "status" | "start" | "good" | "bad" | "reset";
+
+/** The CLI's answer: the meter rows, or safe mode's state with its bisect, or a refusal in words. */
+export type ExtensionsAnswer = {
+  meters?: ExtensionMeter[];
+  on?: boolean;
+  bisect?: ExtensionBisect;
+  code?: string;
+  message?: string;
+};
+
 /** One entry of the customize library (`cmux --json customize library`; cmux-customize
  * `library.rs` `Listed`): something the person applied, kept as a layer they turn on and off. */
 export type LibraryEntry = {
@@ -1825,6 +1858,9 @@ export type SettingsOps = {
   /** Native: one `cmux customize library` verb through the bundled CLI (Appearance >
    * Customization Library). A change runs only on the person's click or key in the page. */
   "cmux.settings.customize.library": [LibraryRun, LibraryAnswer];
+  /** Native: Settings > Advanced > Extensions through the bundled CLI: `meters` is `cmux apps meters`,
+   * the rest `cmux safe-mode bisect VERB`. A step other than `status` runs only on the person's click. */
+  "cmux.settings.extensions.run": [{ verb: ExtensionsVerb }, ExtensionsAnswer];
   /** Native: Settings > Keys: this Mac's keys (`cmux keys ls`, never a value) and the waiting requests. */
   "cmux.settings.keys.list": [Record<string, never>, KeysState];
   /** Native, the person's click: the value goes to `cmux keys put` on stdin only, and the agent's

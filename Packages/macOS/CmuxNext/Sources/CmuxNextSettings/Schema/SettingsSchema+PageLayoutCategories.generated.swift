@@ -343,7 +343,7 @@ extension SettingsPageLayout {
             // Inspect Element and developer tools for cmux's own pages.
             GroupSpec(group: "settings.group.developerTools"),
         ],
-        lead: [.advancedInfo], trail: [.advancedActions], actions: [.advanced], aliases: [.advanced]
+        lead: [.advancedInfo], trail: [.advancedActions, .extensions], actions: [.advanced], aliases: [.advanced]
     )
 
     private static let experimentalCategory = CategorySpec(

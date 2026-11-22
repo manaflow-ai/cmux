@@ -34,6 +34,9 @@ import {
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
+  type ExtensionBisect,
+  type ExtensionMeter,
+  type ExtensionsAnswer,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -115,6 +118,8 @@ export type MockOptions = {
   libraryRefusal?: string;
   /** A customization being tried on (`cmux customize try`); absent: none. */
   tryOn?: CustomizeTryOn;
+  /** Installed extensions' meters (`cmux apps meters`) and whether safe mode is on; absent: none. */
+  extensions?: { meters: ExtensionMeter[]; safeMode?: boolean };
 };
 
 /** This Mac joined to a team with the one-line join, every consent switch off. */
@@ -266,6 +271,10 @@ export class MockSettingsProvider {
     if (options.devicesJoin) this.host = { ...this.host, devices_join: options.devicesJoin };
     if (options.library) this.library = options.library;
     if (options.libraryRefusal) this.libraryRefusal = options.libraryRefusal;
+    if (options.extensions) {
+      this.extensionMeters = options.extensions.meters;
+      this.safeMode = options.extensions.safeMode ?? false;
+    }
     this.importable = options.importable ?? null;
     this.museumArt = options.museumArt ?? [];
     for (const background of options.workspaceBackgrounds ?? [])
@@ -619,6 +628,7 @@ export class MockSettingsProvider {
       },
       "cmux.settings.shares.list": () => this.shares,
       "cmux.settings.customize.library": (params) => this.runLibrary(params as LibraryRun),
+      "cmux.settings.extensions.run": (params) => this.runExtensions(String((params as { verb?: unknown }).verb ?? "")),
       "cmux.settings.keys.list": () => this.keys,
       "cmux.settings.keys.answer": (params) => this.answerKey(params as { request_id?: unknown; value?: unknown }),
       "cmux.settings.keys.decline": (params) =>
@@ -928,6 +938,7 @@ export class MockSettingsProvider {
       "cmux.settings.customize.run",
       "cmux.settings.shares.list",
       "cmux.settings.customize.library",
+      "cmux.settings.extensions.run",
       "cmux.settings.shares.revoke",
       "cmux.settings.keys.list",
       "cmux.settings.keys.answer",
@@ -1063,6 +1074,35 @@ export class MockSettingsProvider {
     if (!next) return { code: "customize.library", message: `there is no library entry "${run.name}"` };
     this.library = next;
     return { library: next };
+  }
+
+  /** Installed extensions' meters (Settings > Advanced > Extensions); none by default. */
+  extensionMeters: ExtensionMeter[] = [];
+  /** Whether safe mode is on, and the bisect it holds (the daemon's safe_mode_bisect.rs, halved
+   * by suspect order: the first half runs). */
+  safeMode = false;
+  bisect: ExtensionBisect | null = null;
+  /** Every bisect step the page ran, in order (tests). */
+  readonly bisectSteps: string[] = [];
+
+  /** `cmux --json apps meters` or `cmux --json safe-mode bisect VERB`, as the host answers it. */
+  private runExtensions(verb: string): ExtensionsAnswer {
+    if (verb === "meters") return { meters: this.extensionMeters };
+    const status = (): ExtensionsAnswer =>
+      this.bisect ? { on: this.safeMode, bisect: this.bisect } : { on: this.safeMode };
+    if (verb === "status") return status();
+    this.bisectSteps.push(verb);
+    if (!this.safeMode) return { code: "apps.safe_mode.off", message: "safe mode is off" };
+    const half = (suspects: string[], steps: number): ExtensionBisect => {
+      if (suspects.length <= 1) return { suspects, running: [], held: [], steps, found: suspects[0] };
+      const running = suspects.slice(0, Math.ceil(suspects.length / 2));
+      return { suspects, running, held: suspects.filter((app) => !running.includes(app)), steps };
+    };
+    if (verb === "reset") this.bisect = null;
+    else if (verb === "start") this.bisect = half(this.extensionMeters.map((meter) => meter.app).sort(), 0);
+    else if (this.bisect && (verb === "good" || verb === "bad"))
+      this.bisect = half(verb === "bad" ? this.bisect.running : this.bisect.held, this.bisect.steps + 1);
+    return status();
   }
 
   /** Settings > Keys as the app answers it: one request waiting and three keys (live, expired,
