@@ -38,6 +38,8 @@ public final class MacScreenPaneModel {
     public internal(set) var systemShortcuts: MacScreenSystemShortcuts?
     /// The device hub tab's session: its request, approval and ticket; nil for an unsupported record.
     public let hub: MacScreenHubViewer?
+    /// Holds the card's in-between states back (``MacScreenCardQuiet``); tests give it a manual clock.
+    @ObservationIgnored var quiet = MacScreenCardQuiet()
     /// A look fixed for this pane (the gallery and tests draw one look); nil follows Debug Settings `macScreen.viewerLook`.
     var viewerLookOverride: MacScreenViewerLook?
     /// How the viewer is drawn: the fixed look, else the setting, read live. Reading it tracks the setting (an Observation
@@ -157,7 +159,7 @@ public final class MacScreenPane {
         // connecting, waiting, failed or ended).
         view.input.onFocusChange = { [weak self] focused in
             guard let self else { return }
-            model.capturesKeyboard = focused && MacScreenPaneView.takesInput(gate: model.gate, card: model.card, viewOnly: model.viewOnly)
+            model.capturesKeyboard = focused && MacScreenPaneView.takesInput(gate: model.gate, card: model.liveCard, viewOnly: model.viewOnly)
             handlers.keyboardChanged()
         }
         view.onInputGateChange = { [weak self] in self?.handlers.keyboardChanged() }
@@ -178,6 +180,14 @@ public final class MacScreenPane {
             session.applyQuality()
         }
         actions.toggleStats = { session.preferences.showStats.toggle() }
+        actions.setMaxKbps = { kbps in
+            session.preferences.maxKbps = kbps
+            session.applyQuality()
+        }
+        actions.toggleStreamCursor = {
+            session.preferences.showCursorInStream.toggle()
+            session.applyQuality()
+        }
         actions.refresh = { session.refresh() }
         actions.fullScreen = { [weak self] in self?.view.window?.toggleFullScreen(nil) }
         actions.sendKeys = { [weak self] shortcut in
@@ -264,14 +274,18 @@ public final class MacScreenPane {
         hideTimer.cancel()
         guard !visible else { return }
         visible = true
-        if let hub = model.hub {
-            // A device's tab asks the hub when shown with a scope waiting
-            // (opened by a person with View or Control, or hidden past its grace mid-session).
-            if hub.phase == .idle, let scope = hub.resumeScope {
-                hub.resumeScope = nil
-                hub.request(scope)
-            }
-        }
+        // A device's tab asks the hub when shown with a scope waiting
+        // (hidden past its grace mid-session, or opened unseen and not started yet).
+        start()
+    }
+
+    /// A device tab with a scope waiting asks the hub now, shown or not: a person's open (or
+    /// `macScreen.open --autoconnect`) starts its session even when its tab is not on screen.
+    /// Only the picture waits for the tab to show; the hidden grace starts once it was shown and hidden.
+    public func start() {
+        guard let hub = model.hub, hub.phase == .idle, let scope = hub.resumeScope else { return }
+        hub.resumeScope = nil
+        hub.request(scope)
     }
 
     /// The tab is hidden: the stream stays for `hiddenGrace`, then ends
@@ -463,7 +477,8 @@ public final class MacScreenPaneView: NSView {
     /// (nothing is sent meanwhile; keys stay in cmux) and uses it again once
     /// the picture is back; a released one still needs a click.
     func syncInputGate() {
-        let live = Self.takesInput(gate: model.gate, card: model.card, viewOnly: model.viewOnly)
+        // The live card, not the held one: no input reaches a screen that is still coming up.
+        let live = Self.takesInput(gate: model.gate, card: model.liveCard, viewOnly: model.viewOnly)
         input.controlMode = live
         input.acceptsPointer = live
         let captures = input.hasKeyboard
