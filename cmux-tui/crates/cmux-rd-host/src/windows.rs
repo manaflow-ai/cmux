@@ -281,7 +281,7 @@ fn dxgi_desktop_duplication_probe() -> bool {
 /// `OpenInputDesktop` means no input desktop reaches this window station.
 fn no_interactive_desktop() -> Option<String> {
     use windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId;
-    use windows_sys::Win32::System::StationsAndDesktop::{
+    use windows_sys::Win32::System::StationsAndDesktops::{
         CloseDesktop, OpenInputDesktop, DESKTOP_READOBJECTS,
     };
     let mut session = u32::MAX;
