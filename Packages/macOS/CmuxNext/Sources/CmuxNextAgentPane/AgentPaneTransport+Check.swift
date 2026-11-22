@@ -121,8 +121,6 @@ extension AgentPaneTransport {
         return .sent(error)
     }
 
-    /// Each method and key the relay dropped (P0), logged once per app run: a page newer than the
-    /// app shows in the log without a line per frame.
     /// Names the keys P0 dropped. Debug level: a newer page drops the same keys on every frame.
     nonisolated private static func logDropped(method: String?, _ dropped: [String]) {
         logger.debug("agent pane dropped params this app does not know method=\(method ?? "-", privacy: .public) keys=\(dropped.joined(separator: ","), privacy: .public)")
@@ -135,7 +133,16 @@ extension AgentPaneTransport {
         case .failure(let refusal): return .refuse(refusal.decision, spend: nil)
         case .success(let decided): object = decided
         }
-        // P0: a key this app's lists do not name is dropped, not refused, so a page newer than the
+        // The handshake fails safe: an initialize's unknown `_meta.acpmux` opt-ins are removed
+        // before every rule, so they never reach the daemon and never fail the connect (cmux#46563).
+        if let stripped = AcpmuxPaneMethods.strippingInitializeOptIns(object, modeFields: snapshot.modeFields) {
+            object = stripped.object
+            // Once per connection (an initialize is its first frame): the names only, each cut
+            // to 64 characters and at most 8 of them, never a value.
+            let names = stripped.keys.prefix(8).map { String($0.prefix(64)) }.joined(separator: ",")
+            Self.logger.notice("agent pane initialize stripped unknown _meta.acpmux keys=\(names, privacy: .public) count=\(stripped.keys.count, privacy: .public)")
+        }
+        // P0: any other key this app's lists do not name is dropped, not refused, so a page newer than the
         // app keeps its chats (``AcpmuxPaneMethods/strippingUnknownParams(_:modeFields:)``).
         if let strip = AcpmuxPaneMethods.strippingUnknownParams(object, modeFields: snapshot.modeFields) {
             object = strip.object
