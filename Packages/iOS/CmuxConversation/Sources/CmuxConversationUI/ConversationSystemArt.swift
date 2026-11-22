@@ -10,7 +10,8 @@ import Foundation
 /// binary is an App Review 2.5.1 blocker (`app_review_gate.py`
 /// `api.private-framework`, the detector of the first 1.0.0 rejection), so this
 /// package names no such path and the App Store build never sets one.
-public enum ConversationSystemArt {
+public struct ConversationSystemArt {
+    public init() {}
     nonisolated(unsafe) public static var bundle: Bundle?
 }
 #endif
