@@ -2,7 +2,7 @@
 //!
 //! Leo, 2026-11-22: "you can talk to the central coordinators (interim-coord, claude-sr2-coord,
 //! claude-sr2-coord-old) to know what to do. if you can't reliably communicate back and forth from
-//! the desktop app, that's a product thing we need to fix." Measured on cosmic-gray that morning:
+//! the desktop app, that's a product thing we need to fix." Measured on his Mac that morning:
 //! `interim-coord` (a registered `claude --resume 6e0bad7d-...` terminal chat) listed as `closed`
 //! in `acpmux ls` for 35 hours while its process (79117) ran, its transcript grew every few
 //! seconds, and acpmux delivered into it (`bridge_delivered`, pid 79117). The chat was closed when
@@ -193,7 +193,7 @@ mod tests {
         }
     }
 
-    /// Repro (cosmic-gray, 2026-11-22): interim-coord, closed when its old process ended, stayed
+    /// Repro (2026-11-22): interim-coord, closed when its old process ended, stayed
     /// `closed` while `claude --resume` ran it again (pid 79117) and its transcript grew. The scan
     /// now reopens it; a stopped chat whose transcript did not move, or whose conversation no
     /// live process runs, stays closed.

@@ -702,7 +702,7 @@ mod tests {
         assert!(!asked.contains("acpmux send"), "{asked}");
     }
 
-    /// Repro (cosmic-gray, 2026-11-22): desktop-leo's Claude Code restarted (now process 35713,
+    /// Repro (2026-11-22): desktop-leo's Claude Code restarted (now process 35713,
     /// launched with `--resume=03214b87-...`) and its row said `registration stale ... run
     /// acpmux register desktop-leo`, then a `--code` step. Its next automatic step takes the chat
     /// over at once; any other caller still gets the code.

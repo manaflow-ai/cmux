@@ -395,7 +395,7 @@ mod tests {
         assert_eq!(state_label(&json!({"status": "queued", "reason": null})), "queued");
     }
 
-    /// Repro (cosmic-gray, 2026-11-22): `acpmux send --no-wait desktop-leo` printed `queued` while
+    /// Repro (2026-11-22): `acpmux send --no-wait desktop-leo` printed `queued` while
     /// the chat's registration was stale, and the sender took it as sent. A first attempt that
     /// found a registered chat unreachable is that send's error now; any other queued one is not.
     #[test]
