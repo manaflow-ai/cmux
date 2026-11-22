@@ -3,7 +3,8 @@ import type { AgentSessionTheme } from "./types";
 import { codeFontFamily } from "../../appearance";
 import { configureThemeSlots } from "../../slots/registry";
 
-const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
+/** Each AgentSessionTheme key's CSS variable (null: not a variable); a gallery panel themes a subtree with it. */
+export const agentThemeVariables: Record<keyof AgentSessionTheme, string | null> = {
   isDark: null,
   pageBackground: "--agent-page-bg",
   surfaceBackground: "--agent-surface",
@@ -72,7 +73,9 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   // The theme's slot choices (schemas/theme/slots.json): each slot draws the variant the look names;
   // a look without `slots` (every host today) leaves every slot on its default.
   configureThemeSlots(theme.slots);
-  for (const [key, variable] of Object.entries(cssVariables) as Array<[keyof AgentSessionTheme, string | null]>) {
+  for (const [key, variable] of Object.entries(agentThemeVariables) as Array<
+    [keyof AgentSessionTheme, string | null]
+  >) {
     if (!variable) {
       continue;
     }
