@@ -3736,6 +3736,14 @@ export function layoutConversation(
     let height: number;
     if (kept && kept.width === width && kept.edge === edge) height = kept.height;
     else if (
+      !kept &&
+      index < rows.length - 200 &&
+      !drawsNothing(row) &&
+      (globalThis as { __roughFar?: boolean }).__roughFar !== false
+    ) {
+      height = 80;
+      remembered = true;
+    } else if (
       resizing &&
       (resizing.layout.scale ?? 1) === scale &&
       (index < resizing.from || index >= resizing.to) &&
