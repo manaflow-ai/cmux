@@ -38,6 +38,10 @@
       "kind": "publish",
       "why": "a probe of live staging machines, not of the change"
     },
+    "cloud-surge-proof.yml": {
+      "kind": "publish",
+      "why": "a proof run of Cloud Surge on live development machines, not of the change"
+    },
     "cloud-vm-image-roll.yml": {
       "kind": "publish",
       "why": "rolls the Cloud VM image after its inputs land"
@@ -93,10 +97,6 @@
     "cmux-next-tab-switch.yml": {
       "kind": "check",
       "why": "advisory tab-switch timing on display Macs runs once per in-scope merge, not per pull request (#48493)"
-    },
-    "cmux-next-tip-test-compile.yml": {
-      "kind": "check",
-      "why": "compiles the Swift test targets at the tip; the pull request compile is a separate advisory job"
     },
     "cmux-next-web-bundle-publish.yml": {
       "kind": "publish",

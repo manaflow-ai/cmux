@@ -87,6 +87,10 @@ pub struct AppLine {
     /// The index in `displays` of the display the session shows first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current: Option<usize>,
+    /// `serve` only, macOS: each display's CGDirectDisplayID, in `displays` order, so a viewer
+    /// opened from a run's screen link can tell whether that run's display is still there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_ids: Option<Vec<u32>>,
     /// Why the displays could not be read (with an empty `displays`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,

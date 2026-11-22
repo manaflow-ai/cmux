@@ -440,6 +440,10 @@ pub struct RelayProvider {
     /// `control_timeout`: a Connect the relay parks until the daemon
     /// registers then follows its caller's one deadline.
     allocation_deadline: Option<Instant>,
+    /// When set, a first connect's lane waits this long, not
+    /// `control_timeout`, for the daemon to join its circuit once the relay
+    /// allocated it ([`RelayProvider::with_peer_join_wait`]).
+    peer_join_wait: Option<Duration>,
 }
 
 impl RelayProvider {
@@ -458,7 +462,13 @@ impl RelayProvider {
     ) -> Result<Self, ProviderError> {
         config.ticket.zeroize();
         config.validate_common()?;
-        Ok(Self { config, credentials, tls: RelayTls::default(), allocation_deadline: None })
+        Ok(Self {
+            config,
+            credentials,
+            tls: RelayTls::default(),
+            allocation_deadline: None,
+            peer_join_wait: None,
+        })
     }
 
     /// Wait for each lane's allocation until `deadline` rather than for
@@ -469,6 +479,18 @@ impl RelayProvider {
     /// step, keeps `control_timeout`.
     pub fn with_allocation_deadline(mut self, deadline: Instant) -> Self {
         self.allocation_deadline = Some(deadline);
+        self
+    }
+
+    /// Wait `wait`, not `control_timeout`, for the daemon to join a circuit
+    /// the relay allocated, so a lane whose daemon never joins is given up
+    /// for a new allocation (a new circuit and a new `Incoming`) instead of
+    /// held to `control_timeout`. A daemon that joins does so in about a
+    /// second of its `Incoming`. It applies to the first connect (generation
+    /// 0) only, as [`Self::with_allocation_deadline`] does; connecting the
+    /// circuit's socket keeps its own bound.
+    pub fn with_peer_join_wait(mut self, wait: Duration) -> Self {
+        self.peer_join_wait = Some(wait);
         self
     }
 
@@ -521,6 +543,7 @@ impl TransportProvider for RelayProvider {
             credentials: self.credentials.clone(),
             tls: self.tls.clone(),
             allocation_deadline: self.allocation_deadline,
+            peer_join_wait: self.peer_join_wait,
             control: Mutex::new(Some(control)),
             closed: AtomicBool::new(false),
         }))
@@ -537,6 +560,7 @@ struct RelayLinkGroup {
     credentials: RelayCredentialSource,
     tls: RelayTls,
     allocation_deadline: Option<Instant>,
+    peer_join_wait: Option<Duration>,
     // An allocation temporarily takes ownership of the control socket. If the
     // allocation future is cancelled, the socket is dropped while this slot
     // remains empty, so a later attempt cannot consume a stale response.
@@ -1011,6 +1035,10 @@ impl LinkGroup for RelayLinkGroup {
         // The allocation deadline is the first connect's; a resume (a later
         // generation) waits `control_timeout` as any reconnect does.
         let wait_until = self.allocation_deadline.filter(|_| request.generation == 0);
+        let join_wait = self
+            .peer_join_wait
+            .filter(|_| request.generation == 0)
+            .unwrap_or(self.config.control_timeout);
         let allocation = {
             let mut stored_control = self.control.lock().await;
             if self.closed.load(Ordering::Acquire) {
@@ -1087,7 +1115,7 @@ impl LinkGroup for RelayLinkGroup {
             request.generation,
             allocation.1,
             self.config.maximum_frame_bytes,
-            self.config.control_timeout,
+            join_wait,
             &self.tls,
         )
         .await
@@ -2284,9 +2312,22 @@ fn relay_reconnect_error(
     }
 }
 
+/// The relay's code for a slot whose daemon's ticket ran out with no renewal: the machine's
+/// relay credential is unavailable (its mint is down or stalled).
+const RELAY_CREDENTIAL_UNAVAILABLE: &str = "credential-unavailable";
+
 /// A retryable refusal, naming the relay's error code: a short word the
-/// relay sets (`slot-busy`), kept only when it looks like one.
+/// relay sets (`slot-busy`), kept only when it looks like one. A lapsed
+/// registration (`credential-unavailable`) leads with that reason, the words a
+/// link's offline reason is read from (acpmux `peer_carrier::reason`), so the
+/// dial says why the machine is offline instead of reading as still connecting.
 fn relay_unavailable(message: &str, code: &str) -> ProviderError {
+    if code == RELAY_CREDENTIAL_UNAVAILABLE {
+        return relay_carrier_error(format!(
+            "{RELAY_CREDENTIAL_UNAVAILABLE}: the machine's relay ticket expired and was not \
+             renewed (relay code {RELAY_CREDENTIAL_UNAVAILABLE})"
+        ));
+    }
     let word = code.len() <= 32
         && !code.is_empty()
         && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');

@@ -175,15 +175,58 @@ fn opening_11k_rows_from_disk_reaches_first_window_under_200ms() {
         log.sync().unwrap();
     }
 
-    let start = Instant::now();
+    // The open runs on this thread alone (no task, no helper thread), so this thread's CPU time
+    // is its whole cost. Wall time also counted the time a loaded runner gave the CPU to the
+    // other tests (base, 2026-11-21: 214 ms in a debug build beside 300 parallel tests).
+    let start = StartupClock::start();
     let log = IndexLog::open(&log_path).unwrap();
     let index = replay_log(log.path(), SummaryIndex::new()).unwrap();
     assert_eq!(index.len(), 11_000);
     let (hub, _writer) = Hub::with_log(index, Some(log));
     let window = hub.list_window(&Sub::new("disk", "list")).unwrap();
     let _: Window<Summary> = window.decode_json().unwrap();
-    let elapsed = start.elapsed();
-    assert!(elapsed < Duration::from_millis(200), "disk startup took {elapsed:?}");
+    let (spent, wall) = start.spent();
+    assert!(
+        spent < Duration::from_millis(200),
+        "disk startup took {spent:?} of this thread's CPU ({wall:?} wall)"
+    );
+}
+
+/// What a single-threaded step cost: this thread's CPU time on Linux, where the dev-dependency
+/// `libc` reads it; wall time elsewhere.
+struct StartupClock {
+    wall: Instant,
+    #[cfg(target_os = "linux")]
+    cpu: Duration,
+}
+
+impl StartupClock {
+    fn start() -> Self {
+        Self {
+            wall: Instant::now(),
+            #[cfg(target_os = "linux")]
+            cpu: thread_cpu(),
+        }
+    }
+
+    /// The step's cost, and its wall time beside it.
+    fn spent(&self) -> (Duration, Duration) {
+        let wall = self.wall.elapsed();
+        #[cfg(target_os = "linux")]
+        let spent = thread_cpu().saturating_sub(self.cpu);
+        #[cfg(not(target_os = "linux"))]
+        let spent = wall;
+        (spent, wall)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn thread_cpu() -> Duration {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `ts` is a valid timespec this call writes.
+    let rc = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &raw mut ts) };
+    assert_eq!(rc, 0, "clock_gettime(CLOCK_THREAD_CPUTIME_ID)");
+    Duration::new(u64::try_from(ts.tv_sec).unwrap(), u32::try_from(ts.tv_nsec).unwrap())
 }
 
 #[tokio::test(flavor = "current_thread")]

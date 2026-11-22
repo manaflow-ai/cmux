@@ -144,8 +144,11 @@ class World:
         if letter == "t":
             self.add("newtab")
             self.stale = 1 if self.faults.get("page_gets_the_keys_late") else 0
-            self.openings.append({"spare": len(self.openings) % 2 == 0, "cross_window": False, "refit": False,
-                                  "ms": 3.0 if len(self.openings) % 2 == 0 else 120.0 + len(self.openings)})
+            # `ready_opens_are_idle_pages`: an app whose record has `idle`, and each ready open took an idle page (the
+            # page of a new tab that the person did not use), so its `spare` is false. Else an app before that field.
+            ready, idle = len(self.openings) % 2 == 0, "ready_opens_are_idle_pages" in self.faults
+            self.openings.append({"spare": ready and not idle, **({"idle": ready} if idle else {}), "cross_window": False,
+                                  "refit": False, "ms": 3.0 if ready else 120.0 + len(self.openings)})
             return
         self.closes += 1
         tab = self.tabs[self.selected()]
@@ -1077,10 +1080,20 @@ class Rows(Case):
         report = self.rows(World())
         hold = next(row for row in report["rows"] if row["scenario"] == "hold")
         # `hold` made 4 tabs after the 4 of `mixed`: the opens 4 to 7 of the fake app (2 from the ready page, 2 not).
-        self.assertEqual((hold["opens"]["warm"], hold["opens"]["cold"]), (2, 2))
+        self.assertEqual((hold["opens"]["warm"], hold["opens"]["cold"], hold["opens"]["idle"]), (2, 2, 0))
         self.assertEqual(hold["opens"].get("main_ms"),
                          {"warm": {"n": 2, "p50": 3.0, "p95": 3.0, "p99": 3.0, "max": 3.0, "sum": 6.0},
                           "cold": {"n": 2, "p50": 127.0, "p95": 127.0, "p99": 127.0, "max": 127.0, "sum": 252.0}})
+
+    def test_an_open_that_took_an_idle_page_is_a_warm_one(self):
+        # The app's record says `spare` false and `idle` true for an open that took the page of a new tab that the
+        # person did not use: no page was made for it, so the row counts it as `warm`, and `idle` says how many.
+        report = self.rows(World(ready_opens_are_idle_pages=True))
+        hold = next(row for row in report["rows"] if row["scenario"] == "hold")
+        self.assertEqual((hold["opens"]["warm"], hold["opens"]["cold"]), (2, 2))  # first: a row that reads `spare` only says (0, 4)
+        self.assertEqual(hold["opens"].get("idle"), 2)
+        self.assertEqual(hold["opens"]["main_ms"]["warm"], {"n": 2, "p50": 3.0, "p95": 3.0, "p99": 3.0, "max": 3.0, "sum": 6.0})
+        self.assertEqual(hold["opens"]["main_ms"]["cold"]["n"], 2)
 
     def test_a_slow_key_says_its_wait_and_its_commit_time(self):
         world = World()
