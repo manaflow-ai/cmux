@@ -38,6 +38,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# An inherited `BUN_OPTIONS=--preload PATH` would fail every bun install here; this joins it to --preload=PATH.
+. "$ROOT/scripts/lib/bun-options.sh"
 config_file="${CMUX_NEXT_CONFIG_FILE:-$HOME/.config/cmux/cmux-next.json}"
 config_dir="$(dirname "$config_file")"
 web_dev="$config_dir/web-dev.json"
