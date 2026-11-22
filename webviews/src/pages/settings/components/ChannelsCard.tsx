@@ -26,6 +26,7 @@ import type {
 } from "../ops";
 import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
 import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
+import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** One of the card's restart controls: a track's Switch or the way back's Go Back. */
 type Target = { kind: "switch" | "go_back"; ring: string; build: string };
@@ -98,9 +99,13 @@ function BuildRow({
             {build.commit && build.commit_url && (
               <>
                 {" · "}
-                <a href={build.commit_url} aria-description={labels.commit} className="channel-link font-mono">
-                  {build.commit}
-                </a>
+                <WithFacts facts={[{ value: labels.commit ?? "" }]}>
+                  {(facts) => (
+                    <a {...facts} href={build.commit_url ?? undefined} className="channel-link font-mono">
+                      {build.commit}
+                    </a>
+                  )}
+                </WithFacts>
               </>
             )}
             {build.prs.map((pr) => (

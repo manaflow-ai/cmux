@@ -22,6 +22,7 @@
     {
       "agent": "settable",
       "keys": [
+        "agentPane.links.openCitationsInEditor",
         "window.titlebar"
       ]
     },
@@ -488,7 +489,8 @@
         "experiments.glassToolbarGroups",
         "experiments.composerV2",
         "experiments.agentBadges",
-        "experiments.agentBadgesBeam"
+        "experiments.agentBadgesBeam",
+        "experiments.toastsV2"
       ]
     },
     {
