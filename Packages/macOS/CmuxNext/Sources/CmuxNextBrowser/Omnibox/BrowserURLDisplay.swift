@@ -38,6 +38,21 @@ public nonisolated enum BrowserURLDisplay {
         return text
     }
 
+    /// What the address bar shows at rest: a web page's host alone (no scheme, no `www.`, no path, query or fragment;
+    /// a port stays, so `localhost:3000` is still told apart), as Safari shows it. A page that is not on the web
+    /// (a file, `chrome://`, a blank page) shows ``displayText(for:home:)``. The page's security shows in the chip
+    /// beside it, so `http://` is dropped too.
+    public static func restingText(for url: URL?, home: String = NSHomeDirectory()) -> String {
+        guard let url, let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http",
+              var host = url.host(percentEncoded: false), !host.isEmpty else {
+            return displayText(for: url, home: home)
+        }
+        if host.lowercased().hasPrefix("www."), host.split(separator: ".").count > 2 { host = String(host.dropFirst(4)) }
+        if host.contains(":") { host = "[\(host)]" }
+        guard let port = url.port else { return host }
+        return "\(host):\(port)"
+    }
+
     /// `path` with `home` (and only home, never a sibling such as
     /// `/Users/me2`) replaced by `~`.
     static func tildePath(_ path: String, home: String) -> String {
