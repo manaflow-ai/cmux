@@ -45,6 +45,8 @@ export const HOUSE_EASINGS = [MOTION_SETTLE, MOTION_EASE_OUT, MOTION_SPRING, ARR
 /** The ceiling of any house move (ms): "no house move outlasts the large step" (scale.generated.ts). */
 export const HOUSE_MAX_MS = MOTION_MS.large;
 /** Frames running on which script writes an element's translate before it counts as an animation. */
+/** Keyframes at which a linear-clock animation is a sampled curve (its easing is in the points). */
+export const SAMPLED_KEYFRAMES = 4;
 export const SCRIPT_RUN_FRAMES = 3;
 
 export type Box = [x: number, y: number, w: number, h: number];
@@ -199,12 +201,17 @@ export function defineTranscriptMotion(options: TranscriptMotionOptions) {
       if (!geometry.length) continue;
       const timing = effect.getComputedTiming();
       if (!Number.isFinite(Number(timing.endTime))) continue;
+      // An ambient loop (the running line's shimmer: a steps() sweep, repeated) moves ink inside its row, not
+      // the layout around it.
+      if (Number(timing.iterations) !== 1 || /^steps\(/.test(effect.getTiming().easing ?? "")) continue;
       movers.push(target);
       if (animIds.has(animation)) continue;
       animIds.set(animation, (nextAnim += 1));
       const own = effect.getTiming().easing ?? "linear";
-      const easing =
-        own !== "linear" ? own : (keyframes.find((frame) => frame.easing && frame.easing !== "linear")?.easing ?? own);
+      const keyed = keyframes.find((frame) => frame.easing && frame.easing !== "linear")?.easing;
+      // A curve sampled into keyframes on a linear clock (the wipe's edge: SAMPLED_KEYFRAMES = 4 or more points; inlined, this function closes over nothing)
+      // carries its easing in the points, not in a timing function.
+      const easing = own !== "linear" ? own : (keyed ?? (keyframes.length >= 4 ? `sampled(${keyframes.length})` : own));
       const tracked = target.matches(selectorAll) ? keyOf(target) : undefined;
       animations.push({
         target: tracked ?? `${target.tagName.toLowerCase()}.${[...target.classList].slice(0, 2).join(".")}`,
@@ -320,7 +327,8 @@ const HOUSE = new Set(HOUSE_EASINGS.map(normalize));
 
 /** Whether an animation's easing and length are the house's. */
 export function onHouseCurve(animation: Pick<AnimationSeen, "easing" | "duration">): boolean {
-  return HOUSE.has(normalize(animation.easing)) && animation.duration <= HOUSE_MAX_MS + 0.5;
+  const easing = normalize(animation.easing);
+  return (HOUSE.has(easing) || easing.startsWith("sampled(")) && animation.duration <= HOUSE_MAX_MS + 0.5;
 }
 
 /** Every flag in `record`, in frame order. */

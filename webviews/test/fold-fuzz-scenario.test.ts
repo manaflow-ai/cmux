@@ -156,6 +156,9 @@ describe("the transcript motion detector", () => {
     expect(flags.map((f) => [f.kind, f.key])).toEqual([["off-curve", "div.acpmux-thread"]]);
     expect(onHouseCurve({ easing: "ease-out", duration: 120 })).toBe(true);
     expect(onHouseCurve({ easing: "cubic-bezier(0.16,1,0.3,1)", duration: 480 })).toBe(false);
+    // The wipe's edge: a curve sampled into keyframes on a linear clock is judged by its length alone.
+    expect(onHouseCurve({ easing: "sampled(13)", duration: 240 })).toBe(true);
+    expect(onHouseCurve({ easing: "sampled(13)", duration: 435 })).toBe(false);
   });
 
   test("a script translate run (the follow chase) moves its rows on a curve; turning back is a bounce", () => {
