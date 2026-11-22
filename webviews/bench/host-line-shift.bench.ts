@@ -32,7 +32,6 @@ const states: Record<string, ReactNode> = {
   "chip: dot": createElement(Host.HostRecoveringLine, { relinkingSince: 0, now: LONG, variant: "dot" }),
   "chip: corner": createElement(Host.HostRecoveringLine, { relinkingSince: 0, now: LONG, variant: "corner" }),
   restoring: createElement(Host.HostRecoveringLine, { restoring: { waitedMs: LONG, at: 0 }, now: 0 }),
-  "waiting for the service": createElement(Host.HostWaitingLine, { since: 0, now: 60_000, onRestart: noop }),
   "failed, self-retrying": createElement(Host.HostUnavailableLine, { message: "Can't connect." }),
   "failed, Retry": createElement(Host.HostUnavailableLine, {
     message: "Update cmux.",

@@ -1,6 +1,6 @@
 // The agent pane's host line never moves the content (Leo, 2026-11-21: "stop layout shifting"): the same
-// in-flow skeleton while connected, reconnecting before and past the 10 s bound, restoring, waiting for the
-// service and failed with Retry. test/support/noLayoutShift.ts is the check; bench/host-line-shift.bench.ts
+// in-flow skeleton while connected, reconnecting before and past the 10 s bound, restoring and failed with
+// Retry. test/support/noLayoutShift.ts is the check; bench/host-line-shift.bench.ts
 // measures the same states in Chromium. The last test is the control: the line as it was drawn before (a row in
 // flow) is caught by the same check.
 import { afterEach, expect, test } from "bun:test";
@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { HostLineSlot, HostRecoveringLine, HostUnavailableLine, HostWaitingLine } from "./HostError";
+import { HostLineSlot, HostRecoveringLine, HostUnavailableLine } from "./HostError";
 import { RECONNECT_LINE_AFTER_MS } from "./hostRetry";
 import { settleReact } from "../../../test/support/domTeardown";
 import {
@@ -96,7 +96,6 @@ test("the host line moves nothing in any state: connected, reconnecting, restori
     "reconnecting, dot": () => draw(<HostRecoveringLine relinkingSince={0} now={LONG} variant="dot" />),
     "reconnecting, corner": () => draw(<HostRecoveringLine relinkingSince={0} now={LONG} variant="corner" />),
     restoring: () => draw(<HostRecoveringLine restoring={{ waitedMs: LONG, at: 0 }} now={0} />),
-    "waiting for the service": () => draw(<HostWaitingLine since={0} now={60_000} onRestart={() => undefined} />),
     "failed, with Retry": () =>
       draw(<HostUnavailableLine message="Update cmux." selfRetrying={false} onRetry={() => undefined} />),
     "failed, self-retrying": () => draw(<HostUnavailableLine message="Can't connect." />),

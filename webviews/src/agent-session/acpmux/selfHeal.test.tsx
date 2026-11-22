@@ -321,10 +321,10 @@ test("the host's restore status reads as a quiet line with its elapsed time", ()
   expect(
     renderToStaticMarkup(<HostRecoveringLine restoring={restoring} now={4_000} />).replace(/<[^>]+>/g, ""),
   ).toContain("Restoring sessions… 0:15");
-  // A lost link says nothing for its first moment, and leaves the line to the failure past 25 s.
+  // A lost link says nothing for its first 10 s, then keeps the quiet chip for as long as it lasts.
   expect(hostRecoveryLine({ relinkingSince: 0, now: 500 })).toBeUndefined();
   expect(hostRecoveryLine({ relinkingSince: 0, now: 12_000 })).toEqual({ kind: "reconnecting" });
-  expect(hostRecoveryLine({ relinkingSince: 0, now: 30_000 })).toBeUndefined();
+  expect(hostRecoveryLine({ relinkingSince: 0, now: 30_000 })).toEqual({ kind: "reconnecting" });
 });
 
 // Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". A daemon restart, an

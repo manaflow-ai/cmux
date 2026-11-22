@@ -207,7 +207,9 @@ export function HostRecoveringLine({
   now?: number;
 }) {
   const t = useT();
-  const ticking = useNow(fixedNow === undefined && (relinkingSince !== undefined || restoring !== undefined));
+  const ticking = useNow(
+    fixedNow === undefined && (relinkingSince !== undefined || waitingSince !== undefined || restoring !== undefined),
+  );
   const line = hostRecoveryLine({ relinkingSince, restoring, failureShown, waitingSince, now: fixedNow ?? ticking });
   if (!line) return otherwise;
   return line.kind === "restoring" ? (
@@ -226,7 +228,7 @@ const SLOT = "\u0000";
 
 /// A line's words with its ticking `m:ss` in the shared clock (ui/Typography.tsx `Clock`): tabular
 /// figures in a box as wide as the widest time of its shape, so a tick never moves what follows the
-/// time (the waiting line's Restart agent service jiggled sideways each second). `text` is the
+/// time (proportional figures would jiggle the line each second). `text` is the
 /// translation with `SLOT` where the time goes.
 function ClockedWords({ text, time }: { text: string; time: string }) {
   const [before, after = ""] = text.split(SLOT);
