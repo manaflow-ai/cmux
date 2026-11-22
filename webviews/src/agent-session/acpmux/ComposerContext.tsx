@@ -10,6 +10,7 @@ import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { Spinner } from "./conversation/icons";
 import {
+  DevicesIcon,
   EnvironmentIcon,
   EnvironmentPicker,
   ServerIcon,
@@ -17,7 +18,6 @@ import {
   type EnvironmentFaceStyle,
   type SavedEnvironmentRows,
   type MoveTarget,
-  DevicesIcon,
 } from "./EnvironmentPicker";
 import { SECTION_LABELS, environmentStateLabel, useMachineRefresh } from "./environmentPickerModel";
 import { machineColor } from "./machineColor";
@@ -78,14 +78,14 @@ import { CONTEXT_LABELS, splitForMiddleTruncation } from "./composerContextModel
 import {
   FOLDER_CHIP_LABELS,
   FOLDERLESS_CLOUD_LABELS,
-  folderChipState,
-  type FolderChipState,
   chatFolderChoices,
   shownChatFolder,
+  folderChipState,
   startedCloudFolderName,
   folderMenu,
+  type FolderChipState,
 } from "./folderlessCloud";
-import { chatComputerId, ownMachineName, type ChatPlace, routeOnOwnCloud } from "./chatMachine";
+import { chatComputerId, ownMachineName, routeOnOwnCloud, type ChatPlace } from "./chatMachine";
 import { useMachineCard } from "./MachineCard";
 /// How a new chat's strip asks where it runs (gallery seam; `where-machine` ships). Leo, 2026-11-03,
 /// on Codex desktop's strip: "chatgpt codex has nicer ways to deal with stuff".
