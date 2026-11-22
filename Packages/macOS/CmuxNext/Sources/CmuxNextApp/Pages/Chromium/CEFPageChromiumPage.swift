@@ -78,8 +78,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     }
 
     private func renderEnded() {
-        guard !closed else { return }
-        onEvent?(.ended)
+        guard !closed else { return }; onEvent?(tab.browserEndedForQuit ? .engineStopped : .ended) // quit: no crash
     }
 
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {

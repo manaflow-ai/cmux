@@ -46,7 +46,7 @@ import Testing
                     if let gate { for await _ in gate { break } }
                     return isUp
                 }, end: { _ = ends.yield(machine) })
-            })
+            }, team: { nil })
         }
 
         /// A serve that never starts: nothing here asks for its socket.
@@ -69,6 +69,22 @@ import Testing
         // A new daemon run (the key's binding moved) is not the run keyed ahead.
         #expect(!readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-2"))
         #expect(!readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1"), "the stale entry is dropped")
+    }
+
+    @Test func aKeyAheadRunningAcrossAResetRecordsNothing() async {
+        let world = World(), readiness = CloudSpareReadiness(world.dependencies())
+        // Cloud is turned off while the keyed start runs: its answer comes back to a store that forgot everything.
+        world.during = { readiness.reset() }
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(world.keys == ["vm_spare"])
+        #expect(!readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1"))
+        // And a miss across a reset holds nothing back: the next prime keys at once.
+        world.during = {}
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(world.keys == ["vm_spare", "vm_spare"])
+        #expect(readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1"))
     }
 
     @Test func anotherScopeOrSignedOutReadsAsNotKeyed() async {
@@ -101,7 +117,27 @@ import Testing
         await readiness.settled("vm_spare")
         #expect(world.keys == ["vm_spare"])
         #expect(!readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: nil))
-        // The next prime asks again: a daemon that came up meanwhile is keyed then.
+        // A prime right after does not ask again: every app activation primes, and a busy daemon is not read each time.
+        var clock = ContinuousClock.now
+        readiness.now = { clock }
+        world.answer = "run-1"
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(world.keys == ["vm_spare"])
+        // Past the hold the next prime asks again: a daemon that came up meanwhile is keyed then.
+        clock = clock.advanced(by: CloudSpareReadiness.keyRetry + .seconds(1))
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        #expect(world.keys == ["vm_spare", "vm_spare"])
+        #expect(readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1"))
+    }
+
+    @Test func aResetForgetsAMissedKeySoTheNextAccountIsKeyedAtOnce() async {
+        let world = World(), readiness = CloudSpareReadiness(world.dependencies())
+        world.answer = nil
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare")
+        readiness.reset()
         world.answer = "run-1"
         readiness.prime("vm_spare", team: "team_a")
         await readiness.settled("vm_spare")
@@ -127,7 +163,7 @@ import Testing
         let (gate, open) = AsyncStream.makeStream(of: Void.self)
         world.gate = gate
         readiness.prime("vm_spare", team: "team_a")
-        _ = await world.made.first(where: { _ in true })
+        _ = await firstValue(world.made)
         // The claim's session comes first: it takes the serve and connects on it itself.
         #expect(readiness.link(for: "vm_spare", team: "team_a") != nil)
         open.yield()
@@ -143,7 +179,47 @@ import Testing
         readiness.prime("vm_spare", team: "team_a")
         await readiness.settled("vm_spare")
         #expect(readiness.link(for: "vm_spare", team: "team_b") == nil)
-        #expect(await world.ended.first(where: { _ in true }) == "vm_spare")
+        #expect(await firstValue(world.ended) == "vm_spare")
+    }
+
+    /// A prime that names no team links in ``CloudSpareReadiness/Dependencies/team`` (the install token's), the team the
+    /// claim's record is in, so the claim takes it; the App's active team (another one) would have ended it.
+    @Test func aPrimeWithNoTeamLinksInTheSparesTeamAndTheClaimTakesIt() async {
+        let world = World()
+        var dependencies = world.dependencies()
+        var linkedTeams: [String?] = []
+        let link = dependencies.link
+        dependencies.link = { machine, team in linkedTeams.append(team); return link(machine, team) }
+        dependencies.team = { "team_install" }
+        let readiness = CloudSpareReadiness(dependencies)
+        readiness.prime("vm_spare")
+        await readiness.settled("vm_spare")
+        #expect(linkedTeams == ["team_install"])
+        // The wire's prime (no team either) keeps the one link.
+        readiness.prime("vm_spare")
+        await readiness.settled("vm_spare")
+        #expect(world.links == ["vm_spare"])
+        #expect(readiness.link(for: "vm_spare", team: "team_install") != nil)
+    }
+
+    /// The claim asks for the link while its prime still reads the team (a token mint): the claim links its own, so the
+    /// prime dials no second serve nobody would take; the keying goes on beside it.
+    @Test func aClaimDuringTheTeamReadLeavesThePrimeLinkingNothing() async {
+        let world = World()
+        var dependencies = world.dependencies()
+        var claim: @MainActor () -> Void = {}
+        dependencies.team = { claim(); return "team_install" }
+        let readiness = CloudSpareReadiness(dependencies)
+        claim = { #expect(readiness.link(for: "vm_spare", team: "team_install") == nil) }
+        readiness.prime("vm_spare")
+        await readiness.settled("vm_spare")
+        #expect(world.links.isEmpty)
+        #expect(world.keys == ["vm_spare"])
+        // A later prime (the next warm) links again.
+        claim = {}
+        readiness.prime("vm_spare")
+        await readiness.settled("vm_spare")
+        #expect(world.links == ["vm_spare"])
     }
 
     @Test func aLinkPastItsKeepIsEndedNotTaken() async {
@@ -155,7 +231,7 @@ import Testing
         clock = clock.advanced(by: CloudSpareReadiness.linkKept)
         #expect(!readiness.holdsLink("vm_spare"))
         #expect(readiness.link(for: "vm_spare", team: "team_a") == nil)
-        #expect(await world.ended.first(where: { _ in true }) == "vm_spare")
+        #expect(await firstValue(world.ended) == "vm_spare")
     }
 
     @Test func aLinkOfAnEndedAccountIsEndedNotTaken() async {
@@ -164,7 +240,7 @@ import Testing
         readiness.prime("vm_spare", team: "team_a")
         await readiness.settled("vm_spare")
         #expect(readiness.link(for: "vm_spare", team: "team_a") == nil)
-        #expect(await world.ended.first(where: { _ in true }) == "vm_spare")
+        #expect(await firstValue(world.ended) == "vm_spare")
     }
 
     @Test func aLinkThatDoesNotComeUpIsEndedAndNotKept() async {
@@ -173,7 +249,7 @@ import Testing
         readiness.prime("vm_spare", team: "team_a")
         await readiness.settled("vm_spare")
         #expect(!readiness.holdsLink("vm_spare"))
-        #expect(await world.ended.first(where: { _ in true }) == "vm_spare")
+        #expect(await firstValue(world.ended) == "vm_spare")
     }
 
     @Test func aSignOutLeavesNoLinkToTake() async {
@@ -182,7 +258,7 @@ import Testing
         await readiness.settled("vm_spare")
         world.scope = ["user_a", "team_b"]
         #expect(readiness.link(for: "vm_spare", team: "team_a") == nil)
-        #expect(await world.ended.first(where: { _ in true }) == "vm_spare")
+        #expect(await firstValue(world.ended) == "vm_spare")
     }
 
     /// What `CloudService` runs when the account or team changes, the person signs out or Cloud is turned off: the held
@@ -193,7 +269,7 @@ import Testing
         await readiness.settled("vm_spare")
         #expect(readiness.holdsLink("vm_spare"))
         readiness.reset()
-        #expect(await world.ended.first(where: { _ in true }) == "vm_spare")
+        #expect(await firstValue(world.ended) == "vm_spare")
         #expect(!readiness.holdsLink("vm_spare"))
         #expect(!readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1"))
         #expect(readiness.link(for: "vm_spare", team: "team_a") == nil)
@@ -249,4 +325,11 @@ import Testing
         #expect(answer == 7)
         #expect(began == ["name:chats"])
     }
+}
+
+/// The stream's first value. An iterator, not `first(where:)`: that closure is not Sendable under Swift 6
+/// (#SendingRisksDataRace).
+private func firstValue(_ stream: AsyncStream<String>) async -> String? {
+    var values = stream.makeAsyncIterator()
+    return await values.next()
 }
