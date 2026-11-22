@@ -53,6 +53,9 @@ public final class SidebarModel {
     // Content updates stay O(changed rows). Apply them to the source only
     // when a structural/configuration change already needs a projection.
     @ObservationIgnored private var sourceRowPatches: [WorkspaceID: SidebarWorkspace] = [:]
+    /// Additional transient top rows supplied by a window owner. They never enter the durable
+    /// sidebar document (remote machine rows are the first opt-in consumer).
+    @ObservationIgnored public var additionalTopItems: @MainActor @Sendable () -> [SidebarTransientItem] = { [] }
     @ObservationIgnored private var isReprojecting = false
     /// The last projection showed the selected workspace only because it is selected: the settings hide it or its
     /// section (`SidebarCustomizationPlanner.Projection.selectionSpared`).

@@ -1,0 +1,64 @@
+import CmuxNextAgentActivity
+import CmuxNextBridge
+import CmuxNextSidebar
+import Foundation
+import Observation
+
+/// Owns the first Labs-gated remote-machine sidebar slice for one app window.
+/// The app supplies only transport and navigation closures; the feed observer and lifetime stay
+/// in the agent-lanes target so closing a window cannot leak a listener or a peer read.
+@MainActor
+public final class RemoteMachinesSidebarExperiment {
+    private let sidebar: RemoteMachinesSidebar
+    private let feed: AgentTurnStateFeed?
+    private let enabled: @MainActor @Sendable () -> Bool
+    private let socketPath: @MainActor @Sendable () -> String?
+    private let displayName: (String) -> String?
+    private let open: (AgentActivityLane) -> Void
+    private var observation: Task<Void, Never>?
+    private var observerID: UUID?
+
+    public init(sidebar: RemoteMachinesSidebar,
+                feed: AgentTurnStateFeed? = AgentTurnStateFeed.shared,
+                enabled: @escaping @MainActor @Sendable () -> Bool,
+                socketPath: @escaping @MainActor @Sendable () -> String?,
+                displayName: @escaping (String) -> String?,
+                open: @escaping (AgentActivityLane) -> Void) {
+        self.sidebar = sidebar
+        self.feed = feed
+        self.enabled = enabled
+        self.socketPath = socketPath
+        self.displayName = displayName
+        self.open = open
+    }
+
+    public func start() {
+        stop()
+        if let feed {
+            observerID = feed.addPeerStateObserver { [weak sidebar] peer, state in
+                sidebar?.peerStateChanged(peer: peer, state: state)
+            }
+        }
+        observation = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await on in ObservationStream({ self.enabled() }) {
+                guard !Task.isCancelled else { return }
+                if on {
+                    self.sidebar.bind(host: RemoteMachinesSidebar.host(socketPath: self.socketPath(),
+                                                                         displayName: self.displayName,
+                                                                         open: self.open))
+                } else {
+                    self.sidebar.stop()
+                }
+            }
+        }
+    }
+
+    public func stop() {
+        observation?.cancel()
+        observation = nil
+        if let observerID, let feed { feed.removePeerStateObserver(observerID) }
+        self.observerID = nil
+        sidebar.stop()
+    }
+}

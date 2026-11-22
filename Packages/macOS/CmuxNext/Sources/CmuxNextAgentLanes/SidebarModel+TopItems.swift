@@ -8,21 +8,27 @@ import Observation
 /// while `home.channelsEnabled` is on (cx-frn2y), and the Chief's subagent rows under the Chief
 /// item (`ChiefSidebar`), which draw only once the person adds that item. No Lanes item (Lawrence
 /// 2026-10-20). What's New never shows here: after an update it is only the bottom-left "cmux
-/// Updated!" card (Lawrence 2026-10-18). Agent chats on other machines never show here either: the
-/// top band holds Home and what the person put there (Lawrence 2026-10-26); those chats are in the
-/// Priority view and Home. A look's nav block (`sidebar.nav`) draws first, above Home (`SidebarTransientItem.nav`).
+/// Updated!" card (Lawrence 2026-10-18). Remote machine rows are supplied by the app bridge as an
+/// additional transient source, so this shared feed stays independent of the app's peer transport.
 extension SidebarModel {
+    /// Uses the window owner's transient source in addition to the built-in top items.
+    public func followTopItems(chief: ChiefSidebar = .shared,
+                               document: @escaping @MainActor @Sendable () -> SidebarDocStore?) -> Task<Void, Never> {
+        followTopItems(chief: chief, document: document, additional: { [weak self] in self?.additionalTopItems() ?? [] })
+    }
+
     /// Keeps `transientTopItems` current until cancelled. `document`: the app's own sidebar document, which every
     /// window of that app draws from.
     public func followTopItems(chief: ChiefSidebar = .shared,
-                               document: @escaping @MainActor @Sendable () -> SidebarDocStore?) -> Task<Void, Never> {
+                               document: @escaping @MainActor @Sendable () -> SidebarDocStore?,
+                               additional: @escaping @MainActor @Sendable () -> [SidebarTransientItem]) -> Task<Void, Never> {
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         Task { [weak self] in
             for await items in ObservationStream({ [weak self] in
                 // Placed in a band, or anywhere in the sidebar document (a group or a machine list): never this window's
                 // rows, which its workspace membership filters, so every window's feed tells the same.
-                (Self.topItems(chief: chief), self.map { $0.layout.firstItem(with: .builtIn(.chief)) != nil } == true
-                    || document()?.placesItem(with: .builtIn(.chief)) == true,
+                (Self.topItems(chief: chief) + additional(), self.map { $0.layout.firstItem(with: .builtIn(.chief)) != nil } == true
+                     || document()?.placesItem(with: .builtIn(.chief)) == true,
                  self.map { model in SidebarTransientItem.chiefAnchors.contains { model.layout.firstItem(with: $0) != nil } } == true)
             }) {
                 guard let self else { return }

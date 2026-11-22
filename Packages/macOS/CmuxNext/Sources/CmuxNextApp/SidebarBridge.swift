@@ -19,6 +19,9 @@ import Observation
 /// client-local: it only changes which workspace this window shows.
 final class SidebarBridge {
     let model = SidebarCollapsedSections(defaults: .standard).restoring(SidebarModel())
+    /// Client-only machine groups. The model owns grouping and pagination; the bridge only supplies
+    /// the daemon transport and puts its transient rows beside the other top items.
+    let remoteMachines = RemoteMachinesSidebar()
     let container: SidebarContainerView
     unowned let services: AppServices
     /// Weak: a daemon command's `Task` can outlive the window.
@@ -31,6 +34,19 @@ final class SidebarBridge {
     /// The window's app sections (no All chats: it is on the New Tab page, cx-n0i9).
     private var appSections: SidebarAppSections?
     var cardsObservation: Task<Void, Never>?
+    private lazy var remoteExperiment: RemoteMachinesSidebarExperiment = {
+        RemoteMachinesSidebarExperiment(sidebar: remoteMachines,
+            enabled: { [weak services = self.services] in services?.settings?.snapshot.machineJoin == true },
+            socketPath: { [weak services = self.services] in
+                guard let services else { return nil }
+                return QuitAgents.environment(services)?.socketPath ?? services.agentLanes.socketPath
+            },
+            displayName: { [weak services = self.services] peer in services?.machines.machineName(peer: peer) },
+            open: { [weak services = self.services] lane in
+                guard let services else { return }
+                SidebarPriorityFeed.open(lane, services: services)
+            })
+    }()
     /// True once the sidebar shows real content: saved rows, the first
     /// live rows, or a settled empty or unavailable state, which marks the
     /// sidebar region ready for `LaunchReveal`.
@@ -66,6 +82,7 @@ final class SidebarBridge {
         rowFeed = SidebarRowFeed(schedule: { frames.scheduleFrame($0) }, keeps: { [weak services, weak state] id in state.map { services?.windows.registry.value.lists(id.rawValue, in: $0.id) == true } ?? false })
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
+        model.additionalTopItems = { [weak remoteMachines] in remoteMachines?.rows() ?? [] }
         // Link rows draw the favicon at their item's icon address, from this app's favicons.
         model.itemFavicon = { [weak services] in services?.favicons.image(for: $0, profile: .default).map { SidebarFavicon($0.cgImage) } }
         // Loose rows come before every group unless the home session places
@@ -121,6 +138,7 @@ final class SidebarBridge {
             focus.send(.focusTarget(.content, source: .keyboard))
         }
         seedFromSnapshot(state)
+        remoteExperiment.start()
         // Clear until real content (`markReadyForReveal`, or the deadline); a no-op once it is ready.
         services.launchReveal.hold(container, until: .sidebar)
         observe()
@@ -135,6 +153,7 @@ final class SidebarBridge {
         sectionsPass?.cancel()
         appSections?.releaseAll()
         cardsObservation?.cancel()
+        remoteExperiment.stop()
         container.sidebarView.tearDownSpaceWindowMarks() // a retained closed window keeps its views (#38333 review)
         container.sidebarView.updateSurfaces = nil // the update surface pages cancel their subscriptions (cx-urd.61.2)
     }

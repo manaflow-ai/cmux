@@ -35,6 +35,19 @@ struct PeerStatePushTests {
         #expect(heard.peers == ["huge-blue"])
     }
 
+    @Test func windowObserversFanOutAndCanBeRemoved() {
+        let feed = AgentTurnStateFeed(socketPath: "/nonexistent/own.sock", turns: AgentTurnStateStore(), lanes: AgentLaneStore())
+        var first: [String?] = []
+        var second: [String?] = []
+        let firstID = feed.addPeerStateObserver { peer, _ in first.append(peer) }
+        feed.addPeerStateObserver { peer, _ in second.append(peer) }
+        feed.handle(.peerState(peer: "joined-box", state: "connected"))
+        #expect(first == ["joined-box"] && second == ["joined-box"])
+        feed.removePeerStateObserver(firstID)
+        feed.handle(.peerState(peer: "joined-box", state: "offline"))
+        #expect(first == ["joined-box"] && second == ["joined-box", "joined-box"])
+    }
+
     @Test func aListedPeerFollowsAtOnceAndARepeatChangesNothing() {
         let peers = [AcpmuxPeerList.Peer(name: "huge-blue", connected: true, url: "ssh://huge-blue"),
                      AcpmuxPeerList.Peer(name: "peer-a", connected: false)]

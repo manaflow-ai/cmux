@@ -95,6 +95,24 @@ public final class AgentTurnStateFeed {
     /// acpmux's (`mirroring`) never call it, and a peer's own states never travel over a peer link.
     /// Called once per change (the daemon sends one only when a state changes): keep it O(1).
     public var peerStateChanged: (@MainActor (_ peer: String?, _ state: String?) -> Void)?
+    /// Window-owned listeners for the same peer-link stream. Each sidebar registers a token so
+    /// closing one window cannot overwrite another listener or the legacy device-directory hook.
+    private var peerStateObservers: [UUID: @MainActor (_ peer: String?, _ state: String?) -> Void] = [:]
+
+    public func addPeerStateObserver(_ observer: @escaping @MainActor (_ peer: String?, _ state: String?) -> Void) -> UUID {
+        let id = UUID()
+        peerStateObservers[id] = observer
+        return id
+    }
+
+    public func removePeerStateObserver(_ id: UUID) {
+        peerStateObservers.removeValue(forKey: id)
+    }
+
+    private func notifyPeerState(_ peer: String?, _ state: String?) {
+        peerStateChanged?(peer, state)
+        for observer in peerStateObservers.values { observer(peer, state) }
+    }
 
     /// Whether this watch mirrors another acpmux than the app's own (it leaves `watching` alone).
     private var isMirror: Bool { source != AgentTurnStateStore.localSource }
@@ -406,7 +424,7 @@ public final class AgentTurnStateFeed {
             }
             if let next, usageRead.pages < Self.usagePages { subscription?.send(Self.usageRequest(cursor: next)) }
         case .peerState(let peer, let state):
-            if !isMirror { peerStateChanged?(peer, state) }
+            if !isMirror { notifyPeerState(peer, state) }
         case .pageRefused:
             retryPage()
         }
@@ -418,7 +436,7 @@ public final class AgentTurnStateFeed {
         resyncing = false
         if !self.lanes.live { self.lanes.live = true }
         // A fresh page (the first, or after a reconnect): the peer list is read again.
-        if !isMirror { peerStateChanged?(nil, nil) }
+        if !isMirror { notifyPeerState(nil, nil) }
         // A usage read that answered first: its numbers are newer than the page's.
         usageRead.paged = true
         if !usageRead.numbers.isEmpty { turns.applyUsage(usageRead.numbers, source: source) }
