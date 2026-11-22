@@ -2655,7 +2655,6 @@ button.cv-subagent > :last-child {
   left: calc(var(--hat-face-index) * var(--hat-face-step));
   display: inline-flex;
   line-height: 0;
-  cursor: pointer;
   border-radius: 999px;
   /* A thin ring of the hat's own glass between overlapping icons, so each reads as its own. */
   box-shadow: 0 0 0 1.5px var(--acpmux-hat-face-ring, color-mix(in srgb, var(--agent-bg, Canvas) 85%, transparent));
@@ -2706,5 +2705,6 @@ button.cv-subagent > :last-child {
   inset: calc(-1 * var(--ds-space-1)) auto calc(-1 * var(--ds-space-1)) calc(-1 * var(--ds-space-1));
   width: calc(var(--hat-face-open-width) + 2 * var(--ds-space-1));
   border-radius: 999px;
+  /* chat-surface-allow: the fan's backing is the page colour, so the faces read over the transcript */
   background: var(--acpmux-hat-face-ring, color-mix(in srgb, var(--agent-bg, Canvas) 92%, transparent));
 }
