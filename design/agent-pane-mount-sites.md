@@ -22,7 +22,7 @@ the Swift host. Mac rows need `scripts/cmux-next/bench_relaunch_reconnect.py` an
 | 4 | Mac, every agent page under Chromium | `CmuxNextPages/PageWebView.swift` init builds a `PageWKWebView` before the engine is chosen | every page | yes: a WebKit view nobody draws when the engine is CEF | n/a | first view in the process 26 to 43 ms main thread and 3.4 to 4.9 MB; each later one about 1 ms and about 75 KB (stand-in script, air-blue M5 under load average 57 to 85, 5 runs of 20 views; helper processes not checked) | not cut: about 1 ms a page | run |
 | 5 | Mac, New Tab spare | `AgentTabs.makeSpare`, `NewTabSparePool` | after first frame; refill 250 ms after an open | yes, parked | n/a | page only: 42 MB JS heap, 1839 DOM nodes parked; taking a chat 91 ms quiet, 328 ms at CPU 4x | | code |
 | 6 | Mac, chat view under New Tab | `App.tsx` `<Activity mode="hidden">` (`premountsChatView`) | New Tab shown | yes, hidden React tree | n/a | not measured | | code |
-| 7 | Mac, hidden chat released and reopened | `CmuxNextHibernation/HiddenChatPages.swift` (60 s idle, 2 kept warm) → `AgentPageHibernation.releasePage` | show after release | n/a | saved frame, except under Chromium where hidden capture is skipped | page only, see Hidden reopen: quiet 65 ms first content, 333 ms live; 6 pages at CPU 4x 1111 ms first content, 5249 ms live; a warm spare instead 122 ms and 446 ms | | run (page), code (native) |
+| 7 | Mac, hidden chat released and reopened | `CmuxNextHibernation/HiddenChatPages.swift` (60 s idle, 2 kept warm) → `AgentPageHibernation.releasePage` | show after release | n/a | saved frame, except under Chromium where hidden capture is skipped | page only, see Hidden reopen: quiet 65 ms first content, 333 ms live; 6 pages at CPU 4x 1111 ms first content, 5249 ms live; a warm spare instead 122 ms and 446 ms | 6 pages at CPU 4x live 6416 ms to 3334 ms in one run; quiet restart live 2425 ms to 489 ms | run (page), code (native) |
 | 8 | Mac, chat switch in one page | `chatSwitch.ts`, `selectSession` | click | no | kept tail (20 chats, 400 events) | not measured | | code |
 | 9 | Mac, sub-session tray, Session Info card | `App.tsx` `key={shownSessionId}` | every chat switch | remounts and re-reads each switch | none | not measured | | code |
 | 10 | Mac, Home channels and messages | `pages/home-channels`, `pages/home-messages` import `PromptEditor`, `AgentMessageRow`, `Markdown` | Home open | pane code (Milkdown) in a page that is not the pane | their own | not measured | | code |
@@ -68,7 +68,25 @@ parked page that takes the chat.
 Two gaps. Under load a rebuilt page is live 5 to 12 times later than a warm page that takes the chat (2219 or
 5249 ms against 446 ms): every release of a hidden chat buys that. And the saved copy, which halves the time to
 first content, more than doubles the time to live under load (5249 ms against 2219 ms; its socket opens 629 ms
-later and its attach answers 1677 ms later). Cause not traced yet.
+later and its attach answers 1677 ms later).
+
+Cause of the second gap (trace run 45010103014, profile run 45017801378): the swap from the copy to the live page
+waited for the chat's saved draft to be read (`_acpmux/draft_get`, or its 2 s limit in `draftSettleHold.ts`) even
+when the copy's prompt was empty, and under load that read answers about 2 s after the kept tail is drawn. Dropping
+the kept tail (`NO_TAIL=1`) changed nothing (6256 ms). Fix: a copy whose prompt is empty waits for nothing
+(`chatSnapshot/live.ts` `chatSnapshotShowsDraft`); a copy that shows a draft waits as before.
+
+| Case (medians of 5) | Before | After | No copy, same run | Run |
+|---|---|---|---|---|
+| 6 pages, CPU 4x, copy, live | 6416 ms | 3334 ms (rounds 2370 to 4968) | 2523 ms | 45021058139 |
+| 6 pages, CPU 4x, copy, first content | 1304 ms | 1342 ms | | 45021058139 |
+| quiet, 1 page, copy, live | 353 ms | 302 ms | 256 ms | 45021426347 |
+| quiet restart (`MODE=down`, daemon up), live | 2425 ms | 489 ms | | 45021426347 |
+
+No blank or shifted frame in any round. Still open: under load the copy is live about 0.8 s after a page with no
+copy. With a copy up, the page does about 7.0 s of work a round against 3.8 s: React render 2734 ms against 1122 ms,
+`getPropertyValue` 679 ms against 54 ms (`gridScale`, `updateSeeThrough`, `readUIScale`), and a measure and layout
+pass that repeats every 500 ms from 3.5 s to 7 s.
 
 ## Restart under duress, live content and offline
 
