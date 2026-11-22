@@ -2881,8 +2881,12 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
           log: Callable[[str], None], deadline: dt.datetime | None = None,
           floor_seconds: int | None = None, seen: dict[Any, dt.datetime] | None = None,
           sign_seen: dict[Any, dt.datetime] | None = None,
-          sign_text: list[str | None] | None = None) -> tuple[str, str]:
+          sign_text: list[str | None] | None = None,
+          first_look: float = FIRST_LOOK_SECONDS) -> tuple[str, str]:
     """Watch until a stop, a rescue or `deadline`. Returns (outcome, reason).
+
+    `first_look` is the wait before the first look: 0 for a run that already finished (a `completed` event,
+    main()), whose jobs are all there to read at once.
 
     `sign_seen` and `sign_text` (when each signing job was first seen queued, and the run's workflow file once
     read) carry over from an earlier watch of the same attempt (follow()), so a stall keeps counting.
@@ -2897,7 +2901,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
     """
     if deadline is None:
         deadline = now() + dt.timedelta(seconds=target.watch_limit)
-    sleep(FIRST_LOOK_SECONDS)
+    if first_look > 0:
+        sleep(first_look)
     looks = 0
     on_persistent = False
     picker_marker: bool | None = None
@@ -2996,6 +3001,14 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
         interval = POLL_SECONDS if on_persistent or picker_marker is None else IDLE_POLL_SECONDS
         if on_persistent:
             run = read(lambda: api.run(target.run_id), sleep, log) if run_finished(jobs) else {}
+            if int(run.get("run_attempt") or 0) > target.attempt:
+                # Every job of this attempt ended and a newer attempt exists: whoever started it re-placed the run,
+                # and rescue() would answer "someone else already re-ran the run" whenever this watch ended. The
+                # run's status is the newer attempt's, so waiting for it to finish waited out the watch limit
+                # (IDLE_POLL_SECONDS looks): run 44961464126 held a Blacksmith runner 60 minutes on 2026-11-21 for
+                # 44957702876's attempt 1, and such watches were two thirds of this workflow's runner time.
+                return "stop", (f"attempt {target.attempt} finished and someone else already re-ran the run "
+                                f"(attempt {run.get('run_attempt')})")
             finished = run.get("status") == "completed"
             # A job no runner acquired looks like one a cancelled run left queued (unacquired()).
             stranded = finished and run.get("conclusion") not in (None, "cancelled")
@@ -5619,7 +5632,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     try:
         return finish(follow(client, target, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
                              now=clock, sleep=sleep, log=log, side_seconds=side_seconds,
-                             side_label=rerun_side_label(env)))
+                             side_label=rerun_side_label(env),
+                             # A `completed` event's run already finished: every job is there to read at once,
+                             # so its watch looks without the 45 s wait (most such watches end at that look).
+                             first_look=0 if not run_id and event.get("action") == "completed"
+                             else FIRST_LOOK_SECONDS))
     except (*READ_ERRORS, Aborted) as error:
         # A failed watch leaves the run exactly as GitHub scheduled it. One that ran out of API budget is an infra
         # skip, green with a warning: nothing about the run was wrong, and the next sweeper looks again.
@@ -5875,8 +5892,10 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
            now: Callable[[], dt.datetime], sleep: Callable[[float], None], log: Callable[[str], None],
            rescue_sleep: Callable[[float], None] | None = None, latest: dt.datetime | None = None,
            light_retry: bool = False, side_seconds: int | None = None, side_label: str = "",
-           kept: WatchKept | None = None) -> str:
+           kept: WatchKept | None = None, first_look: float = FIRST_LOOK_SECONDS) -> str:
     """Watch one run and rescue it when it needs it. Returns the outcome; raises READ_ERRORS or Aborted.
+
+    `first_look` is the first watch's wait before its first look (watch()); later watches keep FIRST_LOOK_SECONDS.
 
     `kept` (WatchKept) carries an earlier watch's start and job sightings into a watch the sweeper took up again
     after that one ended on a read error or a rate limit before any write: each job's budget keeps counting from
@@ -5934,7 +5953,7 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     sign_text: list[str | None] = []
     outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep,
                             log=log, deadline=deadline, floor_seconds=effective_seconds, seen=seen,
-                            sign_seen=sign_seen, sign_text=sign_text)
+                            sign_seen=sign_seen, sign_text=sign_text, first_look=first_look)
 
     def settle(outcome: str, reason: str) -> tuple[str, str, str, str]:
         """The stall hold and the signing-stall rescue on a look's outcome, watching on as they need:
