@@ -2,11 +2,12 @@
 import CmuxMobileDesign
 import CmuxMobileModel
 import Foundation
+import UIKit
 
 /// Plays `HostLoadSim.heavy` into the store: the workspace pushes a busy Mac
 /// sends (`LiveCoordinator`'s `onRows` and `onTree`), at 20 Hz, while the
-/// person types. Mock sessions take the `tick` it posts. Runs until the app
-/// ends; idle and cut send nothing from here.
+/// person types, from the first keyboard on. Mock sessions take the `tick` it
+/// posts. Runs until the app ends; idle and cut send nothing from here.
 @MainActor
 enum HostLoadDriver {
     static func runIfConfigured(store: AppStore) async {
@@ -17,6 +18,9 @@ enum HostLoadDriver {
             return
         case .heavy: break
         }
+        // From the first keyboard on: a push that moves the list's rows while the test
+        // taps one opens another workspace (rows sort by activity).
+        for await _ in NotificationCenter.default.notifications(named: UIResponder.keyboardWillShowNotification) { break }
         var tick = 0
         while !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(50))
