@@ -313,7 +313,7 @@ struct MockScript {
         let image = UIGraphicsImageRenderer(size: size).image { context in
             UIColor.systemIndigo.setFill()
             context.fill(CGRect(origin: .zero, size: size))
-            UIColor.white.withAlphaComponent(0.9).setFill()
+            UIColor.white.withAlphaComponent(0.9).setFill() // color-literal-allow: mock image content
             for row in 0..<3 {
                 UIBezierPath(roundedRect: CGRect(x: 16, y: 24 + CGFloat(row) * 40, width: 208, height: 28), cornerRadius: 8).fill()
             }

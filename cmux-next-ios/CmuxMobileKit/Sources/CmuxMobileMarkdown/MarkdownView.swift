@@ -66,7 +66,7 @@ struct MarkdownBlockMarker: ViewModifier {
                 .background {
                     if marked {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.yellow.opacity(0.28))
+                            .fill(Color.yellow.opacity(0.28)) // color-literal-allow: find match highlight
                             .padding(-6)
                             .accessibilityHidden(true)
                     }

@@ -87,12 +87,12 @@ public enum AgentAvatarMark {
         func image(dark: Bool) -> UIImage {
             UIGraphicsImageRenderer(size: rect.size, format: format).image { context in
                 AgentBrandRenderer.draw(spec, in: context.cgContext, rect: rect, style: .brand, dark: dark,
-                                        monoColor: CGColor(gray: 0, alpha: 1))
+                                        monoColor: CGColor(gray: 0, alpha: 1)) // color-literal-allow: the brand mark's own mono ink
             }.withRenderingMode(.alwaysOriginal)
         }
         let fill = UIColor { traits in
             let tint = Self.fill(spec, dark: traits.userInterfaceStyle == .dark)
-            return UIColor(red: CGFloat((tint.rgb >> 16) & 0xFF) / 255, green: CGFloat((tint.rgb >> 8) & 0xFF) / 255,
+            return UIColor(red: CGFloat((tint.rgb >> 16) & 0xFF) / 255, green: CGFloat((tint.rgb >> 8) & 0xFF) / 255, // color-literal-allow: the agent brand tint, from the brand spec
                            blue: CGFloat(tint.rgb & 0xFF) / 255, alpha: tint.opacity)
         }
         return Rendered(fill: fill, light: image(dark: false), dark: image(dark: true), isMark: true)
@@ -116,7 +116,7 @@ public struct AgentAvatar: View {
                 let tint = AgentAvatarMark.fill(spec, dark: colorScheme == .dark)
                 AgentBrandMark(agent: AgentSenderIcon.family(harness), size: (side * AgentAvatarMark.markShare).rounded(), style: .brand)
                     .frame(width: side, height: side)
-                    .background(Color(red: Double((tint.rgb >> 16) & 0xFF) / 255, green: Double((tint.rgb >> 8) & 0xFF) / 255,
+                    .background(Color(red: Double((tint.rgb >> 16) & 0xFF) / 255, green: Double((tint.rgb >> 8) & 0xFF) / 255, // color-literal-allow: the agent brand tint, from the brand spec
                                       blue: Double(tint.rgb & 0xFF) / 255).opacity(tint.opacity), in: .circle)
             } else {
                 Image(systemName: AgentAvatarMark.fallbackSymbol(harness))

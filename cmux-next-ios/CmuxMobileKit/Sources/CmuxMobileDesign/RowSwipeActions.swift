@@ -172,7 +172,7 @@ public struct RowSwipeActionButton: View {
             VStack(spacing: style.titleGap) {
                 Image(systemName: systemImage)
                     .font(.title3.weight(.medium))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.white) // color-literal-allow: glyph on the action's own color
                     .frame(width: width, height: height)
                     .background(tint, in: .capsule)
                     .opacity(width < 1 ? 0 : 1)
