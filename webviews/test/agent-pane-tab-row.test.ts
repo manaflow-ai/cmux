@@ -193,7 +193,7 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
     await page.locator(".acpmux-header[data-tab-row]").waitFor();
     expect(await header(page)).toEqual({ tabRow: true, height: 28, inset: 40 });
     await page.waitForFunction(() => ((window as Recorder).__tabRowCalls ?? []).length > 0);
-    const reported = (await calls(page)) as { width: number }[];
+    const reported = (await calls(page)) as { width: number; need?: number }[];
     const tools = await page.evaluate(() =>
       Math.round(document.querySelector(".acpmux-handoff-header-tools")!.getBoundingClientRect().width),
     );
