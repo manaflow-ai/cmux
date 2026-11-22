@@ -84,6 +84,14 @@ pub(super) struct NewConversationTabParams {
     /// `split`.
     #[serde(default)]
     place: Option<TabPlaceRequest>,
+    /// `conversation-tab-dock-v1`: the new tab moves into a new column pinned at `dock` before
+    /// the reply (as `move-tab-to-column {dock}` would), so Home's page shows docked from its
+    /// first tree with no second round trip. `width` is that column's viewport fraction.
+    /// Refused with `split` or `place`; a replay leaves the tab where it is.
+    #[serde(default)]
+    dock: Option<crate::model::ColumnDock>,
+    #[serde(default)]
+    width: Option<f32>,
 }
 
 impl NewConversationTabParams {
@@ -109,6 +117,9 @@ pub(crate) const CONVERSATION_TAB_TRANSACTION_CAPABILITY: &str = "conversation-t
 /// delta holds the pane with the tab (and carries `transaction`). The
 /// source pane never lists the tab.
 pub(crate) const CONVERSATION_TAB_SPLIT_CAPABILITY: &str = "conversation-tab-split-v1";
+
+/// `new-conversation-tab {dock, width}`: the tab is created and docked in one request.
+pub(crate) const CONVERSATION_TAB_DOCK_CAPABILITY: &str = "conversation-tab-dock-v1";
 
 /// The new pane of a conversation tab's split: its side of the source pane
 /// and, as `split-client-keys-v1`, the caller-minted public id of the pane.
@@ -369,12 +380,19 @@ pub(super) fn create(
         transaction,
         split,
         place,
+        dock,
+        width,
     } = params;
     super::validate_client_transaction(transaction.as_deref())?;
     anyhow::ensure!(
         place.is_none() || (workspace.is_none() && split.is_none()),
         "bad request: place goes with pane, not with workspace or split"
     );
+    anyhow::ensure!(
+        dock.is_none() || (split.is_none() && place.is_none()),
+        "bad request: dock goes without split or place"
+    );
+    anyhow::ensure!(dock.is_some() || width.is_none(), "bad request: width goes with dock");
     let target = match (pane, workspace, split) {
         (_, None, Some(split)) => ConversationTabTarget::Split(split.tab_split(pane)?),
         (_, None, None) => ConversationTabTarget::Pane(pane),
@@ -407,6 +425,12 @@ pub(super) fn create(
     )?;
     // A replay made no tab: its creation names the tab that was there.
     placing.made(outcome.surface.id);
+    let docked = match dock {
+        Some(dock) if !outcome.replayed => {
+            dock_new_tab(mux, &actor, outcome.surface.id, dock, width)
+        }
+        _ => false,
+    };
     let identity = outcome.surface.resource_identity();
     // A replay returns the tab's current record (a bound session included).
     let record = mux.conversation_tab_of(&outcome.surface).unwrap_or(record);
@@ -417,10 +441,28 @@ pub(super) fn create(
         "conversation": record.wire(),
         "replayed": outcome.replayed,
     });
+    if dock.is_some() {
+        result.insert("docked", json!(docked));
+    }
     if let Some(transaction) = transaction {
         result.insert("transaction", json!(transaction));
     }
     Ok(result)
+}
+
+/// The just-created `surface` into a new column pinned at `dock`, anchored at its own pane. A
+/// refused move keeps the tab where it was made (the reply says `docked: false`), so
+/// the caller can still move it with `move-tab-to-column`.
+fn dock_new_tab(
+    mux: &Arc<Mux>,
+    actor: &Actor,
+    surface: SurfaceId,
+    dock: crate::model::ColumnDock,
+    width: Option<f32>,
+) -> bool {
+    let Some(pane) = mux.with_state(|state| state.pane_of(surface)) else { return false };
+    let destination = crate::mux::ColumnMove { pane, after_column: None, width, dock: Some(dock) };
+    mux.move_tab_to_column_keyed_as(actor, surface, destination, None, false, None).is_ok()
 }
 
 /// `bind-conversation-tab-session`: set an agent tab's session to `session`

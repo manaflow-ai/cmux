@@ -42,6 +42,11 @@ public final class HomeDock {
     public var isClassic: Bool { Self.classic }
     /// The origin of the page tab's creation key.
     static let origin = "cmux-next-home-dock"
+    /// Home's dock as `new-conversation-tab {dock}` makes it: the pinned left agent chat column at half the
+    /// window (``TabMoves``' left dock), in the dock mode setting, as the move would make it.
+    @MainActor static var pinnedDock: DockSnapshot {
+        DockSnapshot(edge: .left, mode: DesignSettings.shared.dockColumnMode == .overlay ? .overlay : .docked, role: .agentChat, isPinned: true)
+    }
 
     /// Moves a tab into a new left dock with the agent chat role on its anchor pane's screen,
     /// leaving `respawn` in the pane it left (none: the pane closes), pinned in the same commit when
@@ -128,28 +133,34 @@ public final class HomeDock {
         let workspace: @MainActor @Sendable () -> WorkspaceModel? = { store.workspaces.first { $0.resourceID == home } }
         guard let first = await shown(workspace) else { return "home workspace gone" }
         mark("dock_workspace_shown")
+        // A daemon that keeps a lone pinned dock: the dock is pinned in the move, and nothing is
+        // left on its right (`pinned-dock-alone-v1`).
+        let alone = store.supports(DaemonCapability.pinnedDock.rawValue) && store.supports(DaemonCapability.pinnedDockAlone.rawValue)
+        var madeDocked = false
         if Self.pageTab(in: first) == nil {
             // Always the workspace (its active pane, or a first pane of an empty home), so a
             // retry under the same key names the same target and replays.
-            let handle = first.handle
+            var request = NewConversationTabRequest(page: Self.page, workspace: first.handle, origin: Self.origin, mutationID: "")
+            // `conversation-tab-dock-v1`: the page tab is made in its pinned dock in the same request, so Home
+            // shows from the first tree that has it, with no `move-tab-to-column` round trip after it.
+            if alone, store.supports(DaemonCapability.conversationTabDock.rawValue) { request.dock = Self.pinnedDock; request.width = 0.5 }
             _ = try await key.ensure(chiefTabOpen: false) { mutationID in
-                _ = try await connection.request(NewConversationTabRequest(page: Self.page, workspace: handle, origin: Self.origin,
-                                                                           mutationID: mutationID))
+                request.mutationID = mutationID
+                madeDocked = try await connection.request(request).docked == true
             }
             mark("dock_tab_replied")
         } else {
             key.settle()
         }
-        // The tree reports a just-created tab after its event.
-        guard let placed = await shown({ workspace().flatMap(Self.pageTab(in:)) }), !Task.isCancelled else { return "page tab not shown" }
+        // The tree reports a just-created tab after its event (docked: after the dock's layout too).
+        let waitsForDock = madeDocked
+        guard let placed = await shown({ workspace().flatMap(Self.pageTab(in:)).flatMap { !waitsForDock || Self.isDocked($0.pane, on: $0.screen) ? $0 : nil } }),
+              !Task.isCancelled else { return "page tab not shown" }
         mark("dock_tab_shown")
         let chiefs = Set((workspace()?.screens ?? []).flatMap { screen in
             screen.panes.flatMap { pane in pane.tabs.filter { Self.isChiefTab($0) || Self.isLegacyDockTab($0, in: pane, on: screen) } }
         }.map(\.surface))
         let docked = Self.isDocked(placed.pane, on: placed.screen)
-        // A daemon that keeps a lone pinned dock: the dock is pinned in the move, and nothing is
-        // left on its right (`pinned-dock-alone-v1`).
-        let alone = store.supports(DaemonCapability.pinnedDock.rawValue) && store.supports(DaemonCapability.pinnedDockAlone.rawValue)
         // What stays on the dock's screen once the page and the Chief tabs leave it: an older
         // daemon undocks a screen without a scrolling column, so there the move leaves a terminal.
         let stays = placed.screen.panes.flatMap(\.tabs).contains { $0.surface != placed.tab.surface && !chiefs.contains($0.surface) }

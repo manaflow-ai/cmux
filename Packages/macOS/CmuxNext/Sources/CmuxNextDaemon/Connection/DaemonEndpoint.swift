@@ -150,6 +150,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `new-conversation-tab {pane, split}`: a chat or New Tab page tab in a new split, in one
     /// daemon commit and one `pane-added` delta (a person's Cmd-D, atomically).
     case conversationTabSplit = "conversation-tab-split-v1"
+    /// `new-conversation-tab {dock, width}`: the tab is made in a new pinned dock column in the same
+    /// request (Home's page in its dock with no `move-tab-to-column` round trip after it).
+    case conversationTabDock = "conversation-tab-dock-v1"
     /// `new-frontend-browser-tab {pane, split}`: a browser tab in a new split, in one daemon
     /// commit and one `pane-added` delta (a link opened to the right never shows in its pane first).
     case frontendBrowserTabSplit = "frontend-browser-tab-split-v1"
@@ -645,7 +648,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .tabWorkspaceName, .notificationAck, .feedLocalOwner, .feedClient, .tabGroups, .savedTabGroups, .workspacePin,
              .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .tabAttention, .tabAttentionRequestID, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,
-             .splitClientKeys, .splitClientSplitID, .splitAround, .splitDividerVisibility, .splitBefore, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit, .workspaceFirstTab, .frontendBrowserTabWorkspace,
+             .splitClientKeys, .splitClientSplitID, .splitAround, .splitDividerVisibility, .splitBefore, .rowClientKeys, .conversationTabSplit, .conversationTabDock, .frontendBrowserTabSplit, .workspaceFirstTab, .frontendBrowserTabWorkspace,
              .terminalInputWhileCreating, .creatingInputCancel, .terminalReap, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
              .browserHostProvider, .remoteHost, .computerUse, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,

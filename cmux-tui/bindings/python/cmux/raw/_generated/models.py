@@ -4356,6 +4356,7 @@ class NewConversationTabRequest:
     agent_session: Union[AgentSessionSource, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     conversation: Union[str, None, MissingType] = field(default=MISSING)
+    dock: Union[ColumnPin, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     owner: Union[str, None, MissingType] = field(default=MISSING)
@@ -4364,6 +4365,7 @@ class NewConversationTabRequest:
     route: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
+    width: Union[float, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4374,6 +4376,7 @@ class NewConversationTabResult:
     conversation: ConversationTabRecord
     replayed: bool
     tab_resource_id: Union[str, None]
+    docked: Union[bool, MissingType] = field(default=MISSING)
     transaction: Union[str, MissingType] = field(default=MISSING)
 
 

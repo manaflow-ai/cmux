@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095.
+// cmux-tui mux protocol 12, IR dde651921120a0718e6f626e91f94343a7eb7fabf18706a32f029786409aa2fd.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2588,6 +2588,9 @@ pub struct NewConversationTabRequest {
     pub cols: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub conversation: Optional<String>,
+    /// The new tab moves into a new column pinned at dock (as move-tab-to-column with dock) before the reply, so the tab first shows docked. Refused with split or place; a replay leaves the tab where it is.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub dock: Optional<T::ColumnPin>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mutation_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2611,6 +2614,9 @@ pub struct NewConversationTabRequest {
     /// Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<String>,
+    /// With dock: the new column's viewport fraction.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub width: Optional<f32>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
 }
@@ -2620,6 +2626,9 @@ pub struct NewConversationTabRequest {
 pub struct NewConversationTabResult {
     pub content_resource_id: Nullable<String>,
     pub conversation: T::ConversationTabRecord,
+    /// With dock: whether the tab was docked (false: it stays in its pane; move it with move-tab-to-column).
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub docked: Option<bool>,
     pub replayed: bool,
     pub surface: T::Id,
     pub tab_resource_id: Nullable<String>,
@@ -5364,6 +5373,9 @@ impl CmuxClient {
         if !request.agent_session.is_missing() {
             self.require_capability_field("new-conversation-tab", "agent-session-tabs-v1")?;
         }
+        if !request.dock.is_missing() {
+            self.require_capability_field("new-conversation-tab", "conversation-tab-dock-v1")?;
+        }
         if !request.page.is_missing() {
             self.require_capability_field("new-conversation-tab", "page-tabs-v1")?;
         }
@@ -5378,6 +5390,9 @@ impl CmuxClient {
         }
         if !request.transaction.is_missing() {
             self.require_capability_field("new-conversation-tab", "conversation-tab-transaction-v1")?;
+        }
+        if !request.width.is_missing() {
+            self.require_capability_field("new-conversation-tab", "conversation-tab-dock-v1")?;
         }
         self.execute(&NEW_CONVERSATION_TAB_METADATA, &request)
     }

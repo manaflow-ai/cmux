@@ -664,6 +664,53 @@ fn move_tab_to_column_pins_the_new_column_in_one_commit() {
     assert!(columns[1].get("dock").is_none());
 }
 
+/// `conversation-tab-dock-v1`: `new-conversation-tab {dock, width}` makes the tab and docks it
+/// before the reply (Home's page in its pinned dock with no `move-tab-to-column` after it); a
+/// keyed replay leaves it where it is and says so.
+#[test]
+fn new_conversation_tab_with_dock_makes_the_tab_docked() {
+    let (mut wire, panes) = Wire::with_columns(1);
+    assert!(advertised_capabilities(false).contains(&"conversation-tab-dock-v1"));
+    let request = json!({
+        "cmd": "new-conversation-tab",
+        "pane": panes[0],
+        "page": "home-dock",
+        "origin": "dock-test",
+        "mutation_id": "dock-1",
+        "dock": {"edge": "left", "mode": "docked", "role": "agent_chat"},
+        "width": 0.5,
+    });
+    let created = wire.ok(request.clone());
+    assert_eq!(created["docked"], true, "{created}");
+    let surface = created["surface"].as_u64().unwrap();
+    let columns = wire.columns();
+    assert_eq!(columns.len(), 2, "{columns:?}");
+    assert_eq!(columns[0]["dock"]["edge"], "left", "{columns:?}");
+    assert_eq!(columns[0]["dock"]["role"], "agent_chat", "{columns:?}");
+    let docked_pane = wire.mux.with_state(|state| state.pane_of(surface)).unwrap();
+    assert_ne!(docked_pane, panes[0], "the tab left the pane it was made in");
+    let replay = wire.ok(request);
+    assert_eq!(replay["replayed"], true, "{replay}");
+    assert_eq!(replay["docked"], false, "a replay moves nothing: {replay}");
+    assert_eq!(wire.columns().len(), 2);
+}
+
+/// `dock` goes without `split` or `place`, and `width` only with `dock`.
+#[test]
+fn new_conversation_tab_dock_refuses_split_and_a_lone_width() {
+    let (mut wire, panes) = Wire::with_columns(1);
+    let refused = wire.send(json!({
+        "cmd": "new-conversation-tab", "pane": panes[0], "page": "home-dock", "width": 0.5,
+    }));
+    assert_eq!(refused["ok"], false, "{refused}");
+    let refused = wire.send(json!({
+        "cmd": "new-conversation-tab", "pane": panes[0], "page": "home-dock",
+        "dock": {"edge": "left", "mode": "docked"},
+        "split": {"direction": "right"},
+    }));
+    assert_eq!(refused["ok"], false, "{refused}");
+}
+
 /// DOCK-WIRE (R87): an older client's `sticky` is refused with
 /// invalid-argument, never turned into a plain column.
 #[test]

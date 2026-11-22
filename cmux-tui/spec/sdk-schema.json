@@ -20015,6 +20015,28 @@
       "default": null,
       "capability": "tab-create-place-v1",
       "description": "Where the tab goes in the strip of pane. transaction then also names this creation for place.after_creation of a later create request of this connection. Needs pane; refused with workspace or split."
+     },
+     "dock": {
+      "type": {
+       "kind": "ref",
+       "name": "ColumnPin"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "conversation-tab-dock-v1",
+      "description": "The new tab moves into a new column pinned at dock (as move-tab-to-column with dock) before the reply, so the tab first shows docked. Refused with split or place; a replay leaves the tab where it is."
+     },
+     "width": {
+      "type": {
+       "kind": "scalar",
+       "name": "float32"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "conversation-tab-dock-v1",
+      "description": "With dock: the new column's viewport fraction."
      }
     },
     "additional_properties": false
@@ -20061,6 +20083,15 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "docked": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "With dock: whether the tab was docked (false: it stays in its pane; move it with move-tab-to-column)."
      },
      "transaction": {
       "type": {

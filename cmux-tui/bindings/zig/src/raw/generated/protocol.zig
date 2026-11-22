@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095";
+pub const ir_sha256 = "dde651921120a0718e6f626e91f94343a7eb7fabf18706a32f029786409aa2fd";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -7889,6 +7889,8 @@ pub const NewConversationTabRequest = struct {
     agent_session: wire.Field(AgentSessionSource) = .absent,
     cols: wire.Field(u16) = .absent,
     conversation: wire.Field([]const u8) = .absent,
+    /// The new tab moves into a new column pinned at dock (as move-tab-to-column with dock) before the reply, so the tab first shows docked. Refused with split or place; a replay leaves the tab where it is.
+    dock: wire.Field(ColumnPin) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
     owner: wire.Field([]const u8) = .absent,
@@ -7902,12 +7904,16 @@ pub const NewConversationTabRequest = struct {
     split: wire.Field(ConversationTabSplit) = .absent,
     /// Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.
     transaction: wire.Field([]const u8) = .absent,
+    /// With dock: the new column's viewport fraction.
+    width: wire.Field(f32) = .absent,
     workspace: wire.Field(Id) = .absent,
 };
 
 pub const NewConversationTabResult = struct {
     content_resource_id: wire.Nullable([]const u8),
     conversation: ConversationTabRecord,
+    /// With dock: whether the tab was docked (false: it stays in its pane; move it with move-tab-to-column).
+    docked: ?bool = null,
     replayed: bool,
     surface: Id,
     tab_resource_id: wire.Nullable([]const u8),
@@ -7915,6 +7921,7 @@ pub const NewConversationTabResult = struct {
     transaction: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "docked",
         "transaction",
     };
 };
@@ -7929,11 +7936,13 @@ pub fn newConversationTab(client: anytype, request: NewConversationTabRequest) !
             .capability = "conversation-tabs-v1",
             .fields = &.{
                 .{ .name = "agent_session", .since = null, .capability = "agent-session-tabs-v1" },
+                .{ .name = "dock", .since = null, .capability = "conversation-tab-dock-v1" },
                 .{ .name = "page", .since = null, .capability = "page-tabs-v1" },
                 .{ .name = "place", .since = null, .capability = "tab-create-place-v1" },
                 .{ .name = "route", .since = null, .capability = "page-tab-route-v1" },
                 .{ .name = "split", .since = null, .capability = "conversation-tab-split-v1" },
                 .{ .name = "transaction", .since = null, .capability = "conversation-tab-transaction-v1" },
+                .{ .name = "width", .since = null, .capability = "conversation-tab-dock-v1" },
             },
         },
         request,

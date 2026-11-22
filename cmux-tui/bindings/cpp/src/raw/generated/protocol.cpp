@@ -28937,6 +28937,11 @@ Result<Json> Codec<NewConversationTabRequest>::encode(const NewConversationTabRe
         if (!encoded) return std::move(encoded).error();
         object.emplace("conversation", std::move(encoded).value());
     }
+    if (!value.dock.is_absent()) {
+        auto encoded = encode_value(value.dock);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("dock", std::move(encoded).value());
+    }
     if (!value.mutation_id.is_absent()) {
         auto encoded = encode_value(value.mutation_id);
         if (!encoded) return std::move(encoded).error();
@@ -28987,6 +28992,11 @@ Result<Json> Codec<NewConversationTabRequest>::encode(const NewConversationTabRe
         if (!encoded) return std::move(encoded).error();
         object.emplace("transaction", std::move(encoded).value());
     }
+    if (!value.width.is_absent()) {
+        auto encoded = encode_value(value.width);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("width", std::move(encoded).value());
+    }
     if (!value.workspace.is_absent()) {
         auto encoded = encode_value(value.workspace);
         if (!encoded) return std::move(encoded).error();
@@ -29027,6 +29037,16 @@ Result<NewConversationTabRequest> Codec<NewConversationTabRequest>::decode(const
             auto decoded = decode_value<std::string>(*field_conversation);
             if (!decoded) return std::move(decoded).error();
             result.conversation = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_dock = value.find("dock");
+    if (field_dock) {
+        if (field_dock->is_null()) {
+            result.dock = Field<ColumnPin>::null();
+        } else {
+            auto decoded = decode_value<ColumnPin>(*field_dock);
+            if (!decoded) return std::move(decoded).error();
+            result.dock = Field<ColumnPin>(std::move(decoded).value());
         }
     }
     const Json* field_mutation_id = value.find("mutation_id");
@@ -29129,6 +29149,16 @@ Result<NewConversationTabRequest> Codec<NewConversationTabRequest>::decode(const
             result.transaction = Field<std::string>(std::move(decoded).value());
         }
     }
+    const Json* field_width = value.find("width");
+    if (field_width) {
+        if (field_width->is_null()) {
+            result.width = Field<float>::null();
+        } else {
+            auto decoded = decode_value<float>(*field_width);
+            if (!decoded) return std::move(decoded).error();
+            result.width = Field<float>(std::move(decoded).value());
+        }
+    }
     const Json* field_workspace = value.find("workspace");
     if (field_workspace) {
         if (field_workspace->is_null()) {
@@ -29155,6 +29185,11 @@ Result<Json> Codec<NewConversationTabResult>::encode(const NewConversationTabRes
     auto encoded_conversation = encode_value(value.conversation);
     if (!encoded_conversation) return std::move(encoded_conversation).error();
     object.emplace("conversation", std::move(encoded_conversation).value());
+    if (value.docked) {
+        auto encoded = encode_value(*value.docked);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("docked", std::move(encoded).value());
+    }
     auto encoded_replayed = encode_value(value.replayed);
     if (!encoded_replayed) return std::move(encoded_replayed).error();
     object.emplace("replayed", std::move(encoded_replayed).value());
@@ -29201,6 +29236,12 @@ Result<NewConversationTabResult> Codec<NewConversationTabResult>::decode(const J
         auto decoded = decode_value<ConversationTabRecord>(*field_conversation);
         if (!decoded) return std::move(decoded).error();
         result.conversation = std::move(decoded).value();
+    }
+    const Json* field_docked = value.find("docked");
+    if (field_docked) {
+        auto decoded = decode_value<bool>(*field_docked);
+        if (!decoded) return std::move(decoded).error();
+        result.docked = std::move(decoded).value();
     }
     const Json* field_replayed = value.find("replayed");
     if (!field_replayed) {
@@ -47516,13 +47557,15 @@ constexpr std::array<CommandFieldRequirement, 5> kCommand171FieldRequirements{{
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 6> kCommand175FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 8> kCommand175FieldRequirements{{
     {"agent_session", 0U, "agent-session-tabs-v1"},
+    {"dock", 0U, "conversation-tab-dock-v1"},
     {"page", 0U, "page-tabs-v1"},
     {"place", 0U, "tab-create-place-v1"},
     {"route", 0U, "page-tab-route-v1"},
     {"split", 0U, "conversation-tab-split-v1"},
     {"transaction", 0U, "conversation-tab-transaction-v1"},
+    {"width", 0U, "conversation-tab-dock-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 4> kCommand176FieldRequirements{{
     {"place", 0U, "tab-create-place-v1"},

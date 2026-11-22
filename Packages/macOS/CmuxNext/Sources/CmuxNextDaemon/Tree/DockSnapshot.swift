@@ -2,7 +2,7 @@ import Foundation
 
 /// A column docked to a viewport edge, `columns[].dock`: left or right
 /// (`dock-columns-v1`), top or bottom (also `edge-docks-v1`).
-public struct DockSnapshot: Sendable, Hashable, Decodable {
+public struct DockSnapshot: Sendable, Hashable, Codable {
     public enum Edge: String, Sendable, Hashable, Decodable {
         case left, right, top, bottom
 
@@ -45,5 +45,15 @@ public struct DockSnapshot: Sendable, Hashable, Decodable {
         role = (try? c.decodeIfPresent(String.self, forKey: .role)).flatMap { $0.flatMap(Role.init(rawValue:)) }
         isPinned = (try? c.decodeIfPresent(Bool.self, forKey: .isPinned)).flatMap { $0 } ?? false
         allowsTabs = (try? c.decodeIfPresent(Bool.self, forKey: .allowsTabs)).flatMap { $0 } ?? false
+    }
+
+    /// The dock a request asks for (`move-tab-to-column {dock}`, `new-conversation-tab {dock}`): edge, mode, role, and
+    /// `pinned` only when set (`pinned-dock-alone-v1`: only a pinned dock may take a screen's only tab, Home's dock).
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(edge.rawValue, forKey: .edge)
+        try c.encode(mode.rawValue, forKey: .mode)
+        try c.encodeIfPresent(role?.rawValue, forKey: .role)
+        if isPinned { try c.encode(true, forKey: .isPinned) }
     }
 }
