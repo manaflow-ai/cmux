@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useInsertionEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { EmojiMenu } from "../EmojiMenu";
 import { emojiShortcodeLook } from "../emojiShortcodeLook.experiment";
@@ -72,17 +72,20 @@ export function useEmojiCompletion({
 }): EmojiCompletion {
   const [data, setData] = useState<EmojiShortcodes | undefined>();
   const dataNow = useRef(data);
-  dataNow.current = data;
   const requested = useRef(false);
   const [active, setActive] = useState<string | undefined>();
   const [dismissed, setDismissed] = useState<string | undefined>();
   const [recents, setRecents] = useState(loadRecentEmoji);
   const toneNow = useRef(recents.tone);
-  toneNow.current = recents.tone;
   // The token the field reads at its caret, on whichever line it is (MarkdownField `onEmoji`).
   const [caret, setCaret] = useState<EmojiTrigger | undefined>();
   const textNow = useRef(text);
-  textNow.current = text;
+  // What the field's callbacks and the window's blur read, written as the render commits.
+  useInsertionEffect(() => {
+    dataNow.current = data;
+    toneNow.current = recents.tone;
+    textNow.current = text;
+  });
   const typed = !off && dismissed !== text ? caret : undefined;
   const key = typed ? `${typed.start}:${typed.token}` : undefined;
   const rows = useMemo(() => (typed && data ? emojiMatches(data, typed, recents) : []), [typed, data, recents]);

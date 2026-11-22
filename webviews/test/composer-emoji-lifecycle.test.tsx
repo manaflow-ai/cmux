@@ -105,7 +105,7 @@ function chat(others: AcpmuxSessionEntry[] = []): AcpmuxSnapshot {
 async function settle() {
   await act(async () => {
     await loadEmojiShortcodes();
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
 

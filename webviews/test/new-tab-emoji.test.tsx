@@ -111,7 +111,7 @@ async function type(text: string) {
   for (const letter of text) await act(async () => handle.insertTyped(letter));
   await act(async () => {
     await loadEmojiShortcodes();
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
   return { editor: field.querySelector<HTMLElement>("[contenteditable]")!, handle };
 }

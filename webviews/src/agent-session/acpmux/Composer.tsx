@@ -1449,7 +1449,9 @@ function ComposerFrame({
   // The `:` emoji list (composer/useEmojiCompletion.tsx), shared with New Tab; not while the `/` or
   // `@` list, a recalled prompt or shell mode has the keys.
   const emoji = useEmojiCompletion({ field, text, off: open || Boolean(mentionTyped) || recalling || shell });
-  emojiNow.current = emoji;
+  useInsertionEffect(() => {
+    emojiNow.current = emoji;
+  });
   const emojiAt = emoji.at;
   const emojiSelected = emoji.selected;
   const requestEmoji = emoji.request;
@@ -1457,7 +1459,9 @@ function ComposerFrame({
   // window, never the prompt (WebKit keeps the element focused), so the list stayed up over a
   // prompt that no longer took its keys (the emoji list's, Leo 2026-11-22). Closed as Esc closes it.
   const textNow = useRef(text);
-  textNow.current = text;
+  useInsertionEffect(() => {
+    textNow.current = text;
+  });
   useEffect(() => {
     const away = () => setMentionDismissed(textNow.current);
     window.addEventListener("blur", away);
