@@ -12,6 +12,7 @@ import {
   text,
   info,
   authSourceLabel,
+  provenanceFields,
   type StatusField,
   statusCardCopyText,
 } from "./harnessStatusCardModel";
@@ -77,10 +78,14 @@ export function HarnessStatusCard({ summary, onDismiss }: { summary: AcpmuxSnaps
     [t("status.field.version"), version(summary, t)],
     [t("status.field.session"), display(summary.sessionId, t)],
     [t("status.field.cwd"), display(summary.cwd, t)],
-    [t("status.field.host"), display(summary.host ?? summary.peer ?? summary.machine, t)],
+    [
+      t("status.field.host"),
+      display(summary.host ?? summary.peer ?? summary.machine ?? summary.provenance?.machine, t),
+    ],
     [t("status.field.model"), display(summary.model, t)],
     [t("status.field.effort"), display(summary.effort, t)],
     [t("status.field.authSource"), auth],
+    ...provenanceFields(summary, t),
     [t("status.field.routing"), routeLabel(summary, t)],
     [t("status.field.settings"), listLabel(settings, t)],
     [t("status.field.context"), usageLabel(summary, t)],
