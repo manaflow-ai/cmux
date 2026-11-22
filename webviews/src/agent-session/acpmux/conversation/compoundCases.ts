@@ -5,6 +5,8 @@ export const COMPOUND_CASES = [
   "send-1",
   "send-5",
   "send-15",
+  "send-5-one-commit",
+  "queue-scrolled",
   "steer",
   "fold-stream",
   "resize-fold",
@@ -21,6 +23,8 @@ export const EVENT_STEP: Record<CompoundCase, string> = {
   "send-1": "send",
   "send-5": "send",
   "send-15": "send",
+  "send-5-one-commit": "send",
+  "queue-scrolled": "send",
   steer: "steer",
   "fold-stream": "open",
   "resize-fold": "open",
@@ -29,4 +33,3 @@ export const EVENT_STEP: Record<CompoundCase, string> = {
   "subagent-land": "land",
   "recap-end": "end",
 };
-

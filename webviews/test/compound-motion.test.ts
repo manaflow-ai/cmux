@@ -66,7 +66,9 @@ await requireBrowserLane("compound-motion.test.ts", async () => {
   const WINDOW_FRAMES = 72;
   const RUNS = Number(process.env.CMUX_COMPOUND_RUNS) || 3;
   const ARMS = ["separate", "transaction"] as const;
-  const CASES: Scenario[] = (process.env.CMUX_COMPOUND_CASES?.split(",") as Scenario[] | undefined) ?? [...COMPOUND_CASES];
+  const CASES: Scenario[] = (process.env.CMUX_COMPOUND_CASES?.split(",") as Scenario[] | undefined) ?? [
+    ...COMPOUND_CASES,
+  ];
 
   async function once(arm: string, scenario: Scenario): Promise<RunReport | undefined> {
     const { port } = vite!.httpServer!.address() as { port: number };
@@ -107,6 +109,9 @@ await requireBrowserLane("compound-motion.test.ts", async () => {
         console.log(`compound-motion ${scenario} ${arm}: ${JSON.stringify({ summary, runs })}`);
         // The control: nothing happens, nothing moves (a harness that reads motion with none is broken).
         if (scenario === "control") expect(summary.movingFrames).toBe(0);
+        // A fold the reader opens keeps the line they clicked where it is (the anchor holds: 0 is the
+        // goal), so its proof the event ran is the line reading open.
+        else if (scenario === "fold-stream") expect(summary.opened).toBe(true);
         // Everything else moves: a case that reads still is not in view, or its event never ran.
         else expect(summary.travel).toBeGreaterThan(0.5);
         // The send's composer collapse and its rows: one motion with the transaction, never two.
@@ -115,13 +120,13 @@ await requireBrowserLane("compound-motion.test.ts", async () => {
 
   afterAll(() => {
     const lines = [
-      "| case | arm | phases | shape (frames @ median px/frame) | max px/frame | net px | travel px | settle frames |",
-      "|---|---|---|---|---|---|---|---|",
+      "| case | arm | phases | shape (frames @ median px/frame) | max px/frame | net px | travel px | settle frames | end gap px |",
+      "|---|---|---|---|---|---|---|---|---|",
     ];
     for (const [key, report] of map) {
       const [scenario, arm] = key.split("|");
       lines.push(
-        `| ${scenario} | ${arm} | ${report.phases} | ${report.shape} | ${report.maxJump.toFixed(1)} | ${report.net.toFixed(1)} | ${report.travel.toFixed(1)} | ${report.settleFrames} |`,
+        `| ${scenario} | ${arm} | ${report.phases} | ${report.shape} | ${report.maxJump.toFixed(1)} | ${report.net.toFixed(1)} | ${report.travel.toFixed(1)} | ${report.settleFrames} | ${report.endGap.toFixed(1)} |`,
       );
     }
     console.log(`compound-motion map:\n${lines.join("\n")}`);

@@ -14,7 +14,15 @@ import { FIELD_GROWTH_EVENT, type FieldGrowthDetail } from "../composer/fieldGro
 import type { AcpmuxRow } from "../model";
 import { MOTION_MS, MOTION_SETTLE } from "../../../motion/scale.generated";
 import { REPLY } from "./streamingTextFixture";
-import { CARD_DRAFT, CARD_EMPTY, playScriptedTurn, scriptedHistory, SCRIPTED_PROMPT_ID, TOGGLE_CALL_ID, type ScriptedTurn } from "./scriptedTurn";
+import {
+  CARD_DRAFT,
+  CARD_EMPTY,
+  playScriptedTurn,
+  scriptedHistory,
+  SCRIPTED_PROMPT_ID,
+  TOGGLE_CALL_ID,
+  type ScriptedTurn,
+} from "./scriptedTurn";
 import { turnView } from "./turns";
 import type { CompoundCase } from "./compoundCases";
 
@@ -48,7 +56,13 @@ export type PaneState = {
 const expanded = new Set<string>();
 
 /// The pane the cases play in; `bind` hands out its state setter.
-export function CompoundPane({ bind, sessionId }: { bind: (show: (next: Partial<PaneState>) => void) => void; sessionId: string }) {
+export function CompoundPane({
+  bind,
+  sessionId,
+}: {
+  bind: (show: (next: Partial<PaneState>) => void) => void;
+  sessionId: string;
+}) {
   const [now, setState] = useState<PaneState>(() => ({
     rows: scriptedHistory(),
     working: false,
@@ -95,7 +109,13 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 /// A pointer's click on `target` at its middle, as a mouse delivers it.
 function clickLine(target: HTMLElement) {
   const box = target.getBoundingClientRect();
-  const at = { clientX: box.left + Math.min(40, box.width / 2), clientY: box.top + box.height / 2, button: 0, bubbles: true, cancelable: true };
+  const at = {
+    clientX: box.left + Math.min(40, box.width / 2),
+    clientY: box.top + box.height / 2,
+    button: 0,
+    bubbles: true,
+    cancelable: true,
+  };
   target.dispatchEvent(new PointerEvent("pointerdown", { ...at, buttons: 1, pointerType: "mouse", isPrimary: true }));
   target.dispatchEvent(new MouseEvent("mousedown", { ...at, buttons: 1, detail: 1 }));
   target.dispatchEvent(new PointerEvent("pointerup", { ...at, buttons: 0, pointerType: "mouse", isPrimary: true }));
@@ -111,7 +131,10 @@ function growField(root: ParentNode, lines: number) {
   const from = field.getBoundingClientRect().height;
   const to = from + lines * LINE;
   const duration = MOTION_MS.standard;
-  const animation = field.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration, easing: MOTION_SETTLE });
+  const animation = field.animate([{ height: `${from}px` }, { height: `${to}px` }], {
+    duration,
+    easing: MOTION_SETTLE,
+  });
   field.style.height = `${to}px`;
   const detail: FieldGrowthDetail = { to, easing: MOTION_SETTLE, duration, animation };
   field.dispatchEvent(new CustomEvent(FIELD_GROWTH_EVENT, { bubbles: true, detail }));
@@ -129,21 +152,73 @@ export type CompoundOptions = {
 
 /// A send of `lines` lines from the latest row: the draft's card clears to one line as `sends` counts
 /// one, and acpmux's echo brings the prompt's row and the live line 30 ms later (scriptedTurn `send`).
-async function send(lines: number, { show, step }: CompoundOptions) {
+/// A send: the card collapses, and the prompt's row lands 30 ms later, or in the send's own commit
+/// (`oneCommit`, what a loaded host draws: the prompt is there before the send's effect runs).
+async function send(lines: number, { show, step }: CompoundOptions, oneCommit = false) {
   show({ card: CARD_EMPTY + (lines - 1) * LINE });
+  await wait(300);
+  const text = Array.from({ length: lines }, (_, index) => `Line ${index + 1} of the prompt.`).join("\n");
+  const prompt = {
+    rows: [...scriptedHistory(), { id: SCRIPTED_PROMPT_ID, version: 1, at: Date.now(), kind: "user" as const, text }],
+    working: true,
+  };
+  step("send");
+  if (oneCommit) show({ sends: 1, card: CARD_EMPTY, ...prompt });
+  else {
+    show({ sends: 1, card: CARD_EMPTY });
+    await wait(30);
+    show(prompt);
+  }
+  await wait(700);
+}
+
+/// A send while a turn runs, scrolled up (lane-3's case, cmux#49888): the draft's card clears as the
+/// transcript goes to its latest row for the send, and acpmux takes the prompt into the queue (a card
+/// over the composer) 40 ms later; the reply keeps streaming under it.
+async function queueScrolled({ show, frame, step, root }: CompoundOptions) {
+  const base = scriptedHistory();
+  const prompt: AcpmuxRow = {
+    id: SCRIPTED_PROMPT_ID,
+    version: 1,
+    at: Date.now(),
+    kind: "user",
+    text: "Why does the relay fall over?",
+  };
+  const text = REPLY.split("\n\n").slice(0, 3).join("\n\n");
+  const reply = (length: number, version: number): AcpmuxRow => ({
+    id: "live-answer",
+    version,
+    at: Date.now(),
+    kind: "assistant",
+    text: text.slice(0, length),
+    streaming: true,
+  });
+  show({ rows: [...base, prompt, reply(text.length / 2, 1)], working: true, card: CARD_EMPTY + 4 * LINE });
+  await wait(300);
+  const scroller = root.querySelector<HTMLElement>(".acpmux-scroll");
+  if (scroller) scroller.scrollTop = Math.max(0, scroller.scrollTop - 260);
   await wait(300);
   step("send");
   show({ sends: 1, card: CARD_EMPTY });
-  await wait(30);
-  const text = Array.from({ length: lines }, (_, index) => `Line ${index + 1} of the prompt.`).join("\n");
-  show({ rows: [...scriptedHistory(), { id: SCRIPTED_PROMPT_ID, version: 1, at: Date.now(), kind: "user", text }], working: true });
-  await wait(700);
+  await wait(40);
+  show({ queue: LINE * 2 });
+  for (let version = 2; version < 30; version += 1) {
+    frame(() => show({ rows: [...base, prompt, reply(text.length / 2 + version * 8, version)] }));
+    await wait(16);
+  }
+  await wait(300);
 }
 
 /// A reply streams (24 characters every 16 ms) and `event` lands 25 deltas in.
 async function streamWith(name: string, event: () => void, { show, frame, step }: CompoundOptions) {
   const base = scriptedHistory();
-  const prompt: AcpmuxRow = { id: SCRIPTED_PROMPT_ID, version: 1, at: Date.now(), kind: "user", text: "Why does the relay fall over?" };
+  const prompt: AcpmuxRow = {
+    id: SCRIPTED_PROMPT_ID,
+    version: 1,
+    at: Date.now(),
+    kind: "user",
+    text: "Why does the relay fall over?",
+  };
   show({ rows: [...base, prompt], working: true });
   await wait(300);
   step("stream");
@@ -153,7 +228,14 @@ async function streamWith(name: string, event: () => void, { show, frame, step }
       step(name);
       event();
     }
-    const reply: AcpmuxRow = { id: "live-answer", version, at: Date.now(), kind: "assistant", text: text.slice(0, index + 24), streaming: true };
+    const reply: AcpmuxRow = {
+      id: "live-answer",
+      version,
+      at: Date.now(),
+      kind: "assistant",
+      text: text.slice(0, index + 24),
+      streaming: true,
+    };
     frame(() => show({ rows: [...base, prompt, reply] }));
     await wait(16);
   }
@@ -170,6 +252,8 @@ export async function playCompound(which: CompoundCase, options: CompoundOptions
     await wait(600);
   } else if (which === "send-1" || which === "send-5" || which === "send-15")
     await send(Number(which.slice("send-".length)), options);
+  else if (which === "send-5-one-commit") await send(5, options, true);
+  else if (which === "queue-scrolled") await queueScrolled(options);
   else if (which === "growth-stream") await streamWith("grow", () => growField(root, 2), options);
   else if (which === "stack-stream") await streamWith("queue", () => show({ queue: LINE * 3 }), options);
   else if (scripted)
