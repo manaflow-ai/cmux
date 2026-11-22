@@ -248,14 +248,19 @@ public final class MacTabCards {
     /// The Mac's tabs in its order (a manifest or a delta). A tab it no longer lists loses its
     /// row; its blobs go when the feed says no row names them (`remove`).
     ///
-    /// `epoch` names the Mac's run that handed out the tab ids (empty: not said). Rows kept
-    /// under another epoch are other tabs that may carry the same ids: everything kept by tab
-    /// id for this Mac goes first, the phone's own pictures included, so no card shows another
-    /// tab's picture. Blobs stay: they are named by content, and the new rows may name them.
+    /// `epoch` names the Mac's run that handed out the tab ids (empty: not said). A new epoch
+    /// starts when the Mac's daemon restarts, which hands the same ids to other tabs, and also
+    /// on a plain reconnect to the same daemon, where every id still names its tab. The epoch
+    /// alone cannot tell the two apart, so under a new epoch a kept card stays only when its
+    /// new row is still the tab it was (`sameTab`); any other card kept by that id goes first,
+    /// the phone's own picture of it included, so no card shows another tab's picture. Blobs
+    /// stay: they are named by content, and the new rows may name them.
     public func cards(_ cards: [(tabID: String, info: MacCardInfo)], epoch: String = "", macID: String) {
         guard let account = account(), !macID.isEmpty else { return }
         if !epoch.isEmpty {
-            if let kept = epochs[macID], kept != epoch { void(macID: macID) }
+            if let kept = epochs[macID], kept != epoch {
+                void(macID: macID, except: Dictionary(cards.map { ($0.tabID, $0.info) }, uniquingKeysWith: { _, last in last }))
+            }
             epochs[macID] = epoch
         }
         let listed = Set(cards.map(\.tabID))
@@ -276,9 +281,17 @@ public final class MacTabCards {
         }
     }
 
-    /// Every card of `macID` forgets what it showed, in place (its views observe the entry).
-    private func void(macID: String) {
+    /// A row under a new epoch is the tab the kept row was: the same kind, and the same title
+    /// or a blob in common (a page keeps its favicon while its title changes).
+    static func sameTab(_ kept: MacCardInfo, _ now: MacCardInfo) -> Bool {
+        kept.kind == now.kind && (kept.title == now.title || !Set(kept.hashes).isDisjoint(with: now.hashes))
+    }
+
+    /// Every card of `macID` whose row in `rows` is not the tab it was forgets what it showed,
+    /// in place (its views observe the entry).
+    private func void(macID: String, except rows: [String: MacCardInfo]) {
         for (key, entry) in entries where key.macID == macID {
+            if let kept = entry.info, let now = rows[key.tabID], Self.sameTab(kept, now) { continue }
             entry.info = nil
             entry.favicon = nil
             entry.screen = nil

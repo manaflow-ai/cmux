@@ -318,7 +318,16 @@ import UIKit
         #expect(same.entry(Self.key("s1")).favicon != nil, "the same run's tab keeps its favicon")
         #expect(samePictures.entry(Self.key("s1")).image != nil)
 
-        // Another epoch: `s1` is another tab. A terminal must not show the page's favicon or picture.
+        // A reconnect to the same daemon starts a new epoch with the same tabs: nothing blanks.
+        let moved = MacCardInfo(title: "Docs: install", kind: "browser", faviconHash: Self.hash(favicon), capturedAtMs: 60)
+        same.cards([(tabID: "s1", info: moved)], epoch: "run-1b", macID: "mac-1")
+        #expect(same.entry(Self.key("s1")).favicon != nil, "the same page under a new epoch keeps its favicon")
+        #expect(samePictures.entry(Self.key("s1")).image != nil, "and its picture")
+        #expect(MacTabCards.sameTab(web, MacCardInfo(title: "Docs", kind: "browser")))
+        #expect(!MacTabCards.sameTab(web, MacCardInfo(title: "Docs", kind: "terminal")))
+        #expect(!MacTabCards.sameTab(web, MacCardInfo(title: "News", kind: "browser")))
+
+        // Another epoch where `s1` is another tab. A terminal must not show the page's favicon or picture.
         let (next, nextPictures) = Self.cards(directory)
         await next.warm(macID: "mac-1")?.value
         try await Self.wait("the thumbnail is read") { nextPictures.entry(Self.key("s1")).image != nil }
