@@ -49,6 +49,7 @@ const atLatest = async (ctx: PlayContext) => {
 type Debug = {
   loadSeed(turns: number, options?: { light?: boolean }): Promise<{ session?: string }>;
   selectSession(sessionId: string): Record<string, unknown>;
+  loadTools(options?: { count?: number; gap_ms?: number; keep_open?: boolean }): Promise<Record<string, unknown>>;
 };
 const debugOf = async (ctx: PlayContext): Promise<Debug> => {
   const view = ctx.document.defaultView as unknown as { cmuxAcpmuxDebug?: Debug };
@@ -106,6 +107,18 @@ const trace = (ctx: PlayContext, label: string, frames = 24) => {
   };
   tick();
 };
+/** Opens one seeded mock chat and lets every box rest, so what moves after is judged. A box that has
+ *  not drawn twice in the same place is still mounting (the contract's `load`), so the rest comes first. */
+const seededChat = async (ctx: PlayContext, turns = 40): Promise<Debug> => {
+  const debug = await debugOf(ctx);
+  let session: string | undefined;
+  void debug.loadSeed(turns, { light: true }).then((answer) => (session = answer.session));
+  await ctx.waitFor(() => session !== undefined, { capMs: 30_000 });
+  await ctx.scroll(SCROLLER, "bottom");
+  await settleFrames(ctx, 24);
+  return debug;
+};
+
 /** The page leaves view and comes back, as a tab dragged to another pane does. */
 const setVisible = (ctx: PlayContext, visible: boolean) => {
   const doc = ctx.document;
@@ -116,12 +129,19 @@ const setVisible = (ctx: PlayContext, visible: boolean) => {
 
 export default agentPaneEntry({
   id: "layout.motion-scenarios",
-  title: "Layout motion contract: load, switch, new workspace, split, resize, tab move",
+  title: "Layout motion contract: load, switch, new workspace, split, resize, tab move, turn end",
   area: "Agent pane",
   height: 640,
   widths: { narrow: 520, normal: 760, wide: 760 },
   anchors: [{ selector: ".acpmux-composer-box" }],
-  covers: ["layout/motionContract.ts", "layout/motionJudge.ts", "layout/boxSample.ts", "agent-session/acpmux/App.tsx"],
+  covers: [
+    "layout/motionContract.ts",
+    "layout/motionJudge.ts",
+    "layout/boxSample.ts",
+    "agent-session/acpmux/App.tsx",
+    "agent-session/acpmux/devMotionAudit.ts",
+    "agent-session/acpmux/conversation/turnEndFold.ts",
+  ],
   checks: {
     longFrameFailMs: {
       value: 250,
@@ -202,6 +222,50 @@ export default agentPaneEntry({
         await ctx.resize(520);
         setVisible(ctx, true);
         await settleFrames(ctx, 30);
+      },
+    },
+    // The turn's end, the moment Leo kept finding by eye (2026-11-22: "IT FUCKING JUMPS ... WHEN A TURN BY AN
+    // AGENT END / STOP ADDING FUCKING DINGLEBERRIES OF TOOL CALLS AND BULLSHIT THAT SHIFTS POORLY. IF IT NEEDS
+    // TO SHIFT, IT SHIFTS MOTHERFUCKING GRACEFULLY"). The judge had every other moment of the page and not this
+    // one, so the only detector for it was him.
+    "turn-end": {
+      note: "Play: a turn ends at the bottom of a followed transcript. Its fold is the one declared move; no row above it, and no box outside it, shifts.",
+      ready: { transport: "mock" },
+      snapshot: chat([]),
+      play: async (ctx) => {
+        const debug = await seededChat(ctx);
+        trace(ctx, "turn-end", 40);
+        await debug.loadTools({ count: 0, keep_open: false });
+        await settleFrames(ctx, 40);
+      },
+    },
+    "turn-end-tools": {
+      note: "Play: three trailing tool calls arrive and then the turn ends, as Leo's recording shows. Each call enters at the end (the contract's `enter`: nothing else moves because of it) and the end's fold is the one declared move.",
+      ready: { transport: "mock" },
+      snapshot: chat([]),
+      play: async (ctx) => {
+        const debug = await seededChat(ctx);
+        trace(ctx, "turn-end-tools", 60);
+        await debug.loadTools({ count: 3, gap_ms: 60, keep_open: false });
+        await settleFrames(ctx, 40);
+      },
+    },
+    "turn-end-scrolled-away": {
+      note: "Play: the reader is scrolled up into the finished turns while trailing calls arrive and the turn ends. The view follows nothing, so on screen nothing may move at all.",
+      ready: { transport: "mock" },
+      snapshot: chat([]),
+      play: async (ctx) => {
+        const debug = await seededChat(ctx);
+        const scroller = ctx.document.querySelector<HTMLElement>(SCROLLER.selector)!;
+        const endScroll = ctx.declare("user-scroll");
+        // Up into the finished turns, far enough that the turn's end is off screen but rows stay in view
+        // above and below: the reader is reading, not following the end.
+        await ctx.scroll(SCROLLER, Math.max(0, scroller.scrollHeight - scroller.clientHeight - 1200));
+        await settleFrames(ctx, 24);
+        endScroll();
+        trace(ctx, "turn-end-away", 60);
+        await debug.loadTools({ count: 3, gap_ms: 60, keep_open: false });
+        await settleFrames(ctx, 40);
       },
     },
   },
