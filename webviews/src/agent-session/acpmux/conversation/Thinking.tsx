@@ -187,6 +187,13 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tai
   return roll;
 }
 
+/// Moves an observer from the elements it watches to the ones now drawn (the observer is
+/// disconnected by `useLineGeometry`'s unmount cleanup).
+function watchOnly(observer: ResizeObserver, from: Element[], to: Element[]) {
+  for (const each of from) if (!to.includes(each)) observer.unobserve(each);
+  for (const each of to) if (!from.includes(each)) observer.observe(each);
+}
+
 /// The old words roll out as they were drawn (review of cmux#41078): cut at the width the words had
 /// (ellipsis and all), their time and counts from where they sat, never the full words running their
 /// tail on past it. The width as last drawn (observed below), set on the
@@ -239,31 +246,33 @@ function useLineGeometry(line: RefObject<HTMLDivElement | null>, turns: number) 
     ];
     if (typeof ResizeObserver === "undefined") return;
     if (watched.length === now.watched.length && watched.every((each, index) => each === now.watched[index])) return;
-    now.observer ??= new ResizeObserver(() => {
-      const at = line.current;
-      if (!at) return;
-      const output = at.querySelector<HTMLElement>("output.cv-thinking");
-      const width = output?.getBoundingClientRect().width;
-      now.width = width && width > 0 ? width : undefined;
-      const counts = [...at.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
-      const lefts = counts.map((count) => count.offsetLeft);
-      const before = now.lefts;
-      const glide = now.leftsTurns === now.turns;
-      now.lefts = lefts;
-      now.leftsTurns = now.turns;
-      if (!glide || !motionAllowed(at) || !countsMove(at)) return;
-      counts.forEach((count, index) => {
-        const from = before[index];
-        const dx = from === undefined ? 0 : from - lefts[index]!;
-        if (Math.abs(dx) < 0.5) return;
-        count.animate([{ translate: `${dx}px 0` }, { translate: "0 0" }], {
-          duration: arriveMs(at),
-          easing: "cubic-bezier(0.2, 0, 0, 1)",
+    const observer =
+      now.observer ??
+      new ResizeObserver(() => {
+        const at = line.current;
+        if (!at) return;
+        const output = at.querySelector<HTMLElement>("output.cv-thinking");
+        const width = output?.getBoundingClientRect().width;
+        now.width = width && width > 0 ? width : undefined;
+        const counts = [...at.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
+        const lefts = counts.map((count) => count.offsetLeft);
+        const before = now.lefts;
+        const glide = now.leftsTurns === now.turns;
+        now.lefts = lefts;
+        now.leftsTurns = now.turns;
+        if (!glide || !motionAllowed(at) || !countsMove(at)) return;
+        counts.forEach((count, index) => {
+          const from = before[index];
+          const dx = from === undefined ? 0 : from - lefts[index]!;
+          if (Math.abs(dx) < 0.5) return;
+          count.animate([{ translate: `${dx}px 0` }, { translate: "0 0" }], {
+            duration: arriveMs(at),
+            easing: "cubic-bezier(0.2, 0, 0, 1)",
+          });
         });
       });
-    });
-    for (const each of now.watched) if (!watched.includes(each)) now.observer.unobserve(each);
-    for (const each of watched) if (!now.watched.includes(each)) now.observer.observe(each);
+    now.observer = observer;
+    watchOnly(observer, now.watched, watched);
     now.watched = watched;
   });
   useLayoutEffect(
