@@ -50,6 +50,23 @@ pub(super) fn listed_model(
     listed.is_empty().then(|| requested.to_owned())
 }
 
+/// `model` as the model `meta` records (its `model` option, its `models.currentModelId`), so a
+/// start that replays the meta's settings (`lifecycle.rs` `replay_config`) asks for it.
+pub(super) fn record_model(meta: &mut SessionMeta, model: &str) {
+    if let Some(options) = meta.config_options.as_mut().and_then(|o| o.as_array_mut()) {
+        for option in options.iter_mut() {
+            if option.get("id").and_then(Value::as_str) == Some("model")
+                && let Some(option) = option.as_object_mut()
+            {
+                option.insert("currentValue".into(), Value::String(model.to_owned()));
+            }
+        }
+    }
+    if let Some(models) = meta.models.as_mut().and_then(Value::as_object_mut) {
+        models.insert("currentModelId".into(), Value::String(model.to_owned()));
+    }
+}
+
 /// Why a fork's model is refused: its harness lists it in no spelling.
 pub(super) fn not_listed(model: &str, agent: &str, listed: &[String]) -> RpcError {
     let mut shown: Vec<&str> = listed.iter().map(String::as_str).take(20).collect();

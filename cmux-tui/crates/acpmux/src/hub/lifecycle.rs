@@ -1646,7 +1646,16 @@ impl Hub {
                 );
             }
         }
-        if saved.agent_session_id.is_some() || saved.fork_before.is_some() {
+        // A fork's first agent gets the chat's mode, model and effort it was made with, also one
+        // made from acpmux's transcript (no agent session of its own yet): it started on the
+        // harness's defaults, and its own fork after it on those again (cmux#50092).
+        if saved.agent_session_id.is_some()
+            || saved.fork_before.is_some()
+            || (saved.parent_id.is_some()
+                && (saved.modes.is_some()
+                    || saved.config_options.is_some()
+                    || saved.models.is_some()))
+        {
             self.replay_config(session, &child, &saved, off).await;
         }
         self.cap_full_access(session, &child, profile, off).await?;

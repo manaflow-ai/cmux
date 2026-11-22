@@ -890,6 +890,8 @@ impl Hub {
         // A model change on the chat's own harness that takes its model at spawn: its first start.
         if let Some(own) = own_model.as_ref().filter(|o| o.spawn) {
             meta.model_request = Some(own.model.clone());
+            // The model its first start replays is that one, not the chat's (`replay_config`).
+            super::fork_model::record_model(&mut meta, &own.model);
         }
         if (empty || target.is_some()) && !meta.remote_origin {
             let cfg = self.config.read().await;
@@ -1138,8 +1140,8 @@ impl Hub {
                 return Err(self.close_refused(&new, e).await);
             }
         } else if let Some(t) = &target {
-            // Onto another harness: up, on the picked model and in the mode a new chat of it
-            // starts in, before the reply, so the first prompt runs there (as `new_session`).
+            // Onto another harness: up, on the picked model and at the chat's permission level,
+            // before the reply, so the first prompt runs there (as `new_session`).
             if let Err(e) = self.start_retargeted(&new, t).await {
                 return Err(self.close_refused(&new, e).await);
             }
@@ -1170,8 +1172,8 @@ impl Hub {
 
 impl Hub {
     /// Starts a fork onto another harness ([`Retarget`]): its agent, its model when the
-    /// harness takes it after spawn, and the mode a new chat of that harness starts in
-    /// (`start_mode.rs`). Soft, as a new chat's start defaults: a step that fails is recorded
+    /// harness takes it after spawn, and the chat's own permission level in that harness's
+    /// modes (`start_mode.rs` "Inherit"). Soft, as a new chat's start defaults: a step that fails is recorded
     /// on the fork, and its first prompt starts the agent again. Except a model the switch named
     /// that the harness takes over ACP: its agent must be up and take it, or the switch fails
     /// (the caller closes the fork), since the next prompt's start would run the harness's own
@@ -1220,12 +1222,16 @@ impl Hub {
                 json!({"model": model, "error": e.message}),
             );
         }
-        // The start mode only where `session/new` would set one (`start_mode::mode_eligible`): never
-        // over a profile that pins its mode (`--permission-mode default`), nor on a remote chain,
-        // whose mode the remote guard settles.
-        let remote = fork.meta().remote_origin;
+        // The chat's own level, as a chat it starts inherits it (`start_mode.rs` "Inherit"): its
+        // mode where the new harness has it, its full access, its asking, else the harness's own
+        // mode; never the level a new chat starts at, which ran a pi chat under `ask` on as a
+        // Claude Code fork in `bypassPermissions` (cmux#50094). Only where `session/new` would
+        // set one (`start_mode::mode_eligible`): never over a profile that pins its mode
+        // (`--permission-mode default`), nor on a remote chain, whose mode the remote guard
+        // settles.
+        let (remote, parent) = fork.read_meta(|m| (m.remote_origin, m.parent_id.clone()));
         if super::start_mode::mode_eligible(true, remote, false, &target.profile)
-            && let Some(mode) = Box::pin(self.start_mode(fork)).await
+            && let Some(mode) = Box::pin(self.start_mode_for(fork, parent.as_deref())).await
             && let Err(e) = Box::pin(self.set_mode(fork, &mode)).await
         {
             tracing::warn!(session = %fork.id, mode = %mode, "fork mode skipped: {}", e.message);

@@ -226,7 +226,13 @@ fn lister_hub(calls: &std::path::Path) -> Arc<Hub> {
     let lister = json!({"argv": ["python3", fake], "family": "lister",
                         "env": {"FAKE_PICKER": "1", "FAKE_PICKER_MODES": "claude",
                                 "FAKE_CALLS": calls.to_str().unwrap()}});
-    let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}, "lister": lister},
+    // `nofork` has no session/fork: its fork is made from acpmux's transcript. `lister2` is
+    // another harness of the same family, a switch target with the same modes.
+    let mut nofork = lister.clone();
+    nofork["env"]["FAKE_NO_FORK"] = json!("1");
+    let lister2 = lister.clone();
+    let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}, "lister": lister,
+                                   "nofork": nofork, "lister2": lister2},
                      "defaultHarness": "fake",
                      "titles": {"generate": false}});
     let mut cfg: Config = serde_json::from_value(cfg).unwrap();
@@ -430,4 +436,65 @@ async fn a_switch_onto_a_spawn_model_harness_reads_harness_slash_model_and_refus
         refused.message
     );
     assert_eq!(live(&hub), before, "a refused switch left a fork");
+}
+
+/// A fork made from acpmux's transcript (an agent with no session/fork, as pi) runs the chat's
+/// model, and so does a fork of that fork. It ran the harness's default: its first agent was
+/// never told the chat's settings, which only a resumed agent session got (cmux#50092).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_transcript_fork_and_its_fork_run_the_chats_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let calls = dir.path().join("calls.jsonl");
+    let hub = lister_hub(&calls);
+    let parent = hub
+        .new_session(NewRequest {
+            harness: Some("nofork".into()),
+            cwd: Some(std::env::temp_dir()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    hub.prompt(&parent, vec![json!({"type":"text", "text":"ONE"})], "test", false).await.unwrap();
+    hub.set_model(&parent, "claude-opus-5-5").await.unwrap();
+
+    let fork = hub.fork(&parent, None, None, Default::default(), None, None, false).await.unwrap();
+    let sid = fork.meta().agent_session_id.expect("its agent started");
+    assert_ne!(Some(sid.clone()), parent.meta().agent_session_id, "a transcript fork");
+    assert_eq!(last_model_set(&calls, &sid).as_deref(), Some("claude-opus-5-5"));
+    assert_eq!(model_option(&fork).as_deref(), Some("claude-opus-5-5"));
+
+    hub.prompt(&fork, vec![json!({"type":"text", "text":"TWO"})], "test", false).await.unwrap();
+    let fork2 = hub.fork(&fork, None, None, Default::default(), None, None, false).await.unwrap();
+    let sid2 = fork2.meta().agent_session_id.expect("its agent started");
+    assert_eq!(last_model_set(&calls, &sid2).as_deref(), Some("claude-opus-5-5"));
+    assert_eq!(model_option(&fork2).as_deref(), Some("claude-opus-5-5"));
+}
+
+/// A switch onto another harness starts at the chat's own permission level: in the chat's mode
+/// where the new harness has it, as a chat it starts would (`start_mode.rs` "Inherit"). It started
+/// in the level a new chat starts at: a chat under `ask` became a `bypassPermissions` fork
+/// (cmux#50094).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_switch_keeps_the_chats_permission_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    let calls = dir.path().join("calls.jsonl");
+    let hub = lister_hub(&calls);
+    let parent = hub
+        .new_session(NewRequest {
+            harness: Some("lister".into()),
+            cwd: Some(std::env::temp_dir()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    hub.prompt(&parent, vec![json!({"type":"text", "text":"ONE"})], "test", false).await.unwrap();
+    hub.set_mode(&parent, "plan").await.unwrap();
+    assert_eq!(crate::web_modes::mode_of(&parent.meta()).as_deref(), Some("plan"));
+
+    let fork = hub
+        .fork_to(&parent, to("lister2"), None, None, Default::default(), None, true)
+        .await
+        .unwrap();
+    assert_eq!(fork.meta().harness, "lister2");
+    assert_eq!(crate::web_modes::mode_of(&fork.meta()).as_deref(), Some("plan"));
 }
