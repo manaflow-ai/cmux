@@ -1,0 +1,112 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44996972658",
+  "recorded_at": "2026-11-22T08:13:48Z",
+  "reason": "cmux-tui 45ed727f30d1 changes the image's cmux-tui (pinned 68c456b6566f)",
+  "dry_run": false,
+  "cmux_tui": "45ed727f30d1a623ba43d98d634b84b838a713db",
+  "fixes": [
+    {
+      "sha": "43fb81f181fc68b7aefa36e6919ce7fd68a98334",
+      "mergedAt": "2026-11-22T05:59:04+00:00",
+      "subject": "acpmux: an inbox notice that never went in leaves steer_withdrawn (send_burst base red) (#49183)"
+    },
+    {
+      "sha": "d178008acd1254af6d81072ed89f8b406732be97",
+      "mergedAt": "2026-11-22T05:58:00+00:00",
+      "subject": "acpmux: say when a joined machine is in another team than its peers (#49626)"
+    },
+    {
+      "sha": "eaa5039d1cab646081fd087bd3af6f9d0c06f652",
+      "mergedAt": "2026-11-22T05:54:34+00:00",
+      "subject": "Run the NEXT agent pane and live chat list in a browser (#48817)"
+    },
+    {
+      "sha": "bbb7d5b3c622f09b2bd3077ff580aff04e8b42da",
+      "mergedAt": "2026-11-22T05:51:12+00:00",
+      "subject": "Add session worktree look (#49171)"
+    },
+    {
+      "sha": "390e14f7e791cd328fc09273d0997acc562cb283",
+      "mergedAt": "2026-11-22T05:41:58+00:00",
+      "subject": "acpmux: surge triage of held inbox messages through the small model (#48195)"
+    },
+    {
+      "sha": "830cd50c7daf0701b35c62a3b0714e0d6e2022f1",
+      "mergedAt": "2026-11-22T05:41:04+00:00",
+      "subject": "v2 row 11c: bounded drafts and presence (#44570)"
+    },
+    {
+      "sha": "506d4b103677be71a3c07566e477d1a90327bd6f",
+      "mergedAt": "2026-11-22T05:31:55+00:00",
+      "subject": "linux host: only run heals an old join record; a repeated pending sign-out keeps its first time (#46734)"
+    },
+    {
+      "sha": "68adba4492b5533a61a4d03d5005717034d6735d",
+      "mergedAt": "2026-11-21T21:30:47-08:00",
+      "subject": "cmux-tui: deleted tokens, app values and commands leave no bytes on disk (#49776)"
+    },
+    {
+      "sha": "281ddcf1e80359887affccf1975041d8d8f7db76",
+      "mergedAt": "2026-11-22T05:22:22+00:00",
+      "subject": "acpmux: hold the person's prompts to named chats 30 s so they go in as one turn, unless triaged urgent (#48842)"
+    },
+    {
+      "sha": "c8293c8154358058e77e851b3696bfbc9f29ddab",
+      "mergedAt": "2026-11-22T05:21:53+00:00",
+      "subject": "Add an applyable Claude Code profile for archiving inactive sessions (#48800)"
+    },
+    {
+      "sha": "bf95a5f78de0ce8d80e2163eaade4ecbc0f1fc38",
+      "mergedAt": "2026-11-22T05:12:35+00:00",
+      "subject": "acpmux: a sent image record names its pixel size (#49468)"
+    },
+    {
+      "sha": "c7a8b66913f3fa288a6c319714325e25bc7a1f65",
+      "mergedAt": "2026-11-22T05:04:27+00:00",
+      "subject": "acpmux: a workflow agent's background shell lists under that agent (#49384)"
+    },
+    {
+      "sha": "febe0754c1ed747f4fa0f14470011ee951a362fe",
+      "mergedAt": "2026-11-22T05:04:18+00:00",
+      "subject": "coord-sim fanin: 2026-11-22 ramp at feat-cmux-next (goal sessions-2000-attached reading) (#49637)"
+    },
+    {
+      "sha": "ea33bb99cccaa16c71310a71a73f76ab7d73cdf2",
+      "mergedAt": "2026-11-22T05:03:24+00:00",
+      "subject": "Add Cloud pause-all with explicit per-machine outcomes (#47864)"
+    },
+    {
+      "sha": "2276f8e2dc314747e91b42984ab2e646b63b291f",
+      "mergedAt": "2026-11-22T04:57:51+00:00",
+      "subject": "machine-join: a cmux-rd that cannot be written, or whose copy is not the checked file, is one line, not a failed join (#49554)"
+    },
+    {
+      "sha": "040cf61a062173d7e8ca92e810e4333cd373ea46",
+      "mergedAt": "2026-11-22T04:57:01+00:00",
+      "subject": "acpmux tests: fix the base reds in the list, home-writer, help, skill and mcp_args tests (#49675)"
+    },
+    {
+      "sha": "9de99140f7a35ce99e5bba4a6167efd1e3532b52",
+      "mergedAt": "2026-11-22T04:56:53+00:00",
+      "subject": "acpmux: keep an unstored Claude chat awake only when its agent did work (#48917) (#48963)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-22T08:13:48Z",
+    "snapshot_id": "sh-73a5478bc8144fe3baad2813ec9c3244",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44996972658): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f6705bfdf26a1ea5cf7ed6f257834f746f158cdb",
+    "image": "cloud-native-auto-45ed727f-44996972658-1",
+    "revision": "ci-44996972658-1",
+    "at": "2026-11-22T08:13:48Z"
+  },
+  "rolled_back": false
+}
