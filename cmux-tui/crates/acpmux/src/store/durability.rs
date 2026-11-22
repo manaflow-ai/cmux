@@ -45,6 +45,9 @@ pub struct Durability {
     pub kept: Arc<AtomicU64>,
     /// The journal's written LSN (`cmux_journal::Journal::on_written`); closed with `durable`.
     pub written: tokio::sync::watch::Receiver<u64>,
+    /// Asks the journal to sync through an LSN now (`cmux_journal::Journal::ask_durable`): a
+    /// connection holds a line until it is durable (`server/durable_gate.rs`).
+    pub ask: Arc<dyn Fn(u64) + Send + Sync>,
     /// Called with how long a line has waited each time it waits another stall interval for the
     /// journal (`server/durable_gate.rs`). When the journal's writer is failing (a write or sync
     /// returned an error: it retries without end) the store asks the daemon to stop for a restart
