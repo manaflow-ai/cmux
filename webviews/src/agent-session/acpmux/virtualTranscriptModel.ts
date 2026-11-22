@@ -1,4 +1,5 @@
 import { type AcpmuxRow } from "./model";
+import { acpmuxPerf } from "./perf";
 import { type ReferenceScope } from "./conversation/bareReferences";
 import { isEditRow } from "./turnChanges/sessionRows";
 import { ACTIVITY_LINE, LIVE_THINKING, THINKING, WORKING } from "./conversation/turns";
@@ -83,18 +84,26 @@ function sameRowDraw(before: AcpmuxRow, after: AcpmuxRow): boolean {
 export function sameRowFrame(previous: Record<string, unknown>, next: Record<string, unknown>): boolean {
   const keys = Object.keys(next);
   if (keys.length !== Object.keys(previous).length) return false;
-  return keys.every((key) => {
-    if (key === "children") return true;
-    // Snapshot rebuilding can clone unchanged rows when a prompt is sent; comparing the object here
-    // made every mounted frame repaint on that send even though its content had not changed.
-    if (key === "row") return sameRowDraw(previous.row as AcpmuxRow, next.row as AcpmuxRow);
-    if (key === "referenceScope")
-      return sameReferenceScope(
-        previous.referenceScope as ReferenceScope | undefined,
-        next.referenceScope as ReferenceScope | undefined,
-      );
-    return Object.is(previous[key], next[key]);
+  const same = keys.every((key) => {
+    const kept = sameRowFrameProp(previous, next, key);
+    // While measuring, what made a frame draw again: its first differing prop (`rowprop:<key>`).
+    if (!kept && acpmuxPerf.enabled) acpmuxPerf.render(`rowprop:${key}`);
+    return kept;
   });
+  return same;
+}
+
+function sameRowFrameProp(previous: Record<string, unknown>, next: Record<string, unknown>, key: string): boolean {
+  if (key === "children") return true;
+  // Snapshot rebuilding can clone unchanged rows when a prompt is sent; comparing the object here
+  // made every mounted frame repaint on that send even though its content had not changed.
+  if (key === "row") return sameRowDraw(previous.row as AcpmuxRow, next.row as AcpmuxRow);
+  if (key === "referenceScope")
+    return sameReferenceScope(
+      previous.referenceScope as ReferenceScope | undefined,
+      next.referenceScope as ReferenceScope | undefined,
+    );
+  return Object.is(previous[key], next[key]);
 }
 
 export const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);

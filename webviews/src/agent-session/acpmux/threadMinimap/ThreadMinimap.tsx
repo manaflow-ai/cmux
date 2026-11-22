@@ -90,6 +90,8 @@ import { type Anchor, type TickRef, tickIndex, prependedBy } from "./threadMinim
 import { railEdge } from "./railSide";
 import { focusCameFromKey } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
+import { acpmuxPerf } from "../perf";
+import { happenedAfterOpen } from "../conversation/openBreakpoint";
 
 /// The rail menu's show items (railShow.ts `RailShow`).
 export const RAIL_SHOW_LABEL = {
@@ -265,7 +267,13 @@ export class MinimapSource {
       was.scrolls !== next.scrolls ||
       was.change !== next.change
     )
-      if (!this.probe || this.probe(next)) this.version += 1;
+      if (!this.probe || this.probe(next)) {
+        this.version += 1;
+        // While measuring, what made the rail draw again (`railsrc:<value>`).
+        if (acpmuxPerf.enabled && was)
+          for (const key of ["rows", "layout", "scrollTop", "scrolls", "change"] as const)
+            if (was[key] !== next[key]) acpmuxPerf.render(`railsrc:${key}`);
+      }
     return this.version;
   }
 }
@@ -296,7 +304,10 @@ type ThreadMinimapProps = Parameters<typeof ThreadMinimapView>[0];
 /// The rail's props compare by value, its box by its numbers (the transcript builds a new one per render).
 function sameMinimapProps(prev: ThreadMinimapProps, next: ThreadMinimapProps): boolean {
   for (const key of Object.keys(next) as (keyof ThreadMinimapProps)[])
-    if (key !== "railBox" && !Object.is(prev[key], next[key])) return false;
+    if (key !== "railBox" && !Object.is(prev[key], next[key])) {
+      if (acpmuxPerf.enabled) acpmuxPerf.render(`railprop:${key}`);
+      return false;
+    }
   if (Object.keys(prev).length !== Object.keys(next).length) return false;
   const a = prev.railBox;
   const b = next.railBox;
@@ -336,6 +347,8 @@ function ThreadMinimapView({
   columnWidth = width,
   placed,
   topInset = 0,
+  openedAt,
+  clockOffset = 0,
 }: {
   /// The transcript's rows, layout and offset (MinimapSource): read when the rail draws.
   source: MinimapSource;
@@ -379,7 +392,15 @@ function ThreadMinimapView({
   /// CSS pixels of the scroller's top a floating tab row covers (VirtualTranscript `topInset`): a jump lands
   /// its prompt LANDING_OFFSET below the row, not under it.
   topInset?: number;
+  /// When the reader opened this chat on this page (VirtualTranscript `opened.at`), and the host's
+  /// clock offset: the rail fades in only when a prompt that came after the open brings it (a new
+  /// chat's first send). A rail a chat opens or a relaunch restores with is history and is drawn
+  /// whole on its first frame (Leo, 2026-11-22: "and then the scroll rail re-rednered"). Without
+  /// one (a mount outside the transcript) it fades in as it mounts.
+  openedAt?: number;
+  clockOffset?: number;
 }) {
+  if (acpmuxPerf.enabled) acpmuxPerf.render("rail");
   const t = useT();
   const topInsetNow = useRef(topInset);
   topInsetNow.current = topInset;
@@ -660,6 +681,17 @@ function ThreadMinimapView({
   // narrow widths the pane-edge strip stays live even while the visual rail is occluded by text.
   const shown = arm === "compact" && known >= MIN_PROMPTS && turns.length > 0 && height >= rowPitch;
   const overflow = turns.length * rowPitch > height;
+  /// Whether this chat's rail fades in, decided on the render it first shows in (`openedAt`).
+  const [appearFor, setAppearFor] = useState<{ sessionId: string | undefined; appear: boolean } | undefined>(undefined);
+  if (shown && appearFor?.sessionId !== sessionId) {
+    let prompt: AcpmuxRow | undefined;
+    for (let at = rows.length - 1; at >= 0 && !prompt; at -= 1) if (rows[at]!.kind === "user") prompt = rows[at];
+    setAppearFor({
+      sessionId,
+      appear: openedAt === undefined || (!!prompt && happenedAfterOpen(prompt, openedAt, clockOffset)),
+    });
+  }
+  const appear = shown && appearFor?.sessionId === sessionId && appearFor.appear;
 
   /// What the handlers below read: the turns and layout as of the last commit.
   /// The handlers' tops: the transcript's latest layout (MinimapSource), which a streamed token
@@ -1659,6 +1691,7 @@ function ThreadMinimapView({
           ref={rail}
           className="acpmux-minimap__rail"
           id={RAIL_ACCESSIBILITY_ID}
+          data-appear={appear || undefined}
           aria-label={t("minimap.label")}
           data-side={side}
           style={
@@ -1952,6 +1985,7 @@ const TickList = memo(function TickList({
   /// The rows to draw (tickWindow.ts); spacers stand in for the rest.
   ranges: ReadonlyArray<readonly [number, number]>;
 }) {
+  if (acpmuxPerf.enabled) acpmuxPerf.render("rail:ticks");
   const t = useT();
   const marks = usePromptMarks(sessionId);
   /// Each drawn row's spoken label, by its prompt, as last built. Every row the pointer crosses
@@ -2029,8 +2063,13 @@ const TickList = memo(function TickList({
     const tick = ticks.at(index)!;
     const marked = marks.has(tick);
     // A list item that names its place among every prompt, drawn or not; it draws no box.
+    // Keyed by its place among the chat's prompts, which a prompt keeps however it is known: a count
+    // (pending), the prompt index, or its row once its page is held. Keyed by `tick.key`, each tick
+    // drawn on a relaunch's first frame from the chat's count was taken out and put back when the
+    // index named it a frame later, and again when its page came (Leo, 2026-11-22: "and then the
+    // scroll rail re-rednered"). Its entrance still follows `tick.key` (`entering` above).
     return (
-      <li key={tick.key} className="acpmux-minimap__entry" aria-posinset={index + 1} aria-setsize={ticks.length}>
+      <li key={index} className="acpmux-minimap__entry" aria-posinset={index + 1} aria-setsize={ticks.length}>
         <Tick
           entering={entering.pending.has(tick.key)}
           index={index}
@@ -2100,6 +2139,7 @@ const Tick = memo(function Tick({
   label: string;
   actions: TickActions;
 }) {
+  if (acpmuxPerf.enabled) acpmuxPerf.render("rail:tick");
   // Capture eligibility at mount: consuming it after commit must not cancel this entrance.
   const [enter] = useState(entering);
   const [entrance] = useState(place);

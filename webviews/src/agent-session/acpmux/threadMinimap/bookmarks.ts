@@ -10,6 +10,13 @@ import { useEffect, useSyncExternalStore } from "react";
 export const BOOKMARKS_KIND = "bookmarks";
 /// The key of the marks this pane kept in localStorage before acpmux kept them.
 export const STORAGE_KEY = "cmux.agentPane.threadBookmarks.v1";
+/// The key of the last marks acpmux answered for each recent chat, so a relaunch draws a chat's marks
+/// on its first frame instead of when acpmux's read answers after the attach (Leo, 2026-11-22, after
+/// a relaunch: "and then the scroll rail re-rednered"). acpmux stays the source: its answer replaces
+/// the copy, which only says what to draw until it comes.
+export const SEEN_KEY = "cmux.agentPane.bookmarksSeen.v1";
+/// Chats whose marks the copy keeps, the most recently answered last.
+const SEEN_KEPT = 64;
 
 /// How the store reaches acpmux: the pane's client (App.tsx), absent in a page without one.
 export type BookmarkTransport = {
@@ -50,9 +57,61 @@ function settle(sessionId: string, list: number[]): void {
   // The same marks as shown (a chat's first read finding none, most often): the set stays, so no
   // rail or pin renders again for it, a chat switch's frame included.
   const was = marks.get(sessionId) ?? NONE;
-  if (was.size === next.size && [...next].every((seq) => was.has(seq))) return;
+  if (was.size === next.size && [...next].every((seq) => was.has(seq))) {
+    if (!marks.has(sessionId)) marks = new Map(marks).set(sessionId, was);
+    keepSeen(sessionId, was);
+    return;
+  }
   marks = new Map(marks).set(sessionId, next);
+  keepSeen(sessionId, next);
   emit();
+}
+
+/// The marks the copy (SEEN_KEY) holds, by chat, read once per page.
+let seen: Map<string, number[]> | undefined;
+function seenMarks(): Map<string, number[]> {
+  if (seen) return seen;
+  seen = new Map();
+  try {
+    const parsed: unknown = JSON.parse(globalThis.localStorage?.getItem(SEEN_KEY) ?? "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+      for (const [sessionId, list] of Object.entries(parsed)) {
+        const held = seqs(list);
+        if (held) seen.set(sessionId, held);
+      }
+  } catch {
+    // Unreadable: no copy, and the chat's marks draw when acpmux answers.
+  }
+  return seen;
+}
+
+/// Keeps what acpmux answered for `sessionId` for the next launch; a chat with none takes no room.
+function keepSeen(sessionId: string, shown: ReadonlySet<number>): void {
+  const kept = seenMarks();
+  const had = kept.get(sessionId);
+  const list = [...shown].sort((a, b) => a - b);
+  if (had && had.length === list.length && had.every((seq, at) => seq === list[at])) return;
+  kept.delete(sessionId);
+  if (list.length) kept.set(sessionId, list);
+  while (kept.size > SEEN_KEPT) kept.delete(kept.keys().next().value!);
+  try {
+    if (kept.size) globalThis.localStorage?.setItem(SEEN_KEY, JSON.stringify(Object.fromEntries(kept)));
+    else globalThis.localStorage?.removeItem(SEEN_KEY);
+  } catch {
+    // Storage full or blocked: the next launch draws the marks when acpmux answers, as before.
+  }
+}
+
+/// The marks to draw for `sessionId` now: acpmux's last answer on this page, else the copy the last
+/// launch kept, taken into the page's map once so its set keeps one identity until acpmux answers.
+function shownMarks(sessionId: string): ReadonlySet<number> {
+  const held = marks.get(sessionId);
+  if (held) return held;
+  const copy = seenMarks().get(sessionId);
+  if (!copy?.length) return NONE;
+  const set = new Set(copy);
+  marks = new Map(marks).set(sessionId, set);
+  return set;
 }
 
 /// The pane's acpmux connection, or none; a new one reads every session's marks again.
@@ -171,7 +230,7 @@ export function useBookmarks(
   useEffect(() => {
     if (sessionId) load(sessionId);
   }, [sessionId, connected]);
-  const snapshot = () => (sessionId ? (marks.get(sessionId) ?? NONE) : NONE);
+  const snapshot = () => (sessionId ? shownMarks(sessionId) : NONE);
   const shown = useSyncExternalStore(subscribe, snapshot, snapshot);
   return {
     marks: shown,

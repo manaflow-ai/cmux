@@ -36,6 +36,12 @@
      masked transcript whenever the rail's lit ticks or glass card changes (#25766). */
   isolation: isolate;
   will-change: transform;
+}
+/* The rail fades in only when a prompt that came while the reader watches brings it (a new chat's
+   first send, ThreadMinimap `openedAt`). The rail a chat opens or a relaunch restores with draws whole
+   on its first frame: the copy of the last launch showed it there already, and a fade from 0 over it
+   read as the rail drawing again (Leo, 2026-11-22: "and then the scroll rail re-rednered"). */
+.acpmux-minimap__rail[data-appear] {
   animation: acpmux-minimap-in var(--cmux-motion-micro) cubic-bezier(0.23, 1, 0.32, 1);
 }
 .acpmux-minimap__strip {
