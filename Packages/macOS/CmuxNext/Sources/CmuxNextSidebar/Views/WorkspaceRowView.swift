@@ -52,7 +52,7 @@ final class WorkspaceRowView: SidebarRowView {
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
     let mutedMark = DecorativeImageView()
-    /// A workspace on a Cloud machine (``WorkspaceRowContent/runsInCloud``): a small cloud right after its name.
+    /// A workspace on a Cloud machine (``WorkspaceRowContent/runsInCloud``): a small muted cloud in the trailing status cluster.
     let cloudMark = DecorativeImageView()
     /// A runaway agent chat in the workspace (`SidebarWorkspace.usageWarnings`: no autocompact
     /// cap, a huge context, a storm of subagents): a small warning triangle in the trailing
@@ -308,12 +308,11 @@ final class WorkspaceRowView: SidebarRowView {
         // `experiments.agentBadges`: the row's one status pill stands in for its status mark (the badge, the status
         // glyph, an agent mark in the status's place); nil (off, idle, failed) keeps the shipped mark.
         let pill = content.agentBadges.showsPills && !isPlaceholderRow && !isShowingPlaceholder ? SidebarAgentPill.of(ws) : nil
-        // A Cloud row with no icon of its own leads with the cloud, in the icon column Home's glyph sits in
-        // (Austin, 2026-11-12); a row that has its own icon keeps it and shows the cloud after its name.
-        let leadsWithCloud = shown.icon == nil && shown.runsInCloud && !isShowingPlaceholder
-        let leadingIcon = leadsWithCloud ? WorkspaceIcon.symbol("cloud") : shown.icon
-        icon.configure(icon: leadingIcon)
-        iconKind = leadingIcon
+        // The leading slot is the row's own icon and its state only, never where it runs: a Cloud row's cloud is a
+        // small muted mark in the trailing status cluster (Leo 2026-11-22: "im not sure we want the cloud icon at the
+        // left. it makes it stick out in a slight eyesore-y way. compared to the local ones which have no icon").
+        icon.configure(icon: shown.icon)
+        iconKind = shown.icon
         configureColor(shown)
         let priorTitle = lastTitle
         if titleArrivalPending || titleArrivalScheduled || titleArrivalActive {
@@ -366,7 +365,7 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.image = ws.muted && !isShowingPlaceholder
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
         mutedMark.isHidden = mutedMark.image == nil
-        cloudMark.image = shown.runsInCloud && !leadsWithCloud && !isShowingPlaceholder ? NSImage.icon(.cloud, size: SidebarStyle.indicatorSize) : nil
+        cloudMark.image = shown.runsInCloud && !isShowingPlaceholder ? NSImage.icon(.cloud, size: SidebarStyle.indicatorSize) : nil
         cloudMark.isHidden = cloudMark.image == nil
         // The bell-slash alone does not say what is muted: notifications, not the tabs' sound. The row's hover card
         // and its accessibility label say it (a1315's cut 3: rows carry no tooltips).
