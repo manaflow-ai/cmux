@@ -83,8 +83,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
   reveal.current ??= new StreamReveal({ initial: displayText, reduceMotion: reduce.current });
   const [shown, setShown] = useState<Shown>(() => ({ length: displayText.length, fresh: [], now: 0 }));
   // The turn ended (VirtualTranscript bumps TurnEndCut in the render that folds it): what is left
-  // of a reply the stream already ended shows in this commit, fading in, so it lands in the fold's
-  // own frame. Paced over the frames after it, each line grew the reply under the fold that had
+  // of a reply the stream already ended shows in this commit, so it lands in the fold's own frame. Paced over the frames after it, each line grew the reply under the fold that had
   // just settled the turn, a second motion after it (cmux#50299; Leo 2026-11-22: "false grow then
   // collapse with the tool calls on the end of turn folding").
   const cut = useContext(TurnEndCut);
@@ -109,16 +108,13 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
       setShown(next);
       return;
     }
-    if (ending && shown.length < displayText.length) {
+    if (ending) {
+      // Drawn whole, as a finished reply; the fold opens its new lines on its own clock
+      // (turnEndFold.ts clips a row the swap grew), so nothing of it fades on a clock of its own.
       current.replace(displayText);
-      // The loop runs on to retire the fade; it finds nothing left to reveal.
       revealFrames.cancel(loop.current.handle);
       loop.current.handle = 0;
-      const now = performance.now();
-      const fresh = reduce.current
-        ? []
-        : [...shown.fresh, { id: (nextId.current += 1), count: displayText.length - shown.length, born: now }];
-      const next = { length: displayText.length, fresh, now };
+      const next = { length: displayText.length, fresh: [], now: shown.now };
       latest.current.shown = next;
       setShown(next);
       return;
