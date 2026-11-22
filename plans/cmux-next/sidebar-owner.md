@@ -161,6 +161,7 @@
   pass per section (`SidebarCustomizationPlanner.moveIntoGroups`) instead of a search and a projection copy per move.
   Regression: `SidebarCustomizationScaleTests` (CmuxNextAppTests).
 
+- 2026-11-18 (lane/sidebar-row-age): Sidebar-Look: Leo, 2026-11-18 (ask c-d1b544f190): "can you guys also start the [...]/codex/claude repos that we just have the entire ui and the various customizations lifted chameleon-like...". A look that sets `sidebar.showTimestamps` gets Codex's thread row: the title on the left, the age at the right end of the title line. A chat workspace had no time to show (the Rust face's `last_activity_ms` counts terminal agents' reports and notifications only), so its row drew no age; it now reads its chat's acpmux `lane.since` (`SidebarWorkspace.chatActivity`, from the chat tab the face picks) and draws the newer of the two (`rowAge`) in the existing trailing time slot (`badgeTime`, an expanded row's `time`, the Last Activity element). Off by default (`sidebar.showTimestamps` off draws no age, as before); sorting, grouping and hover cards keep `lastActivity`. `SidebarChatRowAgeTests`; gallery `AASidebarRowAgeGalleryTests` (off, compact, comfortable with a folder line, expanded; dark and light, artifact `sidebar-row-age-gallery.tar`).
 - 2026-11-18 (minimal-hide-all): Sidebar-Look: user, 2026-11-17 (msg 38388): "minimal mode should hide everything in sidebar including cards like update, iff user is not hovered in sidebar". In Minimal Mode (`sidebar.minimal`), with the pointer away, every sidebar view but the content (the workspace list, the bands, the Priority view, edit mode's bar) fades out with the controls' hover fade (`SidebarChromeReveal.rest`, `SidebarView.minimalChromeViews`): one rule over the sidebar's subviews, so a card added later hides by default. Newly hidden: the Restart to Update, notice (tips, star prompt, restoring, update status), Now Playing and cmux Updated cards, the card stack, app health's line, the Update Available button, the Priority bell, the titlebar accessory and the needs-you tray. A card arriving while hidden arrives hidden. Their room goes to the list with the footer's, on the footer's curve, and comes back on hover. A fade only: frames and the accessibility tree stay. Show Sidebar Controls Only on Hover alone keeps the cards. `MinimalModeHidesEverythingTests`.
 - 2026-11-18 (a590, grid base red): Sidebar-Look: an unread dot beside a status mark sits one column in again, as before
   #44449. d8917c9 (#44449) made the trailing pitch the control plus a tenth of it (17.6 or 20.53 pt), and
@@ -2652,6 +2653,13 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   densities. The shared trailing column still reserves the local Share Screen action. Regression coverage:
   `SidebarSearchButtonTests`, `SidebarEvenRowInsetsTests`, `NowPlayingCardTests`.
   Sidebar-Look: every density is Default scaled by one factor.
+
+- 2026-11-21 (pin lifecycle tour, Leo: "actually, the entire pin lifecycle is weird as shit"): a pinned workspace
+  draws as a block item, not a list row, so `rowFrameOnScreen` (the icon picker's anchor and `debug.mouse`'s `row`)
+  answered nil for every pinned workspace and the pin lifecycle tour could not hover, drag or click one. It now
+  answers with the pinned pill (`hoverCardAnchor`), scrolling only a list row into view. Regression:
+  `PinnedRowHoverCardTests.aPinnedRowIsFoundOnScreen`.
+  Sidebar-Look: the entire pin lifecycle is weird as shit.
 
 - 2026-11-21 (Leo: "i dont think it works very well, especially with clicking and dragging"; 2026-11-07: "it's
   super weird how when you drag ANY workspace, it shifts imediately due to that"): a workspace dragged from the
