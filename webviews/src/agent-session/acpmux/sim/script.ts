@@ -264,6 +264,26 @@ export class SimBuilder {
     return this;
   }
 
+  /** The person's steer mid-turn (`steer: true` on the running turn), and acpmux saying the agent read it `readMs` later. */
+  steer(value: string, { readMs = 600, after = 300 } = {}): this {
+    const promptId = `steer-${this.seq + 1}`;
+    this.record(
+      "mux",
+      "user_message",
+      {
+        text: value,
+        promptId,
+        turnId: this.turnId,
+        steer: true,
+        client: "pane",
+        _meta: { origin: { actor: "person" } },
+      },
+      after,
+      `steer: ${value.slice(0, 40)}`,
+    );
+    return this.record("mux", "steer_read", { promptId, turnId: this.turnId }, readMs, "steer_read");
+  }
+
   /** A subagent call (Claude Code's Agent tool) that runs `ms` and reports. */
   subagent(description: string, { ms = 4_000, report = "Done: nothing found." } = {}): this {
     return this.tool(description, { kind: "think", tool: "Agent", ms, output: report });

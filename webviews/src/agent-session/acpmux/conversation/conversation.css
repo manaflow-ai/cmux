@@ -8722,6 +8722,6 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 .acpmux-fold-card > div {
   position: absolute;
   inset: 0;
-  border-radius: 10px;
+  border-radius: var(--surface-card-radius);
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
 }
