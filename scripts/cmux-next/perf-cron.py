@@ -241,6 +241,13 @@ PARTS = [
     {"name": "throughput", "args": [*MEASURE, "--config=bench", "--suite=terminal-throughput"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput",
      "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
+    # Late frames and the frame's commit time while a pane divider drags and the window zooms beside a Chromium page
+    # (cef-resize-cron.py: cef-resize-sync-bench.py's light bench on the build as it ships): cef_resize.<action>.<layout>
+    # .missed (budget 0) and .commit_p95_ms (budget half a display frame), from plans/cmux-next/cef-layer-hosting-DESIGN.md
+    # "Live resize". The bench build, like memory-agents and throughput: the frames people see are Release frames.
+    {"name": "cef-resize", "args": [*MEASURE, "--config=bench", "--suite=cef-resize"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "cef-resize",
+     "run_seconds": 1800},  # 156 s with the bench app cached (step 5574ba49fb74, 2026-11-19); a cold bench build adds ~800 s
     # Terminal key to echo (scripts/cmux-next/typing-frame-bench.py, the cron's run of bench-typing.py's probe): one
     # key at a time typed into a `zsh -f` prompt, from the key event's timestamp to the frame Ghostty reports shown on
     # the layer with the echoed glyph (the typing probe's contents_ms; the photon follows at the next vsync). Idle, 3
@@ -361,7 +368,7 @@ ROW_PARTS = [
     (r"^memory\.app_agents\.", "memory-agents"), (r"^idle_budget\.", "idle-budget"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"),
     (r"^launch\.cold\.", "launch-cold"),
     (r"^launch\.relaunch\.", "relaunch"), (r"^launch\.wake_proxy\.", "wake"), (r"^launch\.", "launch"),
-    (r"^terminal\.throughput\.", "throughput"), (r"^terminal\.scroll\.", "terminal-scroll"),
+    (r"^terminal\.throughput\.", "throughput"), (r"^cef_resize\.", "cef-resize"), (r"^terminal\.scroll\.", "terminal-scroll"),
     (r"^power\.", "power"),
     (r"^chat_size\.", "chat-size"),
     (r"^terminal\.key_to_echo\.", "typing"),
@@ -1044,7 +1051,7 @@ def refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms):
 
 def target_of(name, row, refresh_ms):
     """The row's target p95: latency 10 ms; a frame row one display refresh (the row's own when it has one); counts
-    0; diff, launch, web UI, terminal key-to-echo and main-thread rows their budget (a web UI row without a target has none)."""
+    0; diff, launch, web UI, CEF resize, terminal key-to-echo and main-thread rows their budget (a web UI row without a target has none)."""
     refresh_ms = row_refresh(row, refresh_ms)
     unit = row.get("unit") or "ms"
     name = base_row(name)
@@ -1052,7 +1059,7 @@ def target_of(name, row, refresh_ms):
         # Scaling rows are judged only by their 1000-vs-baseline ratio. Their absolute
         # latency is intentionally advisory and must not inherit the generic 10 ms target.
         return None
-    if name.startswith(("diff.", "launch.", "webui.", "terminal.key_to_echo.")):
+    if name.startswith(("diff.", "launch.", "webui.", "terminal.key_to_echo.", "cef_resize.")):
         return row.get("budget")
     if unit in ("frames", "checks") or name.endswith(".dropped"):
         return 0
@@ -2319,7 +2326,7 @@ def supported_parts_at(sha):
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
                                    capture_output=True, text=True).stdout
             ok = "--suite=launch" in text and '"--fresh-copy"' in bench and '"--ready-mark"' in bench
-        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "power", "chat-size"):
+        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "power", "chat-size", "cef-resize"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text
@@ -3942,7 +3949,8 @@ def cmd_run_linux_part(o):
         value = last_json_object(stdout) if code is not None else None
         if code is None:
             code = f"timeout ({LINUX_RUN_SECONDS} s)"
-        tail += [f"{name}: exit {code}"] + stderr.splitlines()[-10:]
+        # A script that prints its error to stdout (no stderr) still shows it.
+        tail += [f"{name}: exit {code}"] + (stderr.strip() or (stdout if code != 0 else "")).splitlines()[-10:]
         if before:
             load[name] = contention_factor(before + host_contention())
         if PART_BY_NAME[part]["kind"] == "webui":
