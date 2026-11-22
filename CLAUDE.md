@@ -93,6 +93,13 @@ Read these before working in their scope; nested files may not load automaticall
   [skills/cmux-backend/SKILL.md](skills/cmux-backend/SKILL.md) first.
 - `web/` or any cmux Cloud database work: [web/AGENTS.md](web/AGENTS.md).
 - `cmux-tui/`: [cmux-tui/AGENTS.md](cmux-tui/AGENTS.md).
+- `Packages/macOS/`, `App/`, `Native/` (the Mac app's Swift): [Packages/macOS/AGENTS.md](Packages/macOS/AGENTS.md)
+  (where a change goes, what a lane VM can check, the common reds).
+- `backend/`, `workers/`, `services/`: [backend/AGENTS.md](backend/AGENTS.md) (test one file, the migration and
+  catalog reds).
+- `scripts/`, `tests/`, `ci/`: [scripts/AGENTS.md](scripts/AGENTS.md); `.github/workflows/`:
+  [.github/AGENTS.md](.github/AGENTS.md) (find and run one script's tests, add a workflow).
+- `webviews/`: [webviews/README.md](webviews/README.md).
 - `cmux-next-ios/`: [cmux-next-ios/CLAUDE.md](cmux-next-ios/CLAUDE.md) and
   [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md).
 
