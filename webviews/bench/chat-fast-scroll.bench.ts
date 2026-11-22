@@ -44,6 +44,8 @@ const CPU = Number(flag("--cpu") ?? 1);
 /// A click whose prompt is not on screen by then never loaded, as a person reads it.
 const LOAD_MS = Number(flag("--load-ms") ?? 3000);
 const PROFILE = argv.includes("--profile");
+/// --trace: the layouts and style recalcs over each measured part, and the scripts that forced them.
+const TRACE = argv.includes("--trace");
 const NOMINAL_MS = 1000 / 60;
 const NOTCH_MS = 8;
 if (SIZES.some((size) => !Number.isInteger(size) || size < 0) || !(TURNS >= 100) || !(CLICKS >= 2)) {
@@ -63,6 +65,19 @@ async function installDriver({ size, rate }: { size: number; rate: number }) {
   const { MockAcpmuxSocket } = (await import(/* @vite-ignore */ mockUrl)) as MockModule;
   const daemon = MockAcpmuxSocket.live;
   if (!daemon) throw new Error("no mock daemon");
+  // --trace: the daemon requests, by when each was asked and answered (`__asks`).
+  const asks: { method: string; at: number; ms: number; params: string }[] = [];
+  (window as any).__asks = asks;
+  const answer = (daemon as any).answer.bind(daemon);
+  (daemon as any).answer = async (method: string, params: Record<string, any>) => {
+    const at = performance.now();
+    try {
+      return await answer(method, params);
+    } finally {
+      const { sessionId: _, ...rest } = params ?? {};
+      asks.push({ method, at, ms: performance.now() - at, params: JSON.stringify(rest).slice(0, 120) });
+    }
+  };
   let round = 0;
   let timer: ReturnType<typeof setInterval> | undefined;
   (window as any).__scale = {
@@ -112,6 +127,55 @@ async function profiled<T>(cdp: CDPSession, label: string, run: () => Promise<T>
   console.log(
     `PROFILE ${label} total ${Math.round(total)} ms self:\n` +
       top.map(([k, ms]) => `  ${ms.toFixed(1).padStart(8)} ms  ${k}`).join("\n"),
+  );
+  return result;
+}
+
+type TraceEvent = { name: string; ph: string; dur?: number; tid: number; args?: any };
+/// --trace: over one measured part, the renderer main thread's layouts and style recalcs (count, ms), and the script
+/// frames that forced one (a read of layout before the frame's own), by their total ms.
+async function traced<T>(page: Page, label: string, run: () => Promise<T>): Promise<T> {
+  if (!TRACE) return run();
+  const browser = page.context().browser()!;
+  await browser.startTracing(page, {
+    categories: ["devtools.timeline", "disabled-by-default-devtools.timeline.stack"],
+  });
+  const result = await run();
+  const events = (JSON.parse((await browser.stopTracing()).toString()) as { traceEvents: TraceEvent[] }).traceEvents;
+  const sum = new Map<string, { n: number; ms: number }>();
+  const forced = new Map<string, number>();
+  const add = (key: string, ms: number) => {
+    const was = sum.get(key) ?? { n: 0, ms: 0 };
+    sum.set(key, { n: was.n + 1, ms: was.ms + ms });
+  };
+  for (const event of events) {
+    if (
+      event.ph !== "X" ||
+      !["Layout", "UpdateLayoutTree", "Paint", "FunctionCall", "EventDispatch"].includes(event.name)
+    )
+      continue;
+    const ms = (event.dur ?? 0) / 1000;
+    add(event.name, ms);
+    const stack = event.args?.beginData?.stackTrace as
+      | { functionName: string; url: string; lineNumber: number }[]
+      | undefined;
+    if ((event.name === "Layout" || event.name === "UpdateLayoutTree") && stack?.length) {
+      const top = stack
+        .slice(0, 3)
+        .map((f) => `${f.functionName || "(anon)"}@${f.url.split("/").pop()?.split("?")[0]}:${f.lineNumber + 1}`)
+        .join(" < ");
+      forced.set(`${event.name} ${top}`, (forced.get(`${event.name} ${top}`) ?? 0) + ms);
+    }
+  }
+  console.log(
+    `TRACE ${label}: ` +
+      [...sum].map(([k, v]) => `${k} ${v.n}x ${v.ms.toFixed(1)}ms`).join(", ") +
+      "\n" +
+      [...forced]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 15)
+        .map(([k, ms]) => `  ${ms.toFixed(1).padStart(7)} ms forced ${k}`)
+        .join("\n"),
   );
   return result;
 }
@@ -213,10 +277,17 @@ async function railClicks(page: Page, around: <T>(run: () => Promise<T>) => Prom
   for (let sample = 0; sample < CLICKS; sample += 1) {
     // Spread over the whole chat, oldest to newest and back, never the same place twice in a row.
     const index = Math.floor(((sample * 0.618034) % 1) * (count - 2)) + 1;
+    // The rail follows the transcript, and history still filling in after the last click moves it: scroll it to the
+    // tick again each frame until the tick is drawn and still.
     await rail.evaluate(async (node, index) => {
-      node.scrollTop = index * 10 - node.clientHeight / 2;
-      await window.cmuxPaintFrame();
-      await window.cmuxPaintFrame();
+      for (let frame = 0; frame < 300; frame += 1) {
+        node.scrollTop = index * 10 - node.clientHeight / 2;
+        await window.cmuxPaintFrame();
+        const tick = node.querySelector(`[data-tick="${index}"]`);
+        const box = tick?.getBoundingClientRect();
+        const view = node.getBoundingClientRect();
+        if (box && box.height > 0 && box.top >= view.top && box.bottom <= view.bottom) return;
+      }
     }, index);
     const tick = rail.locator(`[data-tick="${index}"]`);
     await tick.waitFor({ timeout: 5_000 });
@@ -224,7 +295,8 @@ async function railClicks(page: Page, around: <T>(run: () => Promise<T>) => Prom
     if (!target) throw new Error(`Tick ${index} has no box`);
     await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
     await page.evaluate(
-      ({ index, loadMs }) => {
+      ({ index, loadMs, trace }) => {
+        (window as any).__frames = [];
         const probe = window as unknown as { __click: { ms: number | null; frames: number } | null };
         probe.__click = null;
         // The tick names its prompt ("Message 793 of 1381: Turn 911: ..."); the rail lists only the prompts it knows.
@@ -245,6 +317,15 @@ async function railClicks(page: Page, around: <T>(run: () => Promise<T>) => Prom
                 return box.height > 0 && box.bottom > view.top && box.top < view.bottom;
               });
               const ms = performance.now() - start;
+              if (trace) {
+                const bubble = [...scroller.querySelectorAll<HTMLElement>(".cv-user__bubble")].find((each) =>
+                  (each.textContent ?? "").trim().startsWith(prompt),
+                );
+                const rows = scroller.querySelectorAll(".acpmux-row").length;
+                ((window as any).__frames ??= []).push(
+                  `${Math.round(ms)}ms top=${Math.round(scroller.scrollTop)} h=${scroller.scrollHeight} rows=${rows} target=${bubble ? Math.round(bubble.getBoundingClientRect().top - view.top) : "none"}`,
+                );
+              }
               if (shown) {
                 probe.__click = { ms, frames };
                 return false;
@@ -265,10 +346,12 @@ async function railClicks(page: Page, around: <T>(run: () => Promise<T>) => Prom
           { capture: true, once: true },
         );
       },
-      { index, loadMs: LOAD_MS },
+      { index, loadMs: LOAD_MS, trace: TRACE },
     );
     // fixed-wait: the pointer rests on the tick (its preview card opens) before the press, as a person's does.
     await page.waitForTimeout(500);
+    if (TRACE) await page.evaluate(() => ((window as any).__asks.length = 0));
+    const pressedAt = TRACE ? await page.evaluate(() => performance.now()) : 0;
     await around(async () => {
       await page.mouse.down();
       await page.mouse.up();
@@ -276,6 +359,22 @@ async function railClicks(page: Page, around: <T>(run: () => Promise<T>) => Prom
     });
     const result = (await page.evaluate(() => (window as any).__click)) as { ms: number | null; frames: number };
     samples.push({ index, ...result });
+    if (TRACE) {
+      const asks = (await page.evaluate(() => (window as any).__asks)) as {
+        method: string;
+        at: number;
+        ms: number;
+        params: string;
+      }[];
+      console.log(
+        `ASKS click ${index} (${result.ms === null ? "not loaded" : Math.round(result.ms) + " ms"}):\n` +
+          asks
+            .map((a) => `  +${Math.round(a.at - pressedAt)} ms ${a.method} ${Math.round(a.ms)} ms ${a.params}`)
+            .join("\n") +
+          "\n" +
+          ((await page.evaluate(() => (window as any).__frames)) as string[]).map((f) => `  frame ${f}`).join("\n"),
+      );
+    }
     // fixed-wait: the jump's settle and any page it read finish before the next click, as a person reads.
     await page.waitForTimeout(250);
   }
@@ -319,12 +418,16 @@ try {
       for (const page of [hidden, shown]) await page.evaluate(() => (window as any).__scale.start());
       // fixed-wait: the change stream reaches its steady state before the measured input.
       await shown.waitForTimeout(1500);
-      const flung = await profiled(cdp, `fling n=${size}`, () => fling(shown, cdp));
+      const flung = await traced(shown, `fling n=${size}`, () =>
+        profiled(cdp, `fling n=${size}`, () => fling(shown, cdp)),
+      );
       // fixed-wait: the fling's pages and settle finish before the rail is clicked.
       await shown.waitForTimeout(1000);
       const clicked = await railClicks(
         shown,
-        PROFILE ? (run) => profiled(cdp, `rail-click n=${size}`, run) : undefined,
+        PROFILE || TRACE
+          ? (run) => traced(shown, `rail-click n=${size}`, () => profiled(cdp, `rail-click n=${size}`, run))
+          : undefined,
       );
       const changes = (
         await Promise.all([hidden, shown].map((page) => page.evaluate(() => (window as any).__scale.stop())))
