@@ -127,6 +127,57 @@ fn after_turn_failed(name: &str, bound: std::time::Duration) -> String {
     )
 }
 
+/// How long a move waits, after its commit, for this machine to list the chat reachable on the
+/// target (`await_arrival`), and how often it asks.
+const ARRIVAL_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+const ARRIVAL_POLL: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Whether `reply` (`_acpmux/info` with `sessionIds`, `row: true`) lists the moved chat as a
+/// reachable row of a peer: a peer's row, not a last-known copy (`stale`), its link up
+/// (`peerState` connected or degraded, as `ls` reads it, `cli/ls_table.rs`). `Err`: why not yet.
+fn arrived(reply: &Value) -> Result<(), String> {
+    let rows = reply.get("rows").and_then(Value::as_array).into_iter().flatten();
+    let mut why = "not listed here yet".to_owned();
+    for row in rows.filter(|r| r.get("peer").and_then(Value::as_str).is_some_and(|p| !p.is_empty()))
+    {
+        let state = row.get("peerState").and_then(Value::as_str);
+        if row.get("stale").and_then(Value::as_bool) == Some(true) {
+            why = format!("listed as its last-known copy (peer {})", state.unwrap_or("down"));
+        } else if let Some(s) = state.filter(|s| !matches!(*s, "connected" | "degraded")) {
+            why = format!("peer {s}");
+        } else {
+            return Ok(());
+        }
+    }
+    Err(why)
+}
+
+/// Waits, at most `bound`, asking every `poll`, until `src` lists the moved chat `there` as
+/// reachable on its new machine (`arrived`): a move that ends before then leaves `ls` showing
+/// it unknown, its peer reconnecting, though it runs there. `Err`: why it is not, at the bound.
+async fn await_arrival(
+    src: &Client,
+    there: &str,
+    bound: std::time::Duration,
+    poll: std::time::Duration,
+) -> Result<(), String> {
+    let deadline = tokio::time::Instant::now() + bound;
+    let params = json!({"sessionIds": [there], "row": true});
+    loop {
+        let why = match src.request(method::MUX_INFO, params.clone()).await {
+            Ok(reply) => match arrived(&reply) {
+                Ok(()) => return Ok(()),
+                Err(why) => why,
+            },
+            Err(e) => format!("{e:#}"),
+        };
+        if tokio::time::Instant::now() + poll > deadline {
+            return Err(why);
+        }
+        tokio::time::sleep(poll).await;
+    }
+}
+
 pub(crate) struct MoveArgs {
     pub sessions: Vec<String>,
     pub host: String,
@@ -527,6 +578,21 @@ async fn move_steps(
     targets.placed(&target.name);
     o.moved = true;
     o.there = moved.get("sessionId").and_then(Value::as_str).map(str::to_owned);
+    // Done only once this machine lists it where it went, reachable: else `ls` right after
+    // shows the chat unknown, its peer reconnecting (item D).
+    if let Some(there) = o.there.clone() {
+        let step = format!("waiting until this machine lists it reachable on {}", target.name);
+        let listed =
+            waiting(&name, &step, await_arrival(src, &there, ARRIVAL_WAIT, ARRIVAL_POLL)).await;
+        if let Err(why) = listed {
+            eprintln!(
+                "move: {name}: moved to {}, but this machine does not list it reachable there \
+                 after {}s ({why}); it runs there, and `acpmux ls` shows it once the link is up",
+                target.name,
+                ARRIVAL_WAIT.as_secs()
+            );
+        }
+    }
     if args.resume_there
         && let Some(there) = o.there.clone()
     {

@@ -727,3 +727,66 @@ fn auto_never_picks_a_personal_last_resort_or_reserved_machine_and_ranks_a_stale
     assert!(lines[0].starts_with("auto: old runs another acpmux build"), "{}", lines[0]);
     assert!(lines[0].ends_with("refresh it with `acpmux machine update old`"), "{}", lines[0]);
 }
+
+/// Item D: a move ends only once this machine lists the moved chat reachable on its new
+/// machine; a last-known copy, or a row whose peer is reconnecting, is not yet. Past the bound
+/// it says why instead of waiting on.
+#[tokio::test(start_paused = true)]
+async fn a_move_ends_once_the_chat_is_listed_reachable_where_it_went() {
+    use crate::rpc::Message;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let row = |stale: bool, state: &str| {
+        json!({"rows": [
+            {"sessionId": "s1", "status": "closed", "movedTo": {"host": "t"}},
+            {"sessionId": "s1", "peer": "t", "stale": stale, "peerState": state},
+        ]})
+    };
+    let replies = vec![
+        json!({"rows": []}),
+        row(true, "reconnecting"),
+        row(false, "reconnecting"),
+        row(false, "connected"),
+    ];
+    let socket_dir = tempfile::tempdir().unwrap();
+    let socket = socket_dir.path().join("daemon.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (rd, mut wr) = stream.into_split();
+        let mut lines = BufReader::new(rd).lines();
+        let mut asked = 0;
+        while let Ok(Some(line)) = lines.next_line().await {
+            let Message::Request { id, method: called, params, .. } =
+                Message::parse(&line).unwrap()
+            else {
+                panic!("expected a request");
+            };
+            if called == method::INITIALIZE {
+                wr.write_all(Message::ok(id, json!({})).to_line().as_bytes()).await.unwrap();
+                continue;
+            }
+            assert_eq!(called, method::MUX_INFO);
+            assert_eq!(params.unwrap_or_default()["sessionIds"], json!(["s1"]));
+            let reply = replies.get(asked).cloned().unwrap_or_else(|| row(false, "reconnecting"));
+            asked += 1;
+            wr.write_all(Message::ok(id, reply).to_line().as_bytes()).await.unwrap();
+        }
+        asked
+    });
+    let client = Client::connect(&socket).await.unwrap();
+    let poll = std::time::Duration::from_millis(250);
+    let bound = std::time::Duration::from_secs(20);
+    await_arrival(&client, "s1", bound, poll).await.unwrap();
+    // A link that stays down: the wait ends at its bound and says why.
+    let why =
+        await_arrival(&client, "s1", std::time::Duration::from_secs(1), poll).await.unwrap_err();
+    assert_eq!(why, "peer reconnecting");
+    drop(client);
+    let asked = server.await.unwrap();
+    assert!((4 + 4..=4 + 5).contains(&asked), "asked {asked} times");
+
+    assert_eq!(arrived(&json!({"rows": []})), Err("not listed here yet".to_owned()));
+    let stale = arrived(&row(true, "reconnecting")).unwrap_err();
+    assert!(stale.contains("last-known copy"), "{stale}");
+    assert_eq!(arrived(&row(false, "degraded")), Ok(()));
+}
