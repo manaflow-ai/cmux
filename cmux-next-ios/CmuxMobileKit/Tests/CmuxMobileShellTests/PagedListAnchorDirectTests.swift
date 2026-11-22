@@ -43,14 +43,15 @@ import UIKit
         var rows: [Row]
         var list: UICollectionView { controller.collectionView }
 
-        init(rows: [Row] = (0 ..< 200).map { Row(id: $0) }) {
+        init(rows: [Row] = (0 ..< 200).map { Row(id: $0) }, direction: PagedListDirection = .down, animatesNewest: Bool = false) {
             self.rows = rows
             window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
             let root = UIViewController()
             window.rootViewController = root
             holder = UIView(frame: CGRect(x: 0, y: 200, width: 402, height: 420))
             root.view.addSubview(holder)
-            controller = PagedListController(direction: .down, row: { RowView(row: $0) }, edgeView: { _, _ in AnyView(EmptyView()) })
+            controller = PagedListController(direction: direction, row: { RowView(row: $0) }, edgeView: { _, _ in AnyView(EmptyView()) })
+            controller.animatesNewest = animatesNewest
             let probe = PagedListProbe()
             let seen = seen
             probe.frameShift = { seen.shifts.append($0) }
@@ -63,9 +64,24 @@ import UIKit
             settle()
         }
 
-        func apply(_ change: (inout [Row]) -> Void) {
+        func apply(_ change: (inout [Row]) -> Void, settling: Bool = true) {
             change(&rows)
             controller.update(items: rows, edge: .end)
+            if settling { settle() } else { turn() }
+        }
+
+        /// One frame: lay out, commit, and let the run loop turn once (the probe samples it).
+        func turn() {
+            list.layoutIfNeeded()
+            CATransaction.flush()
+            RunLoop.main.run(until: Date().addingTimeInterval(1.0 / 60))
+        }
+
+        /// To the newest row of an `.up` list (its bottom), where the list follows new rows.
+        func scrollToNewest() {
+            list.layoutIfNeeded()
+            let bottom = list.contentSize.height - list.bounds.height + list.adjustedContentInset.bottom
+            list.setContentOffset(CGPoint(x: 0, y: max(-list.adjustedContentInset.top, bottom)), animated: false)
             settle()
         }
 
@@ -127,6 +143,41 @@ import UIKit
         #expect(abs(host.height(of: 10) - 1300) < 0.5, "row 10 measured \(host.height(of: 10)) pt: the grow did not land")
         let after = try #require(host.top(of: 10))
         #expect(abs(after - before) <= 0.5, "the row alone on screen moved \(after - before) pt")
+    }
+
+    // MARK: The follow path (the open defect)
+
+    /// An `.up` list following its newest row: rows arrive at the newest end every frame, so the
+    /// follow spring keeps sliding, while rows above the reader go and others change height, as the
+    /// flood load does. Every committed frame is sampled; nothing may draw off the slide (the 22 pt
+    /// one-frame flash of up-slow/medium/fast-flood and up-fast-busy, steps 3c24c106 and e83632fe:
+    /// `follows=true spring=1`, an update's `U-118` and the restore's `r+170` in one frame).
+    @Test func followingTheNewestRowsWhileRowsAboveGoOrResizeDrawsNoShift() throws {
+        let host = Host(direction: .up, animatesNewest: true)
+        defer { host.close() }
+        host.scrollToNewest()
+        host.seen.clear()
+        let count = host.list.numberOfItems(inSection: 0)
+        var arrived = 0
+        var removed = 0
+        for step in 0 ..< 24 {
+            let visible = host.list.indexPathsForVisibleItems.map(\.item).sorted()
+            let above = visible.count > 3 ? host.rows[visible[visible.count / 3]].id : nil
+            let resized = visible.count > 4 ? visible[1] : nil
+            host.apply({ rows in
+                rows.append(Row(id: 10_000 + step))
+                if step % 2 == 0, let above { rows.removeAll { $0.id == above } }
+                if step % 3 == 0, let resized, resized < rows.count { rows[resized].height = rows[resized].height == 60 ? 104 : 60 }
+            }, settling: false)
+            arrived += 1
+            if step % 2 == 0, above != nil { removed += 1 }
+        }
+        host.settle()
+        #expect(host.list.numberOfItems(inSection: 0) == count + arrived - removed,
+                "the changes did not land: \(host.list.numberOfItems(inSection: 0)) rows, expected \(count + arrived - removed)")
+        #expect(!host.seen.drawn.isEmpty, "the drawn measure took no sample")
+        #expect(host.seen.worst <= 0.5, "frame shift while following: \(host.seen.shifts.filter { abs($0) > 0.5 })")
+        #expect(host.seen.drawnWorst <= 0.5, "drawn shift while following: \(host.seen.drawn.filter { abs($0) > 0.5 })")
     }
 
     // MARK: The frame-shift probe
