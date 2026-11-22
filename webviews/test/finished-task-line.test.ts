@@ -1,5 +1,5 @@
 // A finished turn keeps the sub-session it started in sight once its work folds: one line with the
-// task's title (not its short name), its done mark and a chevron after them, which opens the task's
+// task's title (not its short name) and its done mark. The name opens the task's
 // chat, where its report is. ChatGPT keeps "✓ Review October engineering work ›" in its lead chat
 // (Leo, 2026-11-02: "see this is the kinda scenario we wanna be able to display super nicely").
 //
@@ -121,8 +121,7 @@ await requireBrowserLane("finished-task-line.test.ts", async () => {
         expect(line!.text).not.toContain("october-review");
         expect(line!.state).toBe("done");
         expect(line!.height).toBeGreaterThan(0);
-        // It opens another chat: its chevron points right (taller than wide), after the words.
-        expect(found.chevron?.right).toBe(true);
+        expect(found.chevron).toBeNull();
         // Under the fold, above the reply.
         expect(found.fold).not.toBeNull();
         expect(line!.top).toBeGreaterThan(found.fold!);

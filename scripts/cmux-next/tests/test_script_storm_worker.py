@@ -4,6 +4,7 @@ per-kind connections and the PTY hold.
   python3 -I scripts/cmux-next/tests/test_script_storm_worker.py
 """
 import collections
+import importlib.util
 import json
 import os
 import socket
@@ -14,6 +15,13 @@ import threading
 import time
 import unittest
 from pathlib import Path
+
+# tests/known_red.py: a skip against an issue that fails once its checked-in date passes.
+_known_red_spec = importlib.util.spec_from_file_location(
+    "known_red", Path(__file__).resolve().parents[3] / "tests" / "known_red.py")
+_known_red = importlib.util.module_from_spec(_known_red_spec)
+_known_red_spec.loader.exec_module(_known_red)
+known_red = _known_red.known_red
 
 BENCH = Path(__file__).resolve().parents[1] / "script-storm-bench.py"
 # Runs the worker with the host's PTY count fixed, so the result does not depend on the PTYs other agents hold.
@@ -102,7 +110,7 @@ class StormWorkerTests(unittest.TestCase):
         self.assertEqual(worker.returncode, 0, err)
         return json.loads(out.strip().splitlines()[-1]), daemon
 
-    @unittest.skip("red on feat-cmux-next, line 106: the worker never answers its column and move pings (https://github.com/manaflow-ai/cmux/issues/41322)")
+    @known_red(41322, "2026-12-02", "red on feat-cmux-next, line 106: the worker never answers its column and move pings")
     def test_column_ledger_closes_every_terminal_it_made(self):
         report, daemon = self.storm(ptys_in_use=10)
         column = report["column"]
@@ -113,7 +121,7 @@ class StormWorkerTests(unittest.TestCase):
         self.assertLessEqual(daemon.peak, 4)
         self.assertEqual(daemon.bad, [])
 
-    @unittest.skip("red on feat-cmux-next, line 116: the worker never answers its column and move pings (https://github.com/manaflow-ai/cmux/issues/41322)")
+    @known_red(41322, "2026-12-02", "red on feat-cmux-next, line 116: the worker never answers its column and move pings")
     def test_each_kind_counts_its_own_connection(self):
         report, daemon = self.storm(ptys_in_use=10)
         kinds = [set(counts) - {"ping"} for counts in daemon.connections]
@@ -127,13 +135,13 @@ class StormWorkerTests(unittest.TestCase):
         self.assertEqual(report["column"]["creates_ok"], columns["new-pane-right"] + columns["new-row"])
         self.assertGreaterEqual(report["move"]["window"]["applied_per_s"], 45)
 
-    @unittest.skip("red on feat-cmux-next, line 129: the worker never answers its column and move pings (https://github.com/manaflow-ai/cmux/issues/41322)")
+    @known_red(41322, "2026-12-02", "red on feat-cmux-next, line 129: the worker never answers its column and move pings")
     def test_column_creates_take_turns_between_new_column_and_new_row(self):
         _, daemon = self.storm(ptys_in_use=10)
         columns = next(c for c in daemon.connections if "move-tab" not in c)
         self.assertLessEqual(abs(columns["new-pane-right"] - columns["new-row"]), 1, dict(columns))
 
-    @unittest.skip("red on feat-cmux-next, line 136: the worker never answers its column and move pings (https://github.com/manaflow-ai/cmux/issues/41322)")
+    @known_red(41322, "2026-12-02", "red on feat-cmux-next, line 136: the worker never answers its column and move pings")
     def test_no_create_when_the_host_ptys_are_at_the_limit(self):
         sys.path.insert(0, str(BENCH.parent))
         from bench_cli_storm import MAX_PTY_LIMIT

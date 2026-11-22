@@ -245,6 +245,7 @@ extension ConversationViewController {
         motion.start()
         composer.textView.becomeFirstResponder()
         animateReplyBlur(overlay, entering: true)
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: ConversationReplyMotion.backgroundDuration, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {
             overlay.dim.alpha = 1
             overlay.content.alpha = 1
@@ -596,6 +597,7 @@ extension ConversationViewController {
             backgroundDone = true
             finish()
         }
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: ConversationReplyMotion.backgroundDuration, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState]) {
             overlay.dim.alpha = 0
             if !settles { overlay.content.alpha = 0 }

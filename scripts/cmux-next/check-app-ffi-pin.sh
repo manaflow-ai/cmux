@@ -5,6 +5,7 @@
 #
 #   scripts/cmux-next/check-app-ffi-pin.sh [--verify-release] [--resolve] [--base REF] [--tree DIR] [--stale-grace SECONDS]
 #   scripts/cmux-next/check-app-ffi-pin.sh --list-inputs [--tree DIR]
+#   scripts/cmux-next/check-app-ffi-pin.sh --list-excluded [--tree DIR]
 #
 # With --resolve (a Mac with the Swift 6.2 tools: a fleet step) it also evaluates
 # the manifest with `swift package dump-package`, fails unless the CCmuxAppFFI
@@ -40,6 +41,7 @@ set -euo pipefail
 verify=0
 resolve=0
 list_inputs=0
+list_excluded=0
 base_ref=""
 tree=""
 stale_grace=0
@@ -49,6 +51,7 @@ while [[ $# -gt 0 ]]; do
     --resolve) resolve=1 ;;
     --base) base_ref="${2:?--base needs a ref}"; shift ;;
     --list-inputs) list_inputs=1 ;;
+    --list-excluded) list_excluded=1 ;;
     --tree) tree="${2:?--tree needs a directory}"; shift ;;
     --stale-grace)
       stale_grace="${2:?--stale-grace needs seconds}"; shift
@@ -96,18 +99,30 @@ while IFS= read -r crate; do paths+=("$crate"); done < <(ffi_crates)
 # motion C ABI (cmux_motion_resolve), and scripts/cmux-next/motion-parity.py
 # compares them with the spec's.
 paths+=(cmux-tui/rust-toolchain.toml scripts/cmux-next/build-app-ffi.sh)
-# --list-inputs prints them (tests/app-ffi-release-paths.test.sh keeps the
-# release workflow's push paths in step with this list).
-if [[ "$list_inputs" -eq 1 ]]; then
-  printf '%s\n' "${paths[@]}"
-  exit 0
-fi
-
 # The pin is read only through scripts/ci/app_ffi_pin.py: the pin file strictly,
 # and Package.swift only for its one fixed loader block, whose checksum line
 # must equal the pin file's, and no pin of its own (the classifier, the repin
 # picker and the repin script read it the same way).
 pin_reader="$code/scripts/ci/app_ffi_pin.py"
+# Not inputs either: each crate's tests/, benches/ and examples/, which Cargo
+# never builds into the library (app_ffi_pin.py NOT_BUILT, the one definition
+# the router and the classifier read too; cmux#41522, cmux#41508). Every diff
+# and log below excludes them.
+excluded=()
+while IFS= read -r dir; do excluded+=("$dir"); done < <(python3 -I "$pin_reader" not-built "$root" "${paths[@]}")
+specs=("${paths[@]}")
+for dir in ${excluded[@]+"${excluded[@]}"}; do specs+=(":(exclude,literal)$dir"); done
+# --list-inputs prints the inputs and --list-excluded the directories left out
+# (tests/app-ffi-release-paths.test.sh keeps the release workflow's push paths
+# in step with both).
+if [[ "$list_inputs" -eq 1 ]]; then
+  printf '%s\n' "${paths[@]}"
+  exit 0
+fi
+if [[ "$list_excluded" -eq 1 ]]; then
+  [[ "${#excluded[@]}" -eq 0 ]] || printf '%s\n' "${excluded[@]}"
+  exit 0
+fi
 # Every python3 here runs isolated (-I): neither the script's directory nor the working directory is on its import
 # path, and PYTHONPATH and the user site are ignored. Otherwise a module a change adds (scripts/ci/json.py beside the
 # reader, or json.py at the root for the python3 -c below) is imported in place of the standard library and decides
@@ -142,7 +157,7 @@ if [[ -n "$base_ref" ]]; then
     # The base's pin through the same strict read; a base without a canonical pin file pins nothing here.
     base_pin="$(git show "$base_commit:Packages/macOS/CmuxNext/app-ffi-pin.json" 2>/dev/null \
       | python3 -I "$pin_reader" read /dev/stdin 2>/dev/null | awk '{print $1}' || true)"
-    if git diff --quiet "$base_commit" HEAD -- "${paths[@]}" && [[ "$base_pin" == "$sha" ]]; then
+    if git diff --quiet "$base_commit" HEAD -- "${specs[@]}" && [[ "$base_pin" == "$sha" ]]; then
       own_change=0
     fi
   else
@@ -161,12 +176,12 @@ behind_since() {
     git fetch --quiet --deepen=50 "$remote" "$(git rev-parse HEAD)" 2>/dev/null || return 1
   done
   git merge-base --is-ancestor "$sha" HEAD 2>/dev/null || return 1
-  first="$(git log --reverse --format=%ct "$sha..HEAD" -- "${paths[@]}" | head -n 1)"
+  first="$(git log --reverse --format=%ct "$sha..HEAD" -- "${specs[@]}" | head -n 1)"
   [[ "$first" =~ ^[0-9]+$ ]] || return 1
   echo "$first"
 }
 behind_note=""
-if [[ "$stale_grace" -gt 0 && "$own_change" -eq 1 ]] && ! git diff --quiet "$sha" HEAD -- "${paths[@]}"; then
+if [[ "$stale_grace" -gt 0 && "$own_change" -eq 1 ]] && ! git diff --quiet "$sha" HEAD -- "${specs[@]}"; then
   # CMUX_APP_FFI_PIN_NOW: the clock, for the test.
   now="${CMUX_APP_FFI_PIN_NOW:-$(date +%s)}"
   if since="$(behind_since)"; then
@@ -182,19 +197,19 @@ if [[ "$stale_grace" -gt 0 && "$own_change" -eq 1 ]] && ! git diff --quiet "$sha
 fi
 if [[ "$behind_note" == note:* ]]; then
   echo "$behind_note"
-  git diff --stat "$sha" HEAD -- "${paths[@]}" || true
+  git diff --stat "$sha" HEAD -- "${specs[@]}" || true
   echo "Commits since the pin:"
-  git log --format='  %h %an: %s' "$sha..HEAD" -- "${paths[@]}" || true
-elif ! git diff --quiet "$sha" HEAD -- "${paths[@]}" && [[ "$own_change" -eq 0 ]]; then
+  git log --format='  %h %an: %s' "$sha..HEAD" -- "${specs[@]}" || true
+elif ! git diff --quiet "$sha" HEAD -- "${specs[@]}" && [[ "$own_change" -eq 0 ]]; then
   echo "note: base drift: the app FFI sources on $base_ref differ from the pinned source $sha, and this change touches neither; the base's push run reports it to the owning lane"
-  git diff --stat "$sha" HEAD -- "${paths[@]}" || true
-elif ! git diff --quiet "$sha" HEAD -- "${paths[@]}"; then
+  git diff --stat "$sha" HEAD -- "${specs[@]}" || true
+elif ! git diff --quiet "$sha" HEAD -- "${specs[@]}"; then
   echo "error: the app FFI sources changed since the pinned source $sha:" >&2
   [[ -z "$behind_note" ]] || echo "$behind_note" >&2
-  git diff --stat "$sha" HEAD -- "${paths[@]}" >&2
+  git diff --stat "$sha" HEAD -- "${specs[@]}" >&2
   # Who owns the drift: the lane of each changed crate, and the commits.
   owners=""
-  for path in $(git diff --name-only "$sha" HEAD -- "${paths[@]}"); do
+  for path in $(git diff --name-only "$sha" HEAD -- "${specs[@]}"); do
     case "$path" in
       cmux-tui/crates/cmux-rd-*) owners+=$'\n  remote desktop lane (cmux-rd-core/proto/ffi)' ;;
       cmux-tui/crates/cmux-layout-reducer*) owners+=$'\n  sidebar lane (cmux-layout-reducer, -ffi)' ;;
@@ -205,7 +220,7 @@ elif ! git diff --quiet "$sha" HEAD -- "${paths[@]}"; then
   done
   echo "Owning lane(s), which publish the release and update the pin:$(sort -u <<<"$owners")" >&2
   echo "Commits since the pin:" >&2
-  git log --format='  %h %an: %s' "$sha..HEAD" -- "${paths[@]}" >&2 || true
+  git log --format='  %h %an: %s' "$sha..HEAD" -- "${specs[@]}" >&2 || true
   echo "Fix: the push to feat-cmux-next runs app-ffi-release.yml; publish its artifact (by hand when the run says so), then pin the new URL and checksum in Packages/macOS/CmuxNext/app-ffi-pin.json in one commit, in the same push as the source change when possible." >&2
   # A release is published only from a feat-cmux-next push, so a pull request cannot pin its own FFI sources.
   echo "If this PR changes FFI inputs: split it into a Rust-only step A and a Swift step B after the re-pin (docs/ci/app-ffi-release.md, \"A pull request that changes FFI inputs\")." >&2

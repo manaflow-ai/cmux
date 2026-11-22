@@ -22,10 +22,12 @@ pub(super) mod tests;
 
 use std::time::{Duration, Instant};
 
+use cmux_json::JsonGet as _;
 use serde_json::{Map, Value, json};
 
 use super::GlobalArgs;
 use super::cloud_start_chat::{Runner, step_result};
+use super::start_stages::{Marks, claim_to_bound};
 
 /// The applier's status file on a Cloud machine (cmux-cloud-start-core machine_config.rs `status_path`).
 pub(super) const CONFIG_STATUS: &str = "/home/cmux/.cmux/machine-config/status.json";
@@ -108,10 +110,6 @@ fn words(list: &[&str]) -> Vec<String> {
     list.iter().map(|word| (*word).to_owned()).collect()
 }
 
-fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
-    value.get(key).and_then(Value::as_str)
-}
-
 /// `cmux vm new … --wait`: the create, then [`wait_until_ready`].
 pub(super) fn new_and_wait(runner: &mut dyn Runner, request: &NewWait) -> Result<Value, Value> {
     let started = runner.now();
@@ -119,7 +117,7 @@ pub(super) fn new_and_wait(runner: &mut dyn Runner, request: &NewWait) -> Result
     create.extend(request.create.iter().cloned());
     create.push("--json".to_owned());
     let created = step_result(&runner.cmux(&create))?;
-    let id = text(&created, "machine_id").map(str::to_owned);
+    let id = created.get_str("machine_id").map(str::to_owned);
     wait_until_ready(
         runner,
         Ready {
@@ -158,8 +156,14 @@ pub(super) fn wait_until_ready(runner: &mut dyn Runner, ready: Ready<'_>) -> Res
             json!({"machine_config": ready.created.get("machine_config")}),
         ));
     }
+    // The start marks as cloud-journey.ts names them (start_stages.rs): the create answered, running, set up.
+    let mut marks = Marks::new(ready.started);
+    let created = runner.now();
+    marks.mark("created", created);
     let (id, title) =
         wait_running(runner, ready.id.as_deref(), ready.name, ready.replaces, deadline)?;
+    let running = runner.now();
+    marks.mark("running", running);
     let target = format!("vm:{id}");
     let mut answer = Map::new();
     answer.insert("machine_id".into(), json!(id));
@@ -167,12 +171,21 @@ pub(super) fn wait_until_ready(runner: &mut dyn Runner, ready: Ready<'_>) -> Res
     answer.insert("title".into(), json!(title));
     if ready.configured {
         let status = wait_config(runner, &id, deadline)?;
+        let applied = runner.now();
+        marks.mark("machine_config", applied);
         answer.insert("machine_config".into(), status);
         answer.insert("secrets".into(), deliver(runner, &id, deadline)?);
+        let delivered = runner.now();
+        marks.mark("secrets", delivered);
     }
-    let elapsed = runner.now().saturating_duration_since(ready.started);
+    let now = runner.now();
+    let elapsed = now.saturating_duration_since(ready.started);
     answer
         .insert("elapsed_ms".into(), json!(u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)));
+    answer.insert("stages".into(), marks.finish(now));
+    if let Some(split) = claim_to_bound(ready.created) {
+        answer.insert("claim_to_bound".into(), split);
+    }
     answer.insert(
         "next".into(),
         json!({
@@ -196,14 +209,14 @@ fn wait_running(
         let listed = step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"])))?;
         let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
         let row = rows.iter().find(|row| match id {
-            Some(id) => text(row, "machine_id") == Some(id),
-            None => text(row, "title") == Some(name) && text(row, "machine_id") != replaces,
+            Some(id) => row.get_str("machine_id") == Some(id),
+            None => row.get_str("title") == Some(name) && row.get_str("machine_id") != replaces,
         });
         if let Some(row) = row {
-            let status = text(row, "status").unwrap_or("unknown");
-            let row_id = text(row, "machine_id").unwrap_or_default().to_owned();
+            let status = row.get_str("status").unwrap_or("unknown");
+            let row_id = row.get_str("machine_id").unwrap_or_default().to_owned();
             if status == "running" && !row_id.is_empty() {
-                return Ok((row_id, text(row, "title").unwrap_or(name).to_owned()));
+                return Ok((row_id, row.get_str("title").unwrap_or(name).to_owned()));
             }
             if matches!(status, "failed" | "destroyed" | "deleting") {
                 return Err(refusal(
@@ -235,9 +248,9 @@ fn wait_config(runner: &mut dyn Runner, id: &str, deadline: Instant) -> Result<V
         // No status file yet (the applier has not started) is a wait, not a failure.
         if let Ok(answer) = step_result(&runner.cmux(&read))
             && let Some(status) =
-                text(&answer, "text").and_then(|t| serde_json::from_str::<Value>(t).ok())
+                answer.get_str("text").and_then(|t| serde_json::from_str::<Value>(t).ok())
         {
-            match text(&status, "state") {
+            match status.get_str("state") {
                 Some("done") => return Ok(status),
                 Some("failed") => {
                     return Err(refusal(
@@ -268,7 +281,7 @@ fn deliver(runner: &mut dyn Runner, id: &str, deadline: Instant) -> Result<Value
     let ask = words(&["cloud", "deliver-secrets", "--target", &target, "--json"]);
     loop {
         let answer = step_result(&runner.cmux(&ask))?;
-        let status = text(&answer, "status").unwrap_or("delivered");
+        let status = answer.get_str("status").unwrap_or("delivered");
         if !matches!(status, "pending" | "delivering") {
             return Ok(json!({
                 "status": status,
@@ -294,11 +307,15 @@ pub(super) fn fresh_vm_name() -> String {
 }
 
 /// Prints `result`: with `--json` the object, else one line a person reads; an error as the app's verbs print one.
-pub(super) fn print(global: &GlobalArgs, result: Result<Value, Value>) -> i32 {
+/// `timings`: the answer's `stages` as a table on stderr too (start_stages.rs).
+pub(super) fn print(global: &GlobalArgs, result: Result<Value, Value>, timings: bool) -> i32 {
+    if let Ok(value) = &result {
+        super::start_stages::print_table(timings, value);
+    }
     match result {
         Ok(value) if global.output == super::OutputMode::Human => {
-            let title = text(&value, "title").unwrap_or_default();
-            let target = text(&value, "target").unwrap_or_default();
+            let title = value.get_str("title").unwrap_or_default();
+            let target = value.get_str("target").unwrap_or_default();
             let config = value.pointer("/machine_config/state").and_then(Value::as_str);
             let delivered =
                 value.pointer("/secrets/delivered").and_then(Value::as_array).map_or(0, Vec::len);
@@ -333,8 +350,9 @@ pub(super) fn print(global: &GlobalArgs, result: Result<Value, Value>) -> i32 {
     }
 }
 
-/// `cmux vm new … --wait` with the app: `Some(exit code)`; `None` when `tail` has no `--wait`.
-pub(super) fn run_if_requested(global: &GlobalArgs, tail: &[String]) -> Option<i32> {
+/// `cmux vm new … --wait` with the app: `Some(exit code)`; `None` when `tail` has no `--wait`. `timings`: `--timings`
+/// was given (taken out of `tail`).
+pub(super) fn run_if_requested(global: &GlobalArgs, tail: &[String], timings: bool) -> Option<i32> {
     let request = match parse(tail, fresh_vm_name)? {
         Ok(request) => request,
         Err(message) => {
@@ -347,5 +365,5 @@ pub(super) fn run_if_requested(global: &GlobalArgs, tail: &[String]) -> Option<i
         }
     };
     let mut runner = super::cloud_start_chat::self_runner(global);
-    Some(print(global, new_and_wait(&mut runner, &request)))
+    Some(print(global, new_and_wait(&mut runner, &request), timings))
 }

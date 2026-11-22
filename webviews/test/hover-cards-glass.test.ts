@@ -14,8 +14,10 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const SRC = new URL("../src/", import.meta.url).pathname;
+// A file path, not the URL's: a checkout under a folder with a space reads "%20" in `pathname`.
+const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
 /// Each hover card: the component that renders it and the class that names its root.
 const CARDS = [

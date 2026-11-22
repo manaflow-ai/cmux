@@ -20,6 +20,9 @@ public final class MessagesLabHomeView: NSView {
         get { projection.approvals }
         set { projection.approvals = newValue }
     }
+    /// A message field took the keyboard (its `becomeFirstResponder` succeeded), with the field: the host app's
+    /// launch mark for "the window takes keys" (cmux NEXT's `window_usable`). Nil: nothing is told.
+    public var onComposerFocused: ((NSView) -> Void)?
     private var warmed = false
     private var appliedComposerSpellChecking: Bool?
     /// The palette generation this view's rows were last refreshed for (applyTheme).
@@ -30,18 +33,15 @@ public final class MessagesLabHomeView: NSView {
     ///   - wake: the engine clock's one-shot timer (CmuxNext: DemandTimer).
     ///   - diagrams: draws ```` ```mermaid ```` fences as diagram bubbles (CmuxNext: the
     ///     JavaScriptCore Ondine renderer); nil keeps them as text.
-    ///   - widgets: runs chat widgets (an agent's `widget` parts) natively (CmuxNext: the app host);
-    ///     nil shows them as their fallback text.
     ///   - replies: how an agent's running reply shows: ``HomeReplyDisplay/wholeMessages`` (default:
     ///     typing dots, then each message whole) or the older token-by-token stream bubble.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler,
-                diagrams: (any HomeDiagramRendering)? = nil, widgets: (any HomeWidgetHosting)? = nil,
+                diagrams: (any HomeDiagramRendering)? = nil,
                 replies: HomeReplyDisplay = .wholeMessages) {
         MessagesLabHomeView.liveFormatting()
         HomeMarkdownPolicy.install()
         // Before the projection maps its first messages, so a diagram never shows as text first.
         if let diagrams { HomeDiagramRowProvider.install(diagrams) }
-        if let widgets { HomeWidgetRowProvider.install(widgets) }
         // An agent's pipe tables as full-width table and plan cards (Leo 2026-10-20).
         HomeTableRowProvider.install()
         // Agent-message folds as muted caption lines, not bubbles (user 2026-10-31).
@@ -68,6 +68,8 @@ public final class MessagesLabHomeView: NSView {
     private var openKeyboardWaits = false
     private weak var openKeyboardFrom: NSResponder?
     private var opensOnInstall = false
+    /// DEBUG drive `swipe_trail`: the last played swipe's events, each as the swipe took or passed it.
+    var debugSwipeTrail: [String] = []
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
@@ -126,8 +128,13 @@ public final class MessagesLabHomeView: NSView {
     /// The bounds that draw the host at `zoom`: the frame's size over the zoom, from the origin.
     private func applyZoomBounds() {
         let size = NSSize(width: frame.width / zoom, height: frame.height / zoom)
-        if bounds.size != size { setBoundsSize(size) }
-        if bounds.origin != .zero { setBoundsOrigin(.zero) }
+        guard bounds.size != size || bounds.origin != .zero else { return }
+        // A new scale realigns the transcript's clip view to the new pixels: the model's move, not the reader's
+        // scroll (TranscriptScrollView.placing; first-run audit row 8).
+        controller.host.scrollView.placing {
+            if bounds.size != size { setBoundsSize(size) }
+            if bounds.origin != .zero { setBoundsOrigin(.zero) }
+        }
     }
 
     public override func layout() {
@@ -254,15 +261,18 @@ public final class MessagesLabHomeView: NSView {
     public func applyTheme(active: HomePalette, measuredAccent: Bool = false) {
         let theme = FixtureTheme(active: active, measuredAccent: measuredAccent)
         let box = PaletteScope.box(for: theme)
+        // The new palette first: the appearance change below redraws every row, and in the old palette it drew each
+        // row once more in the old colours, a bitmap that could land after the new one (the light welcome in dark).
+        controller.demo?.setPalette(box)
         // Link cards follow a light theme (MessagesLab 02519e9: Messages' light card, #E9E9EB).
         if let demo = controller.demo { demo.setLightAppearance(theme.active.isLight) } else { Fixture.lightAppearance = theme.active.isLight }
         let focused = (controller.host.window?.firstResponder as? NSView)?.isDescendant(of: controller.host) ?? false
         if PaletteScope.process == nil || focused { PaletteScope.claimProcess(box) }
-        controller.demo?.setPalette(box)
         PaletteScope.with(box) {
             controller.host.headerBackdrop.setTint(Fixture.background)
             controller.demo?.backgroundColor = Fixture.background
-            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.composeText, edge: theme.active.fieldEdge)
+            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.composeText, edge: theme.active.fieldEdge,
+                                                    fill: theme.active.fieldFill)
             controller.host.paneHeader.light = theme.active.isLight
         }
         // This view draws again whenever its rows were made with another palette (its own applied generation).
@@ -400,13 +410,6 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
-    /// cmux: a small control right after the header's name pill, on its line (Home's Chief location
-    /// chip); it takes its own clicks. Sized by its `intrinsicContentSize`. Nil: none.
-    public var headerPillAccessory: NSView? {
-        get { controller.host.paneHeader.pillAccessory }
-        set { controller.host.paneHeader.pillAccessory = newValue }
-    }
-
     /// cmux: who else has the conversation open, as faces beside the header's name pill (chat
     /// multiplayer); empty shows none. `label` is what VoiceOver reads for them.
     public func setHeaderFaces(_ faces: [PaneHeaderFace], label: String) {
@@ -472,6 +475,10 @@ public final class MessagesLabHomeView: NSView {
 
     /// The field's text view (the pane's primary input).
     public var primaryInput: NSView { controller.demo?.compose.textView.view ?? self }
+
+    /// Where the pane's keyboard goes when it gets focus or a key typed elsewhere in it: the open picture viewer
+    /// (its Esc, arrows and letters are its own), else ``primaryInput``.
+    public var keyboardTarget: NSView { controller.keyboardTarget ?? self }
 
     /// Whether focusing this view should move the keyboard from `responder`
     /// to ``primaryInput``.
@@ -589,6 +596,21 @@ public final class MessagesLabHomeView: NSView {
         return true
     }
 
+    /// Chooses `title` in the menu of the red "!" beside my Not Delivered bubble showing `text`
+    /// (the click's own path, `failedMarkMenu(at:)`); false when there is no mark or no such row.
+    public func debugChooseFailedMarkItem(_ title: String, onBubble text: String) -> Bool {
+        guard let hit = debugBubble(text: text),
+              let menu = controller.failedMarkMenu(at: CGPoint(x: hit.body.minX - 14, y: hit.body.midY)),
+              let item = menu.items.first(where: { ($0 as? MenuAction)?.label == title || $0.title == title }),
+              let action = item.action else { return false }
+        NSApp.sendAction(action, to: item.target, from: item)
+        return true
+    }
+
+    /// The localized titles of a failed send's Try Again and Delete rows.
+    public static var tryAgainMenuTitle: String { CmuxStrings.tryAgain }
+    public static var deleteFailedMenuTitle: String { CmuxStrings.deleteFailed }
+
     /// The localized title of a bubble's Forward… row.
     public static var forwardMenuTitle: String { CmuxStrings.forward }
 
@@ -641,6 +663,12 @@ public final class MessagesLabHomeView: NSView {
     public var onDraftTextChange: () -> Void {
         get { projection.onDraftTextChange }
         set { projection.onDraftTextChange = newValue }
+    }
+    /// The content hashes of the field's attachments, in order, each time they change: a chip
+    /// added or removed, or the draft sent.
+    public var onDraftAttachmentsChange: ([String]) -> Void {
+        get { projection.onDraftAttachmentsChange }
+        set { projection.onDraftAttachmentsChange = newValue }
     }
     /// Cancel Upload in a bubble's menu (`HomeStoreBinding.cancelSend`).
     public var onCancelSend: (IdempotencyKey) -> Bool {

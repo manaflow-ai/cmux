@@ -43,12 +43,12 @@ public nonisolated struct AcpmuxSessionListGate: Sendable, Equatable {
     }
 
     /// The sessions with a pending permission or question: `{pendingOnly: true}` from an acpmux
-    /// that serves it (never paged, never paced), else every session page by page, kept to those
-    /// with one. Nil when a read failed.
+    /// that serves it (never paced; past 1 MiB in pages, each `nextCursor` followed), else every
+    /// session page by page, kept to those with one. Nil when a read failed.
     @MainActor
     public func pendingSessions(call: @MainActor (String, [String: Any]) async -> [String: Any]?) async -> [[String: Any]]? {
         if capabilities.contains(Self.pendingCapability) {
-            return (await call("_acpmux/sessions", ["pendingOnly": true]))?["sessions"] as? [[String: Any]]
+            return await Self.pages(call: call, first: ["pendingOnly": true])
         }
         return await Self.allSessions(call: call)?
             .filter { ($0["pendingPermissions"] as? NSNumber)?.intValue ?? 0 > 0 }
@@ -57,12 +57,22 @@ public nonisolated struct AcpmuxSessionListGate: Sendable, Equatable {
     /// Every session, page by page; nil on a failed page or a repeated cursor.
     @MainActor
     static func allSessions(call: @MainActor (String, [String: Any]) async -> [String: Any]?) async -> [[String: Any]]? {
+        await pages(call: call, first: ["limit": pageSize])
+    }
+
+    /// The `_acpmux/sessions` read of `first`, each `nextCursor` followed with the same params;
+    /// nil on a failed page or a repeated cursor.
+    @MainActor
+    static func pages(
+        call: @MainActor (String, [String: Any]) async -> [String: Any]?,
+        first: [String: Any]
+    ) async -> [[String: Any]]? {
         var sessions: [[String: Any]] = []
         var cursor: String?
         var seen: Set<String> = []
         var seenSessions: Set<String> = []
         while true { // wakeup-allow: each pass awaits a daemon page; a terminal page, malformed reply, or repeated cursor ends it
-            var params: [String: Any] = ["limit": pageSize]
+            var params = first
             if let cursor { params["cursor"] = cursor }
             guard let page = await call("_acpmux/sessions", params) else { return nil }
             guard let pageRows = page["sessions"] as? [[String: Any]] else { return nil }

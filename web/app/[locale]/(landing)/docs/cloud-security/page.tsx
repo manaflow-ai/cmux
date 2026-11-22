@@ -5,7 +5,6 @@ import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
 import { Callout } from "@/app/[locale]/components/callout";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
-import { Link } from "@/i18n/navigation";
 import { CMUX_REQUIRED_DOMAINS } from "@/services/vms/networkPolicy";
 
 function assertSupportedLocale(locale: string) {
@@ -64,7 +63,7 @@ export default async function CloudSecurityPage({
       <DocsHeading level={2} id="outbound-network">{t("networkTitle")}</DocsHeading>
       <p>
         {t.rich("networkIntro", {
-          link: (chunks) => <Link href="/dashboard/cloud">{chunks}</Link>,
+          link: (chunks) => chunks,
         })}
       </p>
 

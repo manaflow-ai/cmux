@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, jest, setSystemTime, test } from "bun:te
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
 const scope = globalThis as Record<string, unknown>;
@@ -26,13 +27,9 @@ beforeEach(setup);
 afterEach(async () => {
   await act(async () => root.unmount());
   mount.remove();
-  dom.window.close();
-  for (const [key, present, value] of saved) {
-    if (present) scope[key] = value;
-    else delete scope[key];
-  }
   jest.useRealTimers();
   setSystemTime();
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 test.serial("Resume uses native attach, then rereads the missing chat; disposal stops recovery", async () => {

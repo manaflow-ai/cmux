@@ -5,7 +5,7 @@
 // as acpmux sends Claude Code's (claude_stdio/early_calls.rs): named as its block starts, pending
 // with no input; whole once its input came, in_progress; then completed. While it runs the pane
 // draws the call once, on the turn's live line, and the line's top never moves. Once it is done
-// the shipped `line` look of live-turn-work draws no row for it while the turn runs (turns.ts
+// the retained `line` look of live-turn-work draws no row for it while the turn runs (turns.ts
 // `codexRuns`, 8a37e5fcf650): the line reads Thinking, then the next call, on the same pixel.
 //
 // Real Chromium from Playwright, the pane's dev entry over a stand-in acpmux daemon whose socket
@@ -13,6 +13,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { CLOCK_ON_LINE, pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -194,6 +195,7 @@ await requireBrowserLane("agent-pane-one-row-per-call.test.ts", async () => {
 
   test("a Write is one row from pending to done, and that row's top does not move", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    await pinArms(page, { ...CLOCK_ON_LINE, "live-turn-work": "line" });
     for (let attempt = 1; ; attempt++) {
       try {
         await page.goto(url());
@@ -222,7 +224,7 @@ await requireBrowserLane("agent-pane-one-row-per-call.test.ts", async () => {
     const next = seen.pop()!;
     expect(next.line).toStartWith("Read");
     // Was [1, 1, 1] under the `runs` look, where the finished Write drew as a row of its run. Under
-    // the shipped `line` look a finished call of a running turn draws no row.
+    // the retained `line` look a finished call of a running turn draws no row.
     expect(seen.map((step) => step.rows)).toEqual([1, 1, 0]);
     // Pending and running: the same row, one id, its top still. Done: the line lets the Write go
     // the moment it completes and reads Thinking (Leo, 2026-11-07: "Why don't we just immediately

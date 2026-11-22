@@ -4,6 +4,7 @@
 // acpmux saw send it (incomingMessage.ts `senderProgram`), what acpmux checked: the program, the
 // machine its send named, that no agent was proven, and the program's path.
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -21,6 +22,7 @@ const saved = new Map<string, unknown>();
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -118,19 +120,19 @@ test("the same name with no token, or a label no daemon gave, is a claim", async
 test("a program's mark says acpmux checked it, and no agent was proven", () => {
   const program = { name: "next-autoland", path: "/Users/cmux/Projects/leo-workspace/tools/next-autoland" };
   expect(programMarkText(translate, program)).toEqual({
-    label: "Program checked by acpmux: next-autoland",
+    label: "Program checked by cmux: next-autoland",
     title:
-      "Program checked by acpmux: next-autoland\nNot proven to be an agent\n/Users/cmux/Projects/leo-workspace/tools/next-autoland",
+      "Program checked by cmux: next-autoland\nNot proven to be an agent\n/Users/cmux/Projects/leo-workspace/tools/next-autoland",
   });
   const markup = decode(renderToStaticMarkup(<UnverifiedMark program={program} />));
   expect(markup).toContain("cv-unverified is-program");
-  expect(markup).toContain('aria-label="Program checked by acpmux: next-autoland"');
+  expect(markup).toContain('aria-label="Program checked by cmux: next-autoland"');
 });
 
 test("a peer-forwarded program names the machine its send claimed", () => {
   expect(programMarkText(translate, { name: "stall-reconciler", host: "build-box" })).toEqual({
-    label: "Program checked by acpmux: stall-reconciler on build-box",
-    title: "Program checked by acpmux: stall-reconciler on build-box\nNot proven to be an agent",
+    label: "Program checked by cmux: stall-reconciler on build-box",
+    title: "Program checked by cmux: stall-reconciler on build-box\nNot proven to be an agent",
   });
 });
 
@@ -144,7 +146,7 @@ test("the received line names the program, not an unverified sender", async () =
   const named = await renderLine(read({ ...unverified, program: { name: "next-autoland" } }));
   expect(named.querySelector(".cv-received__from")?.textContent).toBe("next-autoland");
   expect(named.querySelector(".cv-unverified.is-program")?.getAttribute("aria-label")).toBe(
-    "Program checked by acpmux: next-autoland",
+    "Program checked by cmux: next-autoland",
   );
   expect(named.textContent).not.toContain("Unverified sender");
 });

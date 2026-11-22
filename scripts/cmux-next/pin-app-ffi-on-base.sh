@@ -30,6 +30,9 @@
 #    (scripts/cmux-next/app_ffi_additive.py): a removed or changed declaration
 #    can break the Swift build, so result=pr and the pull request's app compile
 #    proves it first;
+#  - the action catalog crate is unchanged from the installed pin. Header-compatible
+#    catalog changes still require app handlers, so result=pr sends them through
+#    the re-pin PR's runtime HandlerCoverageTests before the pin lands;
 #  - scripts/cmux-next/check-app-ffi-pin.sh --verify-release passes on the
 #    pinned tree (the sources match and the release carries the checksum).
 # A tip that moves during the push is re-read and the pin re-applied, 5 times.
@@ -89,8 +92,11 @@ for attempt in 1 2 3 4 5; do
   tip="$(git rev-parse HEAD)"
   inputs=()
   while IFS= read -r path; do inputs+=("$path"); done < <(bash scripts/cmux-next/check-app-ffi-pin.sh --list-inputs)
+  # The crates' tests/, benches/ and examples/ are not inputs (check-app-ffi-pin.sh --list-excluded).
+  specs=("${inputs[@]}")
+  while IFS= read -r path; do specs+=(":(exclude,literal)$path"); done < <(bash scripts/cmux-next/check-app-ffi-pin.sh --list-excluded)
   behind=0
-  if ! git diff --quiet "$sha" "$tip" -- "${inputs[@]}"; then
+  if ! git diff --quiet "$sha" "$tip" -- "${specs[@]}"; then
     git merge-base --is-ancestor "$sha" "$tip" 2>/dev/null \
       || finish newer "the FFI sources at ${tip:0:12} are not those of $tag, and $tag is not on its history"
     behind=1

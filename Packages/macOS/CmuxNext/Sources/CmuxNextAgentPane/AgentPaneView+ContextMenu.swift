@@ -48,6 +48,12 @@ final class AgentPaneWKWebView: WKWebView {
     /// + button (Leo, 2026-10-21).
     @objc var preferredTextAccessoryPlacement: NSTextCursorAccessoryPlacement { .invisible }
 
+    /// The key's edit renders now, not at the next display refresh (``NSView/renderKeyEditNow()``).
+    override func keyDown(with event: NSEvent) {
+        super.keyDown(with: event)
+        renderKeyEditNow()
+    }
+
     override func mouseDown(with event: NSEvent) {
         menuAutoFill.noteContextClick(event)
         super.mouseDown(with: event)
@@ -97,14 +103,13 @@ final class AgentPaneMenuAction: NSObject {
 
     @objc func run() { handler() }
 
-    /// An item titled `title` with SF Symbol `symbol` (the matching action's catalog symbol: every
-    /// cmux menu row shows one) that runs `handler`.
-    static func item(_ title: String, symbol: String, handler: @escaping () -> Void) -> NSMenuItem {
+    /// An item titled `title` with an optional SF Symbol, running `handler` when selected.
+    static func item(_ title: String, symbol: String?, handler: @escaping () -> Void) -> NSMenuItem {
         let action = AgentPaneMenuAction(handler: handler)
         let item = NSMenuItem(title: title, action: #selector(run), keyEquivalent: "")
         item.target = action
         item.representedObject = action
-        item.image = AgentPaneContextMenu.icon(symbol)
+        item.image = symbol.flatMap(AgentPaneContextMenu.icon)
         return item
     }
 }

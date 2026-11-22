@@ -20,6 +20,9 @@ public struct ActionWorkFailure: Error, Sendable, Hashable, CustomStringConverti
     /// (`screenshot.unavailable`), with `message` as its reason. Nil for the
     /// default mapping (``refusal``, a timeout, or `daemon_error`).
     public var code: String?
+    /// More of a coded failure (``code``) for a caller to read, beside its reason: the control error's `data`
+    /// (`until_at` for `agent.limit_reached`). Empty for every other failure.
+    public var details: [String: String] = [:]
     /// The person already saw why it failed (the daemon service showed a pane-still-opening refusal when the command
     /// ended), so no reporter (the registry, a handler's own report) shows a second notice: once, never zero times or twice.
     public var shown = false
@@ -42,10 +45,11 @@ public struct ActionWorkFailure: Error, Sendable, Hashable, CustomStringConverti
         self.refusal = refusal
     }
 
-    /// A failure the control socket answers with error `code` and `reason`.
-    public init(code: String, reason: String) {
+    /// A failure the control socket answers with error `code` and `reason`, and `details` in its `data`.
+    public init(code: String, reason: String, details: [String: String] = [:]) {
         self.init(reason)
         self.code = code
+        self.details = details
     }
 
     public init(stringLiteral value: String) {

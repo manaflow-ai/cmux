@@ -24,7 +24,8 @@ import Testing
 /// test ends the key's turn as the main run loop does before it steps the tick. Before, the test stepped the tick inside
 /// the key's turn: the snap waited for that pass, and the tick showed nothing.
 ///
-/// The rig's driver is manual: the test ends the key's turn and steps the one frame tick.
+/// The rig's driver is manual: the test ends the key's turn and steps the one frame tick. For its last press it ends no
+/// turn and steps the ticks of the wait's bound.
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct KeyResizeReduceMotionKeyTurnTests {
@@ -32,6 +33,9 @@ struct KeyResizeReduceMotionKeyTurnTests {
 
     /// Reduce Motion, then pane animations off: each press moves p2's host at the next frame tick (not in the key's turn,
     /// where its terminal gets its size ahead with its grid), and that one tick shows it all: nothing is left waiting.
+    /// Then one press whose key's turn never ends (no presenter pass comes between the ticks, as when a real key and the
+    /// display tick run in one wake of the main run loop): the snap's wait for that pass is bounded, so the press shows
+    /// within ``TerminalFramePresenter/resizeHoldTicks`` + 1 ticks.
     @Test(arguments: [true, false])
     func aPressWithNoSpringMovesThePaneAtTheNextFrameTick(reduceMotion: Bool) async throws {
         let rig = Ground.Rig(Ground.column(Ground.pair), focused: "p2")
@@ -55,6 +59,19 @@ struct KeyResizeReduceMotionKeyTurnTests {
             #expect(host.frame != before, "a \(direction) press with no spring did not move p2 at the next frame tick (\(before))")
             #expect(!(try rig.screen.frameInput.presentationWaiting), "a \(direction) press with no spring left its presentation waiting after the tick")
         }
+        // No pass comes: nothing is awaited from the press to the last tick, so the main run loop never ends a turn and
+        // the size drawn ahead never goes to Ghostty. The snap must not wait for it past its bound.
+        let before = host.frame, bound = Int(TerminalFramePresenter.resizeHoldTicks) + 1
+        try #require(PaneResize.press("p2", .right, model: rig.model, view: rig.root), "the last press moved nothing")
+        // The wait must run for the bound to be the subject: a press that drew no size ahead shows at the first tick.
+        #expect(surfaces.contains { $0.frameOwnership.pendingAhead != nil }, "the last press drew no size ahead: the snap has nothing to wait for")
+        var ticks = 0
+        while host.frame == before, ticks <= bound {
+            _ = rig.frame()
+            ticks += 1
+        }
+        #expect(host.frame != before && ticks <= bound,
+                "a press whose turn's presenter pass never came: p2 moved \(host.frame != before) in \(ticks) frame ticks; it must move within the bound \(bound)")
     }
 
     /// The rest of the key's turn, as the main run loop ends it: the presenter's pass before the commit gives Ghostty each

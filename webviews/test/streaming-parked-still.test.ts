@@ -27,6 +27,7 @@
 // from the order of events (wheels and glides counted), never from a clock, so a starved runner that
 // stretches frames, skips one mid-scroll, or delivers the wheel late, changes nothing it measures.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { PARKED, parkedAfterScroll, stillness, type Sample } from "./support/parkedStill";
@@ -34,6 +35,7 @@ import { WHEEL_GLIDE_END_EVENT, WHEEL_GLIDE_START_EVENT } from "../src/agent-ses
 import { installPaintedFrames } from "./support/paintedFrames";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
 type Probe = Window & {
   __still: {
@@ -89,7 +91,7 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
     // fixed-wait: nothing marks the page's start-up as done (as streaming-text-frames.test.ts)
     await page.waitForTimeout(500);
     await page.evaluate(
-      ({ START, END }) => {
+      ({ START, END, TRANSCRIPT_ROW }) => {
         const w = window as unknown as Probe;
         w.__still = { samples: [], sampling: false, done: false, wheels: 0, ended: false, glides: 0, gliding: false };
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -129,7 +131,7 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
             // motion, so an item counts once its own animations have finished.
             const entering = (node: Element) =>
               node.getAnimations().some((animation) => animation.playState === "running");
-            for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")) {
+            for (const row of scroller.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)) {
               const rect = row.getBoundingClientRect();
               if (inView(rect) && !entering(row)) items[`row:${row.dataset.rowId}`] = rect.top;
             }
@@ -160,7 +162,7 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
         });
         w.__still.run = w.__streamingText.run({ cadence: "claude" });
       },
-      { START: WHEEL_GLIDE_START_EVENT, END: WHEEL_GLIDE_END_EVENT },
+      { START: WHEEL_GLIDE_START_EVENT, END: WHEEL_GLIDE_END_EVENT, TRANSCRIPT_ROW },
     );
     await page.waitForFunction(
       () => (document.querySelector('.acpmux-row[data-row-id="live-answer"] .cv-md')?.textContent?.length ?? 0) > 1_200,
@@ -192,6 +194,18 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
       const page = await streaming(name);
       await page.evaluate(() => ((window as unknown as Probe).__still.sampling = true));
       await page.mouse.wheel(0, -Number(px));
+      // With CMUX_MOTION_STILLS=<dir>: whole-window stills of the parked view as the reply streams on
+      // below it, for review (#41454). They read the same picture each time: the view holds.
+      const stills = process.env.CMUX_MOTION_STILLS;
+      if (stills && px === "120") {
+        const dir = path.join(stills, "parked-reader", name);
+        mkdirSync(dir, { recursive: true });
+        for (const at of [1, 2, 3]) {
+          // fixed-wait: the reply streams on between stills.
+          await page.waitForTimeout(600);
+          await page.screenshot({ path: path.join(dir, `${at}-parked-${at * 600}ms-after-wheel.png`) });
+        }
+      }
       const report = stillness(await sampleToEnd(page));
       console.log(`streaming-parked-still ${label}: ${JSON.stringify(report)}`);
       // The reply was on screen, and the reader stayed off its latest line (past the follow

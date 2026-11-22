@@ -43,6 +43,7 @@ pub const SOCKET_ENV: &str = "ACPMUX_GITHUB_MCP_SOCKET";
 
 const UPSTREAM_PROTOCOL: &str = "2025-06-18";
 const CALL_TIMEOUT: Duration = Duration::from_secs(280);
+// timeout: the TCP and TLS connect to GitHub's MCP server only; the call itself has CALL_TIMEOUT
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_REPLY_BYTES: usize = 16 << 20;
 /// A token is used this long, well inside its hour (the API reuses one while 15 minutes remain).

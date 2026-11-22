@@ -1,0 +1,226 @@
+{
+ "title": "Chief subagent workspaces AFTER (this change): the same four spawns. Every one gets a workspace: 'Hat variants' (design) and 'Dev server log' (something to watch) are user workspaces at the top; 'Sha lookup' and 'Landq follower' sit in the collapsed \"Chief's workspaces\" group, still listed and found by Cmd-P; nothing closes on its own. Staged with the same daemon calls the host makes (workspace_group.create collapsed+reuse, workspace.place). Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/chief-workspaces-after.json",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Workspace Your own work",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Your own work"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Workspace Landq follower",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Landq follower"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Workspace Sha lookup",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Sha lookup"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Group \"Chief's workspaces\", collapsed (the host's workspace_group.create: collapsed, reuse)",
+   "cmux": [
+    "workspace",
+    "group",
+    "create",
+    "--name",
+    "Chief's workspaces",
+    "--collapse",
+    "--reuse"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Landq follower into \"Chief's workspaces\" (the host's workspace.place)",
+   "cmux": [
+    "workspace",
+    "group",
+    "Chief's workspaces",
+    "add",
+    "--workspace",
+    "Landq follower",
+    "--index",
+    "0"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Sha lookup into \"Chief's workspaces\" (the host's workspace.place)",
+   "cmux": [
+    "workspace",
+    "group",
+    "Chief's workspaces",
+    "add",
+    "--workspace",
+    "Sha lookup",
+    "--index",
+    "0"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Workspace Dev server log",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Dev server log"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Workspace Hat variants",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Hat variants"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "After: two user workspaces at the top, two errands in the collapsed \"Chief's workspaces\" group",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "collect": "sidebar-after-collapsed.png",
+   "wait": 1
+  },
+  {
+   "title": "Expand \"Chief's workspaces\"",
+   "cmux": [
+    "workspace",
+    "group",
+    "Chief's workspaces",
+    "update",
+    "--expand"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "After: the group opened shows both errands",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "collect": "sidebar-after-expanded.png",
+   "wait": 1
+  },
+  {
+   "title": "Collapse it again",
+   "cmux": [
+    "workspace",
+    "group",
+    "Chief's workspaces",
+    "update",
+    "--collapse"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Open Go to Workspace",
+   "cmux": [
+    "action",
+    "run",
+    "commandPalette"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Type '#'",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "#",
+     "target": "palette"
+    }
+   },
+   "wait": 0.8,
+   "shot": false
+  },
+  {
+   "title": "Type 's'",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "s",
+     "target": "palette"
+    }
+   },
+   "wait": 0.25,
+   "shot": false
+  },
+  {
+   "title": "Type 'h'",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "h",
+     "target": "palette"
+    }
+   },
+   "wait": 0.25,
+   "shot": false
+  },
+  {
+   "title": "Type 'a'",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "a",
+     "target": "palette"
+    }
+   },
+   "wait": 0.25,
+   "shot": false
+  },
+  {
+   "title": "After: Cmd-P \"sha\" finds Sha lookup inside the collapsed group",
+   "rpc": {
+    "method": "debug.palette.capture",
+    "params": {
+     "path": "{collect}"
+    }
+   },
+   "collect": "palette-after.png",
+   "wait": 1
+  }
+ ]
+}

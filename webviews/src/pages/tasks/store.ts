@@ -6,6 +6,7 @@
 // doubling to 10 s) only while the document is visible; the retry stops once the owner answers, the
 // page hides, or the store stops.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { subscribePageStreams } from "../shared/pageStreams";
 import {
   EMPTY_MIRROR,
@@ -99,9 +100,8 @@ const TRANSIENT_CODES = new Set(["cmux.protocol.timeout", "cmux.protocol.unavail
 /** How many echo keys (`tx`) the store remembers, to settle a change whose reply was lost. */
 const ECHO_MEMORY = 256;
 
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+/** The plain sentence a refusal shows; the owner's own text stays in the error. */
+const message = (error: unknown): string => userMessage(error);
 
 export class TasksStore {
   private snapshot: TasksSnapshot;
