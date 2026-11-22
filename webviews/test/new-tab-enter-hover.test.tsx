@@ -73,7 +73,7 @@ afterAll(async () => {
 const noop = () => {};
 const ASK_HELO = ["ask", "claude", "helo", undefined, "claude-opus-5-5"];
 
-async function render(calls: unknown[][], order?: SuggestionOrder) {
+async function render(calls: unknown[][], order?: SuggestionOrder, template: "cards" | "default" = "cards") {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   act(() => root?.unmount());
@@ -81,7 +81,7 @@ async function render(calls: unknown[][], order?: SuggestionOrder) {
   await act(async () =>
     root!.render(
       <NewTabScreen
-        template="cards"
+        template={template}
         snapshot={noChat()}
         lastAgent="claude"
         {...(order ? { suggestionOrder: order } : {})}
@@ -173,6 +173,25 @@ test("Return with the list open and no hover sends the prompt", async () => {
   expect(rows().length).toBeGreaterThan(0);
   await press(field, "Enter");
   expect(calls).toEqual([ASK_HELO]);
+});
+
+test.each(["Enter", "Send"])("%s sends a prompt after the pointer moves over the only search row", async (action) => {
+  const calls: unknown[][] = [];
+  await render(calls, undefined, "default");
+  const prompt = "asdasd";
+  const field = await type(prompt);
+  expect(rows().map(title)).toEqual([`Search the web for ${prompt}`]);
+  const search = rows()[0]!;
+  // A second event at a different screen position is real pointer movement, rather than WebKit
+  // announcing a list that appeared under a still pointer.
+  for (const screenY of [100, 101]) {
+    await act(async () =>
+      search.dispatchEvent(new window.MouseEvent("mousemove", { bubbles: true, screenX: 40, screenY })),
+    );
+  }
+  if (action === "Enter") await press(field, "Enter");
+  else await act(async () => host.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(calls).toEqual([["ask", "claude", prompt, undefined, "claude-opus-5-5"]]);
 });
 
 test("Down to the web search, then Return, searches", async () => {
