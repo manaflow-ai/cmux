@@ -439,3 +439,51 @@ fn unset_status_line_command_never_leaves_an_invalid_status_line() {
     let parsed: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     assert_eq!(parsed, json!({"model": "opus"}));
 }
+
+#[test]
+fn a_save_from_a_stale_read_is_refused_and_writes_nothing() {
+    let f = fixture();
+    let path = f.ctx.homes.claude_settings();
+    fs::write(&path, USER_SETTINGS).unwrap();
+    // The page drew model = opus (user). Claude Code's `/model` then wrote sonnet.
+    let shown = curated_row(&report(&f.ctx, Agent::Claude), "model")["value"].clone();
+    assert_eq!(shown, json!("opus"));
+    apply(&f.ctx, Agent::Claude, "model", Some("sonnet"), None).unwrap();
+    let before = fs::read_to_string(&path).unwrap();
+    let error = apply_if(&f.ctx, Agent::Claude, "model", Some("haiku"), None, Some(Some("opus")))
+        .unwrap_err();
+    assert_eq!(error.code, "agent_config.changed");
+    assert!(error.message.contains("sonnet (user)"), "{}", error.message);
+    assert_eq!(fs::read_to_string(&path).unwrap(), before);
+    // Unset from a stale read is refused the same way.
+    let error =
+        apply_if(&f.ctx, Agent::Claude, "model", None, None, Some(Some("opus"))).unwrap_err();
+    assert_eq!(error.code, "agent_config.changed");
+    // A read that matches writes, and so does "no scope sets it" when none does.
+    apply_if(&f.ctx, Agent::Claude, "model", Some("haiku"), None, Some(Some("sonnet"))).unwrap();
+    apply_if(&f.ctx, Agent::Claude, "effortLevel", Some("high"), None, Some(None)).unwrap();
+    let error =
+        apply_if(&f.ctx, Agent::Claude, "effortLevel", Some("low"), None, Some(None)).unwrap_err();
+    assert!(error.message.contains("high (user)"), "{}", error.message);
+    // A project file that now wins counts: the page showed what the agent would use.
+    let local = f.project.join(".claude/settings.local.json");
+    fs::create_dir_all(local.parent().unwrap()).unwrap();
+    fs::write(&local, "{\"model\": \"opus\"}\n").unwrap();
+    let error = apply_if(&f.ctx, Agent::Claude, "model", Some("sonnet"), None, Some(Some("haiku")))
+        .unwrap_err();
+    assert!(error.message.contains("opus (local)"), "{}", error.message);
+}
+
+#[test]
+fn codex_save_from_a_stale_read_is_refused_and_keeps_comments() {
+    let f = fixture();
+    let path = f.ctx.homes.codex.join("config.toml");
+    let text = "# mine\nmodel = \"gpt-5\" # pinned\n";
+    fs::write(&path, text).unwrap();
+    let error =
+        apply_if(&f.ctx, Agent::Codex, "model", Some("o3"), None, Some(Some("gpt-4"))).unwrap_err();
+    assert_eq!(error.code, "agent_config.changed");
+    assert_eq!(fs::read_to_string(&path).unwrap(), text);
+    apply_if(&f.ctx, Agent::Codex, "model", Some("o3"), None, Some(Some("gpt-5"))).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), "# mine\nmodel = \"o3\" # pinned\n");
+}

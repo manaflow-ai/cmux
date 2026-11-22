@@ -16,8 +16,8 @@ use super::super::OutputMode;
 
 const HELP: &str = "\
 Usage: cmux agent-config settings get --agent claude|codex [--cwd DIR] [--json]
-       cmux agent-config settings set --agent claude|codex --key KEY --value VALUE [--scope SCOPE] [--cwd DIR] [--json]
-       cmux agent-config settings unset --agent claude|codex --key KEY [--scope SCOPE] [--cwd DIR] [--json]
+       cmux agent-config settings set --agent claude|codex --key KEY --value VALUE [--scope SCOPE] [--if-value V | --if-unset] [--cwd DIR] [--json]
+       cmux agent-config settings unset --agent claude|codex --key KEY [--scope SCOPE] [--if-value V | --if-unset] [--cwd DIR] [--json]
 
 Claude Code's and Codex's own settings, as each agent reads them.
 
@@ -39,6 +39,10 @@ before cmux's first edit (never replaced), NAME-HASH.cmux-backup-last before the
 folder is ~/Library/Application Support/cmux-tui/agent-config/backups on macOS,
 $XDG_STATE_HOME/cmux-tui/agent-config/backups (~/.local/state/...) elsewhere; set and unset print
 the backup's path.
+--if-value V writes only while the key's value (as `get` shows it, across every scope) is still V;
+--if-unset only while no scope sets it. Otherwise nothing is written and the refusal
+(agent_config.changed) names the value it has now: a save from a stale read never overwrites an
+edit made since (Claude Code's /model, Codex, a hand edit).
 --cwd names the project the project scopes resolve in (default: this folder).
 ";
 
@@ -56,6 +60,8 @@ struct Request {
     key: Option<String>,
     value: Option<String>,
     scope: Option<String>,
+    /// `--if-value V` (`Some(Some)`) or `--if-unset` (`Some(None)`): the value the caller last read.
+    expect: Option<Option<String>>,
     cwd: Option<PathBuf>,
 }
 
@@ -106,12 +112,13 @@ pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<i32> {
     };
     let result = match request.verb {
         Verb::Get => Ok(settings::report(&ctx, request.agent)),
-        Verb::Set | Verb::Unset => settings::apply(
+        Verb::Set | Verb::Unset => settings::apply_if(
             &ctx,
             request.agent,
             request.key.as_deref().unwrap_or_default(),
             request.value.as_deref(),
             request.scope.as_deref(),
+            request.expect.as_ref().map(Option::as_deref),
         )
         .map(|written| written.json()),
     };
@@ -160,6 +167,7 @@ fn parse(words: &[String]) -> Result<Request, String> {
         None => return Err("settings needs a verb (get, set or unset)".to_owned()),
     };
     let (mut agent, mut key, mut value, mut scope, mut cwd) = (None, None, None, None, None);
+    let mut expect: Option<Option<String>> = None;
     while let Some(word) = iter.next() {
         let (flag, inline) = match word.split_once('=') {
             Some((flag, v)) if flag.starts_with("--") => (flag, Some(v.to_owned())),
@@ -183,12 +191,18 @@ fn parse(words: &[String]) -> Result<Request, String> {
             "--value" => value = Some(take()?),
             "--scope" => scope = Some(take()?),
             "--cwd" => cwd = Some(PathBuf::from(take()?)),
+            "--if-value" | "--if-unset" if expect.is_some() => {
+                return Err("give one of --if-value and --if-unset".to_owned());
+            }
+            "--if-value" => expect = Some(Some(take()?)),
+            "--if-unset" if inline.is_none() => expect = Some(None),
+            "--if-unset" => return Err("--if-unset takes no value".to_owned()),
             other => return Err(format!("settings does not take {other:?}")),
         }
     }
     let agent = agent.ok_or("settings needs --agent claude or --agent codex")?;
     match verb {
-        Verb::Get if key.is_some() || value.is_some() || scope.is_some() => {
+        Verb::Get if key.is_some() || value.is_some() || scope.is_some() || expect.is_some() => {
             return Err("get takes only --agent and --cwd".to_owned());
         }
         Verb::Set if key.is_none() || value.is_none() => {
@@ -198,7 +212,7 @@ fn parse(words: &[String]) -> Result<Request, String> {
         Verb::Unset if value.is_some() => return Err("unset takes no --value".to_owned()),
         _ => {}
     }
-    Ok(Request { verb, agent, key, value, scope, cwd })
+    Ok(Request { verb, agent, key, value, scope, expect, cwd })
 }
 
 /// The answer for a person at a terminal.
@@ -293,6 +307,7 @@ mod tests {
                 key: None,
                 value: None,
                 scope: None,
+                expect: None,
                 cwd: Some("/p".into())
             }
         );
@@ -307,5 +322,26 @@ mod tests {
         assert!(parse(&words("settings get")).is_err());
         assert!(parse(&words("mcp list --agent claude")).is_err());
         assert!(parse(&words("settings get --agent claude --bogus")).is_err());
+    }
+
+    #[test]
+    fn parses_the_precondition() {
+        let set =
+            parse(&words("settings set --agent claude --key model --value a --if-value opus"))
+                .unwrap();
+        assert_eq!(set.expect, Some(Some("opus".to_owned())));
+        let unset = parse(&words("settings unset --agent codex --key model --if-unset")).unwrap();
+        assert_eq!(unset.expect, Some(None));
+        assert_eq!(
+            parse(&words("settings set --agent claude --key m --value a")).unwrap().expect,
+            None
+        );
+        for bad in [
+            "settings set --agent claude --key m --value a --if-value x --if-unset",
+            "settings set --agent claude --key m --value a --if-unset=x",
+            "settings get --agent claude --if-unset",
+        ] {
+            assert!(parse(&words(bad)).is_err(), "{bad}");
+        }
     }
 }

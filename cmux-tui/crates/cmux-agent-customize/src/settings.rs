@@ -267,22 +267,8 @@ pub fn report(ctx: &Context, agent: Agent) -> Value {
     let curated_rows: Vec<Value> = curated(agent)
         .iter()
         .map(|c| {
-            let winner = layers.iter().filter(|l| l.inactive.is_none()).find_map(|layer| {
-                layer
-                    .leaves
-                    .iter()
-                    .find(|leaf| render_key(&leaf.parts) == c.key)
-                    .map(|leaf| (leaf, layer.scope.clone()))
-            });
-            let (value, scope) = match winner {
-                Some((leaf, scope)) => (
-                    if leaf.masked {
-                        json!(MASK)
-                    } else {
-                        json!(leaf.text.clone().unwrap_or_else(|| leaf.display.clone()))
-                    },
-                    json!(scope),
-                ),
+            let (value, scope) = match winning(&layers, c.key) {
+                Some((value, scope)) => (json!(value), json!(scope)),
                 None => (Value::Null, Value::Null),
             };
             json!({
@@ -339,6 +325,22 @@ pub fn report(ctx: &Context, agent: Agent) -> Value {
         obj.insert("activeProfile".to_owned(), Value::Null);
     }
     answer
+}
+
+/// The value a curated row shows (masked when secret) and the scope it comes from: the first
+/// active layer, highest precedence first, that sets the key. `report` and the `apply`
+/// precondition both read it, so a save compares against exactly what the page drew.
+fn winning(layers: &[Layer], key: &str) -> Option<(String, String)> {
+    layers.iter().filter(|l| l.inactive.is_none()).find_map(|layer| {
+        layer.leaves.iter().find(|leaf| render_key(&leaf.parts) == key).map(|leaf| {
+            let value = if leaf.masked {
+                MASK.to_owned()
+            } else {
+                leaf.text.clone().unwrap_or_else(|| leaf.display.clone())
+            };
+            (value, layer.scope.clone())
+        })
+    })
 }
 
 /// Claude Code's permission rule lists, which merge across scopes instead of overriding.
@@ -803,6 +805,24 @@ pub fn apply(
     value: Option<&str>,
     scope: Option<&str>,
 ) -> Result<Written, SettingsError> {
+    apply_if(ctx, agent, key, value, scope, None)
+}
+
+/// [`apply`] with a precondition, the compare-and-set a database or an HTTP `If-Match` gives:
+/// `expect` is the row's value as the caller last read it (`Some(None)`: no scope set it, the
+/// agent's default). Under the file's lock the row is read again; when it differs (Claude Code's
+/// `/model`, Codex, a hand edit or another cmux window changed it since), nothing is written and
+/// the refusal (`agent_config.changed`) names the value it has now. Without it a save from a page
+/// opened earlier silently overwrites that change: the lock orders writes, it cannot know what the
+/// person saw.
+pub fn apply_if(
+    ctx: &Context,
+    agent: Agent,
+    key: &str,
+    value: Option<&str>,
+    scope: Option<&str>,
+    expect: Option<Option<&str>>,
+) -> Result<Written, SettingsError> {
     let row = curated(agent).iter().find(|c| c.key == key).ok_or_else(|| {
         let known: Vec<&str> = curated(agent).iter().map(|c| c.key).collect();
         SettingsError::new(
@@ -833,22 +853,37 @@ pub fn apply(
     // Held across the read, edit, backup and rename, so a Settings save and a CLI edit of the
     // same file never both start from the same original and drop each other's change.
     let _lock = store.lock(&path).map_err(|e| io_error(&path, e))?;
+    // The lock every cmux writer of a codex home's config takes (the hook installer, acpmux, the
+    // Cloud devbox). Only in the codex home: a project's `.codex` gets no lock file a commit could
+    // pick up. Taken before the precondition, so nothing a cmux writer does lands between them.
+    let lock_dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    let _codex_lock = (agent == Agent::Codex && lock_dir == ctx.homes.codex).then(|| {
+        cmux_tui_platform::codex_config_lock::lock(
+            &lock_dir.join(cmux_tui_platform::codex_config_lock::LOCK_FILE),
+        )
+    });
+    if let Some(expect) = expect {
+        let (layers, _) = match agent {
+            Agent::Claude => claude_layers(ctx),
+            Agent::Codex => codex_layers(ctx),
+        };
+        let now = winning(&layers, key);
+        if now.as_ref().map(|(v, _)| v.as_str()) != expect {
+            let what = match &now {
+                Some((v, scope)) => format!("it is now {v} ({scope})"),
+                None => "it is now unset (the agent's default)".to_owned(),
+            };
+            return Err(SettingsError::new(
+                "agent_config.changed",
+                format!("{key} changed since this was read; {what}. Nothing was written"),
+            ));
+        }
+    }
     let backup_target = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
     let existed = path.exists();
     match agent {
         Agent::Claude => write_json(&store, &path, key, value)?,
-        Agent::Codex => {
-            // The lock every cmux writer of a codex home's config takes (the hook installer,
-            // acpmux, the Cloud devbox). Only in the codex home: a project's `.codex` gets no lock
-            // file a commit could pick up.
-            let lock_dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
-            let _codex_lock = (lock_dir == ctx.homes.codex).then(|| {
-                cmux_tui_platform::codex_config_lock::lock(
-                    &lock_dir.join(cmux_tui_platform::codex_config_lock::LOCK_FILE),
-                )
-            });
-            write_toml(&store, &path, key, value)?;
-        }
+        Agent::Codex => write_toml(&store, &path, key, value)?,
     }
     Ok(Written {
         agent,

@@ -46,7 +46,7 @@ function CuratedRow({
     setDraft(row.value ?? "");
   }
   const run = (change: Omit<AgentConfigRun, "agent">) => void onRun(change).then(setError);
-  const set = (value: string) => run({ verb: "set", key: row.key, value, scope });
+  const set = (value: string) => run({ verb: "set", key: row.key, value, scope, expect: row.value });
   const canUnset = row.value !== null && row.scope !== null && row.writableScopes.includes(row.scope);
   const listId = `${titleId}-choices`;
   return (
@@ -137,7 +137,7 @@ function CuratedRow({
             data-agent-action="unset"
             aria-describedby={titleId}
             disabled={busy || !canUnset}
-            onClick={() => row.scope && run({ verb: "unset", key: row.key, scope: row.scope })}
+            onClick={() => row.scope && run({ verb: "unset", key: row.key, scope: row.scope, expect: row.value })}
           >
             {t("settingsWindow.agentConfig.useDefault")}
           </Button>
@@ -351,14 +351,18 @@ export function AgentSettingsSection() {
     root.current.dataset.renderMs = String(Math.round(performance.now() - mountedAt.current));
   }, [settled]);
 
-  /** One change or open on `agent`'s settings; the error in plain words, else null. A change
-   * reads the agent's settings again. */
+  /** One change or open on `agent`'s settings; the error in plain words, else null. A change,
+   * done or refused, reads the agent's settings again. */
   const run = useCallback(
     async (agent: AgentConfigAgent, change: Omit<AgentConfigRun, "agent">): Promise<string | null> => {
       setBusy(agent);
       const attempt = async (): Promise<string | null> => {
         const answer = await store.runAgentConfig({ ...change, agent });
-        if ("error" in answer) return answer.error;
+        if ("error" in answer) {
+          // A refused change may mean the file moved on (`agent_config.changed`): show it as it is.
+          if (change.verb !== "open") await load(agent);
+          return answer.error;
+        }
         if ("enabled" in answer) return t("settingsWindow.agentConfig.unavailable");
         if (change.verb !== "open") await load(agent);
         return null;

@@ -38,6 +38,8 @@ import Testing
             ["verb": "set", "agent": "claude", "key": "model", "value": "opus", "scope": "project"],
             ["verb": "set", "agent": "codex", "key": "model", "value": "-not-a-flag"],
             ["verb": "unset", "agent": "codex", "key": "model_reasoning_effort", "scope": "profile:fast"],
+            ["verb": "set", "agent": "claude", "key": "model", "value": "haiku", "expect": "opus"],
+            ["verb": "set", "agent": "claude", "key": "effortLevel", "value": "high", "expect": .null],
         ] {
             _ = try await provider.call(SettingsAgentConfig.op, params: params, context: Self.click)
         }
@@ -45,6 +47,8 @@ import Testing
             ["--json", "agent-config", "settings", "set", "--agent", "claude", "--key", "model", "--value", "opus", "--scope", "project"],
             ["--json", "agent-config", "settings", "set", "--agent", "codex", "--key", "model", "--value", "-not-a-flag"],
             ["--json", "agent-config", "settings", "unset", "--agent", "codex", "--key", "model_reasoning_effort", "--scope", "profile:fast"],
+            ["--json", "agent-config", "settings", "set", "--agent", "claude", "--key", "model", "--value", "haiku", "--if-value", "opus"],
+            ["--json", "agent-config", "settings", "set", "--agent", "claude", "--key", "effortLevel", "--value", "high", "--if-unset"],
         ])
     }
 
