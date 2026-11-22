@@ -268,11 +268,9 @@ export function captureTurnEnd(
 ): TurnEndCapture | undefined {
   if (!thread || !scroller || foldMs(thread) <= 0) return undefined;
   const nodes = [...mounted(thread)];
-  if (
-    !held &&
-    !nodes.some((node) => node.dataset.rowId === LIVE_LINE || node.classList.contains(`acpmux-${ACTIVITY_LINE}`))
-  )
-    return undefined;
+  const liveLine = (node: HTMLElement) =>
+    node.dataset.rowId === LIVE_LINE || node.classList.contains(`acpmux-${ACTIVITY_LINE}`);
+  if (!held && !nodes.some(liveLine)) return undefined;
   // The ids the swap keeps, from the first mounted row on: rows before the window never matter.
   const first = Math.max(
     0,
@@ -283,6 +281,23 @@ export function captureTurnEnd(
   // under the answer, not that run moved: the run goes and the card comes in.
   for (let index = Math.min(first, after.length); index < after.length; index += 1)
     if (!after[index]!.merged) kept.add(after[index]!.id);
+  // The fold plays only where the reader can see it (docs/design/transcript-animation-rules.md, rules 1
+  // and 6): the running line, or a row the swap takes away, in the view. Mounted is not seen: the
+  // overscan holds viewports of rows above and below it. Out of sight, the swap draws at once and the
+  // anchor keeps the view (Leo, 2026-11-22: "i scroll down, some bullshit ABOVE folds...? and plays an
+  // animation!?"). A held Worked for (`held`) has no running line: its work in view is what folds.
+  const view = scroller.getBoundingClientRect();
+  const seen = (node: HTMLElement) => {
+    const box = node.getBoundingClientRect();
+    return box.bottom > view.top && box.top < view.bottom && box.height > 0;
+  };
+  const goes = (node: HTMLElement) => {
+    const id = node.dataset.rowId!;
+    if (kept.has(id)) return false;
+    // The live header stays as the ended one in its slot (below): it does not go.
+    return !(node.classList.contains(`acpmux-${WORKING}`) && kept.has(`${WORKED}-${id.slice(WORKING.length + 1)}`));
+  };
+  if (!nodes.some((node) => seen(node) && ((!held && liveLine(node)) || goes(node)))) return undefined;
   const look = turnEndLook(thread);
   const replaces = REPLACE_LOOKS.has(look);
   const swapsSubagents = turnEndSubagent(thread) !== "slide";
@@ -641,6 +656,26 @@ const DEFER_MS = MOTION_MS.large * 4;
 const WIPE_POINTS = 24;
 /// A clip that hides `top` px of a box's top and nothing past its other edges.
 const clipTop = (top: number) => `inset(${top}px -4096px -4096px -4096px)`;
+/// The reader's own scroll ends a fold in flight at once (docs/design/transcript-animation-rules.md, rule
+/// 4): its rows drawn where they land, its copies gone. Played on, every pass would turn the scroll into
+/// motion (a row the scroll mounts faded in, the scroll's own distance read as a row's move). The fold's
+/// `scroll` listener stays for the view's own scrolls (the bottom kept pinned).
+const READER_SCROLLS = ["wheel", "touchmove"] as const;
+function endOnReaderScroll(thread: HTMLElement, scroller: HTMLElement | null | undefined, fold: TurnEndFold) {
+  if (!scroller) return () => {};
+  const end = () => settleTurnEnd(thread, fold);
+  // A press on the scroller itself is its scrollbar (rows and their parts are its children).
+  const press = (event: Event) => {
+    if (event.target === scroller) end();
+  };
+  for (const name of READER_SCROLLS) scroller.addEventListener(name, end, { passive: true });
+  scroller.addEventListener("pointerdown", press, { passive: true });
+  return () => {
+    for (const name of READER_SCROLLS) scroller.removeEventListener(name, end);
+    scroller.removeEventListener("pointerdown", press);
+  };
+}
+
 /// The reader's gestures that end `defer`'s hold. Scrolls alone are not among them: the view scrolls
 /// itself to keep the bottom pinned.
 const READER_GESTURES = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
@@ -772,6 +807,24 @@ function playReplace(
       if (!(edge.to > edge.from)) edge.to = edge.from + 1;
     }
     const { from, to, up } = edge;
+    // A box out of the view plays nothing (docs/design/transcript-animation-rules.md, rule 1): a row the
+    // swap drew there is drawn as it is, and an old copy there goes. A later pass that brings it into
+    // the view (the bottom kept pinned) joins it to the clock where the edge then is.
+    const outside = (top: number, height: number) => !!view && (top + height <= view.top + 1 || top >= view.bottom - 1);
+    for (let index = fresh.length - 1; index >= 0; index -= 1) {
+      const box = fresh[index]!;
+      if (!outside(box.top, box.height)) continue;
+      drop(box.node);
+      fresh.splice(index, 1);
+    }
+    for (let index = stale.length - 1; index >= 0; index -= 1) {
+      const { element, top, height } = stale[index]!;
+      if (!outside(top, height)) continue;
+      drop(element);
+      element.remove();
+      fold.copies.delete(element);
+      stale.splice(index, 1);
+    }
     /// Where a box of the view crosses the edge's run, as a fraction of it (0 where it starts, 1 at its end).
     const reach = (y: number) => {
       const along = Math.min(1, Math.max(0, (y - from) / (to - from)));
@@ -880,10 +933,12 @@ function playReplace(
     attributeFilter: ["style", "aria-posinset"],
   });
   scroller?.addEventListener("scroll", pass, { passive: true });
+  const unscroll = endOnReaderScroll(thread, scroller, fold);
   fold.stop = () => {
     if (firstFrame !== undefined) View?.cancelAnimationFrame(firstFrame);
     observer?.disconnect();
     scroller?.removeEventListener("scroll", pass);
+    unscroll();
     for (const name of READER_GESTURES) page.removeEventListener(name, gesture, true);
   };
   arm();
@@ -1604,10 +1659,12 @@ export function playTurnEnd(
     attributeFilter: ["style", "aria-posinset"],
   });
   scroller?.addEventListener("scroll", pass, { passive: true });
+  const unscroll = endOnReaderScroll(thread, scroller, fold);
   fold.stop = () => {
     if (firstFrame !== undefined) View?.cancelAnimationFrame(firstFrame);
     observer?.disconnect();
     scroller?.removeEventListener("scroll", pass);
+    unscroll();
   };
   // A hidden page suspends its animations: nothing of the fold outlasts its length.
   arm(lead);
