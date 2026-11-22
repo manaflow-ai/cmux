@@ -240,6 +240,7 @@ pub(super) async fn handle_notification(
                     m,
                     &mut params,
                     false,
+                    false,
                 )
                 .await
             {
@@ -662,6 +663,7 @@ async fn dispatch_brief(
             method::SESSION_NEW,
             &mut new_params,
             false,
+            false,
         )
         .await?;
     }
@@ -1010,6 +1012,7 @@ pub(super) async fn handle_request(
             m,
             &mut params,
             policy_proved,
+            conn.presented_web_device(),
         )
         .await
         .map_err(|e| challenge(e, &params))?;
@@ -1496,6 +1499,8 @@ async fn dispatch_request_with_identity(
             }
             Ok(view)
         }
+        super::browser_workspaces::SET => hub.person.browser_workspaces.set(conn, &params),
+        super::browser_workspaces::READ => hub.person.browser_workspaces.read(conn).await,
         method::MUX_WORKSPACE_ROOTS_SET if conn.is_person() => {
             hub.person.set_workspace_roots(&params)
         }

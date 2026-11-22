@@ -102,7 +102,6 @@ import { SuggestionGlyph, rowGlyphName } from "./RowGlyph";
 import { Icon } from "../icons/Icon";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
-import { FirstRunStarters, showsFirstRunStarters, type FirstRunStarterLook } from "./FirstRunStarters";
 import { type NewTabTranslate, useNt } from "./strings";
 import { DEFAULT_NEW_TAB_TEMPLATE, screenSections, screenTemplate, type ScreenTemplate } from "./templates";
 import { useT } from "../i18n";
@@ -338,9 +337,6 @@ type Props = NewTabScreenActions & {
   focusField?: boolean;
   /// Which screen template draws the page (newtab/templates.ts); Minimal when unset.
   template?: ScreenTemplate;
-  /// How the first-run starters under the composer look (FirstRunStarters.tsx); the gallery's
-  /// variants set it, the app leaves it unset (rows).
-  starterLook?: FirstRunStarterLook;
   /// How the rows under the field rank (screenModel.ts SuggestionOrder); unset is the default.
   suggestionOrder?: SuggestionOrder;
   /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the recent chats show where
@@ -2569,24 +2565,6 @@ export function NewTabScreen(props: Props) {
       </div>
     </PromptFocusProvider>
   );
-  // First run (no chats on this Mac or its peers yet): three things to ask, under the composer. A
-  // pick fills the composer and sends nothing; the first chat takes them away for good.
-  const pickStarter = (prompt: string) => {
-    // A starter is words for the agent: a field left in shell mode (a typed `!`) would run it, and
-    // one left in the profile search (Open in Profile…) would name a profile after it.
-    setShell(false);
-    setProfilePick(undefined);
-    edit(prompt);
-    requestAnimationFrame(() => {
-      field.current?.focus();
-      field.current?.setCaret(field.current.plainText().length);
-    });
-  };
-  const starters = showsFirstRunStarters(snapshot, {
-    allChats,
-    chatsPending: props.chatsPending === true,
-    deviceChats: pushed.length,
-  }) && <FirstRunStarters {...(props.starterLook ? { look: props.starterLook } : {})} onPick={pickStarter} />;
   // The stage's cards: the project card and the suggested actions, side by side in one column.
   const stageCards = (
     <div className="nt-stage-cards">
@@ -2632,7 +2610,6 @@ export function NewTabScreen(props: Props) {
             {playerAndLists}
           </div>
           {composerCard}
-          {starters}
           {props.notice}
           {environmentPanel}
         </>
@@ -2642,7 +2619,6 @@ export function NewTabScreen(props: Props) {
                 where it always sat (screen.css .nt-composer-room). */}
           {minimal && <div className="nt-composer-room" />}
           {composerCard}
-          {starters}
           {props.notice}
           {environmentPanel}
           {widgetGrid}

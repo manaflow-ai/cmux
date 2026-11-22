@@ -1,3 +1,4 @@
+import { BrowserSidebar } from "./browser/BrowserSidebar";
 import { composerHealthHarness } from "./composerPickerEntries";
 import { forkMenuRows } from "./header/forkMenu";
 import { useFold } from "./conversation/fold";
@@ -109,7 +110,6 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
-  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -118,12 +118,13 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
+  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  withCloudStartFolder,
   withDraftFolder,
+  withCloudStartFolder,
   shownCloudStartPick,
   withCloudStartPick,
 } from "./newtab/draftFolder";
@@ -197,8 +198,8 @@ import {
   CloudTypingPrewarm,
   cloudIdentityKept,
   cloudTypingMachineID,
-  type CloudIdentityView,
   sameNewChat,
+  type CloudIdentityView,
 } from "./cloudTypingPrewarm";
 import { CloudComposeReservation, reservedCloudCall } from "./cloudComposeReservation";
 import { harnessProfiles } from "./harnessProfiles";
@@ -239,7 +240,7 @@ import { PICKER_LABELS } from "./composerPickerModel";
 import { openComposerControl } from "./composerControls";
 import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
 import { openPicker } from "./pickerOpeners";
-import { SIGN_IN_REQUIRED, startRefusalRoute } from "./startRefusal";
+import { startRefusalRoute, SIGN_IN_REQUIRED } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
 import { isNewChat, projectName } from "./emptyStateModel";
 import { TourStartContext } from "./repoTour/TourBlock";
@@ -285,12 +286,12 @@ import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import {
   cloudMachineAsleep,
-  currentCloudPlan,
-  readCloudPlanFresh,
   readUntilMoved,
   refreshCloudMachines,
   useCloudMachines,
   type CloudMachine,
+  currentCloudPlan,
+  readCloudPlanFresh,
 } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
@@ -588,6 +589,7 @@ import { HarnessStatusCard } from "./HarnessStatusCard";
 import type { LocalCommand } from "./localCommands";
 import {
   cloudPageRefusal,
+  pageOnOtherMachine,
   cloudRunsHere,
   composerAgentLocal,
   cloudFolderGrants,
@@ -596,21 +598,20 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   cloudSendAfterCheck,
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
-  pageOnOtherMachine,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
-import { folderRunLocation, newChatRunLocation, defaultFolderFor } from "./runLocationDefault";
+import { defaultFolderFor, folderRunLocation, newChatRunLocation } from "./runLocationDefault";
 import {
   lastNewChatPlace,
   pickedRunLocation,
@@ -622,12 +623,12 @@ import { harnessLabel } from "./subagents/agentRuns";
 import {
   cloudStartBegun,
   cloudStartEnded,
-  cloudStartPlanHeld,
   cloudStartPushed,
   cloudStartStalled,
   watchCloudStartStall,
   cloudStartSignedIn,
   type CloudStartProgress,
+  cloudStartPlanHeld,
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
@@ -2281,7 +2282,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A turn end of the settled view acpmux opened the chat from stands in until the rows hold one
   // (cmuxterm-hq#9655): the fork is offered from the chat's first settled frame.
   const forkSeq = latestForkSeq(snapshot.rows) ?? newestSettledForkSeq(snapshot.settled);
-  const forkAny = forksAnyTurn(snapshot.summary?.family);
+  const forkAny = forksAnyTurn(snapshot);
   const tryAnotherApproachInFlight = useRef<Promise<void> | undefined>(undefined);
   // One machine rewind at a time: a second while one runs is refused, so its button says so.
   const rewindInFlight = useRef(false);
@@ -2299,7 +2300,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const editsServed = snapshot.canFork && connected;
   const lastEditTurns = useRef<EditableTurns | undefined>(undefined);
   const rowsForEdits = editsServed ? snapshot.rows : NO_ROWS;
-  const editFamily = snapshot.summary?.family;
+  // acpmux's answer for the chat (a Claude Code profile under any family name edits every turn).
+  const editFamily = forkAny;
   const stableEditSeqs = useMemo(
     () => (lastEditTurns.current = trackEditableTurns(rowsForEdits, editFamily, lastEditTurns.current)).seqs,
     [rowsForEdits, editFamily],
@@ -13936,6 +13938,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         aria-label={composerSnapshot.summary?.title || t("header.agentChat")}
         style={inTabRow ? tabRowStyle(tabRow) : undefined}
       >
+        {document.documentElement.hasAttribute("data-cmux-browser-pane") && connected && (
+          <BrowserSidebar
+            sessions={snapshot.sessions}
+            workspaces={snapshot.browserWorkspaces}
+            selected={snapshot.sessionId}
+            onSelect={selectSession}
+            onRefresh={() => void directClient.current?.refreshBrowserWorkspaces()}
+          />
+        )}
         {steering && steerQueueOn ? (
           <SteerQueue
             items={steerItems}
