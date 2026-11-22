@@ -56,6 +56,48 @@ public struct AgentSubagent: Identifiable, Hashable, Sendable {
     }
 }
 
+/// RED GRAFT STUB (not product code): base's behavior behind the seam the tests read.
+/// A subagent transcript's turn and rows (`asTurn`, `rows`) for the screen that shows it.
+@MainActor
+final class SubagentRowsMemo {
+    /// Times the rows were built (tests: once per change of the subagent, not once per redraw).
+    private(set) var builds = 0
+    /// Rows made (every row, every time: base builds them all).
+    private(set) var rowsMade = 0
+
+    func rows(for agent: AgentSubagent) -> (turn: AgentTurn, rows: [TurnRow]) {
+        builds += 1
+        let turn = agent.asTurn
+        let rows = turn.rows
+        rowsMade += rows.count
+        return (turn, rows)
+    }
+}
+
+/// The Subagents list's order: each subagent under its parent, with its depth.
+@MainActor
+final class SubagentOrderMemo {
+    /// Subagents looked at while ordering (tests: each once per change of the set).
+    private(set) var visits = 0
+    /// Times the order was built.
+    private(set) var builds = 0
+
+    func ordered(_ agents: [AgentSubagent]) -> [(agent: AgentSubagent, depth: Int)] {
+        builds += 1
+        var out: [(AgentSubagent, Int)] = []
+        func visit(_ parent: String?, depth: Int) {
+            for agent in agents {
+                visits += 1
+                guard agent.parent == parent else { continue }
+                out.append((agent, depth))
+                visit(agent.id, depth: depth + 1)
+            }
+        }
+        visit(nil, depth: 0)
+        return out
+    }
+}
+
 /// One `_meta.acpmux.subagents` entry: a subagent started or changed.
 public struct AgentSubagentChange: Hashable, Sendable {
     public var id: String
@@ -129,5 +171,17 @@ extension Array where Element == TurnItem {
         default:
             break
         }
+    }
+}
+
+/// RED GRAFT STUB (not product code): base has no follow rule (its transcript is a SwiftUI lazy
+/// stack that keeps its top); the tests read this seam. Never follows, anchors at the top.
+struct SubagentFollow: Equatable {
+    enum Anchor { case top, bottom }
+    var follows = false
+    func sizeChangeAnchor(running: Bool) -> Anchor { .top }
+    mutating func changed(atEnd: Bool, grew: Bool, scrolling: Bool, running: Bool) -> Bool { false }
+    static func offset(_ offset: Double, anchor: Anchor, old: Double, new: Double) -> Double {
+        anchor == .bottom ? offset + (new - old) : offset
     }
 }
