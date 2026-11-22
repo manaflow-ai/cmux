@@ -25,6 +25,10 @@ public nonisolated struct CmuxToastLook: Hashable, Sendable {
     public var showsDetailLine = false
     /// The primary action as a button filled with the accent, not a text button.
     public var fillsAction = false
+    /// The primary action as a small button filled with the toast's ink (dark on light glass, light on dark).
+    public var inkAction = false
+    /// A leading mark in the tone's color for a success, warning or error; plain news shows none.
+    public var marksTone = false
     /// The close button shows only while the pointer is on the toast (VoiceOver and the keyboard still reach it).
     public var closeOnHover = false
     /// A ring around the close button that empties over the toast's time.
