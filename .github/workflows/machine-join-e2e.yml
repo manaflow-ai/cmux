@@ -186,7 +186,11 @@ jobs:
         id: user
         run: |
           set -euo pipefail
-          base="$(mktemp -d /tmp/machine-join-e2e.XXXXXX)"
+          # Under /srv, not /tmp: a fleet runner's unit has a /tmp of its own (PrivateTmp), which the
+          # joined user's user manager (started by PID 1) does not see. With the home there the manager
+          # found no unit file in it (run 44970728746: "Unit file cmux-screen-host.service does not exist").
+          sudo install -d -o root -g root -m 0755 /srv
+          base="$(sudo mktemp -d /srv/machine-join-e2e.XXXXXX)"
           user="cmuxjoin-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           {
             echo "user=$user"
@@ -321,6 +325,9 @@ jobs:
             "$JOIN_BASE/bin/cmux-rd" openh264-install
           # The X socket directory both displays use (the host's from :99, the viewer's :42).
           sudo install -d -o root -g root -m 1777 /tmp/.X11-unix
+          # The host's display is started by its user manager, which sees PID 1's /tmp, not this job's
+          # own (PrivateTmp on a fleet runner): the same directory there. One /tmp on a hosted runner.
+          sudo nsenter -t 1 -m -- install -d -o root -g root -m 1777 /tmp/.X11-unix
           # What runs the user manager here: PID 1 and logind (one line each, in every run's log).
           echo "pid 1: $(ps -o comm= -p 1); system: $(systemctl is-system-running 2>&1 || true); logind: $(systemctl is-active systemd-logind.service 2>&1 || true)"
           systemctl is-active --quiet systemd-logind.service || sudo systemctl start systemd-logind.service
