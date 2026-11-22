@@ -99,10 +99,43 @@ final class SubagentTranscriptEdgeUITests: XCTestCase {
         defer { app.terminate() }
         let done = footer(app)
         edgeShot(app, "sub11-tall-1-top")
-        scrollToFooter(app, done)
+        // The reader scrolls through the 240-line log answer a swipe at a time and holds still after
+        // each: what they hold must not move without a gesture (SB: ≤ 0.5 pt). Held: the tall
+        // answer's own text while it is on screen, then the footer.
+        let tall = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "payload=deadbeef")).firstMatch
+        func held() -> CGFloat? {
+            if tall.exists, !tall.frame.isEmpty, tall.frame.maxY > 0, tall.frame.minY < app.windows.firstMatch.frame.maxY { return tall.frame.minY }
+            return onScreen(app, done) ? done.frame.minY : nil
+        }
+        var largest: CGFloat = 0
+        var holds = 0
+        for _ in 0..<60 where !onScreen(app, done) {
+            app.swipeUp()
+            pause(1)
+            guard let before = held() else { continue }
+            pause(1)
+            guard let after = held() else { continue }
+            holds += 1
+            largest = max(largest, abs(after - before))
+        }
+        let line = "tall row: largest move of a still reader's row \(largest) pt over \(holds) holds"
+        print("CMUX_TALL_ROW_SHIFT \(line)")
+        let probe = app.staticTexts["chat.subagent.tallprobe"].firstMatch
+        let measures = probe.exists ? probe.label : "no tall probe"
+        print("CMUX_TALL_ROW_MEASURE \(measures)")
+        edgeNote(line + "\n" + measures, "sub11-tall-shift")
         XCTAssertTrue(onScreen(app, done), "scrolled past the tall row to the footer\n\(app.debugDescription)")
+        XCTAssertGreaterThan(holds, 3, "the reader held still on the way: \(line)")
+        XCTAssertLessThanOrEqual(largest, 0.5, line)
+        XCTAssertTrue(measures.hasPrefix("tall measures 1,"), "the tall answer was measured once: \(measures)")
+        XCTAssertTrue(measures.hasSuffix(" 0 while scrolling"), "no measure ran while the transcript scrolled: \(measures)")
         XCTAssertEqual(app.state, .runningForeground, "no crash")
         edgeShot(app, "sub11-tall-2-footer")
+    }
+
+    @MainActor
+    private func pause(_ seconds: TimeInterval) {
+        _ = XCTWaiter().wait(for: [XCTestExpectation(description: "the reader holds still")], timeout: seconds)
     }
 
     /// SUB-12, landscape.

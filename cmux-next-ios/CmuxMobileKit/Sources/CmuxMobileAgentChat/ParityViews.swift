@@ -295,7 +295,10 @@ struct SubagentTranscriptScreen: View {
             // When an answer's text arrives (the rows change) or the width or text size does:
             // after the body, not in it.
             .task(id: SubagentRowHeights.TaskID(rows: memo.builds, key: key, live: live)) {
-                if heights.measure(rows, key: key, live: live) { measured &+= 1 }
+                if heights.measure(rows, key: key, live: live) {
+                    measured &+= 1
+                    probe?.tallMeasured(heights, scrolling: phase != .idle)
+                }
             }
             .defaultScrollAnchor(.top)
             // Following a running subagent, growth keeps the end in place in the same layout pass
@@ -319,8 +322,11 @@ struct SubagentTranscriptScreen: View {
             }
             .overlay(alignment: .topLeading) {
                 if let probe {
-                    Text(probe.summary).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
-                        .accessibilityIdentifier("chat.subagent.followprobe")
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(probe.summary).accessibilityIdentifier("chat.subagent.followprobe")
+                        Text(probe.tallSummary).accessibilityIdentifier("chat.subagent.tallprobe")
+                    }
+                    .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                 }
             }
             .background(Color.cmuxMobileBackground)
@@ -414,6 +420,15 @@ public final class FollowProbe {
     @ObservationIgnored private(set) var maxGap: CGFloat = 0
     /// Redrawn twice a second, not per sample (the overlay would add a redraw per frame).
     private(set) var summary = "follow probe: waiting"
+    /// Tall answers' measurements: how many, their main-thread time, and how many ran while
+    /// the transcript was scrolling (a measure must not land on a frame the reader sees move).
+    private(set) var tallSummary = "tall measures 0, 0 ms, 0 while scrolling"
+    @ObservationIgnored private var tallWhileScrolling = 0
+
+    func tallMeasured(_ heights: SubagentRowHeights, scrolling: Bool) {
+        if scrolling { tallWhileScrolling += 1 }
+        tallSummary = "tall measures \(heights.measures), \(Int((heights.measureSeconds * 1000).rounded())) ms, \(tallWhileScrolling) while scrolling"
+    }
     @ObservationIgnored private var shownAt = Date.distantPast
 
     public init() {}

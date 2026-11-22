@@ -34,6 +34,8 @@ enum ListStressChatScreens {
             // `late`: the stream starts after `edgeAfter` seconds (a reader at rest at the end first).
             if settings.streams, settings.edge != "late", settings.edge != "follow" { live = streamTranscript(store, source: source, hz: settings.liveHz) }
             let holder = RigStoreHolder(store: store)
+            // The tall answer's measurement shows in the probe (SubagentTranscriptEdgeUITests).
+            if settings.giant { holder.probe = FollowProbe() }
             switch settings.edge {
             case "follow":
                 // The reader rests on the end (set by the screen's position, not a gesture) and the
