@@ -404,6 +404,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[("Remove a watch; wakes it already owes still arrive", "acpmux watch rm 019a3f9c")],
     ),
     (
+        "board",
+        &[
+            ("Show this machine's branch board", "acpmux board"),
+            ("The same board as JSON", "acpmux --json board"),
+        ],
+    ),
+    (
         "chats",
         &[
             ("List this device's chats, newest first", "acpmux chats list"),
