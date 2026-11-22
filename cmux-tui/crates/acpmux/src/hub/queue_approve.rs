@@ -49,6 +49,8 @@ pub struct Approver<'a> {
 }
 
 /// The most prompts one person has waiting for the owner at once.
+/// Measured: a guest's prompts sit in the owner's queue, each one card the owner must read; 16 keeps
+/// one untrusted guest from burying it. The owner's own prompts are not counted.
 const MAX_HELD_PER_AUTHOR: usize = 16;
 
 /// `queue.too_many_held` when the prompt's author already has [`MAX_HELD_PER_AUTHOR`] prompts

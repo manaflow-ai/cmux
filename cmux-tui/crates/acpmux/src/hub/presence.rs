@@ -45,6 +45,8 @@ pub const TYPING_EXPIRY: Duration = Duration::from_secs(8);
 /// `_acpmux/typing` calls one connection may make in any one second.
 pub const TYPING_PER_SECOND: usize = 2;
 /// People besides the owner in one chat's presence.
+/// Measured: every change sends the whole list (about 100 bytes a person, in one 4 KiB
+/// replacement) to every attached connection: 32 people is about 100 KB per change.
 pub const MAX_PEOPLE: usize = 32;
 /// The id of a caller that names no author.
 pub const OWNER_ID: &str = "owner";

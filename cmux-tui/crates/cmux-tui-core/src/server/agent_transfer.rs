@@ -111,6 +111,9 @@ pub const AGENT_TRANSFER_CONTINUES_CAPABILITY: &str = "agent-transfer-continues-
 /// The largest page of bundle data a write takes or a read answers.
 pub(crate) const MAX_PAGE_BYTES: usize = 4 << 20;
 const DEFAULT_READ: u64 = 1 << 20;
+/// Live receives at once. Kept: every live receive must stay askable after a restart
+/// (`askable.rs`), through a record in one file rewritten whole per receive and read only
+/// up to 64 KiB (`state_file.rs`); an uncapped count needs another record store first.
 const MAX_RECEIVES: usize = 16;
 /// Settled receives kept for a pump's question (the oldest goes first).
 const MAX_SETTLED: usize = 16;
@@ -118,7 +121,14 @@ const MAX_SETTLED: usize = 16;
 /// and whether the chat landed is unknown.
 static UNKNOWN_LANDING: std::sync::LazyLock<Value> =
     std::sync::LazyLock::new(|| json!({"dropped": false, "forgotten": false, "landed": null}));
+/// Moves out remembered at once. Kept as a memory bound: a move holds its scrubbed
+/// `manifest.json` and `session.json` (each up to [`MAX_PAGE_BYTES`], 4 MiB) for up to
+/// [`STALE`], so 16 moves hold at most 128 MiB.
 const MAX_MOVES: usize = 16;
+/// Calls at once. Kept as a memory bound: each is a thread (256 KiB stack) that holds,
+/// until acpmux answers (15 to 60 s), a page of up to 4 MiB (about 5.3 MiB as base64),
+/// or for a begin two files of up to 4 MiB each read and scrubbed. From those bounds 8
+/// calls hold at most about 8 x 13 MiB, roughly 100 MiB.
 const MAX_CALLS: usize = 8;
 /// A receive or move not touched that long is forgotten (acpmux sweeps its
 /// own files after the same time).

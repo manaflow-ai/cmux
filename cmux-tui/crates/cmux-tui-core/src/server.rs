@@ -2920,10 +2920,11 @@ const CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 const CONNECTION_SURFACE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const SERVER_SURFACE_WORKER_CAPACITY: usize = 16;
 const SERVER_SURFACE_RETAINED_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
-const RESOURCE_STREAMS_PER_CLIENT_CAPACITY: usize = 64;
-const RESOURCE_STREAMS_SERVER_CAPACITY: usize = 256;
-const RESOURCE_WAITS_PER_CLIENT_CAPACITY: usize = 8;
-const RESOURCE_WAITS_SERVER_CAPACITY: usize = 64;
+/// The stack of a resource stream's or a detached wait's worker thread. No
+/// count bounds them: each one's cost is this stack (virtual; the pages it
+/// touches are its RSS), its socket's share of the connection's outbound byte
+/// budget (`OUTBOUND_CONNECTION_BYTE_CAPACITY`) and a few small records.
+const RESOURCE_WORKER_STACK_BYTES: usize = 256 * 1024;
 /// v1 `subscribe` event streams: each is a `mux-events-out` thread and an
 /// event mailbox that live until the connection closes (server/cmd_subscribe.rs).
 const EVENT_SUBSCRIPTIONS_PER_CLIENT_CAPACITY: usize = 32;

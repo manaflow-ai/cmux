@@ -54,6 +54,12 @@ const HOST_BINARY: &str = "cmux-remote-browser-host";
 const START_TIMEOUT: Duration = Duration::from_secs(45);
 /// How long a host may take to exit after its lifeline closes.
 const STOP_GRACE: Duration = Duration::from_secs(5);
+/// Each runtime is a whole CEF host: a browser process with its GPU, network,
+/// renderer and utility processes, hundreds of MB of memory and several
+/// processes, not a record. That cost is not yet measured per host on the
+/// machines that run it (`cmux-remote-browser-host/tests/shared_host_bench.rs`
+/// measures it on macOS); a shared host (`--supervise`) is the way to make it
+/// constant per tab.
 pub(crate) const MAX_RUNTIMES_PER_CLIENT: usize = 4;
 pub(crate) const MAX_RUNTIMES_TOTAL: usize = 16;
 const MAX_URL_BYTES: usize = 8 * 1024;
