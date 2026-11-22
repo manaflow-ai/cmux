@@ -105,6 +105,16 @@ import Testing
         #expect(keys.contains(Self.g("h")) && keys.contains(Self.g("k")))
     }
 
+    /// Lineage nesting is on by default (#28103), so the session tree is set for everyone: the Archive row still
+    /// draws, and a row whose parent moved to the archive draws as a root of its list.
+    @Test func theSessionTreeKeepsTheArchiveRow() {
+        var o = Self.options()
+        o.sessionTree = SidebarSessionTreeState()
+        #expect(Self.keys(o) == [Self.w("a"), Self.w("c"), Self.g("g"), Self.w("g1"), .doneFold(.archive)])
+        o.sessionTree = SidebarSessionTreeState(parents: [WorkspaceID("c"): WorkspaceID("b"), WorkspaceID("g1"): WorkspaceID("g2")])
+        #expect(Self.keys(o) == [Self.w("a"), Self.w("c"), Self.g("g"), Self.w("g1"), .doneFold(.archive)])
+    }
+
     @Test func nothingArchivedDrawsNoArchiveRow() {
         let sections = [SidebarSection(kind: .machine(Self.local), nodes: [.workspace(Self.ws("a")), Self.group("g", [Self.ws("g1")])])]
         #expect(!Self.keys(Self.options(), sections).contains(.doneFold(.archive)))
