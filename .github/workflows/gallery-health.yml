@@ -178,11 +178,10 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # A pull request needs the merge and its two parents (the base is HEAD^1, which the base replay
-          # restores); a dispatch needs only the tip. Only a push compares with `before`, which may be any
-          # depth back. Full history took ~90 s of every shard's ~95 s checkout (2026-11-11 timing records).
-          # Quoted: in an expression `cond && 0 || 2` is always 2, because 0 is falsy and `||` takes the
-          # right side. The string '0' is truthy, so a push really fetches full history.
-          fetch-depth: ${{ github.event_name == 'push' && '0' || '2' }}
+          # restores); a push and a dispatch need only the tip: a push fetches the one commit it compares
+          # with (`before`, which may be any depth back) in the next step. `fetch-depth: 0` fetched every
+          # branch's whole history, ~80-100 s of every shard on 2026-11-22 (run 44982529401, 16 shards a push).
+          fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
           filter: blob:none
           # Only what a render reads: the folders and files of the `paths` list above (every routed path
           # is inside these; tests/test_ci_gallery_health_merge_ref.py keeps it so), and scripts/ and
@@ -275,11 +274,10 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # A pull request needs the merge and its two parents (the base is HEAD^1, which the base replay
-          # restores); a dispatch needs only the tip. Only a push compares with `before`, which may be any
-          # depth back. Full history took ~90 s of every shard's ~95 s checkout (2026-11-11 timing records).
-          # Quoted: in an expression `cond && 0 || 2` is always 2, because 0 is falsy and `||` takes the
-          # right side. The string '0' is truthy, so a push really fetches full history.
-          fetch-depth: ${{ github.event_name == 'push' && '0' || '2' }}
+          # restores); a push and a dispatch need only the tip: a push fetches the one commit it compares
+          # with (`before`, which may be any depth back) in the next step. `fetch-depth: 0` fetched every
+          # branch's whole history, ~80-100 s of every shard on 2026-11-22 (run 44982529401, 16 shards a push).
+          fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
           filter: blob:none
           # Only what a render reads: the folders and files of the `paths` list above (every routed path
           # is inside these; tests/test_ci_gallery_health_merge_ref.py keeps it so), and scripts/ and
@@ -315,6 +313,11 @@ jobs:
         run: |
           set -euo pipefail
           merge=$(git rev-parse HEAD)
+          if [ "$EVENT" = push ] && [ -n "$BEFORE" ]; then
+            # The checkout is one commit deep: take the tip this push replaced, and only it. A tip that is gone
+            # (a force push) stays missing, and the push renders everything as a new branch tip does.
+            git fetch --no-tags --depth=1 --filter=blob:none origin "$BEFORE" || echo "::warning::could not fetch $BEFORE; rendering everything"
+          fi
           if [ "$EVENT" = pull_request ]; then
             # The merge ref moves with each push; a stale one renders another head.
             [ "$(git rev-parse HEAD^2)" = "$PR_HEAD" ] || { echo "::error::the merge ref is not on the pull request head $PR_HEAD; push again"; exit 1; }
@@ -555,15 +558,15 @@ jobs:
           # The head keeps a state red only when it is red on every retry; the base renders twice with
           # no retries and a state red in either render is the base's. Holding the base to every retry
           # too called states that flake on the base (layout shift) the pull request's own.
-          # Each render takes one case at a time, so a render under load does not excuse a red the head
-          # kept on a quiet runner. The two renders run side by side: one after the other they were ~55 s
-          # each for ten red cases (2026-11-11), most of it a case waiting out its play's timeout, not CPU.
-          # Two pages at once is still less than the head's own render, which runs three.
+          # Each render takes four cases at a time: 84 red cases at one at a time took 9 minutes of a shard's
+          # 30 (run 44982529401, 2026-11-22), each waiting out its play's 5-10 s timeout, not using CPU. The two
+          # renders run side by side, so eight pages at once is still less than the head's own render (twelve
+          # workers on 16 vCPU).
           for pass in 1 2; do
             (
               rc=0
               bun health.ts --manifest "$RUNNER_TEMP/base-manifest.json" --gallery-dir "$RUNNER_TEMP/base-gallery" \
-                --retries 0 --concurrency 1 --output-dir "$RUNNER_TEMP/health/base/$pass" > "$RUNNER_TEMP/base-render-$pass.log" 2>&1 || rc=$?
+                --retries 0 --concurrency 4 --output-dir "$RUNNER_TEMP/health/base/$pass" > "$RUNNER_TEMP/base-render-$pass.log" 2>&1 || rc=$?
               echo "$rc" > "$RUNNER_TEMP/base-render-$pass.rc"
             ) &
           done
