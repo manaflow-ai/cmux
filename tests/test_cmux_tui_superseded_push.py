@@ -461,7 +461,10 @@ def check_wiring():
     index = next(i for i, s in enumerate(steps) if s.get("id") == "current")
     # The re-check uses the workflow token directly; the routing App is reserved
     # for runner placement and must not spend its Actions quota here.
-    before = [s.get("id") or str(s.get("uses", "")).split("@")[0] for s in steps[:index]]
+    # The owned-lane checkout repair (tests/test_ci_owned_route_checkout_repair.py) may sit between them: it is
+    # local git only and spends no Actions quota.
+    before = [s.get("id") or str(s.get("uses", "")).split("@")[0] for s in steps[:index]
+              if s.get("name") != "Repair a reused self-hosted checkout"]
     _check(before == ["actions/checkout"], "the daemon tests re-check immediately after checkout")
     current = steps[index]
     _check(str(current.get("if")) == "github.event_name == 'push'", "only push runs re-check")
