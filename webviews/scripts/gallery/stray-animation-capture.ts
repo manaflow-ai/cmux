@@ -168,7 +168,7 @@ try {
         // The reader's own offset while the fold ran: a jump here is the fold moving his view.
         scrollMin: Math.min(...scrolls),
         scrollMax: Math.max(...scrolls),
-        scrollSteps: [...new Set(scrolls)].length,
+        scrollSteps: new Set(scrolls).size,
         paintedFrames: fromEnd.length,
         errors,
       };
