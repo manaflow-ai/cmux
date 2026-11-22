@@ -1,5 +1,6 @@
 @testable import CmuxMobileDesign
 @testable import CmuxMobileLive
+import CmuxMobileTransport
 import Foundation
 import Testing
 
@@ -91,6 +92,63 @@ import UIKit
         feed.apply(Self.frame(background: "#101010"), macID: "mac-a")
         #expect(changed.ids == ["mac-b", "mac-a"])
     }
+
+    /// Leo, 2026-11-22: "the theming seemed to disappear maybe for the terminal/background". An
+    /// `appearance` channel that ends while its link lives is opened again, so the Mac's next
+    /// theme still reaches the phone; the read stops only when the link refuses a channel.
+    /// Before, it stopped after the first channel and the second frame never arrived.
+    @Test func aDroppedAppearanceChannelIsOpenedAgainWhileTheLinkLives() async {
+        let terminals = CmuxMobileTerminalThemes(cached: nil)
+        let feed = MacAppearanceFeed(theme: Self.theme(), terminalThemes: terminals)
+        let link = AppearanceScriptLink(channels: [
+            [Self.frame(background: "#101010")],
+            [Self.frame(background: "#202020")],
+        ])
+        await feed.read(on: link, macID: "mac", reopenAfter: .zero)
+        #expect(link.opens == 3)
+        #expect(terminals.theme(for: "mac")?.background == "#202020")
+    }
+}
+
+/// A link whose `appearance` channels each deliver their frames and end; once they run out, it
+/// refuses channels as a closed link does.
+final class AppearanceScriptLink: MacLink, @unchecked Sendable {
+    let transport: TransportKind = .wireGuard
+    let states: AsyncStream<LinkState>
+    private let lock = NSLock()
+    private var channels: [[Data]]
+    private var openCount = 0
+    var opens: Int { lock.withLock { openCount } }
+
+    init(channels: [[Data]]) {
+        self.channels = channels
+        states = AsyncStream { $0.finish() }
+    }
+
+    func openChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
+        let frames: [Data]? = lock.withLock {
+            openCount += 1
+            return channels.isEmpty ? nil : channels.removeFirst()
+        }
+        guard let frames else { throw LinkError(code: "closed", message: "link closed") }
+        return AppearanceScriptChannel(frames: frames)
+    }
+    func ping() async throws -> UInt32 { 1 }
+    func close() async {}
+}
+
+final class AppearanceScriptChannel: LinkChannel, @unchecked Sendable {
+    let id: UInt32 = 1
+    private let lock = NSLock()
+    private var frames: [Data]
+
+    init(frames: [Data]) { self.frames = frames }
+
+    func send(_ data: Data) async throws {}
+    func receive() async throws -> Data? {
+        lock.withLock { frames.isEmpty ? nil : frames.removeFirst() }
+    }
+    func close(code: String, reason: String) async {}
 }
 
 @MainActor final class MacRecorder {
