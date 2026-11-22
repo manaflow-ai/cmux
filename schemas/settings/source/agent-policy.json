@@ -807,6 +807,8 @@
         "agentPane.display.thinking.jumpButton",
         "agentPane.display.harnessPlacement",
         "agentPane.display.rail.side",
+        "agentPane.display.rail.show",
+        "agentPane.display.rail.control",
         "agentPane.display.commandLabels"
       ]
     },

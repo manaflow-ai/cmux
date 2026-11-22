@@ -160,9 +160,10 @@ import Testing
         for (button, label) in [(row.minus, "Zoom Out"), (row.plus, "Zoom In"), (row.resetButton, "Actual Size")] {
             #expect(button.accessibilityRole() == .button)
             #expect(button.accessibilityLabel() == label)
-            #expect(button.toolTip?.hasPrefix(label) == true)
+            #expect(button.themedToolTip == label, "the tooltip names the button")
+            #expect(button.toolTip == nil, "the stock bubble drew")
         }
-        #expect(row.plus.toolTip == "Zoom In (⌘=)", "the button's tooltip names its shortcut")
+        #expect(row.plus.themedToolTipShortcut == "⌘=", "the tooltip's keycap shows the shortcut")
         #expect(row.plus.accessibilityPerformPress())
         #expect(fixture.target.ran == ["Zoom In"])
     }
