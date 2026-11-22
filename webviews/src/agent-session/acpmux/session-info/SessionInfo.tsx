@@ -57,7 +57,8 @@ import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection } from "./ChangesSection";
 import { visibleChanges, type SessionInfoPullRequestStatus } from "./changesSectionModel";
 import { ConnectorsSection } from "./ConnectorsSection";
-import { summarizeConnectors } from "./connectorState";
+import { pendingConnectors, summarizeConnectors } from "./connectorState";
+import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { useIMessage, type IMessageView } from "./imessage";
 import { EnvironmentSection, type ProjectRowLook } from "./EnvironmentSection";
 import { SessionInfoSectionList, type SessionInfoCompactLook } from "./SessionInfoGroup";
@@ -633,7 +634,10 @@ export function SessionInfo({
     [madeFiles, missing],
   );
   const mcp = summary?.mcpServers ?? [];
-  const connectorSummary = summarizeConnectors(mcp);
+  // A server still starting counts as loaded until its start has lasted the shared bound
+  // (useConnectionQuietKeys, CONNECTION_QUIET_MS): no "1 connecting" for the second it takes.
+  const pendingSaid = useConnectionQuietKeys(pendingConnectors(mcp));
+  const connectorSummary = summarizeConnectors(mcp, pendingSaid);
   const runningTasks = commands.filter((command) => command.state === "running").length;
   // Subagents shows only for a chat that has subagents or started chats: one that never used them
   // shows nothing.

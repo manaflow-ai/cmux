@@ -58592,134 +58592,134 @@
         }
       }
     },
-    "commandRules.connecting": {
+    "commandRules.ssh": {
       "comment": "Agent pane: a background ssh session with no command; {host} is the machine",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "جارٍ الاتصال بـ {host}"
+            "value": "SSH إلى {host}"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Povezivanje na {host}"
+            "value": "SSH na {host}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Forbinder til {host}"
+            "value": "SSH til {host}"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Verbindung zu {host}"
+            "value": "SSH zu {host}"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connecting to {host}"
+            "value": "SSH to {host}"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Conectando a {host}"
+            "value": "SSH a {host}"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Connexion à {host}"
+            "value": "SSH vers {host}"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Connessione a {host}"
+            "value": "SSH su {host}"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{host} に接続中"
+            "value": "{host} への SSH"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កំពុងភ្ជាប់ទៅ {host}"
+            "value": "SSH ទៅ {host}"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{host}에 연결 중"
+            "value": "{host}(으)로 SSH"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kobler til {host}"
+            "value": "SSH til {host}"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Łączenie z {host}"
+            "value": "SSH do {host}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Conectando a {host}"
+            "value": "SSH para {host}"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Подключение к {host}"
+            "value": "SSH к {host}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "กำลังเชื่อมต่อกับ {host}"
+            "value": "SSH ไปยัง {host}"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{host} sunucusuna bağlanılıyor"
+            "value": "{host} için SSH"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Підключення до {host}"
+            "value": "SSH до {host}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đang kết nối tới {host}"
+            "value": "SSH tới {host}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "正在连接 {host}"
+            "value": "SSH 到 {host}"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "正在連線至 {host}"
+            "value": "SSH 至 {host}"
           }
         }
       }
@@ -224640,134 +224640,134 @@
         }
       }
     },
-    "subagents.state.disconnected": {
+    "subagents.state.stopped": {
       "comment": "Agent pane",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "انقطع الاتصال"
+            "value": "متوقفة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Veza prekinuta"
+            "value": "Zaustavljeno"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afbrudt"
+            "value": "Stoppet"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Getrennt"
+            "value": "Gestoppt"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disconnected"
+            "value": "Stopped"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desconectado"
+            "value": "Detenida"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Déconnecté"
+            "value": "Arrêtée"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disconnesso"
+            "value": "Interrotta"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "切断"
+            "value": "停止"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បានផ្ដាច់"
+            "value": "បានឈប់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결 끊김"
+            "value": "중지됨"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Frakoblet"
+            "value": "Stoppet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rozłączono"
+            "value": "Zatrzymane"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desconectado"
+            "value": "Interrompida"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отключено"
+            "value": "Остановлена"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตัดการเชื่อมต่อแล้ว"
+            "value": "หยุดแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bağlantı kesildi"
+            "value": "Durduruldu"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Відключено"
+            "value": "Зупинено"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đã ngắt kết nối"
+            "value": "Đã dừng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已断开"
+            "value": "已停止"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "已中斷連線"
+            "value": "已停止"
           }
         }
       }

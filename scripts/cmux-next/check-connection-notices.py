@@ -99,13 +99,17 @@ KEY_SHAPE = re.compile(r"^[A-Za-z0-9_]+(?:[.\-][A-Za-z0-9_]+)+$")
 
 # An error or failure type's text is the outcome of something the person did (raw-error-text-in-the-ui.md owns it).
 ERROR_TYPE = re.compile(r"(Error|Failure|Errors|Failures)$")
+# The same outcome as a function: the words for a send or a start the person just asked for that did not go
+# through (failedSendText, startFailureNotice). Their copy names the cause and its one way out.
+OUTCOME_UNIT = re.compile(r"^failed[A-Z]\w*(Text|Line|Notice)$|Failure(Text|Line|Notice)$")
 
 # A time gate: the shared bound, and helpers that hold a state before it shows. Each one names, in its own file, a
 # hold of at least the policy bound or the shared constant itself.
 TIME_GATES = re.compile(
     r"\b("
     r"CONNECTION_QUIET_MS|useConnectionQuiet|connectionQuiet|NoticeTiming|QuietStatusGate"  # the shared bound
-    r"|useLasting|LASTING_MS|useAfterDelay|RESUME_NOTE_DELAY_MS|HOST_ERROR_DEADLINE_MS|hostErrorShows"  # web holds
+    r"|useLasting|useLastingKeys|useConnectionQuietKeys|LASTING_MS|useAfterDelay|RESUME_NOTE_DELAY_MS"  # web holds
+    r"|HOST_ERROR_DEADLINE_MS|hostErrorShows|hostRecoveryLine"
     r"|revealDelay|NoticePolicy|noticePolicy|RemoteLatencyHold|QuietHold"  # native holds
     r")\b"
 )
@@ -394,7 +398,7 @@ def scan(tree: Tree) -> list[Unit]:
     for unit in units.values():
         unit.lines = []
         unit.numbers = []
-    return [u for u in units.values() if u.hits and not ERROR_TYPE.search(u.name)]
+    return [u for u in units.values() if u.hits and not ERROR_TYPE.search(u.name) and not OUTCOME_UNIT.search(u.name)]
 
 
 def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]]) -> None:

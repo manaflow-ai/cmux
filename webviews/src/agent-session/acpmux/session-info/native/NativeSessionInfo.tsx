@@ -64,6 +64,8 @@ import { copyText } from "../../conversation/clipboard";
 import { useSubagentLimitController } from "../subagentLimitStepperModel";
 import { useIMessage } from "../imessage";
 import { orderSections } from "./nativeSessionInfoModel";
+import { useConnectionQuietKeys } from "../../../../ui/lasting";
+import { pendingConnectors } from "../connectorState";
 
 const NO_SCHEDULED: readonly SummaryWakeup[] = [];
 
@@ -238,6 +240,9 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const [openLists, setOpenLists] = useState<ReadonlySet<string>>(new Set());
   const [reconnecting, setReconnecting] = useState<Readonly<Record<string, "reconnecting" | "failed">>>({});
   const reconnectingServers = useRef(new Set<string>());
+  // A server still starting says Connecting only once that has lasted the shared bound
+  // (useConnectionQuietKeys, CONNECTION_QUIET_MS), as the page's own Connectors do.
+  const pendingSaid = useConnectionQuietKeys(pendingConnectors(summary?.mcpServers ?? []));
   const [changesAll, setChangesAll] = useState(false);
   const [outputsAll, setOutputsAll] = useState(false);
   const [usageAll, setUsageAll] = useState(false);
@@ -413,6 +418,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           onReconnect: reconnect,
           open: state.sections.connectors,
           reconnecting,
+          pendingSaid,
           imessage,
         },
         actions,
