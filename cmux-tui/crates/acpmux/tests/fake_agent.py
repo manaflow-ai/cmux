@@ -1339,6 +1339,22 @@ def handle_prompt(rid, params):
         sys.stderr.write(text[10:].strip() + "\n")
         sys.stderr.flush()
         os._exit(3)
+    # "quit-after: X" answers the turn, then, idle, prints X on stderr and exits 0 on its own, as
+    # a CLI that quits after its account's 429 does between turns.
+    if text.startswith("quit-after:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "done"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        line = text[len("quit-after:"):].strip()
+
+        def quit_later():
+            time.sleep(0.5)
+            sys.stderr.write(line + "\n")
+            sys.stderr.flush()
+            time.sleep(0.2)
+            os._exit(0)
+
+        threading.Thread(target=quit_later, daemon=True).start()
+        return
     # "overloaded: X": the provider's overload with no HTTP status in the text.
     # "surfaces-tour": one turn that draws every content surface of the chat (design/chat-surfaces.md,
     # scripts/cmux-next/chat-surfaces-shots.py): a plan, a shell call with its output, a new 55-line
