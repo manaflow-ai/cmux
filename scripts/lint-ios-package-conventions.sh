@@ -87,18 +87,16 @@ scan() { # rule severity pattern carveout(0/1) pathspec...
   local rule="$1" sev="$2" pat="$3" carve="$4"; shift 4
   local paths=("$@")
   if [ -n "$FILES_FROM" ]; then
-    # Only the listed files that live under this scan's own roots. This used to be every listed
-    # file, so a changed macOS package file (out of scope: this lint is the iOS line's) was graded
-    # by iOS conventions, and `namespace autofix` went red on declarations the base already has
-    # (cmux#48267: TunableStore.swift's `static let shared` and `Mutex(State())`).
-    local kept=() listed root
-    for listed in ${TARGET_FILES[@]+"${TARGET_FILES[@]}"}; do
-      for root in ${paths[@]+"${paths[@]}"}; do
-        case "$listed" in "$root"/*) kept+=("$listed"); break ;; esac
+    # The changed files inside this scan's own scope only: these line scans cover the iOS
+    # line (above), so a changed macOS package file (CmuxNext's sanctioned singletons) is not theirs.
+    local scoped=() file scope
+    for file in ${TARGET_FILES[@]+"${TARGET_FILES[@]}"}; do
+      for scope in ${paths[@]+"${paths[@]}"}; do
+        case "$file" in "$scope"/*) scoped+=("$file"); break ;; esac
       done
     done
-    [ "${#kept[@]}" -gt 0 ] || return 0
-    paths=("${kept[@]}")
+    [ "${#scoped[@]}" -gt 0 ] || return 0
+    paths=("${scoped[@]}")
   fi
   local grep_args
   if [ -n "$FILES_FROM" ]; then
