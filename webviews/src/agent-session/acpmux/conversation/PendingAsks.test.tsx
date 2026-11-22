@@ -9,7 +9,7 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
 import { nextStepAsk } from "./nextStepAsk";
 import { PendingAsks } from "./PendingAsks";
-import { askKey, dismissAsk, dismissedAsks, shownAsks } from "./waitingAskStore";
+import { askKey, dismissAsk, dismissedAsks, resetAnswerClaims, shownAsks } from "./waitingAskStore";
 import { NextStepRow } from "../rows/NextStepRow";
 import { TurnActionsContext } from "./turnActions";
 import { NEXT_STEP, turnView, turnViewFrom, waitingAsks } from "./turns";
@@ -47,6 +47,7 @@ function installDom(): HTMLElement {
 }
 
 afterEach(async () => {
+  resetAnswerClaims();
   if (root) await act(async () => root!.unmount());
   root = undefined;
   await settleReact();
@@ -147,13 +148,72 @@ test("question, a peer message's turn, then the answer through the card reaches 
       <PendingAsks asks={pinned} onAnswer={answer} onDismiss={() => undefined} asker="Codex" />
     </TurnActionsContext.Provider>,
   );
-  const [inline, pinnedYes] = buttons(container).filter((b) => b.textContent?.includes("Yes"));
+  const [inline] = buttons(container).filter((b) => b.textContent?.includes("Yes"));
   await act(async () => inline!.click());
-  await act(async () => pinnedYes!.click());
   const reply = "> Codex: Do you mean computer use, still working while the Mac is locked?\n\nYes";
-  expect(sent).toEqual([reply, reply]);
+  expect(sent).toEqual([reply]);
+  // Both copies show the answer at once and offer no second send.
+  expect(container.querySelectorAll(".acpmux-next-step--picked")).toHaveLength(2);
+  expect(buttons(container).some((b) => b.textContent?.includes("Yes"))).toBe(false);
   // Once sent, the person's prompt settles the card in the transcript and leaves the pinned list.
   const answered = [...rows, line("p2", "user", { text: reply })];
   expect(turnView(answered, new Set()).find((row) => row.kind === NEXT_STEP)?.nextStep?.answer).toBe("Yes");
   expect(waitingAsks(turnViewFrom(answered, new Set()))).toEqual([]);
+});
+
+// Leo, 2026-11-19, on two identical "Needs your input" cards stacked over his coordinator's composer:
+// "odd looking". The coordinator's wakes called wrap_up with the same ask on two turns, and each
+// turn's card was pinned. One ask pins one card: the newest.
+test("the same ask asked again on a later turn pins one card, the newest", () => {
+  let at = 0;
+  const line = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}) =>
+    ({ id, version: 1, at: (at += 1000), kind, ...extra }) as AcpmuxRow;
+  const peer = (id: string) =>
+    line(id, "user", {
+      text: "Pushed abc123.",
+      untyped: true,
+      incoming: { kind: "message", message: { name: "peer-lane", text: "Pushed abc123.", raw: "Pushed abc123." } },
+    } as Partial<AcpmuxRow>);
+  const ask = "[taste] Let our pool's results count for the required checks?\n- Yes, count them\n- Not now";
+  const again = ask.replace("Let our", "let  our");
+  const rows = [
+    line("p1", "user", { text: "Go." }),
+    line("a1", "assistant", { text: ask }),
+    line("s1", "turnSummary", { status: "completed" }),
+    peer("m1"),
+    line("a2", "assistant", { text: again }),
+    line("s2", "turnSummary", { status: "completed" }),
+    peer("m2"),
+    line("a3", "assistant", { text: "Noted." }),
+    line("s3", "turnSummary", { status: "completed" }),
+  ];
+  const view = turnViewFrom(rows, new Set());
+  const pinned = waitingAsks(view);
+  expect(pinned).toHaveLength(1);
+  const cards = view.rows.filter((row) => row.kind === NEXT_STEP);
+  expect(cards).toHaveLength(2);
+  expect(pinned[0]).toBe(cards[1]!);
+});
+
+// Leo, 2026-11-19: "plus it's not instant yet". A click sends at once, and the card shows the picked
+// answer in place while the answer goes and once it went: no buttons come back before the
+// transcript reads the person's prompt.
+test("a click shows the picked answer in place at once and after the send", async () => {
+  let release!: () => void;
+  const sent: string[] = [];
+  const container = await render(
+    <PendingAsks
+      asks={[asked]}
+      onAnswer={(text) => (sent.push(text), new Promise<void>((resolve) => (release = resolve)))}
+      onDismiss={() => undefined}
+      asker="Claude Code"
+    />,
+  );
+  await act(async () => named(container, "Inline").click());
+  expect(sent).toHaveLength(1);
+  expect(container.querySelector(".acpmux-next-step--picked .is-picked")?.textContent).toContain("Inline");
+  expect(buttons(container).some((b) => b.textContent?.includes("Box"))).toBe(false);
+  await act(async () => release());
+  expect(container.querySelector(".acpmux-next-step--picked .is-picked")?.textContent).toContain("Inline");
+  expect(buttons(container).some((b) => b.textContent?.includes("Box"))).toBe(false);
 });

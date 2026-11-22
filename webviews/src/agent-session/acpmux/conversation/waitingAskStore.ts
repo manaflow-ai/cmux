@@ -112,16 +112,19 @@ export function claimAnswer(key: string, text: string, at = Date.now()): void {
   }
 }
 
-/// Forgets the claims and dismissals read so far (tests, a storage swap).
+/// Forgets the claims, dismissals and answers on their way read so far (tests, a storage swap).
 export function resetAnswerClaims(): void {
   claims = undefined;
   memory = undefined;
+  answerStates.clear();
 }
 
 /// An answer on its way from a card, by the card's key: the copy in the transcript and the pinned
 /// copy are the same question, so a click on one disables both, and a failure shows on both.
-/// `sending` is the answer's label while it goes; `failed` that the last one did not.
-export type AnswerState = { sending?: string; failed?: boolean };
+/// `sending` is the answer's label while it goes; `sent` the label once acpmux took it, which the card
+/// shows as its answer until the transcript reads the person's prompt (Leo, 2026-11-19: "plus it's
+/// not instant yet"); `failed` that the last one did not go.
+export type AnswerState = { sending?: string; sent?: string; failed?: boolean };
 const answerStates = new Map<string, AnswerState>();
 const listeners = new Set<() => void>();
 const IDLE: AnswerState = {};
@@ -129,7 +132,7 @@ const IDLE: AnswerState = {};
 export const answerState = (key: string): AnswerState => answerStates.get(key) ?? IDLE;
 
 export function setAnswerState(key: string, state: AnswerState): void {
-  if (!state.sending && !state.failed) answerStates.delete(key);
+  if (!state.sending && !state.sent && !state.failed) answerStates.delete(key);
   else answerStates.set(key, state);
   for (const listener of listeners) listener();
 }

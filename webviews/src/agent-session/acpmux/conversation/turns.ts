@@ -1064,14 +1064,21 @@ function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): n
 export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonly AcpmuxRow[] {
   const { nextSteps, rows } = view;
   const waiting: AcpmuxRow[] = [];
+  // The asks seen so far, newest first, by what they ask (`askIdentity`): an agent that asks the
+  // same thing again on a later turn (a coordinator's wake calling wrap_up again) asked one question,
+  // and only its newest card pins. Leo, 2026-11-19, on two identical stacked cards: "odd looking".
+  const asked = new Set<string>();
   for (let index = nextSteps.length - 1; index >= 0; index -= 1) {
     const { at, spoke } = nextSteps[index]!;
     const card = rows[at];
     const step = card?.nextStep;
     if (!card || !step) continue;
     if (step.superseded) break;
+    const identity = askIdentity(step.ask);
+    const repeated = asked.has(identity);
+    asked.add(identity);
     // Answered, or the person said something after it: it leaves the pin, its card stays answerable.
-    if (!step.ask.question || step.answer !== undefined || spoke) continue;
+    if (!step.ask.question || step.answer !== undefined || spoke || repeated) continue;
     waiting.push(card);
   }
   if (!waiting.length) return NO_ASKS;
@@ -1081,6 +1088,12 @@ export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonl
   return waiting.length ? waiting.reverse() : NO_ASKS;
 }
 const NO_ASKS: readonly AcpmuxRow[] = [];
+
+/// What an ask asks, whichever turn asked it: its question and its answers, case and spacing aside.
+const askIdentity = (ask: NextStepAsk) =>
+  [ask.question, ...ask.options.map((option) => option.label)]
+    .map((part) => part.trim().replace(/\s+/g, " ").toLowerCase())
+    .join("\u0000");
 
 /// A turn as drawn, kept while its rows (by identity) and what shapes them stay the same: a long
 /// chat's snapshot rebuilds only the turns that changed, and an unchanged turn's derived rows stay
