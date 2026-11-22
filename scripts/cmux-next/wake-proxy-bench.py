@@ -41,6 +41,11 @@ import bench_memory as bm  # noqa: E402  (launch, App, bundle_pids, process_tabl
 
 ECHO_TIMEOUT_S = 20.0
 ANSWER_TIMEOUT_S = 20.0
+PROMPT_TIMEOUT_S = 30.0
+# The shell the bench types into: zsh with no startup files. The app launches with a scratch HOME, where a login zsh
+# has no dotfiles; it runs no rc files, no new-user menu and no plugins, so the first prompt is up at once and each
+# typed line runs as typed (typing-frame-bench.py makes its typed terminal the same way).
+SHELL_COMMAND = "exec /bin/zsh -f"
 
 
 def descendants(roots: set[int], table: list[tuple[int, int, str]]) -> set[int]:
@@ -98,6 +103,8 @@ class Terminal:
         self.env = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_SOCKET_PATH": app.socket, "CMUX_QUIET": "1",
                     "HOME": os.environ.get("HOME", "/tmp")}
         self.surface = self.workspace = None
+        self.last_write: dict = {}
+        self.last_expect: str | None = None
 
     def argv(self, *args) -> list[str]:
         # The app's control socket (`--app-socket`), as bench_memory.App and the other benches of this build call it.
@@ -110,7 +117,7 @@ class Terminal:
     def open(self) -> str:
         """A new focused workspace (`workspace create --focus`, as attention-ring-clear-live and
         automation-typing-bench make theirs), shown in the window, and its terminal (the daemon's `term_...`)."""
-        done = self.cli("--json", "workspace", "create", "--name", "wake-proxy", "--focus")
+        done = self.cli("--json", "workspace", "create", "--name", "wake-proxy", "--focus", "--shell", SHELL_COMMAND)
         try:
             made = json.loads(done.stdout)
         except ValueError:
@@ -124,9 +131,47 @@ class Terminal:
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             if self.view_panes():
-                return term
+                break
             time.sleep(0.5)  # test script: the workspace's terminal view appears by itself
-        raise SystemExit(f"wake-proxy: {workspace} never showed its terminal; panes {self.pane_summary()}")
+        else:
+            raise SystemExit(f"wake-proxy: {workspace} never showed its terminal; panes {self.pane_summary()}")
+        # The shell's first prompt on the daemon's screen: a line typed before the shell reads its terminal can be
+        # eaten by its startup, and the echo would wait for nothing.
+        deadline = time.monotonic() + PROMPT_TIMEOUT_S
+        while time.monotonic() < deadline:
+            if self.screen_text().strip():
+                return term
+            time.sleep(0.25)  # test script: the shell starts by itself
+        raise SystemExit(f"wake-proxy: {term}'s shell drew no prompt in {PROMPT_TIMEOUT_S:.0f} s; {json.dumps(self.diagnose())}")
+
+    def screen_text(self) -> str:
+        """The daemon's screen of the typed terminal (`terminal ID screen read`): what the shell printed, apart from
+        whether the app's view drew it."""
+        try:
+            done = self.cli("terminal", self.surface, "screen", "read", timeout=ECHO_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            return ""
+        return done.stdout if done.returncode == 0 else ""
+
+    def diagnose(self, expect: str | None = None) -> dict:
+        """Where a typed line got lost, for the report: the write's answer, the daemon's screen (the shell's side) and
+        every terminal view of the window with its tab, focus and drawing state (the app's side)."""
+        expect = expect or self.last_expect
+        screen = self.screen_text()
+        reply = self.app.call("debug.surfaces", {"text": True}, timeout=ECHO_TIMEOUT_S)
+        panes = []
+        for window in reply.get("windows") or []:
+            for p in window.get("panes") or []:
+                text = str(p.get("text") or "")
+                panes.append({k: p.get(k) for k in ("pane", "kind", "workspace", "focused", "presence", "selected_tab",
+                                                    "shown_tab", "blank_reason", "attach", "link", "phase")}
+                             | {"drawing": (p.get("surface") or {}).get("drawing"),
+                                "text_chars": len(text), "text_tail": text.strip()[-160:]})
+        return {"terminal": self.surface, "workspace": self.workspace, "write": self.last_write,
+                "screen_tail": screen.strip()[-400:], "expect": expect,
+                "expect_on_screen": bool(expect) and expect in screen.replace("\n", ""),
+                "expect_in_view": bool(expect) and expect in self.view_text().replace("\n", ""),
+                "panes": panes or reply}
 
     def view_panes(self) -> list[dict]:
         """The terminal views that draw this workspace (a pane's `workspace`, as shared-space-windows-e2e reads it),
@@ -149,9 +194,20 @@ class Terminal:
         a, b = random.randrange(1 << 20), random.randrange(1 << 20)
         # `\r` is Return to the shell, as evicted-terminal-frame-live and bench_workspace_hibernation type it.
         proc = subprocess.Popen(self.argv("terminal", self.surface, "write", "--text", f"echo wake-$(({a}+{b}))\r"),
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
-                                env=self.env)
-        return proc, f"wake-{a + b}"
+                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
+                                env=self.env, text=True)
+        self.last_expect = f"wake-{a + b}"
+        return proc, self.last_expect
+
+    def finish_write(self, proc: subprocess.Popen) -> None:
+        """Waits for the write and keeps its answer: a refused write is the reason no echo came, not a slow app."""
+        try:
+            _, err = proc.communicate(timeout=30)
+            self.last_write = {"exit": proc.returncode, "stderr": (err or "").strip()[-300:]}
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            self.last_write = {"exit": None, "stderr": "write timed out after 30 s"}
 
     def wait_text(self, expect: str, since: float) -> float | None:
         while time.monotonic() - since < ECHO_TIMEOUT_S:
@@ -166,7 +222,7 @@ class Terminal:
         try:
             return self.wait_text(expect, start)
         finally:
-            proc.wait(timeout=30)
+            self.finish_write(proc)
 
 
 def app_answer_ms(app: bm.App, since: float) -> float | None:
@@ -196,9 +252,12 @@ def run_round(bundle: str, app_pid: int, app: bm.App, term: Terminal | None, sle
     proc, expect = term.echo_start()  # the key press right at the wake
     answer = app_answer_ms(app, resumed)
     echo = term.wait_text(expect, resumed)
-    proc.wait(timeout=30)
-    return {"sleep_s": sleep_s, "frozen": len(stopped), "awake_echo_ms": awake, "app_answer_ms": answer,
-            "terminal_echo_ms": echo}
+    term.finish_write(proc)
+    entry = {"sleep_s": sleep_s, "frozen": len(stopped), "awake_echo_ms": awake, "app_answer_ms": answer,
+             "terminal_echo_ms": echo}
+    if echo is None:
+        entry["missed"] = term.diagnose(expect)
+    return entry
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -219,11 +278,13 @@ def main(argv: list[str] | None = None) -> int:
         try:
             term.open()
             if term.echo() is None:
-                raise SystemExit(f"the terminal never echoed before any freeze; panes {term.pane_summary()}")
+                diag = term.diagnose()
+                report["terminal_diag"] = diag
+                raise SystemExit(f"the terminal never echoed before any freeze; {json.dumps(diag)}")
         except (SystemExit, subprocess.SubprocessError, OSError) as error:
             # The app's answer still says how long a wake holds it; the echo rows stay empty (missed_rounds counts
             # them) and the report says why, instead of the part measuring nothing.
-            report["terminal_error"] = str(error)[:800]
+            report["terminal_error"] = str(error)[:4000]
             print(f"wake-proxy: no terminal echo, timing the app only: {report['terminal_error']}", flush=True)
             term = None
         for index in range(args.rounds):
