@@ -247,7 +247,7 @@ pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
 mod tests {
     use super::*;
 
-    /// Claude Code's whole error on a Freestyle lane (2026-11-22, fs-agent-lane-3).
+    /// Claude Code's whole error on a Freestyle lane (2026-11-22).
     const CLAUDE_TLS_UNVERIFIED: &str = "API Error: Unable to connect to API: SSL certificate verification failed (UNABLE_TO_VERIFY_LEAF_SIGNATURE). The certificates the server sent don't lead to a trusted authority. If the server leaves out an intermediate certificate, which browsers fetch by themselves, whoever runs it must have it send its full chain. If it is a TLS-inspecting corporate proxy or a gateway signed by a private CA, set NODE_EXTRA_CA_CERTS to that CA bundle, or add it to the system certificate store · see https://code.claude.com/docs/en/network-config";
 
     #[test]
