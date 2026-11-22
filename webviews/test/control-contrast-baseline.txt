@@ -128,6 +128,7 @@ button.cv-iconbtn.cv-iconbtn--compact icon 1.56
 button.cv-iconbtn.cv-iconbtn--compact.cv-fork-button icon 1.70
 button.cv-iconbtn.cv-iconbtn--compact.cv-message-pin icon 2.19
 button.cv-iconbtn.cv-iconbtn--compact.cv-read-aloud icon 1.56
+button.cv-iconbtn.cv-iconbtn--compact.cv-turn-error__dismiss icon 2.53
 button.cv-iconbtn.cv-iconbtn--compact.cv-waterfall-toggle icon 2.36
 button.cv-memory__button.is-accept text 1.25
 button.cv-preset-approval__button.is-primary text 1.25
