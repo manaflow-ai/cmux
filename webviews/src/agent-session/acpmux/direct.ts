@@ -118,6 +118,7 @@ import {
   SETTLED_ATTACH_CAPABILITY,
   USAGE_KIND,
   attachedDetail,
+  forwardAttachRefused,
   plainAttach,
   settledAttachFailed,
 } from "./attachParams";
@@ -7732,21 +7733,38 @@ export class AcpmuxDirectClient {
   private sendAttach(sessionId: string, generation: number, reads: boolean, afterSeq?: number): SentAttach {
     const visible = readerHere();
     const hold = this.chatRows.holds(sessionId) ? holdAttach(sessionId, visible) : undefined;
-    const ask = (settled: boolean) =>
+    // `forward: false` drops `afterSeq` (an `undefined` argument would take the default back).
+    const ask = (settled: boolean, forward = true) =>
       this.typed(
         "_acpmux/attach",
         hold ??
-          plainAttach(sessionId, { settled, visible, local: this.localOrigin, maxBytes: OPEN_PAGE_BYTES, afterSeq }),
+          plainAttach(sessionId, {
+            settled,
+            visible,
+            local: this.localOrigin,
+            maxBytes: OPEN_PAGE_BYTES,
+            afterSeq: forward ? afterSeq : undefined,
+          }),
       );
     // acpmux answers a settled view it cannot read with a plain page; one that fails the attach over
     // it instead (its error names `settled`) is asked once more without it, so the chat still opens.
+    // So too a reconnect's forward attach that a host refuses as malformed (a relay whose params rule
+    // does not take `afterSeq`, as every one before Leo's 2026-11-22 report): asked again for the
+    // newest page, as every reconnect did before #47119, which `attachWatched` lays as that page. A
+    // reconnect is recoverable, never "cmux blocked opening this chat" over the composer.
     const attaching =
       this.capabilities?.has(SETTLED_ATTACH_CAPABILITY) && !hold && afterSeq === undefined
         ? ask(true).catch((error: unknown) => {
             if (!settledAttachFailed(error)) throw error;
             return ask(false);
           })
-        : ask(false);
+        : !hold && afterSeq !== undefined
+          ? ask(false).catch((error: unknown) => {
+              if (!forwardAttachRefused(error)) throw error;
+              this.wire.lifecycle("forward attach refused, asked the newest page", { sessionId, afterSeq });
+              return ask(false, false);
+            })
+          : ask(false);
     const out = { sessionId };
     this.attachOut = out;
     const settled = () => {
@@ -12756,6 +12774,8 @@ export class AcpmuxDirectClient {
         () => {
           if (heldForHost) heldUntil = Date.now();
           heldForHost = false;
+          // The perf watch's new-chat span: the first prompt since the handshake (perfReporter.ts).
+          acpmuxPerf.markAgent("promptSent");
           return this.request(
             "session/prompt",
             {
@@ -15859,6 +15879,12 @@ export class AcpmuxDirectClient {
         models: models.get(profile.id) ?? profile.models,
       })),
     ];
+  }
+  /// The perf watch (`_acpmux/perf`, perf_watch.rs): the Inspector's Perf tab turns it on and reads
+  /// it, and perfReporter.ts reports the page's own timings. A `read` with `waitMs` waits for the
+  /// next event (at most 30 s).
+  perf(params: Record<string, unknown>): Promise<unknown> {
+    return this.request("_acpmux/perf", params);
   }
   /// Another machine's agents: acpmux forwards `_acpmux/harnesses` to the peer `_meta.acpmux.peer`
   /// names (requests.rs, 5 s limit) and answers with that machine's reply plus `peer`. The composer
