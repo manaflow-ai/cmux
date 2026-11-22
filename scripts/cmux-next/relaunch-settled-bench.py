@@ -116,8 +116,12 @@ def resolve_ref(ref: str) -> tuple[str, int | None]:
 def pick_dev_golden(sha: str) -> dict:
     """The nearest published DEV build at or behind SHA's merge base with feat-cmux-next."""
     anchor = hv.golden_anchor(ROOT, sha)
-    notes: list[str] = []
-    builds = [b for b in hv.golden_candidates(ROOT, anchor, None, notes) if b["kind"] in DEV_KINDS]
+    for attempt in range(3):  # a feed that did not answer once (a slow CDN edge) answers the next try
+        notes: list[str] = []
+        builds = [b for b in hv.golden_candidates(ROOT, anchor, None, notes) if b["kind"] in DEV_KINDS]
+        if builds:
+            break
+        time.sleep(5)
     if not builds:
         raise SystemExit(f"no published DEV build at or behind {anchor[:12]}: {notes}")
     build = builds[0]
