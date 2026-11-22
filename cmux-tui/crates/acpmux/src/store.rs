@@ -479,6 +479,13 @@ pub struct SessionMeta {
     /// such a prompt again. Kept on disk with the rest of its meta.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub throwaway: bool,
+    /// The journal seq the agent's own session ends at, when the journal went past it without
+    /// the agent: records its owner kept went back in (`hub/journal_restore.rs`, a session moved
+    /// to a fresh machine from an older disk). The agent resumes its own older session, so its
+    /// next prompt carries the turns after this seq (`hub/transcript.rs` `missed_turns`), and the
+    /// mark goes. Saved with the meta: the agent's file and this mark are on one disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_behind_seq: Option<u64>,
     /// When (Unix ms) the idle exit hibernated its agent, 0 when no start woke it since
     /// (`hub/idle.rs`): after a restart, opening it wakes it and its wake draws no row, as
     /// before the restart, and the wake's log says how long it slept.
@@ -488,6 +495,12 @@ pub struct SessionMeta {
     /// adopts that host (`hub/idle_census.rs`, `StoredLaunch`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idle_launch: Option<crate::sidecar_census::StoredLaunch>,
+    /// The level (`agent_host::HOST_LEVEL`) at which this daemon's build started the chat's live
+    /// host, by that host's incarnation (`hub/host_level.rs` `note_start_level`): what the start
+    /// asked of the agent (whether it suggests next prompts) is decided there, by the daemon, not
+    /// by the host's binary. None: an older daemon started it, or none yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_level: Option<StartLevel>,
     /// Where the chat went when it moved to another daemon (`hub/transfer_out.rs` commit:
     /// `{host?, sessionId, cwd?, branch?, commit?, socket?}`). Set once, never cleared here: a
     /// moved chat takes no prompt and never starts its agent on this daemon again (one writer),
@@ -714,6 +727,13 @@ pub struct Lineage {
     /// The parent's tool call that started it, when acpmux could tell.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+}
+
+/// `SessionMeta::start_level`: the level a daemon started host `incarnation` at.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StartLevel {
+    pub incarnation: String,
+    pub level: u32,
 }
 
 /// Who created a session (`hub/created_by.rs`), the shape cmux-tui's

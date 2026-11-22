@@ -18,6 +18,7 @@ import { Lock, Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { OPS, type ImportCounts, type ImportRow, type ImportState } from "./ops";
 import { HostIcon, useOnboarding } from "./parts";
 import { countsLine, importRowDetail, importStatus, keychainLine, kindLabel } from "./text";
+import { intl } from "../../ui/intl";
 
 /** Row slots kept mounted, so detection fills them in place. */
 export const IMPORT_ROW_SLOTS = 4;
@@ -359,9 +360,9 @@ function browsersOf(importer: ImportState, keep: (row: Extract<ImportRow, { kind
 
 function listOf(names: string[], language: string): string {
   try {
-    return new Intl.ListFormat(language, { type: "conjunction" }).format(names);
+    return intl.ListFormat(language, { type: "conjunction" }).format(names);
   } catch {
-    return new Intl.ListFormat("en", { type: "conjunction" }).format(names);
+    return intl.ListFormat("en", { type: "conjunction" }).format(names);
   }
 }
 

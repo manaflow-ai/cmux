@@ -32,14 +32,14 @@ extension ControlMethod {
                 guard let id = call.params["id"]?.stringValue, !id.isEmpty else {
                     throw ControlError(code: "invalid_params", message: String(localized: "notifications.control.openNeedsID",
                         defaultValue: "params.id names the banner to open (an id notifications.banners lists)",
-                        table: "NotificationsPanel", bundle: .module))
+                        table: "NotificationsPanel", bundle: .localizedModule))
                 }
                 guard let notifier = notifier() else { return .value(.null) }
                 // The newest banner with that id: a repeated id is the same tab's later banner.
                 guard let banner = notifier.posted.last(where: { $0.id == id }) else {
                     let message = String(format: String(localized: "notifications.control.bannerNotFound",
                         defaultValue: "No banner %@: notifications.banners lists the banners this app asked for",
-                        table: "NotificationsPanel", bundle: .module), id)
+                        table: "NotificationsPanel", bundle: .localizedModule), id)
                     throw ControlError(code: "not_found", message: message, data: ["id": .string(id)])
                 }
                 // A passkey, pairing, attention or Run banner's click acts on the person's intent (a passkey's
@@ -47,7 +47,7 @@ extension ControlMethod {
                 guard banner.id.hasPrefix(DesktopNotifier.tabBannerPrefix) else {
                     let message = String(format: String(localized: "notifications.control.openPersonOnly",
                         defaultValue: "Banner %@ opens only on your click in macOS; notifications.open opens a tab's banner",
-                        table: "NotificationsPanel", bundle: .module), id)
+                        table: "NotificationsPanel", bundle: .localizedModule), id)
                     throw ControlError(code: "person_required", message: message, data: ["id": .string(id)])
                 }
                 notifier.openTab(id: banner.id, surface: banner.surface)
