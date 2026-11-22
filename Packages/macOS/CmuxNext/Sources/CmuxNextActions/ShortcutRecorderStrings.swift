@@ -60,7 +60,7 @@ public nonisolated enum ShortcutRecorderStrings {
     }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "ShortcutRecorder", bundle: .module)
+        String(localized: key, defaultValue: value, table: "ShortcutRecorder", bundle: .localizedModule)
     }
 
     private static func format(_ key: StaticString, _ value: String.LocalizationValue, _ args: any CVarArg...) -> String {

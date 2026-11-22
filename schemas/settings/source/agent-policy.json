@@ -139,6 +139,13 @@
     },
     {
       "agent": "settable",
+      "why": "The language cmux's own text is in; ends no work.",
+      "keys": [
+        "app.language"
+      ]
+    },
+    {
+      "agent": "settable",
       "keys": [
         "tabs.overflow"
       ]
@@ -294,6 +301,7 @@
         "appearance.chromeStyle",
         "appearance.titleAreaTone",
         "appearance.titleAreaContrast",
+        "appearance.twoTone",
         "appearance.cornerFlush",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
