@@ -410,7 +410,7 @@ fn mount(args: &[String]) -> anyhow::Result<()> {
     // Bench only: with SLICE_ASK_LOG set, every ask the overlay makes is timed into that file.
     let fetch: Arc<dyn Fetch> = match std::env::var_os("SLICE_ASK_LOG") {
         Some(path) => Arc::new(Timed {
-            link: link.clone(),
+            link,
             manifest: manifest.clone(),
             log: std::fs::OpenOptions::new().create(true).append(true).open(path)?,
         }),
