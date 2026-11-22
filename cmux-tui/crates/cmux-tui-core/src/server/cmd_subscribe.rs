@@ -478,6 +478,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         }),
         MuxEvent::AgentChanged {
             surface,
+            terminal_id,
             state,
             source,
             session,
@@ -486,18 +487,25 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             updated_at_ms,
             since_ms,
             last_prompt,
-        } => json!({
-            "event": "agent-changed",
-            "surface": surface,
-            "state": state.as_ref(),
-            "source": source.as_ref(),
-            "session": session.as_deref(),
-            "agent": agent.as_deref(),
-            "agent_session_id": agent_session_id.as_deref(),
-            "updated_at_ms": updated_at_ms,
-            "since_ms": since_ms,
-            "last_prompt": last_prompt.as_deref(),
-        }),
+        } => {
+            let mut event = json!({
+                "event": "agent-changed",
+                "surface": surface,
+                "state": state.as_ref(),
+                "source": source.as_ref(),
+                "session": session.as_deref(),
+                "agent": agent.as_deref(),
+                "agent_session_id": agent_session_id.as_deref(),
+                "updated_at_ms": updated_at_ms,
+                "since_ms": since_ms,
+                "last_prompt": last_prompt.as_deref(),
+            });
+            // Optional, never null: an older remote daemon's forwarded event names no terminal.
+            if let Some(terminal_id) = terminal_id.as_deref() {
+                event["terminal_id"] = json!(terminal_id);
+            }
+            event
+        }
         MuxEvent::AgentPresenceChanged { surface, presence } => {
             let presence = presence.as_deref();
             json!({

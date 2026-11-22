@@ -268,10 +268,10 @@ pub(super) fn chat(trace: &Value, taken: &Marks, answer: &Value) -> Marks {
         }
     }
     // The turn's own clock on the machine, from the prompt's arrival: the first output and the end, past `send`.
-    if let Some(send) = marks.get("send") {
-        if let Some(first) = answer.pointer("/turn_ms/first_output").and_then(Value::as_u64) {
-            marks.set("first_text", Duration::from_millis(send + first));
-        }
+    if let Some(send) = marks.get("send")
+        && let Some(first) = answer.pointer("/turn_ms/first_output").and_then(Value::as_u64)
+    {
+        marks.set("first_text", Duration::from_millis(send + first));
     }
     marks
 }

@@ -373,6 +373,7 @@ class AgentRecord:
     source: AgentSource
     state: AgentState
     updated_at_ms: int
+    terminal_id: Union[str, MissingType] = field(default=MISSING)
     agent: Union[str, None, MissingType] = field(default=MISSING)
     agent_session_id: Union[str, None, MissingType] = field(default=MISSING)
     last_prompt: Union[str, None, MissingType] = field(default=MISSING)
@@ -2587,6 +2588,8 @@ class AttachSurfaceRequest:
     output_coalesce_ms: Union[int, None, MissingType] = field(default=MISSING)
     replay_history_rows: Union[int, None, MissingType] = field(default=MISSING)
     replay_history_start: Union[int, None, MissingType] = field(default=MISSING)
+    resume_generation: Union[str, None, MissingType] = field(default=MISSING)
+    resume_offset: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     snapshot: Union[str, None, MissingType] = field(default=MISSING)
     snapshot_images: Union[bool, MissingType] = field(default=MISSING)
@@ -5240,6 +5243,7 @@ class ShutdownDaemonRequest:
     generation: str
     force: Union[bool, MissingType] = field(default=MISSING)
     end_terminals: Union[bool, MissingType] = field(default=MISSING)
+    if_idle: Union[bool, MissingType] = field(default=MISSING)
     keep_layout: Union[bool, MissingType] = field(default=MISSING)
     restart: Union[bool, None, MissingType] = field(default=MISSING)
 
@@ -5603,6 +5607,7 @@ class AgentChangedEvent(EventBase):
     source: AgentSource
     state: AgentState
     updated_at_ms: int
+    terminal_id: Union[str, MissingType] = field(default=MISSING)
     agent: Union[str, None, MissingType] = field(default=MISSING)
     agent_session_id: Union[str, None, MissingType] = field(default=MISSING)
     last_prompt: Union[str, None, MissingType] = field(default=MISSING)

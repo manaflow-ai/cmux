@@ -67,6 +67,9 @@ pub enum MuxEvent {
     /// The latest agent state for one surface changed.
     AgentChanged {
         surface: SurfaceId,
+        /// The terminal's public id (`term_…`): a client finds every tab that shows the terminal by
+        /// it, whatever surface a restore or a reopen gave the tab. `None` from an older daemon.
+        terminal_id: Option<Arc<str>>,
         state: Arc<str>,
         source: Arc<str>,
         session: Option<Arc<str>>,

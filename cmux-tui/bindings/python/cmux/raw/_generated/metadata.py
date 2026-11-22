@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'c2d305b12cb27ffd20f76a0147e95213dd4b1b84870902ec22ec7126da8c7e75'
+IR_SHA256 = '2e0877c88adc3bd75bf9e49964f9345f01e89bccf21a8b32cbba5f203a9bd76f'
 
 
 @dataclass(frozen=True)
@@ -107,6 +107,8 @@ COMMANDS = {
             'output_coalesce_ms': CommandFieldMetadata(None, 'attach-output-coalesce-v1'),
             'replay_history_rows': CommandFieldMetadata(None, 'attach-replay-history-rows-v1'),
             'replay_history_start': CommandFieldMetadata(None, 'attach-replay-history-window-v1'),
+            'resume_generation': CommandFieldMetadata(None, 'terminal-resume-v1'),
+            'resume_offset': CommandFieldMetadata(None, 'terminal-resume-v1'),
             'rows': CommandFieldMetadata(None, 'attach-initial-size'),
             'snapshot': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
             'snapshot_images': CommandFieldMetadata(None, 'terminal-snapshot-images-v1'),
@@ -3643,6 +3645,7 @@ COMMANDS = {
             'end_terminals': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'force': CommandFieldMetadata(10, 'daemon-handoff-force-v1'),
             'generation': CommandFieldMetadata(None, None),
+            'if_idle': CommandFieldMetadata(12, 'daemon-stop-if-idle-v1'),
             'keep_layout': CommandFieldMetadata(12, 'end-terminals-keep-layout-v1'),
             'pid': CommandFieldMetadata(None, None),
             'restart': CommandFieldMetadata(12, None),

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c2d305b12cb27ffd20f76a0147e95213dd4b1b84870902ec22ec7126da8c7e75. */
+/* cmux-tui mux protocol 12, IR 2e0877c88adc3bd75bf9e49964f9345f01e89bccf21a8b32cbba5f203a9bd76f. */
 
 
 import type * as T from "./types.js";
@@ -23,6 +23,8 @@ export type AgentChangedEvent = { event: "agent-changed" } & {
   "source": T.AgentSource;
   "state": T.AgentState;
   "surface": T.Id;
+  /** The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab. */
+  "terminal_id"?: string;
   "updated_at_ms": bigint;
 };
 
