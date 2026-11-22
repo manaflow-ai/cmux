@@ -708,8 +708,35 @@ async fn a_chat_runs_past_the_old_cap_of_32_tasks_and_every_end_is_sent() {
     assert_eq!(running.count(), TASKS, "{list}");
     std::fs::write(&go, "").unwrap();
     r.until("not every task ended", || ids.iter().all(|t| state(&r, &id, t) == "exited")).await;
+    // 32 ends at once outrun the chat's reply period, so the receiver's surge rate holds most
+    // of them in its inbox (`hub/inbox_surge.rs`) instead of running a turn each: an end has
+    // reached its chat when a turn or a held inbox message names its task.
+    let notified: Vec<&String> = ids.iter().step_by(2).collect();
     r.until("not every notify task's end reached its chat", || {
-        ends(&r.hub, &id).len() == TASKS / 2
+        let seen = reached(&r.hub, &id);
+        notified.iter().all(|t| seen.iter().any(|text| text.contains(t.as_str())))
     })
     .await;
+    let seen = reached(&r.hub, &id);
+    for quiet in ids.iter().skip(1).step_by(2) {
+        assert!(
+            !seen.iter().any(|t| t.contains(quiet.as_str())),
+            "{quiet} had no notify: {seen:?}"
+        );
+    }
+}
+
+/// The task ends chat `id` took: as a turn's message, or held by the surge rate in its inbox.
+fn reached(hub: &Hub, id: &str) -> Vec<String> {
+    let events = hub.events(id, 0, 10_000).unwrap();
+    let held = |e: &&acpmux::store::EventRecord| {
+        e.kind == "inbox" && e.msg["surgeHeld"].as_bool() == Some(true)
+    };
+    events
+        .iter()
+        .filter(|e| e.kind == "user_message" || held(e))
+        .filter_map(|e| e.msg["text"].as_str())
+        .filter(|t| t.contains("Background command"))
+        .map(str::to_owned)
+        .collect()
 }
