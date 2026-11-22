@@ -8,7 +8,7 @@
   padding: var(--ds-space-4, 16px);
   background: Canvas;
   color: CanvasText;
-  font-size: 13px;
+  font-size: var(--text-body);
   line-height: 20px;
 }
 .session-mark[data-scheme="light"] { color-scheme: light; }
@@ -26,7 +26,7 @@
 }
 .session-mark__look[data-look="d"] { border-color: color-mix(in srgb, CanvasText 30%, transparent); }
 .session-mark__look figcaption { display: grid; font-weight: 600; margin-bottom: var(--ds-space-1, 4px); }
-.session-mark__look figcaption small { font-weight: 400; opacity: 0.6; font-size: 11px; line-height: 14px; }
+.session-mark__look figcaption small { font-weight: 400; opacity: 0.6; font-size: var(--text-caption); }
 .session-mark__row { display: flex; align-items: center; gap: var(--ds-space-2, 8px); min-width: 0; }
 .session-mark__row[data-hooked] { padding-left: var(--ds-space-2, 8px); gap: var(--ds-space-1, 4px); }
 .session-mark__icon {
