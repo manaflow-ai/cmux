@@ -213,6 +213,8 @@ pub(super) enum AppCommand {
     /// `cmux live start|stop|status`: edit cmux's web UI while it runs (app/live.rs).
     Live(live::Command),
     Try(try_cmd::Command), // `cmux app try <PR|branch|sha>|undo|status` (app/try_cmd.rs)
+    /// `cmux app share`: the build you run as one `cmux app try` line (app/try_cmd/share.rs).
+    Share(try_cmd::ShareCommand),
     /// `cmux app publish|versions|rollback|ls`: versioned apps from this machine (app/published.rs).
     Published(cmux_apps::cli::Parsed),
     /// `cmux app launch-times`: the app's recorded launches, read from its file (app/launch_times.rs).
@@ -317,6 +319,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("keybinding", _) => keybinding::parse(rest)?,
         ("app", Some("call")) => call::parse(rest)?,
         ("app", Some("try")) => AppCommand::Try(try_cmd::parse(rest.get(1..).unwrap_or_default())?),
+        ("app", Some("share")) => {
+            AppCommand::Share(try_cmd::parse_share(rest.get(1..).unwrap_or_default())?)
+        }
         ("app", _) if published::owns(rest) => {
             AppCommand::Published(published::parse(rest).map_err(UsageError::new)?)
         }
@@ -340,8 +345,10 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             call(REMOTE_VIEWS_METHOD, Value::Object(params))
         }
         // The Mac Screen tabs (`mac_screen.state`, every build): per device tab its
-        // phase, whether a picture is up, time to first frame, fps, round trip and
-        // dropped frames; read-only, never a credential or a pixel of the screen.
+        // state (requesting, waiting_for_approval, connecting, viewing, failed, ...),
+        // the card's error text, whether a picture is up, frame size, time to first
+        // frame, fps, round trip and dropped frames; `--tab` takes the tab's id or its
+        // page key. Read-only, never a credential or a pixel of the screen.
         ("app", Some("mac-screens")) => {
             let options = Options::parse(rest.get(1..).unwrap_or_default(), &["tab"], &[])?;
             let mut params = Map::new();
@@ -887,6 +894,7 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
             return Ran::Done(live::run(&command));
         }
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, command)),
+        AppCommand::Share(command) => return Ran::Done(try_cmd::run_share(global, command)),
         AppCommand::Published(parsed) => return Ran::Done(published::run(global, parsed)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, command)),
         _ => {}
@@ -1036,6 +1044,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             return Ran::Done(live::run(&command));
         }
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, &command)),
+        AppCommand::Share(command) => return Ran::Done(try_cmd::run_share(global, &command)),
         AppCommand::Published(parsed) => return Ran::Done(published::run(global, &parsed)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {

@@ -1,9 +1,19 @@
-import { memo, useSyncExternalStore } from "react";
+import { memo, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { useT } from "../i18n";
+import * as watch from "../layoutWatch";
 import type { AcpmuxRow } from "../model";
 import { NextStepCard } from "./NextStepCard";
+import { pinnedAsk } from "./nextStepAsk";
 import { answeredAsks, askKey, subscribeAnswers } from "./waitingAskStore";
 import "./PendingAsks.css";
+
+/// Declares a move to the transcript motion model's watcher (layoutWatch.expect). It lands with the
+/// motion model; until then this is a no-op.
+const expectMove = (reason: string, rows: string[]) =>
+  (watch as { expect?: (reason: string, move: { rows: string[]; ms: number }) => void }).expect?.(reason, {
+    rows,
+    ms: 0,
+  });
 
 /// The questions still waiting on the person (waitingAskStore.ts), pinned in the bottom stack above the
 /// composer, oldest first, each the transcript's own card (NextStepCard.tsx) under the "Needs your input" line the
@@ -30,13 +40,19 @@ export const PendingAsks = memo(function PendingAsks({
   // `givenAnswer`): its answer may wait in the queue, where no prompt row settles it yet.
   const answered = useSyncExternalStore(subscribeAnswers, answeredAsks, answeredAsks);
   const shown = answered.size ? asks.filter((row) => !answered.has(askKey(row))) : asks;
+  // An answered ask's leave is one declared move: the section and its room go in the click's frame,
+  // the frame the transcript's card folds in.
+  const before = useRef<readonly AcpmuxRow[]>(shown);
+  useLayoutEffect(() => {
+    const left = before.current.filter((row) => answered.has(askKey(row))).map((row) => row.id);
+    before.current = shown;
+    if (left.length) expectMove("pinned ask answered", left);
+  }, [shown, answered]);
   return (
     <>
       {shown.map((row, index) => {
         const step = row.nextStep;
         if (!step) return null;
-        // The recap stays with the turn it sums up; the pinned copy is the question alone.
-        const { recap: _recap, ...ask } = step.ask;
         return (
           <section key={row.id} className="acpmux-pending-ask" aria-label={t("question.needsInput")}>
             <div className="acpmux-pending-ask__head" data-dock-clear="">
@@ -47,7 +63,7 @@ export const PendingAsks = memo(function PendingAsks({
             </div>
             <NextStepCard
               className="ui-glass ui-glass-floats acpmux-stack-material"
-              ask={ask}
+              ask={pinnedAsk(step.ask)}
               onAnswer={onAnswer}
               registerKey={index === shown.length - 1 ? registerKey : undefined}
               answerKey={askKey(row)}
