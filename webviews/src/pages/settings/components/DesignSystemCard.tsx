@@ -1,4 +1,4 @@
-// Settings > Look and Feel > Design System (RFD 0009 slice 8): the design system extension views
+// Settings > Design System (under More) (RFD 0009 slice 8): the design system extension views
 // are drawn with, as this person has it. The Rust side resolves it, layer over layer (cmux, the
 // active theme file's `design` key, design.json beside the settings file), marks each value cmux
 // changed since the person's recorded base, and draws it with the SDK's own DesignSystemView in the

@@ -753,29 +753,6 @@
       },
       {
         "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-
-        ],
-        "id" : "designSystem",
-        "lead" : [
-          "designSystem"
-        ],
-        "symbol" : "textformat.size",
-        "title" : {
-          "key" : "settings.category.designSystem",
-          "text" : "Design System"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
           "terminal"
         ],
         "aliases" : [
@@ -1996,6 +1973,29 @@
 
         ],
         "groups" : [
+
+        ],
+        "id" : "designSystem",
+        "lead" : [
+          "designSystem"
+        ],
+        "symbol" : "textformat.size",
+        "title" : {
+          "key" : "settings.category.designSystem",
+          "text" : "Design System"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
           {
             "key" : "settings.group.computerUse",
             "rows" : [
@@ -2407,8 +2407,7 @@
         "categories" : [
           "appearance",
           "sidebar",
-          "tabs",
-          "designSystem"
+          "tabs"
         ],
         "id" : "look",
         "title" : {
@@ -2467,6 +2466,7 @@
         "categories" : [
           "newTab",
           "menus",
+          "designSystem",
           "computerUse",
           "mcpServers",
           "cloud",

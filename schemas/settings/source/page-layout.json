@@ -37,7 +37,7 @@
     {"id": "tailnet", "note": "Settings > Server > This Mac on Your Tailnet: sign this Mac's own tailnet node in or out (acpmux's embedded node, `_acpmux/tailnet/*`, relayed by the app on its person connection); `cmux.settings.tailnet.*`. Shown only where acpmux answers."},
     {"id": "sharedLinks", "note": "Settings > Privacy and Security > Shared Links: every chat this Mac shared by link or invite, with Revoke and Revoke All (design chat-multiplayer.md 2); `cmux.settings.shares.*`. Deep link: #/settings/privacy?focus=card.sharedLinks."},
     {"id": "customizeLibrary", "note": "Appearance > Customization Library: everything the person applied (an ask, a profile, a kept try-on, an import), kept as entries that turn on and off and stack top first, the higher winning (cmux-customize library.rs); the bundled CLI's `cmux customize library`, `cmux.settings.customize.library`."},
-    {"id": "designSystem", "note": "Settings > Look and Feel > Design System: the resolved design system (`cmux --json ext design --show --scene`, cmux-tui cli/ext/design_layers.rs) as the scene the SDK's DesignSystemView draws, its layers and the layers that did not read; `cmux.settings.designSystem.state`. Deep link: #/settings/designSystem."},
+    {"id": "designSystem", "note": "Settings > Design System: the resolved design system (`cmux --json ext design --show --scene`, cmux-tui cli/ext/design_layers.rs) as the scene the SDK's DesignSystemView draws, its layers and the layers that did not read; `cmux.settings.designSystem.state`. Deep link: #/settings/designSystem."},
     {"id": "keys", "note": "Settings > Keys: the keys agents keep on this Mac (`cmux keys ls`, never a value) with Revoke, and the key requests waiting for the person (`cmux keys request`, answered with Store or Decline; design/settings-keys.md); `cmux.settings.keys.*`. Deep link: #/settings/keys."},
     {"id": "agentCustomization", "note": "Settings > Agents > Claude Code & Codex (labs.agentCustomization, off by default: the card draws nothing): each agent's effective settings with the scope each comes from, the curated keys to edit and Open file per config file (`cmux.settings.agentConfig`, the bundled `cmux --json agent-config settings`), and every Claude Code and Codex hook (Claude settings files, ~/.codex/hooks.json) by agent and event, with its matcher and command, Turn Off / Turn On and Remove on the person's own hooks (`cmux.settings.agentHooks.*`, the bundled `cmux --json agent-config hooks`)."},
     {"id": "mcpServers", "note": "Settings > MCP Servers: the services the person connected for their agents (a connect card in a chat, or a Chief), from the Mac's one store of connections (docs/chief-mcp-hub.md), with Sign In and Remove; `cmux.settings.mcp.*`, which the app runs through the bundled `optchat-chief integrations --json`. Deep link: #/settings/mcpServers."},
@@ -214,14 +214,6 @@
             {"group": "settings.group.panes"},
             {"group": "settings.group.focusRing"}
           ]
-        },
-        {
-          "id": "designSystem",
-          "title": {"key": "settings.category.designSystem", "text": "Design System"},
-          "symbol": "textformat.size",
-          "note": "The design system extension views are drawn with (RFD 0009 slice 8): cmux's, then the active theme file's `design` key, then design.json beside the settings file, resolved in Rust and drawn by the SDK's own DesignSystemView, with each role cmux changed since the person's recorded base marked.",
-          "groups": [],
-          "lead": ["designSystem"]
         }
       ]
     },
@@ -475,6 +467,14 @@
           "note": "Every right-click menu: promote rows out of More, reorder, hide, separators, reset (cmux.json contextMenus). Customize Menu… at the end of each menu opens it on that menu.",
           "groups": [],
           "lead": ["contextMenus"]
+        },
+        {
+          "id": "designSystem",
+          "title": {"key": "settings.category.designSystem", "text": "Design System"},
+          "symbol": "textformat.size",
+          "note": "The design system extension views are drawn with (RFD 0009 slice 8): cmux's, then the active theme file's `design` key, then design.json beside the settings file, resolved in Rust and drawn by the SDK's own DesignSystemView, with each role cmux changed since the person's recorded base marked.",
+          "groups": [],
+          "lead": ["designSystem"]
         },
         {
           "id": "computerUse",

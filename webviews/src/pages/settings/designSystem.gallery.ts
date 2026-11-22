@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures (the CLI's English notes and messages), not shipped UI.
-// Settings > Look and Feel > Design System (DesignSystemCard, RFD 0009 slice 8): the design system
+// Settings > Design System (under More) (DesignSystemCard, RFD 0009 slice 8): the design system
 // extension views are drawn with, resolved in Rust over cmux, the active theme file's `design` key
 // and design.json beside the settings file, and drawn by the SDK's own DesignSystemView (the scene
 // `cmux --json ext design --show --scene` answers; fixtures/design-system-page.json).

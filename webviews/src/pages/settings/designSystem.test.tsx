@@ -27,9 +27,9 @@ async function open(setup?: (provider: MockSettingsProvider) => void) {
   return page;
 }
 
-test("Design System sits in Look and Feel after Tabs and Panes, and draws only its card", () => {
+test("Design System sits under More after Menus, and draws only its card", () => {
   const ids = categories.map((category) => category.id);
-  expect(ids.indexOf("designSystem")).toBe(ids.indexOf("tabs") + 1);
+  expect(ids.indexOf("designSystem")).toBe(ids.indexOf("menus") + 1);
   const category = categories.find((c) => c.id === "designSystem")!;
   expect(category.lead).toEqual(["designSystem"]);
   expect(category.groups).toEqual([]);
