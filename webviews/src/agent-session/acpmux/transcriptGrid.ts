@@ -92,10 +92,19 @@ export const TRANSCRIPT_LINE_TO_LIVE_STEP =
 /// The interface scale the CSS grid tokens multiply by (desktop.css: `calc(24px *
 /// var(--cmux-interface-scale, 1))`). The virtual stack places its gaps with the same factor, so
 /// placed gaps match the drawn ones and the overlays laid in them at any Interface Size. Read once
-/// per layout pass.
+/// per layout pass. The host sets it inline on the root (DesignSettings.swift), so that is read first,
+/// as chatWidth.ts readUIScale does: a computed read makes the browser restyle whatever is dirty first,
+/// and at a page's start that is every element of the chat's drawn copy too (chatSnapshot/paint.ts).
 export function gridScale(): number {
-  if (typeof document === "undefined" || typeof getComputedStyle !== "function") return 1;
-  const raw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--cmux-interface-scale"));
+  if (typeof document === "undefined") return 1;
+  const root = document.documentElement;
+  const inline = root?.style?.getPropertyValue?.("--cmux-interface-scale") ?? "";
+  const raw = parseFloat(
+    inline ||
+      (typeof getComputedStyle === "function" && root
+        ? getComputedStyle(root).getPropertyValue("--cmux-interface-scale")
+        : ""),
+  );
   return Number.isFinite(raw) && raw > 0 ? raw : 1;
 }
 

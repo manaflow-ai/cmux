@@ -84,8 +84,12 @@ const documentLanguages = new WeakMap<Document, { available: readonly string[] }
 export function setDocumentLanguage(language: string): void {
   const root = globalThis.document?.documentElement;
   if (!root) return;
-  root.lang = language;
-  root.dir = isRtlLanguage(language) ? "rtl" : "ltr";
+  // Only a change is written: the page's <head> loader set both already (split-strings.mjs), and a
+  // write of either restyles every element of the page, the chat's drawn copy's shadow tree included
+  // (chatSnapshot/paint.ts), for `:lang()` and `:dir()`: ~1000 elements a page, at its busiest moment.
+  const dir = isRtlLanguage(language) ? "rtl" : "ltr";
+  if (root.lang !== language) root.lang = language;
+  if (root.dir !== dir) root.dir = dir;
 }
 
 function followDocumentLanguage(available: readonly string[]): void {
