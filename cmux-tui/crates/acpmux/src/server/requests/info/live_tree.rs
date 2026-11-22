@@ -12,6 +12,8 @@ pub(super) async fn read(cwd: &Path) -> Value {
     let root = std::env::var_os("LIVETREE_ROOT")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| "/work/livetree".into());
+    // One read of a local status file for the info view.
+    // timeout: a slow disk shows the tree as unavailable instead of holding the view.
     let result = tokio::time::timeout(Duration::from_secs(2), read_at(&root, cwd)).await;
     match result {
         Ok(Ok(value)) => value,

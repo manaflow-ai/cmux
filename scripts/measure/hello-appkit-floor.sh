@@ -32,10 +32,13 @@ for a in "$@"; do
 done
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/hello-floor.XXXXXX")"
+# The probe's control socket must fit sun_path (104 bytes with its NUL), which "$WORK" under a long $TMPDIR may not:
+# a short folder of this run's own under /tmp, made exclusively like launch-ready.sh's LR_SOCKETS.
+SOCKETS="$(mktemp -d /tmp/hf.XXXXXX)" || exit 3
 APP_ID="dev.cmux.measure.hellofloor.$$"
 cleanup() {
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$WORK/HelloFloor.app" >/dev/null 2>&1 || true
-  rm -rf "$WORK"
+  rm -rf "$WORK" "$SOCKETS"
 }
 trap cleanup EXIT
 
@@ -236,11 +239,11 @@ echo "== launch-ready probe arm reps=$REPS"
 xcrun swiftc -O -o "$WORK/launch-ready" scripts/measure/launch-ready.swift >"$WORK/probe-swiftc.log" 2>&1 \
   || { echo "probe build failed"; cat "$WORK/probe-swiftc.log"; exit 3; }
 mkdir -p "$WORK/probe-home"
-"$WORK/launch-ready" "$WORK/HelloFloor.app" "$WORK/probe-home" prime 0.3 /tmp/hf-$$.sock >"$WORK/probe-prime.txt" 2>&1 || true
+"$WORK/launch-ready" "$WORK/HelloFloor.app" "$WORK/probe-home" prime 0.3 "$SOCKETS/app.sock" >"$WORK/probe-prime.txt" 2>&1 || true
 : >"$WORK/probe.jsonl"
 for i in $(seq 1 "$REPS"); do
   sleep "$(awk "BEGIN{print $GAP_MS/1000}")"
-  "$WORK/launch-ready" "$WORK/HelloFloor.app" "$WORK/probe-home" "run$i" 0.3 /tmp/hf-$$.sock 2>/dev/null \
+  "$WORK/launch-ready" "$WORK/HelloFloor.app" "$WORK/probe-home" "run$i" 0.3 "$SOCKETS/app.sock" 2>/dev/null \
     | grep '^LR-RUN ' | sed 's/^LR-RUN //' | tee -a "$WORK/probe.jsonl" \
     | python3 -I -c 'import json,sys; r=json.loads(sys.stdin.read()); print("probe", r["label"], "request_to_start=%s window_on_screen=%s finished_launching=%s" % (r["request_to_start"], r["window_on_screen"], r["finished_launching"]))' || echo "probe run$i failed"
 done
@@ -258,5 +261,5 @@ for k in ("request_to_start", "finished_launching", "window_on_screen", "request
     print("probe_summary n=%d %s p50=%.1f p95=%.1f min=%.1f" % (len(xs), k, statistics.median(xs), p(xs, 0.95), min(xs)) if xs else "probe_summary %s none" % k)
 ' "$WORK/probe.jsonl"
 
-rm -f "$OUT" "$OUT.tmp" "/tmp/hf-$$.sock"
+rm -f "$OUT" "$OUT.tmp" "$SOCKETS/app.sock"
 echo "load_after=$(sysctl -n vm.loadavg)"
