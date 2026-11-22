@@ -148,6 +148,8 @@ extension SettingsSchema {
         // Experiments are taste prototypes of how a surface looks (looks only), each off by default.
         "experiments.glassToolbarGroups", "experiments.composerV2", "experiments.agentBadges",
         "experiments.agentBadgesBeam", "experiments.toastsV2",
+        // Opt-in timing of the chat list shared with new tabs (when a page writes it), off by default.
+        "experiments.chatInstantUnderLoad",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
         // The floating Chief pet and its character: a display the person can hide again; its reply box types only what the person writes.

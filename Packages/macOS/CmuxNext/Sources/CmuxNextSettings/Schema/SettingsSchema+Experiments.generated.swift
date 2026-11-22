@@ -20,6 +20,9 @@ extension CmuxConfigSnapshot {
     /// `experiments.chatWidgets`: Agent chat draws an installed extension's chat widget (cmux.chat.widget/1, the daemon's apps.chat_widgets.route) as a card under a finished tool call (webviews ToolWidget.tsx, useExperimentSwitch("chatWidgets")). Off by default; off makes no route call and draws no card, so the chat is unchanged.
     public nonisolated static let chatWidgetsPath = ["experiments", "chatWidgets"]
     public nonisolated static let chatWidgetsDefault = false
+    /// `experiments.chatInstantUnderLoad`: Perf experiment (docs/design/chat-instant-under-load.md, the idle lane): once the chat list shared with new tabs (webviews newtab/chatStore.ts) holds a list, a page writes a changed list from its idle lane (acpmux/schedule) instead of at once, so the write never shares a task with a key or a transcript frame; the newest list still wins and a page that hides still writes at once (webviews experimentSwitchOn("chatInstantUnderLoad")). Off by default; off keeps today's timing.
+    public nonisolated static let chatInstantUnderLoadPath = ["experiments", "chatInstantUnderLoad"]
+    public nonisolated static let chatInstantUnderLoadDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -87,6 +90,16 @@ nonisolated enum ExperimentsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.chatWidgetsDefault),
                 keywords: ["experiments", "experimental", "prototype", "extension", "extensions", "chat", "widget", "tool", "card"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.chatInstantUnderLoadPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.chatInstantUnderLoad", "Prioritize Chat Input"),
+                help: SettingsText.keyed("settings.experiments.chatInstantUnderLoad.help", "While you type or a reply streams, wait for a pause before saving the chat list new tabs show."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.chatInstantUnderLoadDefault),
+                keywords: ["experiments", "experimental", "chat", "typing", "streaming", "performance"]
             ),
         ]
     }

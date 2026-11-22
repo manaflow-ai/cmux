@@ -158,3 +158,59 @@ test("a held-back list never replaces a newer list another page wrote in its win
   expect(JSON.parse(window.localStorage.getItem(store.CHAT_STORE_KEY_FOR_TESTS)!).at).toBe(T0 + 1_200);
   expect(store.sharedSessions([])[0]?.sessionId).toBe("s-0005");
 });
+
+// Settings > Advanced > Experiments > Prioritize Chat Input (`experiments.chatInstantUnderLoad`): with
+// the switch on, a warm store takes a changed list from the idle lane, never inside the task that
+// received it; off, the list goes when its window opens, as before.
+async function chatListArm(on: boolean) {
+  const { setExperimentSwitches } = await import("../src/experiments/switches");
+  const { pageLanes } = await import("../src/agent-session/acpmux/schedule");
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  setExperimentSwitches(on ? { chatInstantUnderLoad: true } : {});
+  const head = () => store.sharedSessions([])[0]?.updatedAt;
+  return { store, head, flushIdle: () => pageLanes().flush("new-tab-chat-list"), off: () => setExperimentSwitches({}) };
+}
+
+test("Prioritize Chat Input off: a changed list is written as its window opens", async () => {
+  jest.useFakeTimers();
+  const { store, head, flushIdle, off } = await chatListArm(false);
+  try {
+    store.publishSessions(connected([chat(0, T0)]), T0);
+    expect(head()).toBe(T0);
+    store.publishSessions(connected([chat(0, T0 + 1)]), T0 + 1);
+    expect(head()).toBe(T0);
+    jest.advanceTimersByTime(500);
+    expect(head()).toBe(T0 + 1);
+    flushIdle();
+    expect(head()).toBe(T0 + 1);
+  } finally {
+    off();
+  }
+});
+
+test("Prioritize Chat Input on: the first list goes at once, later ones from the idle lane, newest last", async () => {
+  jest.useFakeTimers();
+  const { store, head, flushIdle, off } = await chatListArm(true);
+  try {
+    // An empty store takes the first list at once, so a new tab draws it.
+    store.publishSessions(connected([chat(0, T0)]), T0);
+    expect(head()).toBe(T0);
+    store.publishSessions(connected([chat(0, T0 + 1)]), T0 + 1);
+    jest.advanceTimersByTime(500);
+    // The window ended: the held list waits for the idle lane, and a newer list replaces it there.
+    expect(head()).toBe(T0);
+    store.publishSessions(connected([chat(0, T0 + 2)]), T0 + 2);
+    expect(head()).toBe(T0);
+    flushIdle();
+    expect(head()).toBe(T0 + 2);
+    // A page that hides still writes what it holds at once.
+    jest.advanceTimersByTime(500);
+    store.publishSessions(connected([chat(0, T0 + 3)]), T0 + 3);
+    expect(head()).toBe(T0 + 2);
+    window.dispatchEvent(new window.Event("pagehide"));
+    expect(head()).toBe(T0 + 3);
+  } finally {
+    off();
+    flushIdle();
+  }
+});
