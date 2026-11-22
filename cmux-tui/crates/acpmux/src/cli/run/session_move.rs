@@ -480,9 +480,14 @@ async fn move_steps(
     if args.dry_run {
         o.cwd = Some(match &planned {
             Folder::Plain { cwd } => cwd.clone(),
-            Folder::Worktree { repo, branch, subdir, .. } => {
+            Folder::Worktree { repo, branch, subdir, snapshot: false, .. } => {
                 format!("a worktree of {repo} {branch}{}", sub_text(subdir))
             }
+            Folder::Worktree { repo, branch, subdir, snapshot: true, .. } => format!(
+                "a detached checkout of {repo} at this {branch}'s HEAD{} ({branch} is shared: \
+                 never pushed; the commit goes under {SNAPSHOT_REFS}, outside refs/heads)",
+                sub_text(subdir)
+            ),
         });
         return Ok(());
     }
@@ -566,18 +571,26 @@ async fn prepare(
     .map_err(|e| anyhow!(e))?;
     let mut record = json!({"host": target.name});
     let mut carry = None;
-    if let (Folder::Worktree { branch, dirty, .. }, Some(c)) = (&folder, &checkout) {
+    let mut at = None;
+    if let (Folder::Worktree { branch, dirty, snapshot, .. }, Some(c)) = (&folder, &checkout) {
+        // A shared branch (main, master, origin's HEAD) is never pushed: its HEAD goes under a ref
+        // of this move's own, and the target checks that commit out detached.
+        let dest = if *snapshot { snapshot_ref() } else { format!("refs/heads/{branch}") };
         let commit = tokio::task::spawn_blocking({
-            let (top, branch, ssh) =
-                (c.top.clone(), branch.clone(), source.ssh().map(str::to_owned));
+            let (top, dest, ssh) = (c.top.clone(), dest.clone(), source.ssh().map(str::to_owned));
             move || match ssh {
-                None => push_branch(&top, &branch),
-                Some(ssh) => push_branch_on(&ssh, &top, &branch),
+                None => push_branch(&top, &dest),
+                Some(ssh) => push_branch_on(&ssh, &top, &dest),
             }
         })
         .await??;
         record.set("branch", json!(branch));
         record.set("commit", json!(commit));
+        if *snapshot {
+            record.set("snapshotRef", json!(dest));
+            record.set("detached", json!(true));
+            at = Some((dest, commit.clone(), c.top.clone()));
+        }
         if *dirty && args.carry_changes {
             // Read after the freeze and the push: what the agent left, against what was pushed.
             let read = tokio::task::spawn_blocking({
@@ -612,9 +625,20 @@ async fn prepare(
     }
     let there = tokio::task::spawn_blocking({
         let (host, folder) = (target.ssh.clone(), folder.clone());
-        move || prepare_folder(&host, &folder)
+        let pin = at.as_ref().map(|(r, c, _)| (r.clone(), c.clone()));
+        move || prepare_folder(&host, &folder, pin.as_ref().map(|(r, c)| (r.as_str(), c.as_str())))
     })
-    .await??;
+    .await;
+    if let Some((dest, _, top)) = at {
+        // The target has the commit (or failed to): the move's own ref is not left on origin.
+        let ssh = source.ssh().map(str::to_owned);
+        let _ = tokio::task::spawn_blocking(move || match ssh {
+            None => drop_ref(&top, &dest),
+            Some(ssh) => drop_ref_on(&ssh, &top, &dest),
+        })
+        .await;
+    }
+    let there = there??;
     if let Some(carry) = carry.filter(|c| !c.patch.is_empty()) {
         tokio::task::spawn_blocking({
             let (host, there) = (target.ssh.clone(), there.clone());
@@ -660,7 +684,8 @@ async fn checkout_unless_named(
 }
 
 /// The fixed script that reads the checkout a folder is in on a source machine (`--from`): the
-/// folder on stdin; `none`, or tab-separated `top`, `branch` and `origin` lines and a `dirty`
+/// folder on stdin; `none`, or tab-separated `top`, `branch`, `origin` and `default` (origin's
+/// HEAD, `origin/main`) lines and a `dirty`
 /// line when it has uncommitted changes. Exit 3: git status failed.
 const CHECKOUT_SCRIPT: &str = r#"read -r d || exit 2
 top=$(git -c core.fsmonitor=false -C "$d" rev-parse --show-toplevel 2>/dev/null) || { echo none; exit 0; }
@@ -669,17 +694,20 @@ top=$(cd -- "$top" && pwd -P) || exit 2
 printf 'top\t%s\n' "$top"
 printf 'branch\t%s\n' "$(git -C "$top" symbolic-ref -q --short HEAD 2>/dev/null)"
 printf 'origin\t%s\n' "$(git -C "$top" remote get-url origin 2>/dev/null)"
+printf 'default\t%s\n' "$(git -C "$top" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)"
 s=$(git -c core.fsmonitor=false -C "$top" status --porcelain --untracked-files=normal) || exit 3
 if [ -n "$s" ]; then echo dirty; fi"#;
 
 /// [`CHECKOUT_SCRIPT`]'s answer.
 pub(crate) fn parse_checkout(stdout: &str) -> Result<Option<Checkout>> {
     let (mut top, mut branch, mut origin, mut dirty) = (None, None, None, false);
+    let mut default_branch = None;
     for line in stdout.lines() {
         match line.split_once('\t') {
             Some(("top", v)) if !v.is_empty() => top = Some(PathBuf::from(v)),
             Some(("branch", v)) if !v.is_empty() => branch = Some(v.to_owned()),
             Some(("origin", v)) if !v.is_empty() => origin = Some(v.to_owned()),
+            Some(("default", v)) if !v.is_empty() => default_branch = origin_head(v),
             _ if line.trim() == "dirty" => dirty = true,
             _ if line.trim() == "none" => return Ok(None),
             _ => {}
@@ -693,7 +721,21 @@ pub(crate) fn parse_checkout(stdout: &str) -> Result<Option<Checkout>> {
     {
         bail!("the source's checkout folder is not a plain path");
     }
-    Ok(Some(Checkout { top, branch, origin, dirty }))
+    Ok(Some(Checkout { top, branch, origin, dirty, default_branch }))
+}
+
+/// The branch `git symbolic-ref --short refs/remotes/origin/HEAD` names (`origin/main` → `main`).
+fn origin_head(short: &str) -> Option<String> {
+    short.trim().strip_prefix("origin/").filter(|b| !b.is_empty()).map(str::to_owned)
+}
+
+/// Where a move's snapshot of a shared branch goes on origin: outside `refs/heads`, so no branch
+/// moves and no branch list shows it.
+const SNAPSHOT_REFS: &str = "refs/acpmux/moves/";
+
+/// A fresh ref of [`SNAPSHOT_REFS`] for one move.
+fn snapshot_ref() -> String {
+    format!("{SNAPSHOT_REFS}{}", uuid::Uuid::now_v7().simple())
 }
 
 /// The git checkout `cwd` is in on the ssh host `ssh`, if any.
@@ -711,16 +753,40 @@ fn checkout_on(ssh: &str, cwd: &Path) -> Result<Option<Checkout>> {
     parse_checkout(&out.stdout)
 }
 
-/// The fixed script that pushes a branch on a source machine, never forced: the checkout and
-/// the branch on stdin; prints the commit pushed.
-const PUSH_SCRIPT: &str = r#"read -r top; read -r branch
+/// The fixed script that pushes HEAD on a source machine, never forced: the checkout and the
+/// full ref it goes to (`refs/heads/BRANCH`, or a [`SNAPSHOT_REFS`] one) on stdin; prints the
+/// commit pushed.
+pub(crate) const PUSH_SCRIPT: &str = r#"read -r top; read -r dest
+case "$dest" in refs/heads/*|refs/acpmux/moves/*) ;; *) exit 2;; esac
 head=$(git -C "$top" rev-parse HEAD) || exit 2
-git -C "$top" push --quiet origin "HEAD:refs/heads/$branch" || exit 3
+git -C "$top" push --quiet origin "HEAD:$dest" || exit 3
 printf '%s\n' "$head""#;
 
+/// The fixed script that deletes a move's own [`SNAPSHOT_REFS`] ref on origin, best effort.
+const DROP_REF_SCRIPT: &str = r#"read -r top; read -r dest
+case "$dest" in refs/acpmux/moves/*) ;; *) exit 2;; esac
+git -C "$top" push --quiet origin ":$dest""#;
+
+/// Deletes the snapshot ref `dest` from origin, from the checkout `top` here; best effort.
+fn drop_ref(top: &Path, dest: &str) {
+    let input = format!("{}\n{dest}\n", top.display());
+    let _ = run_here(DROP_REF_SCRIPT, input.as_bytes());
+}
+
+/// [`drop_ref`] on the ssh host `ssh`.
+fn drop_ref_on(ssh: &str, top: &Path, dest: &str) {
+    let input = format!("{}\n{dest}\n", top.display());
+    let _ = crate::cli::hosts::Remote::exec(
+        &crate::cli::hosts::SshRemote(ssh),
+        DROP_REF_SCRIPT,
+        Some(input.as_bytes()),
+    );
+}
+
 /// [`push_branch`] on the ssh host `ssh`.
-fn push_branch_on(ssh: &str, top: &Path, branch: &str) -> Result<String> {
-    let input = format!("{}\n{branch}\n", top.display());
+fn push_branch_on(ssh: &str, top: &Path, dest: &str) -> Result<String> {
+    let branch = dest.strip_prefix("refs/heads/").unwrap_or(dest);
+    let input = format!("{}\n{dest}\n", top.display());
     let out = crate::cli::hosts::Remote::exec(
         &crate::cli::hosts::SshRemote(ssh),
         PUSH_SCRIPT,
@@ -805,18 +871,22 @@ fn checkout_of(cwd: &Path) -> Result<Option<Checkout>> {
     let origin = git(&top, &["remote", "get-url", "origin"]).filter(|u| !u.is_empty());
     let status = git(&top, &["status", "--porcelain", "--untracked-files=normal"])
         .ok_or_else(|| anyhow!("git status failed in {}", top.display()))?;
-    Ok(Some(Checkout { top, branch, origin, dirty: !status.is_empty() }))
+    let default_branch = git(&top, &["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"])
+        .and_then(|h| origin_head(&h));
+    Ok(Some(Checkout { top, branch, origin, dirty: !status.is_empty(), default_branch }))
 }
 
-/// Pushes `branch` (HEAD of `top`) to `origin`, never forced: a branch that moved on there
-/// refuses the move rather than losing either side. Returns the commit pushed.
-fn push_branch(top: &Path, branch: &str) -> Result<String> {
+/// Pushes HEAD of `top` to the full ref `dest` on `origin` (`refs/heads/BRANCH`, or a
+/// [`SNAPSHOT_REFS`] one), never forced: a branch that moved on there refuses the move rather
+/// than losing either side. Returns the commit pushed.
+fn push_branch(top: &Path, dest: &str) -> Result<String> {
+    let branch = dest.strip_prefix("refs/heads/").unwrap_or(dest);
     let head = git(top, &["rev-parse", "HEAD"]).ok_or_else(|| anyhow!("no HEAD commit"))?;
     let out = StdCommand::new("git")
         .arg("-C")
         .arg(top)
         .args(["push", "--quiet", "origin"])
-        .arg(format!("HEAD:refs/heads/{branch}"))
+        .arg(format!("HEAD:{dest}"))
         .output()
         .context("git push")?;
     if !out.status.success() {
@@ -863,9 +933,25 @@ fn parse_about(stdout: &str) -> Result<RemoteDaemon> {
 /// The fixed script that makes a chat's folder on the target and prints its real path. Its
 /// values come on stdin, one per line, never in the script.
 const PLAIN_SCRIPT: &str = r#"read -r d || exit 2; mkdir -p -- "$d" && cd -- "$d" && pwd -P"#;
-const WORKTREE_SCRIPT: &str = r#"read -r repo; read -r branch; read -r url; read -r sub
+/// With a `ref` and `at` line (a snapshot of a shared branch), a detached checkout of the commit
+/// `at`, fetched from origin's `ref`; never a checkout of the branch itself.
+pub(crate) const WORKTREE_SCRIPT: &str = r#"read -r repo; read -r branch; read -r url; read -r sub
+read -r ref || true; read -r at || true
 PATH="$HOME/.local/bin:$PATH"
-if command -v wt >/dev/null 2>&1; then
+dir=
+if [ -n "$at" ]; then
+  if command -v wt >/dev/null 2>&1; then
+    out=$(wt new "$repo" --at "$at" --name "move-$(printf '%.12s' "$at")") && dir=$(printf '%s\n' "$out" | tail -n 1)
+  fi
+  if [ -z "$dir" ] || [ ! -d "$dir" ]; then
+    base="$HOME/Projects/checkouts/$(printf '%s' "$repo" | tr / -)"
+    mkdir -p -- "$base" || exit 1
+    dir=$(mktemp -d "$base/move-$(printf '%.12s' "$at").XXXXXX") || exit 1
+    git clone -q --no-checkout -- "$url" "$dir" || exit 1
+    git -C "$dir" fetch -q origin "$ref" || exit 1
+    git -C "$dir" -c advice.detachedHead=false checkout -q --detach "$at" || exit 1
+  fi
+elif command -v wt >/dev/null 2>&1; then
   out=$(wt new "$repo" "$branch") || exit 1
   dir=$(printf '%s\n' "$out" | tail -n 1)
 else
@@ -882,11 +968,13 @@ fi
 cd -- "$dir/$sub" && pwd -P"#;
 
 /// Makes `folder` on the ssh host `host` (this machine when empty) and returns its path there.
-fn prepare_folder(host: &str, folder: &Folder) -> Result<String> {
+/// `at`: a snapshot's ref and commit, checked out detached instead of the branch.
+fn prepare_folder(host: &str, folder: &Folder, at: Option<(&str, &str)>) -> Result<String> {
     let (script, input) = match folder {
         Folder::Plain { cwd } => (PLAIN_SCRIPT, format!("{cwd}\n")),
         Folder::Worktree { repo, url, branch, subdir, .. } => {
-            (WORKTREE_SCRIPT, format!("{repo}\n{branch}\n{url}\n{subdir}\n"))
+            let pin = at.map_or_else(String::new, |(r, c)| format!("{r}\n{c}\n"));
+            (WORKTREE_SCRIPT, format!("{repo}\n{branch}\n{url}\n{subdir}\n{pin}"))
         }
     };
     let out = if host.is_empty() {

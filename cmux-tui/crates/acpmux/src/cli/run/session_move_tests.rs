@@ -268,7 +268,8 @@ fn a_folder_is_made_on_this_machine_for_a_move_here() {
     let base = tempfile::tempdir().unwrap();
     let want = base.path().join("teleport/eval");
     let made =
-        prepare_folder("", &Folder::Plain { cwd: want.to_string_lossy().into_owned() }).unwrap();
+        prepare_folder("", &Folder::Plain { cwd: want.to_string_lossy().into_owned() }, None)
+            .unwrap();
     assert_eq!(Path::new(&made), want.canonicalize().unwrap());
 }
 
@@ -569,4 +570,116 @@ fn move_timeout_defaults_to_ten_minutes() {
         ]),
         30
     );
+}
+
+/// Item B: a move from a checkout on `main` never pushes `main`. Its HEAD (with a commit origin
+/// does not have) goes under a move's own ref outside `refs/heads`, the target checks that
+/// commit out detached, and the ref is deleted after; origin's `main` and branch list are as
+/// they were.
+#[cfg(unix)]
+#[test]
+fn a_move_from_main_pushes_a_snapshot_ref_never_main_and_lands_detached() {
+    let git = |dir: &Path, args: &[&str]| {
+        let out = StdCommand::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"])
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    };
+    let base = tempfile::tempdir().unwrap();
+    let origin = base.path().join("origin.git");
+    std::fs::create_dir(&origin).unwrap();
+    git(&origin, &["init", "-q", "--bare"]);
+    let src = base.path().join("src");
+    git(base.path(), &["clone", "-q", origin.to_str().unwrap(), "src"]);
+    std::fs::write(src.join("a.txt"), "a").unwrap();
+    git(&src, &["add", "a.txt"]);
+    git(&src, &["commit", "-q", "-m", "a"]);
+    git(&src, &["push", "-q", "origin", "main"]);
+    git(&src, &["remote", "set-head", "origin", "main"]);
+    let main_before = git(&origin, &["rev-parse", "refs/heads/main"]);
+    // A commit only this checkout has, on main.
+    std::fs::write(src.join("b.txt"), "b").unwrap();
+    git(&src, &["add", "b.txt"]);
+    git(&src, &["commit", "-q", "-m", "b"]);
+    let head = git(&src, &["rev-parse", "HEAD"]);
+
+    let c = checkout_of(&src).unwrap().expect("a checkout");
+    assert_eq!(c.default_branch.as_deref(), Some("main"));
+    let home = Path::new("/nowhere");
+    let url = origin.to_string_lossy().into_owned();
+    let c = Checkout { origin: Some(url.clone()), ..c };
+    let folder = match plan::plan_folder(&src, home, Some(&c), "/h", false, None) {
+        // A local path is no GitHub remote: build the worktree folder the plan makes for one.
+        Ok(f @ Folder::Worktree { snapshot: true, .. }) => f,
+        _ => Folder::Worktree {
+            repo: "o/r".into(),
+            url: url.clone(),
+            branch: "main".into(),
+            subdir: String::new(),
+            dirty: false,
+            snapshot: plan::shared_branch("main", c.default_branch.as_deref()),
+        },
+    };
+    assert!(matches!(folder, Folder::Worktree { snapshot: true, .. }), "{folder:?}");
+
+    let dest = snapshot_ref();
+    assert!(dest.starts_with("refs/acpmux/moves/"), "{dest}");
+    // The push script refuses any other ref: never refs/heads/main through a snapshot.
+    let refused = run_here(PUSH_SCRIPT, format!("{}\nrefs/tags/x\n", src.display()).as_bytes());
+    assert!(!refused.unwrap().ok);
+    assert_eq!(push_branch(&src, &dest).unwrap(), head);
+    assert_eq!(git(&origin, &["rev-parse", "refs/heads/main"]), main_before, "main never pushed");
+    assert_eq!(git(&origin, &["rev-parse", &dest]), head);
+
+    // The target's side, with no `wt` on PATH: a clone of its own, at the commit, detached.
+    let target_home = base.path().join("target-home");
+    std::fs::create_dir(&target_home).unwrap();
+    let mut child = StdCommand::new("/bin/sh")
+        .arg("-c")
+        .arg(WORKTREE_SCRIPT)
+        .env("HOME", &target_home)
+        .env("PATH", "/usr/bin:/bin")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        use std::io::Write as _;
+        let input = format!("o/r\nmain\n{url}\n\n{dest}\n{head}\n");
+        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    }
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let there = PathBuf::from(String::from_utf8_lossy(&out.stdout).lines().last().unwrap().trim());
+    assert_eq!(git(&there, &["rev-parse", "HEAD"]), head);
+    let symbolic = StdCommand::new("git")
+        .arg("-C")
+        .arg(&there)
+        .args(["symbolic-ref", "-q", "HEAD"])
+        .status()
+        .unwrap();
+    assert!(!symbolic.success(), "the target's checkout is detached");
+    assert!(there.join("b.txt").exists());
+
+    drop_ref(&src, &dest);
+    assert!(git(&origin, &["for-each-ref", "refs/acpmux"]).is_empty(), "the move's ref is gone");
+    assert_eq!(
+        git(&origin, &["for-each-ref", "--format=%(refname)", "refs/heads"]),
+        "refs/heads/main"
+    );
+}
+
+#[test]
+fn origin_head_names_the_default_branch() {
+    assert_eq!(origin_head("origin/main").as_deref(), Some("main"));
+    assert_eq!(origin_head("origin/feat-cmux-next\n").as_deref(), Some("feat-cmux-next"));
+    assert_eq!(origin_head("").as_deref(), None);
+    let read = parse_checkout("top\t/w\nbranch\tmain\ndefault\torigin/main\n").unwrap().unwrap();
+    assert_eq!(read.default_branch.as_deref(), Some("main"));
 }
