@@ -50,8 +50,11 @@ struct BranchStaleAttachTargetTests {
         defer { storeTask.cancel() }
         do {
             #expect(identity.generation != stale.generation, "the restart kept the generation")
-            let relaunched = try await next.relaunchKeptTabs()
-            #expect(relaunched.relaunched == 1 && relaunched.failures.isEmpty, "\(relaunched.failures)")
+            // The kept shell starts on its workspace's first show (`wakeParkedTabs`: `restart-tab`).
+            let kept = try #require(try await next.listWorkspaces().workspaces.flatMap(\.screens).flatMap(\.panes)
+                .flatMap(\.tabs).first { $0.tabResourceID?.rawValue == tabResource })
+            #expect(kept.dead && kept.relaunch?.onShow == true, "\(kept)")
+            _ = try await next.request(RestartTabRequest(surface: kept.surface))
             try await store.waitUntil("the kept tab runs again", timeout: .seconds(20)) {
                 store.tab(idOrResource: tabResource).map { !$0.dead && $0.terminalState == .running } ?? false
             }

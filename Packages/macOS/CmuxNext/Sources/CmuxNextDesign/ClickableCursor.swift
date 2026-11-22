@@ -1,22 +1,15 @@
 public import AppKit
 
-/// A button that shows the pointing hand while the pointer is over it and it is enabled, and the
-/// arrow while it is disabled (Leo 2026-10-21: "STOP BUTTON, I HOVER OVER IT, MY CURSOR SHOULD
-/// ALSO SEE IT AS CLICKABLE"). The shared chrome buttons (toolbar band, pane toolbar, tab bar,
-/// sidebar, dialogs, toasts) inherit it, so each says it can be clicked the same way.
+/// The shared chrome button: it shows the arrow, enabled or disabled, as native macOS controls do
+/// (user 2026-10-30: "change all pointers back to cursor-default"; this replaces Leo's 2026-10-21
+/// pointing hand). The shared chrome buttons (toolbar band, pane toolbar, tab bar, sidebar,
+/// dialogs, toasts) inherit it, so they share one cursor rule.
 ///
-/// A cursor rect in the key window: AppKit owns the rect and drops it when the button hides,
-/// leaves its window or scrolls out of view, so no pushed cursor is ever left behind. A change of
-/// `isEnabled` rebuilds it at once. Cursor rects do nothing while another window has the key (a
-/// Chromium page is a child window that takes it); there only a `ClickableCursorHost` (the
-/// browser toolbar row) sets the hand itself.
+/// It registers no cursor rect of its own, so the arrow of the view under
+/// it shows. A change of `isEnabled` still tells a `ClickableCursorHost` (the browser toolbar row,
+/// which sets the cursor itself while a Chromium child window has the key).
+/// `scripts/cmux-next/check-default-cursor.py` keeps a new pointing hand out.
 open class ClickableButton: NSButton {
-    /// The cursor over a button: the pointing hand while enabled, none (the arrow) while disabled.
-    public static func hoverCursor(isEnabled: Bool) -> NSCursor? { isEnabled ? .pointingHand : nil }
-
-    /// This button's cursor now (`hoverCursor(isEnabled:)`).
-    public var hoverCursor: NSCursor? { Self.hoverCursor(isEnabled: isEnabled) }
-
     override open var isEnabled: Bool {
         didSet {
             guard isEnabled != oldValue else { return }
@@ -34,9 +27,44 @@ open class ClickableButton: NSButton {
         }
     }
 
-    override open func resetCursorRects() {
-        super.resetCursorRects()
-        if let hoverCursor, let rect = Self.cursorRect(of: self) { addCursorRect(rect, cursor: hoverCursor) }
+    /// A layout asked for while this button did not show; it runs when the button shows.
+    private var owesLayout = false
+
+    /// A button that is hidden, or under a hidden view (a kept workspace), does no layout: it lays out one time when
+    /// it shows. AppKit sends `setNeedsLayout: true` to every button of a window at each key window change
+    /// (`-[NSButtonCell invalidateBezelConfigurationForDisplayOrLayout:]`), and a layout pass lays out hidden views
+    /// too, so each switch to a workspace that shows a web page (its Chromium child window takes the key) ran the cell
+    /// layout of every button of every kept workspace: 12.4 ms per switch with 32 kept. As in Chrome, a view that is
+    /// not shown does no layout work.
+    override open var needsLayout: Bool { // perf-hot: 0.01ms workspace-switch (a hidden button: one ancestor walk, no layout)
+        get { super.needsLayout }
+        set {
+            guard newValue, isHiddenOrHasHiddenAncestor else { return super.needsLayout = newValue }
+            owesLayout = true
+        }
+    }
+
+    override open func viewDidUnhide() {
+        super.viewDidUnhide()
+        layOutIfOwed()
+    }
+
+    /// The button itself moved out of a hidden view into one that shows.
+    override open func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        layOutIfOwed()
+    }
+
+    /// A view above the button moved to another window (a tab dragged to a new window), where it shows.
+    override open func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        layOutIfOwed()
+    }
+
+    private func layOutIfOwed() {
+        guard owesLayout, !isHiddenOrHasHiddenAncestor else { return }
+        owesLayout = false
+        super.needsLayout = true
     }
 
     /// Where the pointer at `screenPoint` is in `window`'s coordinates, while `window` is the top
@@ -70,21 +98,4 @@ open class ClickableButton: NSButton {
 @MainActor
 public protocol ClickableCursorHost: AnyObject {
     func clickableStateDidChange(_ view: NSView)
-}
-
-/// The macOS 14 fallback's cursor stack state: the hand is pushed exactly while the view is
-/// hovered and enabled. Each update returns the one push or pop that keeps it so, or nil.
-struct ClickableCursorHover: Equatable {
-    enum Change: Equatable { case push, pop }
-
-    private(set) var hovering = false
-    private(set) var pushed = false
-
-    mutating func update(hovering: Bool, enabled: Bool) -> Change? {
-        self.hovering = hovering
-        let wanted = hovering && enabled
-        guard wanted != pushed else { return nil }
-        pushed = wanted
-        return wanted ? .push : .pop
-    }
 }

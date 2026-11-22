@@ -18,8 +18,8 @@
 
 use super::transfer_guard::{Guard, bundle_path_kind};
 use super::transfer_out::{
-    DURABLE_TRANSFER_SCHEMA, MAX_BUNDLE, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside,
-    transfers_dir,
+    DURABLE_TRANSFER_SCHEMA, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside, parse_epoch,
+    reject_stale_epoch, require_epoch, transfers_dir,
 };
 use super::*;
 use base64::Engine;
@@ -45,18 +45,74 @@ fn recovery_owner(root: &Path, agent_id: &str, outer_id: &str) -> bool {
     false
 }
 
-/// A test's hook right after a sweep read a durable marker, to run another writer there.
+/// A test's hook: given the agent id of the marker the sweep read.
 #[cfg(test)]
-pub(super) static SWEEP_PAUSE: std::sync::Mutex<Option<Arc<dyn Fn(&str) + Send + Sync>>> =
-    std::sync::Mutex::new(None);
+type PauseFn = Box<dyn FnMut(&str)>;
+/// Each agent id a hook was reached for.
+#[cfg(test)]
+type Reached = std::rc::Rc<std::cell::RefCell<Vec<String>>>;
+
+#[cfg(test)]
+thread_local! {
+    /// A test's hook right after a sweep read a durable marker, to run another writer there.
+    ///
+    /// One per test thread, not per process: the harness runs tests on parallel threads, and a
+    /// process-wide hook let one test's hook replace or clear another's before its sweep ran,
+    /// so the race it forced never happened. A sweep on another thread never sees it, which a
+    /// test catches through [`SweepPause::reached`].
+    static SWEEP_PAUSE: std::cell::RefCell<Option<(PauseFn, Reached)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The hook [`on_sweep_pause`] put on this thread; dropping it takes it off.
+#[cfg(test)]
+pub(super) struct SweepPause {
+    reached: Reached,
+}
+
+#[cfg(test)]
+impl SweepPause {
+    /// Each agent id the hook was reached for, in order.
+    pub(super) fn reached(&self) -> Vec<String> {
+        self.reached.borrow().clone()
+    }
+}
+
+#[cfg(test)]
+impl Drop for SweepPause {
+    fn drop(&mut self) {
+        SWEEP_PAUSE.with(|slot| slot.borrow_mut().take());
+    }
+}
+
+/// Runs `hook` right after every sweep on this thread reads a durable marker, until the
+/// returned guard drops.
+#[cfg(test)]
+pub(super) fn on_sweep_pause(hook: impl FnMut(&str) + 'static) -> SweepPause {
+    let reached = Reached::default();
+    SWEEP_PAUSE.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        assert!(slot.is_none(), "a sweep pause hook is already on this thread");
+        *slot = Some((Box::new(hook), std::rc::Rc::clone(&reached)));
+    });
+    SweepPause { reached }
+}
 
 fn sweep_pause(_agent_id: &str) {
     #[cfg(test)]
     {
-        let hook = SWEEP_PAUSE.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        if let Some(hook) = hook {
-            hook(_agent_id);
-        }
+        // Out of the slot while it runs, so the hook may itself run a sweep.
+        let Some((mut hook, reached)) = SWEEP_PAUSE.with(|slot| slot.borrow_mut().take()) else {
+            return;
+        };
+        reached.borrow_mut().push(_agent_id.to_owned());
+        hook(_agent_id);
+        SWEEP_PAUSE.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            if slot.is_none() {
+                *slot = Some((hook, reached));
+            }
+        });
     }
 }
 
@@ -96,6 +152,10 @@ fn receive_manifest(dir: &Path) -> Result<(Value, Vec<(String, u64)>), RpcError>
     Ok((manifest, files))
 }
 
+fn manifest_epoch(manifest: &Value) -> Result<Option<u64>, RpcError> {
+    parse_epoch(manifest.get("epoch"))
+}
+
 impl Hub {
     /// A chat that moved from here to another daemon: closed, its move committed (also before a
     /// restart, which does not rebuild a closed chat's state).
@@ -122,7 +182,7 @@ impl Hub {
 
     /// Recover an outer session store staged for a replacement before a daemon crash.
     pub(super) fn recover_staged_replacements(&self) {
-        let Some(probe) = self.store.session_dir("__cmux_harness_recovery_probe__") else {
+        let Some(probe) = self.store.session_path("__cmux_harness_recovery_probe__") else {
             return;
         };
         let Some(root) = probe.parent() else { return };
@@ -132,7 +192,7 @@ impl Hub {
             if name.ends_with(".durable-transfer-state.importing")
                 || name.ends_with(".replacement-state.json.importing")
             {
-                let _ = std::fs::remove_file(entry.path());
+                let _ = crate::home_fs::remove_file(entry.path());
             }
         }
         let Ok(entries) = std::fs::read_dir(root) else { return };
@@ -174,12 +234,12 @@ impl Hub {
             };
             let committed = phase == "committed" || landed;
             if committed {
-                let _ = std::fs::remove_dir_all(entry.path());
+                let _ = crate::home_fs::remove_dir_all(entry.path());
             } else {
                 if std::fs::symlink_metadata(&target).is_ok() {
-                    let _ = std::fs::remove_dir_all(&target);
+                    let _ = crate::home_fs::remove_dir_all(&target);
                 }
-                let _ = std::fs::rename(entry.path(), target);
+                let _ = crate::home_fs::rename(entry.path(), target);
             }
         }
         let Ok(entries) = std::fs::read_dir(root) else { return };
@@ -211,7 +271,7 @@ impl Hub {
                     if matches!(phase, "prepared" | "staged" | "committed")
                         && recovery_owner(root, agent, outer)
                     {
-                        let _ = std::fs::remove_file(entry.path());
+                        let _ = crate::home_fs::remove_file(entry.path());
                     }
                 }
             }
@@ -239,10 +299,10 @@ impl Hub {
                     return;
                 }
                 if !replace_durable {
-                    let _ = std::fs::remove_dir_all(target);
+                    let _ = crate::home_fs::remove_dir_all(target);
                 }
             }
-            let _ = std::fs::remove_file(path);
+            let _ = crate::home_fs::remove_file(path);
             return;
         }
         if phase != "staged" && phase != "committed" {
@@ -297,35 +357,50 @@ impl Hub {
         let pi = root.join(filename);
         let pi_backup = root.join(format!("{filename}.transfer-backup"));
         if outer_committed {
-            let _ = std::fs::remove_file(&journal_backup);
-            let _ = std::fs::remove_file(&pi_backup);
+            let _ = crate::home_fs::remove_file(&journal_backup);
+            let _ = crate::home_fs::remove_file(&pi_backup);
         } else {
             if std::fs::symlink_metadata(&journal_backup).is_ok() {
-                let _ = std::fs::remove_file(&journal);
-                let _ = std::fs::rename(&journal_backup, &journal);
+                let _ = crate::home_fs::remove_file(&journal);
+                let _ = crate::home_fs::rename(&journal_backup, &journal);
             } else if !had_journal {
-                let _ = std::fs::remove_file(&journal);
+                let _ = crate::home_fs::remove_file(&journal);
             }
             if std::fs::symlink_metadata(&pi_backup).is_ok() {
-                let _ = std::fs::remove_file(&pi);
-                let _ = std::fs::rename(&pi_backup, &pi);
+                let _ = crate::home_fs::remove_file(&pi);
+                let _ = crate::home_fs::rename(&pi_backup, &pi);
             } else if !had_pi {
-                let _ = std::fs::remove_file(&pi);
+                let _ = crate::home_fs::remove_file(&pi);
             }
         }
-        let _ = std::fs::remove_file(root.join(agent_id).join("journal.ndjson.importing"));
-        let _ = std::fs::remove_file(root.join(format!("{filename}.importing")));
+        let _ = crate::home_fs::remove_file(root.join(agent_id).join("journal.ndjson.importing"));
+        let _ = crate::home_fs::remove_file(root.join(format!("{filename}.importing")));
         if !dir_was_present {
-            let _ = std::fs::remove_dir(root.join(agent_id));
+            let _ = crate::home_fs::remove_dir(root.join(agent_id));
         }
         if !replace_durable && !outer_committed && super::transfer::is_plain_id(outer_id) {
-            let _ = std::fs::remove_dir_all(root.join(outer_id));
+            let _ = crate::home_fs::remove_dir_all(root.join(outer_id));
         }
-        let _ = std::fs::remove_file(path);
+        let _ = crate::home_fs::remove_file(path);
+    }
+
+    /// Fence the outgoing instance before staging the incoming durable store. Keep
+    /// this boundary shared by transfer_finish and its admission-race regression.
+    pub(super) async fn retire_transfer_instance(
+        &self,
+        old: &Arc<Session>,
+    ) -> Result<(), RpcError> {
+        // Retry tasks hold the same lock across their replaced check and append.
+        self.seal_retry_replacement(old);
+        // Drain an earlier retention commit before replacing the journal.
+        drop(old.append_lock.lock().unwrap_or_else(|e| e.into_inner()));
+        self.kill(old, false).await
     }
 
     pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
         let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
+        let incoming_epoch = manifest_epoch(&manifest)?;
+        let incoming_floor = incoming_epoch.unwrap_or(0);
         let guard = match params.get("guard") {
             Some(g) => Some(Guard::parse(g).await?),
             None => None,
@@ -337,12 +412,33 @@ impl Hub {
                 format!("this daemon takes {TRANSFER_SCHEMA} or {DURABLE_TRANSFER_SCHEMA}"),
             ));
         }
+        // Prompts the owner approved that still wait for their place (`transfer_out.rs`): taken
+        // only by a daemon that runs them under the approved rules (`queue_approve.rs`).
+        if let Some(ids) = manifest
+            .get("approvedWaiting")
+            .filter(|ids| ids.as_array().is_some_and(|a| !a.is_empty()))
+            && !self.understands_queue_approval()
+        {
+            let why = "this daemon does not understand queue approval";
+            return Err(super::approved_prompts_error(ids.clone(), why));
+        }
         let id = manifest["sessionId"].as_str().unwrap_or("");
         if !super::transfer::is_plain_id(id) {
             return Err(RpcError::invalid_params(format!("transfer: bad session id {id:?}")));
         }
         // A chat that moved away from here may come back (`finish` replaces its closed copy).
         let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        if let Some(existing) = here.as_ref() {
+            if !existing.ownership_epoch_is_valid() {
+                return Err(transfer_error("epoch_unreadable", "ownership history is unreadable"));
+            }
+            // A delayed bundle for an older owner must not replace a newer moved copy.
+            self.restore_ownership_epoch(existing)
+                .map_err(|e| transfer_error("store", format!("ownership epoch unreadable: {e}")))?;
+            if incoming_floor != 0 || schema != TRANSFER_SCHEMA {
+                reject_stale_epoch(existing.ownership_epoch(), incoming_floor)?;
+            }
+        }
         if here.is_some_and(|s| !self.moved_away(&s)) {
             return Err(transfer_error("exists", format!("chat {id} is here already")));
         }
@@ -358,13 +454,14 @@ impl Hub {
             return Err(e.with_data(json!({"harness": harness})));
         }
         let files = manifest["files"].as_array().cloned().unwrap_or_default();
-        let mut total = 0u64;
         for f in &files {
             inside(Path::new("/"), f["path"].as_str().unwrap_or(""))?;
-            total = total.saturating_add(f["size"].as_u64().unwrap_or(u64::MAX));
+            if f["size"].as_u64().is_none() {
+                return Err(RpcError::invalid_params("transfer: file size must be a u64"));
+            }
         }
-        if files.len() > MAX_FILES || total > MAX_BUNDLE {
-            return Err(transfer_error("size", format!("{} files, {total} bytes", files.len())));
+        if files.len() > MAX_FILES {
+            return Err(transfer_error("size", format!("{} files", files.len())));
         }
         if let Some(g) = &guard {
             self.guarded_receive_check(g, &manifest).await?;
@@ -380,14 +477,15 @@ impl Hub {
         self.sweep();
         let receive_id = uuid::Uuid::now_v7().to_string();
         let dir = transfers_dir().join(format!("in-{receive_id}"));
-        let made = std::fs::create_dir_all(dir.join("bundle")).and_then(|()| {
+        let made = crate::home_fs::create_dirs(dir.join("bundle")).and_then(|()| {
             // The guard first: a receive with a manifest and no guard file is an unguarded one.
             if let Some(g) = &guard {
                 g.store(&dir)?;
             }
-            std::fs::write(dir.join("manifest.json"), serde_json::to_vec(&manifest)?)
+            crate::home_fs::write(dir.join("manifest.json"), serde_json::to_vec(&manifest)?)
         });
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
+        super::transfer_watch::note_activity(&dir, None);
         let mut answer = json!({"receiveId": receive_id, "sessionId": id});
         if guard.is_some() {
             answer.set("guarded", json!(true));
@@ -399,7 +497,8 @@ impl Hub {
     pub(super) fn transfer_write(&self, params: &Value) -> Result<Value, RpcError> {
         let text = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or("");
         let dir = receive_dir(text("receiveId"))?;
-        let (_, files) = receive_manifest(&dir)?;
+        let (manifest, files) = receive_manifest(&dir)?;
+        require_epoch(manifest_epoch(&manifest)?.unwrap_or(0), parse_epoch(params.get("epoch"))?)?;
         let path = text("path");
         let Some(&(_, size)) = files.iter().find(|(p, _)| p == path) else {
             return Err(transfer_error("path", format!("{path:?} is not in the manifest")));
@@ -418,16 +517,22 @@ impl Hub {
             let e = transfer_error("offset", format!("{path:?} has {have} bytes, not {offset}"));
             return Err(e.with_data(json!({"size": have})));
         }
-        if data.len() as u64 > MAX_PAGE || have + data.len() as u64 > size {
+        if data.len() as u64 > MAX_PAGE
+            || size.checked_sub(have).is_none_or(|left| data.len() as u64 > left)
+        {
             return Err(transfer_error("size", format!("{path:?} is {size} bytes")));
         }
         use std::io::Write;
-        let wrote = std::fs::create_dir_all(file.parent().unwrap_or(&dir)).and_then(|()| {
-            std::fs::OpenOptions::new().create(true).append(true).open(&file)?.write_all(&data)
+        let wrote = crate::home_fs::create_dirs(file.parent().unwrap_or(&dir)).and_then(|()| {
+            crate::home_fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&file)?
+                .write_all(&data)
         });
         wrote.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         // Kept from the sweep while pages come (`transfer_out.rs` `sweep_transfers`).
-        let _ = std::fs::write(dir.join("alive"), offset.to_string());
+        let _ = crate::home_fs::write(dir.join("alive"), offset.to_string());
         Ok(json!({"next": have + data.len() as u64}))
     }
 
@@ -440,6 +545,9 @@ impl Hub {
         let _receives = RECEIVES.lock().await;
         let dir = receive_dir(text("receiveId").unwrap_or(""))?;
         let (manifest, files) = receive_manifest(&dir)?;
+        let incoming_epoch = manifest_epoch(&manifest)?;
+        let incoming_floor = incoming_epoch.unwrap_or(0);
+        require_epoch(incoming_floor, parse_epoch(params.get("epoch"))?)?;
         let guard = Guard::stored(&dir)?;
         let bundle = dir.join("bundle");
         for (path, size) in &files {
@@ -470,6 +578,16 @@ impl Hub {
         }
         let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         let old = old.filter(|s| self.moved_away(s));
+        if let Some(existing) = old.as_ref() {
+            if !existing.ownership_epoch_is_valid() {
+                return Err(transfer_error("epoch_unreadable", "ownership history is unreadable"));
+            }
+            self.restore_ownership_epoch(existing)
+                .map_err(|e| transfer_error("store", format!("ownership epoch unreadable: {e}")))?;
+            if incoming_floor != 0 || manifest["schema"].as_str() != Some(TRANSFER_SCHEMA) {
+                reject_stale_epoch(existing.ownership_epoch(), incoming_floor)?;
+            }
+        }
         let replacing_durable = old.as_ref().is_some_and(|existing| {
             let existing_meta = existing.meta();
             existing_meta.harness == bundle_meta.harness
@@ -481,6 +599,17 @@ impl Hub {
                 "closed session identity does not match transfer bundle",
             ));
         }
+        // From here until the folder that came in is in place, no fork references the chat, and
+        // the forks that do hold its history: the incoming folder may hold it compacted elsewhere
+        // (review of #37020).
+        let _fence = if replacing_durable {
+            Some(
+                crate::store::fence_history(self.store.as_ref(), id)
+                    .map_err(|e| transfer_error("store", format!("chat {id}: {e}")))?,
+            )
+        } else {
+            None
+        };
         let mut replace_native = false;
         if let Some(g) = &guard {
             let replaceable = old.as_ref().and_then(|o| o.meta().agent_session_id);
@@ -500,7 +629,7 @@ impl Hub {
             let edited = std::fs::read(&path).map_err(anyhow::Error::from).and_then(|raw| {
                 let mut meta: Value = serde_json::from_slice(&raw)?;
                 meta.set("cwd", json!(cwd));
-                Ok(std::fs::write(&path, serde_json::to_vec_pretty(&meta)?)?)
+                Ok(crate::home_fs::write(&path, serde_json::to_vec_pretty(&meta)?)?)
             });
             edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         }
@@ -522,16 +651,14 @@ impl Hub {
                 let e = transfer_error("cwd", "the chat's folder is not here; pass cwd");
                 return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": cwd})));
             }
-            // Seal the old instance before staging its durable store. Retry tasks hold this
-            // lock across their replaced check and terminal append, so no late record can land
-            // in the replacement journal.
-            self.seal_retry_replacement(old);
-            // A log retention pass that took the chat's append lock before the mark finishes its
-            // commit first; one after it leaves the chat alone (`hub/retention.rs`).
-            drop(old.append_lock.lock().unwrap_or_else(|e| e.into_inner()));
-            self.kill(old, false).await?;
+            self.retire_transfer_instance(old).await?;
         }
-        let source_store = if replacing_durable { self.store.session_dir(id) } else { None };
+        let source_store = if replacing_durable {
+            crate::store::folder_to_replace(self.store.as_ref(), id)
+                .map_err(|e| transfer_error("store", format!("chat {id}: {e}")))?
+        } else {
+            None
+        };
         let source_store_backup = if let Some(source_store) = source_store.as_ref() {
             let backup = source_store
                 .parent()
@@ -563,11 +690,12 @@ impl Hub {
             .await
         {
             Ok(session) => {
+                session.restore_ownership_epoch(incoming_floor);
                 let (_, appended) = self.append_at(
                     &session,
                     "mux",
                     "transferred_in",
-                    json!({"transferId": transfer_id, "from": from}),
+                    json!({"transferId": transfer_id, "from": from, "epoch": incoming_floor}),
                     None,
                     None,
                 );
@@ -633,7 +761,7 @@ impl Hub {
         }
         // Its queue (back since the import) runs here now; the source withdraws it on commit.
         self.resume_queues();
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = crate::home_fs::remove_dir_all(&dir);
         Ok(self.session_summary(&session))
     }
 
@@ -648,7 +776,7 @@ impl Hub {
             return Err(RpcError::invalid_params("transfer_forget: bad transferId"));
         };
         let _receives = RECEIVES.lock().await;
-        let made = std::fs::create_dir_all(&mark);
+        let made = crate::home_fs::create_dirs(&mark);
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         for entry in std::fs::read_dir(transfers_dir()).into_iter().flatten().flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
@@ -656,7 +784,7 @@ impl Hub {
                 && receive_manifest(&entry.path())
                     .is_ok_and(|(manifest, _)| manifest["transferId"] == transfer_id)
             {
-                let _ = std::fs::remove_dir_all(entry.path());
+                let _ = crate::home_fs::remove_dir_all(entry.path());
             }
         }
         let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned();
@@ -668,5 +796,18 @@ impl Hub {
             });
         }
         Ok(json!({"transferId": transfer_id, "landed": landed}))
+    }
+}
+
+impl Hub {
+    /// Whether this daemon runs a prompt the owner approved under the approved rules
+    /// (`queue_approve.rs`, `author::QUEUE_APPROVAL_FEATURE` in its `initialize`): every build
+    /// with this code does; a test stands in for an older one.
+    pub(super) fn understands_queue_approval(&self) -> bool {
+        #[cfg(test)]
+        if self.queue_approval_off.load(Ordering::SeqCst) {
+            return false;
+        }
+        true
     }
 }

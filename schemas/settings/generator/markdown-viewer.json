@@ -1,0 +1,8 @@
+{
+  "source": "schemas/settings/source/markdown-viewer.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+MarkdownViewer.generated.swift",
+  "type": "MarkdownViewerSettingsSchema",
+  "lists": {
+    "markdownViewer": ["descriptors", "MarkdownViewerSettingsSchema"]
+  }
+}

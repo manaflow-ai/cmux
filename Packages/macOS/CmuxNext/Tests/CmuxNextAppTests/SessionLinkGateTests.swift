@@ -1,11 +1,12 @@
 import AppKit
 import CmuxNextOnboarding
+import CmuxNextTestSupport
 import Testing
 
 /// A `cmux://session/<id>` link (any page or app can open one) only reveals a tab that already
 /// shows the session; a new tab on it opens only after the person answers a question that names
 /// the session, and a session acpmux does not have is refused without one.
-@MainActor @Suite struct SessionLinkGateTests {
+@MainActor @Suite(.closesItsWindows) struct SessionLinkGateTests {
     final class Probe {
         var events: [String] = []
         var askedIn: NSWindow?
@@ -78,6 +79,7 @@ import Testing
     @Test func theQuestionShowsInTheLinksWindow() async {
         let probe = Probe()
         let window = NSWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         _ = await gate(probe, answer: false).open("ses-1", in: window, reveal: { false }, openNew: { true }).value
         #expect(probe.askedIn === window)
     }
@@ -107,6 +109,7 @@ import Testing
 
     @Test func aWindowThatClosedBeforeTheQuestionOpensNothing() async {
         let closed = NSWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: true)
+        defer { closed.closeAfterTest() }
         #expect(await SessionLinkGate.ask(known, in: closed) == false)
     }
 }

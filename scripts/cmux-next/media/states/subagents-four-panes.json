@@ -1,0 +1,117 @@
+{
+ "title": "Four subagents open from the chat's tray (cmux#27789, leo-workspace design/pane-placement.md): after, one split right of the chat, one split below it, the 3rd and 4th tabs in that lower pane; before, a new split for each. Needs the fixture's agents count (cmux PR lane/ux-subagents-fixture-count). Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/subagents-four-panes.json",
+ "launch_args": [
+  "--showcase"
+ ],
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "Open a main workspace",
+   "cmux": [
+    "action",
+    "run",
+    "newTab",
+    "--name",
+    "Right column",
+    "--focus",
+    "--cwd",
+    "/tmp"
+   ]
+  },
+  {
+   "title": "Open a chat",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ]
+  },
+  {
+   "title": "Wait for the chat page",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "chat_state"
+    }
+   },
+   "shot": false
+  },
+  {
+   "title": "Start the chat's session (the showcase mock answers)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Start the subagents"
+    }
+   },
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "4 subagents start (debug seed_rows fixture \"subagents\", agents 4)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "seed_rows",
+     "fixture": "subagents",
+     "count": 1,
+     "agents": 4
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Open subagent 1's pane as its tray line does (debug open_subagent, unfocused: the chat keeps focus)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "open_subagent",
+     "index": 1
+    }
+   },
+   "wait": 4
+  },
+  {
+   "title": "Open subagent 2's pane as its tray line does (debug open_subagent, unfocused: the chat keeps focus)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "open_subagent",
+     "index": 2
+    }
+   },
+   "wait": 4
+  },
+  {
+   "title": "Open subagent 3's pane as its tray line does (debug open_subagent, unfocused: the chat keeps focus)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "open_subagent",
+     "index": 3
+    }
+   },
+   "wait": 4
+  },
+  {
+   "title": "Open subagent 4's pane as its tray line does (debug open_subagent, unfocused: the chat keeps focus)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "open_subagent",
+     "index": 4
+    }
+   },
+   "wait": 4
+  },
+  {
+   "title": "Where the four subagents landed",
+   "wait": 2
+  }
+ ]
+}

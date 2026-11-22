@@ -2,6 +2,7 @@
 import AppKit
 import CmuxConversationCore
 import CmuxConversationGeometry
+import CmuxSpinner
 
 /// Transcript table that routes trackpad horizontal swipes and clicks on
 /// row accessories (badges, footers) back to the controller.
@@ -75,7 +76,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     let keyboard = MacConversationKeyboardState()
     let audioPlayer = ConversationAudioPlayer()
     lazy var audioComposer = MacAudioComposer(controller: self)
-    private let initialSpinner = NSProgressIndicator()
+    private let initialSpinner = CmuxSpinnerView(side: 32)
 
     private(set) var rows: [MacConversationRow] = []
     private(set) var rowIndex: [String: Int] = [:]
@@ -204,8 +205,6 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         view.addSubview(replyBanner)
 
 
-        initialSpinner.style = .spinning
-        initialSpinner.controlSize = .regular
         initialSpinner.translatesAutoresizingMaskIntoConstraints = false
         initialSpinner.setAccessibilityIdentifier("conversation.initialLoading")
         view.addSubview(initialSpinner)
@@ -352,11 +351,13 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     private func animateScroll(to target: NSPoint, duration: TimeInterval, timing: CAMediaTimingFunction? = nil) {
         programmaticScrollAnimations += 1
+        // Reduce Motion: the scroll lands at once; the completion still runs.
+        let reduceMotion = NSView.reducesMotion
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = duration
+            context.duration = reduceMotion ? 0 : duration
             if let timing { context.timingFunction = timing }
-            context.allowsImplicitAnimation = true
-            scrollView.contentView.animator().setBoundsOrigin(target)
+            context.allowsImplicitAnimation = !reduceMotion
+            scrollView.contentView.animatorUnlessReduceMotion().setBoundsOrigin(target)
         }, completionHandler: { [weak self] in
             MainActor.assumeIsolated { self?.programmaticScrollAnimations -= 1 }
         })
@@ -658,10 +659,13 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         let indexes = IndexSet(rowIDs.compactMap { rowIndex[$0] })
         guard !indexes.isEmpty else { return store.deleteLocally(rowIDs: rowIDs) }
         collapsingRowIDs.formUnion(rowIDs)
+        // Reduce Motion: the rows go and the gap closes at once (no collapse);
+        // the completion still removes them from the store.
+        let reduceMotion = NSView.reducesMotion
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.25
+            context.duration = reduceMotion ? 0 : 0.25
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            context.allowsImplicitAnimation = true
+            context.allowsImplicitAnimation = !reduceMotion
             for index in indexes {
                 tableView.view(atColumn: 0, row: index, makeIfNecessary: false)?.animator().alphaValue = 0
             }
@@ -1055,6 +1059,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         ghost.imageScaling = .scaleNone
         ghost.wantsLayer = true
         tableView.addSubview(ghost)
+        // motion: allow crossfade, the Reduce Motion form
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.3
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -1462,14 +1467,18 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             CATransform3DConcat(CATransform3DMakeTranslation(-bounds.midX, -bounds.midY, 0), CATransform3DMakeScale(0.1, 0.1, 1)),
             CATransform3DMakeTranslation(bounds.midX, bounds.midY, 0)
         )
-        let grow = CASpringAnimation(keyPath: "transform")
-        grow.fromValue = NSValue(caTransform3D: scaled)
-        grow.toValue = NSValue(caTransform3D: CATransform3DIdentity)
-        grow.mass = 1
-        grow.stiffness = 380
-        grow.damping = 22
-        grow.duration = grow.settlingDuration
-        layer.add(grow, forKey: "land")
+        // Reduce Motion: no swell; the badge only fades in at its size.
+        if !NSView.reducesMotion {
+            let grow = CASpringAnimation(keyPath: "transform")
+            grow.fromValue = NSValue(caTransform3D: scaled)
+            grow.toValue = NSValue(caTransform3D: CATransform3DIdentity)
+            grow.mass = 1
+            grow.stiffness = 380
+            grow.damping = 22
+            grow.duration = grow.settlingDuration
+            layer.add(grow, forKey: "land")
+        }
+        // motion: allow crossfade, the Reduce Motion form
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 0
         fade.toValue = 1
@@ -1838,7 +1847,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
                 let commit = container.replyDrag >= 50 && event.phase == .ended
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.25
-                    container.animator().replyDrag = 0
+                    container.animatorUnlessReduceMotion().replyDrag = 0
                 }
                 if commit, let model = messageModel(at: index) { enterReply(model.message) }
             }
@@ -1856,7 +1865,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         let apply = {
             for index in 0..<self.rows.count {
                 guard let container = self.tableView.view(atColumn: 0, row: index, makeIfNecessary: false) as? MacMessageContainerView else { continue }
-                if animated { container.animator().timestampReveal = value } else { container.timestampReveal = value }
+                if animated { container.animatorUnlessReduceMotion().timestampReveal = value } else { container.timestampReveal = value }
             }
         }
         if animated {
@@ -1920,6 +1929,7 @@ final class MacMessageContainerView: MacFlippedView {
     required init?(coder: NSCoder) { fatalError() }
 
     override static func defaultAnimation(forKey key: NSAnimatablePropertyKey) -> Any? {
+        // motion: allow the animator() proxy's animation; every replyDrag and timestampReveal change goes through animatorUnlessReduceMotion()
         key == "replyDrag" || key == "timestampReveal" ? CABasicAnimation() : super.defaultAnimation(forKey: key)
     }
 
@@ -2156,13 +2166,17 @@ final class MacReplyFocusView: NSView {
         addSubview(glass)
         accessoryView = glass
         glass.wantsLayer = true
-        let pop = CASpringAnimation(keyPath: "transform.scale")
-        pop.fromValue = 0.6
-        pop.toValue = 1
-        pop.damping = 18
-        pop.stiffness = 320
-        pop.duration = pop.settlingDuration
-        glass.layer?.add(pop, forKey: "pop")
+        // Reduce Motion: no pop; the glass only fades in at its size.
+        if !NSView.reducesMotion {
+            let pop = CASpringAnimation(keyPath: "transform.scale")
+            pop.fromValue = 0.6
+            pop.toValue = 1
+            pop.damping = 18
+            pop.stiffness = 320
+            pop.duration = pop.settlingDuration
+            glass.layer?.add(pop, forKey: "pop")
+        }
+        // motion: allow crossfade, the Reduce Motion form
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 0
         fade.toValue = 1
@@ -2185,6 +2199,8 @@ final class MacReplyFocusView: NSView {
         }
         snapshot.contentsScale = scale
         snapshotView.frame = target
+        // Reduce Motion: the snapshot is at its target at once, no lift or pop.
+        let reduceMotion = NSView.reducesMotion
         let lift = CASpringAnimation(keyPath: "position")
         lift.fromValue = NSValue(point: source.origin)
         lift.toValue = NSValue(point: target.origin)
@@ -2192,14 +2208,15 @@ final class MacReplyFocusView: NSView {
         lift.stiffness = 300
         lift.mass = 1
         lift.duration = lift.settlingDuration
-        if source != target { snapshot.add(lift, forKey: "lift") }
-        if pop {
+        if source != target, !reduceMotion { snapshot.add(lift, forKey: "lift") }
+        if pop, !reduceMotion {
             let scale = CAKeyframeAnimation(keyPath: "transform.scale")
             scale.values = [1, 1.04, 1]
             scale.keyTimes = [0, 0.4, 1]
             scale.duration = 0.3
             snapshot.add(scale, forKey: "pop")
         }
+        // motion: allow crossfade, the Reduce Motion form
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.22
             blur.animator().alphaValue = 1
@@ -2210,6 +2227,7 @@ final class MacReplyFocusView: NSView {
         if let picker = accessoryView as? MacReactionPickerView {
             picker.animateOut()
         } else if let accessoryView {
+            // motion: allow crossfade, the Reduce Motion form
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.15
                 accessoryView.animator().alphaValue = 0
@@ -2218,14 +2236,16 @@ final class MacReplyFocusView: NSView {
         if let destination {
             let current = snapshot.presentation()?.position ?? snapshot.position
             snapshotView.frame = destination
+            // Reduce Motion: the snapshot is back in place at once (no drop).
             let drop = CASpringAnimation(keyPath: "position")
             drop.fromValue = NSValue(point: current)
             drop.toValue = NSValue(point: destination.origin)
             drop.damping = 26
             drop.stiffness = 300
             drop.duration = drop.settlingDuration
-            snapshot.add(drop, forKey: "drop")
+            if !NSView.reducesMotion { snapshot.add(drop, forKey: "drop") }
         } else {
+            // motion: allow crossfade, the Reduce Motion form
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 1
             fade.toValue = 0
@@ -2233,6 +2253,7 @@ final class MacReplyFocusView: NSView {
             snapshot.opacity = 0
             snapshot.add(fade, forKey: "fade")
         }
+        // motion: allow crossfade, the Reduce Motion form
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = destination == nil ? 0.18 : 0.28
             blur.animator().alphaValue = 0
@@ -2301,6 +2322,9 @@ final class MacFlightOverlayView: NSView {
         // 0.2 s on (0.542, 0, 0.58, 1) where it starts, the throw rises on a
         // spring (mass 1, stiffness 141.759, damping 17.35) from 0.055 s,
         // and the fill fades in from 0.6 opacity over 0.2 s.
+        // Reduce Motion: no throw, no reshaping and no dip; the bubble is at
+        // its slot and only its fill fades in, then the completion lands it.
+        let reduceMotion = NSView.reducesMotion
         let rise = fromBody.midY - toBody.midY
         let now = flight.convertTime(CACurrentMediaTime(), from: nil)
         let collapseCurve = CAMediaTimingFunction(controlPoints: 0.542, 0, 0.58, 1)
@@ -2311,8 +2335,11 @@ final class MacFlightOverlayView: NSView {
             animation.timingFunction = collapseCurve
             return animation
         }
-        body.add(collapse("path", bubblePath(fromBody.offsetBy(dx: 0, dy: -rise), tail: tail)), forKey: "p")
-        textLayer.add(collapse("position", NSValue(point: CGPoint(x: fromText.midX, y: fromText.midY - rise))), forKey: "p")
+        if !reduceMotion {
+            body.add(collapse("path", bubblePath(fromBody.offsetBy(dx: 0, dy: -rise), tail: tail)), forKey: "p")
+            textLayer.add(collapse("position", NSValue(point: CGPoint(x: fromText.midX, y: fromText.midY - rise))), forKey: "p")
+        }
+        // motion: allow crossfade, the Reduce Motion form
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 0.6
         fade.duration = 0.2
@@ -2328,8 +2355,10 @@ final class MacFlightOverlayView: NSView {
         lift.duration = lift.settlingDuration
         lift.beginTime = now + 0.055
         lift.fillMode = .backwards
-        flight.add(lift, forKey: "rise")
-        addSendDip(pivot: CGPoint(x: toBody.maxX, y: toBody.midY), fieldHeight: fieldHeight)
+        if !reduceMotion {
+            flight.add(lift, forKey: "rise")
+            addSendDip(pivot: CGPoint(x: toBody.maxX, y: toBody.midY), fieldHeight: fieldHeight)
+        }
         CATransaction.commit()
     }
 
@@ -2423,6 +2452,7 @@ final class MacThreadFocusView: NSView {
         firstShow = false
         for view in [blur, dim] {
             view.alphaValue = 0
+            // motion: allow crossfade, the Reduce Motion form
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.22
                 view.animator().alphaValue = 1
@@ -2431,6 +2461,7 @@ final class MacThreadFocusView: NSView {
     }
 
     func dismiss() {
+        // motion: allow crossfade, the Reduce Motion form
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.18
             animator().alphaValue = 0
@@ -2581,6 +2612,8 @@ final class MacReactionPickerView: MacFlippedView {
     /// `keepRadius` holds the current rounding while shrinking, so a
     /// collapsing capsule stays round instead of squaring off.
     private func setCapsuleFrame(_ frame: CGRect, animated: Bool, keepRadius: Bool = false) {
+        // Reduce Motion: the capsule takes its frame at once.
+        let animated = animated && !NSView.reducesMotion
         let target = animated ? capsule.animator() : capsule
         target.frame = frame
         (animated ? clip.animator() : clip).frame = frame
@@ -2602,6 +2635,17 @@ final class MacReactionPickerView: MacFlippedView {
     func animateIn(seed: CGPoint) {
         self.seed = seed
         let final = finalCapsule
+        // Reduce Motion: the capsule is at its final shape at once (no swell
+        // or stretch) and the tapbacks, circle and dots only fade in.
+        if NSView.reducesMotion {
+            setCapsuleFrame(final, animated: false)
+            let now = CACurrentMediaTime()
+            for view in stack.arrangedSubviews + dots + [circle] {
+                view.wantsLayer = true
+                pop(view, from: 1, at: now, bounce: false)
+            }
+            return
+        }
         setCapsuleFrame(circleFrame(diameter: 10, centerY: seed.y), animated: false)
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.1
@@ -2635,9 +2679,20 @@ final class MacReactionPickerView: MacFlippedView {
     func animateOut() {
         isFolding = true
         capsule.layer?.removeAllAnimations()
+        // motion: allow crossfade, the Reduce Motion form
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.12
             for view in stack.arrangedSubviews + [circle] + dots { view.animator().alphaValue = 0 }
+        }
+        // Reduce Motion: the capsule fades where it is instead of folding.
+        if NSView.reducesMotion {
+            // motion: allow crossfade, the Reduce Motion form
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.18
+                capsule.animator().alphaValue = 0
+                clip.animator().alphaValue = 0
+            }
+            return
         }
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.18
@@ -2664,20 +2719,24 @@ final class MacReactionPickerView: MacFlippedView {
     private func pop(_ view: NSView, from scale: CGFloat, at time: CFTimeInterval, bounce: Bool) {
         guard let layer = view.layer else { return }
         let b = view.bounds
-        let start = CATransform3DConcat(
-            CATransform3DConcat(CATransform3DMakeTranslation(-b.midX, -b.midY, 0), CATransform3DMakeScale(scale, scale, 1)),
-            CATransform3DMakeTranslation(b.midX, b.midY, 0)
-        )
-        let grow = CASpringAnimation(keyPath: "transform")
-        grow.fromValue = NSValue(caTransform3D: start)
-        grow.toValue = NSValue(caTransform3D: CATransform3DIdentity)
-        grow.mass = 1
-        grow.stiffness = 300
-        grow.damping = bounce ? 20 : 35
-        grow.duration = grow.settlingDuration
-        grow.beginTime = time
-        grow.fillMode = .backwards
-        layer.add(grow, forKey: "pop")
+        // Reduce Motion: no scale; the view only fades in.
+        if !NSView.reducesMotion {
+            let start = CATransform3DConcat(
+                CATransform3DConcat(CATransform3DMakeTranslation(-b.midX, -b.midY, 0), CATransform3DMakeScale(scale, scale, 1)),
+                CATransform3DMakeTranslation(b.midX, b.midY, 0)
+            )
+            let grow = CASpringAnimation(keyPath: "transform")
+            grow.fromValue = NSValue(caTransform3D: start)
+            grow.toValue = NSValue(caTransform3D: CATransform3DIdentity)
+            grow.mass = 1
+            grow.stiffness = 300
+            grow.damping = bounce ? 20 : 35
+            grow.duration = grow.settlingDuration
+            grow.beginTime = time
+            grow.fillMode = .backwards
+            layer.add(grow, forKey: "pop")
+        }
+        // motion: allow crossfade, the Reduce Motion form
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 0
         fade.toValue = 1

@@ -98,6 +98,33 @@ daemon's default focus. This replaces today's single `windows` subject that
 `WindowStateStore.update` rewrites whole, which lets two Macs on one daemon overwrite
 each other. Implemented by session feat-cmux-next-99 after its catch-up.
 
+### 2.2 Session owner lifetime
+
+A session owner (`cmux-tui --headless`) runs detached on purpose: it outlives every
+client so a later client reattaches instead of rebuilding the session. Nothing a person
+can reattach to is ever ended to save resources. The only exit for an owner nobody
+started on purpose is the orphan exit (`cmux-tui/crates/cmux-tui/src/headless/dev_orphan_exit.rs`,
+core half `server/orphan_shutdown.rs`), and its rules are:
+
+- Scope: owners whose executable sits in a DEV bundle (`com.cmuxterm.app.debug[.<tag>]`)
+  and whose session a cmux app starts by itself: the app owner (`cmux-app-...`) and its
+  Chief home's owner (`cmux-chief-...`). Release, NIGHTLY and RC owners, and a person's own
+  `cmux` sessions (`main` or a named one), never stop by themselves. An owner left by an
+  older release build is the update handoff's job (version-skew.md).
+- Idle: no client for an hour (`ORPHAN_EXIT_DELAY`). The owner's own journal plugin is not
+  a client: the bundled screen detector connects back at start and stays, so counting it
+  kept every DEV owner alive for days (cmux issue 23086). A connection is the plugin's when
+  its kernel peer is in the plugin's process group, checked before it registers. Every
+  other connection counts, including a CLI call and a Chief brain (its own process
+  group); a brain that is not connected when the owner stops is stopped with it and
+  starts again on the next message to a new owner.
+- Abandoned: after the idle hour, the owner's executable is gone (the tag bundle was
+  deleted), or it has no live terminal. With its executable present and a live terminal
+  it keeps running however long it is idle, rechecking every 10 min.
+- Exit: the same stop as `server stop` without `end_terminals`, under a fence that refuses
+  new clients while the check repeats. No terminal ends and no host is signalled; durable
+  state stays on disk, and the next owner of the session adopts the hosts.
+
 ## 3. Protocol: ops, echo, intents
 
 - Op: `{transaction, idempotency_key, kind, args, expected_revision?}`. The owner runs
@@ -197,7 +224,19 @@ kept under `on_exit` keep, a keep-layout tab) shows one-click Restart. The op is
 `restart-tab {surface}` (`tab-restart-v1`, Unix owners): it runs the L2 worker for the
 same terminal id, so the tab id, placement, name, pin, group and every reference to the
 terminal stay, and the new shell starts below the previous screen and the marker line.
-An explicit request has no backoff and resets the supervisor's attempt count. A tab whose terminal runs, launches or already restarts is the typed reject
+An explicit request has no backoff and resets the supervisor's attempt count. It takes a turn in
+the respawn gate, so the restarts of a restored session's
+kept tabs never all launch at once. The tabs kept for a start at a frontend's connect (their terminal
+ran an agent session) are the restore: they wait in the gate's line. A terminal the person sees
+(the daemon's active workspace) and each other restart (Restart Shell Here, the first show of a
+parked tab, in a hidden workspace too) is the person's: it does not wait for the line or for a
+turn of the line to end (`StartupAdoptionGate::turn_first_if`), and the slots bound such starts
+among themselves. The request does not say who sent it: a script's `cmux tab restart` of a dead tab that is
+not such a kept tab goes first too, and a kept agent tab that the person restarts by hand, or that a frontend starts at
+the first show of its workspace (a protected folder), waits in the line unless its workspace is the
+active one. A failed launch is tried again
+(`terminal_respawn/retry.rs`); a next try that waits a backoff takes its turn when the wait is over. The turn ends when the new shell is in the tabs: the wait for its
+prompt, to type a resume command there, holds no turn. A tab whose terminal runs, launches or already restarts is the typed reject
 `tab-not-dead`. There is no automatic-restart setting and no reducer or FFI change; the
 superseded design (a new terminal id and a `terminal.restartLostTerminals` setting,
 orphan branch feat-cmux-next-tab-restart-4) did not land. Surfaces, one shared action

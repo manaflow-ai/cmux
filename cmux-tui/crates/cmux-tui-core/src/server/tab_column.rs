@@ -7,6 +7,11 @@
 /// `move-tab-to-column` `respawn`.
 pub const TAB_COLUMN_RESPAWN_CAPABILITY: &str = "tab-column-respawn-v1";
 
+/// `move-tab-to-column` `pane_id`: the caller mints the new column's pane id, so a client that
+/// shows the column before the reply (the lone chat docking left) sees the daemon's pane replace
+/// its provisional one by id, as `split-client-keys-v1` does for `split`.
+pub const TAB_COLUMN_CLIENT_PANE_CAPABILITY: &str = "tab-column-client-pane-v1";
+
 use super::*;
 
 /// `move-tab-to-column`: a new column holding the tab, after `after_column`
@@ -34,6 +39,9 @@ pub(super) struct MoveTabToColumnParams {
     /// `tab-split-keep-focus-v1`: the focused pane stays focused.
     #[serde(default)]
     keep_focus: bool,
+    /// `tab-column-client-pane-v1`: the new column's pane's public id, `pane_` and 32 hex digits.
+    #[serde(default)]
+    pane_id: Option<String>,
     #[serde(default)]
     transaction: Option<String>,
 }
@@ -53,6 +61,7 @@ pub(super) fn move_tab_to_column(
         sticky,
         respawn,
         keep_focus,
+        pane_id,
         transaction,
     } = params;
     if sticky.is_some() {
@@ -63,6 +72,12 @@ pub(super) fn move_tab_to_column(
         .into());
     }
     validate_client_transaction(transaction.as_deref())?;
+    let pane_id = pane_id
+        .map(|requested| {
+            crate::resource::PanePublicId::parse(requested.clone())
+                .map_err(|_| anyhow::anyhow!("bad request: pane_id {requested:?} is not a pane id"))
+        })
+        .transpose()?;
     anyhow::ensure!(
         !(keep_focus && respawn.is_some()),
         "bad request: keep_focus does not apply with respawn"
@@ -70,25 +85,24 @@ pub(super) fn move_tab_to_column(
     get_surface(mux, surface)?;
     let anchor = column_anchor(mux, pane, screen)?;
     let actor = origin_gate::connection_actor(mux, client);
+    let destination = crate::mux::ColumnMove { pane: anchor, after_column, width, dock };
     let outcome = match respawn {
-        None => mux.move_tab_to_column_as(
+        None => mux.move_tab_to_column_keyed_as(
             &actor,
             surface,
-            anchor,
-            after_column,
-            width,
-            dock,
+            destination,
+            pane_id,
             keep_focus,
             transaction,
         )?,
         Some(respawn) => {
             let respawn = respawn.into_respawn(frontend_shell(mux, client))?;
-            let destination = crate::mux::ColumnMove { pane: anchor, after_column, width, dock };
-            mux.move_tab_to_column_respawning_as(
+            mux.move_tab_to_column_respawning_keyed_as(
                 &actor,
                 surface,
                 destination,
                 respawn,
+                pane_id,
                 transaction,
             )?
         }

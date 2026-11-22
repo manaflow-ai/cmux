@@ -25,6 +25,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 RUST_CACHE = "swatinem/rust-cache@"
 # Exact shapes of GitHub-hosted and Blacksmith ephemeral Linux/Windows labels.
@@ -34,7 +37,6 @@ EPHEMERAL_LABEL = re.compile(
     r"^(ubuntu-(\d{2}\.\d{2}|latest)(-arm)?|windows-(\d{4}|latest)"
     r"|blacksmith-\d+vcpu-(ubuntu-\d{4}(-arm)?|windows-\d{4}))$"
 )
-MATRIX_REF = re.compile(r"^\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}$")
 
 
 def is_rust_cache(step: object) -> bool:
@@ -46,33 +48,10 @@ def keeps_bin(step: dict) -> bool:
     return value is False or str(value).strip().lower() == "false"
 
 
-def runner_labels(job: dict) -> list[object] | None:
-    """Every label the job's runs-on can be, or None when that is not static."""
-    runs_on = job.get("runs-on")
-    if isinstance(runs_on, dict):
-        return None
-    labels = runs_on if isinstance(runs_on, list) else [runs_on]
-    resolved: list[object] = []
-    for label in labels:
-        match = MATRIX_REF.match(str(label).strip())
-        if not match:
-            resolved.append(label)
-            continue
-        matrix = (job.get("strategy") or {}).get("matrix")
-        if not isinstance(matrix, dict):
-            return None
-        key = match.group(1)
-        values = matrix.get(key, [])
-        if not isinstance(values, list):
-            return None
-        include = matrix.get("include", [])
-        if not isinstance(include, list):
-            return None
-        values = list(values) + [entry[key] for entry in include if isinstance(entry, dict) and key in entry]
-        if not values:
-            return None
-        resolved.extend(values)
-    return resolved
+def runner_labels(job: dict) -> list[str] | None:
+    """The job's runs-on as each matrix cell writes it (a label list joined by ", "), or None when a matrix value
+    is not static (a guard counts that job as able to take a persistent runner)."""
+    return workflow_jobs.runs_on_cells(job)
 
 
 def ephemeral_only(job: dict) -> bool:
@@ -135,7 +114,7 @@ def self_test() -> list[str]:
     ]
     for job, expected in cases:
         if ephemeral_only(job) is not expected:
-            errors.append(f"self-test: ephemeral_only({job['runs-on']!r}) should be {expected}")
+            errors.append(f"self-test: ephemeral_only({workflow_jobs.runs_on_cells(job)!r}) should be {expected}")
     if keeps_bin({"with": {}}) or not keeps_bin({"with": {"cache-bin": False}}) or not keeps_bin({"with": {"cache-bin": "false"}}):
         errors.append("self-test: keeps_bin misreads cache-bin")
     return errors

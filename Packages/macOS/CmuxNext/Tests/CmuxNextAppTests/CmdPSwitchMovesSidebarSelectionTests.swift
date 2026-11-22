@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 @testable import CmuxNextPalette
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ import Testing
 /// new workspace, but the sidebar kept drawing the old row selected. A Cmd-P switch draws the chosen
 /// workspace's row selected, as a click on that row does. Runs the palette's Enter on its row against a
 /// same-tree cmux-tui daemon and the real window.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .closesItsWindows)
 struct CmdPSwitchMovesSidebarSelectionTests {
     @Test func cmdPEnterDrawsTheChosenWorkspaceSelected() async throws {
         try await PinnedPageTests.withApp { services, _ in

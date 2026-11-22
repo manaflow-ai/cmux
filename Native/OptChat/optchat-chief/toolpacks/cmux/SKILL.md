@@ -13,7 +13,7 @@ runs `cmux version --json`: the CLI, the app its socket reaches, the channel and
 2. Show things in the column beside the chat, as a new tab, never in the chat's pane:
    `cmux open URL`; `cmux action run file.open --target <beside.pane> --path FILE --where tab`;
    `cmux tab create terminal --pane <beside.pane>`. With no column yet:
-   `cmux pane <caller.pane> split --right --viewport-width 0.5`, once.
+   `cmux pane <caller.pane> split --right --fit`, once.
 3. Sidebar groups are the person's: never make one or move a workspace into one unless the person
    asks (then `cmux --json workspace group list`, `cmux workspace group <group> add --workspace <ws_…>`).
    Never close or rename the person's workspaces.

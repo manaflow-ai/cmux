@@ -13,12 +13,34 @@ public struct ScreenPreferences: Codable, Hashable, Sendable {
     public var fitToDisplay = true
     /// Screen stream quality (Auto lets WebRTC choose).
     public var quality = ScreenQuality.auto
+    /// How touches drive the pointer: where the finger is (direct, the
+    /// default) or a cursor moved like a laptop trackpad.
+    public var inputMode = ScreenInputMode.direct
+    /// The trackpad under the screen is up (the default): dragging its notch
+    /// down tucks it away to a strip and gives the screen the room, dragging
+    /// it up brings it back. Remembered with the rest; landscape starts tucked away.
+    public var showTrackpad = true
+    /// Customize: the highest bitrate the stream may use, in kbit/s (nil: Auto, the host's own
+    /// cap). A cmux.rd host takes it as the offer's `a=cmux-rd-max-kbps`.
+    public var maxKbps: Int?
+    /// Customize: the stream shows the cursor (the default). Off, a cmux.rd host leaves it out
+    /// of the stream altogether (`a=cmux-rd-cursor:0`).
+    public var showCursorInStream = true
 
-    public init(localCursor: Bool = true, showStats: Bool = true, fitToDisplay: Bool = true, quality: ScreenQuality = .auto) {
+    /// The bitrate caps the Customize menu offers, in kbit/s (nil is Auto).
+    public static let maxKbpsChoices: [Int?] = [nil, 2_000, 5_000, 10_000, 20_000]
+
+    public init(localCursor: Bool = true, showStats: Bool = true, fitToDisplay: Bool = true, quality: ScreenQuality = .auto,
+                inputMode: ScreenInputMode = .direct, showTrackpad: Bool = true, maxKbps: Int? = nil,
+                showCursorInStream: Bool = true) {
         self.localCursor = localCursor
         self.showStats = showStats
         self.fitToDisplay = fitToDisplay
         self.quality = quality
+        self.inputMode = inputMode
+        self.showTrackpad = showTrackpad
+        self.maxKbps = maxKbps
+        self.showCursorInStream = showCursorInStream
     }
 
     public init(from decoder: any Decoder) throws {
@@ -27,6 +49,39 @@ public struct ScreenPreferences: Codable, Hashable, Sendable {
         showStats = try container.decodeIfPresent(Bool.self, forKey: .showStats) ?? true
         fitToDisplay = try container.decodeIfPresent(Bool.self, forKey: .fitToDisplay) ?? true
         quality = (try? container.decodeIfPresent(ScreenQuality.self, forKey: .quality)) ?? .auto
+        inputMode = (try? container.decodeIfPresent(ScreenInputMode.self, forKey: .inputMode)) ?? .direct
+        showTrackpad = try container.decodeIfPresent(Bool.self, forKey: .showTrackpad) ?? true
+        maxKbps = try? container.decodeIfPresent(Int.self, forKey: .maxKbps)
+        showCursorInStream = try container.decodeIfPresent(Bool.self, forKey: .showCursorInStream) ?? true
+    }
+}
+
+/// How touches drive the remote pointer (`ScreenPreferences.inputMode`).
+/// - `direct`: a tap clicks where the finger is, press-and-hold then drag
+///   drags, one finger pans a zoomed view.
+/// - `trackpad`: a cursor that one finger moves relatively (faster strokes go
+///   further); a tap clicks at the cursor, tap then hold and drag (or a long
+///   press) drags, and a zoomed view follows the cursor.
+///
+/// Both: two-finger tap right-clicks, two fingers scroll, pinch zooms.
+public enum ScreenInputMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case direct, trackpad
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .direct: "Direct Touch"
+        case .trackpad: "Trackpad"
+        }
+    }
+
+    /// An SF Symbol for the choice.
+    public var symbol: String {
+        switch self {
+        case .direct: "hand.point.up.left"
+        case .trackpad: "rectangle.and.hand.point.up.left"
+        }
     }
 }
 

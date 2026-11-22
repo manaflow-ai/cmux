@@ -305,11 +305,15 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(tab_set_transparent_background, "cmux_tab_set_transparent_background");
   CMUX_BIND(browser_set_layer_hosting, "cmux_browser_set_layer_hosting");
   CMUX_BIND(browser_set_resize_sync, "cmux_browser_set_resize_sync");
+  CMUX_BIND(browser_resize_fence, "cmux_browser_resize_fence");
   CMUX_BIND(set_new_tab_page_url, "cmux_set_new_tab_page_url");
   CMUX_BIND(set_install_prompt_handler, "cmux_set_install_prompt_handler");
   CMUX_BIND(install_prompt_reply, "cmux_install_prompt_reply");
   CMUX_BIND(omnibox_keywords, "cmux_omnibox_keywords");
   CMUX_BIND(omnibox_input, "cmux_omnibox_input");
+  CMUX_BIND(omnibox_preload_text_changed, "cmux_omnibox_preload_text_changed");
+  CMUX_BIND(omnibox_preload_opened, "cmux_omnibox_preload_opened");
+  CMUX_BIND(set_omnibox_prerender, "cmux_set_omnibox_prerender");
   CMUX_BIND(set_omnibox_suggestions_handler, "cmux_set_omnibox_suggestions_handler");
   CMUX_BIND(add_native_messaging_dir, "cmux_add_native_messaging_dir");
   CMUX_BIND(set_popup_windows_enabled, "cmux_set_popup_windows_enabled");
@@ -321,6 +325,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(side_panel_press, "cmux_side_panel_press");
   CMUX_BIND(profile_passkeys_list, "cmux_profile_passkeys_list");
   CMUX_BIND(profile_passkey_delete, "cmux_profile_passkey_delete");
+  CMUX_BIND(tab_set_webauthn_mode, "cmux_tab_set_webauthn_mode");
   CMUX_BIND(password_list, "cmux_password_list");
   CMUX_BIND(password_remove, "cmux_password_remove");
   CMUX_BIND(password_exception_remove, "cmux_password_exception_remove");
@@ -343,6 +348,9 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_drag_source_handler, "cmux_set_drag_source_handler");
   CMUX_BIND(browser_drag_source_ended, "cmux_browser_drag_source_ended");
   CMUX_BIND(browser_drag_target_enter_source, "cmux_browser_drag_target_enter_source");
+  CMUX_BIND(set_keychain_item, "cmux_set_keychain_item");
+  CMUX_BIND(browser_set_draw_on_input, "cmux_browser_set_draw_on_input");
+  CMUX_BIND(draw_on_input_key_frames, "cmux_draw_on_input_key_frames");
 #undef CMUX_BIND
 }
 
@@ -404,6 +412,14 @@ int cmux_shim_fork_api_version(void) {
   return fork_api().version;
 }
 
+int cmux_shim_set_keychain_item(const char* service, const char* account) {
+  // The fork refuses once a CefContext exists and refuses the shared item's names.
+  if (!fork_api().set_keychain_item || !service || !account) {
+    return 0;
+  }
+  return fork_api().set_keychain_item(service, account) == 1 ? 1 : 0;
+}
+
 int cmux_shim_prepare_application(void) {
   NSApplication* app = [NSApplication sharedApplication];
   return [app conformsToProtocol:@protocol(CefAppProtocol)] &&
@@ -419,17 +435,38 @@ int cmux_shim_prepare_application(void) {
 // (OnWindowStateRestorationDataChanged). Each encode asks the WindowServer for the window's Space
 // name, a synchronous round trip on the main thread; in cmux it ran after every pane focus move
 // across Chromium panes (a515). CEF never restores these windows and cmux restores its own, so the
-// encode becomes a no-op. A CEF without that private method keeps its behavior.
+// encode becomes a no-op. The public restorable property is also disabled because newer CEF
+// forks can bypass the private method (or omit it entirely) while still asking AppKit to persist
+// NativeWidgetMacNSWindow state. A CEF without either selector keeps its behavior.
 static void StopChromiumWindowRestorationData() {
   Class window_class = NSClassFromString(@"NativeWidgetMacNSWindow");
-  SEL selector = NSSelectorFromString(@"reallySaveRestorableState");
-  Method method = window_class ? class_getInstanceMethod(window_class, selector) : nullptr;
-  if (!method) {
+  if (!window_class) {
     return;
   }
-  IMP no_op = imp_implementationWithBlock(^(id) {
-  });
-  class_replaceMethod(window_class, selector, no_op, method_getTypeEncoding(method));
+
+  SEL private_selector = NSSelectorFromString(@"reallySaveRestorableState");
+  if (Method private_method = class_getInstanceMethod(window_class, private_selector)) {
+    IMP no_op = imp_implementationWithBlock(^(id) {
+    });
+    class_replaceMethod(window_class, private_selector, no_op,
+                        method_getTypeEncoding(private_method));
+  }
+
+  // CEF does not use AppKit's window restoration; cmux persists its own windows through the
+  // daemon. Keep this override on Chromium's class only so cmux-owned NSWindows remain restorable.
+  SEL getter = @selector(isRestorable);
+  if (Method getter_method = class_getInstanceMethod(window_class, getter)) {
+    IMP never = imp_implementationWithBlock(^BOOL(id) {
+      return NO;
+    });
+    class_replaceMethod(window_class, getter, never, method_getTypeEncoding(getter_method));
+  }
+  SEL setter = @selector(setRestorable:);
+  if (Method setter_method = class_getInstanceMethod(window_class, setter)) {
+    IMP ignore = imp_implementationWithBlock(^(id, BOOL) {
+    });
+    class_replaceMethod(window_class, setter, ignore, method_getTypeEncoding(setter_method));
+  }
 }
 
 int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path, const char* subprocess_path,
@@ -537,6 +574,7 @@ void cmux_shim_shutdown(void) {
   // Download callbacks hold Chromium objects: release them first.
   ForgetDownloads();
   ForgetPermissionPrompts();
+  StopDeferredPageRequests();
   CefShutdown();
 }
 

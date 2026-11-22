@@ -14,13 +14,18 @@ public struct TerminalTabContext {
     /// Finger travel on the page (positive = finger down); collapses and
     /// expands the tab toolbar.
     public var reportScroll: @MainActor (CGFloat) -> Void
+    /// A terminal web link that opens on the Mac (one only the Mac reaches, or Open on Mac):
+    /// a cmux browser tab beside the terminal, in the same
+    /// workspace (the Mac's Cmd-click). Nil where no workspace can open one.
+    public var openLink: (@MainActor (URL) -> Void)?
 
     public init(safeAreaInsets: EdgeInsets, isInteractive: Bool, isZoomGestureActive: Bool,
-                reportScroll: @escaping @MainActor (CGFloat) -> Void) {
+                reportScroll: @escaping @MainActor (CGFloat) -> Void, openLink: (@MainActor (URL) -> Void)? = nil) {
         self.safeAreaInsets = safeAreaInsets
         self.isInteractive = isInteractive
         self.isZoomGestureActive = isZoomGestureActive
         self.reportScroll = reportScroll
+        self.openLink = openLink
     }
 }
 
@@ -31,7 +36,12 @@ public struct TerminalTabContext {
 @MainActor
 public protocol TerminalTabContent: AnyObject {
     func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView
+    /// The tab's grid card. Read in a card's body: no host, session or
+    /// request is made here once `prepareCard` ran for the tab.
     func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView
+    /// Makes what the tab's card shows (its host, its first screen read),
+    /// outside any view update: when the tab is listed and when the grid opens.
+    func prepareCard(for tab: WorkspaceTab, in workspace: Workspace)
     func accessory(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView?
     /// The terminal's own actions, shown first in the tab's page menu
     /// (TabsKit owns the toolbar, so this is where the keyboard toggle,
@@ -54,23 +64,37 @@ public protocol TerminalTabContent: AnyObject {
     func overviewScrollingChanged(_ scrolling: Bool)
     /// A new terminal tab or workspace: put the keyboard up on its composer.
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace)
+    /// New Tab from Text's `!command`: the command waits in the terminal's composer, typed and
+    /// not run (the Mac's `newTab.submit` types it into the new terminal), with the keyboard up.
+    func draft(_ text: String, for tab: WorkspaceTab, in workspace: Workspace)
     /// Replaces the title pill's subtitle (the working directory) while the
     /// tab's state matters more, e.g. "Reattaching…" after a slow reattach
     /// (design/terminal P5). Nil keeps the directory. Read during view
     /// updates: must not create a tab's host or write state.
     func statusSubtitle(for tab: WorkspaceTab) -> String?
+    /// The app went to the background (false) or came back: the grid's view
+    /// still counts as visible in the background, so its refresh stops here.
+    func sceneActiveChanged(_ active: Bool)
+    /// `handler` hears each terminal the Mac says drew output (its tab id and
+    /// Mac; a nil tab: any terminal of that Mac may have, its event stream
+    /// started again) while `owner` lives. One handler per owner.
+    func observeOutput(_ owner: AnyObject, _ handler: @escaping @MainActor (String?, String) -> Void)
 }
 
 extension TerminalTabContent {
     public func accessory(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView? { nil }
     public func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction] { [] }
+    public func prepareCard(for tab: WorkspaceTab, in workspace: Workspace) {}
     public func overviewWillAppear(active tab: WorkspaceTab) {}
     public func overviewWillAppear(inactive tabs: [WorkspaceTab]) {}
     public func showsStaticCard(for tab: WorkspaceTab) -> Bool { false }
     public func overviewVisibilityChanged(_ visible: Bool, tabs: @escaping @MainActor () -> [WorkspaceTab]) {}
     public func overviewScrollingChanged(_ scrolling: Bool) {}
     public func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {}
+    public func draft(_ text: String, for tab: WorkspaceTab, in workspace: Workspace) {}
     public func statusSubtitle(for tab: WorkspaceTab) -> String? { nil }
+    public func sceneActiveChanged(_ active: Bool) {}
+    public func observeOutput(_ owner: AnyObject, _ handler: @escaping @MainActor (String?, String) -> Void) {}
 }
 
 /// A page menu row a terminal tab adds.

@@ -42,11 +42,11 @@ public struct TurnFailureCopy: Hashable, Sendable {
             "\(name) needs a team account on this machine. To add one for the team, run \(Self.firstMatch(Self.addCommand, in: raw) ?? "cr add") in this machine’s terminal."
         case .modelServiceUnavailable:
             (parts.message ?? raw).range(of: "this team", options: .caseInsensitive) != nil
-                ? "cmux's model service isn't available for this team yet."
-                : "cmux's model service isn't available here yet."
+                ? "cmux's model service isn't available for this team."
+                : "cmux's model service isn't available here."
         case .modelServiceNotConnected: "cmux's model service isn't connected on the Mac. Open cmux on the Mac, then try again."
         case .modelServiceExpired: "cmux's model service sign-in expired on the Mac. Open cmux on the Mac to renew it."
-        case .modelServiceUnreachable: "cmux's model service didn't answer. Try again in a moment."
+        case .modelServiceUnreachable: "Can't reach cmux's model service right now. Try again in a moment."
         case .rateLimited: "\(name) is rate limited or out of capacity. Try again in a moment, or switch model."
         case .unreachable: via.map { "\(name) could not reach \($0)." } ?? "\(name) could not reach its server."
         case .invalidKey: "\(name) has no valid API key. Check the key its profile uses."

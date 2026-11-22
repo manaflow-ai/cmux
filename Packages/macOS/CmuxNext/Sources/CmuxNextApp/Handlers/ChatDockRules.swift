@@ -1,6 +1,7 @@
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextLayout
+import CmuxNextWindowRules
 
 /// What the chat dock refuses (lawrence-call-1006 D): it is a docked
 /// region, not a split that happens to sit on the left. It never splits
@@ -8,39 +9,31 @@ import CmuxNextLayout
 /// holds only agent chats, so tools dropped or moved into it are refused.
 enum ChatDockRules {
 
-    private static func isChatDock(_ pane: LayoutPaneID, _ columns: [LayoutColumn]) -> Bool {
-        columns.first { $0.root.contains(pane) }?.dock?.role == .agentChat
-    }
-
-    /// Whether a chat dock with flag `dock` takes only agent chats: every chat dock but Home's pinned
-    /// dock while it takes tabs (`allow_tabs`), which takes any tab dragged in (Leo 2026-10-21: "JUST
-    /// MAKE THE TAB THING SHOW UP ON THE MAIN PANE TOO"). It still never splits (`splitRoom`).
-    nonisolated static func takesOnlyChats(_ dock: DockColumn?) -> Bool {
-        guard let dock, dock.role == .agentChat else { return false }
-        return !(dock.isPinned && dock.allowsTabs)
-    }
-
-    /// Whether `pane` is a shown pane of a chat dock that takes only agent chats (``takesOnlyChats(_:)``).
-    @MainActor private static func takesOnlyChats(_ pane: PaneModel, services: AppServices) -> Bool {
+    /// The chat rules' read of `pane`'s column on its screen (zoomed as the screen shows it); nil for a pane no window shows.
+    @MainActor private static func read(_ pane: PaneModel, services: AppServices, moving: WindowRules.ChatMoving? = nil) -> WindowRules.ChatColumnRead? {
         guard let controller = services.paneController(for: pane), let content = controller.workspace,
-              let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return false }
-        let layoutPane = controller.layoutPaneID
-        return takesOnlyChats(ChatColumnPlacement.columns(of: screen, containing: layoutPane).first { $0.root.contains(layoutPane) }?.dock)
+              let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return nil }
+        return ChatColumnPlacement.read(controller, services: services, zoomed: screen.zoomed, moving: moving)
     }
 
     /// Whether `pane` is a shown pane in the chat dock.
     @MainActor static func isChatDock(_ pane: PaneModel, services: AppServices) -> Bool {
-        guard let controller = services.paneController(for: pane), let content = controller.workspace,
-              let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return false }
-        let layoutPane = controller.layoutPaneID
-        return isChatDock(layoutPane, ChatColumnPlacement.columns(of: screen, containing: layoutPane))
+        read(pane, services: services)?.chatDock ?? false
+    }
+
+    /// Whether Split Down of `pane` grows its chat dock (`chat::Dock::splits_down`, #29848) on a daemon that takes it.
+    /// The rule reads topology only; a daemon without `dock-column-split-down-v1` never asks it.
+    @MainActor static func splitsDownInDock(_ pane: PaneModel, services: AppServices) -> Bool {
+        guard services.daemon(for: pane).supports(DaemonCapability.dockColumnSplitDown.rawValue) else { return false }
+        return read(pane, services: services)?.splitsDown == true
     }
 
     /// Refuses (and reports) a non-chat tab moving into a chat dock that takes only chats. A
     /// reorder inside the dock is not a move into it.
     @MainActor static func refusesMove(_ tab: TabModel, to pane: PaneModel, services: AppServices) -> Bool {
-        guard services.locateTab(model: tab)?.1 !== pane, !ChatColumnPlacement.isChat(tab, services: services),
-              takesOnlyChats(pane, services: services) else { return false }
+        let moving = WindowRules.ChatMoving(samePane: services.locateTab(model: tab)?.1 === pane,
+                                            chat: ChatColumnPlacement.isChat(tab, services: services))
+        guard read(pane, services: services, moving: moving)?.refusesMove == true else { return false }
         services.registry.refuse(RefusalStrings.chatDockTakesOnlyChats)
         return true
     }
@@ -48,7 +41,7 @@ enum ChatDockRules {
     /// Refuses (and reports) a tab group moving into a chat dock that takes only chats: a group
     /// is a set of tools, never a chat.
     @MainActor static func refusesGroupMove(to pane: PaneModel, services: AppServices) -> Bool {
-        guard takesOnlyChats(pane, services: services) else { return false }
+        guard read(pane, services: services, moving: .init(samePane: false, chat: false))?.refusesMove == true else { return false }
         services.registry.refuse(RefusalStrings.chatDockTakesOnlyChats)
         return true
     }
@@ -57,19 +50,22 @@ enum ChatDockRules {
 extension ChatDockRules {
     /// The split decision of a drop on `pane`'s edge. A drag's preview has
     /// already measured the room (`roomDecided`); otherwise `measure` does.
+    /// The rule is Rust's (`chat::drop_split`); with no answer the room is measured.
     static func dropSplit(roomDecided: Bool, intoChatDock: Bool,
                           measure: () -> SplitRoomDecision) -> SplitRoomDecision {
-        if intoChatDock { return .refused(RefusalStrings.chatDockCannotSplit) }
-        return roomDecided ? .split : measure()
+        switch WindowRules().dropSplit(roomDecided: roomDecided, intoChatDock: intoChatDock) {
+        case .refusedChatDock?: .refused(RefusalStrings.chatDockCannotSplit)
+        case .split?: .split
+        case .measure?, nil: measure()
+        }
     }
 
     /// The pane a drop on a workspace (the sidebar) lands in: its first
-    /// screen's first pane outside the chat dock (which takes only chats).
-    static func workspaceDropPane<Pane>(_ panes: [Pane], isChatDock: (Pane) -> Bool) -> Pane? {
-        panes.first { !isChatDock($0) } ?? panes.first
-    }
-
+    /// screen's first pane outside the chat dock (`chat::drop_pane`); with no answer its first pane.
     @MainActor static func workspaceDropPane(_ screen: ScreenModel?, services: AppServices) -> PaneModel? {
-        workspaceDropPane(screen?.panes ?? []) { isChatDock($0, services: services) }
+        let panes = screen?.panes ?? []
+        guard !panes.isEmpty else { return nil }
+        let index = WindowRules().dropPane(chatDocks: panes.map { isChatDock($0, services: services) }) ?? 0
+        return panes.indices.contains(index) ? panes[index] : panes.first
     }
 }

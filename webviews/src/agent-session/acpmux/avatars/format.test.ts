@@ -1,7 +1,15 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "bun:test";
 import { avatarSet } from "./sets";
-import { AVATAR_STATES, avatarTrack, parseAvatarManifest, sheetSize, type AvatarManifest } from "./format";
+import {
+  AVATAR_DIRECTIONS,
+  AVATAR_STATES,
+  avatarTrack,
+  directionTrack,
+  parseAvatarManifest,
+  sheetSize,
+  type AvatarManifest,
+} from "./format";
 
 const SETS = ["mochi", "captain", "sprout", "bolt"];
 const manifest = (value: unknown): AvatarManifest => {
@@ -38,6 +46,14 @@ test("every built-in set has all six states, fits its sheet and stays a few KB",
     expect(parsed.states.done?.loop).toBe(false);
     expect(parsed.states.error?.loop).toBe(false);
     expect(avatarTrack(parsed, "working", "right").frames).toBeGreaterThan(1);
+    // Every set looks and leans all four ways, on rows of its own under the six states.
+    for (const motion of ["look", "drag"] as const)
+      for (const toward of AVATAR_DIRECTIONS) {
+        const track = directionTrack(parsed, motion, toward, "right");
+        expect(track?.row).toBeGreaterThanOrEqual(6);
+        expect(track?.mirrored).toBe(false);
+      }
+    expect(directionTrack(parsed, "look", "left", "right")?.frames).toBe(parsed.states.thinking?.frames);
   }
 });
 
@@ -96,4 +112,63 @@ test("an upload outside the format is refused with its reason", () => {
   expect(
     refused({ ...minimal, extra: 1, states: { idle: { row: 0, frames: 1 }, dancing: { row: 9, frames: 3 } } }),
   ).toBeNull();
+});
+
+const directed = {
+  ...minimal,
+  states: { idle: { row: 0, frames: 4 }, thinking: { row: 2, frames: 5, fps: 5 } },
+  directions: {
+    look: {
+      left: { row: 6, frames: 5, fps: 5 },
+      right: { row: 7, frames: 5, fps: 5 },
+      up: { row: 8, frames: 5 },
+      down: { row: 9, frames: 5 },
+    },
+    drag: { right: { row: 11, frames: 4, fps: 8, loop: true } },
+  },
+};
+
+test("a manifest with no directions stays valid and has no direction rows", () => {
+  const parsed = manifest({ ...minimal, states: { idle: { row: 0, frames: 2 } } });
+  expect(parsed.directions).toBeUndefined();
+  expect(directionTrack(parsed, "look", "left", "right")).toBeNull();
+  expect(sheetSize(parsed)).toEqual({ width: 64, height: 32 });
+});
+
+test("direction rows parse, count toward the sheet's size and draw toward the screen direction", () => {
+  const parsed = manifest(directed);
+  expect(sheetSize(parsed)).toEqual({ width: 5 * 32, height: 12 * 32 });
+  // Facing the way the rows are drawn: each direction's own row.
+  expect(directionTrack(parsed, "look", "left", "right")).toEqual({
+    row: 6,
+    frames: 5,
+    fps: 5,
+    loop: true,
+    mirrored: false,
+  });
+  expect(directionTrack(parsed, "look", "up", "right")).toMatchObject({ row: 8, fps: 8, mirrored: false });
+  // Turned: looking left is the look-right row mirrored; up and down mirror with the facing.
+  expect(directionTrack(parsed, "look", "left", "left")).toMatchObject({ row: 7, mirrored: true });
+  expect(directionTrack(parsed, "look", "right", "left")).toMatchObject({ row: 6, mirrored: true });
+  expect(directionTrack(parsed, "look", "down", "left")).toMatchObject({ row: 9, mirrored: true });
+  // A missing side borrows the other, mirrored; a missing up or down has no row.
+  expect(directionTrack(parsed, "drag", "right", "right")).toMatchObject({ row: 11, mirrored: false });
+  expect(directionTrack(parsed, "drag", "left", "right")).toMatchObject({ row: 11, mirrored: true });
+  expect(directionTrack(parsed, "drag", "left", "left")).toMatchObject({ row: 11, mirrored: true });
+  expect(directionTrack(parsed, "drag", "right", "left")).toMatchObject({ row: 11, mirrored: false });
+  expect(directionTrack(parsed, "drag", "up", "right")).toBeNull();
+});
+
+test("a direction row outside the format is refused with its reason", () => {
+  const refused = (directions: unknown) => {
+    const parsed = parseAvatarManifest({ ...minimal, states: { idle: { row: 0, frames: 1 } }, directions });
+    return "error" in parsed ? parsed.error : null;
+  };
+  expect(refused("left")).toBe("directions must be an object");
+  expect(refused({ look: 3 })).toBe("directions.look must be an object");
+  expect(refused({ look: { left: { row: 16, frames: 1 } } })).toContain("directions.look.left.row");
+  expect(refused({ drag: { up: { row: 1, frames: 0 } } })).toContain("directions.drag.up.frames");
+  expect(refused({ drag: { up: { row: 1, frames: 1, fps: 99 } } })).toContain("fps");
+  // Unknown motions and directions are ignored.
+  expect(refused({ wave: {}, look: { sideways: { row: 1, frames: 1 } } })).toBeNull();
 });

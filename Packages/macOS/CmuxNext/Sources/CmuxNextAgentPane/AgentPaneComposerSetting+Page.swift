@@ -1,17 +1,17 @@
 import CmuxNextCompat
 public import CmuxNextSettings
 
-/// `agentPane.showContextUsage`, `agentPane.showDictation`, `agentPane.spellChecking`,
+/// `agentPane.showContextUsage`, `agentPane.composerRing`, `agentPane.showDictation`, `agentPane.spellChecking`,
 /// `agentPane.attachmentView`, `agentPane.scrollToBottomOnSend` and `agentPane.showMachineLoadWarnings` (``AgentPaneComposerSetting``) reach the page as the `composer`
 /// event, read by the page's composerSettings.ts. The same event carries the Debug Settings
 /// reasoning slider toggle and visual style, `plainFooter`, Debug Settings' plain footer look
 /// (``AgentPaneTunables/composerPlainFooter``), `modelMenu`, what the model chip opens
 /// (``AgentPaneTunables/modelMenu``), and `harnessSwitch`, whether a started chat can switch
-/// harness (``AgentPaneTunables/harnessSwitchInStartedChat``), and `escapeDoublePress`, whether Esc
-/// stops a turn on a double press (``AgentPaneTunables/escapeStopDoublePress``). None of the last
+/// harness (``AgentPaneTunables/harnessSwitchInStartedChat``), and `cloudEnvironments`, the launch
+/// flag `CLOUD_ENVIRONMENTS_ENABLED` (``AgentPaneCloudEnvironmentsFlag``). None of the last
 /// four is a setting: each is read here, on the pane's side, each time the event is made.
 extension AgentPageEvent {
-    /// The composer's settings: `{showContextUsage, showDictation, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, reasoningSlider, reasoningSliderStyle, plainFooter, modelMenu, harnessSwitch, escapeDoublePress}`.
+    /// The composer's settings: `{showContextUsage, composerRing, showDictation, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, reasoningSlider, reasoningSliderStyle, plainFooter, modelMenu, harnessSwitch}`.
     public static func composer(_ setting: AgentPaneComposerSetting) -> AgentPageEvent {
         AgentPageEvent(kind: "composer", value: setting.pageValueWithLook)
     }
@@ -35,7 +35,7 @@ extension AgentPaneComposerSetting {
         value["harnessPlacement"] = .string(AgentPaneTunables.harnessPlacement.value.rawValue)
         value["modelMenu"] = .string(AgentPaneTunables.modelMenu.value.rawValue)
         value["harnessSwitch"] = .bool(AgentPaneTunables.harnessSwitchInStartedChat.value)
-        value["escapeDoublePress"] = .bool(AgentPaneTunables.escapeStopDoublePress.value)
+        value["cloudEnvironments"] = .bool(AgentPaneCloudEnvironmentsFlag.current.enabled)
         return .object(value)
     }
 
@@ -44,8 +44,7 @@ extension AgentPaneComposerSetting {
 
     /// Debug Settings' plain footer look, model menu and harness switch as the pages last got them,
     /// and whether a change is being pushed (``push(to:)`` then sends every page the event again).
-    @MainActor private static var lookShown = Look(plainFooter: false, modelMenu: .compact, harnessPlacement: .left, harnessSwitch: false,
-                                                   escapeDoublePress: true)
+    @MainActor private static var lookShown = Look(plainFooter: false, modelMenu: .compact, harnessPlacement: .symbols, harnessSwitch: false)
     @MainActor private static var lookChanging = false
     @MainActor private static var lookObservation: Task<Void, Never>?
 
@@ -57,8 +56,7 @@ extension AgentPaneComposerSetting {
         lookObservation = Task {
             for await on in ObservationStream({
                 Look(plainFooter: AgentPaneTunables.composerPlainFooter.value, modelMenu: AgentPaneTunables.modelMenu.value, harnessPlacement: AgentPaneTunables.harnessPlacement.value,
-                     harnessSwitch: AgentPaneTunables.harnessSwitchInStartedChat.value,
-                     escapeDoublePress: AgentPaneTunables.escapeStopDoublePress.value)
+                     harnessSwitch: AgentPaneTunables.harnessSwitchInStartedChat.value)
             }) {
                 guard on != lookShown else { continue }
                 lookShown = on
@@ -76,7 +74,6 @@ nonisolated private struct Look: Equatable, Sendable {
     var modelMenu: AgentPaneModelMenuStyle
     var harnessPlacement: AgentPaneHarnessPlacement
     var harnessSwitch: Bool
-    var escapeDoublePress: Bool
 }
 
 extension AgentPaneComposerSetting {

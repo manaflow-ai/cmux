@@ -61,6 +61,7 @@ def scheme_action(scheme: str) -> str:
 PRODUCT_CI_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/compile-app-host-test-product.sh",
+    "scripts/ci/fleet-compilation-cache.sh",
     "scripts/ci/canonical-build-root.sh",
     # canonical-build-root.sh copies the source tree the product compiles from with it.
     "scripts/ci/apfs_clone.py",
@@ -200,7 +201,7 @@ def reaches_product(path: str) -> bool:
         return False
     if path == "README.md" or (path.startswith("README.") and path.endswith(".md")):
         return False
-    if path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-cua/"):
+    if path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-computer-use/"):
         return False
     return True
 

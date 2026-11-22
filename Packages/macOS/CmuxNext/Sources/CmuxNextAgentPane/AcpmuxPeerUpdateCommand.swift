@@ -55,7 +55,8 @@ nonisolated struct AcpmuxPeerUpdateCommand: Sendable {
             guard await exit.exited(within: exitBound) else {
                 return Result(status: nil, output: "", errors: "\(stopped), but it still ran \(exitBound) after SIGKILL")
             }
-            return Result(status: nil, output: "", errors: "\(stopped); it exited")
+            // Its exit is confirmed, by the SIGTERM or SIGKILL that stopped it: no status of its own to show.
+            return Result(status: nil, output: "", errors: stopped)
         } catch {
             return Result(status: nil, output: "", errors: "acpmux did not start: \(error)")
         }

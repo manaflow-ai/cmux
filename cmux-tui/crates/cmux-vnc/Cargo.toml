@@ -1,0 +1,20 @@
+[package]
+name = "cmux-vnc"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "RFB (VNC) client for cmux: handshake and authentication (none, VNC password, Apple DH for macOS Screen Sharing, VeNCrypt plain), Raw/CopyRect/RRE/Hextile/Zlib/ZRLE/Tight decoding, desktop resize, cursor, keyboard and pointer input, and a reconnect policy"
+
+[lints]
+workspace = true
+
+[dependencies]
+# Zlib, ZRLE and Tight streams. Already in the graph.
+flate2.workspace = true
+# Apple DH (security type 30): AES-128-ECB of the credential block and the
+# modular exponentiation. Both already in the graph at these versions.
+aes = "0.8"
+num-bigint = "0.4"
+getrandom.workspace = true

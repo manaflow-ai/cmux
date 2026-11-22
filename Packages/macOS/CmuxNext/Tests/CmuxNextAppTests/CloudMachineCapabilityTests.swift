@@ -6,56 +6,6 @@ import Testing
 
 @Suite
 struct CloudMachineCapabilityTests {
-    @Test func cloudMachineKeepsProviderCapabilities() throws {
-        let data = Data(#"{"id":"vm-1","provider":"freestyle","status":"running","capabilities":{"exec":true,"ports":true,"attachTransports":["cmux-remote"]}}"#.utf8)
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: data)
-
-        #expect(machine.capabilities.exec)
-        #expect(machine.capabilities.ports)
-        #expect(machine.capabilities.attachTransports == ["cmux-remote"])
-        #expect(!machine.capabilities.desktop)
-        #expect(machine.capabilities.supports(.exec))
-        #expect(machine.capabilities.supportedOperations == [.exec, .ports])
-    }
-
-    @Test func olderCloudMachinePayloadsUseConservativeDefaults() throws {
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-old"}"#.utf8))
-
-        #expect(!machine.capabilities.exec)
-        #expect(machine.capabilities.attachTransports.isEmpty)
-        #expect(machine.capabilities.supportedOperations.isEmpty)
-    }
-
-    @Test func absentCapabilitiesAllowEveryAction() throws {
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-old"}"#.utf8))
-
-        #expect(machine.declaredCapabilities == nil)
-        for operation in CloudMachine.Capabilities.Operation.allCases {
-            #expect(machine.allows(operation), "\(operation)")
-        }
-        #expect(CloudMachine(id: "vm-local").allows(.snapshot))
-    }
-
-    @Test func explicitlyFalseCapabilitiesRefuseTheirActions() throws {
-        let data = Data(#"{"id":"vm-1","capabilities":{"snapshot":false,"fork":false,"ports":true}}"#.utf8)
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: data)
-
-        #expect(!machine.allows(.snapshot))
-        #expect(!machine.allows(.fork))
-        #expect(!machine.allows(.sizing))
-        #expect(machine.allows(.ports))
-    }
-
-    @Test func capabilityNameListDecodes() throws {
-        let data = Data(#"{"id":"vm-2","capabilities":["exec","persistent_home","agent_session"]}"#.utf8)
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: data)
-
-        #expect(machine.declaredCapabilities != nil)
-        #expect(machine.capabilities.supportedOperations == [.exec, .persistentHome])
-        #expect(machine.allows(.exec))
-        #expect(!machine.allows(.snapshot))
-    }
-
     @Test func cmuxNextBackendRecordsKeepCloudActions() throws {
         let record = JSONValue.object([
             "id": .string("m-1"), "status": .string("running"), "capabilities": .array([.string("agent_session")]),
@@ -64,5 +14,60 @@ struct CloudMachineCapabilityTests {
 
         #expect(machine.allows(.ports))
         #expect(machine.allows(.fork))
+    }
+
+    @Test func cmuxNextRecordThatServesDesktopOpensTheRdViewer() throws {
+        let record = JSONValue.object([
+            "id": .string("m-desk"), "status": .string("running"), "desktop": .bool(true),
+            "creator": .string("user_u0000000000000000001"), "capabilities": .array([.string("agent_session")]),
+        ])
+        let machine = try #require(CloudMachine(next: record))
+
+        #expect(machine.servesDesktop)
+        #expect(machine.capabilities.desktop)
+        #expect(machine.allows(.desktop))
+        // Whoever asks: the carrier itself refuses anyone but the creator (`service_refused`).
+        #expect(machine.opensCarrierDesktop)
+        // Serving the desktop declares nothing else: the other actions keep the undeclared default.
+        #expect(machine.declaredCapabilities == nil)
+        #expect(machine.allows(.ports))
+        #expect(machine.allows(.fork))
+    }
+
+    @Test func cmuxNextRecordWithoutDesktopOpensNoDesktop() throws {
+        for record in [
+            JSONValue.object(["id": .string("m-old"), "status": .string("running")]),
+            JSONValue.object(["id": .string("m-off"), "status": .string("running"), "desktop": .bool(false)]),
+        ] {
+            let machine = try #require(CloudMachine(next: record))
+            #expect(!machine.servesDesktop)
+            #expect(!machine.capabilities.desktop)
+            #expect(!machine.opensCarrierDesktop)
+        }
+    }
+
+    @Test func declaredCapabilitiesGainDesktopWhenTheRecordServesIt() throws {
+        let record = JSONValue.object([
+            "id": .string("m-ops"), "desktop": .bool(true), "provider_operations": .array([.string("exec")]),
+        ])
+        let machine = try #require(CloudMachine(next: record))
+
+        #expect(machine.allows(.desktop))
+        #expect(machine.capabilities.desktop)
+        #expect(machine.allows(.exec))
+        #expect(!machine.allows(.snapshot))
+    }
+
+    /// A record whose `provider_operations` lists `desktop` while its own `desktop` is false opens no
+    /// desktop: only the record's `desktop` says the machine serves one.
+    @Test func aPromotedDesktopOperationOpensNoDesktop() throws {
+        let record = JSONValue.object([
+            "id": .string("m-promoted"), "status": .string("running"), "desktop": .bool(false),
+            "provider_operations": .array([.string("desktop"), .string("exec")]),
+        ])
+        let machine = try #require(CloudMachine(next: record))
+
+        #expect(!machine.servesDesktop)
+        #expect(!machine.opensCarrierDesktop)
     }
 }

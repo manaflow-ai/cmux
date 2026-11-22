@@ -79,7 +79,7 @@ The 100 ms target needs fixes 3 and 5b: the daemon must answer before it has res
 
 - acpmux on a Mac: `grep -E "listening on|loaded .* sessions|acpmux ready|startup complete" ~/.cmux/chief/default/acpmux/daemon.log`
 - Fleet:
-  - `cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --arg test --arg a_restart_over_long_chats_loads_within_budget_and_keeps_queues_and_tails`
+  - `cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --os macos --arg test --arg a_restart_over_long_chats_loads_within_budget_and_keeps_queues_and_tails`
   - The same command with `--arg restart_with_many_live_terminals_answers_within_budget`.
   - Each test prints one JSON line (`acpmux-start:` or `service-start:`).
 

@@ -1,9 +1,9 @@
 // The drop overlay's state (Lawrence 2026-10-21: "make sure dropping files/photos has super beautiful
-// well designed responsive indicator too"). A drag with files over the agent pane lays a glass sheet
-// over the whole chat (composer/DropOverlay.tsx, dropOverlay.css): it says what the drag holds ("3
-// photos", "PDF"), lifts and brightens while the pointer is over the chat, says plainly when the
-// chat cannot take what is dragged, and on a drop flies into the composer, where the files become
-// chips. The state comes from the one document-level drop contract (attachments.ts
+// well designed responsive indicator too"; Leo 2026-10-23: "i think we could do claude + themed
+// ring?"). A drag with files over the agent pane rings the composer's box in the accent
+// (composer/DropOverlay.tsx, dropOverlay.css): faint over the pane, full over the chat, the danger
+// color with its reason when the chat cannot take what is dragged; on a drop it fades as the files
+// become chips. The state comes from the one document-level drop contract (attachments.ts
 // installFileDropLifecycle), so the overlay and the intake never disagree about a drag.
 import { dragHasFiles } from "../attachments";
 
@@ -22,8 +22,7 @@ export type DragSummary = {
 
 /// The overlay's phase. `armed`: a file drag is over the pane but not over the chat itself (the
 /// header, the session list); `over`: over the chat, where a drop attaches; `refused`: over the
-/// chat with nothing it can take; `landing`: the drop happened and the sheet flies into the
-/// composer, then hides.
+/// chat with nothing it can take; `landing`: the drop happened and the ring fades, then hides.
 export type DropPhase = "hidden" | "armed" | "over" | "refused" | "landing";
 
 export type DropOverlayState = { phase: "hidden" } | { phase: Exclude<DropPhase, "hidden">; summary: DragSummary };
@@ -76,8 +75,9 @@ export function pointInside(zone: Element | null | undefined, x: number, y: numb
 }
 
 /// The overlay's step for one drag event (the drop contract's `onActiveChange`): the next state,
-/// and, for a refused drag, the event's `dropEffect` set to `none` so the pointer shows no drop and
-/// the drop never fires. `zone` is the chat column; a point outside it arms the overlay only.
+/// and the event's `dropEffect`: `copy` for a drag the chat takes, so the pointer carries the system's
+/// copy + (Leo 2026-10-23: "claude has blue ring and the apple +"), `none` for a refused one, so the
+/// pointer shows no drop and the drop never fires. `zone` is the chat column; a point outside it arms the overlay only.
 export function stepDropOverlay(
   current: DropOverlayState,
   active: boolean,
@@ -90,11 +90,11 @@ export function stepDropOverlay(
   // A dragenter's point is where the drag came in; a dragover's is the pointer.
   const inside = event ? pointInside(zone, event.clientX, event.clientY) : true;
   const next = dragOverlayState(summary, inside);
-  if (next.phase === "refused" && event?.dataTransfer) event.dataTransfer.dropEffect = "none";
+  if (event?.dataTransfer) event.dataTransfer.dropEffect = next.phase === "refused" ? "none" : "copy";
   return sameDropState(current, next) ? current : next;
 }
 
-/// The state after a drop: the sheet flies into the composer, carrying what the drag showed.
+/// The state after a drop: the ring fades as the files land, carrying what the drag showed.
 export function landDropOverlay(current: DropOverlayState, files: readonly File[]): DropOverlayState {
   const summary =
     current.phase === "hidden"

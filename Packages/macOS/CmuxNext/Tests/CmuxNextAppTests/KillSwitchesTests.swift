@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextTestSupport
 import CmuxUpdater
 @testable import CmuxNextUpdater
 import CryptoKit
@@ -131,7 +132,7 @@ import Testing
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.kill-switches", shortVersion: "1.0.0",
                                            build: "100", minimumSystemVersion: nil,
                                            infoFeedURL: "https://notes.test/nightly-next/next/appcast-arm64.xml", hasPublicKey: false)
-        let defaults = try #require(UserDefaults(suiteName: "KillSwitchesTests.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "KillSwitchesTests.\(UUID().uuidString)"))
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
                                      enableSparkle: false, recordsUpdates: false)
         updater.announcementsFetch = false

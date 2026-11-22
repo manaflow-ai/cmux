@@ -17,8 +17,8 @@ use crate::workspace_registry::personal_mutations::{
     PersonalWorkspaceUpdate, ProfileDeletion, ProfileInput, ProfileUpdate,
 };
 use crate::workspace_registry::personal_store::{
-    PersonalGroup, PersonalPin, PersonalProfile, PersonalWorkspace, read_group, read_groups,
-    read_pins, read_profile, read_profiles, read_workspace, read_workspaces,
+    DEFAULT_PROFILE_ID, PersonalGroup, PersonalPin, PersonalProfile, PersonalWorkspace, read_group,
+    read_groups, read_pins, read_profile, read_profiles, read_workspace, read_workspaces,
 };
 
 fn group_value(group: &PersonalGroup) -> Value {
@@ -46,6 +46,20 @@ pub(crate) fn workspace_group_snapshots(
         .collect())
 }
 
+/// The id of room `room`'s (default: the default room's) first group, in group order, named `name`
+/// once outer spaces are trimmed on both sides; case counts, as the app compares an exact name first.
+pub(crate) fn group_named(
+    connection: &Connection,
+    room: Option<&str>,
+    name: &str,
+) -> anyhow::Result<Option<String>> {
+    let room = room.unwrap_or(DEFAULT_PROFILE_ID);
+    Ok(read_groups(connection)?
+        .into_iter()
+        .find(|group| group.profile == room && group.name.trim() == name.trim())
+        .map(|group| group.id))
+}
+
 pub(crate) fn workspace_group_snapshot(
     connection: &Connection,
     id: &str,
@@ -63,7 +77,7 @@ fn room_value(
         .filter(|pin| pin.profile == profile.id)
         .map(|pin| workspace_ref(connection, local, &pin.session_id, &pin.workspace_key))
         .collect::<anyhow::Result<Vec<_>>>()?;
-    Ok(json!({
+    let mut value = json!({
         "id": profile.id,
         "name": profile.name,
         "color": profile.color,
@@ -74,7 +88,15 @@ fn room_value(
         "default_session_id": profile.default_session_id,
         "follows": profile.follows,
         "pins": pins,
-    }))
+    });
+    // `created-by-detail-v1`: who made the space, only when an agent or a script said so.
+    if let Some(created_by) =
+        super::created_by::made_by(connection, super::created_by::Made::Room, &profile.id)?
+        && let Some(object) = value.as_object_mut()
+    {
+        object.insert("created_by".into(), created_by);
+    }
+    Ok(value)
 }
 
 pub(crate) fn room_snapshots(connection: &Connection) -> anyhow::Result<Vec<Value>> {

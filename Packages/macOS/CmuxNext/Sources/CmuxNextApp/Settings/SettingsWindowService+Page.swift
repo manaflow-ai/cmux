@@ -1,11 +1,15 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDesign
 import CmuxNextImportCards
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextServer
 import CmuxNextSettingsWindow
+import CmuxNextTerminal
+import CmuxNextUpdater
 import CmuxNextWebUpdates
 
 /// What the React Settings page shows beside the schema rows (R82 commit 2): `cmux.settings.host.lists`.
@@ -18,8 +22,11 @@ extension SettingsWindowService {
         // host-lists watch re-send the Ghostty config preview after a config edit.
         _ = services.themeStore.generation
         return [
-            // The Development category (dev_only) shows only in DEV builds; Devices shows in every build.
-            "dev_build": .bool(DevTools.isDebugBuild),
+            // The Development category (dev_only) shows in DEV and NIGHTLY builds (DevTools.isEnabled);
+            // Devices shows in every build.
+            "dev_build": .bool(DevTools.isEnabled),
+            // Raw legacy preference; the web shares its fallback policy with the model picker.
+            "harness_placement": .string(AgentPaneTunables.harnessPlacement.value.rawValue),
             "rooms": rooms.map { .array($0.map(Self.listRow)) } ?? .null,
             "machines": .array(machines.map { vmHostRow(Self.machineRow($0), id: $0.id) }),
             // Settings > Devices (plans/cmux-next/add-device-DESIGN.md 2.4): every device, one remove.
@@ -44,9 +51,9 @@ extension SettingsWindowService {
                 "current": .object(Dictionary(uniqueKeysWithValues: themeLevels.map { level in
                     (level.rawValue, theme(at: level).map(JSONValue.string) ?? .null)
                 })),
-                // The Ghostty config's own theme, for the preview of "Use Ghostty Config": the app
-                // scope's colors while appearance.theme is unset (null while it names a theme).
-                "config": services.settings?.snapshot.appTheme == nil ? Self.themeJSON(ThemeScope.app.input) : .null,
+                // "Use Ghostty Config"'s preview (the config's own colors, null while appearance.theme is set); the pair side the terminals use.
+                "config": services.settings?.snapshot.appTheme == nil ? Self.themeJSON(services.themeStore.configInput) : .null,
+                "system_scheme": .string(NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? "dark" : "light"),
             ],
             "terminal": ["ghostty_config": .string(ghosttyConfigPath), "shell_integration": shellIntegration.map(JSONValue.string) ?? .null],
             // R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list).
@@ -62,22 +69,23 @@ extension SettingsWindowService {
             "server": services.serverUpdates.settingsPageJSON,
             "import_suggestions": ImportSuggestionsCenter.shared.settingsJSON,
             "web_updates": WebUpdates.shared.pageJSON,
+            "app_update": services.updater.settingsPageJSON,
             // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).
             "voice_input": ChiefVoiceInputPageRoute().hostJSON,
+            // Settings > Menus: every right-click menu's rows and the person's arrangement of it.
+            "context_menus": contextMenusRoute.hostJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
-            "backdrops": backdropCatalog.catalog.pageRows,
+            "backdrops": backdropRowsCache.rows(for: backdropCatalog.catalog),
             "derived": .object(pageDerivedNumbers()),
         ]
     }
 
-    /// Where unset number rows' sliders sit, by schema key: the window opacity the theme resolved.
+    /// Where unset number rows' sliders sit, by schema key: the window opacity the theme resolved,
+    /// and each size row's live value (``SettingsUnsetSizes``).
     func pageDerivedNumbers() -> [String: JSONValue] {
-        var derived: [String: JSONValue] = [:]
-        for path in [WindowBackgroundSetting.opacityPath] {
-            guard let id = SettingsSchema.descriptor(for: path)?.id, let value = derivedNumber(at: path) else { continue }
-            derived[id] = .number(value)
-        }
-        return derived
+        SettingsUnsetSizes(terminalFontSize: GhosttyRuntime.shared.configuredFontSize,
+                           backingScale: services.windows.active?.window?.backingScaleFactor ?? 2)
+            .derivedNumbers(windowOpacity: derivedNumber(at: WindowBackgroundSetting.opacityPath))
     }
 
     /// The wallpaper grid's choices (``BackdropCatalogStore``: built off main, again after a
@@ -144,7 +152,7 @@ extension SettingsWindowService {
     func vmHostRow(_ row: JSONValue, id: String) -> JSONValue {
         guard case .object(var members) = row, let reach = vmHostReach(id) else { return row }
         let session = services.machines.session(id)
-        let owns = (session?.link?.ownership ?? session?.appLink?.ownership)?.callerOwnsVM == true
+        let owns = session?.appLink.ownership.callerOwnsVM == true
         let store = services.cloudVmHost
         let entry = owns ? store.state(id, readable: reach) : nil
         guard let vm = Self.vmHostSwitch(entry, callerOwnsVM: owns, busy: !reach || store.setting.contains(id)) else { return row }

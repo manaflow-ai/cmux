@@ -5,9 +5,7 @@ Previous / Next (the palette's `navigate.next` / `navigate.previous`): a focused
 inside the pane; any other focus (a 1-tab pane, a field, nothing) steps the sidebar rows. The
 script attaches to an app already running (a capture slot's `capture-host launch`, or a tagged
 build) through its debug socket, makes two workspaces, runs the actions and reads the window's sidebar selection (`debug.sidebar_rows`) and the focused
-pane's selected tab (`debug.surfaces`). With --tab-rows it also turns Show Tabs Under Workspaces
-on and checks that Next walks a workspace's tab rows one at a time. It never launches or quits
-the app.
+pane's selected tab (`debug.surfaces`). It never launches or quits the app.
 
 Usage: rapid-switch-e2e.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock [--out DIR]
 Exit status 0 when every check passes.
@@ -17,8 +15,6 @@ import argparse, json, os, socket, sys, time
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")
 parser.add_argument("--out", default="/tmp")
-parser.add_argument("--tab-rows", action="store_true",
-                    help="also check that, with Show Tabs Under Workspaces on, Next walks a workspace's tab rows")
 opts = parser.parse_args()
 ROWS = []
 
@@ -61,9 +57,8 @@ def action(name, args=None):
 
 
 def key(name, modifiers):
-    """Previous / Next run as the palette runs them: since Leo 2026-10-12 the browser-style keys
-    are Chrome tab keys that select sidebar items (chrome-tab-keys-e2e.py), and these two
-    actions have no default key. The reply names the action, as `debug.key`'s did."""
+    """Previous / Next run as the palette runs them: these two actions have no default key (the tab
+    keys run Next / Previous Tab in Pane). The reply names the action, as `debug.key`'s did."""
     command = "navigate.next" if name == "}" else "navigate.previous"
     action(command)
     time.sleep(0.5)  # test harness: the switch settles
@@ -111,41 +106,9 @@ def setup():
     time.sleep(1)  # test harness: focus lands in the shown pane
 
 
-def tab_rows():
-    """Next from a 1-tab pane stops at each listed tab row: a workspace split into two 1-tab
-    panes is two stops, not one."""
-    if not any(str(r.get("key", "")).startswith("tab(") for r in sidebar().get("rows") or []):
-        print("workspace tabs toggle:", action("sidebar.workspaceTabs.toggle"), flush=True)
-    if not wait(lambda: any(str(r.get("key", "")).startswith("tab(") for r in sidebar().get("rows") or []), 15):
-        row("tab rows listed", "Show Tabs Under Workspaces lists tab rows", "no tab rows", False)
-        return
-    action("workspace.selectFirst")
-    wait(lambda: selected() and not selected()[0].startswith("itm_"), 15)
-    home = selected()
-    action("nextSidebarTab")
-    wait(lambda: selected() and selected() != home, 15)
-    split = selected()
-    print("splitRight:", action("splitRight"), flush=True)
-    wait(lambda: len([r for r in sidebar().get("rows") or [] if str(r.get("key", "")).startswith("tab(")]) >= 4, 15)
-    action("workspace.selectFirst")
-    wait(lambda: selected() == home, 15)
-    time.sleep(1)  # test harness: focus lands in the shown pane
-    reply = key("}", ["cmd"])
-    first = (selected(), focused_pane().get("selected_tab"))
-    reply2 = key("}", ["cmd"])
-    second = (selected(), focused_pane().get("selected_tab"))
-    row("tab rows: Next lands on the split workspace", f"row {split}", f"action={reply.get('action')} {first}",
-        first[0] == split)
-    row("tab rows: Next walks to its other tab row", "same workspace, the other pane's tab",
-        f"action={reply2.get('action')} {first} -> {second}", second[0] == split and second[1] != first[1])
-
 
 def main():
     setup()
-    if opts.tab_rows:
-        tab_rows()
-        action("workspace.selectFirst")
-        time.sleep(1)  # test harness: focus lands in the shown pane
     start = selected()
     reply = key("}", ["cmd"])
     after = selected()

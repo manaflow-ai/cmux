@@ -1,8 +1,9 @@
 public import CmuxNextDesign
 
 // New columns: width from cmux.json `layout.newColumnWidth` (matchCurrent,
-// fitScreen, or fixed at `layout.defaultColumnWidth` with the lone
-// full-width column rule; plans/cmux-next/column-sizing.md, column-scroll.md).
+// fitScreen, or fixed at `layout.defaultColumnWidth`;
+// plans/cmux-next/column-sizing.md, column-scroll.md). A new column never
+// resizes a column that is there (R3b).
 extension LayoutModel {
     /// Width of a new column as a viewport fraction: the override, else the
     /// live setting while `followsDesignMetrics` is on, else the built-in 0.5.
@@ -16,89 +17,36 @@ extension LayoutModel {
         newColumnWidthModeOverride ?? (followsDesignMetrics ? DesignSettings.shared.newColumnWidth : .matchCurrent)
     }
 
-    /// Call right before a new column opens next to `pane` by any path (new
-    /// column action, a tab dropped into a new column). Returns the width to
-    /// send with the new column and the width changes of existing columns
-    /// (`layout.newColumnWidth`, plans/cmux-next/column-sizing.md). Nothing
-    /// is sent: cmux-tui keeps a lone column as a leaf root with no
-    /// viewport, so a width command before the new column exists is
-    /// refused. The caller sends the changes with `commitNewColumnResize`
-    /// once the new column exists. `removing` is a pane that leaves in the
-    /// same step.
-    public func prepareNewColumn(nextTo pane: PaneID, removing: PaneID? = nil) -> NewColumnRequest {
+    /// The width of a new column next to `pane`, by any path (New Column, a tab dropped into a new
+    /// column), per `layout.newColumnWidth` (plans/cmux-next/column-sizing.md). It is all a create
+    /// sends: the columns there keep their widths and the strip scrolls (R3b). `removing` is a pane
+    /// that leaves in the same step.
+    public func newColumnWidth(nextTo pane: PaneID, removing: PaneID? = nil) -> Double {
         let layout = screen(containing: pane)?.layout
-        // A screen that has never had a second column is a split tree (the
-        // daemon root is not a viewport yet): it fills the view like a lone
-        // full-width column.
+        // A screen that has never had a second column is a split tree (the daemon root is not a
+        // viewport yet): it fills the view like a lone full-width column.
         let columns: [LayoutColumn] = switch layout {
-        case .splits(let root)?: [LayoutColumn(id: ColumnID(Self.unscrolledColumn), width: 1, root: root)]
+        case .splits(let root)?: [LayoutColumn(id: ColumnID("unscrolled"), width: 1, root: root)]
         case .columns(let columns)?: columns
         case nil: []
         }
         let anchor = columns.first { $0.root.contains(pane) }?.id
         let visible = columns.filter { $0.root.panes.contains(where: visiblePanes.contains) }.map(\.id)
-        let plan = NewColumnWidth.plan(mode: newColumnWidthMode, columns: columns, anchor: anchor, visible: visible,
-                                       fixedWidth: defaultColumnWidth, removing: removing)
-        let resizes = plan.resizes.compactMap { resize -> NewColumnRequest.Resize? in
-            let panes = columns.first { $0.id == resize.column }?.root.panes.filter { $0 != removing } ?? []
-            return panes.isEmpty ? nil : NewColumnRequest.Resize(width: resize.width, panes: panes)
-        }
-        return NewColumnRequest(width: plan.width, resizes: resizes)
+        return NewColumnWidth.plan(mode: newColumnWidthMode, columns: columns, anchor: anchor, visible: visible,
+                                   fixedWidth: defaultColumnWidth, removing: removing).width
     }
-
-    /// After the new column exists: sends each width change (a width
-    /// intent with an optimistic patch). No-op for a change whose panes
-    /// are gone.
-    public func commitNewColumnResize(_ request: NewColumnRequest) {
-        for resize in request.resizes {
-            for pane in resize.panes {
-                guard let layout = screen(containing: pane)?.layout else { continue }
-                if let column = layout.column(containing: pane) {
-                    setColumnWidth(column.id, width: resize.width, transaction: .make(), phase: .ended)
-                } else {
-                    // The mirror has not seen the new column yet (still a
-                    // split tree): send the width by pane; the column's id
-                    // comes with the daemon's next layout.
-                    intentHandler?(.setColumnWidth(ColumnID(Self.unscrolledColumn), anyPane: pane, width: resize.width,
-                                                   transaction: .make(), phase: .ended))
-                }
-                break
-            }
-        }
-    }
-
-    /// Stands for the one column of a screen whose root is still a split tree.
-    static let unscrolledColumn = "unscrolled"
 
     /// Requests a new column after `pane`'s column (default: the focused
     /// pane), at the `layout.newColumnWidth` width.
     public func newColumn(after pane: PaneID? = nil) {
         guard let pane = pane ?? focusedPane else { return }
-        intentHandler?(.newColumn(after: pane, width: prepareNewColumn(nextTo: pane).width))
+        intentHandler?(.newColumn(after: pane, width: newColumnWidth(nextTo: pane)))
     }
 
     /// Requests a new column before `pane`'s column (default: the focused pane), at the
     /// `layout.newColumnWidth` width (New Column Left).
     public func newColumn(before pane: PaneID? = nil) {
         guard let pane = pane ?? focusedPane else { return }
-        intentHandler?(.newColumnLeft(of: pane, width: prepareNewColumn(nextTo: pane).width))
+        intentHandler?(.newColumnLeft(of: pane, width: newColumnWidth(nextTo: pane)))
     }
-}
-
-/// The width of a new column and the width changes of existing columns,
-/// which the caller sends after the new column exists (`commitNewColumnResize`).
-public nonisolated struct NewColumnRequest: Hashable, Sendable {
-    struct Resize: Hashable, Sendable {
-        let width: Double
-        /// The column's panes; the first still shown addresses the command.
-        let panes: [PaneID]
-    }
-
-    public let width: Double
-    let resizes: [Resize]
-
-    /// The width changes of existing columns that go with the new column, each named by the
-    /// column's panes (any one of them addresses it): an optimistic column shows them in the key's
-    /// turn, and ``LayoutModel/commitNewColumnResize(_:)`` sends them once the column exists.
-    public var widthChanges: [(panes: [PaneID], width: Double)] { resizes.map { ($0.panes, $0.width) } }
 }

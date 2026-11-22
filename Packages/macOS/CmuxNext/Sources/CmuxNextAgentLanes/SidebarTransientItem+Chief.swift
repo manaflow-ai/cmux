@@ -35,18 +35,27 @@ extension SidebarTransientItem {
         let subagents = lanes.filter { ChiefSessionRole(name: $0.name) == .subagent }
             .sorted { ($0.subagentNumber ?? .max, $0.name) < ($1.subagentNumber ?? .max, $1.name) }
         var items: [SidebarTransientItem] = []
-        var previous = LayoutItemRef.builtIn(.chief)
+        var anchors = chiefAnchors
         for lane in subagents where showsIdle || lane.state != .idle {
-            var row = SidebarItemInfo(title: lane.subagentTitle, symbol: "person.crop.circle", brand: lane.harness)
+            var row = SidebarItemInfo(title: lane.subagentTitle, symbol: "person.crop.circle",
+                                      brand: SidebarItemInfo.agentBrand(forHarness: lane.harness))
+            row.agentColor = SidebarItemInfo.stableAgentColor(for: lane.id)
+            if row.title.isEmpty { row.accessibilityTitle = ChiefToolStrings.subagent }
             row.activity = activity(of: lane.state)
             row.indent = 1
+            // Its task count, as a chat row shows it (`SidebarLaneStatus.applying`).
+            row.taskProgress = SidebarTunables.taskProgress.value ? SidebarLaneStatus.taskProgress([lane]) : nil
             // Each row draws right after the one before it, so the list keeps its order under the Chief.
-            let item = SidebarTransientItem(id: LayoutItemID(chiefSubagentPrefix + lane.id), info: row, after: [previous], anchoredOnly: true)
-            previous = item.item.ref
+            let item = SidebarTransientItem(id: LayoutItemID(chiefSubagentPrefix + lane.id), info: row, after: anchors, anchoredOnly: true)
+            anchors = [item.item.ref]
             items.append(item)
         }
         return items
     }
+
+    /// The rows the first subagent row draws under, best first: the Chief item, else the Home item, which is the
+    /// Chief (the person, 2026-11-20: "replace home with chief").
+    public static let chiefAnchors: [LayoutItemRef] = [.builtIn(.chief), SidebarLayoutDocument.homeRef, .builtIn(.home)]
 
     /// The Chief's status from its turns: waiting on you over working over idle. Only the newest
     /// turn's failure shows; an older turn that failed is history, not the Chief's state now.
@@ -96,10 +105,11 @@ extension AgentActivityLane {
         return Int(parts[3].dropFirst())
     }
 
-    /// The subagent's task title (acpmux's title when it has one of its own), else "Subagent":
-    /// its `a7` id is the Chief's to use, never shown (Leo 2026-10-21).
+    /// The subagent's task title (acpmux's title when it has one of its own). An untitled child
+    /// leaves its row title empty because the Chief header already labels this list; its icon and
+    /// accessibility label carry the type (Leo 2026-10-29).
     nonisolated var subagentTitle: String {
-        guard title != name, let task = title.chiefTaskTitle else { return ChiefToolStrings.subagent }
+        guard title != name, let task = title.chiefTaskTitle else { return "" }
         return task
     }
 }

@@ -84,6 +84,29 @@ fn each_operation_is_one_brain_tool_line() {
         json!({"tool":"engine","action":"set","model":"m","effort":"high"})
     );
     assert_eq!(tool_line(ResourceOperation::ChiefStop, &fields(json!({}))), json!({"tool":"stop"}));
+    // Continue and retry use the same owner-only brain socket as stop.
+    assert_eq!(
+        tool_line(ResourceOperation::ChiefContinue, &fields(json!({}))),
+        json!({"tool":"continue"})
+    );
+    assert_eq!(
+        tool_line(ResourceOperation::ChiefRetry, &fields(json!({"message":"msg_7"}))),
+        json!({"tool":"retry","message":"msg_7"})
+    );
+}
+
+#[test]
+fn continue_and_retry_are_owner_control_operations() {
+    assert!(super::handles(ResourceOperation::ChiefContinue));
+    assert!(super::handles(ResourceOperation::ChiefRetry));
+    let mux = Mux::new_for_test("chief-control", crate::SurfaceOptions::default());
+    let continued =
+        result(&mux, ResourceOperation::ChiefContinue, Ok(json!({"continued":true}))).unwrap();
+    assert_eq!(continued["value"], json!({"continued":true}));
+    let retried =
+        result(&mux, ResourceOperation::ChiefRetry, Ok(json!({"retried":false,"reason":"busy"})))
+            .unwrap();
+    assert_eq!(retried["value"], json!({"retried":false,"reason":"busy"}));
 }
 
 #[test]
@@ -126,6 +149,9 @@ fn call(mux: &Arc<Mux>, client: u64, operation: &str, socket: &Path) -> Value {
     if operation != "chief.engine.get" {
         line["idempotency_key"] = json!("k1");
     }
+    if operation == "chief.retry" {
+        line["params"]["message"] = json!("msg_7");
+    }
     let line = line.to_string();
     let actor = crate::workspace_registry::Actor::local_user();
     let request = crate::resource_router::parse_resource_request_as(&line, actor).unwrap();
@@ -165,7 +191,9 @@ fn an_agent_bound_connection_reaches_nothing_and_the_owner_reaches_the_brain() {
     )
     .unwrap();
     let (_dir, sock, seen) = brain(json!({"stopped": true}));
-    for operation in ["chief.stop", "chief.engine.set", "chief.engine.get"] {
+    for operation in
+        ["chief.stop", "chief.continue", "chief.retry", "chief.engine.set", "chief.engine.get"]
+    {
         let refused = call(&mux, agent, operation, &sock);
         assert_eq!(refused["error"]["code"], "origin.forbidden", "{operation}: {refused}");
     }
@@ -173,6 +201,34 @@ fn an_agent_bound_connection_reaches_nothing_and_the_owner_reaches_the_brain() {
     let stopped = call(&mux, owner, "chief.stop", &sock);
     assert_eq!(stopped["result"]["value"]["stopped"], true, "{stopped}");
     assert_eq!(seen.lock().unwrap().as_slice(), [json!({"tool":"stop"})]);
+}
+
+#[test]
+fn owner_turn_actions_pass_the_catalog_and_reach_the_brain() {
+    for (operation, answer, expected) in [
+        ("chief.continue", json!({"continued":true}), json!({"tool":"continue"})),
+        ("chief.retry", json!({"retried":true}), json!({"tool":"retry","message":"msg_7"})),
+    ] {
+        let mux = Mux::new_for_test("chief-turn-action", crate::SurfaceOptions::default());
+        let owner = mux.control_clients.register(ClientTransport::Unix, writer());
+        let (_dir, socket, seen) = brain(answer.clone());
+        let reply = call(&mux, owner, operation, &socket);
+        assert_eq!(reply["result"]["value"], answer, "{reply}");
+        assert_eq!(*seen.lock().unwrap(), vec![expected]);
+    }
+}
+
+#[test]
+fn retry_requires_a_nonempty_message_id() {
+    for fields in [fields(json!({})), fields(json!({"message":""})), fields(json!({"message":17}))]
+    {
+        let error = super::validate_fields(ResourceOperation::ChiefRetry, &fields).unwrap_err();
+        assert_eq!(error.code, "validation.invalid");
+    }
+    assert!(
+        super::validate_fields(ResourceOperation::ChiefRetry, &fields(json!({"message":"msg_7"})))
+            .is_ok()
+    );
 }
 
 /// chief.engine.set forwards speed and the compactor's speed, harness and
@@ -209,6 +265,23 @@ fn engine_speed_and_a_named_stop_reach_the_brain() {
     assert_eq!(
         stop["value"],
         json!({"stopped":true,"subagents":["a3"],"note":"Stopped by the user: a3."})
+    );
+}
+
+/// Start now on a queued agent in Home (user 2026-11-07, msg 23835): chief.stop
+/// forwards `start` to the brain, and its result keeps the brain's `started` and note.
+#[test]
+fn start_now_reaches_the_brain() {
+    assert_eq!(
+        tool_line(ResourceOperation::ChiefStop, &fields(json!({"start":"a7"}))),
+        json!({"tool":"stop","start":"a7"})
+    );
+    let mux = Mux::new_for_test("chief-control", crate::SurfaceOptions::default());
+    let brain_answer = json!({"started":true,"note":"Started by the user: a7."});
+    let start = result(&mux, ResourceOperation::ChiefStop, Ok(brain_answer)).unwrap();
+    assert_eq!(
+        start["value"],
+        json!({"stopped":false,"started":true,"note":"Started by the user: a7."})
     );
 }
 

@@ -7,8 +7,12 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { COMPACT_MODEL_MENU } from "./support/compactModelMenu";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -293,7 +297,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       .locator(noProject ? '.nt-env .nt-stage-row[aria-pressed="false"]' : '[data-action="browse-project"]')
       .click();
     await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').waitFor();
-    const field = page.locator(".nt-field");
+    const field = page.locator(".nt-field .acpmux-md");
     await field.fill(DRAFT);
     await field.evaluate(async (target, pendingImage) => {
       if (pendingImage) {
@@ -325,28 +329,36 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       .locator(noProject ? '.nt-env .nt-stage-row[aria-pressed="false"]' : '[data-action="browse-project"]')
       .click();
     await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').waitFor();
-    const field = page.locator(".nt-field");
+    const field = page.locator(".nt-field .acpmux-md");
     await field.fill(DRAFT);
     await field.evaluate((target) => {
       const data = new DataTransfer();
       data.items.add(new File([new Uint8Array([0x00, 0x01, 0x02])], "first-chat.mov", { type: "video/quicktime" }));
       target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
     });
-    await page.locator(".acpmux-attachment-link-name").filter({ hasText: "first-chat.mov" }).waitFor();
+    // A video is its square tile (spinning while the host reads it), never a chip with its name.
+    await page
+      .locator(
+        '.acpmux-attachment-video[title="first-chat.mov"], .acpmux-attachment-pending[aria-label="first-chat.mov"]',
+      )
+      .first()
+      .waitFor();
     await page.waitForFunction(() => typeof (window as unknown as FirstRunWindow).finishFirstRunVideo === "function");
   }
 
   test.each(["", "Implement a todo list"])("first-run Return opens setup and returns to draft %j", async (draft) => {
     const page = await firstRunPage();
     try {
-      const field = page.locator(".nt-field");
+      const field = page.locator(".nt-field .acpmux-md");
       if (draft) await field.fill(draft);
       await field.press("Enter");
       await page.locator(".acpmux-harnesses-close").waitFor();
       expect(await field.isVisible()).toBe(false);
       await page.locator(".acpmux-harnesses-close").click();
       await field.waitFor();
-      expect(await field.inputValue()).toBe(draft);
+      expect(
+        await field.evaluate((node) => node.closest<MarkdownFieldElement>(".nt-field")!.acpmuxMarkdownField!.value()),
+      ).toBe(draft);
     } finally {
       await page.close();
     }
@@ -356,6 +368,9 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     const page = await firstRunPage();
     try {
       const { field, image } = await prepareDraft(page, true);
+      const originalDraft = await field.evaluate((node) =>
+        node.closest<MarkdownFieldElement>(".nt-field")!.acpmuxMarkdownField!.value(),
+      );
       const source = await image.getAttribute("src");
       expect(source).toBeTruthy();
       await page.locator('[data-create="chat"]').click();
@@ -365,7 +380,9 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       expect(await page.evaluate(() => (window as unknown as FirstRunWindow).cmuxWebSwap.hold())).toMatch(/^newtab\./);
       await page.locator(".acpmux-harnesses-close").click();
       await field.waitFor();
-      expect(await field.inputValue()).toBe(DRAFT);
+      expect(
+        await field.evaluate((node) => node.closest<MarkdownFieldElement>(".nt-field")!.acpmuxMarkdownField!.value()),
+      ).toBe(originalDraft);
       expect(await image.isVisible()).toBe(true);
       expect(await image.getAttribute("src")).toBe(source);
       expect(await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').count()).toBe(1);
@@ -375,7 +392,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     }
   });
 
-  test("first-run Start Chat waits for a revealed video read before sending the draft", async () => {
+  test("first-run Start Chat sends a revealed video as its path without waiting for its read", async () => {
     const page = await firstRunPage();
     try {
       await preparePendingVideo(page, true);
@@ -395,27 +412,27 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       });
       await claude.locator(".acpmux-harness-action").click();
 
-      // Setup hides and then reveals the New Tab Activity. The first video.info is interrupted;
-      // the second is the read that the resumed Start Chat must wait for.
-      await page.waitForFunction(() => (window as unknown as FirstRunWindow).firstRunVideoCalls?.length === 2);
-      expect(await page.evaluate(() => (window as unknown as FirstRunWindow).firstRunChatCalls)).toEqual([]);
-      await page.evaluate(() => (window as unknown as FirstRunWindow).finishFirstRunVideo());
+      // A video goes as its path (Leo, 2026-11-11: "if you're literally just pointing to a file path,
+      // why would it ever take time to load anything anyways?"): the resumed Start Chat sends while
+      // the host's video.info is still out, never held for it.
       await page.waitForFunction(() =>
         (window as unknown as FirstRunWindow).firstRunChatCalls.some((call) => call.method === "chat.send"),
       );
-
       const calls = await page.evaluate(() => (window as unknown as FirstRunWindow).firstRunChatCalls);
       expect(calls.map((call) => call.method)).toEqual(["chat.new", "chat.send"]);
       expect(calls[0]!.params).toEqual({ harness: "claude", noProject: true });
+      // The send names the session its chat.new started (#28543): a later selected chat cannot take it.
       expect(calls[1]!.params).toEqual({
-        text: DRAFT,
+        text: DRAFT + inlineToken((calls[1]!.params.attachments as ComposerAttachment[])[0]!.id),
+        expectedSessionId: "first-chat",
         attachments: [
           expect.objectContaining({
+            id: expect.any(String),
+            inline: true,
             kind: "link",
             name: "first-chat.mov",
             mimeType: "video/quicktime",
             path: VIDEO_PATH,
-            video: expect.objectContaining({ durationMs: 42_400, width: 1_920, height: 1_080 }),
           }),
         ],
       });
@@ -465,10 +482,15 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
         expect(calls[0]!.params).toEqual(
           noProject ? { harness: "claude", noProject: true } : { harness: "claude", cwd: PROJECT },
         );
+        // A no-project start sends after its chat.new and names that session (#28543); a start in a
+        // project queues its send with the harness switch, which owns the prompt (screenActions.ts).
         expect(calls[1]!.params).toEqual({
-          text: DRAFT,
+          text: DRAFT + inlineToken((calls[1]!.params.attachments as ComposerAttachment[])[0]!.id),
+          ...(noProject ? { expectedSessionId: "first-chat" } : {}),
           attachments: [
             expect.objectContaining({
+              id: expect.any(String),
+              inline: true,
               kind: "image",
               name: "first-chat.png",
               mimeType: "image/png",
@@ -492,11 +514,12 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     // started-chat harness switch is enabled so this chat offers the harness rail and its action.
     // Cmd-Ctrl-M and the model button open this same compact picker.
     await page.evaluate(() => window.cmuxAcpmuxComposer?.({ harnessSwitch: true }));
-    await page.locator(".acpmux-model .acpmux-picker-button").waitFor();
+    await page.locator(MODEL_PICKER).waitFor();
     await page.keyboard.press("Meta+Control+m");
-    const menu = page.locator(".acpmux-quick-menu").first();
+    // The rail makes it the columns menu; Add harness… ends its rail.
+    const menu = page.locator(COMPACT_MODEL_MENU).first();
     await menu.waitFor();
-    await menu.locator(".acpmux-quick-rail-add").click();
+    await menu.locator(".acpmux-cols-tab-add, .acpmux-quick-rail-add").click();
     const claude = page.locator("[data-harness-row]").filter({ hasText: "Claude Code" });
     await claude.waitFor();
     expect(await claude.getAttribute("data-harness-status")).toBe("ready");

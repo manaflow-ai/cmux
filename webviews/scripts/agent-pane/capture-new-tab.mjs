@@ -53,7 +53,7 @@ const server = await createServer({
 await server.listen();
 const url = server.resolvedUrls.local[0];
 const theme = agentPaneTheme(ghosttyTheme(themeName));
-const browser = await chromium.launch();
+const browser = await chromium.launch({ channel: "chrome" });
 try {
   for (const kind of kinds) {
     const context = await browser.newContext({

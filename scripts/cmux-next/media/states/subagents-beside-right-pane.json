@@ -1,0 +1,114 @@
+{
+ "title": "Two subagents open beside a pane already on the chat's right (cmux#28044, leo-workspace design/pane-placement.md): after, subagent 1 in a split below the terminal and subagent 2 a tab there, the terminal kept; before, new splits right of the chat. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/subagents-beside-right-pane.json",
+ "launch_args": [
+  "--showcase"
+ ],
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "Open a main workspace",
+   "cmux": [
+    "action",
+    "run",
+    "newTab",
+    "--name",
+    "Right column",
+    "--focus",
+    "--cwd",
+    "/tmp"
+   ]
+  },
+  {
+   "title": "Open a chat",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ]
+  },
+  {
+   "title": "Wait for the chat page",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "chat_state"
+    }
+   },
+   "shot": false
+  },
+  {
+   "title": "Start the chat's session (the showcase mock answers)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Start the subagents"
+    }
+   },
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "A terminal on the chat's right",
+   "cmux": [
+    "action",
+    "run",
+    "splitRight"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Back to the chat",
+   "cmux": [
+    "action",
+    "run",
+    "focusLeft"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "2 subagents start (debug seed_rows fixture \"subagents\", agents 2)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "seed_rows",
+     "fixture": "subagents",
+     "count": 1,
+     "agents": 2
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Open subagent 1's pane as its tray line does (debug open_subagent, unfocused: the chat keeps focus)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "open_subagent",
+     "index": 1
+    }
+   },
+   "wait": 4
+  },
+  {
+   "title": "Open subagent 2's pane as its tray line does (debug open_subagent, unfocused: the chat keeps focus)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "open_subagent",
+     "index": 2
+    }
+   },
+   "wait": 4
+  },
+  {
+   "title": "Where the two subagents landed",
+   "wait": 2
+  }
+ ]
+}

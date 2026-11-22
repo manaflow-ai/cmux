@@ -1,8 +1,8 @@
 //! Machine spend readout for cmux Cloud VMs.
 //!
 //! A Cloud VM daemon learns its coderouter identity from the model-plane env
-//! (`CMUX_CODEROUTER_URL` and `CMUX_VM_ID`, in the process environment or in
-//! `$HOME/.config/cmux/model-plane.env`) and polls
+//! (`CMUX_CODEROUTER_URL` and `CMUX_VM_ID`; see [`machine_source`] for where
+//! each comes from) and polls
 //! `GET {url}/api/coderouter/vm-usage/self` at a low cadence. The Freestyle
 //! edge injects the real credential; the guest only sends a public
 //! placeholder bearer. The latest totals land in the mux as
@@ -27,6 +27,15 @@ use tokio::sync::Notify;
 pub(crate) const CODEROUTER_URL_VAR: &str = "CMUX_CODEROUTER_URL";
 pub(crate) const VM_ID_VAR: &str = "CMUX_VM_ID";
 const ENV_FILE_RELATIVE_PATH: &str = ".config/cmux/model-plane.env";
+/// The model-plane env every Cloud image bakes (`/etc/cmux/model-plane.env`,
+/// web/services/coderouter/vmGuestEnv.ts): the same bytes on every machine,
+/// so it carries the coderouter origin but no `CMUX_VM_ID`.
+const IMAGE_ENV_FILE: &str = "model-plane.env";
+/// The instance id the bind agent wrote for this machine before it started
+/// the daemon (`/etc/cmux/daemon-instance-id`, cmux-host `BOUND_INSTANCE_FILE`).
+const BOUND_INSTANCE_FILE: &str = "daemon-instance-id";
+/// Longest instance id read.
+const MAX_INSTANCE_ID_BYTES: usize = 128;
 const USAGE_PATH: &str = "/api/coderouter/vm-usage/self";
 /// The guest never holds a credential; the edge replaces this bearer.
 const PLACEHOLDER_BEARER: &str = "cmux-vm-edge-placeholder";
@@ -117,28 +126,93 @@ fn parse_shell_value(raw: &str) -> Option<String> {
 /// Resolve the usage source from the process environment first, then from
 /// the env file. Each key resolves independently so a daemon started with
 /// only one of the two in its environment still finds the other in the file.
+#[cfg(test)]
 pub(crate) fn resolve_source(
     env: impl Fn(&str) -> Option<String>,
     env_file: Option<&str>,
 ) -> Option<UsageSource> {
-    let file_values = env_file.map(parse_env_exports).unwrap_or_default();
+    resolve_layered_source(env, &[env_file], None)
+}
+
+/// [`resolve_source`] over several env files, earlier ones first, each key
+/// on its own. `bound_instance_id` is the last place `CMUX_VM_ID` comes
+/// from: a fresh Cloud VM's shells never export it (the baked env has none),
+/// but the bind agent has written the machine's id.
+pub(crate) fn resolve_layered_source(
+    env: impl Fn(&str) -> Option<String>,
+    env_files: &[Option<&str>],
+    bound_instance_id: Option<&str>,
+) -> Option<UsageSource> {
+    let file_values: Vec<_> =
+        env_files.iter().flatten().map(|file| parse_env_exports(file)).collect();
     let lookup = |key: &str| {
         env(key)
             .filter(|value| !value.trim().is_empty())
-            .or_else(|| file_values.get(key).cloned())
+            .into_iter()
+            .chain(file_values.iter().filter_map(|values| values.get(key).cloned()))
             .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
+            .find(|value| !value.is_empty())
     };
     let coderouter_url = lookup(CODEROUTER_URL_VAR)?;
-    let vm_id = lookup(VM_ID_VAR)?;
+    let vm_id = lookup(VM_ID_VAR).or_else(|| bound_instance_id.and_then(instance_id))?;
     if !(coderouter_url.starts_with("https://") || coderouter_url.starts_with("http://")) {
         return None;
     }
     Some(UsageSource { coderouter_url, vm_id })
 }
 
+/// A bound instance id file's text as an id: one token of printable ASCII,
+/// at most [`MAX_INSTANCE_ID_BYTES`]; `None` otherwise.
+fn instance_id(text: &str) -> Option<String> {
+    let id = text.trim();
+    (!id.is_empty()
+        && id.len() <= MAX_INSTANCE_ID_BYTES
+        && id.bytes().all(|byte| byte.is_ascii_graphic()))
+    .then(|| id.to_string())
+}
+
 pub(crate) fn default_env_file_path() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|home| PathBuf::from(home).join(ENV_FILE_RELATIVE_PATH))
+}
+
+/// This machine's usage source, each key from the first place that has it:
+/// the process environment, `$HOME/.config/cmux/model-plane.env` (what a
+/// shell persisted from a boot env), the image's `/etc/cmux/model-plane.env`,
+/// and for `CMUX_VM_ID` last the bound `/etc/cmux/daemon-instance-id`.
+///
+/// The daemon's unit carries none of these, and a fresh VM's shells only
+/// source the image file without writing a per-home one, so without the two
+/// `/etc/cmux` files a fresh VM never learned its identity and served no
+/// `fs-v1`. The `/etc/cmux` folder follows the debug-only test seam
+/// ([`crate::agent_start_host::cloud_etc`]).
+pub(crate) fn machine_source() -> Option<UsageSource> {
+    let home_env = read_env_file(default_env_file_path().as_deref());
+    let etc = crate::agent_start_host::cloud_etc();
+    let image_env = read_env_file(Some(&etc.file(IMAGE_ENV_FILE)));
+    let bound_id = read_env_file(Some(&etc.file(BOUND_INSTANCE_FILE)));
+    resolve_layered_source(
+        |key| std::env::var(key).ok(),
+        &[home_env.as_deref(), image_env.as_deref()],
+        bound_id.as_deref(),
+    )
+}
+
+/// `CMUX_VM_ID` alone, from the same places as [`machine_source`], with or
+/// without a coderouter origin. Never the bound instance id: that is the
+/// provider's, not the platform's `vm_…` id `secrets-v1` items are sealed for.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub(crate) fn machine_vm_id() -> Option<String> {
+    let etc = crate::agent_start_host::cloud_etc();
+    let files = [
+        read_env_file(default_env_file_path().as_deref()),
+        read_env_file(Some(&etc.file(IMAGE_ENV_FILE))),
+    ];
+    std::env::var(VM_ID_VAR)
+        .ok()
+        .into_iter()
+        .chain(files.iter().flatten().filter_map(|file| parse_env_exports(file).remove(VM_ID_VAR)))
+        .map(|value| value.trim().to_owned())
+        .find(|value| !value.is_empty())
 }
 
 fn read_env_file(path: Option<&Path>) -> Option<String> {
@@ -278,9 +352,7 @@ impl Drop for UsagePoller {
 
 /// Start polling when the process resolves a usage source; otherwise `None`.
 pub(crate) fn start_poller(mux: Weak<Mux>) -> Option<UsagePoller> {
-    let env_file = default_env_file_path();
-    let contents = read_env_file(env_file.as_deref());
-    let source = resolve_source(|key| std::env::var(key).ok(), contents.as_deref())?;
+    let source = machine_source()?;
     start_poller_with_source(mux, source, STARTUP_DELAY, POLL_INTERVAL)
 }
 
@@ -379,230 +451,5 @@ async fn fetch_usage(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const READY_BODY: &str = r#"{
-        "vmId": "vm-123", "periodDays": 30, "kind": "ready", "asOf": "2026-09-01T00:00:00Z",
-        "totals": {"inputTokens": 10, "cachedInputTokens": 2, "outputTokens": 5,
-                   "totalTokens": 17, "apiEquivalentUsd": 1.234},
-        "days": [{"day": "2026-09-01", "totalTokens": 17, "apiEquivalentUsd": 1.234}]
-    }"#;
-
-    #[test]
-    fn env_exports_parse_quoted_and_bare_values() {
-        let contents = "# generated by cmux from machine boot env; managed, do not edit\n\
-            export OPENAI_BASE_URL='https://coderouter.dev/v1'\n\
-            export CMUX_CODEROUTER_URL='https://coderouter.dev'\n\
-            export CMUX_VM_ID='it'\\''s-a-vm'\n\
-            PLAIN=bare-value # trailing comment\n\
-            DOUBLE=\"quoted \\\"value\\\"\"\n\
-            \n\
-            not a valid line\n\
-            1BAD=nope\n\
-            export BROKEN='unterminated\n";
-        let values = parse_env_exports(contents);
-        assert_eq!(values["OPENAI_BASE_URL"], "https://coderouter.dev/v1");
-        assert_eq!(values["CMUX_CODEROUTER_URL"], "https://coderouter.dev");
-        assert_eq!(values["CMUX_VM_ID"], "it's-a-vm");
-        assert_eq!(values["PLAIN"], "bare-value");
-        assert_eq!(values["DOUBLE"], "quoted \"value\"");
-        assert!(!values.contains_key("1BAD"));
-        assert!(!values.contains_key("BROKEN"));
-        assert_eq!(values.len(), 5, "{values:?}");
-    }
-
-    #[test]
-    fn source_prefers_process_env_and_falls_back_per_key() {
-        let file =
-            "export CMUX_CODEROUTER_URL='https://file.example'\nexport CMUX_VM_ID='file-vm'\n";
-        let env = |key: &str| (key == VM_ID_VAR).then(|| "env-vm".to_string());
-        let source = resolve_source(env, Some(file)).expect("source resolves");
-        assert_eq!(
-            source,
-            UsageSource {
-                coderouter_url: "https://file.example".to_string(),
-                vm_id: "env-vm".to_string()
-            }
-        );
-        assert_eq!(source.usage_url(), "https://file.example/api/coderouter/vm-usage/self");
-
-        let trailing = resolve_source(
-            |key| match key {
-                CODEROUTER_URL_VAR => Some("https://coderouter.dev/".to_string()),
-                VM_ID_VAR => Some("vm".to_string()),
-                _ => None,
-            },
-            None,
-        )
-        .expect("env-only source resolves");
-        assert_eq!(trailing.usage_url(), "https://coderouter.dev/api/coderouter/vm-usage/self");
-    }
-
-    #[test]
-    fn source_is_absent_without_both_keys_or_with_a_bad_origin() {
-        assert_eq!(resolve_source(|_| None, None), None);
-        assert_eq!(resolve_source(|_| None, Some("export CMUX_VM_ID='vm'\n")), None);
-        assert_eq!(
-            resolve_source(|_| None, Some("export CMUX_CODEROUTER_URL='https://x'\n")),
-            None
-        );
-        assert_eq!(
-            resolve_source(
-                |_| Some("   ".to_string()),
-                Some("export CMUX_CODEROUTER_URL='https://x'\nexport CMUX_VM_ID='vm'\n")
-            )
-            .map(|source| source.vm_id),
-            Some("vm".to_string()),
-            "blank process values fall through to the file"
-        );
-        assert_eq!(
-            resolve_source(
-                |_| None,
-                Some("export CMUX_CODEROUTER_URL='coderouter.dev'\nexport CMUX_VM_ID='vm'\n")
-            ),
-            None,
-            "an origin without a scheme is not polled"
-        );
-    }
-
-    #[test]
-    fn ready_body_decodes_to_a_readout() {
-        let usage = decode_usage(READY_BODY.as_bytes()).unwrap().expect("ready totals");
-        assert_eq!(usage.vm_id, "vm-123");
-        assert_eq!(usage.period_days, 30);
-        assert_eq!(usage.total_tokens, 17);
-        assert!((usage.api_equivalent_usd - 1.234).abs() < f64::EPSILON);
-        assert_eq!(usage.as_of.as_deref(), Some("2026-09-01T00:00:00Z"));
-    }
-
-    #[test]
-    fn unavailable_and_malformed_bodies_yield_no_readout() {
-        let unavailable = r#"{"vmId":"vm","periodDays":30,"kind":"unavailable","asOf":null,"totals":null,"days":[]}"#;
-        assert_eq!(decode_usage(unavailable.as_bytes()), Ok(None));
-        let ready_without_totals =
-            r#"{"vmId":"vm","periodDays":30,"kind":"ready","asOf":null,"days":[]}"#;
-        assert_eq!(decode_usage(ready_without_totals.as_bytes()), Ok(None));
-        assert!(matches!(decode_usage(b"<html>").unwrap_err(), Unavailable::Malformed(_)));
-        assert!(matches!(decode_usage(b"{}").unwrap_err(), Unavailable::Malformed(_)));
-        let negative = r#"{"vmId":"vm","periodDays":30,"kind":"ready","totals":{"totalTokens":-3,"apiEquivalentUsd":-0.5}}"#;
-        let usage = decode_usage(negative.as_bytes()).unwrap().expect("ready");
-        assert_eq!((usage.total_tokens, usage.api_equivalent_usd), (0, 0.0));
-    }
-
-    #[test]
-    fn http_status_classification_degrades_to_hidden() {
-        assert_eq!(
-            classify_response(404, b"{\"error\":\"vm_not_found\"}"),
-            Err(Unavailable::Rejected(404))
-        );
-        assert_eq!(classify_response(401, b"{}"), Err(Unavailable::Rejected(401)));
-        assert_eq!(classify_response(503, b""), Err(Unavailable::Status(503)));
-        assert!(classify_response(200, READY_BODY.as_bytes()).unwrap().is_some());
-    }
-
-    #[test]
-    fn state_changes_log_once() {
-        let mut reported = ReportedState::default();
-        let rejected: Result<Option<MachineUsage>, Unavailable> = Err(Unavailable::Rejected(404));
-        assert!(reported.observe(&rejected).is_some());
-        assert!(reported.observe(&rejected).is_none(), "steady failure stays quiet");
-        assert!(reported.observe(&Err(Unavailable::Rejected(401))).is_some());
-        let ready = decode_usage(READY_BODY.as_bytes());
-        assert!(reported.observe(&ready).unwrap().contains("available"));
-        assert!(reported.observe(&ready).is_none(), "steady success stays quiet");
-        assert!(reported.observe(&Ok(None)).unwrap().contains("not ready"));
-    }
-
-    #[test]
-    fn poller_publishes_readout_then_clears_it_when_the_endpoint_disappears() {
-        use std::io::{Read, Write};
-        use std::net::TcpListener;
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let hits = Arc::new(AtomicUsize::new(0));
-        let hits_for_server = hits.clone();
-        let server = std::thread::spawn(move || {
-            for stream in listener.incoming() {
-                let Ok(mut stream) = stream else { break };
-                let mut request = [0_u8; 2048];
-                let mut read = 0;
-                while let Ok(n) = stream.read(&mut request[read..]) {
-                    if n == 0 {
-                        break;
-                    }
-                    read += n;
-                    if request[..read].windows(4).any(|window| window == b"\r\n\r\n")
-                        || read == request.len()
-                    {
-                        break;
-                    }
-                }
-                let request = String::from_utf8_lossy(&request[..read]);
-                assert!(
-                    request.contains("GET /api/coderouter/vm-usage/self HTTP/1.1"),
-                    "{request}"
-                );
-                assert!(
-                    request
-                        .to_ascii_lowercase()
-                        .contains("authorization: bearer cmux-vm-edge-placeholder"),
-                    "{request}"
-                );
-                let hit = hits_for_server.fetch_add(1, Ordering::AcqRel);
-                let (status, body) =
-                    if hit == 0 { ("200 OK", READY_BODY) } else { ("404 Not Found", "{}") };
-                let response = format!(
-                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-                    body.len()
-                );
-                let _ = stream.write_all(response.as_bytes());
-                if hit >= 1 {
-                    break;
-                }
-            }
-        });
-
-        let mux = Mux::new(
-            "machine-usage-poller",
-            cmux_tui_core::SurfaceOptions {
-                command: Some(vec![
-                    "/bin/sh".to_string(),
-                    "-c".to_string(),
-                    "sleep 30".to_string(),
-                ]),
-                ..Default::default()
-            },
-        );
-        let events = mux.subscribe();
-        let source =
-            UsageSource { coderouter_url: format!("http://{address}"), vm_id: "vm".into() };
-        let poller = start_poller_with_source(
-            Arc::downgrade(&mux),
-            source,
-            Duration::from_millis(1),
-            Duration::from_millis(1),
-        )
-        .expect("poller starts");
-
-        let wait = |predicate: &dyn Fn(&cmux_tui_core::MuxEvent) -> bool| loop {
-            match events.recv_timeout(Duration::from_secs(10)) {
-                Ok(event) if predicate(&event) => break,
-                Ok(_) => {}
-                Err(error) => panic!("timed out waiting for machine usage event: {error}"),
-            }
-        };
-        wait(
-            &|event| matches!(event, cmux_tui_core::MuxEvent::MachineUsageChanged(Some(usage)) if usage.vm_id == "vm-123"),
-        );
-        assert_eq!(mux.machine_usage().map(|usage| usage.total_tokens), Some(17));
-        wait(&|event| matches!(event, cmux_tui_core::MuxEvent::MachineUsageChanged(None)));
-        assert_eq!(mux.machine_usage(), None);
-        poller.stop();
-        server.join().unwrap();
-        assert!(hits.load(Ordering::Acquire) >= 2);
-        mux.shutdown();
-    }
-}
+#[path = "coderouter_usage_tests.rs"]
+mod tests;

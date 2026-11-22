@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import Foundation
 import Testing
@@ -221,7 +222,7 @@ import CmuxNextWakeupsTestSupport
     @Test func theNightlyAppListensOnTheOldFeedAndOnlyActsOnItsOwnFrames() async throws {
         let legacy = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.nightly", shortVersion: "0.1.0", build: "100",
                                          minimumSystemVersion: nil, infoFeedURL: Self.legacyFeed, hasPublicKey: true)
-        #expect(legacy.track == .nightly)
+        #expect(legacy.track == .nightlyNext)
         #expect(ReleasePushListener.feedID(forFeedURL: legacy.feed(architecture: .arm64).url) == "nightly-next-legacy")
         // The old feed's Intel appcast is not one the Worker serves.
         #expect(ReleasePushListener.feedID(forFeedURL: "https://files-next.cmux.com/nightly-next/appcast-x86_64.xml") == nil)
@@ -355,7 +356,7 @@ import CmuxNextWakeupsTestSupport
         let clock = ManualClock()
         let feed = MovingFeed(pubDate: UpdateStagedYieldsToNewerTests.pubDate(minutesAgo: 1))
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, prober: UpdateProber(fetcher: feed, architecture: .arm64),
-                                     defaults: UserDefaults(suiteName: "ReleasePushListenerTests.\(UUID().uuidString)")!,
+                                     defaults: UserDefaults(testSuiteName: "ReleasePushListenerTests.\(UUID().uuidString)")!,
                                      enableSparkle: false, recordsUpdates: false, now: { UpdateStagedYieldsToNewerTests.now }, clock: clock)
         updater.announcementsFetch = false
         updater.notesLoader = { _ in nil }

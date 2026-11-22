@@ -162,9 +162,37 @@ impl HolderLink {
         on_lost: Box<dyn FnOnce(LinkEnd) + Send>,
         spawn_timeout: Duration,
     ) -> io::Result<(Arc<Self>, Vec<Listed>)> {
-        let (client, listed) = crate::client::HolderClient::connect(socket, token)?;
+        let connected = crate::client::HolderClient::connect(socket, token)?;
+        Self::from_client(connected, on_lost, spawn_timeout)
+    }
+
+    /// The link of a connect the holder answered late
+    /// ([`crate::client::PendingClient`], after its `welcomed` returned
+    /// `Ok`): as [`Self::connect`] from there on.
+    pub fn from_pending(
+        pending: crate::client::PendingClient,
+        on_lost: Box<dyn FnOnce(LinkEnd) + Send>,
+    ) -> io::Result<(Arc<Self>, Vec<Listed>)> {
+        Self::from_client(pending.into_client(), on_lost, SPAWN_TIMEOUT)
+    }
+
+    fn from_client(
+        (client, listed): (crate::client::HolderClient, Vec<Listed>),
+        on_lost: Box<dyn FnOnce(LinkEnd) + Send>,
+        spawn_timeout: Duration,
+    ) -> io::Result<(Arc<Self>, Vec<Listed>)> {
         let (stream, reader, version) = client.into_parts();
-        stream.set_read_timeout(None)?;
+        match stream.set_read_timeout(None) {
+            Ok(()) => {}
+            // macOS fails setsockopt with EINVAL once the holder closed the
+            // link (one that dropped it right after its WELCOME). The link is
+            // made all the same: the read loop reads the end at once and
+            // reports it as Lost, so the daemon relinks with its waits.
+            // Before, the connect failed and the daemon launched another
+            // holder beside the one that still ran.
+            Err(error) if error.raw_os_error() == Some(libc::EINVAL) => {}
+            Err(error) => return Err(error),
+        }
         let link = Arc::new(Self {
             writer: Mutex::new(stream.try_clone()?),
             state: Mutex::new(State { open: true, ..State::default() }),

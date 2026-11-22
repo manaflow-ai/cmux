@@ -21,6 +21,7 @@ import * as Layer from "effect/Layer";
 import { cloudDb } from "../../db/client";
 import {
   cloudVmDomains,
+  cloudVmPublicationApiKeys,
   cloudVmPublicationEmailGrants,
   cloudVmPublicationAuthCodes,
   cloudVmPublicationAuthTransactions,
@@ -59,9 +60,16 @@ export type CloudVmPublicationTarget = {
 };
 
 /** Current routing and session state read from the same database snapshot. */
+export type CloudVmPublicationApiKeyRow = typeof cloudVmPublicationApiKeys.$inferSelect;
+
 export type CloudVmPublicationRequestContext = CloudVmPublicationTarget & {
   readonly session: CloudVmPublicationSessionRow | null;
+  /** The presented API key when it is live for this publication; never the key itself. */
+  readonly apiKey?: Pick<CloudVmPublicationApiKeyRow, "id" | "ownerUserId"> | null;
 };
+
+/** Live API keys one publication may hold at once. */
+export const MAX_ACTIVE_API_KEYS_PER_PUBLICATION = 25;
 
 export type CloudVmPublicationAuthTransaction = {
   readonly transaction: CloudVmPublicationAuthTransactionRow;
@@ -124,7 +132,7 @@ export class PublicationDatabaseError extends Data.TaggedError(
 export class PublicationNotFoundError extends Data.TaggedError(
   "PublicationNotFoundError",
 )<{
-  readonly resource: "domain" | "publication" | "vm";
+  readonly resource: "domain" | "publication" | "vm" | "api_key";
 }> {}
 
 /**
@@ -159,7 +167,12 @@ export type PublicationConflictReason =
   | "vm_publication_frozen"
   | "publication_operation_lost"
   | "forward_auth_bootstrap_lost"
-  | "auth_transaction_limit";
+  | "auth_transaction_limit"
+  /** API keys only guard a protected publication; a public one is open to everyone. */
+  | "publication_public"
+  /** Provisioning asked for other access than the port's live publication has. */
+  | "publication_access_mismatch"
+  | "api_key_limit";
 
 export class PublicationConflictError extends Data.TaggedError(
   "PublicationConflictError",
@@ -217,6 +230,22 @@ export type CloudVmPublicationRepositoryShape = {
   readonly listEmailGrants: (publicationId: string) => Effect.Effect<readonly (typeof cloudVmPublicationEmailGrants.$inferSelect)[], PublicationDatabaseError>;
   readonly hasEmailGrant: (input: { readonly publicationId: string; readonly email: string; readonly now: Date }) => Effect.Effect<boolean, PublicationDatabaseError>;
   readonly setEmailGrant: (input: { readonly publicationId: string; readonly ownerUserId: string; readonly email: string; readonly expiresAt: Date | null; readonly revoke: boolean; readonly now: Date }) => Effect.Effect<void, RepositoryError>;
+  readonly listApiKeys: (input: { readonly publicationId: string; readonly now: Date }) => Effect.Effect<readonly CloudVmPublicationApiKeyRow[], PublicationDatabaseError>;
+  readonly createApiKey: (input: {
+    readonly publicationId: string;
+    readonly ownerUserId: string;
+    readonly name: string;
+    readonly tokenHash: string;
+    readonly tokenHint: string;
+    readonly expiresAt: Date | null;
+    readonly now: Date;
+  }) => Effect.Effect<CloudVmPublicationApiKeyRow, RepositoryError>;
+  readonly revokeApiKey: (input: {
+    readonly publicationId: string;
+    readonly ownerUserId: string;
+    readonly keyId: string;
+    readonly now: Date;
+  }) => Effect.Effect<CloudVmPublicationApiKeyRow, RepositoryError>;
   readonly claimProviderForwardAuth: (input: {
     readonly provider: ProviderId;
     readonly leaseId: string;
@@ -428,6 +457,8 @@ export type CloudVmPublicationRepositoryShape = {
   readonly findRequestContext: (input: {
     readonly providerTlsRuleId: string;
     readonly sessionTokenHash: string | null;
+    /** SHA-256 of a well-formed presented API key, or null when none was sent. */
+    readonly apiKeyHash?: string | null;
     readonly now: Date;
   }) => Effect.Effect<CloudVmPublicationRequestContext | null, PublicationDatabaseError>;
 
@@ -492,6 +523,11 @@ export type CloudVmPublicationRepositoryShape = {
     readonly publicationId: string;
     readonly now: Date;
   }) => Effect.Effect<number, PublicationDatabaseError>;
+  /** Revoke every live API key of a publication, as making it public does. */
+  readonly revokePublicationApiKeys: (input: {
+    readonly publicationId: string;
+    readonly now: Date;
+  }) => Effect.Effect<number, PublicationDatabaseError>;
 };
 
 export class CloudVmPublicationRepository extends Context.Tag(
@@ -513,6 +549,16 @@ function isRepositoryDomainError(
     tagged(cause, "PublicationConflictError") ||
     tagged(cause, "PublicationAuthArtifactError") ||
     tagged(cause, "PublicationAccountDeletionBlockedError")
+  );
+}
+
+/** A presented key matches only a live key of the same publication; a wrong one is no key. */
+export function liveApiKeyJoin(apiKeyHash: string | null, now: Date) {
+  return and(
+    apiKeyHash === null ? sql`false` : eq(cloudVmPublicationApiKeys.tokenHash, apiKeyHash),
+    eq(cloudVmPublicationApiKeys.publicationId, cloudVmPublications.id),
+    isNull(cloudVmPublicationApiKeys.revokedAt),
+    or(isNull(cloudVmPublicationApiKeys.expiresAt), gt(cloudVmPublicationApiKeys.expiresAt, now)),
   );
 }
 
@@ -1112,6 +1158,49 @@ export function makeCloudVmPublicationRepository(getDb: typeof cloudDb): CloudVm
             .onConflictDoUpdate({ target: [cloudVmPublicationEmailGrants.publicationId, cloudVmPublicationEmailGrants.email], set: { expiresAt: input.expiresAt } });
         }
       });
+    }),
+    listApiKeys: (input) => databaseEffect("listApiKeys", async () =>
+      getDb().select().from(cloudVmPublicationApiKeys).where(and(
+        eq(cloudVmPublicationApiKeys.publicationId, input.publicationId),
+        isNull(cloudVmPublicationApiKeys.revokedAt),
+        or(isNull(cloudVmPublicationApiKeys.expiresAt), gt(cloudVmPublicationApiKeys.expiresAt, input.now)),
+      )).orderBy(asc(cloudVmPublicationApiKeys.createdAt))),
+    createApiKey: (input) => repositoryEffect("createApiKey", async () =>
+      await getDb().transaction(async (tx) => {
+        try { await assertAccountDeletionUserMutationAllowed(tx, input.ownerUserId); }
+        catch (cause) { throw accountDeletionError(cause); }
+        const [publication] = await tx.select().from(cloudVmPublications).where(and(
+          eq(cloudVmPublications.id, input.publicationId), eq(cloudVmPublications.ownerUserId, input.ownerUserId),
+          eq(cloudVmPublications.state, "active"), isNull(cloudVmPublications.disabledAt),
+        )).for("update").limit(1);
+        if (!publication) throw new PublicationNotFoundError({ resource: "publication" });
+        if (publication.accessMode === "public") throw new PublicationConflictError({ reason: "publication_public" });
+        const [live] = await tx.select({ total: count() }).from(cloudVmPublicationApiKeys).where(and(
+          eq(cloudVmPublicationApiKeys.publicationId, publication.id),
+          isNull(cloudVmPublicationApiKeys.revokedAt),
+          or(isNull(cloudVmPublicationApiKeys.expiresAt), gt(cloudVmPublicationApiKeys.expiresAt, input.now)),
+        ));
+        if ((live?.total ?? 0) >= MAX_ACTIVE_API_KEYS_PER_PUBLICATION) {
+          throw new PublicationConflictError({ reason: "api_key_limit" });
+        }
+        const [key] = await tx.insert(cloudVmPublicationApiKeys).values({
+          publicationId: publication.id, ownerUserId: input.ownerUserId, name: input.name,
+          tokenHash: input.tokenHash, tokenHint: input.tokenHint, expiresAt: input.expiresAt, createdAt: input.now,
+        }).returning();
+        if (!key) throw new Error("API key insert returned no row");
+        return key;
+      })),
+    revokeApiKey: (input) => repositoryEffect("revokeApiKey", async () => {
+      // Revoking is idempotent: a second call answers the already-revoked key.
+      const [key] = await getDb().update(cloudVmPublicationApiKeys)
+        .set({ revokedAt: sql`coalesce(${cloudVmPublicationApiKeys.revokedAt}, ${input.now.toISOString()}::timestamptz)` })
+        .where(and(
+          eq(cloudVmPublicationApiKeys.id, input.keyId),
+          eq(cloudVmPublicationApiKeys.publicationId, input.publicationId),
+          eq(cloudVmPublicationApiKeys.ownerUserId, input.ownerUserId),
+        )).returning();
+      if (!key) throw new PublicationNotFoundError({ resource: "api_key" });
+      return key;
     }),
     reservePublication: (input) =>
       repositoryEffect("reservePublication", async () => {
@@ -1991,6 +2080,7 @@ export function makeCloudVmPublicationRepository(getDb: typeof cloudDb): CloudVm
             domain: cloudVmDomains,
             vm: cloudVms,
             session: cloudVmPublicationSessions,
+            apiKey: { id: cloudVmPublicationApiKeys.id, ownerUserId: cloudVmPublicationApiKeys.ownerUserId },
           })
           .from(cloudVmPublications)
           .leftJoin(cloudVmDomains, eq(cloudVmPublications.domainId, cloudVmDomains.id))
@@ -2006,6 +2096,7 @@ export function makeCloudVmPublicationRepository(getDb: typeof cloudDb): CloudVm
             gt(cloudVmPublicationSessions.expiresAt, input.now),
             isNull(cloudVmPublicationSessions.revokedAt),
           ))
+          .leftJoin(cloudVmPublicationApiKeys, liveApiKeyJoin(input.apiKeyHash ?? null, input.now))
           .where(and(
             eq(cloudVmPublications.providerTlsRuleId, input.providerTlsRuleId),
             eq(cloudVmPublications.state, "active"),
@@ -2406,6 +2497,19 @@ export function makeCloudVmPublicationRepository(getDb: typeof cloudDb): CloudVm
             ),
           )
           .returning({ tokenHash: cloudVmPublicationSessions.tokenHash });
+        return revoked.length;
+      }),
+
+    revokePublicationApiKeys: (input) =>
+      databaseEffect("revokePublicationApiKeys", async () => {
+        const revoked = await getDb()
+          .update(cloudVmPublicationApiKeys)
+          .set({ revokedAt: input.now })
+          .where(and(
+            eq(cloudVmPublicationApiKeys.publicationId, input.publicationId),
+            isNull(cloudVmPublicationApiKeys.revokedAt),
+          ))
+          .returning({ id: cloudVmPublicationApiKeys.id });
         return revoked.length;
       }),
   };

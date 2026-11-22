@@ -66,6 +66,7 @@ export default function KeyboardShortcutsPage() {
       </ul>
       <p>{t("presetsApply")}</p>
       <Callout type="info">{t("presetsPreserve")}</Callout>
+      <p>{t("presetsDetection")}</p>
 
       <KeyboardShortcuts />
     </>

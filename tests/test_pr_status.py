@@ -56,6 +56,20 @@ def upsert(gh, key, text, **kw):
 
 
 class PrStatusTests(unittest.TestCase):
+    def test_list_comments_reads_past_the_old_thirty_page_cap(self):
+        pages = []
+
+        def api(method, path, payload):
+            page = int(path.rsplit("page=", 1)[1])
+            pages.append(page)
+            if page > 31:
+                return []
+            return [{"id": page, "body": "", "user": {"login": "github-actions[bot]"}}] * 100
+
+        comments = pr_status.list_comments(api, "o/r", 7)
+        self.assertEqual(len(comments), 3100)
+        self.assertEqual(pages[-1], 32)
+
     def test_a_clean_pull_request_gets_no_comment(self):
         gh = FakeGitHub()
         self.assertEqual(upsert(gh, "checks", None), "unchanged")
@@ -144,6 +158,36 @@ class PrStatusTests(unittest.TestCase):
         self.assertLessEqual(len(body), pr_status.LIMIT)
         self.assertEqual(pr_status.parse(body)["bead"], "Bead: `cx-abc1`")
         self.assertIn("cut to fit", pr_status.parse(body)["tour"])
+
+    def test_overflow_terminates_after_other_section_cut(self):
+        published = "Shipped in:\n" + "\n".join(f"- build-{i}" for i in range(2600))
+        body = pr_status.render({"published": published, "checks": "x" * 64800})
+        self.assertLessEqual(len(body), pr_status.LIMIT)
+        self.assertIn("published", pr_status.parse(body))
+
+    def test_oversized_other_section_does_not_cut_published_history(self):
+        published = "Shipped in:\n" + "\n".join(f"- build-{i}" for i in range(1800))
+        body = pr_status.render({"published": published, "tour": "x" * 50000})
+        sections = pr_status.parse(body)
+        self.assertEqual(sections["published"], published)
+        self.assertIn("cut to fit", sections["tour"])
+
+    def test_successive_updates_retrim_the_existing_cut_section(self):
+        first = pr_status.render({"tour": "x" * 70000, "bead": "Bead: cx-abc1"})
+        sections = pr_status.parse(first)
+        sections["receipt"] = "r" * 258
+        second = pr_status.parse(pr_status.render(sections))
+        self.assertEqual(second["bead"], "Bead: cx-abc1")
+        self.assertEqual(second["receipt"], "r" * 258)
+        self.assertIn("cut to fit", second["tour"])
+
+    def test_status_update_does_not_trim_fitting_publication_history(self):
+        published = "Shipped in:\n" + "\n".join(f"- build-{i}" for i in range(822))
+        first = pr_status.parse(pr_status.render({"published": published, "tour": "x" * 70000}))
+        first["checks"] = "x" * 10
+        second = pr_status.parse(pr_status.render(first))
+        self.assertEqual(second["published"], first["published"])
+        self.assertEqual(second["checks"], "x" * 10)
 
     def test_dispatched_fields_accept_only_valid_values(self):
         self.assertEqual(pr_status.field_text("cx-bi1nt", None), ("bead", "Bead: `cx-bi1nt`"))
@@ -251,6 +295,195 @@ class RetryTests(unittest.TestCase):
         result, sleeps, _ = self.call([limit] * (len(pr_status.RETRY_WAITS) + 1))
         self.assertIsInstance(result, RuntimeError)
         self.assertEqual(sleeps, list(pr_status.RETRY_WAITS))
+
+
+class GraphQLReadTests(unittest.TestCase):
+    """The comment reads go over GraphQL, a separate pool from REST (2026-10-31: the REST pool ran out at 00:50Z)."""
+
+    def test_graphql_comments_have_the_rest_shape(self):
+        pages = [
+            {"repository": {"issueOrPullRequest": {"comments": {
+                "pageInfo": {"hasNextPage": True, "endCursor": "c1"},
+                "nodes": [{"fullDatabaseId": "3412345678901", "body": pr_status.MARKER + "x",
+                           "author": {"__typename": "Bot", "login": "github-actions"}},
+                          {"fullDatabaseId": "3412345678902", "body": "hi",
+                           "author": {"__typename": "User", "login": "someone"}}]}}}},
+            {"repository": {"issueOrPullRequest": {"comments": {
+                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                "nodes": [{"fullDatabaseId": "3412345678903", "body": "b",
+                           "author": {"__typename": "Bot", "login": "cmux-bot"}},
+                          {"fullDatabaseId": "3412345678904", "body": "ghost", "author": None}]}}}},
+        ]
+        asked = []
+
+        def query(text, variables):
+            asked.append(variables)
+            return pages.pop(0)
+
+        found = pr_status.graphql_comments("o/r", 7, query=query)
+        self.assertEqual([c["id"] for c in found], [3412345678901, 3412345678902, 3412345678903, 3412345678904])
+        self.assertEqual([c["user"]["login"] for c in found], ["github-actions[bot]", "someone", "cmux-bot[bot]", ""])
+        self.assertEqual([a["after"] for a in asked], [None, "c1"])
+        self.assertEqual(asked[0]["owner"], "o")
+        self.assertEqual([c["id"] for c in pr_status.bot_comments(found, pr_status.MARKER)], [3412345678901])
+
+    def test_the_default_client_reads_over_graphql_and_falls_back_to_rest(self):
+        saved = pr_status.graphql_comments
+        try:
+            pr_status.graphql_comments = lambda repo, pr: [{"id": 1, "body": "g", "user": {"login": "x"}}]
+            self.assertEqual(pr_status.list_comments(pr_status.http_api, "o/r", 7)[0]["body"], "g")
+
+            def refused(repo, pr):
+                raise RuntimeError("GraphQL: rate limited")
+            pr_status.graphql_comments = refused
+            saved_api, sent = pr_status.REST_CLIENT, []
+            # list_comments recognises the default client by identity, so the REST fallback is checked through it
+            pr_status.REST_CLIENT = lambda m, p, b=None: sent.append(p) or []
+            try:
+                self.assertEqual(pr_status.list_comments(pr_status.REST_CLIENT, "o/r", 7), [])
+            finally:
+                pr_status.REST_CLIENT = saved_api
+            self.assertEqual(sent, ["/repos/o/r/issues/7/comments?per_page=100&page=1"])
+        finally:
+            pr_status.graphql_comments = saved
+
+    def test_any_other_client_is_read_as_before(self):
+        gh = FakeGitHub()
+        gh.add("hello")
+        self.assertEqual([c["body"] for c in pr_status.list_comments(gh, "o/r", 7)], ["hello"])
+        # a test that patches http_api with its fake (test_defaults_guard) still reads the fake, never GraphQL
+        saved = pr_status.http_api
+        pr_status.http_api = gh
+        try:
+            self.assertEqual([c["body"] for c in pr_status.list_comments(pr_status.http_api, "o/r", 7)], ["hello"])
+        finally:
+            pr_status.http_api = saved
+
+
+class QuotaTests(unittest.TestCase):
+    """2026-10-31 00:50Z: the installation's hourly REST quota hit 0 and every push's `link` job went red after six
+    refused tries. A spent quota now ends the job at once with a warning, green."""
+
+    def setUp(self):
+        os.environ.setdefault("GH_TOKEN", "t")
+
+    def call(self, answers, now=1000.0):
+        sleeps, sent = [], []
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def opener(request, timeout):
+            sent.append(request.get_method())
+            code, body, remaining, reset = answers.pop(0)
+            if code == 200:
+                return Response(body.encode())
+            headers = Message()
+            if remaining is not None:
+                headers["X-RateLimit-Remaining"] = remaining
+                headers["X-RateLimit-Reset"] = reset
+            raise urllib.error.HTTPError(request.full_url, code, "x", headers, io.BytesIO(body.encode()))
+
+        try:
+            result = pr_status.http_api("GET", "/repos/o/r/issues/7/comments", None, sleep=sleeps.append,
+                                        opener=opener, now=lambda: now)
+        except RuntimeError as error:
+            result = error
+        return result, sleeps, sent
+
+    SPENT = '{"message":"API rate limit exceeded for installation."}'
+
+    def test_a_spent_quota_is_not_retried(self):
+        result, sleeps, sent = self.call([(403, self.SPENT, "0", "4000")])
+        self.assertIsInstance(result, pr_status.QuotaSpent)
+        self.assertEqual((sleeps, sent), ([], ["GET"]))
+
+    def test_a_quota_that_resets_within_a_minute_is_waited_out_once(self):
+        result, sleeps, sent = self.call([(403, self.SPENT, "0", "1030"), (200, "[]", None, None)])
+        self.assertEqual((result, sleeps, len(sent)), ([], [31.0], 2))
+        result, sleeps, _ = self.call([(403, self.SPENT, "0", "1030"), (403, self.SPENT, "0", "1030")])
+        self.assertIsInstance(result, pr_status.QuotaSpent)
+        self.assertEqual(sleeps, [31.0])
+
+    def test_a_reset_wait_after_the_last_retry_never_reads_as_success(self):
+        secondary = (403, '{"message":"You have exceeded a secondary rate limit"}', "12", "4000")
+        answers = [secondary] * len(pr_status.RETRY_WAITS) + [(403, self.SPENT, "0", "1030"), secondary]
+        result, sleeps, sent = self.call(answers)
+        self.assertIsInstance(result, RuntimeError)
+        self.assertNotIsInstance(result, pr_status.QuotaSpent)
+        self.assertEqual(len(sent), len(pr_status.RETRY_WAITS) + 2)
+        self.assertEqual(sleeps, list(pr_status.RETRY_WAITS) + [31.0])
+
+    def test_the_graphql_endpoint_follows_the_rest_one(self):
+        seen = []
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def opener(request, timeout):
+            seen.append(request.full_url)
+            return Response(b'{"data": {"rateLimit": {}}}')
+        saved = {k: os.environ.get(k) for k in ("GITHUB_API_URL", "GITHUB_GRAPHQL_URL")}
+        try:
+            os.environ.pop("GITHUB_GRAPHQL_URL", None)
+            for api, want in (("https://ghe.example/api/v3", "https://ghe.example/api/graphql"),
+                              ("https://api.github.com", "https://api.github.com/graphql")):
+                os.environ["GITHUB_API_URL"] = api
+                pr_status.graphql("query{rateLimit{used}}", {}, opener=opener)
+                self.assertEqual(seen.pop(), want)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_a_secondary_limit_still_backs_off(self):
+        secondary = (403, '{"message":"You have exceeded a secondary rate limit"}', "12", "4000")
+        result, sleeps, _ = self.call([secondary, (200, "{}", None, None)])
+        self.assertEqual((result, sleeps), ({}, [5]))
+
+    def test_set_warns_and_passes_when_the_quota_is_spent(self):
+        import contextlib
+        import tempfile
+
+        saved = pr_status.upsert
+
+        def spent(*args, **kwargs):
+            raise pr_status.QuotaSpent("GET /x: HTTP 403: the API quota is spent until 01:19:51Z")
+        pr_status.upsert = spent
+        try:
+            with tempfile.NamedTemporaryFile("w", suffix=".md") as body:
+                body.write("Review")
+                body.flush()
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    code = pr_status.main(["set", "--repo", "o/r", "--pr", "7", "--section", "review",
+                                           "--body-file", body.name])
+        finally:
+            pr_status.upsert = saved
+        self.assertEqual(code, 0)
+        self.assertIn("::warning title=pr-status::#7 review not written", out.getvalue())
+
+    def test_any_other_failure_still_fails(self):
+        saved = pr_status.upsert
+
+        def broken(*args, **kwargs):
+            raise RuntimeError("PATCH /x: HTTP 422: bad")
+        pr_status.upsert = broken
+        try:
+            with self.assertRaises(RuntimeError):
+                pr_status.main(["set", "--repo", "o/r", "--pr", "7", "--section", "review", "--clear"])
+        finally:
+            pr_status.upsert = saved
 
 
 if __name__ == "__main__":

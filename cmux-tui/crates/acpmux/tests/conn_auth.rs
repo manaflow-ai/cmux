@@ -62,7 +62,7 @@ impl Daemon {
         let ready: Value =
             serde_json::from_str(&rx.recv_timeout(Duration::from_secs(20)).unwrap()).unwrap();
         let url = ready["webUrl"].as_str().unwrap();
-        let (base, token) = url.split_once("/?token=").unwrap();
+        let (base, token) = url.split_once("/#token=").unwrap();
         Self {
             child,
             ws: format!("{}/", base.replace("http://", "ws://")),
@@ -105,7 +105,10 @@ type Ws =
 enum Token<'a> {
     None,
     Bearer(&'a str),
+    /// In the URL query, which the listener never reads.
     Query(&'a str),
+    /// As a browser does: `acpmux.v1, acpmux.token.<t>` subprotocols.
+    Protocol(&'a str),
 }
 
 /// Open a WebSocket. Err: the HTTP status and body of a refused upgrade.
@@ -117,6 +120,10 @@ async fn open(d: &Daemon, token: Token<'_>, origin: Option<&str>) -> Result<Ws, 
     let mut req = url.as_str().into_client_request().unwrap();
     if let Token::Bearer(t) = token {
         req.headers_mut().insert("authorization", format!("Bearer {t}").parse().unwrap());
+    }
+    if let Token::Protocol(t) = token {
+        let offered = format!("acpmux.v1, acpmux.token.{t}");
+        req.headers_mut().insert("sec-websocket-protocol", offered.parse().unwrap());
     }
     if let Some(o) = origin {
         req.headers_mut().insert("origin", o.parse().unwrap());
@@ -191,8 +198,9 @@ async fn an_unauthenticated_remote_connection_gets_no_sessions_and_no_data() {
     let new = call(&mut app, 3, "session/new", json!({"cwd": d.home, "mcpServers": []})).await;
     let id = new["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{new}")).to_owned();
 
-    // No token, a wrong bearer token, a wrong query token, and the LocalApp
-    // token in place of the listener token: each upgrade is refused with
+    // No token, a wrong bearer token, a query token (wrong or right), a
+    // wrong subprotocol token, and the LocalApp token in place of the
+    // listener token: each upgrade is refused with
     // 401 and carries nothing but the refusal reason.
     let local = d.local_app_token();
     for (what, token, origin) in [
@@ -200,6 +208,8 @@ async fn an_unauthenticated_remote_connection_gets_no_sessions_and_no_data() {
         ("no token from the app's page", Token::None, Some(PANE)),
         ("a wrong bearer token", Token::Bearer("wrong"), None),
         ("a wrong query token", Token::Query("wrong"), None),
+        ("the listener token in the query", Token::Query(&d.listener_token), None),
+        ("a wrong subprotocol token", Token::Protocol("wrong"), None),
         ("the LocalApp token as the listener token", Token::Bearer(local.trim()), Some(PANE)),
     ] {
         match open(&d, token, origin).await {
@@ -225,10 +235,11 @@ async fn an_authenticated_remote_connection_is_served_and_says_its_proof() {
     let id = new["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{new}")).to_owned();
 
     // A remote client (no Origin header, as a relay, tunnel or paired
-    // device sends) with the listener token, by header and by query.
-    for (what, token) in
-        [("bearer", Token::Bearer(&d.listener_token)), ("query", Token::Query(&d.listener_token))]
-    {
+    // device sends) with the listener token, by header and by subprotocol.
+    for (what, token) in [
+        ("bearer", Token::Bearer(&d.listener_token)),
+        ("subprotocol", Token::Protocol(&d.listener_token)),
+    ] {
         let mut web = open(&d, token, None).await.unwrap_or_else(|e| panic!("{what}: {e:?}"));
         let init = initialize(&mut web, None).await;
         assert_eq!(init["result"]["_meta"]["acpmux"]["origin"], "remote", "{what}: {init}");

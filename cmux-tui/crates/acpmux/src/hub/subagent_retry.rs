@@ -228,10 +228,30 @@ fn forget_oldest(subs: &mut HashMap<String, Sub>) -> Vec<(String, Failure)> {
         .collect()
 }
 
+/// The error as the prompt quotes it, at most [`MAX_ERROR_CHARS`].
+fn clip_error(error: &str) -> String {
+    error.chars().take(MAX_ERROR_CHARS).collect()
+}
+
+/// A queued resume as a queue list names it (`QueuedPromptSummary.subagentRetry`): from its
+/// `subagent_retry` provenance, else `None` (any other prompt, or one an edit made the person's).
+pub(super) fn listed(
+    provenance: Option<&Value>,
+) -> Option<crate::protocol::session::QueuedSubagentRetry> {
+    let p = provenance.filter(|p| is_retry(Some(p)))?;
+    let text =
+        |k: &str| p.get(k).and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_owned);
+    Some(crate::protocol::session::QueuedSubagentRetry {
+        agent_id: text("agentId")?,
+        name: text("name"),
+        error: text("error"),
+    })
+}
+
 /// The prompt the parent's agent gets.
 fn retry_text(name: Option<&str>, agent_id: &str, error: &str) -> String {
     let name = name.map(|n| format!("\"{n}\" ")).unwrap_or_default();
-    let error: String = error.chars().take(MAX_ERROR_CHARS).collect();
+    let error = clip_error(error);
     format!(
         "Your subagent {name}(agent id {agent_id}) failed on a transient upstream error \
          ({error}). Resume it with SendMessage to \"{agent_id}\": it picks up from its \
@@ -250,6 +270,8 @@ impl Hub {
         if closing(session) {
             return;
         }
+        // A stopped one's Resume (`subagent_resume.rs`).
+        self.observe_resumable(session, events);
         self.observe_entries(session, events);
     }
 
@@ -263,8 +285,9 @@ impl Hub {
             let subs = all.subs.entry(session.id.clone()).or_default();
             let gone = all.gone.entry(session.id.clone()).or_default();
             for e in events.iter().filter(|e| e.get("parent").is_some_and(Value::is_null)) {
-                // acpmux's own retry updates (`log_step`) change nothing.
-                if e.get("retryable").is_some() {
+                // acpmux's own retry and resume updates (`log_step`, `subagent_resume.rs`)
+                // change nothing.
+                if e.get("retryable").is_some() || e.get("resumable").is_some() {
                     continue;
                 }
                 let text = |k: &str| e.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
@@ -465,6 +488,8 @@ impl Hub {
             self.skip_wait(session, &id, failure, why, "failed", !closed);
         }
         if closed {
+            // Nothing of a closed chat resumes (`subagent_resume.rs`).
+            self.forget_resumable(session);
             // Every entry it logged is settled now.
             self.set_retry_open(session, false);
         } else {
@@ -502,7 +527,7 @@ impl Hub {
         let mut subs: HashMap<String, (Value, Value, bool)> = HashMap::new();
         let kinds = ["subagent_state_update"];
         let scanned =
-            self.store.scan_kinds(&session.id, &kinds, &mut |e: crate::store::EventRecord| {
+            self.scan_for_rebuild(session, &kinds, &mut |e: crate::store::EventRecord| {
                 let entries =
                     e.msg.pointer("/params/_meta/acpmux/subagents").and_then(Value::as_array);
                 for entry in entries.into_iter().flatten() {
@@ -584,10 +609,10 @@ impl Hub {
         }
     }
 
-    /// `autoResumeDelaysMs`, or the default waits.
+    /// `autoResumeDelaysMs`, else the Settings waits (`agents.autoRetry.*`), else the default.
     async fn retry_delays(&self) -> Vec<u64> {
-        let delays = self.config.read().await.auto_resume_delays_ms.clone();
-        delays.unwrap_or_else(|| super::auto_resume::DEFAULT_DELAYS_MS.to_vec())
+        let configured = self.config.read().await.auto_resume_delays_ms.clone();
+        super::auto_resume::effective_delays(configured)
     }
 
     /// Records the next attempt's wait and logs it (`scheduled`, or `exhausted` past the
@@ -777,6 +802,13 @@ impl Hub {
         });
         opts.prompt_id = Some(wait.prompt_id.clone());
         opts.on_accepted = Some(on_accepted);
+        // What a queue list names it by (`listed`): the subagent and the error, beside its ids.
+        if let Some(provenance) = opts.provenance.as_mut().and_then(Value::as_object_mut) {
+            if let Some(name) = name {
+                provenance.insert("name".to_owned(), json!(name));
+            }
+            provenance.insert("error".to_owned(), json!(clip_error(&failure.error)));
+        }
         let text = retry_text(name, &failure.agent_id, &failure.error);
         let blocks = vec![json!({"type": "text", "text": text})];
         self.prompt_with(session, blocks, "acpmux", false, opts).await
@@ -965,6 +997,29 @@ mod tests {
         assert!(text.contains("only if that resume fails"), "{text}");
         let long = "x".repeat(1000);
         assert!(retry_text(None, "a", &long).len() < 700);
+    }
+
+    #[test]
+    fn a_queue_list_names_a_resume_by_its_provenance_and_nothing_else() {
+        let p = json!({"kind": PROVENANCE_KIND, "subagentId": "s/t2", "agentId": "a8e1", "attempt": 1,
+            "name": "Push \"relay\"", "error": "API Error: 503"});
+        let resume = listed(Some(&p)).expect("a resume");
+        assert_eq!(resume.agent_id, "a8e1");
+        assert_eq!(resume.name.as_deref(), Some("Push \"relay\""));
+        assert_eq!(resume.error.as_deref(), Some("API Error: 503"));
+        // An older record with no name or error still names the agent.
+        let bare =
+            json!({"kind": PROVENANCE_KIND, "subagentId": "s/t2", "agentId": "a8e1", "attempt": 1});
+        assert_eq!(listed_name(&bare), (Some("a8e1".to_owned()), None));
+        // The person's prompt (no provenance, or a teammate's) and an agent's message are none.
+        assert!(listed(None).is_none());
+        assert!(listed(Some(&json!({"kind": "person_message", "from": "u-2"}))).is_none());
+        assert!(listed(Some(&json!({"kind": "agent_message", "from": "acp:x"}))).is_none());
+    }
+
+    fn listed_name(p: &Value) -> (Option<String>, Option<String>) {
+        let l = listed(Some(p));
+        (l.as_ref().map(|l| l.agent_id.clone()), l.and_then(|l| l.name))
     }
 
     /// A retry prompt skipped after it went out never starts; others start, the same prompt

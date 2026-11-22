@@ -1,6 +1,7 @@
 //! Send now for a steer (Leo, 2026-10-20): Claude Code reads a steered line when its current step
-//! ends; Send now stops that step so it reads the line at once. The prompt's turn runs on and
-//! ends as the agent ends it, not as stopped. The lines are Claude Code's, in the order it wrote
+//! ends; Send now stops that step so it reads the line at once. The stopped step's result ends
+//! the prompt's turn, `cancelled`, and the steer runs as a turn of its own (`carry.rs`; Leo,
+//! 2026-11-03: "idk why we're getting into these weird thinking states"). The lines are Claude Code's, in the order it wrote
 //! them (cosmic-gray, 2026-10-20): the interrupted step's result comes before it reads the steer.
 //! A steer comes sent now (`_meta.steerNow`, a queued prompt's Send now), or a waiting steer is
 //! sent now later (`MUX_STEP_NOW`). Tests by steer-default (cmux/steer-now, ad34433a).
@@ -33,41 +34,28 @@ fn answer(msgs: &[Message], want: i64) -> Option<Value> {
 const INTERRUPTED: &str = r#"{"type": "result", "subtype": "error_during_execution", "is_error": true, "result": null, "num_turns": 1}"#;
 const DONE: &str = r#"{"type": "result", "subtype": "success", "is_error": false, "num_turns": 2, "result": "PINEAPPLE"}"#;
 
-/// Runs a prompt whose step `stop` stops while steer 2 waits unread, then Claude Code's lines
-/// to the turn's end; returns the turn prompt's answer.
-async fn steered_turn(
-    t: &Translator,
-    steer_meta: Value,
-    stop: Option<Message>,
-) -> (Vec<Value>, Value) {
+/// Runs a prompt that `stop` (a Stop) stops while steer 2 waits unread, then Claude Code's
+/// lines to the turn's end; returns the turn prompt's answer.
+async fn steered_turn(t: &Translator, stop: Message) -> (Vec<Value>, Value) {
     let Outbound::Lines(first) = t.outbound(&prompt(1, "run sleep 25", json!({}))).await else {
         panic!()
     };
     t.inbound(&echo(&first[0])).await;
+    let steer_meta = json!({"steer": true});
     let Outbound::Lines(mut written) = t.outbound(&prompt(2, "reply PINEAPPLE", steer_meta)).await
     else {
         panic!()
     };
     let steer = written[0].clone();
-    if let Some(stop) = stop {
-        let Outbound::Lines(more) = t.outbound(&stop).await else { panic!("{stop:?}") };
-        written.extend(more);
-    }
+    let Outbound::Lines(more) = t.outbound(&stop).await else { panic!("{stop:?}") };
+    written.extend(more);
     let mut msgs = t.inbound(&serde_json::from_str(INTERRUPTED).unwrap()).await;
-    assert!(answer(&msgs, 1).is_none(), "the interrupted step ended the turn: {msgs:?}");
+    assert!(answer(&msgs, 1).is_none(), "the stopped step ended the turn: {msgs:?}");
     msgs.extend(t.inbound(&echo(&steer)).await);
     assert_eq!(answer(&msgs, 2).unwrap()["stopReason"], "steered");
     written.extend(t.take_stdin_replies().await);
     msgs.extend(t.inbound(&serde_json::from_str(DONE).unwrap()).await);
     (written, answer(&msgs, 1).expect("the turn never ended"))
-}
-
-#[tokio::test]
-async fn a_steer_sent_now_stops_the_step_and_the_turn_runs_on() {
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
-    let (written, turn) = steered_turn(&t, json!({"steer": true, "steerNow": true}), None).await;
-    assert_eq!(written.iter().filter(|l| is_interrupt(l)).count(), 1, "{written:?}");
-    assert_eq!(turn["stopReason"], "end_turn", "{turn}");
 }
 
 /// A steer without `steerNow` (Return, or `interrupt` for an agent that cannot steer) waits for
@@ -87,20 +75,6 @@ async fn a_steer_waits_for_the_step() {
 }
 
 #[tokio::test]
-async fn send_now_for_a_waiting_steer_stops_only_the_step() {
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
-    let now = Message::request(9, method::MUX_STEP_NOW, json!({"sessionId": "acp-1"}));
-    let (written, turn) = steered_turn(&t, json!({"steer": true}), Some(now)).await;
-    let stops: Vec<&Value> = written.iter().filter(|l| is_interrupt(l)).collect();
-    assert_eq!(stops.len(), 1, "{written:?}");
-    // Its ack answers the request.
-    let ack = json!({"type": "control_response", "response": {"subtype": "success", "request_id": stops[0]["request_id"], "response": {}}});
-    let answered = t.inbound(&ack).await;
-    assert_eq!(answer(&answered, 9).unwrap()["interrupted"], true, "{answered:?}");
-    assert_eq!(turn["stopReason"], "end_turn", "{turn}");
-}
-
-#[tokio::test]
 async fn send_now_with_no_steer_waiting_stops_nothing() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     let Outbound::Lines(first) = t.outbound(&prompt(1, "run sleep 25", json!({}))).await else {
@@ -117,15 +91,16 @@ async fn send_now_with_no_steer_waiting_stops_nothing() {
 async fn stop_with_a_steer_waiting_still_ends_the_turn_stopped() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     let stop = Message::notification(method::SESSION_CANCEL, json!({"sessionId": "acp-1"}));
-    let (written, turn) = steered_turn(&t, json!({"steer": true}), Some(stop)).await;
+    let (written, turn) = steered_turn(&t, stop).await;
     assert_eq!(written.iter().filter(|l| is_interrupt(l)).count(), 2, "{written:?}");
     assert_eq!(turn["stopReason"], "cancelled", "{turn}");
 }
 
-/// Claude Code's `interrupt` ends more than the step: every running subagent, background ones
-/// included, and every background shell (cosmic-gray, 2026-10-21: a Send now killed two
-/// background subagents 17 and 4 minutes in). While one runs, Send now stops nothing; the steer
-/// is read at the next tool boundary.
+/// Claude Code's `interrupt` ends a foreground subagent with the step: while one runs, Send now
+/// stops nothing and the steer is read at the next tool boundary. Background subagents and
+/// background shells run on through it (`perTaskStopAffordance`, `stop_spares_background_tests.rs`),
+/// so they no longer keep Send now from stopping the step (Leo, 2026-11-21: "They have tons of
+/// helpers and they're not really responding to my messages").
 async fn turn_with(t: &Translator, work: Value) {
     let Outbound::Lines(first) = t.outbound(&prompt(1, "run sleep 25", json!({}))).await else {
         panic!()
@@ -143,8 +118,8 @@ fn shell(id: &str, background: bool) -> Value {
 }
 
 #[tokio::test]
-async fn a_steer_sent_now_never_stops_a_running_subagent_or_background_shell() {
-    for work in [agent("toolu_bg", true), agent("toolu_fg", false), shell("toolu_sh", true)] {
+async fn a_steer_sent_now_never_stops_a_foreground_subagent() {
+    for work in [agent("toolu_fg", false)] {
         let t = Translator::new("acp-1".into(), "default", "haiku", "default");
         turn_with(&t, work.clone()).await;
         let meta = json!({"steer": true, "steerNow": true});
@@ -157,8 +132,8 @@ async fn a_steer_sent_now_never_stops_a_running_subagent_or_background_shell() {
 }
 
 #[tokio::test]
-async fn send_now_for_a_waiting_steer_never_stops_a_running_subagent_or_background_shell() {
-    for work in [agent("toolu_bg", true), agent("toolu_fg", false), shell("toolu_sh", true)] {
+async fn send_now_for_a_waiting_steer_never_stops_a_foreground_subagent() {
+    for work in [agent("toolu_fg", false)] {
         let t = Translator::new("acp-1".into(), "default", "haiku", "default");
         turn_with(&t, work.clone()).await;
         let steer = json!({"steer": true});
@@ -183,4 +158,117 @@ async fn a_steer_sent_now_still_stops_a_foreground_shell() {
         panic!()
     };
     assert_eq!(written.iter().filter(|l| is_interrupt(l)).count(), 1, "{written:?}");
+}
+
+/// Send now ends the turn it stops (Leo, 2026-11-03: "idk why we're getting into these weird
+/// thinking states"). The stopped step's result answers the prompt `cancelled`, carrying the
+/// steer Claude Code has not read, and that steer runs as a turn of its own (`carry.rs`): it is
+/// read into the carry and its `_meta.carried` prompt ends at that turn's result.
+#[tokio::test]
+async fn send_now_ends_the_stopped_turn_and_the_steer_runs_as_its_own() {
+    let now = || Message::request(9, method::MUX_STEP_NOW, json!({"sessionId": "acp-1"}));
+    let ways = [
+        (json!({"steer": true, "steerNow": true, "promptId": "p-2"}), None),
+        (json!({"steer": true, "promptId": "p-2"}), Some(now())),
+    ];
+    for (meta, stop) in ways {
+        let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+        let Outbound::Lines(first) = t.outbound(&prompt(1, "run sleep 25", json!({}))).await else {
+            panic!()
+        };
+        t.inbound(&echo(&first[0])).await;
+        let Outbound::Lines(mut written) =
+            t.outbound(&prompt(2, "reply PINEAPPLE", meta.clone())).await
+        else {
+            panic!()
+        };
+        let steer = written[0].clone();
+        if let Some(stop) = &stop {
+            let Outbound::Lines(more) = t.outbound(stop).await else { panic!("{stop:?}") };
+            written.extend(more);
+        }
+        let stops: Vec<&Value> = written.iter().filter(|l| is_interrupt(l)).collect();
+        assert_eq!(stops.len(), 1, "{meta}: only the step stops: {written:?}");
+        if stop.is_some() {
+            // Its ack answers the request.
+            let ack = json!({"type": "control_response", "response": {"subtype": "success", "request_id": stops[0]["request_id"], "response": {}}});
+            let answered = t.inbound(&ack).await;
+            assert_eq!(answer(&answered, 9).unwrap()["interrupted"], true, "{answered:?}");
+        }
+        let msgs = t.inbound(&serde_json::from_str(INTERRUPTED).unwrap()).await;
+        let ended = answer(&msgs, 1).unwrap_or_else(|| panic!("{meta}: the turn stayed open"));
+        assert_eq!(ended["stopReason"], "cancelled", "{meta}: {ended}");
+        let carry = ended["_meta"]["claude"]["carried"].clone();
+        assert_eq!(carry["promptIds"], json!(["p-2"]), "{meta}: {ended}");
+        assert!(answer(&msgs, 2).is_none(), "{meta}: the steer is not read yet: {msgs:?}");
+        // The steer's own turn: the hub's carried prompt writes nothing.
+        let carried = Message::request(
+            3,
+            method::SESSION_PROMPT,
+            json!({"sessionId": "acp-1", "prompt": [], "_meta": {"carried": true}}),
+        );
+        let Outbound::Lines(none) = t.outbound(&carried).await else {
+            panic!("{meta}: the carried prompt was answered at once")
+        };
+        assert!(none.is_empty(), "{meta}: {none:?}");
+        let msgs = t.inbound(&echo(&steer)).await;
+        let read = answer(&msgs, 2).expect("the steer is answered at its echo");
+        assert_eq!(read["stopReason"], "steered", "{meta}: {read}");
+        assert_eq!(read["_meta"]["claude"]["carried"], carry["seq"], "{meta}: {read}");
+        let msgs = t.inbound(&serde_json::from_str(DONE).unwrap()).await;
+        let next = answer(&msgs, 3).expect("the steer's turn ends at its result");
+        assert_eq!(next["stopReason"], "end_turn", "{meta}: {next}");
+        assert!(answer(&msgs, 1).is_none(), "{meta}: {msgs:?}");
+    }
+}
+
+/// Background helpers are no reason to leave the person's Send now unread: the step stops, once,
+/// beside a background subagent, a background shell, or both, and nothing else is written.
+#[tokio::test]
+async fn send_now_stops_the_step_beside_background_subagents_and_shells() {
+    let works = [
+        vec![agent("toolu_bg", true)],
+        vec![shell("toolu_sh", true)],
+        vec![agent("toolu_bg", true), agent("toolu_bg2", true), shell("toolu_sh", true)],
+    ];
+    for work in works {
+        for waiting in [false, true] {
+            let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+            turn_with_all(&t, &work).await;
+            let mut written = if waiting {
+                let Outbound::Lines(lines) =
+                    t.outbound(&prompt(2, "reply PINEAPPLE", json!({"steer": true}))).await
+                else {
+                    panic!()
+                };
+                let now = Message::request(9, method::MUX_STEP_NOW, json!({"sessionId": "acp-1"}));
+                let Outbound::Lines(more) = t.outbound(&now).await else {
+                    panic!("{work:?}: Send now stopped nothing")
+                };
+                [lines, more].concat()
+            } else {
+                let meta = json!({"steer": true, "steerNow": true});
+                let Outbound::Lines(lines) = t.outbound(&prompt(2, "reply PINEAPPLE", meta)).await
+                else {
+                    panic!()
+                };
+                lines
+            };
+            assert_eq!(
+                written.iter().filter(|l| is_interrupt(l)).count(),
+                1,
+                "{work:?}: {written:?}"
+            );
+            written.retain(|l| !is_interrupt(l));
+            assert_eq!(written.len(), 1, "only the steer's line: {work:?}: {written:?}");
+        }
+    }
+}
+
+async fn turn_with_all(t: &Translator, work: &[Value]) {
+    let Outbound::Lines(first) = t.outbound(&prompt(1, "run sleep 25", json!({}))).await else {
+        panic!()
+    };
+    t.inbound(&echo(&first[0])).await;
+    t.inbound(&json!({"type": "assistant", "message": {"content": work}})).await;
 }

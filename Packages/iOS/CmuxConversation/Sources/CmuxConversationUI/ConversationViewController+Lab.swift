@@ -114,6 +114,29 @@ extension ConversationViewController {
         case "endtextselect":
             endTextSelection()
             return "ok"
+        case "replyselection":
+            // The selection menu's Reply with Selection, optionally over
+            // `location,length` of the bubble's text first.
+            guard let selection = textSelection else { return "error no text selection" }
+            let bounds = argument.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+            if bounds.count == 2 { selection.selectedRange = NSRange(location: bounds[0], length: bounds[1]) }
+            guard onReplyWithSelection != nil else { return "error no reply hook" }
+            return selection.replyWithSelection() ? "ok" : "error nothing to quote"
+        case "replystate":
+            return "replying=\(replyTarget?.id ?? "none") composer=\(composer.text.replacingOccurrences(of: "\n", with: "|"))"
+        case "textsize":
+            // Reads (no argument) or sets the host text size (a
+            // `ConversationTextSize` case, or `system`).
+            if !argument.isEmpty {
+                if argument == "system" {
+                    textSize = nil
+                } else if let size = ConversationTextSize(rawValue: argument) {
+                    textSize = size
+                } else {
+                    return "error unknown size"
+                }
+            }
+            return "size=\(textSize?.rawValue ?? "system") body=\(ConversationTheme.bubbleFont.pointSize)"
         case "forward":
             guard isSelecting, !selectedRowIDs.isEmpty else { return "error nothing selected" }
             forwardSelection()

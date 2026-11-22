@@ -1,11 +1,13 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextApps
 import CmuxNextControl
 import CmuxNextDaemonService
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextSidebar
 import Foundation
 
 /// App platform in the App (plans/cmux-next/app-platform.md section 13):
@@ -37,7 +39,7 @@ final class AppsService {
     private var machineCatalog: MachineCatalogPublisher?
     init(services: AppServices) {
         self.services = services
-        transport = DaemonAppsTransport(daemon: services.daemon, inventoryRoutes: { [weak machines = services.machines] in
+        transport = DaemonAppsTransport(daemon: services.daemon, feeds: [.agentChats(), .systemCalendar(SystemCalendarChanges())], inventoryRoutes: { [weak machines = services.machines] in
             machines?.agentInventoryWatchRoutes() ?? []
         })
         client = AppsClient(transport: transport)
@@ -64,15 +66,13 @@ final class AppsService {
     func attach(router: ControlRouter) {
         controlRouter = router
         let control: @Sendable (String, [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue = { method, params throws(AppHostCapabilityError) in try await router.appControl(method, params) }
-        let inventory = AgentCLICapabilityHandler { [weak machines = services.machines] in
-            machines?.agentInventoryRoutes() ?? []
-        }
+        let inventory = AgentCLICapabilityHandler { [weak machines = services.machines] in machines?.agentInventoryRoutes() ?? [] }
         let actionControl: @Sendable (String, [String: JSONValue], String) async throws(AppHostCapabilityError) -> JSONValue = { method, params, app throws(AppHostCapabilityError) in try await router.appControl(method, params, callerApp: app) }
         // The Agent Memory app's search, from the agent memory index while `agents.memory.enabled` is on.
         let memory = AgentMemorySearchHandler(enabled: { [weak services] in
             services?.settings?.snapshot.agentMemoryEnabled ?? false
         }, index: BundledAgentMemoryIndex.bundled())
-        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory]))
+        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats(), PageAppOps(control: control, appControl: actionControl), CalendarAppOps()]))
         if machineCatalog == nil {
             machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
                 machines?.catalogSource()
@@ -88,9 +88,9 @@ final class AppsService {
     /// per window). `appID` opens that listing, `tab` a store tab (Discover,
     /// Installed). With no main window that can hold it, the request waits for
     /// one (a closed window comes back, or a new one opens), as Settings
-    /// does: S22, the App Store never opens a window of its own.
+    /// does: S22, the App Store never opens a window of its own. Nothing while it is hidden (`showsAppStore`).
     func showStore(appID: String? = nil, tab: AppStoreTab? = nil, focus: Bool = true) {
-        guard services.settings?.snapshot.previewFeatures == true else { return }
+        guard services.settings?.snapshot.showsAppStore == true else { return }
         pendingRoute = Self.storeRoute(appID: appID, tab: tab)
         let key = focus ? TopPages.show(.page(.appStore), services: services)
             : services.pages.show(.appStore, in: services.windows.active, focus: false)?.key
@@ -114,7 +114,8 @@ final class AppsService {
         showStore(appID: request.appID, tab: request.tab, focus: request.focus)
     }
 
-    /// Opens an app's page as a tab of the active window (one per window),
+    /// Opens an app (``AppOpenTarget``): its scene page as a tab of the active window (one per window)
+    /// or its web app as a browser tab in the active workspace,
     /// then runs `command` (one of the app's palette ops, by name or its last
     /// segment, for example CodeRouter's connectAccount) in the app when
     /// given. User runs select and
@@ -132,8 +133,22 @@ final class AppsService {
         if let reason = client.unavailableReason { throw .unavailable(reason) }
         guard let app = client.app(appID), app.installed else { throw .unknownApp }
         guard app.enabled else { throw .disabled }
-        guard AppPanePage.opens(app), let provider = pageProvider(appID: appID, codeRouterAsPage: false) else { throw .noPage }
-        guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
+        switch AppOpenTarget(app) {
+        case .scenePane:
+            guard AppPanePage.opens(app), let provider = pageProvider(appID: appID, codeRouterAsPage: false) else { throw .noPage }
+            guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
+        case .web(let url):
+            // A web app is a browser tab in the active workspace, through the one browser-open path
+            // (`openBrowser`), so the browser's policy, engine and placement rules apply as for any tab.
+            guard services.windows.active != nil else { throw .noWindow }
+            let opened = services.registry.perform("openBrowser", invocation: ActionInvocation(
+                arguments: ["url": .string(url.absoluteString)], origin: origin, focusRequested: focus))
+            guard opened else { throw .noPage }
+            return nil
+        case .notDeployed: throw .notDeployed
+        case .none: guard let show = SidebarBridgeRules().nativePaneShowAction(appID), services.registry.perform(
+            ActionID(rawValue: show), invocation: ActionInvocation(arguments: [:], origin: origin, focusRequested: focus)) else { throw .noPage }
+        }
         guard let command else { return nil }
         guard let found = app.commands.first(where: { AppCommandPalette.Entry(app: app, command: $0).matches(command) }) else {
             throw .unknownCommand
@@ -203,6 +218,8 @@ extension AppsService: InternalPageProvider {
 
 enum AppsServiceError: Error {
     case unknownApp, noPage, noWindow, unknownCommand
+    /// A remote pane whose instance is not running yet (install it with a deploy target).
+    case notDeployed
     /// Installed but turned off.
     case disabled
     /// The supervisor cannot be reached (an older daemon, not connected yet, or turned off).

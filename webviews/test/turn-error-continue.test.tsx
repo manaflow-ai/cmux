@@ -9,6 +9,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -33,6 +34,7 @@ const replacements: Record<string, unknown> = {
   getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+  localStorage: dom.window.localStorage,
   IS_REACT_ACT_ENVIRONMENT: true,
 };
 for (const key of Object.getOwnPropertyNames(dom.window))
@@ -54,13 +56,9 @@ const { errorRecovery, lastFailedTurn } = await import("../src/agent-session/acp
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const CAPACITY = "API Error: 529 overloaded_error";
@@ -209,6 +207,31 @@ test("a sign-in failure offers no Continue: going on would fail the same way", a
   expect(actionLabels()).not.toContain("Retry");
 });
 
+// The palette, CLI and MCP command runs the way on it finds directly, with no login before it: a
+// sign-in failure retried that way fails the same way again. Only the card offers Retry there, beside
+// its Sign in again, so the command keeps base's answer for sign-in: nothing to continue.
+test("the palette, CLI and MCP command offers no retry for a sign-in failure, even with a login", async () => {
+  const asked: string[] = [];
+  const actions = {
+    resume: async () => void asked.push("resume"),
+    retry: () => void asked.push("resend"),
+    retryFailed: async () => {
+      asked.push("acpmux");
+      return undefined;
+    },
+    reauthenticate: () => void asked.push("login"),
+  };
+  for (const error of ["Not logged in · Please run /login", "HTTP 401 Unauthorized"]) {
+    const worked = turnView([prompt("p1", 1_000), answer("a1", 30_000), summary("s1", 223_000, { error })], new Set(), {
+      now: 300_000,
+    });
+    const fresh = turnView([prompt("p1", 1_000), summary("s1", 2_000, { error })], new Set(), { now: 300_000 });
+    expect([error, errorRecovery(lastFailedTurn(worked)!, undefined, actions)]).toEqual([error, undefined]);
+    expect([error, errorRecovery(lastFailedTurn(fresh)!, undefined, actions)]).toEqual([error, undefined]);
+  }
+  expect(asked).toEqual([]);
+});
+
 test("the palette, CLI and MCP command finds the same way on as the card", async () => {
   const calls: string[] = [];
   const actions = {
@@ -256,4 +279,86 @@ test("Continue and Retry go through acpmux's turn retry where the chat has one, 
   expect(again?.label).toBe("retry");
   await again!.run();
   expect(asked).toEqual(["acpmux:p1", "acpmux:p1"]);
+});
+
+// cmux#48434: "if i somehow continue the chat with a fork of something and then continue working and it
+// works i shouldnt see this dialog again… there should also be a place where i can dismiss this".
+test("a failed turn's card goes once a later turn finishes, and comes back if that turn is gone", async () => {
+  const failedTurn = [prompt("p1", 1_000), answer("a1", 30_000), summary("s1", 223_000)];
+  const later = [
+    prompt("p2", 230_000),
+    answer("a2", 240_000),
+    summary("s2", 250_000, { status: "completed", error: undefined }),
+  ];
+  const [failed, done] = footers([...failedTurn, ...later]);
+  expect(failed!.recovered).toBe(true);
+  expect(done!.recovered).toBeUndefined();
+  await act(async () => root.render(<TurnFooter row={failed!} />));
+  expect(host.querySelector(".cv-turn-error")).toBeNull();
+  // The footer row stays: the turn is history, not gone.
+  expect(host.querySelector(".cv-turn-actions")).not.toBeNull();
+
+  // A later turn that is still running or failed too does not clear it.
+  const running = footers([...failedTurn, prompt("p2", 230_000), answer("a2", 240_000)]);
+  expect(running[0]!.recovered).toBeUndefined();
+  const failedAgain = footers([...failedTurn, prompt("p2", 230_000), summary("s2", 250_000)]);
+  expect(failedAgain.map((row) => row.recovered)).toEqual([undefined, undefined]);
+  // A stopped later turn is not a success either.
+  const stopped = footers([...failedTurn, prompt("p2", 230_000), summary("s2", 250_000, { status: "cancelled" })]);
+  expect(stopped[0]!.recovered).toBeUndefined();
+});
+
+test("a failed turn paged in without its prompt is recovered by a later turn too", () => {
+  // History paged in mid-turn: the failed summary comes before the first prompt drawn.
+  const rows = footers([
+    answer("a0", 500),
+    summary("s0", 900),
+    prompt("p2", 230_000),
+    answer("a2", 240_000),
+    summary("s2", 250_000, { status: "completed", error: undefined }),
+  ]);
+  expect(rows.find((row) => row.id === "s0")!.recovered).toBe(true);
+});
+
+test("a recovered mark follows incremental snapshots: it lands when the later turn completes", async () => {
+  const { turnViewFrom } = await import("../src/agent-session/acpmux/conversation/turns");
+  const base = [prompt("p1", 1_000), answer("a1", 30_000), summary("s1", 223_000), prompt("p2", 230_000)];
+  const folds = new Set<string>();
+  const first = turnViewFrom(base, folds, { now: 300_000, working: true });
+  expect(first.rows.find((row) => row.id === "s1")!.recovered).toBeUndefined();
+  const next = turnViewFrom(
+    [...base, answer("a2", 240_000), summary("s2", 250_000, { status: "completed", error: undefined })],
+    folds,
+    { now: 300_000 },
+    first,
+  );
+  const marked = next.rows.find((row) => row.id === "s1")!;
+  expect(marked.recovered).toBe(true);
+  expect(marked.version).not.toBe(first.rows.find((row) => row.id === "s1")!.version);
+  expect(next.reusedRows ?? 0).toBeLessThanOrEqual(next.rows.indexOf(marked));
+});
+
+test("the card's × closes it for good, and only that chat's turn", async () => {
+  const { isFailureDismissed } = await import("../src/agent-session/acpmux/conversation/dismissedFailures");
+  const { SteerChatContext } = await import("../src/agent-session/acpmux/conversation/pendingSteerModel");
+  const [row] = footers([prompt("p1", 1_000), answer("a1", 30_000), summary("summary-12", 223_000)]);
+  const inChat = (chat: string, footer: AcpmuxRow) => (
+    <SteerChatContext.Provider value={chat}>
+      <TurnFooter row={footer} />
+    </SteerChatContext.Provider>
+  );
+  await act(async () => root.render(inChat("chat-a", row!)));
+  const dismiss = card().querySelector<HTMLButtonElement>(".cv-turn-error__dismiss")!;
+  expect(dismiss.getAttribute("aria-label")).toBe("Dismiss");
+  // The × is not one of the card's ways on.
+  expect(actionLabels()).not.toContain("Dismiss");
+  await act(async () => dismiss.click());
+  expect(host.querySelector(".cv-turn-error")).toBeNull();
+  expect(isFailureDismissed("chat-a", "summary-12")).toBe(true);
+  expect(JSON.parse(globalThis.localStorage?.getItem("cmux.agent.dismissedFailures") ?? "[]")).toContain(
+    "chat-a:summary-12",
+  );
+  // Another chat's turn with the same row id (row ids are unique only within a chat) keeps its card.
+  await act(async () => root.render(inChat("chat-b", row!)));
+  expect(host.querySelector(".cv-turn-error")).not.toBeNull();
 });

@@ -3,6 +3,14 @@ import Darwin
 
 /// One child process for ``AsyncProcess`` to run: what to start, what to feed it and how long it may take.
 public struct ProcessRequest: Sendable {
+    /// Which processes a stop signal reaches.
+    public enum TerminationScope: Sendable, Equatable {
+        /// Signal only the requested child process.
+        case process
+        /// Signal the child and every descendant in its dedicated process group.
+        case processGroup
+    }
+
     /// Where the child's standard error goes.
     public enum ErrorOutput: Sendable {
         /// `/dev/null`.
@@ -50,6 +58,8 @@ public struct ProcessRequest: Sendable {
     /// ignores or traps `SIGTERM` (a hook, a hung credential helper) always ends. Default 2 s: the grace
     /// the Changes view's git runs had for removing `index.lock` before AsyncProcess.
     public var killGrace: Duration
+    /// Whether timeout and cancellation signals target only the child or its dedicated process group.
+    public var terminationScope: TerminationScope
     /// Called with the child's pid right after it started, on the thread that started it, before any
     /// stop can reach it (diagnostics; tests watch the child's exit with it).
     public var onLaunch: (@Sendable (Int32) -> Void)?
@@ -67,11 +77,13 @@ public struct ProcessRequest: Sendable {
     ///   - stopSignal: what a timeout or a cancel sends; default `SIGTERM`.
     ///   - onCancel: what a cancel of the awaiting task does; default ``CancelBehavior/stop``.
     ///   - killGrace: how long a stopped child has before SIGKILL; default 2 s.
+    ///   - terminationScope: whether stops signal only the child or its process group; default `.process`.
     ///   - onLaunch: called with the child's pid right after it started; default none.
     public init(_ executable: URL, _ arguments: [String] = [], environment: [String: String]? = nil,
                 directory: URL? = nil, input: Data? = nil, errorOutput: ErrorOutput = .discard,
                 timeout: Duration? = nil, stopSignal: Int32 = SIGTERM, onCancel: CancelBehavior = .stop,
-                killGrace: Duration = .seconds(2), onLaunch: (@Sendable (Int32) -> Void)? = nil) {
+                killGrace: Duration = .seconds(2), terminationScope: TerminationScope = .process,
+                onLaunch: (@Sendable (Int32) -> Void)? = nil) {
         self.executable = executable
         self.arguments = arguments
         self.environment = environment
@@ -82,6 +94,7 @@ public struct ProcessRequest: Sendable {
         self.stopSignal = stopSignal
         self.onCancel = onCancel
         self.killGrace = killGrace
+        self.terminationScope = terminationScope
         self.onLaunch = onLaunch
     }
 }

@@ -23,7 +23,7 @@ import re
 import sys
 
 
-TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "pinned-tabs", "hover-card", "update-card", "chief-settings", "glass", "home", "new-message", "core")
+TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "pinned-tabs", "vertical-tabs", "hover-card", "update-card", "chief-settings", "glass", "home", "new-message", "core")
 UI_ROOTS = (
     re.compile(r"^(?:Packages/macOS/CmuxNext/Sources|webviews/(?:src|apps)|agent-chat/(?:src|app|components?)/)"),
     re.compile(r"^(?:Packages/macOS/CmuxNext/(?:Resources|Tests?)/|webviews/|agent-chat/)"),
@@ -37,6 +37,8 @@ AGENT_PANE = re.compile(r"(?:agent.?pane|agent-session|AgentPane|acpmux)", re.IG
 NOW_PLAYING = re.compile(r"(?:now.?playing|music)", re.IGNORECASE)
 # Pinned tabs and the tab strip's close rules: the pinned-tabs tour pins, closes others and unpins.
 PINNED_TABS = re.compile(r"(?:Pinned|PinCommands|/Pins/)")
+# Vertical tabs: the list beside a workspace's panes, its empty-area menu and the per-workspace choice.
+VERTICAL_TABS = re.compile(r"(?:VerticalTab|/VerticalTabs/)")
 # The hover cards (the sidebar workspace card, the tab card, their shared rows and panel), in dark, light and over art.
 HOVER_CARD = re.compile(r"(?:WorkspaceHoverCard|TabHoverCard|HoverCards/|HoverCardGallery)")
 # The sidebar's native Update Ready card and its popup window (the popup's React page is gallery work).
@@ -82,6 +84,8 @@ def tours_for_path(path: str) -> list[str]:
         selected.append("now-playing")
     if PINNED_TABS.search(normalized):
         selected.append("pinned-tabs")
+    if VERTICAL_TABS.search(normalized):
+        selected.append("vertical-tabs")
     if HOVER_CARD.search(normalized):
         selected.append("hover-card")
     if UPDATE_CARD.search(normalized):

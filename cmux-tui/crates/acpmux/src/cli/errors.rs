@@ -77,22 +77,54 @@ impl AppError {
         Self::new(Code::Timeout, "timeout", message)
     }
     pub fn no_session(key: &str) -> Self {
+        let program = crate::cli::entry::program();
         Self::new(
             Code::NoSession,
             "no_session",
-            format!("no session matches {key:?}; run `acpmux ls` or `acpmux ensure {key}`"),
+            format!("no session matches {key:?}; run `{program} ls` or `{program} ensure {key}`"),
         )
     }
     /// [`Self::no_session`] for a daemon refusal of `key`, with the names the daemon said
     /// `key` nearly matched (`session_name::not_found`'s `data.candidates`), so the caller
     /// can pick one without listing every session.
     pub fn no_session_from(key: &str, e: &anyhow::Error) -> Self {
-        let candidates: Vec<String> = e
-            .downcast_ref::<crate::client::DaemonError>()
-            .and_then(|d| d.0.data.as_ref())
+        let data = e.downcast_ref::<crate::client::DaemonError>().and_then(|d| d.0.data.as_ref());
+        let candidates: Vec<String> = data
             .and_then(|d| d.get("candidates")?.as_array())
             .map(|c| c.iter().filter_map(|n| n.as_str().map(str::to_owned)).collect())
             .unwrap_or_default();
+        // A send's refusal names the machine it looked on (`hub/no_session.rs`): `no session
+        // NAME on HOST; did you mean: a, b, c`.
+        let field = |k: &str| data.and_then(|d| d.get(k)?.as_str()).filter(|v| !v.is_empty());
+        if let (Some(host), Some(name)) = (field("host"), field("name")) {
+            // A Claude Code chat named by its id says how to reach it (`hub/no_session.rs`
+            // `unregistered_chat`), in place of the names it nearly matched.
+            let chat = data
+                .and_then(|d| d.get("unregisteredChat")?.get("text")?.as_str())
+                .filter(|t| !t.is_empty());
+            let tail = if let Some(chat) = chat {
+                chat.to_owned()
+            } else if candidates.is_empty() {
+                format!("run `{} ls` for its sessions", crate::cli::entry::program())
+            } else {
+                format!("did you mean: {}", candidates.join(", "))
+            };
+            return Self::new(
+                Code::NoSession,
+                "no_session",
+                format!("no session {name} on {host}; {tail}"),
+            )
+            .with_data({
+                let mut d = serde_json::json!({"reason": "no_session", "session": key,
+                    "candidates": candidates, "host": host, "name": name});
+                if let (Some(c), Some(o)) =
+                    (data.and_then(|d| d.get("unregisteredChat")), d.as_object_mut())
+                {
+                    o.insert("unregisteredChat".into(), c.clone());
+                }
+                d
+            });
+        }
         if candidates.is_empty() {
             return Self::no_session(key);
         }
@@ -100,8 +132,9 @@ impl AppError {
             Code::NoSession,
             "no_session",
             format!(
-                "no session matches {key:?}; close matches: {}; use one of those names, or run `acpmux ls`",
-                crate::session_name::candidate_list(&candidates)
+                "no session matches {key:?}; close matches: {}; use one of those names, or run `{} ls`",
+                crate::session_name::candidate_list(&candidates),
+                crate::cli::entry::program()
             ),
         )
         .with_data(serde_json::json!({"candidates": candidates}))
@@ -217,8 +250,13 @@ pub fn classify(e: &anyhow::Error) -> AppError {
 /// The exit code and detail an error's message gives.
 fn classify_message(e: &anyhow::Error, msg: String) -> AppError {
     let lower = msg.to_lowercase();
-    if e.is::<crate::client::TransportClosed>() {
-        return AppError::new(Code::Runtime, "daemon_closed", msg).retryable();
+    if let Some(closed) = e.downcast_ref::<crate::client::TransportClosed>() {
+        // Why it closed, as codes (`client::closed_cause`): a panic stays told apart from a restart.
+        let mut data = serde_json::json!({"cause": closed.cause});
+        if let Some(panic) = &closed.panic {
+            data["panic"] = panic.clone();
+        }
+        return AppError::new(Code::Runtime, "daemon_closed", msg).retryable().with_data(data);
     }
     if lower.contains("no session matches")
         || lower.contains("unknown session")
@@ -315,7 +353,7 @@ mod typed_error_tests {
         assert_eq!(app.detail, "peer_unreachable");
         assert!(app.retryable);
         let text = app.text();
-        assert!(text.contains("\n  Check that b is on and online in `tailscale status`; `acpmux host doctor b` checks the link"), "{text}");
+        assert!(text.contains("\n  Check that b is on and online in `tailscale status`; `acpmux machine doctor b` checks the link"), "{text}");
         assert_eq!(app.envelope()["error"]["errorKind"], "peer.unreachable");
         assert_eq!(
             app.envelope()["error"]["data"]["details"]["lastSeenAt"],
@@ -391,6 +429,52 @@ mod typed_error_tests {
         );
         assert_eq!(plain.message, AppError::no_session("x").message);
         assert!(crate::cli::send_relay::no_such_session(&app.into()));
+    }
+
+    /// A send to a Claude Code chat by its id prints how to reach it (`hub/no_session.rs`
+    /// `unregistered_chat`) in place of close names, and keeps it in `--json`.
+    #[test]
+    fn a_send_refusal_for_a_chat_id_names_the_register_step() {
+        let chat = json!({"state": "unknown", "register": "claude-code-6e0bad7d",
+            "text": "if 6e0bad7d is a Claude Code chat acpmux did not start, it has no acpmux address until it registers"});
+        let refused = daemon(RpcError::invalid_params("no session: h/6e0bad7d").with_data(json!({
+            "reason": "no_session", "host": "h", "name": "6e0bad7d",
+            "candidates": ["lane"], "unregisteredChat": chat})));
+        let app = AppError::no_session_from("h/6e0bad7d", &refused);
+        assert_eq!(app.code, Code::NoSession);
+        assert!(
+            app.message.starts_with("no session 6e0bad7d on h; if 6e0bad7d is a Claude Code chat"),
+            "{}",
+            app.message
+        );
+        assert_eq!(
+            app.envelope()["error"]["data"]["unregisteredChat"]["register"],
+            "claude-code-6e0bad7d"
+        );
+    }
+
+    /// A send's refusal names the machine and the closest names there (`hub/no_session.rs`).
+    #[test]
+    fn a_send_refusal_names_the_host_and_the_closest_names() {
+        let refused =
+            daemon(RpcError::invalid_params("no session: h/proc-title").with_data(json!({
+            "reason": "no_session", "host": "h", "name": "proc-title",
+            "candidates": ["feed-lane", "lane"]})));
+        let app = AppError::no_session_from("h/proc-title", &refused);
+        assert_eq!((app.code, app.detail.as_str()), (Code::NoSession, "no_session"));
+        assert_eq!(app.message, "no session proc-title on h; did you mean: feed-lane, lane");
+        // `--json` keeps the refusal's whole shape.
+        assert_eq!(
+            app.envelope()["error"]["data"],
+            json!({"reason": "no_session", "session": "h/proc-title", "host": "h",
+                   "name": "proc-title", "candidates": ["feed-lane", "lane"]})
+        );
+        let none = daemon(RpcError::invalid_params("no session: h/x").with_data(json!({
+            "reason": "no_session", "host": "h", "name": "x", "candidates": []})));
+        assert_eq!(
+            AppError::no_session_from("h/x", &none).message,
+            "no session x on h; run `acpmux ls` for its sessions"
+        );
     }
 
     /// An error with nothing to add prints as before.

@@ -68,7 +68,7 @@ export const registerPresence = async (env: Env, sql: SqlStorage, caller: HandCa
   const k = input.jwk as { kty?: unknown; crv?: unknown; x?: unknown; y?: unknown } | null
   if (!k || k.kty !== "EC" || k.crv !== "P-256" || typeof k.x !== "string" || typeof k.y !== "string") return no("the presence key is a P-256 public JWK")
   const pub = { kty: "EC", crv: "P-256", x: k.x, y: k.y }
-  const user = env.USER_DO.get(env.USER_DO.idFromName(owner)) as unknown as { personKey(entity: string, install: string): Promise<JsonWebKey | null> }
+  const user = env.USER_DO.get(env.USER_DO.idFromName(owner))
   const installKey = await user.personKey(owner, input.install).catch(() => null)
   if (!installKey) return no("that install is not one of the owner's active Mac or iPhone apps")
   const ik = installKey as { x?: string; y?: string }

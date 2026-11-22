@@ -5,8 +5,9 @@
 // `_acpmux/process/tail` reads the end of its output file. Live previews poll only while their row
 // is expanded; closing, unmounting, or the row leaving the live list stops and cleans up the timer.
 // The registry serves only this Mac's clients and keeps output for Claude Code's shells only.
-import { createContext, useContext, useEffect, useState } from "react";
-import { stripAnsi } from "./toolOutput";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { visibleInterval } from "../../../ui/pageClock";
+import { stripAnsi } from "./toolOutputModel";
 
 /// How much of the end of a task's output an opened note reads.
 export const BACKGROUND_TAIL_BYTES = 16 * 1024;
@@ -18,6 +19,10 @@ export type BackgroundTaskOutput = {
   cut?: boolean;
   exitCode?: number;
   running?: boolean;
+  /// acpmux keeps no output for this process (a Codex one): nothing to show is not "nothing printed".
+  unavailable?: boolean;
+  /// The read failed (the daemon did not answer): nothing is known yet, so an open reads again.
+  unread?: boolean;
 };
 
 /// The bounded view shown in an expanded tray row. Keeping this at the render edge means a
@@ -33,6 +38,9 @@ export function tailLines(output: string | undefined, maxLines = 10): string | u
 export type BackgroundTaskOutputSource = {
   listProcesses(sessionId: string): Promise<unknown>;
   tailProcess(processId: string, maxBytes: number): Promise<unknown>;
+  /// The end of an acpmux background task's output and its record (`_acpmux/bg/output`), by its
+  /// `bg-…` id: what a "Background task finished: bg-…" line opens to (backgroundTurnTask.ts).
+  tailTask?(taskId: string, maxBytes: number): Promise<unknown>;
 };
 
 /// The source and the chat it reads for; none outside the app's pane (tests, the gallery's preview).
@@ -99,38 +107,114 @@ export async function readBackgroundTaskOutput(
     ...(process.running ? { running: true } : {}),
   };
   // acpmux keeps no output for a Codex process yet; it refuses the read.
-  if (process.codex) return exit;
+  if (process.codex) return { ...exit, unavailable: true };
   const tail = tailText(await reader.source.tailProcess(process.id, BACKGROUND_TAIL_BYTES));
   return tail && tail.output ? { ...exit, output: tail.output, cut: tail.cut } : exit;
 }
 
-/// What the registry knows of the task, read once `open` first turns true; empty until it answers
-/// and when it cannot (no reader, not listed, a refused read).
-export function useBackgroundTaskOutput(toolCallId: string, open: boolean): BackgroundTaskOutput {
-  const reader = useContext(BackgroundTaskOutputContext);
-  const [read, setRead] = useState<{ key: string; output: BackgroundTaskOutput } | undefined>(undefined);
-  const key = reader ? `${reader.sessionId}\u0000${toolCallId}` : "";
-  const wanted = open && Boolean(reader) && Boolean(toolCallId) && read?.key !== key;
-  useEffect(() => {
-    if (!wanted || !reader) return;
-    let current = true;
-    readBackgroundTaskOutput(reader, toolCallId).then(
-      (output) => {
-        if (current) setRead({ key, output });
-      },
-      () => {
-        if (current) setRead({ key, output: {} });
-      },
-    );
-    return () => {
-      current = false;
-    };
-  }, [wanted, reader, toolCallId, key]);
-  return read?.key === key ? read.output : {};
+/// Reads of finished tasks, per registry source and chat: a note's output is final once its task
+/// ended, so one read serves every open, remount and scroll back. The newest READS_KEPT are kept
+/// (memory stays flat however long the chat); a read that failed, or found the process still
+/// running (its end not written yet), is dropped once answered so the next ask reads again; either
+/// answer leaves the note unsettled, so its click asks again.
+const READS_KEPT = 128;
+type Read = { promise: Promise<BackgroundTaskOutput>; output?: BackgroundTaskOutput };
+const reads = new WeakMap<BackgroundTaskOutputSource, Map<string, Read>>();
+const readKey = (reader: BackgroundTaskOutputReader, toolCallId: string) => `${reader.sessionId}\u0000${toolCallId}`;
+
+/// The kept read of `toolCallId`'s task, once it answered.
+function settledRead(reader: BackgroundTaskOutputReader, toolCallId: string): BackgroundTaskOutput | undefined {
+  return reads.get(reader.source)?.get(readKey(reader, toolCallId))?.output;
 }
 
-/// A tray row's live tail. The caller's `open` is the stop predicate: the effect also cleans up
-/// its timer and ignores late replies when the row closes or unmounts.
+/// Starts reading the finished task `toolCallId` started, unless a read of it is kept or under way,
+/// and returns that read. At most one read per task is in flight.
+export function prefetchBackgroundTaskOutput(
+  reader: BackgroundTaskOutputReader,
+  toolCallId: string,
+): Promise<BackgroundTaskOutput> {
+  let kept = reads.get(reader.source);
+  if (!kept) reads.set(reader.source, (kept = new Map()));
+  const key = readKey(reader, toolCallId);
+  const hit = kept.get(key);
+  if (hit) {
+    // The newest asked goes last, so the oldest is the one dropped.
+    kept.delete(key);
+    kept.set(key, hit);
+    return hit.promise;
+  }
+  const read: Read = {
+    promise: readBackgroundTaskOutput(reader, toolCallId).then(
+      (output) => {
+        read.output = output;
+        if (output.running && kept.get(key) === read) kept.delete(key);
+        return output;
+      },
+      () => {
+        if (kept.get(key) === read) kept.delete(key);
+        return (read.output = { unread: true });
+      },
+    ),
+  };
+  kept.set(key, read);
+  if (kept.size > READS_KEPT) kept.delete(kept.keys().next().value!);
+  return read.promise;
+}
+
+/// How long a note must stay drawn before it reads its task (a fast scroll past reads nothing).
+export const BACKGROUND_PREFETCH_DELAY_MS = 150;
+
+export type BackgroundTaskRead = {
+  output: BackgroundTaskOutput;
+  /// The read answered (or there is nothing to read: no reader, no tool call): an open draws its
+  /// final content now.
+  settled: boolean;
+  /// Reads now if no read is kept or under way; the read, or undefined when there is nothing to read.
+  request: () => Promise<BackgroundTaskOutput> | undefined;
+};
+
+/// What the registry knows of a finished task, read ahead of the reader's click: once the note has
+/// been drawn for BACKGROUND_PREFETCH_DELAY_MS while `wanted`, or at once on `request` (a hover, a
+/// focus, a press). A kept read draws on the first render, so a note opens to its final card in
+/// one step (Leo, 2026-11-09: "slow and bad loading state here :(").
+export function useBackgroundTaskOutput(toolCallId: string, wanted: boolean): BackgroundTaskRead {
+  const reader = useContext(BackgroundTaskOutputContext);
+  const key = reader && toolCallId ? readKey(reader, toolCallId) : "";
+  const [answered, setAnswered] = useState<{ key: string; output: BackgroundTaskOutput } | undefined>(undefined);
+  const kept = reader && toolCallId ? settledRead(reader, toolCallId) : undefined;
+  const output = kept ?? (answered?.key === key ? answered.output : undefined);
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
+  const request = useCallback(() => {
+    if (!reader || !toolCallId) return undefined;
+    const read = prefetchBackgroundTaskOutput(reader, toolCallId);
+    void read.then((value) => {
+      if (live.current) setAnswered({ key, output: value });
+    });
+    return read;
+  }, [reader, toolCallId, key]);
+  const missing = output === undefined && Boolean(key);
+  useEffect(() => {
+    if (!wanted || !missing) return;
+    const timer = setTimeout(request, BACKGROUND_PREFETCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [wanted, missing, request]);
+  // A read that failed, or found the process still running (the harness said it ended before the
+  // registry wrote its exit), is not final: a click reads again rather than opening what it has.
+  return {
+    output: output ?? {},
+    settled: !key || (output !== undefined && !output.running && !output.unread),
+    request,
+  };
+}
+
+/// A tray row's live tail. The caller's `open` is the stop predicate: the effect also stops its
+/// clock and ignores late replies when the row closes or unmounts; a hidden page reads nothing.
 export function useLiveBackgroundTaskOutput(
   toolCallId: string | undefined,
   processId: string | undefined,
@@ -142,30 +226,28 @@ export function useLiveBackgroundTaskOutput(
   useEffect(() => {
     if (!reader || !open || (!toolCallId && !processId)) return;
     let current = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let poll: () => void;
-    const schedule = () => {
-      timer = setTimeout(poll, 1200);
-    };
-    poll = () => {
+    let reading = false;
+    const read = () => {
+      if (reading) return;
+      reading = true;
       readBackgroundTaskOutput(reader, toolCallId, processId).then(
         (output) => {
-          if (!current) return;
-          setRead({ key, output });
-          // The row is live while mounted; its unmount/close clears this timer and stops polling.
-          schedule();
+          reading = false;
+          if (current) setRead({ key, output });
         },
         () => {
-          if (!current) return;
-          setRead({ key, output: {} });
-          schedule();
+          reading = false;
+          if (current) setRead({ key, output: {} });
         },
       );
     };
-    poll();
+    read();
+    // The page clock owns the repeat: no timer while the page is hidden, and the next read comes a
+    // full interval after it shows. The row's close or unmount stops it.
+    const stop = visibleInterval("background-task-tail", read, 1200);
     return () => {
       current = false;
-      if (timer !== undefined) clearTimeout(timer);
+      stop();
     };
   }, [reader, open, toolCallId, processId, key]);
   return read?.key === key ? read.output : {};

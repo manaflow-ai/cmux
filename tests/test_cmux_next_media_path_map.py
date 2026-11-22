@@ -92,6 +92,12 @@ class TourFilePathTests(unittest.TestCase):
         self.assertEqual(path_map.tours_for_path("webviews/src/pages/changelog/updateSurfaces.css"), [])
         self.assertTrue(path_map.is_gallery_path("webviews/src/pages/changelog/updateSurfaces.css"))
 
+    def test_the_vertical_tab_list_routes_to_the_vertical_tabs_tour(self) -> None:
+        self.assertEqual(
+            path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Vertical/VerticalTabListView.swift"), ["vertical-tabs"])
+        self.assertEqual(
+            path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextApp/VerticalTabs/WorkspaceVerticalTabs.swift"), ["vertical-tabs"])
+
     def test_the_home_list_routes_to_the_home_tour(self) -> None:
         for path in ("Packages/macOS/CmuxNext/Sources/CmuxNextHome/Sidebar/HomeSidebarView.swift",
                      "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift",

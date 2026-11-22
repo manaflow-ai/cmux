@@ -36,7 +36,7 @@ nonisolated extension ContextMenuCatalog {
         ["name": "titlebarHistory", "source": "CmuxNextHistory/TitlebarHistoryMenu.swift"],
         ["name": "notificationRow", "source": "CmuxNextApp/Notifications/Panel/NotificationsPanelController.swift"],
         ["name": "agentPaneMessage", "source": "CmuxNextAgentPane/AgentPaneContextMenu.swift"],
-        ["name": "paneToolbarMore", "source": "CmuxNextApp/PaneToolbar.swift"],
+        ["name": "paneTabBarRows", "source": "CmuxNextApp/PaneToolbar.swift"],
         ["name": "browserReload", "source": "CmuxNextBrowser/UI/BrowserReloadMenu.swift"],
         ["name": "browserDownloads", "source": "CmuxNextApp/Handlers/BrowserDownloadsMenu.swift"],
         ["name": "browserMedia", "source": "CmuxNextApp/Handlers/BrowserMediaMenu.swift"],
@@ -45,12 +45,7 @@ nonisolated extension ContextMenuCatalog {
         ["name": "remoteBrowserPage", "source": "CmuxNextRemoteBrowser/Native/RemoteBrowserNativeUI.swift"],
         ["name": "sidebarNoticeCard", "source": "CmuxNextSidebar/Views/SidebarNoticeCardView.swift"],
         ["name": "sidebarUpdateCard", "source": "CmuxNextSidebar/Views/SidebarUpdateCardView.swift"],
-        ["name": "debugSidebarToggleIcon", "source": "CmuxNextApp/Windows/SidebarToggleIconMenu.swift"],
-        ["name": "debugStatusIconSet", "source": "CmuxNextApp/Windows/StatusIconSetMenu.swift"],
         ["name": "homeBackground", "source": "CmuxNextHomeEngine/HomePageMenus.swift"],
-        ["name": "historyToolbar", "source": "CmuxNextHistory/HistoryPageView.swift"],
-        ["name": "historyRow", "source": "CmuxNextHistory/HistoryPageRow.swift"],
-        ["name": "taskAssignee", "source": "CmuxNextTasks/Views/AssigneeMenu.swift"],
     ]
 
     /// Every context menu's export, keyed by `ActionMenuContext.exportName`.
@@ -117,6 +112,11 @@ nonisolated extension ContextMenuCatalog {
                 row["title"] = titles.entry(key: key, table: "Localizable")?.english ?? folder.title
                 row["title_key"] = key
                 row["title_table"] = "Localizable"
+                row["children"] = exportEntries(children, byID: byID, titles: titles, labels: labels)
+            case .group(let group, let children):
+                // Only a person's arrangement has these; the generated export never does.
+                row["kind"] = "group"
+                row["title"] = group.title
                 row["children"] = exportEntries(children, byID: byID, titles: titles, labels: labels)
             }
             return row

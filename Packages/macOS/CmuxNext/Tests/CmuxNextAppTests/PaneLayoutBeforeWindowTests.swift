@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// moveWorkspaceToNewWindow in STRESS stalled the main thread 4.77 s (every-action sweep, macOS 27,
@@ -9,7 +10,7 @@ import Testing
 /// handleUnsatisfiableRow). Content is laid out at a real size only: by the window's layout pass once the root
 /// is placed, and synchronously during motion (where it must keep up with the frame).
 @MainActor
-@Suite struct PaneLayoutBeforeWindowTests {
+@Suite(.closesItsWindows) struct PaneLayoutBeforeWindowTests {
     /// Content that counts its layout passes at a size it cannot hold.
     final class Content: NSView {
         var emptyLayouts = 0
@@ -49,6 +50,7 @@ import Testing
         let root = LayoutRootView(model: model, contentProvider: Panes())
         root.context.reduceMotionOverride = true
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         root.isHidden = true

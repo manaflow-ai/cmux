@@ -12,6 +12,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { chromium, type Browser } from "playwright";
 import { ChatCards } from "../src/agent-session/acpmux/newtab/ChatCards";
 import type { ChatCard } from "../src/agent-session/acpmux/newtab/screenModel";
+import { designTokenCss } from "./support/gridTokens";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("new-tab-chat-title-width.test.tsx", async () => {
@@ -31,7 +32,10 @@ await requireBrowserLane("new-tab-chat-title-width.test.tsx", async () => {
     await browser?.close();
   });
 
-  const long = "well we have cosmic-gray which is probably the best box to reproduce this one on, then the rest";
+  // Longer than the 720px row at any body size, so the title-only row overflows and must run to the
+  // time column rather than end where its text happens to end.
+  const long =
+    "well we have cosmic-gray which is probably the best box to reproduce this one on, then the rest of the fleet after that";
   const cards: ChatCard[] = [
     { sessionId: "a", title: long, harness: "claude", age: "6m", state: "idle" },
     {
@@ -49,7 +53,7 @@ await requireBrowserLane("new-tab-chat-title-width.test.tsx", async () => {
     const list = renderToStaticMarkup(createElement(ChatCards, { cards, variant: "list", onOpen: () => {} }));
     const page = await browser!.newPage({ viewport: { width: 900, height: 400 } });
     await page.setContent(
-      `<style>${css}</style><div style="width:720px;margin:40px;font:13px system-ui">${list}</div>`,
+      `<style>${designTokenCss()}${css}</style><div style="width:720px;margin:40px;font:13px system-ui">${list}</div>`,
     );
     const rows = await page.evaluate(() =>
       [...document.querySelectorAll(".nt-card")].map((card) => {

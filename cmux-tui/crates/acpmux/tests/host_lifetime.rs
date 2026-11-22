@@ -378,3 +378,39 @@ async fn a_pooled_host_is_idle_and_follows_its_record() {
     cleanup.host = None;
     drop(rpc);
 }
+
+/// A host that ends on SIGTERM notes who sent it in the home's `agent-host-signals.log`: after an
+/// update relaunch on macOS, something ended agent hosts with their daemon, and hosts log nothing
+/// else (manaflow-ai/cmuxterm-hq#6338).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_host_ended_by_sigterm_names_its_sender() {
+    let home = scratch("who");
+    let daemon = start_daemon(&home);
+    let mut rpc = Rpc::connect(&home).await;
+    let session = rpc.new_session(&home, "fake").await;
+    rpc.call(
+        "session/prompt",
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]}),
+    )
+    .await;
+    let (host, harness) = pids(&record(&home.join("hosts"), &session));
+    let mut sender = std::process::Command::new("/bin/sh")
+        .args(["-c", &format!("kill -TERM {host}; sleep 5")])
+        .spawn()
+        .unwrap();
+    let ended = gone_within(host, Duration::from_secs(10));
+    let _ = sender.kill();
+    let _ = sender.wait();
+    drop(rpc);
+    sigkill(daemon);
+    assert!(ended, "host {host} still ran 10 s after SIGTERM");
+    assert!(gone_within(harness, Duration::from_secs(10)), "harness {harness} outlived its host");
+    let log = std::fs::read_to_string(home.join("agent-host-signals.log")).unwrap_or_default();
+    let want = format!(
+        "agent host {host} (session {session}) stopping: SIGTERM from pid {} (",
+        sender.id()
+    );
+    assert!(log.contains(&want), "no {want:?} in agent-host-signals.log:\n{log}");
+    assert!(log.contains("sleep 5"), "the sender's command line is not named:\n{log}");
+    let _ = std::fs::remove_dir_all(&home);
+}

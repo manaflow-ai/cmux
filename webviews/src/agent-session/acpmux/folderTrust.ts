@@ -92,3 +92,17 @@ export async function readFolderTrust(
     clearTimeout(timer);
   }
 }
+
+/// A folder the app made for a chat in no project (Do not work in a project): its workspace's
+/// agent-home folder, a direct child of `~/Library/Application Support/cmux/agent-home`. acpmux
+/// trusts it by construction (`trust.rs`, `made_by_cmux`), so the pane draws that answer on the
+/// first frame instead of waiting on a read of the agents' settings files (`~/.claude.json`,
+/// `~/.codex/config.toml`). The read still runs and replaces it, and acpmux's gate stays the
+/// authority (Leo 2026-11-03: "the read defaults/the 'not working in a project' thing that should
+/// all be instant").
+const AGENT_HOME_FOLDER = /\/Library\/Application Support\/cmux\/agent-home\/[^/]+\/?$/;
+
+/// acpmux's answer for `cwd` when it is an agent-home folder, else undefined.
+export function agentHomeTrust(cwd: string): FolderTrust | undefined {
+  return AGENT_HOME_FOLDER.test(cwd) ? { cwd, level: "trusted", decided: true } : undefined;
+}

@@ -37,6 +37,22 @@ fn server_pairing_cli_reports_unpaired_without_creating_identity_or_starting_rol
 }
 
 #[test]
+fn server_unpair_cli_on_an_unpaired_machine_says_so_and_creates_nothing() {
+    let home = tempfile::tempdir().unwrap();
+    let result = command(home.path(), &["unpair", "--json"]);
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    let value: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(value, serde_json::json!({"state":"unpaired","cloud":"none","removed":false}));
+    let human = command(home.path(), &["unpair", "--local"]);
+    assert!(human.status.success());
+    assert_eq!(
+        String::from_utf8(human.stdout).unwrap(),
+        "This machine was not paired; nothing to do.\n"
+    );
+    assert_eq!(std::fs::read_dir(home.path()).unwrap().count(), 0);
+}
+
+#[test]
 fn server_pairing_cli_refuses_insecure_api_before_creating_keys_or_contacting_it() {
     let home = tempfile::tempdir().unwrap();
     let result = command(home.path(), &["pair", "--api-origin", "http://127.0.0.1:1", "--json"]);
@@ -77,5 +93,26 @@ fn server_pairing_cli_requires_an_idempotency_value_before_a_local_mutation() {
     let result = command(home.path(), &["pin", "--clear", "--idempotency-key", "--json"]);
     assert_eq!(result.status.code(), Some(2), "{}", String::from_utf8_lossy(&result.stderr));
     assert!(result.stdout.is_empty());
+    assert_eq!(std::fs::read_dir(home.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn server_pairing_cli_refuses_a_malformed_invite_before_creating_keys_or_contacting_the_api() {
+    let home = tempfile::tempdir().unwrap();
+    for bad in ["7KQ4-M2XD", "ABCDE-1234U"] {
+        let result = command(home.path(), &["pair", "--invite", bad, "--json"]);
+        assert_eq!(result.status.code(), Some(2), "{}", String::from_utf8_lossy(&result.stderr));
+        assert!(result.stdout.is_empty());
+        let value: serde_json::Value = serde_json::from_slice(&result.stderr).unwrap();
+        assert_eq!(value["error"]["message"], "server.pair.invalid_invite", "{value}");
+    }
+    // Human output says what is wrong in words, with the code for scripts.
+    let human = command(home.path(), &["pair", "--invite", "nope"]);
+    assert_eq!(human.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&human.stderr);
+    assert!(
+        stderr.contains("invite code") && stderr.contains("server.pair.invalid_invite"),
+        "{stderr}"
+    );
     assert_eq!(std::fs::read_dir(home.path()).unwrap().count(), 0);
 }

@@ -2,8 +2,8 @@ import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
 
-/// A Cloud machine's workspaces sit in one group: New Cloud Workspace and a new Cloud machine mark
-/// the machine's section a remote group (`RemoteGroupHandlers.mark`, `SidebarDocStore.markHostGroup`). In one list, the
+/// A Cloud machine's section that is a remote group (one a person made before 2026-11-06, when New Cloud Workspace
+/// still marked it; Cloud creates no longer do, `CloudWorkspaceNoGroupTests`). In one list, the
 /// Cloud machine keeps its header, every one of its workspaces draws under it, and its nested groups
 /// indent inside it; this Mac's workspaces stay header-less rows.
 @MainActor struct SidebarCloudRemoteGroupTests {

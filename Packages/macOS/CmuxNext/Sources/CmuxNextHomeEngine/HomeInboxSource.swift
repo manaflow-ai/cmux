@@ -113,8 +113,10 @@ public final class HomeInboxSource {
 
     // MARK: Writes (the person's own list state; the owner's rows follow with its event)
 
-    /// Pins (after the person's other pins) or unpins `id`.
+    /// Pins (after the person's other pins) or unpins `id`. A row already pinned keeps its place:
+    /// nothing is sent.
     public func setPinned(_ on: Bool, _ id: String) {
+        if on, rows?.first(where: { $0.id == id })?.pinned == true { return }
         edit(id) { row in
             row.pinned = on
             row.pinPosition = on ? Self.now() : nil

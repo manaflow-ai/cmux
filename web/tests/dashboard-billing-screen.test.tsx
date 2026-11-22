@@ -400,7 +400,7 @@ describe("dashboard billing screen", () => {
     expect(html).toMatch(/href="[^"]*\/api\/billing\/checkout\?plan=max[^"]*"[^>]*>Upgrade to Max/);
     expect(html).not.toContain("Switch to Max");
     expect(html).not.toContain("Cancel plan");
-    expect(html).toContain("Founder&#x27;s Edition includes Pro for life.");
+    expect(html).toContain("Your lifetime purchase includes Pro.");
   });
 
   test("a Founder on Max is offered Pro by ending Max, not a paid Pro switch", async () => {
@@ -417,7 +417,7 @@ describe("dashboard billing screen", () => {
 
     expect(html).toMatch(/data-plan="max"[^>]*aria-current="true"/);
     expect(html).toMatch(/data-plan="pro"[\s\S]*?<button[^>]*>Switch to Pro<\/button>/);
-    expect(html).toContain("Founder&#x27;s Edition includes Pro for life.");
+    expect(html).toContain("Your lifetime purchase includes Pro.");
     expect(html).not.toContain("Cancel plan");
   });
 

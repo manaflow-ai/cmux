@@ -2,7 +2,6 @@ import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextResources
-import CmuxNextWakeups
 import Darwin
 import Foundation
 
@@ -56,7 +55,7 @@ final class AppResourceSource: ResourceSampleSource {
         // Chromium: map renderer client ids to helper processes.
         let chromiumTabs = tabs.indices.filter { resolved.rendererClients[tabs[$0].tabID] != nil }
         if !chromiumTabs.isEmpty {
-            let helpers = await Self.chromiumHelpers()
+            let helpers = await ChromiumHelperProcess.listOffMain()
             var byClient: [Int32: Int32] = [:]
             for helper in helpers {
                 switch helper.kind {
@@ -78,7 +77,7 @@ final class AppResourceSource: ResourceSampleSource {
         for tab in tabs where tab.kind != .terminal { localPIDs.formUnion(tab.processes.map(\.pid)) }
         localPIDs.formUnion(shared.map(\.key.pid))
 
-        var samples = await Self.sampleLocal(Array(localPIDs))
+        var samples = await ProcessSample.sampleLocal(Array(localPIDs))
 
         // Terminals: one request per daemon.
         for query in resolved.daemons {
@@ -182,7 +181,7 @@ final class AppResourceSource: ResourceSampleSource {
                 resolved.tabs.append(sources)
             case .conversation where tab.agentSession != nil:
                 // An agent chat's page (its acpmux agent runs apart); none while it hibernates.
-                let view = services.madeAgentTabs.flatMap { $0.views[$0.resolve(tab.id)] }
+                let view = services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }
                 let pid = view.flatMap { WebContentProcess.identifier(of: $0.webView) }
                 resolved.tabs.append(TabResourceSources(tabID: tab.id, title: tab.displayTitle, kind: .webkit,
                                                         processes: pid.map { [ProcessKey(pid: $0)] } ?? [], available: pid != nil))
@@ -193,24 +192,5 @@ final class AppResourceSource: ResourceSampleSource {
             }
         }
         return resolved
-    }
-
-    // MARK: Off the main actor
-
-    @concurrent
-    private static func chromiumHelpers() async -> [ChromiumHelperProcess] {
-        ChromiumHelperProcess.list()
-    }
-
-    @concurrent
-    private static func sampleLocal(_ pids: [Int32]) async -> [ProcessKey: ProcessSample] {
-        var samples: [ProcessKey: ProcessSample] = [:]
-        for pid in pids {
-            guard let usage = ProcessUsage.sample(pid) else { continue }
-            let key = ProcessKey(pid: pid)
-            samples[key] = ProcessSample(key: key, name: usage.name, cpuNanos: usage.cpuNanos,
-                                         memoryBytes: usage.physFootprint, sampledAtNanos: usage.uptimeNanos)
-        }
-        return samples
     }
 }

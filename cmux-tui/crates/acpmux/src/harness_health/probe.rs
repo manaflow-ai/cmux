@@ -9,6 +9,8 @@ use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 use wait_timeout::ChildExt;
 
+// timeout: harness diagnostics are health-only; after this bound the child process group is
+// cleaned up and the check reports an unknown/problem row. Agent starts do not depend on it.
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Runs `argv` with the login environment plus `env`, no input and a timeout.
@@ -36,14 +38,43 @@ pub(super) fn run_for(
         return Err(crate::launch_policy::DISABLED_MESSAGE.to_owned());
     }
     let (program, args) = argv.split_first().ok_or("no command")?;
-    let mut cmd = Command::new(program);
-    // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
-    for k in crate::config::inherited_caller_scoped_keys() {
-        cmd.env_remove(k);
-    }
-    crate::login_env::apply_std_for(&mut cmd, family, Some(env));
-    crate::config::scrub_nested_claude_env_for(&mut cmd, family);
-    cmd.envs(env).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let build = || {
+        let mut cmd = Command::new(program);
+        // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
+        for k in crate::config::inherited_caller_scoped_keys() {
+            cmd.env_remove(k);
+        }
+        crate::login_env::apply_std_for(&mut cmd, family, Some(env));
+        crate::config::scrub_nested_claude_env_for(&mut cmd, family);
+        // A sign-in check never sees another harness's login (`agent/foreign_login.rs`).
+        // What the check runs, by its command line or its label's canonical family.
+        if let Some(family) = family {
+            let runs = crate::agent::foreign_login::classify_command(argv, family);
+            crate::agent::foreign_login::remove_foreign(&runs, Some(env), |key| {
+                cmd.env_remove(key);
+            });
+        }
+        cmd.envs(env).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd
+    };
+    // As an agent spawn: the login values this check's env plan takes (`login_env::ChildEnv`).
+    let mut cmd = match family {
+        Some(family) => {
+            let mut plan = crate::login_env::ChildEnv {
+                family,
+                profile: Some(env),
+                remote: false,
+                explicit: None,
+            };
+            crate::login_env::build_ready_blocking(
+                &mut plan,
+                || Ok(build()),
+                crate::agent::explicit_env,
+                |e| e,
+            )?
+        }
+        None => build(),
+    };
     #[cfg(unix)]
     std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
     let mut child = cmd.spawn().map_err(|e| format!("{program}: {e}"))?;
@@ -80,7 +111,14 @@ pub(super) fn run_for(
     let mut text = Vec::new();
     for _ in 0..2 {
         match rx.recv_timeout(limit.saturating_sub(started.elapsed())) {
-            Ok(part) => text.extend(part),
+            Ok(part) => {
+                // Each pipe is its own stream: end a control the first left open (ST) so it does
+                // not hide the second's lines from the cleaned answer.
+                if !text.is_empty() {
+                    text.extend_from_slice(b"\x1b\\\n");
+                }
+                text.extend(part);
+            }
             // Both pipes closed.
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             // Something it started still holds the output.
@@ -121,7 +159,11 @@ pub fn installed_version(path: &str) -> Result<String, String> {
         Some(v) => Ok(v),
         None if ok => Err(format!("`{path} --version` printed no version")),
         None => {
-            Err(format!("`{path} --version` failed: {}", text.lines().next().unwrap_or("").trim()))
+            let first = crate::stderr::clean_stderr_lines(&text)
+                .into_iter()
+                .find(|line| !line.is_empty())
+                .unwrap_or_default();
+            Err(format!("`{path} --version` failed: {first}"))
         }
     }
 }
@@ -162,14 +204,39 @@ pub fn is_newer(latest: &str, installed: &str) -> bool {
 
 /// Numeric version ordering, retaining the difference between equality and
 /// a version that cannot be compared. Missing evidence is not equality.
+/// A placeholder version (`0.0.0`, `0.0.0-next`: a dev or nightly build, as
+/// `opencode2 v0.0.0-next-17403`) cannot be compared: it says nothing about
+/// which release it is ahead of or behind (msg 42278).
 pub fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
     fn parts(v: &str) -> Option<Vec<u64>> {
         let core = v.trim().trim_start_matches('v').split(['-', '+', ' ']).next()?;
-        core.split('.').map(|p| p.parse().ok()).collect()
+        let parts: Vec<u64> = core.split('.').map(|p| p.parse().ok()).collect::<Option<_>>()?;
+        parts.iter().any(|&p| p != 0).then_some(parts)
     }
     let (mut a, mut b) = (parts(left)?, parts(right)?);
     let n = a.len().max(b.len());
     a.resize(n, 0);
     b.resize(n, 0);
     Some(a.cmp(&b))
+}
+
+#[cfg(all(test, unix))]
+mod pipe_tests {
+    /// A control one pipe leaves open never hides the other pipe's lines.
+    #[test]
+    fn a_control_left_open_on_stdout_does_not_hide_stderr() {
+        let script = "printf '\\033Psecret'; printf 'error: not found\\n' >&2; exit 1";
+        let (ok, text) = super::run(
+            &["/bin/sh".to_owned(), "-c".to_owned(), script.to_owned()],
+            &std::collections::BTreeMap::new(),
+            std::time::Duration::from_secs(10),
+        )
+        .unwrap();
+        assert!(!ok);
+        let lines: Vec<String> = crate::stderr::clean_stderr_lines(&text)
+            .into_iter()
+            .filter(|l| !l.is_empty())
+            .collect();
+        assert_eq!(lines, vec!["error: not found"], "{text:?}");
+    }
 }

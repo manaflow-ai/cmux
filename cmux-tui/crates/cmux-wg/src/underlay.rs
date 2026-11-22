@@ -39,6 +39,17 @@ const INTERFACE_RETRY_MAX: Duration = Duration::from_millis(50);
 /// a keepalive) are not stuck behind it forever. TCP retransmits.
 const INTERFACE_RETRY_LIMIT: u32 = 64;
 
+/// Receive buffer requested for a tunnel's UDP socket (wireguard-go's
+/// `socketBufferSize`). smoltcp sends a whole window at once, and the peer
+/// handles each datagram (decrypt, then the stack) more slowly than the
+/// kernel delivers them on a fast path, so the kernel's default (208 KiB on
+/// Linux, under one 256 KiB window) overflows. smoltcp's fast retransmit
+/// recovers few of the lost segments; the rest wait out its 1 s minimum
+/// retransmission timeout (HQ 5080: half of the 8 MiB loopback echoes took
+/// 1.1 s instead of 0.09 s). The kernel caps the request at
+/// `net.core.rmem_max` on Linux and `kern.ipc.maxsockbuf` on macOS.
+pub const RECEIVE_BUFFER: usize = 7 << 20;
+
 /// Why a send was refused without being an error to drop on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Refusal {
@@ -153,6 +164,15 @@ pub trait Underlay: Send + 'static {
     fn peer_hint(&self) -> Option<SocketAddr> {
         None
     }
+
+    /// Whether the carrier moved the session to another route since the last
+    /// call (a switch, datagrams going on every path after the current one
+    /// went quiet, or the peer roaming to a new address). The driver then has
+    /// the tunnel's TCP resend what was in flight at once, instead of waiting
+    /// out a timer that backed off while the old route lost it.
+    fn take_path_change(&mut self) -> bool {
+        false
+    }
 }
 
 /// A datagram socket: Tokio's UDP socket, or a simulated one in tests.
@@ -169,6 +189,11 @@ pub trait DatagramSocket: Send + 'static {
     fn try_send_to(&mut self, datagram: &[u8], target: SocketAddr) -> io::Result<usize>;
 
     fn local_addr(&self) -> io::Result<SocketAddr>;
+
+    /// Ask the kernel for a [`RECEIVE_BUFFER`]-byte receive buffer, as far
+    /// as it allows. Best effort: a refusal keeps the default. A socket
+    /// with no kernel buffer (a simulated one) has nothing to grow.
+    fn grow_receive_buffer(&self) {}
 }
 
 impl DatagramSocket for UdpSocket {
@@ -196,6 +221,32 @@ impl DatagramSocket for UdpSocket {
     fn local_addr(&self) -> io::Result<SocketAddr> {
         UdpSocket::local_addr(self)
     }
+
+    #[cfg(unix)]
+    fn grow_receive_buffer(&self) {
+        use std::os::fd::AsRawFd;
+        let size = libc::c_int::try_from(RECEIVE_BUFFER).unwrap_or(libc::c_int::MAX);
+        let set = |option| {
+            // SAFETY: the descriptor is open for the borrow of `self`, and
+            // the option value points at a live `c_int` of the length passed.
+            unsafe {
+                libc::setsockopt(
+                    self.as_raw_fd(),
+                    libc::SOL_SOCKET,
+                    option,
+                    (&raw const size).cast(),
+                    size_of_val(&size) as libc::socklen_t,
+                )
+            }
+        };
+        // Past `net.core.rmem_max` only with CAP_NET_ADMIN (wireguard-go
+        // does the same); without it the capped request below still holds.
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        if set(libc::SO_RCVBUFFORCE) == 0 {
+            return;
+        }
+        let _ = set(libc::SO_RCVBUF);
+    }
 }
 
 /// One socket and the peer's address on it. The address follows the source
@@ -209,13 +260,25 @@ pub struct SocketPath<S> {
     retry: Option<Pin<Box<Sleep>>>,
     retry_after: Duration,
     refusals: u32,
+    /// The peer roamed to a new address after a silence, since the last
+    /// `take_path_change`.
+    roamed: bool,
+    /// When the peer last sent an authenticated datagram, from any address.
+    heard: Option<Instant>,
 }
+
+/// How long the peer must have been silent before a datagram from a new
+/// address counts as the peer moving off a lost path: the multipath
+/// selector's shortest silence window, so a path cut under a stream counts and
+/// paths that alternate while both answer do not.
+const ROAM_QUIET: Duration = Duration::from_millis(100);
 
 /// The default underlay: one UDP socket, one peer address.
 pub type UdpUnderlay = SocketPath<UdpSocket>;
 
 impl<S: DatagramSocket> SocketPath<S> {
     pub fn new(socket: S, peer: Option<SocketAddr>) -> Self {
+        socket.grow_receive_buffer();
         Self {
             socket,
             peer,
@@ -223,6 +286,8 @@ impl<S: DatagramSocket> SocketPath<S> {
             retry: None,
             retry_after: INTERFACE_RETRY_MIN,
             refusals: 0,
+            roamed: false,
+            heard: None,
         }
     }
 
@@ -347,7 +412,15 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
 
     fn authenticated(&mut self, origin: Origin) {
         if let Some(addr) = origin.addr {
+            // Learning the first address is not a move, and neither is a peer
+            // whose datagrams alternate between live paths (probes on one,
+            // data on another). A new address after the peer went silent is:
+            // whatever was sent to the old one in that silence is lost.
+            let now = Instant::now();
+            let quiet = self.heard.is_none_or(|heard| now - heard >= ROAM_QUIET);
+            self.roamed |= quiet && self.peer.is_some_and(|peer| peer != addr);
             self.peer = Some(addr);
+            self.heard = Some(now);
         }
     }
 
@@ -357,6 +430,10 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
 
     fn peer_hint(&self) -> Option<SocketAddr> {
         self.peer
+    }
+
+    fn take_path_change(&mut self) -> bool {
+        std::mem::take(&mut self.roamed)
     }
 }
 

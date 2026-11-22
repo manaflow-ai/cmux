@@ -1,0 +1,33 @@
+{
+  "id": "new-tab-at-launch-scripted",
+  "priority": "P0",
+  "title": "A script's newTab sent the moment the app answers: one window, the new workspace in it, and the person's typed command never sent to Chief",
+  "why": "The window-registry defect of v2.2.2 and v2.2.3 (a second window at launch: the launch window was not registered yet, the launch window stayed on Home and the person's keys went to the Chief composer and were sent as a message) was found through the socket's newTab. new-tab-at-launch now plays the person's Ctrl-` key, which may take another route; this variant keeps the script's route: a socket newTab is the driver's first act, with no focus claim. Since cp/fix-chief-composer-focus a script's newTab shows only when no text input has the person's keyboard; a capture slot's app is never active, so here it shows and the person's keys are the terminal's.",
+  "source": "dogfood gate v2.2.3 (cp/fix-newtab-at-launch), lead 2026-10-28: keep the scripted route next to the key route",
+  "first_in_app": true,
+  "budget_seconds": 60,
+  "steps": [
+    {"do": "fresh_app"},
+    {"do": "script_new_terminal", "name": "jr-launch-scripted-${nonce}", "focus": true},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo scripted-${nonce}-$((6*7))", "enter": true, "mark": "typed"},
+    {
+      "do": "expect",
+      "title": "one window holds Home and the script's workspace; the command ran in the script's terminal and reached no Chief conversation",
+      "since": "typed",
+      "timeout": 10,
+      "settle": 1.5,
+      "all": [
+        {"daemon_line": "scripted-${nonce}-42"},
+        {"daemon_prompt": true},
+        {"app_rpc": {"method": "debug.windows", "path": "windows", "len": 1}},
+        {"app_rpc": {"method": "debug.windows", "path": "launch_window", "equals": null}},
+        {"app_rpc": {"method": "debug.windows", "path": "consistent", "equals": true}},
+        {"app_rpc": {"method": "debug.windows", "path": "windows.0.workspaces", "len": 2}},
+        {"app_rpc": {"method": "snapshot.get", "path": "topology.workspaces", "len": 2}},
+        {"app_rpc": {"method": "debug.home", "path": "conversations", "lacks": "scripted-${nonce}"}},
+        {"frame_text": "scripted-${nonce}-42"}
+      ]
+    }
+  ]
+}

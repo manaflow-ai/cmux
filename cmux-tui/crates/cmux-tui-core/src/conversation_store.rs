@@ -32,6 +32,8 @@ pub(crate) use import::ImportedMessage;
 pub(crate) mod links;
 #[path = "conversation_runs.rs"]
 pub(crate) mod runs;
+#[path = "conversation_spill.rs"]
+pub(crate) mod spill;
 #[path = "conversation_threads.rs"]
 pub(crate) mod threads;
 
@@ -160,6 +162,7 @@ impl ConversationStore {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA fullfsync=ON;
+             PRAGMA secure_delete=ON;
              CREATE TABLE IF NOT EXISTS meta (
                key TEXT PRIMARY KEY NOT NULL,
                value TEXT NOT NULL
@@ -275,9 +278,19 @@ impl ConversationStore {
 
     /// Removes `participant`'s credential (`chief.profile.adopt`): no token
     /// issued for it before binds again; the next credential is minted anew.
+    /// `secure_delete` zeroes the row in the file and the WAL reset drops
+    /// its old page versions, so the digest is gone from disk too. This
+    /// connection is the store's only one, so nothing blocks the reset.
     pub(crate) fn revoke_agent_token(&mut self, participant: &str) -> anyhow::Result<()> {
-        self.connection
+        let removed = self
+            .connection
             .execute("DELETE FROM agent_token WHERE participant = ?1", params![participant])?;
+        if removed > 0 {
+            crate::workspace_registry::truncate_wal_after_delete(
+                &self.connection,
+                std::time::Duration::from_secs(5),
+            )?;
+        }
         Ok(())
     }
 
@@ -439,6 +452,9 @@ impl ConversationStore {
         actor: &str,
         op: &Op,
     ) -> anyhow::Result<OpOutcome> {
+        // A person's send past the text limit goes as a file (conversation_spill).
+        let spilled = self.spill_oversized_send(conversation, actor, op)?;
+        let op = spilled.as_ref().unwrap_or(op);
         let transaction =
             self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let outcome = apply_op_in(&transaction, conversation, idempotency_key, actor, op)?;
@@ -922,6 +938,13 @@ impl ConversationEvent {
     }
 }
 
+/// Who types where: conversation, then participant, then the connections
+/// (control client ids) whose `on` holds it.
+pub(crate) type TypingByConversation = std::collections::BTreeMap<
+    String,
+    std::collections::BTreeMap<String, std::collections::BTreeSet<u64>>,
+>;
+
 /// The owner's hosting state on the mux: the store, opened on first use, and
 /// the lock held across one write and the event it publishes, so subscribers
 /// see each conversation's `rev` in commit order. Lock order: `publish`, then
@@ -938,9 +961,13 @@ pub(crate) struct ConversationHost {
     pub(crate) bindings: Mutex<std::collections::BTreeMap<u64, String>>,
     /// Who is typing in each conversation now (memory only): typing is never
     /// stored, but a snapshot says who types so a client that missed a
-    /// typing item can recover the state.
-    pub(crate) typing:
-        Mutex<std::collections::BTreeMap<String, std::collections::BTreeSet<String>>>,
+    /// typing item can recover the state. Each typist keeps the connections
+    /// that turned it on: it ends when the last of them closes (cmux#32727).
+    pub(crate) typing: Mutex<TypingByConversation>,
     /// Remote-relay peers, pairing records and revocation limits.
     pub(crate) remote: crate::remote_relay_state::RemoteRelayState,
 }
+
+#[cfg(test)]
+#[path = "conversation_spill_tests.rs"]
+mod spill_tests;

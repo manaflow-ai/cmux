@@ -33,7 +33,7 @@ export default componentEntry<Props>({
   covers: [
     "agent-session/acpmux/summary/WorkflowSideTab.tsx",
     "agent-session/acpmux/summary/WorkflowSideTab.css",
-    "agent-session/acpmux/inspector/WorkflowTasks.tsx",
+    "agent-session/acpmux/session-info/WorkflowTasks.tsx",
   ],
   load: async () => GalleryWorkflowSideTab,
   variants: {

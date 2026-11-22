@@ -25,6 +25,13 @@ final class SettingsWindowService: InternalPageProvider {
         self.services = services
     }
 
+    /// Customize Menu…: Settings > Menus with `context`'s menu selected. Each open is a new route
+    /// (`open`, which the page ignores), so it selects its menu again after the person picked another.
+    func showMenus(_ context: ActionMenuContext) {
+        menusOpens += 1
+        try? show(section: nil, route: "#/settings/menus?focus=\(context.rawValue)&open=\(menusOpens)")
+    }
+
     /// The window whose tab shows Settings, if any.
     var window: NSWindow? {
         services.pages.window(showing: .settings, windows: services.windows.controllers)?.window
@@ -32,10 +39,19 @@ final class SettingsWindowService: InternalPageProvider {
 
     /// The kept React page (a reopen shows it again with no reload); nil before the first show.
     private var webPage: PageWebView?
+    /// Customize Menu… opens so far (``showMenus(_:)``).
+    private var menusOpens = 0
     /// The route the next page view opens on.
     private var pendingRoute: String?
     /// A show that waits for a main window with a workspace.
     private var waiting: (section: SettingsSection?, setting: String?, focus: Bool, route: String?)?
+    /// Cached projection for the wallpaper grid in the host-lists payload.
+    var backdropRowsCache = BackdropCatalogPageRowsCache()
+    /// Settings > Menus' reads and writes (ContextMenusSettingsPage); one route, so its menus' JSON is built once per change.
+    private(set) lazy var contextMenusRoute = ContextMenusPageProvider { [weak services] in
+        guard let services, let settings = services.settings else { return nil }
+        return ContextMenusSettingsPage(registry: services.registry, settings: settings)
+    }
     var isWaiting: Bool { waiting != nil }
 
     /// Shows Settings on `section`, or on `setting` (a cmux.json key path, card or button
@@ -108,7 +124,7 @@ final class SettingsWindowService: InternalPageProvider {
                 || content.workspace.screens.contains { $0.panes.contains { $0.tabs.contains { $0.page == page.rawValue } } }
         }
         if let shown = window.content, holds(shown) { return }
-        let homeHidden = SidebarBridge.hidesHome(services.sidebarLayout.document)
+        let homeHidden = services.sidebarLayout.document.hidesHome
         let mounted = window.mountedContents.filter(holds).map(\.workspace)
         let members = services.windows.registry.members(of: window.state.id).compactMap { services.machines.workspace(id: $0)?.0 }
             .filter { $0.screens.contains { $0.panes.contains { $0.tabs.contains { $0.page == page.rawValue } } } }
@@ -134,16 +150,9 @@ final class SettingsWindowService: InternalPageProvider {
 
     /// The page fragment for `section` and `setting`: a schema setting focuses its row; any other
     /// anchor opens its section.
-    /// The art picker, for `workspace` too when given (its This Workspace choice).
-    static func backgroundRoute(workspace: String?) -> String? {
-        guard let route = route(section: .appearance, setting: "appearance.background") else { return nil }
-        guard let workspace, let id = workspace.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else { return route }
-        return "\(route)&workspace=\(id)"
-    }
-
-    /// The Development section (and its keys) exists only in DEV builds: elsewhere a request for
+    /// The Development section (and its keys) exists only in DEV and NIGHTLY builds: elsewhere a request for
     /// it opens Settings on the default page (the page hides the category the same way).
-    static func route(section: SettingsSection?, setting: String?, devBuild: Bool = DevTools.isDebugBuild) -> String? {
+    static func route(section: SettingsSection?, setting: String?, devBuild: Bool = DevTools.isEnabled) -> String? {
         if let setting, let descriptor = SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: setting)) {
             guard descriptor.section != .development || devBuild else { return nil }
             return "#/settings/\(descriptor.section.rawValue)?focus=\(descriptor.id)"

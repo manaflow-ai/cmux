@@ -9,12 +9,15 @@ extension AgentPaneTransport {
     /// chat's own machine and to the run that asks, and only for the prompt and option the person
     /// picked (`ticketPick`). A peer of this Mac's daemon has no key of this app (the app has no
     /// exec channel of its own there): there this Mac's approver key signs a one-time allow
-    /// (``signPeerAllow(_:session:permission:option:context:ticketPick:)``, off the main actor).
+    /// (``signPeerAllow(_:session:permission:option:context:ticketPick:)``, off the main actor),
+    /// and an allow it cannot sign comes back as why, for the caller to refuse and say.
     /// Otherwise the allow goes unproved (that daemon refuses it), and the pane says so.
-    func signRelayedAllow(_ box: FrameBox, sessionId: String?, ticketPick: Bool) async {
+    /// With no record of the prompt here (no context), nothing tells a peer's prompt from this
+    /// daemon's own: it goes as it is, and a peer's refusal of it reads as ``AgentPanePeerApprovals/notRecorded``.
+    func signRelayedAllow(_ box: FrameBox, sessionId: String?, ticketPick: Bool) async -> AgentPanePeerApprovals? {
         guard let session = sessionId, let permission = box.param("permissionId"), let option = box.param("optionId"),
               let context = decisions.context(session: session, permission: permission),
-              context.instance != decisions.localInstance else { return }
+              context.instance != decisions.localInstance else { return nil }
         // A prompt of a peer of this Mac's daemon (a chat opened with `--host`).
         if remoteApprovals == nil, !remoteWire {
             return await signPeerAllow(box, session: session, permission: permission, option: option, context: context,
@@ -24,13 +27,13 @@ extension AgentPaneTransport {
         guard let machine = remoteApprovals?.machineID,
               let key = AcpmuxRemotePersonKeys.shared.key(machine: machine, instance: context.instance) else {
             onRemoteApprovalsOff?(remoteApprovals)
-            return
+            return nil
         }
         // A bound key, but no ticket for this pick: the allow goes unproved and that daemon
         // refuses it. Approvals are on there, so the pane shows no notice.
         guard ticketPick else {
             Self.logger.info("agent pane transport relayed allow without the person's ticket: sent without a proof")
-            return
+            return nil
         }
         // A question's answers and annotations: the proof covers them too, else that daemon refuses
         // the answer. The ticket bound them to the person's pick (``AgentPaneGesturePick``).
@@ -39,14 +42,15 @@ extension AgentPaneTransport {
                                                 option: option, nonce: context.nonce, answers: answers,
                                                 annotations: Self.param("annotations", box)) else {
                 Self.logger.info("agent pane transport relayed answer without a canonical form: sent without a proof")
-                return
+                return nil
             }
             box.setDecision(nonce: context.nonce, proof: proof)
-            return
+            return nil
         }
         let proof = key.decisionProof(instance: context.instance, session: session, permission: permission, option: option,
                                       nonce: context.nonce)
         box.setDecision(nonce: context.nonce, proof: proof)
+        return nil
     }
 
     /// A param of the frame that is not null (a question's `answers` or `annotations`, a group's

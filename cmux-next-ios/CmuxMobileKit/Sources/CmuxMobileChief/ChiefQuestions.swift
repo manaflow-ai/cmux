@@ -5,9 +5,8 @@ import Foundation
 
 /// Chief's questions in its conversation (cmux-tui `question` parts) and the
 /// phone's answers to them. An answer counts on the Mac only with this
-/// iPhone's Face ID approval (cmux-mobile-host `chief_answers.rs`), so the phone
-/// says "Waiting for Face ID…" until the approval is signed, "Sending…"
-/// until the Mac stored the answer, and never claims it was sent before.
+/// iPhone's signed approval (cmux-mobile-host `chief_answers.rs`), so the phone
+/// says "Sending…" until the Mac stored the answer, and never claims it was sent before.
 
 /// Where a backend publishes the conversation's questions, newest last.
 /// Thread-safe: the backend writes from its actor, the session reads on
@@ -64,9 +63,16 @@ public final class ChiefQuestionFeed: @unchecked Sendable {
             guard part["type"] as? String == "question",
                   let data = try? JSONSerialization.data(withJSONObject: part),
                   let json = try? AgentQuestionJSON(data: data) else { return nil }
-            return AgentQuestion(conversationPart: json, messageID: id, partIndex: index)
+            guard let question = AgentQuestion(conversationPart: json, messageID: id, partIndex: index),
+                  !requiresLocalApp(question) else { return nil }
+            return question
         }
         return (seq, found)
+    }
+
+    /// Home approval cards use the Mac app's person proof, not phone question answers.
+    static func requiresLocalApp(_ question: AgentQuestion) -> Bool {
+        question.source.harness == .chief && question.items.contains { $0.id.hasPrefix("approval:") }
     }
 }
 
@@ -76,16 +82,11 @@ public protocol ChiefQuestionSource: AnyObject, Sendable {
     /// Fetches the conversation again, so the feed says whether the Mac
     /// has an answer whose reply was lost.
     func recheckQuestions() async throws
-    /// Answers `question`. `approved` runs once Face ID approved and the
+    /// Answers `question`. `approved` runs once the
     /// answer is signed, before it is sent; the call returns once the Mac
     /// stored it, and throws otherwise.
     func answer(_ question: AgentQuestion, with answer: AgentQuestionAnswer, signer: (any ChiefAnswerSigning)?,
                 approved: @escaping @Sendable () -> Void) async throws
-}
-
-/// Face ID (or the passcode) was cancelled: nothing was signed or sent.
-public struct ChiefApprovalCancelled: Error, Equatable, Sendable {
-    public init() {}
 }
 
 /// No approval key or paired Mac to sign with.
@@ -100,7 +101,7 @@ public struct ChiefApprovalUnavailable: Error, Equatable, Sendable {
 public struct ChiefAnswerFlow: Equatable, Sendable {
     public enum State: Equatable, Sendable {
         case idle
-        /// Face ID is up (or about to be): nothing is signed yet.
+        /// Signing with the approval key: nothing is signed yet.
         case waitingForApproval
         /// Signed and on its way; the Mac has not answered yet.
         case sending
@@ -130,7 +131,7 @@ public struct ChiefAnswerFlow: Equatable, Sendable {
         }
     }
 
-    /// Face ID approved and the answer is signed.
+    /// The answer is signed.
     public mutating func approved() {
         if state == .waitingForApproval { state = .sending }
     }
@@ -174,7 +175,6 @@ public struct ChiefAnswerFlow: Equatable, Sendable {
     /// What the sheet says for a failure.
     public static func text(_ error: any Error) -> String {
         switch error {
-        case is ChiefApprovalCancelled: return String(localized: "Not sent: Face ID was cancelled.")
         case is ChiefApprovalUnavailable: return String(localized: "Not sent: this iPhone isn't paired with the Mac yet.")
         case let refused as ConversationBackendError where refused.message.contains("question_closed"):
             return String(localized: "Chief no longer needs this answer.")
@@ -190,7 +190,7 @@ public struct ChiefAnswerFlow: Equatable, Sendable {
     public var statusText: String? {
         switch state {
         case .idle: nil
-        case .waitingForApproval: String(localized: "Waiting for Face ID…")
+        case .waitingForApproval: String(localized: "Sending…")
         case .sending: String(localized: "Sending…")
         case .sent: String(localized: "Sent")
         case .failed(let text): text
@@ -221,7 +221,7 @@ extension AgentQuestionAnswer {
     }
 }
 
-/// Wraps a signer so the flow learns when Face ID approved, before sending.
+/// Wraps a signer so the flow learns when the answer is signed, before sending.
 struct ChiefApprovalNotifyingSigner: ChiefAnswerSigning {
     let signer: any ChiefAnswerSigning
     let approved: @Sendable () -> Void
@@ -242,6 +242,10 @@ extension ChiefDaemonBackend: ChiefQuestionSource {
 
     public func answer(_ question: AgentQuestion, with answer: AgentQuestionAnswer, signer: (any ChiefAnswerSigning)?,
                        approved: @escaping @Sendable () -> Void) async throws {
+        // Also reject a cached card supplied before the feed refreshed.
+        guard !ChiefQuestionFeed.requiresLocalApp(question) else {
+            throw ConversationBackendError(code: -32000, message: "question.person_decision_required")
+        }
         guard let signer else { throw ChiefApprovalUnavailable() }
         guard let address = ChiefQuestionAddress(question.id) else {
             throw ConversationBackendError(code: -32602, message: "not a conversation question")

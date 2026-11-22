@@ -33,7 +33,7 @@ const mapUpstream = (notFound: () => NotFound) => (error: UpstreamError) =>
     ? notFound()
     : error.status === 409
       ? new Conflict({ message: "The VM did not respond to the terminal request; try again" })
-      : unavailable();
+      : unavailable(error);
 
 const STATES = ["running", "exited"] as const;
 
@@ -104,7 +104,7 @@ export const terminalsHandlers = HttpApiBuilder.group(CmuxVmApi, "terminals", (h
         return yield* withOwnedVm(path.vmId, "vm:terminal", "read", (_caller, vm, proofs) =>
           upstream.listTerminals(vm, proofs, urlParams.user).pipe(
             Effect.map((sessions) => new TerminalSessionList({ items: sessions.map(toSession) })),
-            Effect.mapError((error) => (error.status === 404 ? vmNotFound() : unavailable())),
+            Effect.mapError((error) => (error.status === 404 ? vmNotFound() : unavailable(error))),
           ),
         );
       }),

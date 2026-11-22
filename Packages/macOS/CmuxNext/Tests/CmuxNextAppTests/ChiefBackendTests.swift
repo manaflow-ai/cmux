@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxNextDaemon
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 @testable import CmuxNextHomeEngine
 @testable import CmuxNextApp
 import Foundation

@@ -3,12 +3,14 @@
 /// Existing document/text chips remain readable for persisted drafts from older versions.
 import { base64 } from "./composer/imageWork";
 import type { DictationRecording } from "./dictationText";
-import { keepThumb, prepareImageOffThread, thumbnailOffThread } from "./composer/imagePool";
+import { decoded, keepThumb, prepareImageOffThread, thumbnailOffThread } from "./composer/imagePool";
 import { liftInlineImages } from "./inlineImages";
 import { PASTE_FILE_CHARS, pastedTextBlocks } from "./pastedText";
 
 import type { StringKey } from "./i18n";
 import type { VideoInfo } from "./composer/videoAttachments";
+import { videoFrameBlocks } from "./composer/videoPrompt";
+import type { VideoTranscript } from "./composer/videoTranscript";
 
 export type ComposerAttachment = {
   id: string;
@@ -36,7 +38,61 @@ export type ComposerAttachment = {
   originalName?: string;
   /** A video link's poster, length and key frames, as the host read them (composer/videoAttachments.ts). */
   video?: VideoInfo;
+  /**
+   * A video link's tile shape (width over height), read from its file's header when it was pasted,
+   * dropped or picked (composer/videoShape.ts): the loading tile, the chip and the sent message's tile
+   * all draw it, so the poster arriving fills the box and never resizes it. Unset, its video's.
+   */
+  videoShape?: number;
+  /** The speech in that video, as the host heard it (composer/videoTranscript.ts); the prompt's hidden context. */
+  transcript?: VideoTranscript;
+  /** The app it came from, as the host said (composer/attachmentSources.ts); none when unknown. */
+  source?: AttachmentSource;
+  /**
+   * A browser pick's element crop (designSelection.ts), base64 without the data: prefix: the one
+   * chip carries it, and it goes as an image block right after the chip's text.
+   */
+  shot?: { mimeType: string; data: string };
 };
+
+/// The app an attachment came from (AttachmentSource.swift): its name ("Google Chrome",
+/// "Screenshot", "cmux"), the bundle id its icon is read by, and for a download the site's host.
+export type AttachmentSource = { name: string; bundleId?: string; site?: string };
+
+const BUNDLE_ID = /^[A-Za-z0-9_-][A-Za-z0-9._-]*\.[A-Za-z0-9._-]+$/;
+const SITE = /^[a-z0-9.-]+$/;
+
+/// A source the host sent (or acpmux kept), its fields checked as the host makes them; undefined
+/// for anything else.
+export function attachmentSource(value: unknown): AttachmentSource | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { name, bundleId, site } = value as Record<string, unknown>;
+  if (typeof name !== "string") return undefined;
+  const trimmed = name.trim();
+  if (!trimmed || Array.from(trimmed).length > 64) return undefined;
+  if (bundleId !== undefined && (typeof bundleId !== "string" || bundleId.length > 255 || !BUNDLE_ID.test(bundleId)))
+    return undefined;
+  if (site !== undefined && (typeof site !== "string" || site.length > 253 || !SITE.test(site))) return undefined;
+  return {
+    name: trimmed,
+    ...(bundleId !== undefined ? { bundleId: bundleId as string } : {}),
+    ...(site !== undefined ? { site: site as string } : {}),
+  };
+}
+
+/// Files the page made that already know their source (a capture cmux took): their chips wear it.
+const fileSources = new WeakMap<File, AttachmentSource>();
+
+/// `file`, known to come from `source`.
+export function withSource(file: File, source: AttachmentSource | undefined): File {
+  if (source) fileSources.set(file, source);
+  return file;
+}
+
+/// The source a file the page made was given (`withSource`).
+export function sourceOfFile(file: File): AttachmentSource | undefined {
+  return fileSources.get(file);
+}
 
 export type AttachmentError = {
   name: string;
@@ -84,6 +140,29 @@ export function decodeInlineId(raw: string): string {
 export function inlineToken(id: string): string {
   return `${INLINE_ATTACHMENT_MARK}${encodeInlineId(id)}${INLINE_ATTACHMENT_MARK}`;
 }
+
+/// The person's own U+FFFC as the composer's draft writes it (MarkdownField.tsx): between two word
+/// joiners, in a run of their text that holds a token's shape (U+FFFC, an id, U+FFFC), so text they
+/// typed or pasted so never reads as an attachment's place. Only the editor's own nodes write a bare
+/// token (review of #26667). Their other text is written as it is.
+const WORD_JOINER = "\u2060";
+const ESCAPED_MARK = `${WORD_JOINER}${INLINE_ATTACHMENT_MARK}${WORD_JOINER}`;
+const TOKEN_SHAPED = /\uFFFC[\w.~%-]+\uFFFC/;
+
+/// `text`, a run of the person's own text, as the draft writes it (`ESCAPED_MARK`).
+export function escapeTextMarks(text: string): string {
+  if (!text.includes(INLINE_ATTACHMENT_MARK)) return text;
+  // Their word joiner beside a U+FFFC is escaped too, so reading the run back is exact.
+  const shaped =
+    TOKEN_SHAPED.test(text) ||
+    text.includes(`${WORD_JOINER}${INLINE_ATTACHMENT_MARK}`) ||
+    text.includes(`${INLINE_ATTACHMENT_MARK}${WORD_JOINER}`);
+  return shaped ? text.replaceAll(INLINE_ATTACHMENT_MARK, ESCAPED_MARK) : text;
+}
+
+/// The person's text as they wrote it, from the draft (`escapeTextMarks`).
+export const unescapeTextMarks = (text: string) =>
+  text.includes(ESCAPED_MARK) ? text.replaceAll(ESCAPED_MARK, INLINE_ATTACHMENT_MARK) : text;
 
 /// The id of a copy pasted beside the attachment `id` names (composer/inlineNode.ts): that whole id,
 /// whatever it holds (a path's own `~`), then `~copy-` and eight hex digits of its own.
@@ -292,7 +371,7 @@ export type OrderedDraftPart =
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export { IMAGE_BUDGET_BYTES, MAX_IMAGE_SIDE, base64 } from "./composer/imageWork";
 /** The bytes a PDF may have to go as a document block: its base64 (13.4 MiB) stays under acpmux's
- * 15 MiB bound on one message (#23247), below the WebSocket's 16 MiB frame, with room for the rest
+ * 31 MiB bound on one message (#23247), below the app's 32 MiB frame, with room for the rest
  * of the prompt; the same cap as a file sent to an ssh peer (`_acpmux/file_put`). A larger PDF goes
  * as a link to its copy (intakeFiles.ts). */
 export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
@@ -376,7 +455,12 @@ export async function readAttachment(
 async function imageChip(file: File, id: string, name: string): Promise<ComposerAttachment | undefined> {
   const prepared = await prepareImageOffThread(file);
   if (!prepared) return undefined;
-  if (prepared.thumb) keepThumb(id, prepared.thumb);
+  if (prepared.thumb) {
+    keepThumb(id, prepared.thumb);
+    // Decoded before its chip draws, so the chip that takes a loading tile's place shows its
+    // picture from its first frame (Leo, 2026-11-11: "this 3 stage attachment thing is still there").
+    await decoded(prepared.thumb.url);
+  }
   return {
     id,
     kind: "image",
@@ -405,8 +489,9 @@ export const thumbnail = thumbnailOffThread;
 /// Its tokens read as `orderedDraftParts` reads them.
 export function promptText(text: string, attachments: ComposerAttachment[], options: InlineReadOptions = {}): string {
   const runs = inlineRuns(text, idsOf(attachments), options.dropped);
-  const visibleText =
-    !placesSome(runs) && legacyMarks(text, attachments) ? text.replaceAll(INLINE_ATTACHMENT_MARK, "") : wordsOf(runs);
+  const visibleText = unescapeTextMarks(
+    !placesSome(runs) && legacyMarks(text, attachments) ? text.replaceAll(INLINE_ATTACHMENT_MARK, "") : wordsOf(runs),
+  );
   const files = attachments
     .filter((attachment) => attachment.kind === "text")
     .map((attachment) => {
@@ -441,7 +526,7 @@ export function orderedDraftParts(
   if (placesSome(runs)) {
     const placed = new Set<string>();
     const parts = runs.map((run): OrderedDraftPart => {
-      if (run.type === "text") return run;
+      if (run.type === "text") return { type: "text", text: unescapeTextMarks(run.text) };
       placed.add(run.id);
       return { type: "attachment", attachment: byId.get(run.id)! };
     });
@@ -450,7 +535,7 @@ export function orderedDraftParts(
     return parts;
   }
   if (!legacyMarks(input, chips)) {
-    const words = wordsOf(runs);
+    const words = unescapeTextMarks(wordsOf(runs));
     return words
       ? [
           { type: "text", text: words },
@@ -476,8 +561,14 @@ export function orderedDraftParts(
   return parts;
 }
 
+/// A browser pick's crop as the image block after its text (designSelection.ts); none for others.
+function shotBlocks(attachment: ComposerAttachment): PromptBlock[] {
+  const shot = attachment.kind === "text" ? attachment.shot : undefined;
+  return shot ? [{ type: "image", mimeType: shot.mimeType, data: shot.data, name: `${attachment.name}.png` }] : [];
+}
+
 export function attachmentBlocks(attachment: ComposerAttachment): PromptBlock[] {
-  const blocks: PromptBlock[] = [];
+  const blocks: PromptBlock[] = shotBlocks(attachment);
   if (attachment.kind === "image" && attachment.data)
     blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
   else if (attachment.kind === "document" && attachment.data)
@@ -485,7 +576,11 @@ export function attachmentBlocks(attachment: ComposerAttachment): PromptBlock[] 
   else if (attachment.kind === "audio" && attachment.data)
     blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data });
   else if (attachment.kind === "link" && attachment.path)
-    blocks.push({ type: "resource_link", uri: fileUri(attachment.path), name: attachment.name });
+    // A video's frames note and frames follow its link (composer/videoPrompt.ts).
+    blocks.push(
+      { type: "resource_link", uri: fileUri(attachment.path), name: attachment.name },
+      ...videoFrameBlocks(attachment),
+    );
   if (attachment.kind === "image" && attachment.originalPath)
     blocks.push({
       type: "resource_link",
@@ -520,6 +615,7 @@ export function promptBlocks(
     if (part.attachment.kind === "text") {
       const body = promptText("", [part.attachment]);
       if (body) blocks.push({ type: "text", text: body });
+      blocks.push(...shotBlocks(part.attachment));
     } else if (part.attachment.kind === "pasted" && part.attachment.text) {
       blocks.push({ type: "text", text: part.attachment.text, _meta: { cmux: { pasted: true } } });
     } else blocks.push(...attachmentBlocks(part.attachment));
@@ -529,10 +625,17 @@ export function promptBlocks(
 
 /// A file or folder on this computer that a link chip names (``linkAttachment``).
 export type LinkItem = { path: string; folder: boolean };
+/// The host's paths for a gesture's files, by index: a file it named no path for has none.
+export type KnownPaths = readonly (LinkItem | undefined)[];
 
 /// How files came in from the person's own gesture, for the host's record of where they are
-/// (`chat.attach.dropped`): a drop on the page, or a paste.
-export type DroppedKind = "drop" | "paste";
+/// (`chat.attach.dropped`): a drop on the page, a paste, or the person's pick in the composer's
+/// file input (+ > Attach files), which a chat on this Mac links in place as it does a drop, or
+/// files another app sent to the chat (`external`: the Send to cmux Chat service, an image opened
+/// with cmux), which the page takes from the host as a drop's (composer/externalAttach.ts).
+export type DroppedKind = "drop" | "paste" | "choose" | "external";
+/// The gesture whose source the host is asked for (`chat.attach.source`): the same gestures.
+export type SourceKind = DroppedKind;
 
 /// The files and folders of the host's `{items: [{path, folder}]}` answer (`chat.attach.choose`,
 /// `chat.attach.dropped`), in order: absolute paths only, a folder only when the host says so.
@@ -693,6 +796,52 @@ function fenceLanguage(name: string): string {
 /// The files in a drop or paste.
 export function filesFrom(transfer: DataTransfer | null): File[] {
   return transfer ? [...transfer.files] : [];
+}
+
+/// How long a gesture's chips may wait for its twins' bytes (filesOnce): one frame.
+const TWIN_READ_MS = 16;
+
+/// A paste's or drop's files with each set of bytes once. A screenshot tool that copies both the
+/// saved file and its picture hands WebKit one image twice, and each became a chip, an upload and
+/// an image in the sent prompt (Leo, 2026-11-06: "Why am I seeing that, like the app is trying to
+/// attach doubled up screenshots?"). Only images: two other files with the same bytes (an empty
+/// `__init__.py` and `py.typed`, a file and its renamed copy) are two files the person meant, and
+/// a drop's paths are matched to its files by count. Only images of one type and size can be the
+/// same, so only those are read: any other gesture answers in its own task, as its chips must, and
+/// a read that takes past a frame keeps every file rather than hold the chips.
+export function filesOnce(files: File[], wait = TWIN_READ_MS): File[] | Promise<File[]> {
+  const groups = new Map<string, number[]>();
+  files.forEach((file, index) => {
+    if (!file.type.startsWith("image/")) return;
+    const key = `${file.type}\n${file.size}`;
+    groups.set(key, [...(groups.get(key) ?? []), index]);
+  });
+  const twins = [...groups.values()].filter((group) => group.length > 1);
+  if (!twins.length) return files;
+  const read = (index: number) => files[index]!.arrayBuffer().then((buffer) => new Uint8Array(buffer));
+  const once = Promise.all(twins.map((group) => Promise.all(group.map(read)))).then(
+    (bytes) => {
+      const dropped = new Set<number>();
+      twins.forEach((group, at) =>
+        group.forEach((index, member) => {
+          if (bytes[at]!.slice(0, member).some((earlier) => sameBytes(earlier, bytes[at]![member]!)))
+            dropped.add(index);
+        }),
+      );
+      return files.filter((_, index) => !dropped.has(index));
+    },
+    // A file that can't be read is the reader's to refuse: none is dropped here.
+    () => files,
+  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<File[]>((resolve) => (timer = setTimeout(() => resolve(files), wait)));
+  return Promise.race([once, late]).finally(() => clearTimeout(timer));
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index++) if (a[index] !== b[index]) return false;
+  return true;
 }
 
 /// Whether a paste of files carries no text but their own names: files copied in a file manager

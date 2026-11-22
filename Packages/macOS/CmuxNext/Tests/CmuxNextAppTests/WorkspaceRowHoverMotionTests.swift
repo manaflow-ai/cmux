@@ -1,9 +1,10 @@
 import AppKit
 import CmuxNextBridge
 @testable import CmuxNextDaemon
-import CmuxNextDesign
+@testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
+import CmuxNextTestSupport
 
 /// Leo 2026-10-13 (cosmic-gray): moving the pointer from one workspace row to
 /// the next snapped the hover state. Hover entry is immediate; clearing the
@@ -11,6 +12,7 @@ import Testing
 /// moves or resizes. Since Leo 2026-10-20 the controls clear at once too: no
 /// exit delay on hover-out, so the old row's buttons never trail the pointer.
 @MainActor
+@Suite(.closesItsWindows)
 struct WorkspaceRowHoverMotionTests {
     private static let name = "a workspace whose name runs under the hover buttons"
 
@@ -18,9 +20,12 @@ struct WorkspaceRowHoverMotionTests {
 
     /// Every animation key path on `layer` and the layers under it, masks included
     /// (the title's fade is its text layer's mask).
+    /// The key paths animating in `layer`'s tree. The marquee's leading fade (`TitleFade.edgeKey`) runs with its
+    /// scroll, not on hover entry, so it is left out.
     private static func keyPaths(under layer: CALayer?) -> [String] {
         guard let layer else { return [] }
-        let own = (layer.animationKeys() ?? []).compactMap { (layer.animation(forKey: $0) as? CAPropertyAnimation)?.keyPath }
+        let own = (layer.animationKeys() ?? []).filter { $0 != TitleFade.edgeKey }
+            .compactMap { (layer.animation(forKey: $0) as? CAPropertyAnimation)?.keyPath }
         return own + ((layer.sublayers ?? []) + [layer.mask].compactMap { $0 }).flatMap { keyPaths(under: $0) }
     }
 
@@ -44,7 +49,7 @@ struct WorkspaceRowHoverMotionTests {
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         window.contentView?.addSubview(sidebar)
         window.orderFrontRegardless()
         try #require(window.screen != nil)

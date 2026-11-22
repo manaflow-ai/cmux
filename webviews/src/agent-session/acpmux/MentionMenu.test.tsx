@@ -7,9 +7,11 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { bundledIconPack, resolveIcon } from "./icons/iconPack";
-import { MentionMenu, type MentionState } from "./MentionMenu";
+import { MentionMenu } from "./MentionMenu";
+import { type MentionState } from "./mentionMenuModel";
 import {
   fuzzyIndices,
+  guestMention,
   loadRecentMentionPaths,
   mentionInsert,
   mentionItems,
@@ -19,6 +21,7 @@ import {
   type MentionItem,
 } from "./mentionItems";
 import type { AcpmuxSessionEntry } from "./sessionList";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -44,6 +47,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -140,6 +144,43 @@ test("a bare @ offers the most recent other chats before anything is typed", asy
     "Fix the dock",
     "Resume: projects-70 coordinator (0cfd5322)",
   ]);
+});
+
+test("a harness mention is offered as a read-only guest and inserts its target token", () => {
+  const catalog = [
+    { id: "codex", name: "Codex", models: [], pickable: true, family: "codex" },
+    { id: "claude", name: "Claude", models: [], pickable: true, family: "claude" },
+    { id: "router", name: "Router", models: [], pickable: true, kind: "cmux-router" },
+    { id: "offline", name: "Offline", models: [], pickable: true, unavailable: "missing" },
+  ];
+  const items = mentionItems({ query: "cod", files: [], sessions: [], harnesses: catalog });
+  expect(items.map((item) => item.key)).toEqual(["harness:codex"]);
+  expect(mentionInsert(items[0]!).shown).toBe("@codex ");
+});
+
+test("a send asks the first harness named outside code, and keeps the rest of its words", () => {
+  const catalog = [
+    { id: "codex", name: "Codex", models: [], pickable: true, family: "codex" },
+    { id: "claude", name: "Claude", models: [], pickable: true, family: "claude" },
+  ];
+  expect(guestMention("@codex review @src/auth.ts for bugs", catalog)).toEqual({
+    harnessId: "codex",
+    question: "review @src/auth.ts for bugs",
+  });
+  expect(guestMention("@nobody @Claude compare this plan with @codex", catalog)).toEqual({
+    harnessId: "claude",
+    question: "@nobody  compare this plan with @codex",
+  });
+  // A code example is literal text: the send stays the main agent's.
+  expect(guestMention("Why does this fail?\n```\n@codex explain retries\n```", catalog)).toBeUndefined();
+  expect(guestMention("Explain what `@codex hi` does", catalog)).toBeUndefined();
+  expect(guestMention("```sh\nunclosed\n@codex run", catalog)).toBeUndefined();
+  expect(guestMention("email me@codex please", catalog)).toBeUndefined();
+  // A folder's own profile cannot answer as a guest yet, so a send never asks one.
+  const folder = [
+    { id: "local", name: "Local", models: [], pickable: true, folder: { folder: "/w", state: "enabled" } },
+  ];
+  expect(guestMention("@local look", folder as never)).toBeUndefined();
 });
 
 test("a bare @ also offers recently picked files, and a query fuzzy-matches them", () => {
@@ -301,10 +342,12 @@ test("a chat whose title has the word lists first; a path-like word lists the fi
   expect(pathFirst.map((item) => item.kind)).toEqual(["file", "session"]);
 });
 
-test("while the files are on their way a chat is listed but not picked unasked", () => {
+test("while the files are on their way a file is preferred, but a listed row is always chosen", () => {
   const sessions: AcpmuxSessionEntry[] = [{ sessionId: "app-store", title: "App Store review notes" }];
   const before = mentionItems({ query: "app", files: [], sessions });
-  expect(mentionSelection(before, undefined, true)).toBe(-1);
+  // Only a chat listed: it is highlighted, so Return takes it and never sends (Leo, 2026-11-20).
+  expect(mentionSelection(before, undefined, true)).toBe(0);
+  expect(mentionSelection([], undefined, true)).toBe(-1);
   // Moving to it picks it; once the files land, the first row is the pick.
   expect(mentionSelection(before, "session:app-store", true)).toBe(0);
   const after = mentionItems({ query: "app", files: [{ path: "src/app.ts", matches: [4, 5, 6] }], sessions });

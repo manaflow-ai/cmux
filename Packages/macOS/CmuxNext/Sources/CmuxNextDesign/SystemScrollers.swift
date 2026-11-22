@@ -10,6 +10,9 @@ public import AppKit
 /// 12114: "do not have extra bg").
 /// Pages read `pageValue`, the setting itself: WebKit draws legacy bars for
 /// "Always", which the shared web rules (webviews/src/scrollers.ts) thin.
+/// The app pins the setting to "When scrolling" at launch (``ScrollerStylePin``), so AppKit makes
+/// every scroll view overlay, a view that never calls `follow(_:)` included, also with a mouse
+/// attached; `follow(_:)` stays for the thin scroller and for a process without the pin (tests).
 /// The setting is tracked live through
 /// `NSScroller.preferredScrollerStyleDidChangeNotification` (one observer,
 /// no polling).
@@ -39,6 +42,14 @@ public struct SystemScrollers {
         if scrollView.hasHorizontalScroller {
             if !(scrollView.horizontalScroller is ThinScroller) { scrollView.horizontalScroller = ThinScroller() }
             if !(scrollView.verticalScroller is ThinScroller) { scrollView.verticalScroller = ThinScroller() }
+        }
+        // A stock scroller's arrow and page parts have no name (goal a11y-baseline): the scroller
+        // that names them draws the same.
+        if let scroller = scrollView.verticalScroller, type(of: scroller) == NSScroller.self {
+            scrollView.verticalScroller = NamedPartsScroller(replacing: scroller)
+        }
+        if let scroller = scrollView.horizontalScroller, type(of: scroller) == NSScroller.self {
+            scrollView.horizontalScroller = NamedPartsScroller(replacing: scroller)
         }
         (scrollView.documentView as? NSTableView)?.cornerView = nil
         scrollView.autohidesScrollers = true
@@ -81,6 +92,8 @@ public struct SystemScrollers {
     private static func startObserving() {
         guard notifications == nil else { return }
         // task-owner: process lifetime (one observer for every scroll view); event-driven.
+        // A turn after AppKit's own reset: an ``OverlayScrollView`` never takes that reset, so this
+        // only puts back the scroll views that are not one (a SwiftUI ScrollView's).
         notifications = Task { @MainActor in
             for await _ in NotificationCenter.default.notifications(named: NSScroller.preferredScrollerStyleDidChangeNotification) {
                 systemStyleDidChange()
@@ -108,3 +121,81 @@ public struct SystemScrollers {
     }
 }
 
+
+/// The scroll view of every native NEXT surface: its style is pinned to ``SystemScrollers/nativeStyle``.
+///
+/// AppKit resets a scroll view to the system's style when `NSScroller.preferredScrollerStyle` changes,
+/// and that changes whenever a pointing device comes or goes: a mouse plugged in, or Universal
+/// Control's shared mouse leaving and returning (Leo 2026-11-15: "there's some crazy sort of layout
+/// shift on teh sidebar when i move my mouse over to another display/desktop maybe?"). A legacy style
+/// reserves the scroller's width in the clip, so every row narrowed by it and widened back. Putting
+/// the style back from an observer of the notification came after AppKit's reset, so at least one
+/// frame drew the narrow layout. The setter here
+/// takes no other style, AppKit's reset included, so the clip's width never depends on the setting
+/// (the terminal's scroller pins it the same way in its own override). Detectors: `OverlayScrollViewTests` and
+/// `scripts/cmux-next/check-scrollbars.sh` (rule `scroll-view`: a NEXT scroll view is one of these).
+@MainActor
+open class OverlayScrollView: NSScrollView {
+    override open var scrollerStyle: NSScroller.Style {
+        get { super.scrollerStyle }
+        set { super.scrollerStyle = SystemScrollers.nativeStyle }
+    }
+}
+
+/// AppKit's scroller with names on its arrow and page parts. A stock scroller's parts are buttons
+/// with a subrole and nothing else, which an accessibility client that reads names sees as
+/// unnamed controls (cmuxterm-hq synthetic-probes run 42599053150: the Home list's four).
+final class NamedPartsScroller: NSScroller {
+    /// A scroller like `scroller`: its size, knob style and enabled state.
+    convenience init(replacing scroller: NSScroller) {
+        self.init(frame: scroller.frame)
+        controlSize = scroller.controlSize
+        knobStyle = scroller.knobStyle
+        isEnabled = scroller.isEnabled
+    }
+
+    override class var isCompatibleWithOverlayScrollers: Bool { true }
+
+    /// True while the parts are being named: a part answers its attributes through this scroller's
+    /// children, so a read while naming returns them unnamed instead of naming again (which recursed).
+    private var namingParts = false
+
+    override func accessibilityChildren() -> [Any]? {
+        let children = super.accessibilityChildren()
+        guard !namingParts else { return children }
+        namingParts = true
+        defer { namingParts = false }
+        ScrollerPartNames.name(children, vertical: bounds.height >= bounds.width)
+        return children
+    }
+}
+
+/// The names of a scroller's arrow and page parts, by subrole (``NamedPartsScroller``, ``ThinScroller``).
+struct ScrollerPartNames {
+    /// Gives each unnamed part of `children` its name; anything else is left as it is.
+    @MainActor static func name(_ children: [Any]?, vertical: Bool) {
+        for case let part as any NSAccessibilityProtocol in children ?? [] where part.accessibilityRole() == .button {
+            guard (part.accessibilityLabel() ?? "").isEmpty, let subrole = part.accessibilitySubrole(),
+                  let name = name(for: subrole, vertical: vertical) else { continue }
+            part.setAccessibilityLabel(name)
+        }
+    }
+
+    static func name(for subrole: NSAccessibility.Subrole, vertical: Bool) -> String? {
+        switch subrole {
+        case .incrementPage:
+            vertical ? String(localized: "scroller.part.pageDown", defaultValue: "Page Down", bundle: .localizedModule)
+                : String(localized: "scroller.part.pageRight", defaultValue: "Page Right", bundle: .localizedModule)
+        case .decrementPage:
+            vertical ? String(localized: "scroller.part.pageUp", defaultValue: "Page Up", bundle: .localizedModule)
+                : String(localized: "scroller.part.pageLeft", defaultValue: "Page Left", bundle: .localizedModule)
+        case .incrementArrow:
+            vertical ? String(localized: "scroller.part.scrollDown", defaultValue: "Scroll Down", bundle: .localizedModule)
+                : String(localized: "scroller.part.scrollRight", defaultValue: "Scroll Right", bundle: .localizedModule)
+        case .decrementArrow:
+            vertical ? String(localized: "scroller.part.scrollUp", defaultValue: "Scroll Up", bundle: .localizedModule)
+                : String(localized: "scroller.part.scrollLeft", defaultValue: "Scroll Left", bundle: .localizedModule)
+        default: nil
+        }
+    }
+}

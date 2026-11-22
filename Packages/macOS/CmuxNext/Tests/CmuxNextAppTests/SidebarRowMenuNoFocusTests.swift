@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-21 (u8646): "clicking 3 dots here should not focus workspace". A workspace
 /// row's more button ran `model.click` before it opened the row's menu, so the press switched
 /// the window to that workspace. A hover accessory (⋮, ✕) and a right-click act on the row in
 /// place: the menu opens for that row, the shown workspace and the selection stay as they were.
-@MainActor @Suite(.serialized) struct SidebarRowMenuNoFocusTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarRowMenuNoFocusTests {
     /// A sidebar of two workspaces in a never-shown window, `w0` shown, with every intent recorded.
     static func sidebar() throws -> (SidebarView, NSWindow, first: WorkspaceID, second: WorkspaceID, intents: () -> [SidebarIntent],
                                      targets: () -> [SidebarContextTarget]) {

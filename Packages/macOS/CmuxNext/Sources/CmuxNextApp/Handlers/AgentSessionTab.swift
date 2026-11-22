@@ -11,7 +11,7 @@ import Foundation
 /// focused pane. The tab is a workspace store tab bound to the session (agent-session-tabs-v1), so
 /// it is saved and restored like any tab; closing it only detaches from the session.
 ///
-/// A session a tab already shows gets no second tab. Only a run that may change the view (the
+/// A session a live tab already shows gets no second tab; the run answers that tab (a dead binding opens anew). Only a run that may change the view (the
 /// person's, or `focus: true`) selects and shows the tab; a script's run adds it and leaves the
 /// person's view as it is. Arguments: `session` (required), `host` (`chief:<home id>`: the session
 /// runs in this app's Chief home's acpmux; an acpmux peer's name such as `huge-blue`: its chat as
@@ -26,34 +26,26 @@ enum AgentSessionTab {
         guard !session.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.sessionRequired) }
         var host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let services = context.services
-        // A peer's chat opens as the session this Mac's acpmux mirrors (the tab binds here, never there).
-        if let peer = host, !peer.hasPrefix(ChiefHomeAcpmux.hostPrefix), peer != services.agentTabs.localHost {
-            switch AgentLaneStore.shared.lanes.values.peerSession(session, on: peer) {
-            case .session(let mirrored): (session, host) = (mirrored, nil)
-            case .unknownSession: throw ActionFailure(message: MiscHandlerStrings.noPeerSession(session, peer))
-            case .ambiguous: throw ActionFailure(message: MiscHandlerStrings.ambiguousPeerSession(session, peer))
-            case .notAPeer: break // the tab's host check refuses it with its own reason
-            }
-        }
+        // This Mac's chat by acpmux's id, a peer's as the session this Mac mirrors (AgentLaneStore.tabSession).
+        do { (session, host) = try AgentLaneStore.shared.tabSession(session, host: host, localHost: services.agentTabs.localHost) } catch { throw ActionFailure(message: error.description) }
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let shows = invocation.allowsViewChange
-        if let shown = services.agentTabs.tab(showing: session, host: host) {
-            if shows { _ = services.revealTab(shown) }
-            return
+        if let shown = liveTab(showing: session, host: host, services: services) { // its ids, and a failed reveal throws (ask-a0466e9c05)
+            if shows, !services.revealTab(shown.tab.id) { throw ActionFailure(message: MiscHandlerStrings.sessionTabRevealFailed(shown.tab.resourceID?.rawValue ?? shown.tab.id)) }
+            let answer = AgentSessionOpenAnswer.fields(session: session, tab: shown.tab, pane: shown.pane, workspace: services.daemon(for: shown.pane).store.workspace(containing: shown.pane.handle))
+            return context.registry.track(result: Task { .success(answer) })
         }
         // A target that names nothing was refused by the lookup.
         guard let pane = context.daemonPane(invocation) else { return }
         let daemon = services.daemon(for: pane)
         let pending: AgentTabPending
         do {
-            pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: host)
+            pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: host, idempotencyKey: (DaemonCommandScope.current?.nextDerivedUUID("agent-session-tab") ?? UUID()).uuidString.lowercased()) // a repeated run: the same tab
         } catch let refusal as AgentTabRefusal {
             throw ActionFailure(message: refusal.message)
         }
         let logger = daemon.logger
-        let workspace = services.machines.allWorkspaces.first { candidate, _ in
-            candidate.screens.contains { $0.panes.contains { $0 === pane } }
-        }?.0
+        let workspace = daemon.store.location(of: pane)?.workspace
         // The run answers the new tab's ids (`cmux agents chat new`, #23026), as New Agent Chat's
         // script runs do, so the caller can find the chat it put there.
         context.registry.track(result: Task { @MainActor in
@@ -61,16 +53,7 @@ enum AgentSessionTab {
                 let created = try await pending.value()
                 if shows { _ = services.revealTab(created.key) }
                 logger.info("agent.openSessionTab: session \(session, privacy: .public) in tab \(created.key, privacy: .public)")
-                var result: [String: ActionResultValue] = [
-                    "session": .string(session),
-                    "tab": .string(daemon.store.tab(id: created.key)?.resourceID?.rawValue ?? created.key),
-                    "pane": .string(pane.resourceID?.rawValue ?? pane.id),
-                ]
-                if let workspace {
-                    result["workspace"] = .string(workspace.resourceID?.rawValue ?? workspace.id)
-                    if let key = workspace.key { result["workspace_key"] = .string(key.rawValue) }
-                }
-                return .success(result)
+                return .success(AgentSessionOpenAnswer.fields(session: session, tab: daemon.store.tab(id: created.key), tabID: created.key, pane: pane, workspace: workspace))
             } catch is CancellationError {
                 return .success(["session": .string(session)]) // the person closed the tab first
             } catch {
@@ -78,5 +61,16 @@ enum AgentSessionTab {
                 return .failure(ActionWorkFailure("agent.openSessionTab", error))
             }
         })
+    }
+
+    /// The tab showing `session` of `host` (in workspace `workspace`, by key or id) that is live: a store's tab in a pane
+    /// of a listed workspace. A binding that resolves to none is passed over, so the chat opens again instead.
+    static func liveTab(showing session: String, host: String?, services: AppServices, in workspace: String? = nil) -> (tab: TabModel, pane: PaneModel)? {
+        var live: (tab: TabModel, pane: PaneModel)?
+        _ = services.agentTabs.tab(showing: session, host: host, where: { key, machine in
+            live = services.locateTab(key, onMachine: machine).flatMap { found in services.daemon(for: found.1).store.workspace(containing: found.1.handle).flatMap { AgentSessionOpenAnswer.holds($0, workspace) ? found : nil } }
+            return live != nil
+        })
+        return live
     }
 }

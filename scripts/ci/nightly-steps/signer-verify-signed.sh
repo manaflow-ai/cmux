@@ -38,17 +38,28 @@ run_checks() {
     [[ "$TRACK" != nightly-next ]] && return 0
     ./scripts/cmux-next/check-version-surfaces.sh "$app"
   }
+  # verify-signed-nightly's "Verify bundled CLI commands run from the bundle alone".
+  bundled_cli_commands() {
+    [[ "$TRACK" != nightly-next ]] && return 0
+    [[ -f scripts/cmux-next/check-bundled-cli-commands.sh ]] || { echo "the build commit has no check-bundled-cli-commands.sh"; return 0; }
+    local archs
+    archs="$(lipo -archs "$app/Contents/Resources/bin/cmux")" || return
+    if [[ " $archs " == *" $(uname -m) "* ]]; then
+      ./scripts/cmux-next/check-bundled-cli-commands.sh "$app"
+    else
+      echo "bin/cmux is $archs; this Mac is $(uname -m): the matching variant checks it"
+    fi
+  }
   sidecar_contract() {
     local archs
     archs="$(lipo -archs "$app/Contents/MacOS/cmux")" || return
     ./scripts/verify-diff-sidecar-artifact.sh "$app/Contents/Resources/bin/cmux-diff-sidecar" \
       --archs "$archs" --require-signed
   }
-  # verify-signed-nightly runs it only when the build commit has the script (hashFiles); a
-  # pool-signed app's Computer Use helper carries its own ticket.
-  entitlements_and_helper_ticket() {
+  # verify-signed-nightly runs it only when the build commit has the script (hashFiles).
+  signed_app_entitlements() {
     [[ -f scripts/ci/nightly-steps/verify-signed-app-checks.sh ]] || { echo "the build commit has no verify-signed-app-checks.sh"; return 0; }
-    CHANNEL_APP_PATH="$app" REQUIRE_HELPER_TICKET=true bash scripts/ci/nightly-steps/verify-signed-app-checks.sh
+    CHANNEL_APP_PATH="$app" bash scripts/ci/nightly-steps/verify-signed-app-checks.sh
   }
   theme_picker_helper() {
     CMUX_APP_PATH="$app" ./tests/test_bundled_ghostty_theme_picker_helper.sh
@@ -63,12 +74,13 @@ run_checks() {
       --assets-dir remote-daemon-assets --app "$app" ${args[@]+"${args[@]}"}
   }
   step "Verify version surfaces" version_surfaces
+  step "Verify bundled CLI commands run from the bundle alone" bundled_cli_commands
   step "Verify signed diff sidecar protocol contract" sidecar_contract
-  step "Verify signed app entitlements and the Computer Use helper ticket" entitlements_and_helper_ticket
+  step "Verify signed app entitlements" signed_app_entitlements
   step "Run bundled Ghostty theme picker helper regression" theme_picker_helper
   step "Verify signed app SSH daemon contract" ssh_daemon_contract
   if [[ "${#failed[@]}" -gt 0 ]]; then
-    printf 'failed: %s\n' "${failed[@]}"
+    printf 'failed: %s\n' ${failed[@]+"${failed[@]}"}
     return 1
   fi
 }

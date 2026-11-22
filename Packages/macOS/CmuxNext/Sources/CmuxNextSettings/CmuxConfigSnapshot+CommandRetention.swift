@@ -5,19 +5,14 @@
 /// `terminal-command-history-v1`; the daemon stores it and deletes older
 /// commands itself.
 extension CmuxConfigSnapshot {
-    public static let commandRetentionConfigPath = ["history", "commandRetentionDays"]
-    public static let commandRetentionFallback = 30
-    /// The daemon's accepted range.
-    public static let commandRetentionRange: ClosedRange<Int> = 1...3650
-
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.
     static func parseCommandRetention(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Int {
-        guard let value = root.value(at: commandRetentionConfigPath) else { return commandRetentionFallback }
-        guard let days = value.intValue, commandRetentionRange.contains(days) else {
+        guard let value = root.value(at: commandRetentionPath) else { return Int(commandRetentionDefault) }
+        guard let days = value.intValue, commandRetentionRange.contains(Double(days)) else {
             diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "history.commandRetentionDays",
                                                   message: "expected a whole number of days from 1 to 3650, such as 30"))
-            return commandRetentionFallback
+            return Int(commandRetentionDefault)
         }
         return days
     }

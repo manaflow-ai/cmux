@@ -53,6 +53,26 @@ struct RemoteMachinesSidebarTests {
         #expect(rows[0].info.icon == .cloud && rows[0].info.badge == 3 && rows[0].info.activity == .waiting)
     }
 
+    /// Leo 2026-11-14: "nicer icons ... across all the remote related areas": a machine's group draws the
+    /// SF Symbol of the device it reported (`health.deviceSymbol`, named by cmux-device-kind); an older peer
+    /// keeps the cloud.
+    @Test func aGroupDrawsItsReportedDeviceSymbol() {
+        let listed = AcpmuxPeerList.peers(["peers": [
+            ["name": "build-mini", "connected": true, "health": ["deviceSymbol": "macmini"]],
+            ["name": "old-box", "connected": true, "health": ["os": "linux"]],
+            ["name": "vm", "connected": true, "url": "wss://relay.example/vm", "health": ["deviceSymbol": "server.rack"]],
+        ]])
+        #expect(listed.map(\.symbol) == ["macmini", nil, nil], "a Cloud peer keeps the cloud, whatever its VM reports")
+        let rows = Self.rows(RemoteMachinesSidebar.machines(lanes: [], peers: listed))
+        #expect(rows.map(\.info.symbol) == ["macmini", "cloud", "cloud"])
+        #expect(rows[0].info.icon == nil && rows[1].info.icon == .cloud)
+        // A pushed link state keeps the symbol.
+        guard case .list(let pushed) = RemoteMachinesSidebar.push(peer: "build-mini", state: "offline", onto: listed) else {
+            Issue.record("a push to a listed peer moves its link"); return
+        }
+        #expect(pushed[0].symbol == "macmini")
+    }
+
     @Test func unfoldedShowsAPageThenShowMore() {
         let lanes = (0..<(RemoteMachinesSidebar.pageSize + 3)).map { Self.lane("s\($0)", peer: "huge-blue", since: TimeInterval($0)) }
         let machines = RemoteMachinesSidebar.machines(lanes: lanes, peers: nil)
@@ -121,8 +141,8 @@ struct RemoteMachinesSidebarTests {
     /// band holds Home and what the person put there; the agent chats of another machine (here a Cloud VM's eleven
     /// idle Chief subagents, titled with their prompt) never draw in it.
     @Test func remoteChatsNeverDrawInTheTopBand() {
-        // The app's own remote model holds the chats, as the running app's does.
-        let remote = RemoteMachinesSidebar.shared
+        // A remote model holds the chats, as one would in the running app.
+        let remote = RemoteMachinesSidebar(lanes: AgentLaneStore())
         let prompt = "You are a subagent of Chief, an AI agent that works for one user"
         remote.machines = RemoteMachinesSidebar.machines(
             lanes: (0..<11).map { Self.lane("optchat-sub-2e448bc2-a6\($0)", peer: "chief-subagents-2", since: TimeInterval($0), title: prompt) }

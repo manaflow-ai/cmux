@@ -23,7 +23,7 @@ extension PaneContentView {
         view.layer?.contents = image.layerContents(forContentsScale: view.layer?.contentsScale ?? 2)
         contentHost.addSubview(view, positioned: .below, relativeTo: nil)
         launchImageView = view
-        launchImageSize = contentHost.bounds.size
+        launchImageSizes = [contentHost.bounds.size, image.size]
         launchImageInvokesResizeCallback = true
         LaunchImageHold.shared.began()
         DebugTimings.markLaunch("agent_pane.launch_image_shown")
@@ -61,7 +61,7 @@ extension PaneContentView {
         if let launchImageView {
             launchImageView.removeFromSuperview()
             self.launchImageView = nil
-            launchImageSize = nil
+            launchImageSizes = []
             LaunchImageHold.shared.ended()
         }
         // A page that has not painted when the image goes (its limit) shows its loading state.

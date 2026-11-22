@@ -9,6 +9,10 @@
 // scroll in the page.
 import { useEffect, useRef, useState } from "react";
 import { usePopupHost } from "./UiProvider";
+import type { NativePopupTransport } from "./nativePopup";
+import type { NativePopupEvent } from "./popupProtocol";
+import { onVisualViewport, visualViewportScale } from "./visualViewportBox";
+import { listPlacement } from "./listPlacement";
 
 export interface PopupItem {
   id: string;
@@ -51,6 +55,8 @@ export type PopupEvent =
  * finds it taken and stays in the page.
  */
 export interface PopupHost {
+  /** Declarative native rendering. Legacy overflow consumers migrate to this path. */
+  native?: NativePopupTransport;
   /** Resolves `{shown: true}` once the rows show; anything else leaves the surface in the page. */
   show(model: PopupModel, owner: object): Promise<unknown>;
   update(model: PopupModel, owner: object): void;
@@ -79,6 +85,19 @@ export function createPopupHost(
       : { ...model };
   let current: object | null = null;
   return {
+    native: {
+      show: (model) => {
+        current = null;
+        return quiet("show", { ...model });
+      },
+      update: (model) => void quiet("update", { ...model }),
+      hide: (id, revision) => void quiet("hide", { schemaVersion: 1, id, revision }),
+      listen: (listener) =>
+        listen((event) => {
+          const native = event as unknown as NativePopupEvent;
+          if (typeof native.popupId === "string" && Number.isSafeInteger(native.revision)) listener(native);
+        }),
+    },
     show(model, owner) {
       current = owner;
       return quiet("show", request(model));
@@ -92,7 +111,10 @@ export function createPopupHost(
       void quiet("hide");
     },
     owner: () => current,
-    listen,
+    listen: (listener) =>
+      listen((event) => {
+        if (!("popupId" in event)) listener(event);
+      }),
   };
 }
 
@@ -148,6 +170,9 @@ export function popupItems(
     copy
       .querySelectorAll('.ui-menu-shortcut,.ui-menu-check,[aria-hidden="true"],[data-popup-skip]')
       .forEach((node) => node.remove());
+    // A row's muted description (`data-popup-detail`) follows its title after a dash: the host draws
+    // one line of text, and the two ran together ("PlanPlan reads and p…", Leo 2026-10-31).
+    copy.querySelectorAll("[data-popup-detail]").forEach((node) => node.prepend(" — "));
     const shortcut = row.querySelector(".ui-menu-shortcut")?.textContent?.trim();
     return {
       id,
@@ -167,7 +192,8 @@ export function popupItems(
  * The surface's height with every list in it at its designed size: a list that scrolls (the
  * surface itself or one inside it) counts its hidden rows too, up to its `--popup-scroll-cap` when
  * it sets one (a list that scrolls by design at that size, as the folder menu's and the slash
- * menu's). A small window that squeezes a list below its cap does not make the surface fit.
+ * menu's). The cap is a registered length (popupSurface.css), so a cap written in rows computes to
+ * px here. A small window that squeezes a list below its cap does not make the surface fit.
  */
 export function naturalHeight(popup: HTMLElement): number {
   let hidden = 0;
@@ -175,7 +201,18 @@ export function naturalHeight(popup: HTMLElement): number {
     if (list.scrollHeight <= list.clientHeight + 1) continue;
     const style = getComputedStyle(list);
     if (!/auto|scroll/.test(style.overflowY)) continue;
-    const cap = parseFloat(style.getPropertyValue("--popup-scroll-cap"));
+    let cap = parseFloat(style.getPropertyValue("--popup-scroll-cap"));
+    // A row viewport inherits the shell's designed cap, which already includes its padding.
+    // Count that padding once when moving scrolling off the glass surface.
+    const shell = list.parentElement;
+    if (
+      Number.isFinite(cap) &&
+      list.classList.contains("ui-popup-scroll") &&
+      shell?.classList.contains("ui-popup-scroll-shell")
+    ) {
+      const outer = getComputedStyle(shell);
+      cap = Math.max(0, cap - (parseFloat(outer.paddingTop) || 0) - (parseFloat(outer.paddingBottom) || 0));
+    }
     const designed = Number.isFinite(cap) ? Math.min(list.scrollHeight, cap) : list.scrollHeight;
     hidden += Math.max(0, designed - list.clientHeight);
   }
@@ -238,6 +275,12 @@ export interface EscapeOptions {
   /** How a list's row picks: on mouse-down (a list beside a field it keeps focused) or a click. */
   pick?: "mousedown" | "click";
   /**
+   * A list the page itself opens on the side of its box with room and shrinks to that room
+   * (listPlacement.ts, a composer's `/` list): it leaves the page only when even the larger side
+   * has no room for a few rows.
+   */
+  shrinks?: boolean;
+  /**
    * The host closed the rows (another app, a resize, a click elsewhere). By default the surface
    * gets an Escape; a field whose Escape clears its text hides its rows here instead.
    */
@@ -263,6 +306,7 @@ export function useEscapingPopup(
     pick = "mousedown",
     onDismiss,
     wraps = false,
+    shrinks = false,
   }: EscapeOptions,
 ) {
   const anchorRef = useRef(anchor);
@@ -283,14 +327,18 @@ export function useEscapingPopup(
       const at = anchorRef.current();
       if (!at) return null;
       const { items, highlighted } = popupItems(element, kind, active);
-      const box = at.getBoundingClientRect();
+      // Where the anchor shows under a trackpad pinch, so the App's popup opens beside it.
+      // A virtual anchor (a pointer, a plain box) has no document: the page's own window.
+      const view = ("ownerDocument" in at ? (at as Element).ownerDocument?.defaultView : undefined) ?? window;
+      const box = onVisualViewport(at.getBoundingClientRect(), view);
       return {
         items,
         highlighted,
         anchor: { left: box.left, top: box.top, right: box.right, bottom: box.bottom },
         side,
         align,
-        width: kind === "tooltip" ? textWidth(element) : element.getBoundingClientRect().width,
+        width:
+          (kind === "tooltip" ? textWidth(element) : element.getBoundingClientRect().width) * visualViewportScale(view),
         kind,
       };
     };
@@ -324,8 +372,10 @@ export function useEscapingPopup(
       const room = at?.getBoundingClientRect();
       const fits =
         !room ||
-        (fitsInPage(room, naturalHeight(element), gap, innerHeight, flip ? undefined : side) &&
-          (kind !== "tooltip" || wraps || textWidth(element) <= innerWidth - 2 * EDGE));
+        (shrinks
+          ? !listPlacement(room, window.innerHeight, naturalHeight(element), { gap }).escapes
+          : fitsInPage(room, naturalHeight(element), gap, window.innerHeight, flip ? undefined : side) &&
+            (kind !== "tooltip" || wraps || textWidth(element) <= window.innerWidth - 2 * EDGE));
       if (!flat || items.length === 0 || fits) return;
       const first = model();
       if (!first) return;
@@ -409,28 +459,32 @@ export function useEscapingPopup(
       cancelAnimationFrame(frame);
       restore();
     };
-  }, [host, element, side, align, gap, kind, flip, hide, active, pick, wraps]);
+  }, [host, element, side, align, gap, kind, flip, hide, active, pick, wraps, shrinks]);
 }
 
 /**
  * A listbox the page keeps on one side of its field with CSS (the composer's slash and @ lists):
  * the ref for it. With no room on that side, its rows go past the window's edge. Undefined on a
- * page without a host.
+ * page without a host. `anchor` is the box the list stands beside (the composer's lists draw out
+ * of it, in a layer of their own: backdropLayer.tsx); unset, the list's offset parent.
  */
 export function useEscapingList(
   side: "top" | "bottom",
   gap: number,
   onDismiss?: () => void,
+  anchor?: HTMLElement | null,
+  shrinks = false,
 ): ((list: HTMLElement | null) => void) | undefined {
   const host = usePopupHost();
   const [list, setList] = useState<HTMLElement | null>(null);
-  useEscapingPopup(host, list, () => list?.offsetParent ?? null, {
+  useEscapingPopup(host, list, () => anchor ?? list?.offsetParent ?? null, {
     side,
     align: "start",
     gap,
     kind: "list",
     flip: false,
     onDismiss,
+    shrinks,
   });
   return host ? setList : undefined;
 }

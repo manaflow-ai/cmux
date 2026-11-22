@@ -159,7 +159,15 @@ export function useDom() {
       root = createRoot(host!);
       await act(async () => root!.render(node));
     },
-    text: (selector: string) => host!.querySelector(selector)?.textContent ?? undefined,
+    /// The words a reader sees: a running row's shimmer (ShimmerText.tsx RowShimmer, #32805) draws
+    /// them again as an inert, aria-hidden copy, which this leaves out.
+    text: (selector: string) => {
+      const node = host!.querySelector(selector);
+      if (!node) return undefined;
+      const copy = node.cloneNode(true) as Element;
+      for (const shimmer of copy.querySelectorAll(".cv-row-shimmer")) shimmer.remove();
+      return copy.textContent ?? undefined;
+    },
     click: (element: Element | null) =>
       act(async () => {
         element!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));

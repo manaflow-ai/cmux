@@ -8,14 +8,18 @@ import CmuxNextIcons
 /// the terminal below.
 final class TerminalCopyModeBadge: NSView {
     static var text: String {
-        String(localized: "terminal.copyMode.indicator", defaultValue: "vim", bundle: .module)
+        String(localized: "terminal.copyMode.indicator", defaultValue: "vim", bundle: .localizedModule)
+    }
+
+    override func layout() {
+        super.layout()
+        layer?.cornerRadius = Metrics.capsuleRadius(bounds.size) // a pill: half its height
     }
 
     init() {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
-        layer?.cornerRadius = 14
         layer?.masksToBounds = true
         layer?.borderWidth = Metrics.lineWidth(1)
 

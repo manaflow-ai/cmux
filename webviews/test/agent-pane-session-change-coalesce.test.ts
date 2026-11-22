@@ -12,6 +12,8 @@
 import { afterAll, beforeAll, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { settleReact } from "./support/domTeardown";
+import { resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -30,14 +32,18 @@ beforeAll(() => {
   Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, get: () => visibility });
 });
 
-afterAll(() => {
+afterAll(async () => {
   AcpmuxDirectClient.scheduleFrame = savedSchedule;
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
 });
 
 beforeEach(() => {
+  // Each test is a fresh page: its chat starts at seq 1, so a tail an earlier test's client kept of
+  // the same chat id would stand in front of it (session ids are never reused in the app).
+  resetKeptTailsForTests();
   frames = [];
   AcpmuxDirectClient.scheduleFrame = (run) => void frames.push(run);
 });
@@ -181,6 +187,43 @@ test("a burst of other chats' changes draws the pane once, in the next frame", a
     flushFrames();
     expect(snapshots() - before).toBe(1);
   } finally {
+    client.close();
+  }
+});
+
+// A busy acpmux sends chats' summaries again with nothing changed (Leo, 2026-11-03: "im at 100% cpu
+// rn"): each one drew a full snapshot, so an idle pane rebuilt its transcript and list many times a
+// second. A summary equal to the one the pane holds changes nothing and draws nothing.
+test("another chat's summary sent again unchanged draws nothing", async () => {
+  const { socket, client, snapshots } = await openPane();
+  jest.useFakeTimers();
+  try {
+    const before = snapshots();
+    for (let round = 0; round < 20; round++) {
+      for (let chat = 2; chat < 32; chat++)
+        socket.notify("_acpmux/session_changed", {
+          sessionId: id(chat),
+          // The same fields in another order: still the same summary.
+          session: Object.fromEntries(Object.entries(summary(chat)).reverse()),
+          kind: "updated",
+          seq: 10 + round,
+        });
+      flushFrames();
+      jest.advanceTimersByTime(1000);
+      flushFrames();
+    }
+    expect(snapshots() - before).toBe(0);
+    // A real change still draws, once, in the next frame.
+    socket.notify("_acpmux/session_changed", {
+      sessionId: id(2),
+      session: { ...summary(2), title: "Renamed" },
+      kind: "renamed",
+      seq: 40,
+    });
+    flushFrames();
+    expect(snapshots() - before).toBe(1);
+  } finally {
+    jest.useRealTimers();
     client.close();
   }
 });
@@ -387,6 +430,146 @@ test("bench: client time for 30 running chats changing 20 times (600 changes)", 
     // One snapshot per frame at most: 20 frames.
     expect(drawn).toBeLessThanOrEqual(20);
   } finally {
+    client.close();
+  }
+});
+
+// Each frame from acpmux is parsed once (HOT PATH AUDIT area F, row W2,
+// handoff/hot-path-audit/stream/AUDIT.md): the wire log and the client read one parse. Before, a
+// streamed chunk's frame was parsed twice, once for the log and once for the client.
+test("a streamed chunk's frame is parsed once", async () => {
+  const { socket, client } = await openPane();
+  const parse = JSON.parse;
+  let parses = 0;
+  const frames = 50;
+  try {
+    const lines = Array.from({ length: frames }, (_, n) =>
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "_acpmux/event",
+        params: {
+          sessionId: SELECTED,
+          seq: 1000 + n,
+          at: 1000 + n,
+          dir: "in",
+          kind: "agent_message_chunk",
+          msg: {
+            method: "session/update",
+            params: {
+              sessionId: SELECTED,
+              update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `word${n} ` } },
+            },
+          },
+        },
+      }),
+    );
+    JSON.parse = ((text: string, reviver?: (this: unknown, key: string, value: unknown) => unknown) => {
+      parses += 1;
+      return parse(text, reviver);
+    }) as typeof JSON.parse;
+    for (const data of lines) socket.onmessage?.({ data });
+    JSON.parse = parse;
+    flushFrames();
+    expect(parses).toBe(frames);
+  } finally {
+    JSON.parse = parse;
+    client.close();
+  }
+});
+
+// A shown chat redrew its whole pane for every frame in which any other chat changed, though the pane
+// draws nothing of them while the person reads its transcript (Lawrence, 2026-11-18: scrolling a short
+// chat dropped frames in an app with many workspaces and much history; Leo: "it's just redrawing the
+// same thing a lot, even when there's very little stuff visible"). Each of those snapshots walks the
+// whole session list in App.tsx, so its cost grows with history: 12,000 chats on Leo's Mac, about 5
+// changes a second. Other chats' changes now draw at most once every OTHER_CHATS_DRAW_MS, and none
+// while the person scrolls; the pane's own chat still draws in the next frame.
+test("other chats' changes draw a shown chat at most twice a second", async () => {
+  const { socket, client, snapshots } = await openPane();
+  jest.useFakeTimers();
+  try {
+    jest.advanceTimersByTime(1000);
+    flushFrames();
+    const before = snapshots();
+    // A change every 50 ms for 2 s, each in its own frame: 40 frames with a change.
+    for (let round = 0; round < 40; round++) {
+      burst(socket, 1, round);
+      flushFrames();
+      jest.advanceTimersByTime(50);
+      flushFrames();
+    }
+    jest.advanceTimersByTime(500);
+    flushFrames();
+    const drawn = snapshots() - before;
+    expect(drawn).toBeGreaterThanOrEqual(4);
+    expect(drawn).toBeLessThanOrEqual(5);
+  } finally {
+    jest.useRealTimers();
+    client.close();
+  }
+});
+
+test("other chats' changes wait while the person scrolls; the pane's own chat does not", async () => {
+  const { socket, client, snapshots } = await openPane();
+  jest.useFakeTimers();
+  try {
+    jest.advanceTimersByTime(1000);
+    flushFrames();
+    const before = snapshots();
+    // 1.5 s of scrolling, a wheel tick every 16 ms, while other chats change.
+    for (let tick = 0; tick < 94; tick++) {
+      window.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 4 }));
+      if (tick % 5 === 0) burst(socket, 3, tick);
+      jest.advanceTimersByTime(16);
+      flushFrames();
+    }
+    expect(snapshots() - before).toBe(0);
+    // The pane's own chat draws in the next frame, scroll or not.
+    window.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 4 }));
+    socket.notify("_acpmux/session_changed", {
+      sessionId: SELECTED,
+      session: { ...summary(1), title: "Renamed" },
+      kind: "renamed",
+      seq: 40,
+    });
+    flushFrames();
+    expect(snapshots() - before).toBe(1);
+    // That snapshot carried the list: the wait has nothing left, and the scroll's end draws nothing more.
+    jest.advanceTimersByTime(1000);
+    flushFrames();
+    expect(snapshots() - before).toBe(1);
+    // A change after the scroll ends draws.
+    burst(socket, 1, 99);
+    jest.advanceTimersByTime(1000);
+    flushFrames();
+    expect(snapshots() - before).toBe(2);
+  } finally {
+    jest.useRealTimers();
+    client.close();
+  }
+});
+
+// A page that keeps scrolling itself (a smooth scroll elsewhere in it) never rests: other chats'
+// changes wait at most 2 s for it, not for ever.
+test("a scroll that never rests holds other chats' changes at most 2 s", async () => {
+  const { socket, client, snapshots } = await openPane();
+  jest.useFakeTimers();
+  try {
+    jest.advanceTimersByTime(1000);
+    flushFrames();
+    const before = snapshots();
+    burst(socket, 1, 0);
+    let drawnAt: number | undefined;
+    for (let tick = 0; tick < 250 && drawnAt === undefined; tick++) {
+      window.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 4 }));
+      jest.advanceTimersByTime(16);
+      flushFrames();
+      if (snapshots() > before) drawnAt = (tick + 1) * 16;
+    }
+    expect(drawnAt).toBeGreaterThanOrEqual(1900);
+    expect(drawnAt).toBeLessThanOrEqual(2100);
+  } finally {
+    jest.useRealTimers();
     client.close();
   }
 });

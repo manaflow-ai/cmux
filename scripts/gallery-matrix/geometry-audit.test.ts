@@ -11,7 +11,7 @@ import { captureEnvironment, configForCapture } from "./geometry-audit";
 const baseline = JSON.parse(readFileSync(join(import.meta.dir, "geometry-baseline.json"), "utf8"));
 
 test("baseline source is the gallery entry and run SHA is bound to the captured tip", () => {
-  expect(baseline.revision.source).toBe("src/agent-session/acpmux/inspector/ChatInspector.gallery.tsx");
+  expect(baseline.revision.source).toBe("src/agent-session/acpmux/session-info/SessionInfo.gallery.tsx");
   expect(baseline.revision.sha).toMatch(/^[0-9a-f]{40}$/);
   const effective = configForCapture(baseline, "f".repeat(40));
   expect(effective.revision.sha).toBe("f".repeat(40));

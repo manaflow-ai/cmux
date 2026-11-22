@@ -58,13 +58,11 @@ struct WorkspaceAutoNameTests {
         #expect(Self.live.label(name: "workspace-3", title: nil, front: .chat(userName: "  ", title: "\n")) == nil)
     }
 
-    /// An agent's spinner frames (`⠐ Fix the login bug`) name the workspace by their words only
-    /// (plans/cmux-next/osc-titles.md), so the row does not change on every frame.
-    @Test func terminalTitleLosesItsStatusGlyphs() {
-        for raw in ["⠂ Fix the login bug", "⠐ Fix the login bug", "✳ Fix the login bug"] {
-            #expect(Self.live.label(name: "workspace-3", title: nil, front: Self.terminal(title: raw)) == "Fix the login bug")
-        }
-        #expect(Self.live.label(name: "Release", title: nil, front: Self.terminal(title: "⠂ Fix the login bug"), nameSource: .user) == nil)
+    /// An agent's title names the workspace by its words: the daemon takes the spinner glyphs off
+    /// (plans/cmux-next/main-thread-scheduling.md, D2). A user's name stays.
+    @Test func anAgentTitleNamesTheWorkspaceUnlessTheUserNamedIt() {
+        #expect(Self.live.label(name: "workspace-3", title: nil, front: Self.terminal(title: "Fix the login bug")) == "Fix the login bug")
+        #expect(Self.live.label(name: "Release", title: nil, front: Self.terminal(title: "Fix the login bug"), nameSource: .user) == nil)
     }
 
     @Test func terminalShowsItsLiveTitle() {
@@ -174,6 +172,27 @@ struct WorkspaceAutoNameTests {
     @Test func persistNeverRenamesAUserNamedOrTitledWorkspace() {
         #expect(Self.persisted(Self.titledChat, name: "api", nameSource: .user, nameRevision: 1) == nil)
         #expect(Self.persisted(Self.titledChat, title: "Mine") == nil)
+    }
+
+    /// A workspace created under the default name the app showed (`workspace-N`, never renamed) is
+    /// unnamed even when the daemon recorded that name as requested (#26680).
+    @Test func aCreatedDefaultNameRecordedAsTheUsersIsStillUnnamed() {
+        #expect(!WorkspaceAutoName.isUserNamed(name: "workspace-151", title: nil, nameSource: .user, nameRevision: 0,
+                                               allowsLegacyDefaults: false))
+        #expect(Self.persisted(Self.titledChat, name: "workspace-151", supportsNameSource: true,
+                               nameSource: .user, nameRevision: 0) == "Fix the sidebar drag")
+        #expect(Self.live.label(name: "workspace-151", title: nil, front: Self.titledChat, nameSource: .user,
+                                nameRevision: 0, allowsLegacyDefaults: false) == "Fix the sidebar drag")
+        // A person's rename (revision 1), a home marker and any other name stay theirs.
+        #expect(WorkspaceAutoName.isUserNamed(name: "workspace-151", title: nil, nameSource: .user, nameRevision: 1,
+                                              allowsLegacyDefaults: false))
+        #expect(WorkspaceAutoName.isUserNamed(name: "~", title: nil, nameSource: .user, nameRevision: 0,
+                                              allowsLegacyDefaults: false))
+        #expect(WorkspaceAutoName.isUserNamed(name: "api", title: nil, nameSource: .user, nameRevision: 0,
+                                              allowsLegacyDefaults: false))
+        // The daemon matches `workspace-N` exactly; a padded one is the person's and stays pinned.
+        #expect(WorkspaceAutoName.isUserNamed(name: " workspace-151 ", title: nil, nameSource: .user, nameRevision: 0,
+                                              allowsLegacyDefaults: false))
     }
 
     @Test func persistNamesARemoteWorkspaceWhenTheDaemonSupportsNameSource() {

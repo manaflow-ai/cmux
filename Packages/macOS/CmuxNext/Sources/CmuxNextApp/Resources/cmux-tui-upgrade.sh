@@ -191,9 +191,7 @@ canary_crash_loop() {
   D=$(daemon_pid)
   stop_child "$D" || finish "FAIL canary-daemon-still-running"
   install_state_mount || rollback_upgrade "$STATE_MOUNT_FAILURE"
-  if ! sh "$RUN/install.cmd" >> "$RUN/log" 2>&1; then
-    [ "$(bin_sha)" = "$TARGET_SHA" ] || rollback_upgrade canary-install
-  fi
+  sh "$RUN/install.cmd" >> "$RUN/log" 2>&1 || rollback_upgrade canary-install
   [ "$(bin_sha)" = "$TARGET_SHA" ] || rollback_upgrade canary-pin-mismatch
   say "canary staged target=$TARGET_SHA"
   if N=$(wait_serving "$TARGET_SHA"); then
@@ -218,8 +216,10 @@ if [ "$(exe_sha "$D")" = "$TARGET_SHA" ]; then
     restore_state_mount || finish "FAIL state-mount-restore reason=$STATE_MOUNT_FAILURE"
     finish "FAIL $STATE_MOUNT_FAILURE"
   }
-  # The next restart runs the binary on disk, so it must match too.
-  [ "$(bin_sha)" = "$TARGET_SHA" ] || sh "$RUN/install.cmd" >> "$RUN/log" 2>&1
+  # The next restart runs the binary on disk, so it must match too. The
+  # install also puts in this build's guest integration (the adapter), which
+  # a binary-only update left behind; it skips a binary that already matches.
+  sh "$RUN/install.cmd" >> "$RUN/log" 2>&1 || finish "FAIL install"
   [ "$(bin_sha)" = "$TARGET_SHA" ] && finish "OK already-current daemon=$D" || finish "FAIL daemon-current-but-binary-not"
 fi
 FREE=$(df -Pm "$H" | awk 'NR==2{print $4}')
@@ -233,11 +233,7 @@ OLD_SHA=$(bin_sha)
 say "before daemon=$D old=$OLD_SHA target=$TARGET_COMMIT hosts=[$HOSTS_BEFORE] terminals=$TERMS_BEFORE free=${FREE}MB"
 cp -p "$BIN" "$RUN/cmux-tui.prev" && [ "$(sha256sum "$RUN/cmux-tui.prev" | cut -d' ' -f1)" = "$OLD_SHA" ] || finish "FAIL backup (nothing changed)"
 install_state_mount || rollback_upgrade "$STATE_MOUNT_FAILURE"
-if ! sh "$RUN/install.cmd" >> "$RUN/log" 2>&1; then
-  # The binary step runs first; a hook-step failure leaves the pinned binary, which is still correct.
-  [ "$(bin_sha)" = "$TARGET_SHA" ] || rollback_upgrade install
-  say "install: hook step failed, binary is pinned; continuing"
-fi
+sh "$RUN/install.cmd" >> "$RUN/log" 2>&1 || rollback_upgrade install
 [ "$(bin_sha)" = "$TARGET_SHA" ] || rollback_upgrade pin-mismatch
 D=$(daemon_pid)
 stop_child "$D" || rollback_upgrade daemon-still-running

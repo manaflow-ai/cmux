@@ -1,6 +1,6 @@
 /// What a team's plan says about one more member (``CloudAuth/seatFacts(teamID:)``): the facts the
-/// Invite to Team dialog turns into its cost line.
-public struct CloudTeamSeatFacts: Sendable, Hashable {
+/// Invite to Team dialog turns into its cost line (Rust's `auth::SeatFacts`).
+public struct CloudTeamSeatFacts: Sendable, Hashable, Decodable {
     /// Whether the signed-in person may invite to the team.
     public var canInvite: Bool
     /// The plan (`team` for the Team plan); nil without one.
@@ -11,6 +11,10 @@ public struct CloudTeamSeatFacts: Sendable, Hashable {
     public var memberCount: Int
     /// A fixed member cap; nil without one.
     public var memberLimit: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case canInvite, planID = "planId", hasSubscription, memberCount, memberLimit
+    }
 
     /// - Parameters:
     ///   - canInvite: The person's invite permission.

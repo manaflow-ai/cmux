@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 import Foundation
 import Testing
+import CmuxNextTestSupport
 
 /// `cmux browser <tab> upload` answers the page's own file chooser (`BrowserAgentFiles`). Before, an agent could
 /// only put files into a visible `<input type=file>` it could select, through a page script with a 25 MB cap; a
@@ -10,7 +11,7 @@ import Testing
 /// panel only the person could answer. The test drives the real WebKit entrypoint: the agent's script clicks a
 /// hidden input with an agent gesture, as `AppBrowserPage.upload` does, WebKit calls the tab's
 /// `runOpenPanelWith`, and the offered files reach the page without the person's picker being asked.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct WebKitTabAgentFilesTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(1))) struct WebKitTabAgentFilesTests {
     @MainActor private final class Answerer: WebFileInputAnswering {
         private(set) var asks = 0
         /// Runs at the next ask.

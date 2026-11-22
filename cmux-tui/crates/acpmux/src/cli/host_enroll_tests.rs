@@ -12,6 +12,7 @@ use std::cell::RefCell;
 struct Fake<F: Fn(&str, Option<&[u8]>) -> RemoteOut> {
     answer: F,
     calls: RefCell<Vec<(String, bool)>>,
+    first_contacts: RefCell<Vec<bool>>,
     /// The scripts that ran fenced for the update lock.
     fenced: RefCell<Vec<String>>,
     pushes: RefCell<Vec<String>>,
@@ -23,6 +24,7 @@ impl<F: Fn(&str, Option<&[u8]>) -> RemoteOut> Fake<F> {
         Self {
             answer,
             calls: RefCell::default(),
+            first_contacts: RefCell::default(),
             fenced: RefCell::default(),
             pushes: RefCell::default(),
             locked: Default::default(),
@@ -45,6 +47,13 @@ impl<F: Fn(&str, Option<&[u8]>) -> RemoteOut> Remote for Fake<F> {
         self.calls.borrow_mut().push((script.to_owned(), stdin.is_some()));
         Ok((self.answer)(script, stdin))
     }
+    fn first_contact(&self, accept_new_host_key: bool) -> Result<RemoteOut> {
+        self.first_contacts.borrow_mut().push(accept_new_host_key);
+        self.exec("true", None)
+    }
+    fn strict_host_key_check(&self) -> Result<RemoteOut> {
+        self.exec(STRICT_CHECK, None)
+    }
     fn push(&self, _local: &Path, remote: &str) -> Result<()> {
         self.pushes.borrow_mut().push(remote.to_owned());
         Ok(())
@@ -66,6 +75,9 @@ impl<F: Fn(&str, Option<&[u8]>) -> RemoteOut> Remote for Fake<F> {
     }
 }
 
+/// What [`Fake`] answers for [`Remote::strict_host_key_check`].
+const STRICT_CHECK: &str = "strict-host-key-check";
+
 fn out(stdout: impl Into<String>) -> RemoteOut {
     RemoteOut { ok: true, stdout: stdout.into(), stderr: String::new() }
 }
@@ -85,6 +97,7 @@ fn plan(harnesses: &[&str]) -> Plan {
         remote_binary: DAEMON_BIN.into(),
         reverse: false,
         lends_github: false,
+        accept_new_host_key: false,
     }
 }
 
@@ -121,7 +134,7 @@ fn the_update_step_runs_between_the_daemon_and_the_harness() {
         StepResult::new(Step::Update, StepState::Ok, "timer")
     };
     let old: &[(&str, &str)] = &[(LOCAL_BIN, "old")];
-    let fake = host_with(old, Some(("old", false)), LOCAL_BIN, crate::hub::BUILD);
+    let fake = host_with(old, Some(("old", false)), LOCAL_BIN, crate::hub::build());
     let mut lines = Vec::new();
     let results = super::machine_steps(&fake, &plan(&[]), &local, false, Some(&update), &mut |r| {
         lines.push(r.step)
@@ -132,16 +145,16 @@ fn the_update_step_runs_between_the_daemon_and_the_harness() {
     assert_eq!(lines, order, "emitted in the order they ran");
     assert_eq!(results[3].state, StepState::Ok);
     // No daemon, no update: it is skipped like the harness.
-    let current: &[(&str, &str)] = &[(LOCAL_BIN, crate::hub::BUILD)];
-    let fake = host_with(current, None, LOCAL_BIN, crate::hub::BUILD);
+    let current: &[(&str, &str)] = &[(LOCAL_BIN, crate::hub::build())];
+    let fake = host_with(current, None, LOCAL_BIN, crate::hub::build());
     let results =
         super::machine_steps(&fake, &plan(&[]), &local, false, Some(&update), &mut |_| {}).0;
     assert_eq!(results[2].state, StepState::Fail, "{results:?}");
     assert_eq!((results[3].step, results[3].state), (Step::Update, StepState::Skip));
     // A standalone acpmux has no owner; the app's daemon names its path
     // (update_step's tests: the timer is then left alone).
-    let both: &[(&str, &str)] = &[(LOCAL_BIN, "old"), (APP_BIN, crate::hub::BUILD)];
-    let fake = host_with(both, Some((crate::hub::BUILD, true)), APP_EXE, crate::hub::BUILD);
+    let both: &[(&str, &str)] = &[(LOCAL_BIN, "old"), (APP_BIN, crate::hub::build())];
+    let fake = host_with(both, Some((crate::hub::build(), true)), APP_EXE, crate::hub::build());
     super::machine_steps(&fake, &plan(&[]), &local, true, Some(&update), &mut |_| {});
     assert_eq!(*owners.borrow(), [None, Some(APP_EXE.to_owned())]);
     assert_read_only(&fake);
@@ -159,8 +172,8 @@ fn an_update_step_that_cannot_tell_whose_daemon_runs_writes_nothing() {
         ran.set(true);
         StepResult::new(Step::Update, StepState::Fixed, "installed")
     };
-    let both: &[(&str, &str)] = &[(LOCAL_BIN, "old"), (APP_BIN, crate::hub::BUILD)];
-    let app = host_with(both, Some((crate::hub::BUILD, true)), APP_EXE, crate::hub::BUILD);
+    let both: &[(&str, &str)] = &[(LOCAL_BIN, "old"), (APP_BIN, crate::hub::build())];
+    let app = host_with(both, Some((crate::hub::build(), true)), APP_EXE, crate::hub::build());
     // Nothing; a standalone daemon's, so a guess would install; and a whole
     // answer in which no daemon says what it is.
     let standalone =
@@ -206,7 +219,7 @@ fn ssh_stderr_is_classified() {
         ),
         (
             "No ED25519 host key is known for box and you have requested strict checking.\nHost key verification failed.",
-            SshFailure::HostKeyChanged,
+            SshFailure::HostKeyUnknown,
         ),
         ("kex_exchange_identification: read: Connection reset by peer", SshFailure::Other),
     ];
@@ -215,6 +228,7 @@ fn ssh_stderr_is_classified() {
     }
     assert!(SshFailure::KeyRejected.fix("leo@box").contains("ssh-copy-id leo@box"));
     assert!(SshFailure::HostKeyChanged.fix("leo@box").contains("ssh-keygen -R box"));
+    assert!(!SshFailure::HostKeyUntrusted.fix("leo@box").contains("ssh-keygen -R"));
     let tailnet_fix = SshFailure::NoRoute.fix("leo@huge-blue.tail9.ts.net");
     assert!(tailnet_fix.contains("Tailscale SSH isn't allowed to this machine"));
     assert!(tailnet_fix.contains("\"dst\": [\"huge-blue.tail9.ts.net\"]"));
@@ -481,7 +495,7 @@ fn the_probe_finds_an_app_with_a_space_in_its_name() {
 
 #[test]
 fn cmux_own_acpmux_is_never_replaced_or_started_beside() {
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     let both: &[(&str, &str)] = &[(LOCAL_BIN, "old"), (APP_BIN, build)];
     for fix in [false, true] {
         // The app's daemon runs, this build: ok, though ~/.local/bin is old.
@@ -565,7 +579,7 @@ fn cmux_own_acpmux_is_never_replaced_or_started_beside() {
 
 #[test]
 fn doctor_without_fix_changes_nothing() {
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     let local = local_with("nofix", "pi", "command = \"/Users/leo/bin/pi\"\n");
     // An old standalone build (warn); a stopped daemon; a stale profile;
     // nothing installed at all.
@@ -593,16 +607,16 @@ fn doctor_without_fix_changes_nothing() {
         states(&results)[1..3],
         [(Step::Install, StepState::Warn), (Step::Daemon, StepState::Warn)]
     );
-    assert_eq!(results[2].fix.as_deref(), Some("Run `acpmux host update box`."));
+    assert_eq!(results[2].fix.as_deref(), Some("Run `acpmux machine update box`."));
     assert_eq!(results[1].reason, Some("peer_version_skew"));
-    assert_eq!(results[1].data.as_ref().unwrap()["try"], "acpmux host update box");
+    assert_eq!(results[1].data.as_ref().unwrap()["try"], "acpmux machine update box");
     assert_eq!(results[2].reason, Some("peer_version_skew"));
-    assert_eq!(results[2].data.as_ref().unwrap()["try"], "acpmux host update box");
+    assert_eq!(results[2].data.as_ref().unwrap()["try"], "acpmux machine update box");
 }
 
 #[test]
 fn enroll_copies_a_stale_profile_rewritten_and_owner_only() {
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     let local = local_with("fix", "pi", "command = \"/Users/leo/bin/pi\"\n");
     let written: RefCell<Option<String>> = RefCell::default();
     let bins: &[(&str, &str)] = &[(LOCAL_BIN, build)];
@@ -704,52 +718,28 @@ fn install_refuses_another_platform_and_reach_failure_skips_the_rest() {
 }
 
 #[test]
-fn daemon_skew_on_another_platform_has_no_host_update_try() {
+fn daemon_skew_on_another_platform_keeps_the_running_daemon() {
     let other_os = if std::env::consts::OS == "linux" { "Darwin" } else { "Linux" };
-    let p = parse_probe(&format!(
-        "uname\t{other_os} {}\nbin\t/home/leo/.local/bin/acpmux\tacpmux 0.1.0 (old)\nstatus\t/home/leo/.local/bin/acpmux\t{{\"pid\":7,\"build\":\"old\"}}\0{CONFIG}",
-        std::env::consts::ARCH
-    ));
-    let result = match judge_daemon("leo@box.tail", "box", &p, Some(47811)).0 {
-        Verdict::OtherBuild(result) => result,
-        other => panic!("{other:?}"),
-    };
-    assert_eq!(result.reason, Some("peer_version_skew"));
-    assert!(result.data.is_none(), "{result:?}");
-    let fix = result.fix.unwrap();
-    assert!(fix.contains("acpmux host update box --binary-dir DIR"), "{fix}");
-    assert!(fix.contains("DIR/acpmux-"), "{fix}");
-    assert!(fix.contains("or rebuild acpmux on leo@box.tail for its OS and architecture"), "{fix}");
-
-    // A matching binary is already installed on the remote: restarting its
-    // stale daemon is safe even though this invoking machine is another OS.
-    let p = parse_probe(&format!(
-        "uname\t{other_os} {}\nbin\t/home/leo/.local/bin/acpmux\tacpmux 0.1.0 ({})\nstatus\t/home/leo/.local/bin/acpmux\t{{\"pid\":7,\"build\":\"old\",\"exe\":\"/home/leo/.local/bin/acpmux (deleted)\"}}\0{CONFIG}",
-        std::env::consts::ARCH,
-        crate::hub::BUILD
-    ));
-    let result = match judge_daemon("leo@box.tail", "box", &p, Some(47811)).0 {
-        Verdict::OtherBuild(result) => result,
-        other => panic!("{other:?}"),
-    };
-    assert_eq!(result.reason, Some("peer_version_skew"));
-    assert!(result.data.is_none(), "{result:?}");
-    assert!(result.fix.unwrap().contains("host doctor box --fix"));
-
-    // A custom `--remote-binary` install: ~/.local/bin/acpmux links to a file
-    // outside the probed folders, and the daemon names that resolved file as
-    // its `exe`. The probe resolves the link, so the restart is still offered.
-    let p = parse_probe(&format!(
-        "uname\t{other_os} {}\nbin\t/home/leo/.local/bin/acpmux\tacpmux 0.1.0 ({})\nreal\t/home/leo/.local/bin/acpmux\t/opt/acpmux/acpmux\nstatus\t/home/leo/.local/bin/acpmux\t{{\"pid\":7,\"build\":\"old\",\"exe\":\"/opt/acpmux/acpmux (deleted)\"}}\0{CONFIG}",
-        std::env::consts::ARCH,
-        crate::hub::BUILD
-    ));
-    assert_eq!(p.resolved("/home/leo/.local/bin/acpmux"), "/opt/acpmux/acpmux");
-    let result = match judge_daemon("leo@box.tail", "box", &p, Some(47811)).0 {
-        Verdict::OtherBuild(result) => result,
-        other => panic!("{other:?}"),
-    };
-    assert!(result.fix.unwrap().contains("host doctor box --fix"), "a resolved link is current");
+    for installed_build in ["old", crate::hub::build()] {
+        let p = parse_probe(&format!(
+            "uname\t{other_os} {}\nbin\t/home/leo/.local/bin/acpmux\tacpmux 0.1.0 ({installed_build})\nstatus\t/home/leo/.local/bin/acpmux\t{{\"pid\":7,\"build\":\"old\"}}\0{CONFIG}",
+            std::env::consts::ARCH
+        ));
+        let result = match judge_daemon("leo@box.tail", "box", &p, Some(47811)).0 {
+            Verdict::Done(result) => result,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(result.state, StepState::Warn);
+        assert!(result.fix.is_none());
+        assert!(result.reason.is_none());
+        assert!(result.data.is_none());
+        // Usability checks still refuse the wrong listener, regardless of build.
+        let result = match judge_daemon("leo@box.tail", "box", &p, Some(47812)).0 {
+            Verdict::Done(result) => result,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(result.state, StepState::Fail);
+    }
 }
 
 /// Runs the scripts in a local `sh` with `HOME` at a temp folder, so the
@@ -857,7 +847,7 @@ fn the_probe_finds_a_cmux_tui_and_asks_it_through_acp() {
 /// A host the app installed its cmux-tui on (this build) without the
 /// `~/.local/bin/acpmux` link; linking makes it current.
 fn tui_only_host(linked: &RefCell<bool>) -> Fake<impl Fn(&str, Option<&[u8]>) -> RemoteOut + '_> {
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     Fake::new(move |script, _| {
         let is_linked = *linked.borrow();
         if script == "true" {
@@ -885,7 +875,7 @@ fn tui_only_host(linked: &RefCell<bool>) -> Fake<impl Fn(&str, Option<&[u8]>) ->
 
 #[test]
 fn a_host_whose_only_gap_is_the_link_gets_linked_not_pushed() {
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     // Without --fix: the link is named as missing, nothing changes.
     let linked = RefCell::new(false);
     let fake = tui_only_host(&linked);
@@ -937,7 +927,7 @@ fn enroll_never_relinks_the_daemon_binary_while_another_update_runs() {
 
 #[test]
 fn no_standalone_daemon_starts_beside_an_installed_app() {
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     // A standalone acpmux first, the app second, no daemon running: the
     // app's host, so nothing is started.
     let bins: &[(&str, &str)] = &[(LOCAL_BIN, build), (APP_BIN, build)];
@@ -976,7 +966,7 @@ fn a_daemon_running_as_cmux_tui_acp_is_cmux_own() {
     assert!(!acp("/home/leo/.local/bin/acpmux daemon run"));
     assert!(!acp("/home/leo/.local/bin/cmux-tui remote serve"));
     assert!(!acp(""));
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     let bins: &[(&str, &str)] = &[(TUI_BIN, build)];
     let mut p = parse_probe(&probe_out(bins, Some((build, false))));
     assert!(!p.in_use().unwrap().app);
@@ -1013,7 +1003,7 @@ fn a_daemon_started_through_the_acpmux_link_stays_ours() {
     // Through probe(): the daemon names its exe and says it runs as
     // `cmux-tui acp` in its status; only the link is resolved on the host. The link's daemon is
     // repairable, not cmux's.
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     let bins: &[(&str, &str)] = &[(LOCAL_BIN, build), (TUI_BIN, build)];
     for (link_target, ours) in [(TUI_BIN, true), ("", false)] {
         let fake = Fake::new(|script, _| {
@@ -1034,7 +1024,7 @@ fn a_daemon_started_through_the_acpmux_link_stays_ours() {
 
 #[test]
 fn the_probe_never_scans_processes() {
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     let bins: &[(&str, &str)] = &[(LOCAL_BIN, build)];
     // A standalone daemon (`acpmux daemon run`) and one too old to say who
     // it is: the status alone answers, one script in all.
@@ -1055,7 +1045,7 @@ fn the_probe_never_scans_processes() {
 
 #[test]
 fn a_daemon_too_old_to_say_who_it_is_counts_as_cmux_own_beside_a_cmux() {
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     let local = Local { harness_dir: None, home: None };
     // Linux: an older `cmux-tui acp` session daemon answers through the
     // standalone acpmux; the cmux-tui is there. Never installed or
@@ -1139,7 +1129,7 @@ fn two_daemon_host_with(
     ours: Option<u16>,
     token: bool,
 ) -> Fake<impl Fn(&str, Option<&[u8]>) -> RemoteOut> {
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     let listen = RefCell::new(ours);
     let written = RefCell::new(None::<u16>);
     Fake::new(move |script, stdin| {
@@ -1184,7 +1174,33 @@ fn two_daemon_host_with(
 }
 
 fn enroll_plan() -> Plan {
-    Plan::enroll("leo@box.tail".into(), Some("box".into()), vec![], DAEMON_BIN.into(), false)
+    Plan::enroll("leo@box.tail".into(), Some("box".into()), vec![], DAEMON_BIN.into(), false, false)
+}
+
+#[test]
+fn first_contact_trust_is_opt_in_and_a_changed_key_stops_enrollment() {
+    let local = Local { harness_dir: None, home: None };
+    for accept in [false, true] {
+        let mut plan = enroll_plan();
+        plan.accept_new_host_key = accept;
+        let fake = Fake::new(|script, _| {
+            assert_eq!(script, "true", "a failed reach must not run another command");
+            RemoteOut {
+                ok: false,
+                stdout: String::new(),
+                stderr: "REMOTE HOST IDENTIFICATION HAS CHANGED!\nHost key verification failed."
+                    .into(),
+            }
+        });
+        let results = machine_steps(&fake, &plan, &local, true, &mut |_| {}).0;
+        assert_eq!(*fake.first_contacts.borrow(), [accept]);
+        assert_eq!(results[0].state, StepState::Fail);
+        assert!(results[1..].iter().all(|step| step.state == StepState::Skip));
+        assert_eq!(fake.calls.borrow().len(), 1);
+        assert!(fake.pushes.borrow().is_empty());
+    }
+    assert!(!enroll_plan().accept_new_host_key);
+    assert!(!plan(&[]).accept_new_host_key);
 }
 
 #[test]
@@ -1232,7 +1248,7 @@ fn doctor_refuses_to_move_a_healthy_daemon_to_the_peers_port() {
             .fix
             .as_deref()
             .unwrap()
-            .contains("`acpmux host add box ssh://leo@box.tail:47921`"),
+            .contains("`acpmux machine add box ssh://leo@box.tail:47921`"),
         "{results:?}"
     );
     assert_read_only(&fake);
@@ -1248,4 +1264,288 @@ fn doctor_refuses_to_move_a_daemon_run_with_its_own_listener_and_token() {
     assert_eq!(results[2].state, StepState::Fail, "{results:?}");
     assert!(results[2].fix.as_deref().unwrap().contains("ssh://leo@box.tail:47921"), "{results:?}");
     assert_read_only(&fake);
+}
+
+/// `--harness local` (what Add Machine passes): every profile in this Mac's
+/// harness folder is copied, and a Mac with none skips in words a person reads.
+#[test]
+#[cfg(unix)]
+fn harness_local_copies_every_profile_this_mac_has() {
+    let local = local_with("all", "pi", "command = \"/Users/leo/bin/pi\"\n");
+    let dir = local.harness_dir.clone().unwrap();
+    std::fs::write(dir.join("zed.toml"), "command = \"zed\"\n").unwrap();
+    std::fs::write(dir.join("notes.txt"), "not a profile").unwrap();
+    let home = std::env::temp_dir().join(format!("acpmux-enroll-all-home-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(&home).unwrap();
+    let sh = Sh(home.clone());
+    let ids = vec![LOCAL_HARNESSES.to_string()];
+    let fixed = harness(&sh, "box", &ids, &local, true);
+    assert_eq!(fixed.state, StepState::Fixed, "{fixed:?}");
+    assert_eq!(fixed.detail, "pi copied (missing); zed copied (missing)");
+    assert!(home.join(".config/cmux/harnesses/zed.toml").is_file());
+    let none = Local { harness_dir: None, home: None };
+    let skipped = harness(&sh, "box", &ids, &none, true);
+    assert_eq!(skipped.state, StepState::Skip);
+    assert_eq!(skipped.detail, "this machine has no agent profiles to copy");
+    let _ = std::fs::remove_dir_all(&home);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Add Machine asks for `--reverse`: a host that cannot reach this machine
+/// back still adds, with the peer-back step a warning.
+#[test]
+fn a_failed_peer_back_warns_and_the_add_stays_ok() {
+    let failed = StepResult::new(Step::PeerBack, StepState::Fail, "box cannot read its peers")
+        .with_fix("Check again.");
+    let soft = optional(failed);
+    assert_eq!(soft.state, StepState::Warn);
+    assert_eq!(soft.fix.as_deref(), Some("Check again."));
+    let ok = StepResult::new(Step::Reach, StepState::Ok, "ssh ok");
+    assert!(Report::new("box", "leo@box.tail", vec![ok, soft]).ok);
+}
+
+/// A Linux host without a working bwrap refuses every session another
+/// machine starts there (the remote chain runs only inside the sandbox): the
+/// daemon step says so with the fix instead of passing silently, and `--fix`
+/// installs bubblewrap when sudo needs no password (chief-subagents-2,
+/// 2026-11-03: "remote chain refused: bwrap unavailable").
+#[test]
+fn a_host_without_bwrap_warns_at_the_daemon_step_and_fix_installs_it() {
+    let build = crate::hub::build();
+    let bins: &[(&str, &str)] = &[(LOCAL_BIN, build)];
+    let with_bwrap = |state: &str| {
+        probe_out_with(bins, Some((build, false)), LOCAL_BIN, Some(false)).replacen(
+            '\n',
+            &format!("\nbwrap\t{state}\n"),
+            1,
+        )
+    };
+    let fake = |state: &'static str, sudo: bool| {
+        let probed = with_bwrap(state);
+        Fake::new(move |script, _| {
+            if script == probe_script().as_str() {
+                out(probed.clone())
+            } else if script == super::super::host_sandbox::install_script() {
+                RemoteOut { ok: sudo, stdout: String::new(), stderr: String::new() }
+            } else if script == super::super::host_sandbox::fix_script() {
+                out("sudo apt-get install -y bubblewrap\n")
+            } else {
+                panic!("unexpected script: {script}")
+            }
+        })
+    };
+    // A working sandbox, or a host that does not say: the step is unchanged.
+    for state in ["ok", "n/a"] {
+        let (result, _) = daemon(&fake(state, true), "box", Some(47811), true);
+        assert_eq!(result.state, StepState::Ok, "{state}: {result:?}");
+    }
+    // Missing, checked only: a warning that names the fix, nothing written.
+    let host = fake("missing", true);
+    let (result, _) = daemon(&host, "box", Some(47811), false);
+    assert_eq!(result.state, StepState::Warn, "{result:?}");
+    assert!(result.detail.contains("bwrap is not installed"), "{result:?}");
+    assert!(result.fix.as_deref().unwrap_or("").contains("apt-get install -y bubblewrap"));
+    assert!(!host.calls.borrow().iter().any(|(s, _)| s.starts_with("sudo")));
+    // Missing, --fix with passwordless sudo: installed.
+    let (result, _) = daemon(&fake("missing", true), "box", Some(47811), true);
+    assert_eq!(result.state, StepState::Fixed, "{result:?}");
+    assert!(result.detail.contains("installed bubblewrap"), "{result:?}");
+    // Missing, --fix but sudo asks for a password: the warning stays.
+    let (result, _) = daemon(&fake("missing", false), "box", Some(47811), true);
+    assert_eq!(result.state, StepState::Warn, "{result:?}");
+    // Installed but unusable: a warning, never an install.
+    let (result, _) = daemon(&fake("broken", true), "box", Some(47811), true);
+    assert_eq!(result.state, StepState::Warn, "{result:?}");
+    assert!(result.detail.contains("cannot make a sandbox"), "{result:?}");
+}
+
+#[test]
+fn first_contact_revoked_key_recovery_never_suggests_acceptance_or_removal() {
+    for stderr in [
+        "WARNING: REVOKED HOST KEY DETECTED!\nHost key verification failed.",
+        "Host key ED25519 SHA256:example revoked by file /tmp/revoked_keys\nHost key verification failed.",
+    ] {
+        let fake = Fake::new(|script, _| {
+            assert_eq!(script, "true");
+            RemoteOut { ok: false, stderr: stderr.into(), ..RemoteOut::default() }
+        });
+        let result = reach(&fake, true);
+        assert_eq!(result.state, StepState::Fail);
+        assert!(result.detail.contains("revoked"), "{}", result.detail);
+        let fix = result.fix.as_deref().unwrap();
+        assert!(fix.contains("revoked"), "{fix}");
+        assert!(!fix.contains("accept-new-host-key"), "{fix}");
+        assert!(!fix.contains("ssh-keygen -R"), "{fix}");
+    }
+}
+
+#[test]
+fn first_contact_verification_errors_do_not_offer_unknown_key_acceptance() {
+    for (stderr, class, advice) in [
+        (
+            "Error checking host key ED25519 SHA256:example in revoked keys file /tmp/revoked_keys: No such file or directory\nHost key verification failed.",
+            SshFailure::HostKeyConfigInvalid,
+            "Restore a readable, valid revocation file",
+        ),
+        ("Host key verification failed.", SshFailure::HostKeyUntrusted, "host and IP fingerprints"),
+    ] {
+        assert_eq!(SshFailure::of(stderr), class);
+        let fake = Fake::new(|_, _| RemoteOut {
+            ok: false,
+            stderr: stderr.into(),
+            ..RemoteOut::default()
+        });
+        let result = reach(&fake, true);
+        assert_eq!(result.state, StepState::Fail);
+        let fix = result.fix.as_deref().unwrap();
+        assert!(fix.contains(advice), "{fix}");
+        assert!(!fix.contains("accept-new-host-key"), "{fix}");
+        assert!(!fix.contains("ssh-keygen -R"), "{fix}");
+    }
+}
+
+/// OpenSSH's default policy under BatchMode says only "Host key verification failed." for a
+/// never-seen host (OpenSSH 9.6, `cmux device add HOST --yes`, 2026-11-16). Enrollment asks
+/// again under strict checking and offers first-contact acceptance only when that names an
+/// unknown key; any other answer keeps the fingerprint advice.
+#[test]
+fn first_contact_bare_verification_failure_asks_strict_ssh_for_unknown_key_evidence() {
+    const BARE: &str = "Host key verification failed.";
+    const UNKNOWN: &str = "No ED25519 host key is known for box.tail and you have requested strict checking.\nHost key verification failed.";
+    // CheckHostIP: the name's key is trusted but the IP's differs.
+    const IP_CONFLICT: &str =
+        "Exiting, you have requested strict checking.\nHost key verification failed.";
+    for (strict, accept, class, asked) in [
+        (UNKNOWN, false, SshFailure::HostKeyUnknown, true),
+        (IP_CONFLICT, false, SshFailure::HostKeyUntrusted, true),
+        (BARE, false, SshFailure::HostKeyUntrusted, true),
+        // With the opt-in, OpenSSH records an unknown key, so a bare failure is something else.
+        (UNKNOWN, true, SshFailure::HostKeyUntrusted, false),
+    ] {
+        let fake = Fake::new(|script, _| RemoteOut {
+            ok: false,
+            stderr: if script == STRICT_CHECK { strict } else { BARE }.into(),
+            ..RemoteOut::default()
+        });
+        let result = reach(&fake, accept);
+        assert_eq!(result.state, StepState::Fail);
+        let scripts: Vec<String> = fake.calls.borrow().iter().map(|(s, _)| s.clone()).collect();
+        assert_eq!(scripts.iter().any(|s| s == STRICT_CHECK), asked, "{scripts:?}");
+        let fix = result.fix.as_deref().unwrap();
+        assert_eq!(fix, class.fix("leo@box.tail"), "{strict:?} accept={accept}");
+        if class == SshFailure::HostKeyUnknown {
+            assert!(fix.contains("--accept-new-host-key"), "{fix}");
+        } else {
+            assert!(!fix.contains("accept-new-host-key"), "{fix}");
+        }
+    }
+    // A key that is not unknown never reaches the strict check.
+    let fake = Fake::new(|script, _| {
+        assert_ne!(script, STRICT_CHECK);
+        RemoteOut {
+            ok: false,
+            stderr:
+                "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!\nHost key verification failed."
+                    .into(),
+            ..RemoteOut::default()
+        }
+    });
+    assert_eq!(reach(&fake, false).state, StepState::Fail);
+}
+
+/// A machine's running peer daemon is usable across builds and platforms.
+/// Enrollment must reach the peer handshake without pushing the caller's binary
+/// or restarting a healthy daemon owned by the remote host.
+#[test]
+fn cross_platform_enroll_keeps_a_running_daemon_of_another_build() {
+    for uname in ["Linux x86_64", "Linux aarch64", "Darwin arm64", "Darwin x86_64"] {
+        if same_platform(uname, std::env::consts::OS, std::env::consts::ARCH) {
+            continue;
+        }
+        for fix in [false, true] {
+            let fake = Fake::new(|script, _| {
+                if script == "true" {
+                    out("")
+                } else if script == probe_script().as_str() {
+                    out(format!(
+                        "uname\t{uname}\nbin\t{LOCAL_BIN}\tacpmux 0.1.0 (remote-build)\nstatus\t{LOCAL_BIN}\t{{\"pid\":7,\"build\":\"remote-build\",\"exe\":\"{LOCAL_BIN}\",\"runsAsCmuxTuiAcp\":false}}\0{CONFIG}"
+                    ))
+                } else if script.starts_with("printf 'bin=") {
+                    out(version("remote-build"))
+                } else {
+                    panic!("unexpected script on {uname}: {script}")
+                }
+            });
+            let (results, port) = machine_steps(
+                &fake,
+                &plan(&[]),
+                &Local { harness_dir: None, home: None },
+                fix,
+                &mut |_| {},
+            );
+            assert_eq!(port, 47811);
+            for result in &results[..3] {
+                assert!(
+                    matches!(result.state, StepState::Ok | StepState::Warn),
+                    "{uname}: {result:?}"
+                );
+            }
+            assert!(gate(Step::Peer, &results).is_none(), "{uname}: {results:?}");
+            assert_read_only(&fake);
+        }
+    }
+}
+
+#[test]
+fn cross_platform_install_bootstraps_a_missing_binary_from_the_checked_channel() {
+    for uname in ["Linux x86_64", "Linux aarch64", "Darwin arm64", "Darwin x86_64"] {
+        if !foreign_platform(uname) {
+            continue;
+        }
+        let target = crate::cli::peer_status::target_from_uname(uname).unwrap();
+        let installed = std::cell::Cell::new(false);
+        let fake = Fake::new(|script, _| {
+            if script == probe_script().as_str() {
+                out(format!("uname\t{uname}\n\0{{}}"))
+            } else if script.starts_with("printf 'bin=") {
+                out(if installed.get() { version("published") } else { "bin=\n".into() })
+            } else if script.contains("/channels/feat-cmux-next.json") {
+                out(json!({
+                    "key": "a".repeat(40), "commit": "b".repeat(40),
+                    "binaries": { format!("cmux-tui-acpmux-{target}"): "c".repeat(64) }
+                })
+                .to_string())
+            } else if script.contains("/tree/") {
+                assert!(script.contains(&format!("/cmux-tui-acpmux-{target}")));
+                installed.set(true);
+                out("")
+            } else {
+                panic!("unexpected script: {script}")
+            }
+        });
+        let checked = install(&fake, "box", DAEMON_BIN, false);
+        assert_eq!(checked.state, StepState::Fail, "doctor alone never installs");
+        assert_read_only(&fake);
+        let result = install(&fake, "box", DAEMON_BIN, true);
+        assert_eq!(result.state, StepState::Fixed, "{result:?}");
+        assert!(installed.get());
+        assert!(fake.pushes.borrow().is_empty(), "never push the caller's binary");
+        assert_eq!(fake.fenced.borrow().len(), 3, "manifest, download and readback hold the lock");
+    }
+}
+
+#[test]
+fn doctor_says_when_the_hub_already_carries_the_machine() {
+    let peers = vec![
+        json!({"name": "ab", "state": "connected", "via": "hub"}),
+        json!({"name": "down", "state": "down", "via": "hub"}),
+        json!({"name": "direct", "state": "connected", "via": "link"}),
+    ];
+    let note = hub_route_note(&peers, "ab").expect("a hub-carried machine gets a note");
+    assert!(note.contains("connected through the hub"), "{note}");
+    assert!(note.contains("does not mean the hub link is down"), "{note}");
+    assert_eq!(hub_route_note(&peers, "down"), None);
+    assert_eq!(hub_route_note(&peers, "direct"), None);
+    assert_eq!(hub_route_note(&peers, "nobody"), None);
 }

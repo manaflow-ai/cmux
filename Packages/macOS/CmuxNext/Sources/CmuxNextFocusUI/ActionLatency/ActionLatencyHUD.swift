@@ -60,6 +60,14 @@ package final class ActionLatencyHUD {
         panel?.orderOut(nil)
     }
 
+    /// Hides the panel and closes it (a test's teardown); the next show makes a new one.
+    package func close() {
+        hide()
+        panel?.close()
+        panel = nil
+        label = nil
+    }
+
     /// Puts `run` first (the stream, or a test).
     package func add(_ run: ActionTimingSample) {
         rows.insert(run, at: 0)
@@ -112,20 +120,20 @@ package final class ActionLatencyHUD {
     // MARK: Strings (ActionLatencyHUD.xcstrings)
 
     private static var title: String {
-        String(localized: "actionLatencyHUD.title", defaultValue: "Action Latency", table: "ActionLatencyHUD", bundle: .module)
+        String(localized: "actionLatencyHUD.title", defaultValue: "Action Latency", table: "ActionLatencyHUD", bundle: .localizedModule)
     }
 
     private static func header(_ budget: Int) -> String {
         String(format: String(localized: "actionLatencyHUD.header", defaultValue: "Newest first, budget %d ms to commit",
-                              table: "ActionLatencyHUD", bundle: .module), budget)
+                              table: "ActionLatencyHUD", bundle: .localizedModule), budget)
     }
 
     private static var empty: String {
-        String(localized: "actionLatencyHUD.empty", defaultValue: "No actions yet", table: "ActionLatencyHUD", bundle: .module)
+        String(localized: "actionLatencyHUD.empty", defaultValue: "No actions yet", table: "ActionLatencyHUD", bundle: .localizedModule)
     }
 
     private static func row(_ milliseconds: String, _ entrypoint: String, _ id: String) -> String {
         String(format: String(localized: "actionLatencyHUD.row", defaultValue: "%1$@ ms  %2$@  %3$@",
-                              table: "ActionLatencyHUD", bundle: .module), milliseconds, entrypoint, id)
+                              table: "ActionLatencyHUD", bundle: .localizedModule), milliseconds, entrypoint, id)
     }
 }

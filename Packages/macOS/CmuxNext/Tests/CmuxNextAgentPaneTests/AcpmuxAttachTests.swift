@@ -84,7 +84,7 @@ struct AcpmuxAttachTests {
     @Test func anAttachedHostNeverStartsADaemon() async throws {
         let (root, environment) = try Self.fixture()
         defer { try? FileManager.default.removeItem(at: root) }
-        let host = AcpmuxHost(resolve: { environment })
+        let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), resolve: { environment })
 
         await #expect(throws: AgentPaneHostError.daemonStopped) { _ = try await host.handshake(sessionId: nil) }
         await #expect(throws: AgentPaneHostError.daemonStopped) { _ = try await host.reconnectHandshake(sessionId: "s") }
@@ -100,7 +100,7 @@ struct AcpmuxAttachTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let daemon = try RecordingDaemon(socketPath: environment.socketPath, home: environment.home.path)
         defer { daemon.stop() }
-        let host = AcpmuxHost(resolve: { environment })
+        let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), resolve: { environment })
 
         _ = try? await host.handshake(sessionId: nil)
         _ = try? await host.reconnectHandshake(sessionId: "s")

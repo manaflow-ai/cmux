@@ -106,9 +106,12 @@ case "$setting" in
   *enable=yes*) ;;
   *) fail "the harness does not enable the Swift backtracer: $setting" ;;
 esac
+# fast, not full: full also reads inlined frames and source lines from the test
+# binary's debug info, which outlasted the stall limit (run 41465146517).
 case "$setting" in
-  *symbolicate=full*) ;;
-  *) fail "the backtrace would have no symbols, which answers nothing: $setting" ;;
+  *symbolicate=fast*) ;;
+  *symbolicate=off*|*symbolicate=no*) fail "the backtrace would have no symbols, which answers nothing: $setting" ;;
+  *) fail "the backtracer would symbolicate past the stall limit (want symbolicate=fast): $setting" ;;
 esac
 case "$setting" in
   *interactive=no*) ;;

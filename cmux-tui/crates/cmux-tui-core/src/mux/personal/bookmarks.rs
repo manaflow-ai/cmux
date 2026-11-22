@@ -18,6 +18,7 @@ pub struct BookmarksChange {
 
 impl Mux {
     /// The `bookmarks_revision` and every node of one profile's tree.
+    #[track_caller]
     pub fn list_bookmarks(
         &self,
         browser_profile_id: &str,
@@ -29,6 +30,7 @@ impl Mux {
     /// returns the browser profile whose tree changed and the revision it
     /// committed, or `None` when it changed nothing; then journal readers
     /// and subscribers are notified.
+    #[track_caller]
     pub(crate) fn bookmarks_mutation<T>(
         &self,
         mutation: impl FnOnce(&mut WorkspaceRegistry) -> anyhow::Result<(T, Option<(String, u64)>)>,

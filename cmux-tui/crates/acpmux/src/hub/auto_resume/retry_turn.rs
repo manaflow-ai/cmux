@@ -23,6 +23,8 @@
 //!   promptId, attempt, turnId, manual: true}`, and once its turn completes the prompts the
 //!   failed turn held go on (`held_by`).
 //! - A Stop the failed turn got does not hold a retry the caller asks for after it.
+//! - A sub-session whose last turn was stopped (`cancelled`) is continued instead, in the same
+//!   chat: `hub/subsession_resume.rs`.
 
 use super::{Mark, SUFFIX, continue_text, split_attempt, still_cut};
 use crate::hub::digest::DIGEST_KIND;
@@ -51,6 +53,16 @@ pub(crate) fn busy() -> RpcError {
     refused("retry.busy", "a turn runs or is about to start in this chat; retry once it ends")
 }
 
+/// The account's rate limit holds the chat (`rate_hold.rs`): a retry now would be refused the same
+/// way and send the whole context again. Its turn runs by itself at the reset. A one-minute
+/// watchdog that retried every 429'd chat kept the spiral going (2026-11-17).
+fn rate_limited(until: u64) -> RpcError {
+    let at = crate::hub::rate_hold::until_line(until);
+    let why =
+        format!("retry.rate_limited: {at}: the chat goes on by itself at the reset; Stop parks it");
+    RpcError::invalid_params(why).with_data(json!({"reason": "retry.rate_limited", "until": until}))
+}
+
 fn stopped() -> RpcError {
     refused("retry.stopped", "Stop or close came before the retry's turn started")
 }
@@ -62,6 +74,10 @@ fn nothing_failed() -> RpcError {
     )
 }
 
+fn not_resendable() -> RpcError {
+    refused("retry.not_resendable", "the failed prompt cannot be sent again as it was")
+}
+
 fn answer(prompt_id: String, turn_id: Option<String>) -> Value {
     let result = RetryResult { prompt_id, turn_id, kind: RetryKind::Turn };
     serde_json::to_value(result).unwrap_or(Value::Null)
@@ -71,6 +87,10 @@ fn answer(prompt_id: String, turn_id: Option<String>) -> Value {
 /// acpmux kept (`image(id)`). None when a part cannot be rebuilt (a document, an audio clip, a
 /// link, an image not kept) or there is nothing to send.
 fn prompt_blocks(msg: &Value, image: impl Fn(&str) -> Option<Value>) -> Option<Vec<Value>> {
+    // A throwaway session's long prompt kept only a preview (`hub/ephemeral.rs`).
+    if crate::hub::ephemeral::body_left_out(msg) {
+        return None;
+    }
     let blocks: Option<Vec<Value>> = match msg.get("inlineParts").and_then(Value::as_array) {
         Some(parts) => parts
             .iter()
@@ -110,8 +130,18 @@ impl Hub {
         by: RetryBy,
     ) -> Result<Value, RpcError> {
         match subagent {
-            Some(subagent) => self.retry_subagent(session, subagent, by).await,
-            None => self.retry_turn(session, by).await,
+            // A stopped one starts again from its transcript and brief (`subagent_resume.rs`).
+            Some(subagent) => match self.resumable_subagent(session, subagent).await {
+                Some((id, brief)) => self.resume_subagent(session, id, brief, by).await,
+                None => self.retry_subagent(session, subagent, by).await,
+            },
+            // A stopped sub-session continues in the same chat (`subsession_resume.rs`).
+            None => match crate::hub::subsession_resume::stopped_subsession_turn(session) {
+                Some((turn, prompt)) => {
+                    self.resume_stopped_subsession(session, turn, prompt, by).await
+                }
+                None => self.retry_turn(session, by).await,
+            },
         }
     }
 
@@ -123,16 +153,106 @@ impl Hub {
         session: &Arc<Session>,
         by: RetryBy,
     ) -> Result<Value, RpcError> {
+        self.resend_turn(session, by, None).await
+    }
+
+    /// A manual retry the previous daemon recorded (`restore.rs`): never over a Stop since,
+    /// and it records no new manual marker.
+    pub(super) async fn retry_turn_restored(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        by: RetryBy,
+    ) -> Result<Value, RpcError> {
+        self.resend_turn_inner(session, by, None, false, false).await
+    }
+
+    /// [`Hub::retry_turn`], or with `auto` the automatic retry of a first send
+    /// (`first_send.rs`) that answers for the cut turn `auto`: it goes only while its own wait
+    /// still holds the chat (Stop, close or anything that ran since refuses it, as
+    /// `auto_resume.superseded` or `auto_resume.stopped`), only as the same prompt
+    /// (`retry.not_resendable` when it cannot be rebuilt), and its provenance has no `manual`.
+    pub(super) async fn resend_turn(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        by: RetryBy,
+        auto: Option<&str>,
+    ) -> Result<Value, RpcError> {
+        self.resend_turn_inner(session, by, auto, true, auto.is_none()).await
+    }
+
+    async fn resend_turn_inner(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        by: RetryBy,
+        auto: Option<&str>,
+        allow_stopped: bool,
+        record_manual: bool,
+    ) -> Result<Value, RpcError> {
         self.retry_allowed(session, &by).await?;
-        let (cut_turn, failed, error) = self.claim_failed_turn(session)?;
+        // A parked chat (`rate_hold.rs`) goes on at a retry: its waiting continuation runs now,
+        // compacted first past the line, with what queued. With none waiting the hold ends:
+        // what queued goes on as the next turn, carrying the continuation's words, else this
+        // retry runs as on any chat.
+        if auto.is_none() {
+            use crate::hub::rate_hold::Unparked;
+            match self.unpark_rate_hold(session, "retry") {
+                Some(Unparked::Continues(cut_turn)) => {
+                    return Ok(answer(format!("{cut_turn} (rate-limit continuation)"), None));
+                }
+                Some(Unparked::Queue) => {
+                    return Ok(answer("the queue (rate-limit continuation)".into(), None));
+                }
+                Some(Unparked::Released) | None => {}
+            }
+        }
+        // A person's or an agent's retry waits for the account's reset like every other turn.
+        if auto.is_none()
+            && let Some(until) = session.rate_hold.until().filter(|u| *u > crate::hub::now_ms())
+        {
+            return Err(rate_limited(until));
+        }
+        let (cut_turn, failed, error) = self.claim_failed_turn(session, auto, allow_stopped)?;
         let (root, done) = split_attempt(&failed);
         let (root, attempt) = (root.to_owned(), done + 1);
-        let blocks = self.resend_of(session, &cut_turn, &failed).unwrap_or_else(|| {
-            let reason = crate::hub::turn_errors::resume_cause(&error, &error).unwrap_or("error");
-            vec![json!({"type": "text", "text": continue_text(&error, reason)})]
-        });
+        let prompt_id = format!("{root}{SUFFIX}{attempt}");
+        if record_manual {
+            self.append_quiet(
+                session,
+                "mux",
+                "auto_resume_manual",
+                json!({
+                    "turnId": cut_turn.clone(),
+                    "promptId": failed.clone(),
+                    "manualPromptId": prompt_id.clone(),
+                    "error": error.clone(),
+                    "control": by.control.as_str(),
+                    "trustGate": by.trust_gate,
+                    "fullAccessDevice": by.full_access_device.clone(),
+                    "from": by.from.clone(),
+                    "why": "manual",
+                }),
+            );
+        }
+        let blocks = match self.resend_of(session, &cut_turn, &failed) {
+            Some(blocks) => blocks,
+            // The agent never saw a first send it refused: a continuation would make no sense.
+            None if auto.is_some() => {
+                self.clear_fired(session, &cut_turn);
+                return Err(not_resendable());
+            }
+            None => {
+                // An on-demand retry does not compact first: it says no more than "an error".
+                let reason = crate::hub::turn_errors::resume_cause(&error, &error)
+                    .filter(|r| *r != "context")
+                    .unwrap_or("error");
+                vec![json!({"type": "text", "text": continue_text(&error, reason)})]
+            }
+        };
         let held = self.held_by(session, &root, &cut_turn);
-        let mut provenance = json!({"kind": "auto_resume", "promptId": root, "attempt": attempt, "turnId": cut_turn, "manual": true});
+        let mut provenance = json!({"kind": "auto_resume", "promptId": root, "attempt": attempt, "turnId": cut_turn});
+        if auto.is_none() {
+            provenance.set("manual", json!(true));
+        }
         // A sub-session's retry names its sender: checked again at dispatch as its messages are
         // (`subsession_guard.rs` `family_dispatch_check`).
         if let Some(from) = by.from {
@@ -140,19 +260,23 @@ impl Hub {
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
         let opts = PromptOptions {
-            prompt_id: Some(format!("{root}{SUFFIX}{attempt}")),
+            prompt_id: Some(prompt_id),
             on_accepted: Some(Box::new(move |v| {
                 let _ = tx.send(v);
             })),
             resend: true,
             control: by.control,
             trust_gate: by.trust_gate,
+            // A retry inherits the durable floor of the failed Cloud-mobile turn.
+            cloud_mobile: session.floor.cloud_mobile_turn.load(std::sync::atomic::Ordering::SeqCst),
             full_access_device: by.full_access_device,
             provenance: Some(provenance),
             after_turn: Some(cut_turn.clone()),
             ..PromptOptions::default()
         };
         let (hub, s) = (self.clone(), session.clone());
+        let settle_hub = hub.clone();
+        let manual_turn = cut_turn.clone();
         // The turn runs on: only its acceptance is awaited here.
         let turn = tokio::spawn(async move {
             let result = hub.prompt_with(&s, blocks, "acpmux", false, opts).await;
@@ -171,8 +295,19 @@ impl Hub {
             Err(_) => match turn.await {
                 Ok(Ok(v)) => v,
                 Ok(Err(e)) => {
+                    // An automatic retry records its own settling (`first_send.rs`).
+                    if auto.is_none() {
+                        settle_hub.append_quiet(
+                            session,
+                            "mux",
+                            "auto_resume_settled",
+                            json!({"turnId": manual_turn, "why": "manual_refused"}),
+                        );
+                    }
                     let reason = e.data.as_ref().and_then(|d| d.get("reason"));
                     return Err(match reason.and_then(Value::as_str) {
+                        // An automatic retry records why itself (`first_send.rs`).
+                        _ if auto.is_some() => e,
                         // Something else took the chat between the claim and the turn lock.
                         Some("auto_resume.superseded") => busy(),
                         Some("auto_resume.stopped") => stopped(),
@@ -215,7 +350,7 @@ impl Hub {
         {
             let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             let device = by.full_access_device.as_deref();
-            self.web_control_verdict(session, &m, by.control)
+            self.web_control_verdict(session, &m, by.control, device)
                 .and_then(|()| self.full_access_hold(&m, by.control, device))?;
         }
         let web = by.control == Control::Web;
@@ -226,9 +361,24 @@ impl Hub {
     /// now firing, so Stop or close until its turn starts still counts (`start_turn`). A retry
     /// that waits is taken over (its timer wakes and records the skip `superseded`). `retry.busy`
     /// while a turn runs, a prompt waits to run, or a continuation is about to start.
-    fn claim_failed_turn(&self, session: &Session) -> Result<(String, String, String), RpcError> {
+    /// `auto`: an automatic retry's cut turn, claimed only from that retry's own wait (`Waiting`
+    /// for it), so a Stop, a close or a turn that took the chat since refuses it.
+    /// `allow_stopped`: a Stop that came while the failed turn ran does not refuse it.
+    fn claim_failed_turn(
+        &self,
+        session: &Session,
+        auto: Option<&str>,
+        allow_stopped: bool,
+    ) -> Result<(String, String, String), RpcError> {
         let mut pending = session.auto_resume.lock();
-        if session.turn().is_some() || session.queue().iter().any(|q| !q.held) {
+        if let Some(cut) = auto {
+            let waits = matches!(pending.as_ref(), Some(Mark::Waiting { turn, .. }) if turn == cut);
+            if !waits {
+                let stopped_here = pending.is_none() && still_cut(session, cut);
+                return Err(if stopped_here { super::stopped() } else { super::superseded() });
+            }
+        }
+        if session.turn().is_some() || session.queue().iter().any(|q| !q.aside()) {
             return Err(busy());
         }
         let last = session.meta().last_turn.unwrap_or(Value::Null);
@@ -239,6 +389,9 @@ impl Hub {
         else {
             return Err(nothing_failed());
         };
+        if auto.is_some_and(|cut| cut != cut_turn) {
+            return Err(super::superseded());
+        }
         match pending.as_ref() {
             // A retry of this turn that waits gives way to this one.
             Some(Mark::Waiting { turn, .. }) if *turn == cut_turn => {}
@@ -247,7 +400,11 @@ impl Hub {
                 return Err(busy());
             }
             // Stop came while the failed turn ran: the caller asks for a retry anyway.
-            Some(Mark::Stopped(_)) | None => {}
+            Some(Mark::Stopped(_)) if allow_stopped => {}
+            Some(Mark::Stopped(_)) => return Err(stopped()),
+            // A restored manual retry owns the wait its restore installed: a Stop since cleared it.
+            None if !allow_stopped => return Err(stopped()),
+            None => {}
         }
         if !still_cut(session, &cut_turn) {
             return Err(busy());
@@ -261,6 +418,26 @@ impl Hub {
     /// (whose joined messages went back to the queue, `digest.rs`), it carried no hidden context
     /// (`prompt_context.rs`, never recorded), and its blocks can be rebuilt. The log is read from
     /// its end back to that prompt.
+    /// The blocks of the prompt logged as `msg` (a `user_message`), rebuilt as `resend_of` does;
+    /// None when it cannot be sent again whole (hidden context, an inbox digest, a part not kept).
+    pub(in crate::hub) fn logged_prompt_blocks(
+        &self,
+        session: &Session,
+        msg: &Value,
+    ) -> Option<Vec<Value>> {
+        let kind = msg.pointer("/_meta/provenance/kind").and_then(Value::as_str);
+        if msg.get("hiddenContext").is_some() || kind == Some(DIGEST_KIND) {
+            return None;
+        }
+        let image = |id: &str| {
+            let kept = self.prompt_image(&session.id, id).ok()?;
+            Some(
+                json!({"type": "image", "mimeType": kept.get("mimeType")?, "data": kept.get("data")?}),
+            )
+        };
+        prompt_blocks(msg, image)
+    }
+
     fn resend_of(&self, session: &Session, cut_turn: &str, prompt_id: &str) -> Option<Vec<Value>> {
         let mut prompt = None;
         let skip = |_: &[u8], _: &[u8]| false;

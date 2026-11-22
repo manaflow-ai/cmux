@@ -1,13 +1,16 @@
 import AppKit
 import CmuxHomeCore
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 @testable import MessagesLabSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The user, 2026-10-21: "for compose button default should make it look like imessage, so the
 /// compose button is always in the body area not the sidebar, even on big screen sizes. and by
 /// default i should be able to see everyone in my team as people i can chat to".
 @MainActor
+@Suite(.closesItsWindows)
 struct HomeComposeAndTeamTests {
     static let me = HomeNewMessageTests.me
     static let ada = HomeNewMessageTests.ada
@@ -31,11 +34,12 @@ struct HomeComposeAndTeamTests {
     func theChatHoldsComposeAtEveryWidth(_ window: CGFloat, _ list: CGFloat) throws {
         _ = NSApplication.shared
         let suite = "cmux.tests.composeTeam.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 800))
         let content = NSView()
         let split = HomeSidebarSplitView(sidebar: home, content: content, widths: HomeSidebarWidth(defaults: defaults))
+        split.showsList = true // the person showed the list (folded by default: ChiefReplacesHomeTests)
         split.windowKey = { "w" }
         let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: window, height: 800), styleMask: [.borderless],
                            backing: .buffered, defer: false)
@@ -51,7 +55,9 @@ struct HomeComposeAndTeamTests {
         let button = try #require(HomeNarrowSidebarTests.chatCompose(in: split))
         #expect(!button.isHidden, "the chat has no compose at \(list) pt in a \(window) pt window")
         let frame = button.convert(button.bounds, to: content)
-        #expect(frame.minX >= 4 && frame.minX <= 24)
+        let chats = split.chatColumn.chats.convert(split.chatColumn.chats.bounds, to: content)
+        #expect(chats.minX >= 4 && chats.minX <= 24, "Chats sits \(chats.minX) pt from the chat's left edge")
+        #expect(frame.minX > chats.maxX && frame.minX <= chats.maxX + 16, "compose sits at \(frame.minX) pt, Chats ends at \(chats.maxX) pt")
         split.composing = true
         #expect(button.isHidden)
     }

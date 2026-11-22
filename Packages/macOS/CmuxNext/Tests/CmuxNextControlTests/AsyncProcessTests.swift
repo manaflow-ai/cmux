@@ -95,6 +95,50 @@ import Testing
         await child.exit()
     }
 
+    @Test func aProcessGroupStopsDescendantsThatOutliveTheirGitLeader() async throws {
+        let directory = FileManager.default.temporaryDirectory
+        let marker = directory.appending(path: "async-process-group-\(UUID().uuidString)").path
+        let ready = directory.appending(path: "async-process-group-ready-\(UUID().uuidString)").path
+        try #require(mkfifo(ready, 0o600) == 0)
+        defer { unlink(marker); unlink(ready) }
+        // The leader survives TERM and waits for a descendant; the descendant traps TERM, writes the marker and
+        // exits. A direct-pid stop would reach only the leader and leave the descendant running without a
+        // marker; the process-group stop reaches the descendant too.
+        // The leader sets its handler before it forks, so a stop can never find it still unprotected. It is a
+        // no-op handler (`:`), not an ignore: an ignored TERM is inherited, and a shell started with TERM
+        // ignored cannot trap it, while a handler resets to the default across the descendant's exec. `wait`
+        // returns early on a trapped signal, so the leader waits again until the descendant has exited.
+        // The paths are the shells' positional parameters ($0 the marker, $1 the readiness fifo), not text
+        // spliced into the script: the old `\\(marker)` in this literal was never interpolated, so the trap
+        // wrote to a file named "(marker)" in the working directory (or failed to parse) and the marker never appeared.
+        let script = #"trap : TERM; /bin/sh -c 'trap "echo term > \"\$0\"; exit 0" TERM; echo ready > "$1"; while :; do sleep 1; done' "$0" "$1" & until wait; do :; done"#
+        let request = ProcessRequest(URL(fileURLWithPath: "/bin/sh"), ["-c", script, marker, ready],
+                                     killGrace: .seconds(10), terminationScope: .processGroup)
+        let run = Task { try await processes.run(request) }
+        // Stop only once the descendant has installed its trap and said so, with no timing race on a loaded host.
+        // The fifo is read non-blocking under a deadline: a descendant that never starts fails here, cleanly.
+        let reader = open(ready, O_RDONLY | O_NONBLOCK)
+        try #require(reader >= 0)
+        defer { close(reader) }
+        var byte: UInt8 = 0
+        let readyBy = ContinuousClock.now + .seconds(20)
+        while read(reader, &byte, 1) != 1, ContinuousClock.now < readyBy { try await Task.sleep(for: .milliseconds(20)) }
+        guard byte != 0 else {
+            run.cancel()
+            Issue.record("the descendant never signalled readiness")
+            return
+        }
+        // `.stop`: the cancel sends TERM to the whole group (SIGKILL after the grace) and the run resolves at once.
+        run.cancel()
+        await #expect(throws: CancellationError.self) { try await run.value }
+        // The descendant's trap writes the marker after the stop; it gets well within the grace to do so.
+        let markedBy = ContinuousClock.now + .seconds(10)
+        while !FileManager.default.fileExists(atPath: marker), ContinuousClock.now < markedBy {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(FileManager.default.fileExists(atPath: marker))
+    }
+
     @Test func aFinishRequestRunsToItsEndThoughItsCallerIsCancelled() async throws {
         // The child waits on a fifo that only the test writes, after its cancel: it is surely running then.
         let fifo = FileManager.default.temporaryDirectory.appending(path: "async-process-\(UUID().uuidString)").path

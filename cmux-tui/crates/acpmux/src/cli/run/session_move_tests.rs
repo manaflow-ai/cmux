@@ -67,3 +67,393 @@ fn a_named_target_must_be_an_ssh_peer() {
     assert!(e.contains("not an ssh peer"), "{e}");
     assert!(Targets::new("auto", &peers).is_ok());
 }
+
+fn about_ok(free_gb: Option<u64>) -> RemoteDaemon {
+    RemoteDaemon {
+        home: "/home/cmux".into(),
+        socket: "/home/cmux/.acpmux/acpmux.sock".into(),
+        disk_free: free_gb.map(|g| g * 1_000_000_000),
+    }
+}
+
+fn targets(names: &[&str]) -> Vec<Target> {
+    names
+        .iter()
+        .map(|n| Target { name: (*n).to_owned(), ssh: (*n).to_owned(), probed: None })
+        .collect()
+}
+
+/// A full fleet ranked a pool slot first (no room anywhere, fewest agents there), but its
+/// fresh ssh fails (no VM behind it): auto passes it over with why and takes the next host
+/// that answers, and remembers it as unreachable.
+#[test]
+fn auto_passes_over_a_host_a_fresh_ssh_cannot_reach() {
+    let hosts = vec![
+        host("fs-slot", false, true, 0.0, 2),
+        host("lane-a", false, true, 0.0, 6),
+        json!({"name": "spare", "local": false, "ok": false, "load": false, "room": 9.0,
+               "live": 0, "refused": "not a lane host (no lanes entry in fleet-registry.json)"}),
+    ];
+    let (order, skipped) = ranked(&hosts, &HashMap::new(), |_| None);
+    assert_eq!(order, ["fs-slot", "lane-a"], "the ranking alone still puts the slot first");
+    assert_eq!(
+        skipped,
+        [(
+            "spare".to_owned(),
+            "not a lane host (no lanes entry in fleet-registry.json)".to_owned()
+        )]
+    );
+    let mut asked = Vec::new();
+    let w = walk(
+        &targets(&order.iter().map(String::as_str).collect::<Vec<_>>()),
+        0,
+        |_| 0,
+        |t| {
+            asked.push(t.name.clone());
+            if t.name == "fs-slot" {
+                Err("ssh to fs-slot failed: cloud-vm-up: pool slot fs-slot has no VM".into())
+            } else {
+                Ok(about_ok(Some(100)))
+            }
+        },
+    );
+    assert_eq!(asked, ["fs-slot", "lane-a"]);
+    let pick = w.pick.unwrap();
+    assert_eq!(pick.name, "lane-a");
+    assert!(pick.probed.is_some(), "the pick carries its answer, so the move does not ask again");
+    assert_eq!(w.skipped.len(), 1);
+    assert_eq!(w.skipped[0].0, "fs-slot");
+    assert!(
+        w.skipped[0].1.starts_with("unreachable from here (ssh to fs-slot failed: cloud-vm-up"),
+        "{:?}",
+        w.skipped
+    );
+    assert_eq!(w.unreachable.len(), 1);
+    assert!(w.warning.is_none());
+}
+
+/// No host answers: no pick, and every host is named with why.
+#[test]
+fn auto_with_no_host_that_answers_picks_none_and_says_why_for_each() {
+    let w = walk(&targets(&["a", "b"]), 0, |_| 0, |t| Err(format!("ssh to {} failed", t.name)));
+    assert!(w.pick.is_none());
+    let names: Vec<&str> = w.skipped.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(names, ["a", "b"]);
+}
+
+/// A host whose free disk, less the move, is under its floor is passed over for one with room;
+/// when every host that answers is short, the one with the most free takes it with a warning.
+/// A host that gives no disk reading is taken.
+#[test]
+fn auto_passes_over_a_host_short_of_disk_unless_every_host_is() {
+    let gb = 1_000_000_000u64;
+    let disk = |n: &str| match n {
+        "tight" => Some(12),
+        "roomy" => Some(200),
+        "tighter" => Some(11),
+        _ => None,
+    };
+    let floor = |_: &str| 10 * gb;
+    let w = walk(&targets(&["tight", "roomy"]), 3 * gb, floor, |t| Ok(about_ok(disk(&t.name))));
+    assert_eq!(w.pick.unwrap().name, "roomy");
+    assert_eq!(w.skipped[0].0, "tight");
+    assert!(
+        w.skipped[0].1.contains("12.0 GB disk free, under its 10 GB floor plus this move's 3.0 GB"),
+        "{:?}",
+        w.skipped
+    );
+    assert!(w.unreachable.is_empty() && w.warning.is_none());
+
+    let w = walk(&targets(&["tighter", "tight"]), 3 * gb, floor, |t| Ok(about_ok(disk(&t.name))));
+    assert_eq!(w.pick.unwrap().name, "tight", "most free of the short ones");
+    assert!(w.warning.unwrap().contains("disk floors only warn"));
+
+    let w = walk(&targets(&["unread"]), 3 * gb, floor, |t| Ok(about_ok(disk(&t.name))));
+    assert_eq!(w.pick.unwrap().name, "unread");
+}
+
+/// A host the caller rules out (not an ssh peer, held) is listed with its reason, not ranked.
+#[test]
+fn ranked_names_each_host_it_leaves_out() {
+    let hosts = vec![host("a", true, false, 2.0, 1), host("held", true, false, 5.0, 0)];
+    let (order, skipped) = ranked(&hosts, &HashMap::new(), |n| {
+        (n == "held").then(|| "reserved for sam until x (r)".to_owned())
+    });
+    assert_eq!(order, ["a"]);
+    assert_eq!(skipped, [("held".to_owned(), "reserved for sam until x (r)".to_owned())]);
+}
+
+#[test]
+fn the_targets_disk_reading_is_optional_and_in_bytes() {
+    let r = parse_about("/home/cmux\n{\"socket\":\"/s.sock\"}\n2048\n").unwrap();
+    assert_eq!(r.disk_free, Some(2048 * 1024));
+    let r = parse_about("/home/cmux\n{\"socket\":\"/s.sock\"}\n").unwrap();
+    assert_eq!(r.disk_free, None, "an older answer without df");
+    let r = parse_about("/home/cmux\n{\"socket\":\"/s.sock\"}\nnot a number\n").unwrap();
+    assert_eq!(r.disk_free, None);
+}
+
+#[test]
+fn the_tree_size_sums_blobs_and_skips_submodules() {
+    let listing = b"100644 blob aaaa     120\tsrc/a.rs\x00100755 blob bbbb       5\tbin/x\x00160000 commit cccc       -\tvendor/sub\x00";
+    assert_eq!(sum_tree_sizes(listing), 125);
+    assert_eq!(sum_tree_sizes(b""), 0);
+}
+
+/// A git checkout on branch `lane/x` with an `origin`, in a fresh temp folder.
+fn repo_with_branch() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let run = |args: &[&str]| {
+        let ok = StdCommand::new("git").arg("-C").arg(dir.path()).args(args).output().unwrap();
+        assert!(ok.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&ok.stderr));
+    };
+    run(&["init", "-q", "-b", "lane/x"]);
+    run(&["remote", "add", "origin", "git@github.com:manaflow-ai/cmux.git"]);
+    std::fs::create_dir(dir.path().join("sub")).unwrap();
+    std::fs::write(dir.path().join("sub/a.txt"), "a").unwrap();
+    run(&["add", "."]);
+    run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "a"]);
+    dir
+}
+
+#[test]
+fn a_source_machines_checkout_reads_as_this_machines_does() {
+    // `--from`: the checkout script runs on the source machine; here it runs in a local shell,
+    // and reads the same checkout `checkout_of` reads here.
+    let repo = repo_with_branch();
+    let sub = repo.path().join("sub");
+    let read = |cwd: &Path| {
+        let out = run_here(CHECKOUT_SCRIPT, format!("{}\n", cwd.display()).as_bytes()).unwrap();
+        assert!(out.ok, "{}", out.stderr);
+        parse_checkout(&out.stdout).unwrap()
+    };
+    let there = read(&sub).expect("a checkout");
+    assert_eq!(Some(there.clone()), checkout_of(&sub).unwrap());
+    assert_eq!(there.branch.as_deref(), Some("lane/x"));
+    assert_eq!(there.origin.as_deref(), Some("git@github.com:manaflow-ai/cmux.git"));
+    assert!(!there.dirty);
+
+    std::fs::write(sub.join("b.txt"), "b").unwrap();
+    assert!(read(&sub).unwrap().dirty);
+
+    let plain = tempfile::tempdir().unwrap();
+    assert_eq!(read(plain.path()), None);
+}
+
+#[test]
+fn a_checkout_answer_without_a_plain_top_folder_is_refused() {
+    assert!(parse_checkout("branch\tmain\n").is_err());
+    assert!(parse_checkout("top\t/a/../b\nbranch\tmain\n").is_err());
+    assert_eq!(parse_checkout("none\n").unwrap(), None);
+}
+
+#[test]
+fn local_names_this_machine_only() {
+    assert!(names_here("local", "lawbook"));
+    assert!(names_here("LawBook", "lawbook"));
+    assert!(!names_here("cmux-lawrence", "lawbook"));
+}
+
+#[test]
+fn this_machine_is_the_target_of_a_move_from_another_without_being_a_peer() {
+    let here = Target { name: "lawbook".into(), ssh: String::new(), probed: Some(about_ok(None)) };
+    let targets = Targets::with_here("local", &json!({"peers": []}), Some(here)).unwrap();
+    assert_eq!(targets.named.as_deref(), Some("lawbook"));
+    // Without --from, `local` is no peer.
+    assert!(Targets::new("local", &json!({"peers": []})).is_err());
+}
+
+#[test]
+fn a_folder_is_made_on_this_machine_for_a_move_here() {
+    let base = tempfile::tempdir().unwrap();
+    let want = base.path().join("teleport/eval");
+    let made =
+        prepare_folder("", &Folder::Plain { cwd: want.to_string_lossy().into_owned() }).unwrap();
+    assert_eq!(Path::new(&made), want.canonicalize().unwrap());
+}
+
+#[test]
+fn folder_failure_keeps_a_clear_reason_when_stderr_is_empty() {
+    let error = folder_failure(
+        "gcp-agent-lane-3",
+        &crate::cli::hosts::RemoteOut { ok: false, stdout: String::new(), stderr: String::new() },
+    );
+    let text = error.to_string();
+    assert!(text.contains("making the folder on gcp-agent-lane-3 failed"));
+    assert!(text.contains("non-zero exit status"));
+    assert!(text.contains("remote command returned no diagnostic output"));
+}
+
+#[test]
+fn folder_failure_uses_stdout_when_stderr_is_empty() {
+    let error = folder_failure(
+        "gcp-agent-lane-3",
+        &crate::cli::hosts::RemoteOut {
+            ok: false,
+            stdout: "wt: worktree already exists\n".into(),
+            stderr: String::new(),
+        },
+    );
+    assert!(error.to_string().contains("wt: worktree already exists"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_chat_or_checkout() {
+    use crate::rpc::Message;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    for (running, carry_changes, detached, expected) in [
+        (true, false, false, Some("running_turn")),
+        (false, false, false, Some("dirty_worktree")),
+        (false, true, false, None),
+        (false, false, true, None),
+    ] {
+        let repo = repo_with_branch();
+        let file = repo.path().join("sub/a.txt");
+        std::fs::write(&file, "uncommitted work").unwrap();
+        if detached {
+            let out = StdCommand::new("git")
+                .arg("-C")
+                .arg(repo.path())
+                .args(["checkout", "--detach", "--quiet"])
+                .output()
+                .unwrap();
+            assert!(out.status.success());
+        }
+        let info = json!({"sessionId": "chat", "name": "Chat", "cwd": repo.path(),
+            "status": if running { "running" } else { "ready" },
+            "turn": if running { json!({"turnId": "one"}) } else { Value::Null },
+            "queued": 2});
+        let socket_dir = tempfile::tempdir().unwrap();
+        let socket = socket_dir.path().join("daemon.sock");
+        let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (rd, mut wr) = stream.into_split();
+            let mut lines = BufReader::new(rd).lines();
+            for expected in [method::INITIALIZE, method::MUX_INFO, method::MUX_INFO] {
+                let line = lines.next_line().await.unwrap().unwrap();
+                let Message::Request { id, method: called, .. } = Message::parse(&line).unwrap()
+                else {
+                    panic!("expected read-only request");
+                };
+                assert_eq!(called, expected, "dry run must not cancel or freeze the chat");
+                let result = if called == method::INITIALIZE { json!({}) } else { info.clone() };
+                wr.write_all(Message::ok(id, result).to_line().as_bytes()).await.unwrap();
+            }
+        });
+        let client = Client::connect(&socket).await.unwrap();
+        let target =
+            Target { name: "target".into(), ssh: String::new(), probed: Some(about_ok(None)) };
+        let mut targets =
+            Targets::with_here("target", &json!({"peers": []}), Some(target)).unwrap();
+        let args = MoveArgs {
+            sessions: vec!["chat".into()],
+            host: "target".into(),
+            all_idle: false,
+            interrupt: false,
+            after_turn: true,
+            leave_dirty: false,
+            carry_changes,
+            cwd: None,
+            dry_run: true,
+            resume_there: false,
+            from: None,
+        };
+        let outcome = move_one(&client, "chat", &args, repo.path(), &mut targets).await;
+        assert_eq!(outcome.error_code, expected);
+        assert_eq!(outcome.preflight.running, running);
+        assert_eq!(outcome.preflight.dirty, Some(true));
+        assert!(!outcome.moved);
+        assert_eq!(std::fs::read_to_string(file).unwrap(), "uncommitted work");
+        if detached {
+            assert!(outcome.error.unwrap().contains("detached HEAD"));
+        } else {
+            assert_eq!(outcome.error.is_some(), expected.is_some());
+        }
+        server.await.unwrap();
+    }
+}
+
+#[test]
+fn move_from_auto_excludes_source_registry_and_ssh_aliases() {
+    let peers = json!({"peers": [
+        {"name": "source", "url": "ssh://source-host"},
+        {"name": "source-alias", "url": "ssh://other-route"},
+        {"name": "same-endpoint", "url": "ssh://source-host"},
+        {"name": "target", "url": "ssh://target-host"}
+    ]});
+    let registry = json!({"machines": {"source": {"aliases": ["source-alias"]}}});
+    let source = Source::Peer { name: "SOURCE.local".into(), ssh: "source-host".into() };
+    let mut targets = Targets::new("auto", &peers).unwrap();
+    targets.exclude_source(&source, Some(&registry)).unwrap();
+    let hosts = json!([
+        {"name": "source", "ok": true, "room": 100},
+        {"name": "source-alias", "ok": true, "room": 100},
+        {"name": "same-endpoint", "ok": true, "room": 100},
+        {"name": "target", "ok": true, "room": 1}
+    ]);
+    let (order, _) = ranked(hosts.as_array().unwrap(), &HashMap::new(), |name| {
+        targets.target(name).is_none().then(|| "not a destination".into())
+    });
+    assert_eq!(order, ["target"]);
+    for alias in ["source", "source-alias", "same-endpoint"] {
+        let mut targets = Targets::new(alias, &peers).unwrap();
+        assert!(targets.exclude_source(&source, Some(&registry)).is_err());
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn move_from_reads_placement_from_the_initiating_daemon() {
+    use crate::rpc::Message;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let sockets = tempfile::tempdir().unwrap();
+    let local_path = sockets.path().join("local.sock");
+    let remote_path = sockets.path().join("remote.sock");
+    let local = tokio::net::UnixListener::bind(&local_path).unwrap();
+    let remote = tokio::net::UnixListener::bind(&remote_path).unwrap();
+    let local_server = tokio::spawn(async move {
+        let (stream, _) = local.accept().await.unwrap();
+        let (rd, mut wr) = stream.into_split();
+        let mut lines = BufReader::new(rd).lines();
+        for expected in [method::INITIALIZE, "_acpmux/place"] {
+            let line = lines.next_line().await.unwrap().unwrap();
+            let Message::Request { id, method: called, .. } = Message::parse(&line).unwrap() else {
+                panic!("expected placement request");
+            };
+            assert_eq!(called, expected);
+            // No local candidates: Auto should refuse, without probing any remote-only peer.
+            wr.write_all(Message::ok(id, json!({"hosts": []})).to_line().as_bytes()).await.unwrap();
+        }
+    });
+    let remote_server = tokio::spawn(async move {
+        let (stream, _) = remote.accept().await.unwrap();
+        let (rd, mut wr) = stream.into_split();
+        let mut lines = BufReader::new(rd).lines();
+        let line = lines.next_line().await.unwrap().unwrap();
+        let Message::Request { id, method: called, .. } = Message::parse(&line).unwrap() else {
+            panic!("expected initialize");
+        };
+        assert_eq!(called, method::INITIALIZE);
+        wr.write_all(Message::ok(id, json!({})).to_line().as_bytes()).await.unwrap();
+        assert!(
+            lines.next_line().await.unwrap().is_none(),
+            "placement must not query the source daemon's peers"
+        );
+    });
+    let observer = Client::connect(&local_path).await.unwrap();
+    let source = Client::connect(&remote_path).await.unwrap();
+    let mut targets = Targets::new("auto", &json!({"peers": []})).unwrap();
+    targets.observer = Some(observer);
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        targets.pick(&source, Path::new("/project"), 0),
+    )
+    .await
+    .expect("local placement answered");
+    assert!(result.err().unwrap().to_string().contains("no peer can take"));
+    local_server.await.unwrap();
+    // Client owns a background reader; stop the fixture rather than wait for that task to close.
+    remote_server.abort();
+}

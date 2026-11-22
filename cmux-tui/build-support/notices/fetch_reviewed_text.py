@@ -24,6 +24,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import python_floor  # noqa: F401  first: one clear line under a python3 older than 3.11.4
 import tomllib
 import urllib.error
 import urllib.request

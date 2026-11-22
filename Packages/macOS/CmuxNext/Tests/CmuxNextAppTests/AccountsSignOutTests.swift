@@ -45,7 +45,7 @@ import Testing
                                                      sources: [.file("~/.claude/settings.json")]))
         let model = await refreshed(services)
         #expect(row(model, .claude)?.buttons.map(\.id).contains("signOut") == false)
-        model.signOut(.claude)
+        await model.signOut(.claude)
         #expect(!services.calls.contains("signOut:claude"))
     }
 
@@ -60,7 +60,7 @@ import Testing
         #expect(model.row(.codex).phase == .idle)
         #expect(model.row(.codex).outcome == .failed(refusal ?? ""))
 
-        #expect(model.reauthenticate(.claude) == refusal)
+        #expect(await model.reauthenticate(.claude) == refusal)
         #expect(model.row(.claude).phase == .idle)
         // Nothing is pending, so coming back to Settings does not re-detect.
         let detections = services.calls.filter { $0 == "detect" }.count
@@ -111,7 +111,7 @@ import Testing
         #expect(claude?.buttons.map(\.id).contains("signOut") == false)
         #expect(claude?.note?.hasPrefix("Your shell provides this sign-in") == true)
 
-        model.signOut(.claude)
+        await model.signOut(.claude)
         #expect(!services.calls.contains("signOut:claude"))
     }
 }

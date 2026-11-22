@@ -89,6 +89,20 @@ func liveCall(_ link: FakeLink = FakeLink(), toolbox: FakeToolbox = FakeToolbox(
         #expect(Set(tools.compactMap { $0["name"] as? String }) == Set(VoiceCallTool.Name.allCases.map(\.rawValue)))
     }
 
+    @Test func aServerErrorIsRetriedOnceThenShown() async {
+        let link = FakeLink()
+        link.openFailures = [.server(status: 500, requestID: "req_1")]
+        let session = await liveCall(link)
+        #expect(session.phase == .live)
+        #expect(link.opened.count == 2)
+
+        let failing = FakeLink()
+        failing.openFailures = [.server(status: 500, requestID: "req_1"), .server(status: 502, requestID: "req_2")]
+        let failed = await liveCall(failing)
+        #expect(failed.phase == .ended(.server(status: 502, requestID: "req_2")))
+        #expect(failing.opened.count == 2)
+    }
+
     @Test func rejectedKeyEndsTheCallWithThatReason() async {
         let link = FakeLink()
         link.openFailures = [.keyRejected]
@@ -288,6 +302,19 @@ func liveCall(_ link: FakeLink = FakeLink(), toolbox: FakeToolbox = FakeToolbox(
         let body: String
         func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
             (Data(body.utf8), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
+        }
+    }
+
+    struct HeaderHTTP: VoiceCallHTTP {
+        func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+            (Data("Internal Server Error".utf8),
+             HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: ["x-request-id": "req_abc"])!)
+        }
+    }
+
+    @Test func aBare500CarriesItsRequestID() async {
+        await #expect(throws: VoiceCallFailure.server(status: 500, requestID: "req_abc")) {
+            _ = try await RealtimeCallsAPI(http: HeaderHTTP()).connect(offerSDP: "v=0", session: Data(), apiKey: "sk-x", safetyIdentifier: nil)
         }
     }
 

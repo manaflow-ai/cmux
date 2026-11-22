@@ -33,6 +33,16 @@ struct AgentPaneTransportBenchParse {
         return String(decoding: data, as: UTF8.self)
     }
 
+    /// The pre-Cause-C notification path: validate, parse, and serialize every frame. Keeping it
+    /// beside the optimized path makes the before/after numbers come from one harness and worker.
+    nonisolated static func legacyNotification(_ text: String) -> String? {
+        guard AcpmuxJSONKeys.verdict(text) == .clean,
+              let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+              let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes])
+        else { return nil }
+        return String(decoding: data, as: UTF8.self)
+    }
+
 
     /// Median and maximum milliseconds of `runs` runs.
     nonisolated static func time(_ runs: Int, _ body: () -> String?) -> (median: Double, max: Double) {
@@ -64,6 +74,18 @@ struct AgentPaneTransportBenchParse {
             let check = Self.time(runs) { AcpmuxJSONKeys.refuses(Array(text.utf8)) ? nil : "" }
             print(String(format: "PANE-PARSE %@ bytes=%d full_ms=%.3f full_max_ms=%.3f check_ms=%.3f check_max_ms=%.3f",
                          name, text.utf8.count, full.median, full.max, check.median, check.max))
+
+            if name == "notification-300B" {
+                let ids = AcpmuxRequestIds()
+                let before = Self.time(runs) { Self.legacyNotification(text) }
+                let after = Self.time(runs) {
+                    guard case .page(let forwarded, let object, _) = ids.toPage(text), object == nil else { return nil }
+                    return forwarded
+                }
+                print(String(format: "PANE-NOTIFICATION bytes=%d before_ms=%.3f after_ms=%.3f delta_pct=%.1f",
+                             text.utf8.count, before.median, after.median,
+                             (after.median / before.median - 1) * 100))
+            }
         }
     }
 

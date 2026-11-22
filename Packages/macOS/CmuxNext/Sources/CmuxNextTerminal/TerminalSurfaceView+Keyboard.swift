@@ -87,6 +87,20 @@ extension TerminalSurfaceView {
         )
     }
 
+    /// A key held for this terminal while another view had the keyboard (a creation hold, P0 1193), typed into it now
+    /// without taking the keyboard: this surface's own Ghostty key encoder (its modifiers, Option-as-Alt setting, cursor
+    /// and keypad modes, the Kitty keyboard protocol) turns it into bytes, written to this terminal as a typed key is
+    /// (by the terminal id its create chose while it is being made). No input method sees it: a held key has no
+    /// composition. A Command chord is an app action and never comes here.
+    public func typeHeldKey(_ event: NSEvent) {
+        guard let surface else { return }
+        let translationEvent = GhosttyInput.translationEvent(
+            for: event, translationMods: ghostty_surface_key_translation_mods(surface, GhosttyInput.mods(event.modifierFlags)))
+        let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
+        sendKey(action, event: event, translationEvent: translationEvent, text: GhosttyInput.keyText(for: translationEvent))
+        sendKey(GHOSTTY_ACTION_RELEASE, event: event)
+    }
+
     public override func keyUp(with event: NSEvent) {
         if copyMode.handleKeyUp(event) { return }
         sendKey(GHOSTTY_ACTION_RELEASE, event: event)

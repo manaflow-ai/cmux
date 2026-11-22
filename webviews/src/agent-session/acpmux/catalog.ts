@@ -1,5 +1,7 @@
 import { keepPreviousData, notifyManager, QueryClient, QueryClientContext, useQuery } from "@tanstack/react-query";
 import { useContext, useMemo, useSyncExternalStore } from "react";
+import { isDefaultChoice } from "./defaultChoice";
+import { type MachineHarnesses, readMachineHarnesses } from "./machineHarnesses";
 import type { AcpmuxSnapshot } from "./model";
 
 // TanStack Query holds acpmux server state the pane reads on request: today the
@@ -12,7 +14,11 @@ import type { AcpmuxSnapshot } from "./model";
 
 export type HarnessCatalog = AcpmuxSnapshot["catalog"];
 /// `cwd`: the chat's folder; the reply then also lists that folder's profiles (`folder` entries).
-export type HarnessCatalogSource = { harnesses(cwd?: string): Promise<HarnessCatalog> };
+export type HarnessCatalogSource = {
+  harnesses(cwd?: string): Promise<HarnessCatalog>;
+  /// Another machine's `_acpmux/harnesses`, as acpmux forwards it (machineHarnesses.ts).
+  peerHarnesses?(peer: string): Promise<unknown>;
+};
 
 /** How long a fetched catalog counts as fresh. After that, focusing the pane refetches it. */
 export const HARNESS_CATALOG_STALE_MS = 60_000;
@@ -61,7 +67,7 @@ export class HarnessCatalogCache {
     const merged = fresh
       .filter((entry) => !entry.folder)
       .map((entry) =>
-        entry.models.length > 0 || !cached.get(entry.id)?.models.length
+        probedModels(entry) || !cached.get(entry.id) || !probedModels(cached.get(entry.id)!)
           ? entry
           : { ...entry, models: cached.get(entry.id)!.models },
       );
@@ -73,6 +79,13 @@ export class HarnessCatalogCache {
     }
     return profiles.length > 0 ? [...merged, ...profiles] : merged;
   }
+}
+
+/// Whether acpmux has a real list for the harness: until an agent's probe ends it reports only its
+/// default placeholder (`[{id: "default"}]`), which must not replace the list cached last time
+/// (OpenCode's picker read empty on every launch).
+function probedModels(entry: HarnessCatalog[number]): boolean {
+  return entry.models.some((model) => !isDefaultChoice(model));
 }
 
 function defaultStorage(): Storage | undefined {
@@ -97,11 +110,48 @@ export function harnessCatalogKey(clientId: number, cwd?: string) {
 /// (every chat folder's) stale, so an open picker re-reads `_acpmux/harnesses` and `_acpmux/models`
 /// at once. Event-driven: no polling, no reconnect.
 export function followHarnessChanges(
-  client: { onHarnessesChanged?: () => void },
+  client: { onHarnessesChanged?: () => void; onCatalogChanged?: () => void },
   queryClient: QueryClient,
   clientId: number,
+  onCatalogChanged?: () => void,
 ): void {
-  client.onHarnessesChanged = () => void queryClient.invalidateQueries({ queryKey: harnessCatalogKey(clientId) });
+  client.onHarnessesChanged = () => {
+    void queryClient.invalidateQueries({ queryKey: harnessCatalogKey(clientId) });
+    // A machine's agents are read again with this Mac's: a profile written or a list refreshed.
+    void queryClient.invalidateQueries({ queryKey: peerHarnessesKey(clientId) });
+  };
+  client.onCatalogChanged = onCatalogChanged;
+}
+
+/** Key per direct client and machine (never under `harnessCatalogKey`: `useHarnessesListed` reads
+ *  only this Mac's listing). */
+export function peerHarnessesKey(clientId: number, peer?: string) {
+  return peer
+    ? (["acpmux", "peerHarnesses", clientId, peer] as const)
+    : (["acpmux", "peerHarnesses", clientId] as const);
+}
+
+/// The agents another machine can start a chat with, while it is where a new chat will start
+/// (`peer`) and acpmux has it connected (`ready`). Each machine is cached on its own; a pick of one
+/// reads it again (stale at once), and `_acpmux/harnesses_changed` marks every one stale
+/// (`followHarnessChanges`). A refused, failed or timed-out read is undefined, as no machine is:
+/// it never holds a send (machineHarnesses.ts `machineHarnessVerdict`).
+export function useMachineHarnesses(
+  source: { id: number; client: HarnessCatalogSource } | undefined,
+  peer: string | undefined,
+  ready: boolean,
+): MachineHarnesses | undefined {
+  const read = source?.client.peerHarnesses;
+  const query = useQuery({
+    queryKey: peerHarnessesKey(source?.id ?? 0, peer),
+    queryFn: async () => readMachineHarnesses(await read!.call(source!.client, peer!)) ?? null,
+    enabled: read !== undefined && peer !== undefined && ready,
+    staleTime: 0,
+    // acpmux already waited up to 5 s for the machine; another try would only hold the answer longer.
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  return peer !== undefined && ready && query.isSuccess ? (query.data ?? undefined) : undefined;
 }
 
 /// Whether a folder profile from `folder` applies to a chat in `cwd` (the folder or inside it).

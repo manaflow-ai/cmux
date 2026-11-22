@@ -1,0 +1,207 @@
+{
+ "id": "spam-cmd-t-cmd-w",
+ "priority": "P0",
+ "title": "Cmd-T then Cmd-W spammed together: 20 pairs and 5 bursts of 3+3 leave the pane as it was",
+ "why": "Spamming Cmd-T and then Cmd-W must make and close exactly one tab per press, with no tab left behind or lost, in the app and the daemon (Lawrence, Chief msg 2097: \"If I spam Command-T and then Command-W a lot of times... I think there's a race condition.\").",
+ "source": "prompt 2097; TabSpamRaceTests covers the store against a simulated daemon, this covers the real app and daemon",
+ "budget_seconds": 180,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "jr-spam-tw",
+   "as": "first"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "tabs1"
+  },
+  {
+   "do": "expect",
+   "title": "one more terminal tab in the pane",
+   "since": "tabs1",
+   "timeout": 30,
+   "all": [
+    {
+     "daemon_pane_ready": {
+      "tabs": 2
+     }
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "spam_remember",
+   "as": "before-pairs"
+  },
+  {
+   "do": "hammer_keys",
+   "keys": [
+    {
+     "key": "t",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "key": "w",
+     "modifiers": [
+      "cmd"
+     ]
+    }
+   ],
+   "times": 20,
+   "within": 2.0,
+   "as": "pairs"
+  },
+  {
+   "do": "expect",
+   "title": "20 Cmd-T, Cmd-W pairs in 2 s: every press ran, the pane has the tabs it had",
+   "since": "pairs",
+   "timeout": 15,
+   "settle": 2.0,
+   "all": [
+    {
+     "spam_runs": {
+      "of": "pairs",
+      "ran": "sent"
+     }
+    },
+    {
+     "daemon_pane_ready": {
+      "tabs": 2
+     }
+    },
+    {
+     "spam_unchanged": {
+      "since": "before-pairs"
+     }
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "spam_remember",
+   "as": "before-bursts"
+  },
+  {
+   "do": "hammer_keys",
+   "keys": [
+    {
+     "key": "t",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "key": "t",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "key": "t",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "key": "w",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "key": "w",
+     "modifiers": [
+      "cmd"
+     ]
+    },
+    {
+     "key": "w",
+     "modifiers": [
+      "cmd"
+     ]
+    }
+   ],
+   "times": 5,
+   "within": 2.0,
+   "as": "bursts"
+  },
+  {
+   "do": "expect",
+   "title": "5 bursts of 3 Cmd-T then 3 Cmd-W in 2 s: every press ran, the pane has the tabs it had",
+   "since": "bursts",
+   "timeout": 15,
+   "settle": 2.0,
+   "all": [
+    {
+     "spam_runs": {
+      "of": "bursts",
+      "ran": "sent"
+     }
+    },
+    {
+     "daemon_pane_ready": {
+      "tabs": 2
+     }
+    },
+    {
+     "spam_unchanged": {
+      "since": "before-bursts"
+     }
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "after"
+  },
+  {
+   "do": "focused_terminal",
+   "as": "after"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo after-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "typed"
+  },
+  {
+   "do": "expect",
+   "title": "after the spam a new terminal answers, in the daemon and on screen",
+   "since": "typed",
+   "within": 3,
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "after-${nonce}-42"
+    },
+    {
+     "frame_text": "after-${nonce}-42"
+    }
+   ]
+  }
+ ]
+}

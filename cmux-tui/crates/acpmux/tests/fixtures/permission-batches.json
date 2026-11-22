@@ -29,6 +29,18 @@
       {"title":"git push","kind":"execute","command":"git push"}
     ]
   },
+  "review": {
+    "items": [
+      {"title":"git status","kind":"execute","command":"git status"},
+      {"title":"ls","kind":"execute","command":"ls -la"},
+      {"title":"sed","kind":"execute","command":"sed -n '1,2p' notes.txt"},
+      {"title":"Read notes.txt","kind":"read"},
+      {"title":"git push","kind":"execute","command":"git push"},
+      {"title":"rm","kind":"execute","command":"rm -rf build"},
+      {"title":"Write a.txt","kind":"edit"},
+      {"title":"Unknown operation","kind":"other"}
+    ]
+  },
   "single": {
     "items": [{"title":"Write a.txt","kind":"edit"}]
   }

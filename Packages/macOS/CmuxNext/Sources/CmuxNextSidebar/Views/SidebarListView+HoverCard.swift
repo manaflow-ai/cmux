@@ -23,6 +23,8 @@ extension SidebarListViewComponents {
             return false
         }
         let target = HoverTarget(id: WorkspaceHoverCardController.targetID(id), window: window.windowNumber, delay: hoverCard.delay)
+        // The action asks for resource usage, which lives in the card's details.
+        hoverCard.requestDetails(for: id)
         hoverCards.pin(target, from: hoverCard)
         return hoverCards.isShowing(target.id)
     }
@@ -49,7 +51,7 @@ extension SidebarListViewComponents {
     func hoverCardGroup(at point: CGPoint) -> GroupID? {
         guard DesignSettings.shared.groupHoverCard.workspaceGroups, drag == nil, !inlineRename.isActive,
               visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
-              case .group(let id)? = displayed.row(at: point.y)?.key, groups[id] != nil, !isEmptyTree(id) else { return nil }
+              case .group(let id)? = (stuckHit(at: point) ?? displayed.row(at: point.y))?.key, groups[id] != nil, !isEmptyTree(id) else { return nil }
         return id
     }
     /// The workspaces in `id` and every group under it, in document order: the group's card counts them.
@@ -60,9 +62,9 @@ extension SidebarListViewComponents {
     private func isEmptyTree(_ id: GroupID) -> Bool {
         (groupSubtrees[id] ?? [id]).allSatisfy { groups[$0]?.workspaces.isEmpty ?? true }
     }
-    /// The group header's frame on screen, nil when it is not laid out.
+    /// The group's row on screen (its header, or the one row it draws as), nil when it is not laid out.
     func hoverCardAnchor(forGroup id: GroupID) -> CGRect? {
-        guard let window, let row = displayed.row(for: .group(id)) else { return nil }
+        guard let window, let row = displayed.groupRow(id) else { return nil }
         return window.convertToScreen(convert(frame(for: row), to: nil))
     }
     /// The row's frame on screen, nil when it is not laid out.
@@ -72,6 +74,12 @@ extension SidebarListViewComponents {
         if let row = displayed.row(for: .workspace(id)) { return window.convertToScreen(convert(frame(for: row), to: nil)) }
         guard let pinned = blockItemView(for: id) else { return nil }
         return window.convertToScreen(pinned.convert(pinned.pill.frame, to: nil))
+    }
+    /// Workspace `id`'s row on screen, a list row scrolled into view first; a pinned workspace is its drawn pill,
+    /// which has no list row (`debug.mouse`'s `row` and the icon picker find pinned rows here too).
+    func rowFrameOnScreen(for id: WorkspaceID) -> CGRect? {
+        if let row = displayed.row(for: .workspace(id)) { scrollToVisible(frame(for: row)) }
+        return hoverCardAnchor(for: id)
     }
     /// A workspace preview touches the row's fill, before the sidebar's resize/drag thumb.
     /// Pinned items use their drawn pill rather than their wider layout cell.
@@ -126,17 +134,24 @@ extension SidebarViewComponents {
 
     /// Workspace `id`'s row on screen, scrolled into view first; nil when the
     /// row is not shown (the icon picker anchors its popover here).
-    public func rowFrameOnScreen(for id: WorkspaceID) -> CGRect? {
-        guard let row = list.displayed.row(for: .workspace(id)) else { return nil }
-        list.scrollToVisible(list.frame(for: row))
-        return list.hoverCardAnchor(for: id)
-    }
+    public func rowFrameOnScreen(for id: WorkspaceID) -> CGRect? { list.rowFrameOnScreen(for: id) }
 
-    /// Group `id`'s header row on screen, scrolled into view first; nil when
-    /// the header is not shown (the icon picker anchors its popover here).
+    /// Group `id`'s row on screen (its header, or the one row it draws as), scrolled into view first; nil when
+    /// neither is shown (the icon picker anchors its popover here).
     public func groupRowFrameOnScreen(for id: GroupID) -> CGRect? {
-        guard let row = list.displayed.row(for: .group(id)), let window = list.window else { return nil }
+        guard let row = list.displayed.groupRow(id), let window = list.window else { return nil }
         list.scrollToVisible(list.frame(for: row))
         return window.convertToScreen(list.convert(list.frame(for: row), to: nil))
+    }
+
+    /// The name of the shown group called `name` on screen, scrolled into view first (a capture tour double-clicks it
+    /// to rename the group in place); nil when no shown group has that name.
+    public func groupNameFrameOnScreen(named name: String) -> CGRect? {
+        guard let id = list.groups.values.first(where: { $0.name == name })?.id, groupRowFrameOnScreen(for: id) != nil,
+              let window = list.window else { return nil }
+        list.realizeVisibleRows()
+        guard let header = list.rowViews[.group(id)] as? GroupHeaderRowView else { return nil }
+        header.layoutSubtreeIfNeeded()
+        return window.convertToScreen(header.convert(header.name.frame, to: nil))
     }
 }

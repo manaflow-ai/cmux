@@ -1,7 +1,8 @@
 // A run of tool calls between two pieces of text, summarized once it settles:
-// "Edited a file, read 6 files, ran 4 commands", opened to list the calls.
+// "Edited a file and read 6 files", opened to list the calls.
 import type { Translate } from "../i18n";
 import { pathKey, toolCanonical, type AcpmuxActivity } from "../model";
+import { toolKind } from "../toolNames";
 import { editedPaths } from "../toolPaths";
 import { mcpCall } from "./mcpCalls";
 
@@ -29,10 +30,10 @@ export function toolRunCategory(kind?: string): ToolRunCategory {
   }
 }
 
-/// What one call did. An MCP call used a tool whatever kind its harness gives it (Codex says
-/// "execute" for every one).
+/// What one call did, by its canonical tool (toolNames.ts `toolKind`). An MCP call used a tool
+/// whatever kind its harness gives it (Codex says "execute" for every one).
 function callCategory(tool: NonNullable<AcpmuxActivity["tool"]>): ToolRunCategory {
-  return mcpCall(tool) ? "used" : toolRunCategory(tool.kind);
+  return mcpCall(tool) ? "used" : toolRunCategory(toolKind(tool));
 }
 
 /// A run the Codex-style runs (Debug toggle) settle folds under one summary line once it holds two
@@ -60,39 +61,97 @@ export function mainToolRunCategory(items: readonly AcpmuxActivity[]): ToolRunCa
   return main;
 }
 
-/// "Read 6 files, ran 4 commands", in the language `t` speaks, counted as Claude desktop counts a
-/// run (Leo 2026-10-21: "it can consolidate a ton of these tool calls"). Reads count the distinct
-/// files they opened, edits the files they changed, every other category its calls.
+/// Whether the run did more than one kind of work, so its glyph is the several-tools one, not one
+/// kind's. Reads and searches count as one kind: both draw the magnifier (ToolRun.tsx `runIcon`).
+export function isMixedToolRun(items: readonly AcpmuxActivity[]): boolean {
+  return new Set(toolRunCategories(items).map((category) => (category === "read" ? "searched" : category))).size > 1;
+}
+
+/// The run's sentence (Lucas, 2026-11-06: Codex parity): the two most telling
+/// kinds of work by name, commands and edits first, then the calls those two leave out as "performed
+/// N other actions", joined as a sentence: "Read 3 files and ran 2 commands", "Ran 2 commands,
+/// edited a file, and performed 2 other actions". Reads count the distinct files they opened, edits the files they changed,
+/// every other category its calls; a finished-background lead stays first.
 export function toolRunSummary(t: Translate, items: readonly AcpmuxActivity[]): string {
   const tools = items.filter((item) => item.tool);
-  const count = (category: ToolRunCategory) =>
+  const calls = (category: ToolRunCategory) => tools.filter((item) => callCategory(item.tool!) === category).length;
+  const picked = toolRunCategories(items)
+    .map((category, index) => ({ category, index, priority: summaryPriority(category) }))
+    .sort((a, b) => a.priority - b.priority || a.index - b.index)
+    .slice(0, 2)
+    .sort((a, b) => a.index - b.index);
+  const phrases = picked.map(({ category }) => categoryPhrase(t, tools, category));
+  const rest = tools.length - picked.reduce((n, { category }) => n + calls(category), 0);
+  if (rest > 0) phrases.push(t("toolRun.otherActions", { n: rest }));
+  const finished = finishedBackgroundPhrase(t, items);
+  const parts = finished ? [finished, ...phrases] : phrases;
+  // Catalog joiners, not Intl.ListFormat: its unit lists join zh-Hans with nothing and add
+  // conjunctions some languages do not use here.
+  const text =
+    parts.length < 3
+      ? parts.join(t("toolRun.and"))
+      : `${parts.slice(0, -1).join(t("toolRun.separator"))}${t("toolRun.serialAnd")}${parts.at(-1)}`;
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/// The order for naming a run's work: commands and edits say most, other tools least.
+function summaryPriority(category: ToolRunCategory): number {
+  switch (category) {
+    case "ran":
+    case "edited":
+      return 0;
+    case "used":
+      return 2;
+    default:
+      return 1;
+  }
+}
+
+/// The summary's phrases, one per category in the order the run first did each ("read 6 files",
+/// "ran 4 commands"), lower case as they read inside a line; a message run's line
+/// (messageRuns.ts) puts them between its own.
+export function toolRunPhrases(t: Translate, items: readonly AcpmuxActivity[]): string[] {
+  const tools = items.filter((item) => item.tool);
+  const finished = finishedBackgroundPhrase(t, items);
+  const phrases = toolRunCategories(items).map((category) => categoryPhrase(t, tools, category));
+  return finished ? [finished, ...phrases] : phrases;
+}
+
+/// One category's phrase, lower case as it reads inside a line: "read 6 files", "ran 4 commands".
+function categoryPhrase(t: Translate, tools: readonly AcpmuxActivity[], category: ToolRunCategory): string {
+  const n =
     category === "edited"
       ? editedFiles(tools)
       : category === "read"
         ? readFiles(tools)
         : tools.filter((item) => callCategory(item.tool!) === category).length;
-  const phrase = (category: ToolRunCategory) => {
-    const n = count(category);
-    const one = n === 1;
-    switch (category) {
-      case "used":
-        return one ? t("toolRun.used.one") : t("toolRun.used.other", { n });
-      case "edited":
-        return one ? t("toolRun.edited.one") : t("toolRun.edited.other", { n });
-      case "read":
-        return one ? t("toolRun.read.one") : t("toolRun.read.other", { n });
-      case "searched":
-        return one ? t("toolRun.searched.one") : t("toolRun.searched.other", { n });
-      case "web":
-        return t("toolRun.web");
-      case "ran":
-        return one ? t("toolRun.ran.one") : t("toolRun.ran.other", { n });
-    }
-  };
-  // A catalog separator, not Intl.ListFormat: its unit lists join zh-Hans with nothing and add
-  // conjunctions in some languages, while the run reads as a plain comma list.
-  const text = toolRunCategories(items).map(phrase).join(t("toolRun.separator"));
-  return text.charAt(0).toUpperCase() + text.slice(1);
+  const one = n === 1;
+  switch (category) {
+    case "used":
+      return one ? t("toolRun.used.one") : t("toolRun.used.other", { n });
+    case "edited":
+      return one ? t("toolRun.edited.one") : t("toolRun.edited.other", { n });
+    case "read":
+      return one ? t("toolRun.read.one") : t("toolRun.read.other", { n });
+    case "searched":
+      return one ? t("toolRun.searched.one") : t("toolRun.searched.other", { n });
+    case "web":
+      return t("toolRun.web");
+    case "ran":
+      return one ? t("toolRun.ran.one") : t("toolRun.ran.other", { n });
+  }
+}
+
+/// The background tasks a run's calls started that have ended (finished, failed or stopped), as the
+/// lead of its summary: "finished 6 background tasks", the way Claude Code desktop opens a run's
+/// header ("Finished 6 background tasks, ran 5 commands (4 failed)"; Leo, 2026-11-03: "claude code
+/// desktop's summarization of tool calls/parsing of them seem kinda good?"). Undefined with none.
+/// The calls still count where they belong ("ran 5 commands"): a background shell is a command too.
+export function finishedBackgroundPhrase(t: Translate, items: readonly AcpmuxActivity[]): string | undefined {
+  let n = 0;
+  for (const item of items) if (item.tool?.background && item.tool.background.state !== "running") n += 1;
+  if (n === 0) return undefined;
+  return n === 1 ? t("toolRun.finishedBackground.one") : t("toolRun.finishedBackground.other", { n });
 }
 
 /// The distinct files a run's reads opened, by their locations, or one per read without any.
@@ -115,7 +174,7 @@ function editedFiles(tools: readonly AcpmuxActivity[]): number {
   const paths = new Set<string>();
   let unnamed = 0;
   for (const { tool } of tools) {
-    if (toolRunCategory(tool!.kind) !== "edited") continue;
+    if (toolRunCategory(toolKind(tool!)) !== "edited") continue;
     const named = tool!.diffs?.length
       ? [...tool!.diffs, ...(tool!.locations ?? [])].map(pathKey)
       : editedPaths(tool!).map((path) => toolCanonical(tool!, path) ?? path);

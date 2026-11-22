@@ -10,11 +10,11 @@ extension SubsessionSettings {
     public nonisolated static let subsessionsAnswerQuestionsDefault = false
     /// `agents.subsessions.maxChildren`: Live sub-sessions (running, waiting for input, or with a harness process alive) one session may have at a time. Finished, dead and closed sub-sessions do not use a slot. A session or an ancestor can set a lower value for a subtree.
     public nonisolated static let subsessionsMaxChildrenPath = ["agents", "subsessions", "maxChildren"]
-    public nonisolated static let subsessionsMaxChildrenDefault: Double = 50
+    public nonisolated static let subsessionsMaxChildrenDefault: Double = 1000
     public nonisolated static let subsessionsMaxChildrenRange: ClosedRange<Double> = 1...1000
     /// `agents.subsessions.maxRunning`: Sub-sessions of one session that run a turn at the same time. More wait queued and start as running ones finish; lowering it stops none. A chat's own value (_acpmux/subsession/limits {sessionId}) and its workspace's ({workspaceId}) come before this one.
     public nonisolated static let subsessionsMaxRunningPath = ["agents", "subsessions", "maxRunning"]
-    public nonisolated static let subsessionsMaxRunningDefault: Double = 16
+    public nonisolated static let subsessionsMaxRunningDefault: Double = 1000
     public nonisolated static let subsessionsMaxRunningRange: ClosedRange<Double> = 1...1000
     /// `agents.subsessions.maxDepth`: The deepest level of nesting: a top-level session is 0, its sub-sessions 1.
     public nonisolated static let subsessionsMaxDepthPath = ["agents", "subsessions", "maxDepth"]
@@ -33,7 +33,7 @@ nonisolated enum SubsessionSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agents.subsessions.enabled", "Let Agents Start Sub-sessions"),
-                help: SettingsText.keyed("settings.agents.subsessions.enabled.help", "An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar."),
+                help: SettingsText.keyed("settings.agents.subsessions.enabled.help", "Agents can start sessions that work in parallel, shown under theirs."),
                 kind: .toggle,
                 default: .bool(SubsessionSettings.subsessionsEnabledDefault),
                 keywords: ["subagent", "sub-session", "child", "spawn", "parallel", "agents"]
@@ -53,7 +53,7 @@ nonisolated enum SubsessionSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agents.subsessions.maxChildren", "Open Sub-sessions per Session"),
-                help: SettingsText.keyed("settings.agents.subsessions.maxChildren.help", "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot."),
+                help: SettingsText.keyed("settings.agents.subsessions.maxChildren.help", "Finished and closed sub-sessions don't count."),
                 kind: .number(SettingNumber(SubsessionSettings.subsessionsMaxChildrenRange, step: 1, unit: .count)),
                 default: .number(SubsessionSettings.subsessionsMaxChildrenDefault),
                 keywords: ["subagent", "sub-session", "limit", "width", "children", "parallel"]
@@ -63,7 +63,7 @@ nonisolated enum SubsessionSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agents.subsessions.maxRunning", "Running Sub-sessions per Session"),
-                help: SettingsText.keyed("settings.agents.subsessions.maxRunning.help", "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it."),
+                help: SettingsText.keyed("settings.agents.subsessions.maxRunning.help", "More wait their turn. Lowering it never stops running ones."),
                 kind: .number(SettingNumber(SubsessionSettings.subsessionsMaxRunningRange, step: 1, unit: .count)),
                 default: .number(SubsessionSettings.subsessionsMaxRunningDefault),
                 keywords: ["subagent", "sub-session", "limit", "running", "concurrency", "parallel", "queue"]
@@ -73,7 +73,7 @@ nonisolated enum SubsessionSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agents.subsessions.maxDepth", "Deepest Nesting"),
-                help: SettingsText.keyed("settings.agents.subsessions.maxDepth.help", "How many levels of sub-sessions can start under a session. 1 lets a session start sub-sessions that cannot start their own."),
+                help: SettingsText.keyed("settings.agents.subsessions.maxDepth.help", "1 means sub-sessions cannot start their own."),
                 kind: .number(SettingNumber(SubsessionSettings.subsessionsMaxDepthRange, step: 1, unit: .count)),
                 default: .number(SubsessionSettings.subsessionsMaxDepthDefault),
                 keywords: ["subagent", "sub-session", "limit", "depth", "nesting", "levels"]

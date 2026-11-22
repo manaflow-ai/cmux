@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-21: "AND THEN THE HELD DRAGGED, IT GETS STUCK". A press on a workspace row switches to it, and a
@@ -9,7 +10,7 @@ import Testing
 /// on release, after a release that went to another window, at the app's next press when its release never came,
 /// and when the app loses focus.
 /// Uses `SidebarPointerGestureTests`' list: loose `x`, `y`; group `g1` (`a`, `b`); collapsed group `g2` (`c`, `d`).
-@MainActor @Suite(.serialized) struct SidebarHeldDragTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarHeldDragTests {
     typealias G = SidebarPointerGestureTests
 
     /// A drop's or a cancel's card is gone and its rows show (the flight ends at once here).

@@ -5,6 +5,7 @@
 // where the chat can move to a Claude route that works.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -45,17 +46,14 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { TurnFooter } = await import("../src/agent-session/acpmux/conversation/TurnRows");
 const { TurnActionsContext, chatLoginCommand } = await import("../src/agent-session/acpmux/conversation/turnActions");
+const { signedOutHarnesses } = await import("../src/agent-session/acpmux/signIn");
 
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const failed = {
@@ -97,6 +95,17 @@ test("a signed-out harness offers Sign in again and Switch model", async () => {
   expect(opened).toEqual(["claude auth login"]);
   expect(switched).toBe(1);
   expect(button("Copy error")).toBeDefined();
+});
+
+test("the model picker's signed-out harnesses include an expired sign-in", () => {
+  expect(
+    signedOutHarnesses([
+      { id: "claude", auth: "expired", login: "claude auth login" },
+      { id: "codex", auth: "signedOut", login: "codex login" },
+      { id: "grok", auth: "unknown", login: "grok login" },
+      { id: "opencode", auth: "signedIn" },
+    ]),
+  ).toEqual({ claude: "claude auth login", codex: "codex login" });
 });
 
 test("the health row's account-home-qualified login wins over the catalog fallback", () => {

@@ -8,12 +8,12 @@ public import Foundation
 /// document turns nothing off, so every change ships.
 ///
 /// ``follow()`` reads at once, then whenever the ring moves or a check leaves the checking phase:
-/// one observation of the updater (no timer, no poll). The app's reader is owned by ``app``
-/// (``start(updater:)``); ``stop()``, or starting a new one, cancels its observation, which also
-/// ends at its next wake after the reader or the updater is gone. One read runs at a time, so
-/// fetches and cache writes never overlap: a read asked while one runs is done once after it (that
-/// one may have fetched before a check published a newer document, or for a ring that moved), and
-/// a read whose ring moved meanwhile applies nothing.
+/// one observation of the updater (no timer, no poll). The updater owns its reader
+/// (`UpdaterService.killSwitchReader`) and stops the one before when it starts another; ``stop()``
+/// cancels its observation, which also ends at its next wake after the reader or the updater is
+/// gone. One read runs at a time, so fetches and cache writes never overlap: a read asked while one
+/// runs is done once after it (that one may have fetched before a check published a newer document,
+/// or for a ring that moved), and a read whose ring moved meanwhile applies nothing.
 @MainActor
 public final class KillSwitchReader {
     private weak var updater: UpdaterService?
@@ -27,20 +27,6 @@ public final class KillSwitchReader {
     private var stopped = false
     /// A read was asked while ``reading`` ran: one more runs after it.
     private var readsAgain = false
-
-    /// The app's reader, set by ``start(updater:)``. The updater retains the reader; this weak
-    /// back-reference lets a replacement stop the previous observation without extending its life.
-    public private(set) static weak var app: KillSwitchReader?
-
-    /// Makes the app's reader for `updater` and follows it; a reader started before stops.
-    @discardableResult
-    public static func start(updater: UpdaterService) -> KillSwitchReader {
-        app?.stop()
-        let reader = KillSwitchReader(updater: updater)
-        app = reader
-        reader.follow()
-        return reader
-    }
 
     /// The app's reader: the updater's own notes store, the shared switches.
     public convenience init(updater: UpdaterService) {

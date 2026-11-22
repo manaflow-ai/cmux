@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Darwin
 public import Foundation
 
@@ -22,12 +23,9 @@ public nonisolated struct AgentHome: Sendable, Equatable {
         self.base = base
     }
 
-    /// `~/Library/Application Support/cmux/agent-home`; nil when the system names no
-    /// Application Support folder.
-    public static var standard: AgentHome? {
-        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
-        return AgentHome(base: support.appendingPathComponent("cmux/agent-home", isDirectory: true).path)
-    }
+    /// `~/Library/Application Support/cmux/agent-home`, a DEV build's own folder in a DEV build
+    /// (``BuildStatePaths/agentHome``).
+    public static var standard: AgentHome? { AgentHome(base: BuildStatePaths.current.agentHome.path) }
 
     /// A workspace id that names a folder: 1 to 128 characters of `[A-Za-z0-9_-]` (the app's
     /// workspace keys are lowercased UUIDs, the store's home workspace is `home`).
@@ -43,6 +41,12 @@ public nonisolated struct AgentHome: Sendable, Equatable {
     public static func canonicalFolder(_ path: String) -> String? {
         guard let canonical = AcpmuxPathPolicy.canonical(path), AcpmuxPathPolicy.isDirectory(canonical) else { return nil }
         return canonical
+    }
+
+    /// `path` in canonical form (``AcpmuxPathPolicy/canonical(_:)``: realpath, the filesystem's
+    /// spelling, NFC) when it exists, else nil, for callers outside this module. Touches the disk.
+    public static func canonical(_ path: String) -> String? {
+        AcpmuxPathPolicy.canonical(path)
     }
 
     /// Whether `path` is `/`, the home folder `home` or a folder above it (by path components,

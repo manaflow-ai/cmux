@@ -13,7 +13,7 @@
 //! Collection loops stop at finite input exhaustion.
 //! Service loops stop on child exit, cancellation, or runtime teardown; the
 //! supervisor thread stops on its eventfd or listener hangup.
-pub(crate) use crate::hub::remote_sandbox::loader_env_key;
+pub(crate) use crate::linux_sandbox::loader_env_key;
 
 use super::{bwrap, proxy, rules, supervisor};
 use bwrap::Paths;
@@ -134,6 +134,10 @@ struct Options {
     paths: Paths,
     proxy_port: u16,
     api: Option<SocketAddr>,
+    /// Claude's API port on another host (`--api-remote-port`): the proxy
+    /// lets that port through to non-loopback addresses, as Seatbelt does on
+    /// macOS. No listener is made for it.
+    api_remote: Option<u16>,
     program: String,
     args: Vec<String>,
 }
@@ -165,7 +169,10 @@ fn parse(args: Vec<OsString>) -> Result<Options> {
             | "--claude-tmp-project"
             | "--claude-project"
             | "--proxy-port"
-            | "--api-port" => input.next().ok_or_else(|| format!("missing value for {flag}"))?,
+            | "--api-port"
+            | "--api-remote-port" => {
+                input.next().ok_or_else(|| format!("missing value for {flag}"))?
+            }
             _ => return Err(format!("unknown option: {flag}")),
         };
         if values.insert(flag.as_str(), value).is_some() {
@@ -191,6 +198,12 @@ fn parse(args: Vec<OsString>) -> Result<Options> {
     if (v4 && v6) || api_port.is_some() != (v4 || v6) || api_port == Some(proxy_port) {
         return Err("API needs one loopback family and a port distinct from the proxy".into());
     }
+    let api_remote = values.get("--api-remote-port").map(|v| port(v)).transpose()?;
+    if api_remote.is_some() && (api_port.is_some() || api_remote == Some(proxy_port)) {
+        return Err(
+            "a remote API port excludes a loopback one and must differ from the proxy".into()
+        );
+    }
     let program = args.get(end + 1).ok_or("missing program after --")?;
     absolute(program)?;
     Ok(Options {
@@ -203,6 +216,7 @@ fn parse(args: Vec<OsString>) -> Result<Options> {
         },
         proxy_port,
         api: api_port.map(|p| SocketAddr::new(Ipv4Addr::LOCALHOST.into(), p)),
+        api_remote,
         program: program.clone(),
         args: args.get(end + 2..).unwrap_or_default().to_vec(),
     })
@@ -558,7 +572,7 @@ async fn session(
     let supervisor = SupervisorHandle::start(notify, policy)?;
     let stop = CancellationToken::new();
     let mut services = JoinSet::new();
-    let policy = proxy::NetPolicy { api: options.api.map(|a| (a.port(), true)) };
+    let policy = net_policy(options);
     start_service(
         &mut services,
         proxy::serve_proxy(listeners.next().ok_or("missing proxy listener")?, policy, stop.clone()),
@@ -601,6 +615,14 @@ async fn session(
     }
 }
 
+/// The proxy's port policy: the loopback API port (served by the forwarder),
+/// else a remote API port, else 80/443 only.
+fn net_policy(options: &Options) -> proxy::NetPolicy {
+    proxy::NetPolicy {
+        api: options.api.map(|a| (a.port(), true)).or(options.api_remote.map(|p| (p, false))),
+    }
+}
+
 fn init_prefix(
     exe: &Path,
     daemon_prefix: Vec<OsString>,
@@ -629,13 +651,10 @@ fn init_prefix(
     Ok(prefix)
 }
 
-/// Setup collections are finite. Signal relay ends with session; on failure,
-/// SIGKILL/reaping has a five-second deadline and kill_on_drop is a final backstop.
-async fn run(options: Options) -> Result<i32> {
-    let term = signal(SignalKind::terminate()).map_err(|e| e.to_string())?;
-    let int = signal(SignalKind::interrupt()).map_err(|e| e.to_string())?;
-    let hup = signal(SignalKind::hangup()).map_err(|e| e.to_string())?;
-    let paths = &options.paths;
+/// The remote chain's parsed write policy and its full read-deny list for
+/// `paths`. The keeper's plan and the hub's canary alias probe both use it, so
+/// the probe looks up exactly the names the plan hides.
+pub(crate) fn remote_policy(paths: &Paths) -> Result<(rules::WritePolicy, Vec<PathBuf>)> {
     let params = [
         ("CWD", &paths.cwd),
         ("TMPDIR", &paths.tmp),
@@ -646,22 +665,27 @@ async fn run(options: Options) -> Result<i32> {
     .into_iter()
     .map(|(k, v)| (k.to_owned(), v.clone()))
     .collect();
-    let policy = rules::WritePolicy::from_profile(crate::hub::remote_sandbox::PROFILE, &params)
+    let policy = rules::WritePolicy::from_profile(crate::remote_chain_profile::PROFILE, &params)
         .map_err(|e| e.to_string())?;
     let mut denies = policy.read_denies();
-    denies.extend(
-        [
-            ".local/share/keyrings",
-            ".password-store",
-            ".mozilla",
-            ".config/google-chrome",
-            ".config/chromium",
-            ".config/BraveSoftware",
-            ".pki",
-            ".claude/.credentials.json",
-        ]
-        .map(|p| paths.home.join(p)),
-    );
+    denies.extend(bwrap::LINUX_READ_DENIES.iter().map(|p| paths.home.join(p)));
+    Ok((policy, denies))
+}
+
+/// The canary's alias probe for a remote chain bound to `paths`.
+pub(crate) fn remote_alias_probe(paths: &Paths) -> Result<bwrap::AliasProbe> {
+    let (_, denies) = remote_policy(paths)?;
+    bwrap::alias_probe(paths, &denies)
+}
+
+/// Setup collections are finite. Signal relay ends with session; on failure,
+/// SIGKILL/reaping has a five-second deadline and kill_on_drop is a final backstop.
+async fn run(options: Options) -> Result<i32> {
+    let term = signal(SignalKind::terminate()).map_err(|e| e.to_string())?;
+    let int = signal(SignalKind::interrupt()).map_err(|e| e.to_string())?;
+    let hup = signal(SignalKind::hangup()).map_err(|e| e.to_string())?;
+    let paths = &options.paths;
+    let (policy, denies) = remote_policy(paths)?;
     let writable = [
         paths.cwd.clone(),
         paths.tmp.clone(),
@@ -677,8 +701,13 @@ async fn run(options: Options) -> Result<i32> {
     }
     let (exe_fd, exe) = executable(&denies, &writable)?;
     let bwrap_fd = open_bwrap()?;
-    let prefix =
-        init_prefix(&exe, crate::daemon::daemon_prefix(), 3, options.proxy_port, options.api)?;
+    let prefix = init_prefix(
+        &exe,
+        crate::daemon_parts::daemon_prefix(),
+        3,
+        options.proxy_port,
+        options.api,
+    )?;
     // The snapshot precedes the bwrap clone. Only unsandboxed host processes
     // can add mounts in that window, and they already have full host access.
     // After cloning, seccomp and user namespaces block sandbox mounts; the
@@ -715,7 +744,7 @@ async fn run(options: Options) -> Result<i32> {
         .collect();
     let bwrap_path = format!("/proc/self/fd/{}", bwrap_fd.as_raw_fd());
     let mut command = Command::new(bwrap_path);
-    crate::hub::remote_sandbox::scrub_loader_env(&mut command);
+    crate::linux_sandbox::scrub_loader_env(&mut command);
     // bwrap passes inherited non-CLOEXEC fds to its command; bind fds are
     // consumed by the mount plan, and init closes the handoff before exec.
     command
@@ -801,7 +830,7 @@ mod tests {
             .env("TMPDIR", "/injected")
             .env("MALLOC_CHECK_", "3")
             .env("PATH", "/usr/bin");
-        crate::hub::remote_sandbox::scrub_loader_env(&mut cmd);
+        crate::linux_sandbox::scrub_loader_env(&mut cmd);
         let env = crate::agent::command_env(&cmd);
         assert!(!env.iter().any(|(k, _)| matches!(
             k.as_str(),
@@ -856,6 +885,27 @@ mod tests {
         assert_eq!(options.api, Some("127.0.0.1:31415".parse().unwrap()));
         assert!(parse(argv(&["--api-port", "31415", "--api-loopback-v6"])).is_err());
         assert!(parse(argv(&["--bwrap", "/opt/bwrap"])).is_err());
+    }
+    /// A non-loopback API port (a tailnet router such as sr2 :4016) is
+    /// reachable through the proxy; loopback on that port stays shut.
+    #[test]
+    fn remote_api_port_opens_only_that_port_off_loopback() {
+        let options = parse(argv(&["--api-remote-port", "4016"])).unwrap();
+        assert_eq!(options.api, None);
+        let policy = net_policy(&options);
+        assert!(proxy::allowed(&policy, "100.120.48.119:4016".parse().unwrap()));
+        assert!(!proxy::allowed(&policy, "127.0.0.1:4016".parse().unwrap()));
+        assert!(!proxy::allowed(&policy, "100.120.48.119:4017".parse().unwrap()));
+        let closed = net_policy(&parse(argv(&[])).unwrap());
+        assert!(!proxy::allowed(&closed, "100.120.48.119:4016".parse().unwrap()));
+        for bad in [
+            vec!["--api-remote-port", "0"],
+            vec!["--api-remote-port", "3128"],
+            vec!["--api-remote-port", "4016", "--api-remote-port", "4016"],
+            vec!["--api-remote-port", "4016", "--api-port", "31415", "--api-loopback-v4"],
+        ] {
+            assert!(parse(argv(&bad)).is_err(), "{bad:?}");
+        }
     }
     #[test]
     fn options_refuse_missing_duplicate_and_unknown_flags() {

@@ -4,9 +4,10 @@ import AppKit
 /// Blocker: HeaderBar installs an NSToolbar and a titlebar accessory on the
 /// window, and a Home tab shares the cmux-next window. The same controls sit
 /// in the pane over `HeaderBackdropView` (the blurred, darkened transcript),
-/// at HeaderBar's measured places: the 40 pt avatar centered 8 pt from the
-/// top (the toolbar item), and the glass capsule name pill centered 58 pt
-/// from the top (`HeaderBar.pillWidth`, bold 13 pt, the dim chevron). No
+/// near HeaderBar's measured places: the avatar (36 pt from 4 pt, clear of the
+/// pill) at the top, and the glass capsule name pill centered 58 pt
+/// from the top (`HeaderBar.pillWidth`, or the button's own width when that is more, bold
+/// 13 pt, the dim chevron). No
 /// band, no edge line, no video button (Home has no calls).
 final class PaneHeaderView: NSView {
     let avatar = NSImageView()
@@ -56,8 +57,12 @@ final class PaneHeaderView: NSView {
     var bare = false { didSet { if bare != oldValue { applyTitle() } } }
     static let bareAccessoryTop: CGFloat = 8
 
-    static let avatarSize: CGFloat = 40
-    static let avatarTop: CGFloat = 8
+    /// cmux (user 2026-11-05, msg 23140: the avatar crowded the "Chief" pill): 36 pt from 4 pt, so it ends
+    /// ``avatarPillGap`` above the pill instead of running 4 pt under it as Messages' 40 pt one from 8 pt did.
+    static let avatarSize: CGFloat = 36
+    static let avatarTop: CGFloat = 4
+    /// The clear space between the avatar's bottom and the name pill's top.
+    static let avatarPillGap: CGFloat = pillCenterY - pillHeight / 2 - avatarTop - avatarSize
     /// HeaderBar: Messages' pill center, 58 pt from the window top.
     static let pillCenterY: CGFloat = 58
     static let pillHeight: CGFloat = 28
@@ -131,7 +136,7 @@ final class PaneHeaderView: NSView {
         super.layout()
         let s = PaneHeaderView.avatarSize
         avatar.frame = CGRect(x: (bounds.width - s) / 2, y: PaneHeaderView.avatarTop, width: s, height: s)
-        let w = HeaderBar.pillWidth(title)
+        let w = pillWidth
         let h = PaneHeaderView.pillHeight
         pill.frame = CGRect(x: (bounds.width - w) / 2, y: PaneHeaderView.pillCenterY - h / 2, width: w, height: h)
         pillBacking.frame = pill.frame
@@ -141,6 +146,18 @@ final class PaneHeaderView: NSView {
         pillGlass?.cornerRadius = h / 2
         layoutTrailingAccessory()
         layoutFaces()
+    }
+
+    /// Messages' measured width, or wider when the button needs more: this pill is a plain `NSButton`
+    /// that draws its own title, chevron and glass padding, which take about 8 pt more than
+    /// Messages' measure, so a long name such as "workspace-1005" was cut (a1285, 2026-11-20).
+    private var pillWidth: CGFloat {
+        max(HeaderBar.pillWidth(title), pill.intrinsicContentSize.width.rounded(.up))
+    }
+
+    /// The trailing edge the pill's line may reach: the trailing accessory's start, else the inset.
+    private var pillLineLimit: CGFloat {
+        trailingAccessory.flatMap { $0.isHidden ? nil : $0.frame.minX - 8 } ?? bounds.width - PaneHeaderView.trailingInset
     }
 
     /// The accessory at its intrinsic size (else its own frame size), centered on the avatar's line at the trailing edge;
@@ -167,8 +184,7 @@ final class PaneHeaderView: NSView {
         let frame = CGRect(x: pill.frame.maxX + PaneHeaderView.facesGap, y: PaneHeaderView.pillCenterY - size.height / 2,
                            width: size.width, height: size.height)
         if facesView.frame != frame { facesView.frame = frame }
-        let limit = trailingAccessory.flatMap { $0.isHidden ? nil : $0.frame.minX - 8 } ?? bounds.width - PaneHeaderView.trailingInset
-        facesView.isHidden = pill.isHidden || faces.isEmpty || frame.maxX > limit
+        facesView.isHidden = pill.isHidden || faces.isEmpty || frame.maxX > pillLineLimit
     }
 
     private func applyTitle() {
@@ -176,7 +192,7 @@ final class PaneHeaderView: NSView {
         pill.isHidden = bare || title.isEmpty
         avatar.isHidden = pill.isHidden
         pill.setAccessibilityLabel(String(format: NativeStrings.contactFormat, title))
-        pill.toolTip = pill.accessibilityLabel()
+        pill.setHomeToolTip(pill.accessibilityLabel())
         avatar.setAccessibilityLabel(title)
         needsLayout = true
     }
@@ -200,10 +216,14 @@ final class PaneHeaderView: NSView {
         needsLayout = true
     }
 
-    /// A monogram on the header's avatar disc (white 253, as HeaderView
-    /// draws it). HeaderBar draws the fixture contact's measured "I"; a Home
-    /// conversation shows its participant's initials.
+    /// The header's avatar for `initials`: letters and digits as Messages' grey
+    /// gradient monogram (``MonogramAvatar``, Lawrence 2026-10-30: "CH for chief?
+    /// like in imessage"); anything else (an emoji) on the plain disc (white 253,
+    /// as HeaderView draws it; the theme's secondary grey in a light theme).
     static func avatarImage(_ initials: String, light: Bool = false) -> NSImage {
+        if MonogramAvatar.isMonogram(initials) {
+            return MonogramAvatar(initials: initials).image(side: avatarSize, light: light)
+        }
         let disc = light ? Fixture.secondaryText : NSColor(white: 253 / 255, alpha: 1)
         let ink: NSColor = light ? .white : .black
         return NSImage(size: NSSize(width: avatarSize, height: avatarSize), flipped: true) { r in

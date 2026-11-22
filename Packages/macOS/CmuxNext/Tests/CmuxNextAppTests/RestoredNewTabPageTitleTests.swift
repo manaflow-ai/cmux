@@ -31,7 +31,7 @@ struct RestoredNewTabPageTitleTests {
     private static func agentTabs(_ store: DaemonStore) -> AgentTabStore {
         let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), environment: [:], showcase: true)
         tabs.localHost = host
-        tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }
+        tabs.lookupScoped = { key in store.tab(id: key.key)?.agentSession.map { ($0, store) } }
         return tabs
     }
 
@@ -57,7 +57,7 @@ struct RestoredNewTabPageTitleTests {
         let file = FileManager.default.temporaryDirectory.appending(path: "unsent-drafts-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: file) }
         try JSONEncoder().encode([page.id: "fix the flaky upload test"]).write(to: file)
-        tabs.unsentDrafts = AgentUnsentDrafts(file: file)
+        tabs.unsentDrafts = AgentUnsentDrafts(file: file, files: AgentPaneStateFiles())
         #expect(TabTitleResolver(agentTabs: tabs).title(page) == AgentChatTabTitle.untitled(page.agentSession))
         #expect(!SidebarBridge.newTabPages(tabs, in: store).contains(page.id))
     }

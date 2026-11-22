@@ -221,27 +221,57 @@ impl Drop for ListenerStopped {
 }
 
 fn accept_loop(host: &Arc<Host>, listener: &TcpListener) {
-    for stream in listener.incoming() {
-        match stream {
+    let mut incoming = listener.incoming();
+    accept_each(|| incoming.next(), std::thread::sleep, |stream| accept_one(host, stream));
+}
+
+/// First and longest wait after an accept error that can persist, as the
+/// daemon's own accept loops (cmux-tui-core server.rs `ACCEPT_RETRY_*`).
+const ACCEPT_RETRY_INITIAL: Duration = Duration::from_millis(10);
+const ACCEPT_RETRY_MAX: Duration = Duration::from_secs(1);
+
+/// Hand every accepted connection to `serve` until `accept` answers `None`.
+/// Resource exhaustion (EMFILE, ENFILE, ENOBUFS) persists across accepts,
+/// and an immediate retry ran the listener thread at 100% CPU until
+/// descriptors freed up: `wait` spaces those retries with a growing delay.
+/// A per-connection error needs none, because the next accept blocks.
+fn accept_each<S>(
+    mut accept: impl FnMut() -> Option<io::Result<S>>,
+    mut wait: impl FnMut(Duration),
+    mut serve: impl FnMut(S),
+) {
+    let mut backoff = cmux_tui_core::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
+    while let Some(accepted) = accept() {
+        match accepted {
             Ok(stream) => {
-                let Ok(peer) = stream.peer_addr().map(plain_ip) else { continue };
-                let Some(pending) = Pending::enter(host, peer) else {
-                    eprintln!("cmux host: refused {peer}: too many pending connections");
-                    continue;
-                };
-                let host = Arc::clone(host);
-                // A thread the OS refuses drops this connection, never the listener.
-                let spawned = std::thread::Builder::new().spawn(move || {
-                    if let Err(e) = serve_one(&host, stream, peer, pending) {
-                        eprintln!("cmux host: {peer}: {e:#}");
-                    }
-                });
-                if let Err(e) = spawned {
-                    eprintln!("cmux host: refused {peer}: cannot start its thread: {e}");
+                backoff.reset();
+                serve(stream);
+            }
+            Err(e) => {
+                eprintln!("cmux host: accept failed: {e}");
+                if cmux_tui_core::backoff::accept_error_needs_backoff(&e) {
+                    wait(backoff.next_delay());
                 }
             }
-            Err(e) => eprintln!("cmux host: accept failed: {e}"),
         }
+    }
+}
+
+fn accept_one(host: &Arc<Host>, stream: TcpStream) {
+    let Ok(peer) = stream.peer_addr().map(plain_ip) else { return };
+    let Some(pending) = Pending::enter(host, peer) else {
+        eprintln!("cmux host: refused {peer}: too many pending connections");
+        return;
+    };
+    let host = Arc::clone(host);
+    // A thread the OS refuses drops this connection, never the listener.
+    let spawned = std::thread::Builder::new().spawn(move || {
+        if let Err(e) = serve_one(&host, stream, peer, pending) {
+            eprintln!("cmux host: {peer}: {e:#}");
+        }
+    });
+    if let Err(e) = spawned {
+        eprintln!("cmux host: refused {peer}: cannot start its thread: {e}");
     }
 }
 
@@ -521,19 +551,5 @@ fn copy_flush(from: &mut impl Read, to: &mut impl Write) -> io::Result<u64> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::ListenerStopped;
-
-    #[test]
-    fn a_listener_that_panics_still_counts_as_stopped() {
-        let (done, events) = std::sync::mpsc::channel();
-        let stopped = ListenerStopped(done.clone());
-        let thread = std::thread::spawn(move || {
-            let _stopped = stopped;
-            panic!("the OS refused a thread");
-        });
-        assert!(thread.join().is_err());
-        assert_eq!(events.try_recv(), Ok(None));
-        drop(done);
-    }
-}
+#[path = "serve_tests.rs"]
+mod tests;

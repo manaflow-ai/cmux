@@ -175,7 +175,9 @@ fn malformed_conversation_tab_splits_are_refused() {
 
 /// `pinned-dock-alone-v1`: a split right of Home's pinned dock with nothing
 /// beside it opens a new column right of the dock, as wide as a link Home
-/// opens there; the dock keeps its pin, width and only tab.
+/// opens there; the dock keeps its pin and only tab, and the two are an even
+/// split whatever width the dock stored alone
+/// (https://github.com/manaflow-ai/cmux/issues/37391).
 #[test]
 fn a_split_right_of_a_lone_pinned_dock_is_a_new_column_beside_it() {
     let mux = Mux::new_for_test("conversation-tab-split-lone", crate::SurfaceOptions::default());
@@ -194,6 +196,7 @@ fn a_split_right_of_a_lone_pinned_dock_is_a_new_column_beside_it() {
         assert_eq!(columns.len(), 1, "the dock is alone");
         columns[0].width
     });
+    assert_ne!(width, crate::model::LONE_DOCK_WIDTH, "the dock alone stores another width");
     let created =
         run(&mux, split_request(dock, "right", "pane_0123456789abcdef0123456789abcdef")).unwrap();
     let surface = created["surface"].as_u64().unwrap();
@@ -205,7 +208,10 @@ fn a_split_right_of_a_lone_pinned_dock_is_a_new_column_beside_it() {
             .map(|column| (column.width, column.dock.is_some_and(|d| d.pinned)))
             .collect::<Vec<_>>()
     });
-    assert_eq!(columns, vec![(width, true), (crate::mux::LONE_DOCK_NEIGHBOR_WIDTH, false)]);
+    assert_eq!(
+        columns,
+        vec![(crate::model::LONE_DOCK_WIDTH, true), (crate::mux::LONE_DOCK_NEIGHBOR_WIDTH, false)]
+    );
     assert_eq!(pane_tabs(&mux, dock), vec![home], "the dock keeps only its tab");
     let beside = mux.with_state(|state| state.pane_of(surface)).unwrap();
     assert_ne!(beside, dock);

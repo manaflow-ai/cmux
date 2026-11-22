@@ -7,6 +7,8 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -75,12 +77,8 @@ afterEach(() => {
   for (const popup of dom.window.document.querySelectorAll(".acpmux-quick-menu")) popup.remove();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 /// A chat on Claude Code's profile `claude-sr2` (a second account's harness id the model catalog
@@ -200,7 +198,7 @@ async function mount(chat: Chat) {
 
 const doc = () => dom.window.document;
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
-const modelButton = () => host.querySelector<HTMLButtonElement>(".acpmux-model .acpmux-picker-button")!;
+const modelButton = () => host.querySelector<HTMLButtonElement>(MODEL_PICKER)!;
 const menus = () => [...doc().querySelectorAll<HTMLElement>(".acpmux-quick-menu")];
 const effortRow = () =>
   [...menus()[0]!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>

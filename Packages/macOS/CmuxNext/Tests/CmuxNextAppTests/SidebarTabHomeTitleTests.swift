@@ -4,9 +4,9 @@ import CmuxNextBridge
 import Foundation
 import Testing
 
-/// Leo 2026-10-29, on the Cloud rows at the bottom of the sidebar with workspace tabs listed: "why is there all this
-/// weird stuff at the bottom of the sidebar". A Cloud shell nobody titled listed its tab as `/home/cmux`, the raw
-/// home of a computer whose row already names it; this Mac's home was already `~`, another computer's never was.
+/// Leo 2026-10-29, on the Cloud rows at the bottom of the sidebar: "why is there all this weird stuff at the bottom of
+/// the sidebar". A Cloud shell nobody titled named its tab `/home/cmux`, the raw home of a computer whose row already
+/// names it; this Mac's home was already `~`, another computer's never was.
 @MainActor @Suite(.serialized)
 struct SidebarTabHomeTitleTests {
     /// One workspace whose one terminal tab sits in `cwd`, titled `title` (empty: untitled, as a fresh shell is).
@@ -21,24 +21,17 @@ struct SidebarTabHomeTitleTests {
         guard let workspace = store.workspaces.first else { return nil }
         if let agent { workspace.screens.flatMap(\.panes).flatMap(\.tabs).first?.setAgent(AgentStatus(surface: 1, state: .working, agent: agent)) }
         return SidebarMapping.shared.row(workspace, machine: machine,
-                                         tabTitle: { TabItemMapping.shared.title($0, fallbackTitle: "Terminal") }).tabs.first
-    }
-
-    private static func name(_ tab: SidebarTab?) -> String? {
-        tab.map { SidebarTabLine.make($0, look: .detail, terminalName: "Terminal").name }
+                                         tabTitle: { TabItemMapping.shared.title($1, fallbackTitle: "Terminal") }).tabs.first
     }
 
     private static let cloud = MachineID("vm-1")
 
-    @Test func aCloudShellAtItsHomeIsATerminal() {
-        let tab = Self.tab(cwd: "/home/cmux", machine: Self.cloud)
-        #expect(tab?.title == "~")
-        // Its row already names the machine and the folder, so the tab line says what runs there.
-        #expect(Self.name(tab) == "Terminal")
+    @Test func aCloudShellAtItsHomeReadsAsHome() {
+        #expect(Self.tab(cwd: "/home/cmux", machine: Self.cloud)?.title == "~")
     }
 
-    @Test func aCloudShellTitledByItsHomeIsATerminal() {
-        #expect(Self.name(Self.tab(cwd: "/home/cmux", title: "/home/cmux", machine: Self.cloud)) == "Terminal")
+    @Test func aCloudShellTitledByItsHomeReadsAsHome() {
+        #expect(Self.tab(cwd: "/home/cmux", title: "/home/cmux", machine: Self.cloud)?.title == "~")
     }
 
     @Test func aCloudShellInAProjectSaysItsFolderAsItsPromptDoes() {
