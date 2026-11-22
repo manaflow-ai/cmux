@@ -48,6 +48,11 @@ pub mod kind {
     /// The owner's gateway answered, but the agent's sign-in on their Mac is missing or expired
     /// (`inference.gateway_login`).
     pub const GATEWAY_LOGIN: &str = "gateway.login";
+    /// The agent does not know the model it was asked to run (Claude Code's
+    /// `unrecognized_model`, an API's `model_not_found`; `model_catalog::is_model_error`). acpmux
+    /// retries such a turn once under the model's catalog id when it has one
+    /// (`hub/auto_resume/model_reroute.rs`); a sweeper reads this kind for the rest.
+    pub const MODEL_UNRECOGNIZED: &str = "model.unrecognized";
 }
 
 /// The `errorKind` of a model call the owner's own gateway could not answer, by the code the
@@ -261,6 +266,16 @@ fn classify(
              the message again."
         };
         return Some((kind, recovery.into(), Map::new()));
+    }
+    if crate::model_catalog::is_model_error(message) {
+        return Some((
+            kind::MODEL_UNRECOGNIZED,
+            "The agent does not know this chat's model. Pick one it lists in the chat's model \
+             picker, or set it with `acpmux session set <session> model=<id>`, then send the \
+             message again."
+                .into(),
+            Map::new(),
+        ));
     }
     if dead {
         return Some((
@@ -590,6 +605,25 @@ mod tests {
 
     fn kind_of(e: &RpcError) -> Option<&str> {
         e.data.as_ref()?.get("errorKind")?.as_str()
+    }
+
+    /// A turn the agent failed because it does not know its model (Claude Code refused
+    /// `fable-5.2`, Leo 2026-11-22) is `model.unrecognized`, for a sweeper; capacity is not.
+    #[test]
+    fn a_model_the_agent_does_not_know_is_model_unrecognized() {
+        let e = RpcError::new(
+            -32603,
+            "[claude-code:unrecognized_model] There's an issue with the selected model \
+             (fable-5.2). It may not exist or you may not have access to it.",
+        );
+        let mut typed = e.clone();
+        annotate_as(&mut typed, None, dead_process(&e));
+        assert_eq!(kind_of(&typed), Some(kind::MODEL_UNRECOGNIZED), "{typed:?}");
+        let busy =
+            RpcError::new(-32603, "Selected model is at capacity. Please try a different model.");
+        let mut typed = busy.clone();
+        annotate_as(&mut typed, None, dead_process(&busy));
+        assert_ne!(kind_of(&typed), Some(kind::MODEL_UNRECOGNIZED), "{typed:?}");
     }
 
     /// Every form the turn finalizer treats as a dead process is `agent.exited`: the bare ACP
