@@ -40,6 +40,15 @@ pub fn chat_root_is_valid(path: &str, home: &str) -> bool {
     })
 }
 
+/// Whether `path` is at or inside a folder macOS guards with a privacy prompt
+/// for a user whose home is `home` (LAUNCH-NO-TCC-PROMPTS): ~/Desktop,
+/// ~/Documents, iCloud Drive, another volume and the rest of the one list.
+/// The spelling only, case-insensitively: nothing on disk is read, so asking
+/// never raises the prompt. The home folder itself is not guarded.
+pub fn in_protected_folder(path: &str, home: &str) -> bool {
+    path.starts_with('/') && guarded(path, false, &[fold(home)])
+}
+
 fn chat_root_is_valid_with(
     path: &str,
     home: &str,

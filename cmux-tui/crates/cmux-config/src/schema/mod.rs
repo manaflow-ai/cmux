@@ -21,7 +21,7 @@ use serde_json::value::RawValue;
 pub use accepts::{Accepted, accepts, effective_value, is_hex_color};
 pub use backdrop::normalize_backdrop;
 pub use build_defaults::{BUILD_DEFAULTS_ENV, build_defaults_from};
-pub use chat_roots::chat_root_is_valid;
+pub use chat_roots::{chat_root_is_valid, in_protected_folder};
 pub use retired::{Replaced, replaced_by_row, replaced_keys, retired_keys, retired_reason};
 pub use url::{is_http_origin, new_tab_page_url_is_valid};
 
