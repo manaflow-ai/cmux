@@ -1325,8 +1325,8 @@
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
-  min-height: 34px;
-  padding: 5px var(--row-pad-x);
+  min-height: 32px;
+  padding: 4px var(--row-pad-x);
   box-shadow: inset 0 -1px 0 var(--border);
 }
 
@@ -1348,8 +1348,8 @@
 }
 
 .checklist-text .row-title svg {
-  width: 11px;
-  height: 11px;
+  width: 12px;
+  height: 12px;
   color: var(--muted-text);
 }
 
@@ -1361,7 +1361,7 @@
 }
 
 .checklist-install {
-  padding: 2px 10px;
+  padding: var(--grid-half-step) 8px;
   border: 1px solid var(--border-strong);
   border-radius: var(--ds-radius-control);
   background: var(--input-bg);
@@ -1381,14 +1381,14 @@
 .checklist-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
 }
 
 .checklist-chip,
 .checklist-menu-item {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   border: 1px solid var(--border);
   background: none;
   color: var(--text);
@@ -1397,7 +1397,7 @@
 }
 
 .checklist-chip {
-  padding: 3px 10px 3px 6px;
+  padding: 4px 8px 4px 4px;
   border-radius: 999px;
 }
 
@@ -1412,7 +1412,7 @@
   opacity: 0.55;
 }
 
-.checklist-mark {
+.checklist-mark-icon {
   display: inline-flex;
   width: 14px;
   height: 14px;
@@ -1420,7 +1420,7 @@
   justify-content: center;
 }
 
-.checklist-mark svg,
+.checklist-mark-icon svg,
 .checklist-chip > svg,
 .checklist-menu-item > svg {
   width: 12px;

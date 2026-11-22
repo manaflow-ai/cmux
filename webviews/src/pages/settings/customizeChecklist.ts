@@ -11,6 +11,7 @@
 import type { LibraryEntry, LibraryListing } from "./ops";
 import type { SchemaRow } from "./schema";
 import { text } from "./strings";
+import { intl } from "../../ui/intl";
 
 /** The checklist's groups, in the order they draw. */
 export const CHECKLIST_GROUPS = ["experiments", "labs", "library", "looks", "all"] as const;
@@ -72,7 +73,7 @@ export function settingGroup(key: string): "experiments" | "labs" | "all" {
 /** The longest line drawn under a title, in characters as a reader counts them (rowSummary.test.tsx). */
 export const SHORT_LINE = 60;
 
-const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+const graphemes = intl.Segmenter(undefined, { granularity: "grapheme" });
 
 /** `words` when they fit one short line, else their first sentence when that fits, else the part
  * before its first colon, semicolon or dash when that fits ("A quiet, near-black agent-editor look"
@@ -135,7 +136,7 @@ export function checklistGroups(input: ChecklistInput): ChecklistGroup[] {
     group,
     title: text(row.title),
     // The row's summary, else its help's first sentence (one line, cut with an ellipsis; all of it on hover).
-    help: text(row.summary) || firstSentence(text(row.help)),
+    help: shortLine(text(row.summary) || text(row.help)),
     detail: text(row.help),
     terms: row.key,
     on: input.value(row.key) === true,

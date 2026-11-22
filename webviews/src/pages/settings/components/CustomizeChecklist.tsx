@@ -220,7 +220,7 @@ function ChecklistRow({
         title={item.locked ?? (item.detail || help || undefined)}
         onClick={() => onToggle(item, !item.on)}
       >
-        <span className="checklist-mark" aria-hidden="true">
+        <span className="checklist-mark-icon" aria-hidden="true">
           {item.on ? <Icon name="check" /> : item.installs ? <Icon name="plus" /> : null}
         </span>
         <span className="row-title">{item.title}</span>
