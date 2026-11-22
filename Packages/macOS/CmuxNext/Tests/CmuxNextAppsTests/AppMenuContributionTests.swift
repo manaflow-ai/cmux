@@ -37,10 +37,10 @@ import Testing
     }
 
     private static func row(_ id: String, _ target: String, _ title: String, order: Int? = nil) -> AppJSON {
-        var row: AppJSON = ["id": .string(id), "target": .string(target), "title": .string(title), "op": "local.branchy.copy_branch",
-                            "args": ["format": "short"]]
+        var row: [String: AppJSON] = ["id": .string(id), "target": .string(target), "title": .string(title),
+                                      "op": "local.branchy.copy_branch", "args": ["format": "short"]]
         if let order { row["order"] = .number(Double(order)) }
-        return row
+        return .object(row)
     }
 
     private static func settle(_ client: AppsClient) async {
