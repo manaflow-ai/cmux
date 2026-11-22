@@ -44,6 +44,7 @@ import { findingKey, scanStage, type Finding } from "./accentGlassScan";
 import { warmGalleryFrame } from "./galleryFrame";
 import { galleryStageServer, type GalleryStageServer } from "./galleryStageServer";
 import { requireBrowserLane } from "./requireBrowserLane";
+import { orangeAllowedFor, readOrangeAccentAllowlist } from "./orangeAccentAllowlist";
 import { launchStageBrowser, type StageBrowser } from "./stageBrowser";
 
 export type AccentGlassPart = {
@@ -73,13 +74,11 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
     );
     // Case (b): each theme the allowlist names may show its own orange accent. One theme of each
     // entry (its dark one) runs every stage again; the default theme's run is case (a).
-    const allowlist = JSON.parse(
-      fs.readFileSync(path.join(webviews, "../schemas/theme/orange-accent-allowlist.json"), "utf8"),
-    ) as { allowed: { name: string; themes: string[] }[]; looks?: { id: string }[] };
+    const allowlist = readOrangeAccentAllowlist(webviews);
     const themes: (string | undefined)[] = [undefined, ...allowlist.allowed.map((entry) => entry.themes[0]!)];
-    const orangeThemes = new Set(allowlist.allowed.flatMap((entry) => entry.themes));
     // A golden look the allowlist names draws its own theme, orange by design: the same case (b), on its stage only.
-    const orangeLooks = new Set((allowlist.looks ?? []).map((look) => look.id));
+    const orangeAllowedOn = orangeAllowedFor(allowlist);
+    const orangeThemes = new Set(allowlist.allowed.flatMap((entry) => entry.themes));
     const everyStage = (await loadEntrySources())
       .filter(({ entry }) => entry.host !== "native")
       .flatMap(({ entry, path: source }) =>
@@ -132,9 +131,7 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
 
     const scan = async (page: Page, stage: (typeof stages)[number]): Promise<Scanned> => {
       const name = stageName(stage);
-      const orangeAllowed =
-        (stage.theme !== undefined && orangeThemes.has(stage.theme)) ||
-        (stage.entry === "looks.golden" && orangeLooks.has(stage.variant));
+      const orangeAllowed = orangeAllowedOn(stage);
       const query = new URLSearchParams({
         entry: stage.entry,
         variant: stage.variant,
