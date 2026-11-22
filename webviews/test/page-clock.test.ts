@@ -18,11 +18,17 @@ function installDocument(state: DocumentVisibilityState): FakeDocument {
       listeners.get(type)?.delete(listener as () => void);
     },
     show(next: DocumentVisibilityState) {
-      Object.defineProperty(doc, "visibilityState", { value: next, configurable: true });
+      Object.defineProperty(doc, "visibilityState", {
+        value: next,
+        configurable: true,
+      });
       for (const listener of listeners.get("visibilitychange") ?? []) listener();
     },
   } as unknown as FakeDocument;
-  Object.defineProperty(globalThis, "document", { value: doc, configurable: true });
+  Object.defineProperty(globalThis, "document", {
+    value: doc,
+    configurable: true,
+  });
   return doc;
 }
 
@@ -81,5 +87,39 @@ test("timestamp deadlines share the nearest timer and stop when no label will ch
   );
   expect(pageClocks(doc)).toMatchObject({ running: 0, subscribers: 1 });
   stopStatic();
+  expect(pageClocks(doc)).toEqual({ running: 0, subscribers: 0, items: [] });
+});
+
+test("a chat's labels joining in one task arm the deadline timer at most twice, however many there are", async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(0);
+  const doc = installDocument("visible");
+  let arms = 0;
+  const add = doc.addEventListener.bind(doc);
+  doc.addEventListener = ((...args: Parameters<Document["addEventListener"]>) => {
+    if (args[0] === "visibilitychange") arms += 1;
+    add(...args);
+  }) as Document["addEventListener"];
+  // Newest rows mount last and change soonest: each joins due before every label already there,
+  // the order that re-armed the timer on every join (O(n²) per chat open).
+  const stops = Array.from({ length: 500 }, (_, index) =>
+    subscribePageDeadline(
+      () => {},
+      () => 60_000 * (501 - index),
+    ),
+  );
+  await Promise.resolve();
+  expect(arms).toBeLessThanOrEqual(2);
+  expect(pageClocks(doc)).toMatchObject({ running: 1, subscribers: 500 });
+  // The soonest label (the last to join) still fires at its own deadline.
+  let fired = 0;
+  const stopSoonest = subscribePageDeadline(
+    () => fired++,
+    () => (Date.now() < 30_000 ? 30_000 : Infinity),
+  );
+  await Promise.resolve();
+  jest.advanceTimersByTime(30_005);
+  expect(fired).toBe(1);
+  for (const stop of [...stops, stopSoonest]) stop();
   expect(pageClocks(doc)).toEqual({ running: 0, subscribers: 0, items: [] });
 });

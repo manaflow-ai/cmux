@@ -2,14 +2,23 @@
 // both the timer and its visibility listener. Diagnostics count allocated timers, not callbacks.
 import { useEffect, useState } from "react";
 
-type Clock = { name: string; running: boolean; subscribers: () => number; document?: Document };
+type Clock = {
+  name: string;
+  running: boolean;
+  subscribers: () => number;
+  document?: Document;
+};
 const clocks = new Set<Clock>();
 const pageDocument = () => (typeof document === "undefined" ? undefined : document);
 
 export function pageClocks(doc: Document | undefined = pageDocument()) {
   const items = [...clocks]
     .filter((clock) => clock.document === doc)
-    .map((clock) => ({ name: clock.name, running: clock.running, subscribers: clock.subscribers() }));
+    .map((clock) => ({
+      name: clock.name,
+      running: clock.running,
+      subscribers: clock.subscribers(),
+    }));
   return {
     running: items.filter((clock) => clock.running).length,
     subscribers: items.reduce((total, clock) => total + clock.subscribers, 0),
@@ -23,10 +32,19 @@ export function visibleInterval(
   name: string,
   tick: () => void,
   every: number | (() => number | null),
-  options: { onShow?: () => void; aligned?: boolean; subscribers?: () => number } = {},
+  options: {
+    onShow?: () => void;
+    aligned?: boolean;
+    subscribers?: () => number;
+  } = {},
 ): () => void {
   const doc = pageDocument();
-  const clock: Clock = { name, running: false, subscribers: options.subscribers ?? (() => 1), document: doc };
+  const clock: Clock = {
+    name,
+    running: false,
+    subscribers: options.subscribers ?? (() => 1),
+    document: doc,
+  };
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
   const clear = () => {
@@ -85,7 +103,11 @@ function sharedClock(name: string, every: number, aligned = false) {
     listeners.add(notify);
     if (listeners.size === 1) {
       at = Date.now();
-      stop = visibleInterval(name, tick, every, { onShow: tick, aligned, subscribers: () => listeners.size });
+      stop = visibleInterval(name, tick, every, {
+        onShow: tick,
+        aligned,
+        subscribers: () => listeners.size,
+      });
     }
     if (pageDocument()?.visibilityState !== "hidden") notify(at ?? Date.now());
     return () => {
@@ -103,12 +125,27 @@ function sharedClock(name: string, every: number, aligned = false) {
 }
 
 /** One timer for timestamp labels, at the nearest actual text change. Removing the last label
- * removes its timer; hidden pages catch up once before choosing a new deadline. */
-const deadlines = new Set<{ notify: () => void; next: () => number; at: number }>();
+ * removes its timer; hidden pages catch up once before choosing a new deadline.
+ *
+ * A chat opening mounts a label per row in one commit, so joining and leaving cost O(1): a label
+ * that joins after the timer is armed re-arms it only when it is due sooner, and then once per
+ * task (a microtask), not once per label; a label that leaves keeps the timer, which wakes early at
+ * worst, finds nothing due and arms for the next. Re-arming on every join and leave tore the timer
+ * and its visibility listener down and took the minimum over every label each time: O(n²) per open,
+ * 9.8 ms of a 300-turn chat's attach (bench/chat-open.bench.ts STAGES=1 PROFILE=1). */
+const deadlines = new Set<{
+  notify: () => void;
+  next: () => number;
+  at: number;
+}>();
 let stopDeadlines: (() => void) | undefined;
+/// When the armed timer is due (wall ms); Infinity while it waits on nothing or the page is hidden.
+let armedFor = Number.POSITIVE_INFINITY;
+let rearmQueued = false;
 function scheduleDeadlines() {
   stopDeadlines?.();
   stopDeadlines = undefined;
+  armedFor = Number.POSITIVE_INFINITY;
   if (deadlines.size === 0) return;
   const tick = () => {
     for (const label of deadlines) {
@@ -120,7 +157,12 @@ function scheduleDeadlines() {
   stopDeadlines = visibleInterval(
     "relative-time",
     tick,
-    () => Math.min(...Array.from(deadlines, (label) => label.at)) - Date.now() + 5,
+    () => {
+      let soonest = Number.POSITIVE_INFINITY;
+      for (const label of deadlines) if (label.at < soonest) soonest = label.at;
+      armedFor = soonest;
+      return soonest - Date.now() + 5;
+    },
     { onShow: tick, subscribers: () => deadlines.size },
   );
 }
@@ -128,10 +170,20 @@ function scheduleDeadlines() {
 export function subscribePageDeadline(notify: () => void, next: () => number): () => void {
   const label = { notify, next, at: next() };
   deadlines.add(label);
-  scheduleDeadlines();
+  if (stopDeadlines === undefined) scheduleDeadlines();
+  // A hidden page arms on show, from every label then.
+  else if (label.at < armedFor && pageDocument()?.visibilityState !== "hidden" && !rearmQueued) {
+    rearmQueued = true;
+    queueMicrotask(() => {
+      rearmQueued = false;
+      scheduleDeadlines();
+    });
+  }
   return () => {
-    deadlines.delete(label);
-    scheduleDeadlines();
+    if (!deadlines.delete(label) || deadlines.size > 0) return;
+    stopDeadlines?.();
+    stopDeadlines = undefined;
+    armedFor = Number.POSITIVE_INFINITY;
   };
 }
 

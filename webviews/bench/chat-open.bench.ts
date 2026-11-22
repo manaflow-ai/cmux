@@ -97,7 +97,15 @@ const chatAt = (scale: Scale): Chat => {
       ? godChat(PAPERCUT_CHAT, remoteFields)
       : papercutEvents({ turns: TURNS, running: false, session: remoteFields });
   const latest = scale === "god" ? LATEST_TEXT : `Answer ${TURNS}:`;
-  return { scale, events, session, latest, perfRow: scaledPerfRow(printRow, scale), attachBytes: 0, attachEvents: 0 };
+  return {
+    scale,
+    events,
+    session,
+    latest,
+    perfRow: scaledPerfRow(printRow, scale),
+    attachBytes: 0,
+    attachEvents: 0,
+  };
 };
 /// The chats this run opens: FIXTURE's, or with PAIRED=1 the small chat and the god one. The stand-in serves `current`,
 /// one load at a time, so both share its port and the page's URL.
@@ -149,7 +157,12 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
     case "_acpmux/attach": {
       // As the daemon does: the newest `limit` events within `maxBytes`, and hasMore while older ones remain.
       const { page, hasMore } = newest(Number(params.limit ?? 400), Infinity, params.maxBytes);
-      const result = { session, lastSeq: events.at(-1)?.seq ?? 0, events: page, hasMore };
+      const result = {
+        session,
+        lastSeq: events.at(-1)?.seq ?? 0,
+        events: page,
+        hasMore,
+      };
       current.attachBytes = JSON.stringify(result).length;
       current.attachEvents = page.length;
       return result;
@@ -165,7 +178,11 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
             ...event,
             msg: { text: String((event.msg as { text?: string }).text ?? "") },
           }));
-        return { events: prompts, hasMore: false, lastSeq: events.at(-1)?.seq ?? 0 };
+        return {
+          events: prompts,
+          hasMore: false,
+          lastSeq: events.at(-1)?.seq ?? 0,
+        };
       }
       if (params.beforeSeq !== undefined) {
         const { page, hasMore } = newest(Number(params.limit ?? 400), Number(params.beforeSeq), params.maxBytes);
@@ -248,7 +265,9 @@ try {
     async fetch(request) {
       const pathname = new URL(request.url).pathname;
       if (pathname === CALIBRATION_PATH)
-        return new Response(CALIBRATION_HTML, { headers: { "content-type": "text/html; charset=utf-8" } });
+        return new Response(CALIBRATION_HTML, {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        });
       const file = Bun.file(path.join(out, pathname === "/" ? "index.html" : pathname));
       return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
     },
@@ -316,7 +335,11 @@ try {
     await page.addInitScript(
       ([latestText, instrument, hostLatency, remoteTail, diskSnapshot]) => {
         if (hostLatency > 0)
-          (window as unknown as { cmuxAcpmuxActions: Record<string, () => Promise<unknown>> }).cmuxAcpmuxActions = {
+          (
+            window as unknown as {
+              cmuxAcpmuxActions: Record<string, () => Promise<unknown>>;
+            }
+          ).cmuxAcpmuxActions = {
             // fixed-wait: the stand-in host's answer latency is what this run measures.
             "chat.scrollAnchor.get": () => new Promise((resolve) => setTimeout(() => resolve(null), hostLatency)),
           };
@@ -361,7 +384,10 @@ try {
             }
             override send(data: Parameters<WebSocket["send"]>[0]): void {
               if (typeof data === "string") {
-                const request = JSON.parse(data) as { id?: string | number; method?: string };
+                const request = JSON.parse(data) as {
+                  id?: string | number;
+                  method?: string;
+                };
                 if (request.method === "_acpmux/attach" && request.id !== undefined) this.attaches.add(request.id);
               }
               super.send(data);
@@ -604,9 +630,11 @@ try {
             let activity = started;
             try {
               // The page's bridge (App.tsx declares it on Window); this file doesn't import App.
-              (window as unknown as { cmuxAcpmuxBridge: { revealTurn(id: string): void } }).cmuxAcpmuxBridge.revealTurn(
-                `message:${message}`,
-              );
+              (
+                window as unknown as {
+                  cmuxAcpmuxBridge: { revealTurn(id: string): void };
+                }
+              ).cmuxAcpmuxBridge.revealTurn(`message:${message}`);
               await new Promise<void>((resolve, reject) => {
                 const tick = () => {
                   const now = performance.now();
@@ -646,9 +674,9 @@ try {
         )
       : { first: 0, settled: 0, drift: 0, driftPx: 0, centers: 0, scans: 0 };
     if (REVEAL && process.env.FAST_CHECKS_OUT)
-      await page
-        .locator(".acpmux-scroll")
-        .screenshot({ path: path.join(process.env.FAST_CHECKS_OUT, `reveal-${rail}.png`) });
+      await page.locator(".acpmux-scroll").screenshot({
+        path: path.join(process.env.FAST_CHECKS_OUT, `reveal-${rail}.png`),
+      });
     await page.close();
     const attach = attachedAt ? attachedAt - got.origin : 0;
     if (process.env.TRACE === "1") {
@@ -684,7 +712,9 @@ try {
   };
 
   if (process.env.PROFILE === "1") {
-    const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+    const page = await browser.newPage({
+      viewport: { width: 1200, height: 800 },
+    });
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Profiler.enable");
     await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
@@ -769,10 +799,472 @@ try {
     for (const [key, ms] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 45)) console.log(`${ms.toFixed(1)}\t${key}`);
     await page.close();
   }
+  // STAGES=1: one load of each chat under a Chrome trace (production build), and where the main thread's time goes
+  // between the attach answer reaching the page and the frame that shows the newest message: the floor's stage costs
+  // (goals/chat-attach-p95.md, Ceiling). Marks: bench:attach when the page receives `_acpmux/attach`'s reply,
+  // bench:latest when the frame after the newest message's commit starts (the nextFrame mark the timed rounds use).
+  if (process.env.STAGES === "1") {
+    const stackMapper = process.env.PROFILE === "1" ? sourceMapper(out) : undefined;
+    for (const chat of chats)
+      for (const arm of process.env.ARMS?.split(",") ?? ["compact"]) {
+        use(chat);
+        const page = await browser.newPage({
+          viewport: { width: 1200, height: 800 },
+        });
+        await page.addInitScript((rail) => {
+          localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
+        }, arm);
+        // CAUSES=1: per React commit in the stretch, the components whose own state changed (the update's sources,
+        // props unchanged) and how many fibers rendered: why the attach takes more than one render.
+        if (process.env.CAUSES === "1")
+          await page.addInitScript(() => {
+            type Fiber = {
+              type?: { name?: string; displayName?: string } | string | null;
+              child: Fiber | null;
+              sibling: Fiber | null;
+              alternate: Fiber | null;
+              memoizedProps: unknown;
+              memoizedState: { memoizedState?: unknown; next?: unknown; queue?: unknown } | null;
+              tag: number;
+            };
+            const commits: string[] = [];
+            (window as unknown as { __benchCommits: string[] }).__benchCommits = commits;
+            const nameOf = (fiber: Fiber) =>
+              typeof fiber.type === "string"
+                ? fiber.type
+                : (fiber.type?.displayName ?? fiber.type?.name ?? `tag${fiber.tag}`);
+            (window as unknown as Record<string, unknown>).__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+              supportsFiber: true,
+              renderers: new Map(),
+              inject: () => 1,
+              checkDCE: () => {},
+              onScheduleFiberRoot: () => {},
+              onCommitFiberUnmount: () => {},
+              onPostCommitFiberRoot: () => {},
+              onCommitFiberRoot: (_id: number, root: { current: Fiber }) => {
+                if (performance.getEntriesByName("bench:attach").length === 0) return;
+                if (performance.getEntriesByName("bench:latest").length > 0) return;
+                const sources = new Map<string, number>();
+                let rendered = 0;
+                let mounted = 0;
+                const stack: Fiber[] = [root.current];
+                while (stack.length) {
+                  const fiber = stack.pop()!;
+                  const old = fiber.alternate;
+                  if (!old) mounted += 1;
+                  else if (old.memoizedProps !== fiber.memoizedProps || old.memoizedState !== fiber.memoizedState) {
+                    rendered += 1;
+                    if (
+                      old.memoizedProps === fiber.memoizedProps &&
+                      fiber.tag !== 3 &&
+                      typeof fiber.type !== "string"
+                    ) {
+                      // Which state hooks (those with an update queue) changed: their indexes in the component.
+                      const changed: (number | string)[] = [];
+                      let a = fiber.memoizedState as {
+                        memoizedState?: unknown;
+                        next?: unknown;
+                        queue?: unknown;
+                      } | null;
+                      let b = old.memoizedState as typeof a;
+                      for (let index = 0; a && b && index < 300; index++) {
+                        if (a.queue && a.memoizedState !== b.memoizedState) {
+                          const value = (state: unknown) =>
+                            typeof state === "object" && state !== null
+                              ? Array.isArray(state)
+                                ? `[${state.length}]`
+                                : `{${Object.keys(state).slice(0, 4).join(",")}}`
+                              : typeof state === "function"
+                                ? "fn"
+                                : String(state).slice(0, 24);
+                          changed.push(`${index}:${value(b.memoizedState)}>${value(a.memoizedState)}`);
+                        }
+                        a = a.next as typeof a;
+                        b = b.next as typeof b;
+                      }
+                      const key = `${nameOf(fiber)}[${changed.slice(0, 6).join(" ")}]`;
+                      if (changed.length > 0) sources.set(key, (sources.get(key) ?? 0) + 1);
+                    }
+                  }
+                  if (fiber.sibling) stack.push(fiber.sibling);
+                  if (fiber.child) stack.push(fiber.child);
+                }
+                commits.push(
+                  `${performance.now().toFixed(1)} rendered ${rendered} mounted ${mounted}; state changed in: ${[
+                    ...sources,
+                  ]
+                    .slice(0, 16)
+                    .map(([key, n]) => (n > 1 ? `${n}x ${key}` : key))
+                    .join(", ")}`,
+                );
+              },
+            };
+          });
+        await page.addInitScript((latestText) => {
+          const Socket = window.WebSocket;
+          window.WebSocket = class extends Socket {
+            private attaches = new Set<string | number>();
+            constructor(url: string | URL, protocols?: string | string[]) {
+              super(url, protocols);
+              this.addEventListener("message", (event) => {
+                const reply = JSON.parse(String(event.data)) as {
+                  id?: string | number;
+                };
+                if (reply.id !== undefined && this.attaches.delete(reply.id)) performance.mark("bench:attach");
+              });
+            }
+            override send(data: Parameters<WebSocket["send"]>[0]): void {
+              if (typeof data === "string") {
+                const request = JSON.parse(data) as {
+                  id?: string | number;
+                  method?: string;
+                };
+                if (request.method === "_acpmux/attach" && request.id !== undefined) this.attaches.add(request.id);
+              }
+              super.send(data);
+            }
+          } as typeof WebSocket;
+          // Every DOM change in the stretch, by batch: which commit dirtied what the next forced layout re-lays.
+          const changes: string[] = [];
+          (window as unknown as { __benchChanges: string[] }).__benchChanges = changes;
+          const describe = (node: Node) =>
+            node instanceof Element
+              ? `${node.tagName.toLowerCase()}${node.id ? `#${node.id}` : ""}${[...node.classList]
+                  .slice(0, 2)
+                  .map((name) => `.${name}`)
+                  .join("")}${node.getAttribute("data-row-key") ? `[${node.getAttribute("data-row-key")}]` : ""}`
+              : node.nodeName;
+          new MutationObserver((records) => {
+            if (performance.getEntriesByName("bench:attach").length === 0) return;
+            if (performance.getEntriesByName("bench:latest").length > 0) return;
+            const at = performance.now().toFixed(0);
+            const counts = new Map<string, number>();
+            for (const record of records) {
+              const key =
+                record.type === "attributes"
+                  ? `${describe(record.target)} @${record.attributeName}${
+                      record.attributeName === "style" || record.attributeName === "class"
+                        ? ` ${record.oldValue?.slice(0, 60)} -> ${(record.target as Element).getAttribute(record.attributeName!)?.slice(0, 60)}`
+                        : ""
+                    }`
+                  : record.type === "childList"
+                    ? `${describe(record.target)} +${record.addedNodes.length}-${record.removedNodes.length}`
+                    : `text in ${describe(record.target.parentNode ?? record.target)}`;
+              counts.set(key, (counts.get(key) ?? 0) + 1);
+            }
+            changes.push(
+              `${at} ${records.length}: ${[...counts]
+                .slice(0, 14)
+                .map(([key, n]) => (n > 1 ? `${n}x ${key}` : key))
+                .join(" | ")}`,
+            );
+          }).observe(document, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+            attributeOldValue: true,
+            characterData: true,
+          });
+          let marked = false;
+          const tick = () => {
+            if (!marked && document.body?.textContent?.includes(latestText)) {
+              marked = true;
+              requestAnimationFrame(() => performance.mark("bench:latest"));
+              return;
+            }
+            requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }, LATEST);
+        const cdp = await page.context().newCDPSession(page);
+        const events: {
+          name: string;
+          cat: string;
+          ph: string;
+          ts: number;
+          dur?: number;
+          tid: number;
+          pid: number;
+          args?: {
+            name?: string;
+            data?: { frame?: string };
+            beginData?: {
+              stackTrace?: {
+                functionName: string;
+                url: string;
+                lineNumber: number;
+              }[];
+            };
+          };
+        }[] = [];
+        cdp.on("Tracing.dataCollected", ({ value }: { value: typeof events }) => events.push(...value));
+        const done = new Promise<void>((resolve) => cdp.once("Tracing.tracingComplete", () => resolve()));
+        await cdp.send("Tracing.start", {
+          traceConfig: {
+            includedCategories: [
+              "devtools.timeline",
+              "blink.user_timing",
+              "v8",
+              "disabled-by-default-devtools.timeline",
+              "disabled-by-default-devtools.timeline.stack",
+            ],
+            recordMode: "recordAsMuchAsPossible",
+          },
+          transferMode: "ReportEvents",
+        });
+        // With PROFILE=1 as well (an unminified build), a CPU profile beside the trace: the stretch's JS by function.
+        const profiling = process.env.PROFILE === "1";
+        if (profiling) {
+          await cdp.send("Profiler.enable");
+          await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
+          await cdp.send("Profiler.start");
+        }
+        await page.goto(url);
+        await page.waitForFunction(() => performance.getEntriesByName("bench:latest").length > 0, undefined, {
+          timeout: 120_000,
+        });
+        await page.waitForTimeout(200);
+        if (process.env.CAUSES === "1")
+          console.log(
+            `stages ${chat.scale}:${arm} commits in the stretch (ms since load):\n  ${(
+              await page.evaluate(() => (window as unknown as { __benchCommits: string[] }).__benchCommits)
+            ).join("\n  ")}`,
+          );
+        console.log(
+          `stages ${chat.scale}:${arm} transcript box: ${await page.evaluate(() => {
+            const node = document.querySelector<HTMLElement>(".acpmux-scroll");
+            return node
+              ? `${node.clientHeight}x${node.clientWidth} (offsetWidth ${node.offsetWidth}), window ${innerHeight}x${innerWidth}`
+              : "none";
+          })}`,
+        );
+        console.log(
+          `stages ${chat.scale}:${arm} DOM changes in the stretch (ms since load, records):\n  ${(
+            await page.evaluate(() => (window as unknown as { __benchChanges: string[] }).__benchChanges)
+          ).join("\n  ")}`,
+        );
+        const profiled = profiling
+          ? (
+              (await cdp.send("Profiler.stop")) as {
+                profile: {
+                  startTime: number;
+                  nodes: {
+                    id: number;
+                    callFrame: {
+                      functionName: string;
+                      url: string;
+                      lineNumber: number;
+                      columnNumber: number;
+                    };
+                    children?: number[];
+                  }[];
+                  samples: number[];
+                  timeDeltas: number[];
+                };
+              }
+            ).profile
+          : undefined;
+        await cdp.send("Tracing.end");
+        await done;
+        await page.close();
+        const markAt = (name: string) =>
+          events.find((event) => event.name === name && event.cat.includes("user_timing"))?.ts;
+        const [start, end] = [markAt("bench:attach"), markAt("bench:latest")];
+        if (profiled && start !== undefined && end !== undefined) {
+          // Profiler time and trace time are both the browser's monotonic clock in microseconds.
+          const mapper = sourceMapper(out);
+          const byId = new Map(profiled.nodes.map((node) => [node.id, node]));
+          const parent = new Map<number, number>();
+          for (const node of profiled.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
+          const name = (id: number) => {
+            const frame = byId.get(id)!.callFrame;
+            const file = frame.url.split("/").pop() ?? "";
+            const where = file ? mapper(file, frame.lineNumber, frame.columnNumber) : "";
+            return `${frame.functionName || "(anon)"} ${where.replace(/^.*?webviews\//, "").replace(/^.*node_modules\//, "nm:")}`;
+          };
+          const selfMs = new Map<string, number>();
+          const inclusive = new Map<string, number>();
+          let at = profiled.startTime;
+          profiled.samples.forEach((id, index) => {
+            at += profiled.timeDeltas[index] ?? 0;
+            if (at < start || at > end) return;
+            const ms = (profiled.timeDeltas[index + 1] ?? 100) / 1000;
+            const own = name(id);
+            selfMs.set(own, (selfMs.get(own) ?? 0) + ms);
+            const seen = new Set<string>();
+            for (let node: number | undefined = id; node !== undefined; node = parent.get(node)) {
+              const key = name(node);
+              if (
+                !(
+                  key.includes(" src/") ||
+                  /^(renderRootSync|commitRoot|flushPassiveEffects|flushSyncWorkAcrossRoots_impl|performWorkOnRoot|JSON\.parse|parse) /.test(
+                    key,
+                  )
+                ) ||
+                seen.has(key)
+              )
+                continue;
+              seen.add(key);
+              inclusive.set(key, (inclusive.get(key) ?? 0) + ms);
+            }
+          });
+          const top = (map: Map<string, number>, count: number) =>
+            [...map]
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, count)
+              .map(([key, ms]) => `  ${ms.toFixed(1)}\t${key}`)
+              .join("\n");
+          console.log(`stages ${chat.scale}:${arm} profile, self ms in the stretch:\n${top(selfMs, 30)}`);
+          console.log(`stages ${chat.scale}:${arm} profile, inclusive ms of src/ functions:\n${top(inclusive, 45)}`);
+          // The stretch as a timeline of React phases (render, commit, passive effects, else the nearest src/
+          // function): how many renders the attach takes, and in each render the components that cost most (a
+          // sample counts toward the nearest component frame under React's renderWithHooks).
+          type Run = { phase: string; from: number; ms: number; parts: Map<string, number> };
+          const runs: Run[] = [];
+          let clock = profiled.startTime;
+          profiled.samples.forEach((id, index) => {
+            clock += profiled.timeDeltas[index] ?? 0;
+            if (clock < start || clock > end) return;
+            const ms = (profiled.timeDeltas[index + 1] ?? 100) / 1000;
+            let phase: string | undefined;
+            let component: string | undefined;
+            let below: number | undefined;
+            for (let node: number | undefined = id; node !== undefined; below = node, node = parent.get(node)) {
+              const fn = byId.get(node)!.callFrame.functionName;
+              if (!component && fn === "renderWithHooks" && below !== undefined) component = name(below);
+              if (fn === "renderRootSync" || fn === "renderRootConcurrent") phase ??= "render";
+              else if (fn === "commitRoot") phase ??= "commit";
+              else if (fn === "flushPassiveEffects") phase ??= "passive";
+            }
+            phase ??= "other";
+            const last = runs.at(-1);
+            const run =
+              last && last.phase === phase && clock - (last.from + last.ms * 1000) < 1500
+                ? last
+                : (runs.push({ phase, from: clock, ms: 0, parts: new Map() }), runs.at(-1)!);
+            run.ms += ms;
+            const part = component ?? name(id);
+            run.parts.set(part, (run.parts.get(part) ?? 0) + ms);
+          });
+          console.log(
+            `stages ${chat.scale}:${arm} timeline (start in the stretch, phase, ms, top parts):\n${runs
+              .filter((run) => run.ms >= 1)
+              .map(
+                (run) =>
+                  `  ${((run.from - start) / 1000).toFixed(0)}\t${run.phase}\t${run.ms.toFixed(1)}\t${[...run.parts]
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 6)
+                    .map(([key, ms]) => `${key.replace(/ src\/agent-session\/acpmux\//, " ")} ${ms.toFixed(1)}`)
+                    .join("; ")}`,
+              )
+              .join("\n")}`,
+          );
+        }
+        const mark = (name: string) => events.find((event) => event.name === name && event.cat.includes("user_timing"));
+        const from = mark("bench:attach")?.ts;
+        const to = mark("bench:latest")?.ts;
+        const main = events.find((event) => event.name === "thread_name" && event.args?.name === "CrRendererMain");
+        if (from === undefined || to === undefined || !main) {
+          console.log(
+            `stages ${chat.scale}:${arm}: marks missing (attach ${from}, latest ${to}, main thread ${!!main})`,
+          );
+          continue;
+        }
+        // Self time per event name on the renderer's main thread, clipped to [attach, latest]: a parent's time less
+        // its children's, so script, style, layout and paint do not double-count.
+        const complete = events
+          .filter((event) => event.ph === "X" && event.pid === main.pid && event.tid === main.tid && event.dur)
+          .filter((event) => event.ts < to && event.ts + event.dur! > from)
+          .sort((a, b) => a.ts - b.ts || b.dur! - a.dur!);
+        const self = new Map<string, number>();
+        const stack: { end: number; name: string }[] = [];
+        let cursor = from;
+        const credit = (until: number) => {
+          const top = stack.at(-1);
+          const span = Math.min(until, to) - Math.max(cursor, from);
+          if (top && span > 0) self.set(top.name, (self.get(top.name) ?? 0) + span / 1000);
+          cursor = Math.max(cursor, until);
+        };
+        for (const event of complete) {
+          while (stack.length && stack.at(-1)!.end <= event.ts) {
+            credit(stack.at(-1)!.end);
+            stack.pop();
+          }
+          credit(event.ts);
+          stack.push({ end: event.ts + event.dur!, name: event.name });
+        }
+        while (stack.length) {
+          credit(stack.at(-1)!.end);
+          stack.pop();
+        }
+        const span = (to - from) / 1000;
+        const busy = [...self.values()].reduce((a, b) => a + b, 0);
+        const group = (name: string) =>
+          /^(FunctionCall|EvaluateScript|v8\.|V8\.|TimerFire|FireAnimationFrame|EventDispatch|RunMicrotasks|v8\.run|ParseHTML)/.test(
+            name,
+          )
+            ? "script"
+            : /UpdateLayoutTree|RecalculateStyles|ParseAuthorStyleSheet/.test(name)
+              ? "style"
+              : /^Layout$|UpdateLayout|IntersectionObserver|ResizeObserver/.test(name)
+                ? "layout"
+                : /Paint|Layerize|Composite|Commit|PrePaint|Raster/.test(name)
+                  ? "paint"
+                  : /GC|Gc/.test(name)
+                    ? "gc"
+                    : "other";
+        const groups = new Map<string, number>();
+        for (const [name, ms] of self) groups.set(group(name), (groups.get(group(name)) ?? 0) + ms);
+        console.log(
+          `stages ${chat.scale}:${arm}: attach to latest ${span.toFixed(1)} ms, main thread busy ${busy.toFixed(1)} ms, idle ${(span - busy).toFixed(1)} ms; ${[
+            ...groups,
+          ]
+            .sort((a, b) => b[1] - a[1])
+            .map(([name, ms]) => `${name} ${ms.toFixed(1)}`)
+            .join(", ")}`,
+        );
+        console.log(
+          `stages ${chat.scale}:${arm} by event (self ms): ${[...self]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 14)
+            .map(([name, ms]) => `${name} ${ms.toFixed(1)}`)
+            .join(", ")}`,
+        );
+        // Top-level tasks in the stretch: how many and how long, so idle gaps (waits on a timer or a frame) show.
+        const tasks = complete.filter((event) => event.name === "RunTask" && event.dur! > 2000);
+        console.log(
+          `stages ${chat.scale}:${arm} tasks over 2 ms: ${tasks.map((task) => `${((task.ts - from) / 1000).toFixed(0)}+${(task.dur! / 1000).toFixed(0)}`).join(" ")}`,
+        );
+        // Each style and layout pass (start in the stretch + ms): one pass is the frame's own; more is a forced redo.
+        for (const pass of ["UpdateLayoutTree", "Layout"])
+          console.log(
+            `stages ${chat.scale}:${arm} ${pass} passes: ${complete
+              .filter((event) => event.name === pass && event.dur! > 300)
+              .map((event) => {
+                // A forced pass carries the JS stack that asked for it (the trace's timeline.stack category).
+                const stack = (event.args?.beginData?.stackTrace ?? [])
+                  .slice(0, 3)
+                  .map((frame) => {
+                    const file = frame.url.split("/").pop() ?? "";
+                    // Trace stacks count lines from 1 and carry a column; the map wants the CDP form (from 0).
+                    const where = stackMapper
+                      ? stackMapper(file, frame.lineNumber - 1, (frame as { columnNumber?: number }).columnNumber ?? 0)
+                      : `${file}:${frame.lineNumber}`;
+                    return `${frame.functionName || "(anon)"} ${where.replace(/^.*?webviews\//, "")}`;
+                  })
+                  .join(" < ");
+                return `${((event.ts - from) / 1000).toFixed(0)}+${(event.dur! / 1000).toFixed(1)}${stack ? ` [${stack}]` : ""}`;
+              })
+              .join(" ")}`,
+          );
+      }
+  }
   // The fixed calibration page (bench/runnerCalibration.ts), cold as each chat load is: ms from navigation start to
   // the paint after its workload.
   const calibrate = async (): Promise<number> => {
-    const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+    const page = await browser.newPage({
+      viewport: { width: 1200, height: 800 },
+    });
     await page.goto(`http://127.0.0.1:${statics.port}${CALIBRATION_PATH}`);
     await page.waitForFunction(
       () => ((window as unknown as { __calibrated?: number }).__calibrated ?? 0) > 0,
@@ -985,13 +1477,25 @@ try {
           version: 3,
         });
         if (Number.isFinite(perDcl))
-          perfRow({ name: `chat_open_paired.${arm}.attach_per_dcl`, p50: perDcl, p95: perDcl, unit: "x", version: 1 });
+          perfRow({
+            name: `chat_open_paired.${arm}.attach_per_dcl`,
+            p50: perDcl,
+            p95: perDcl,
+            unit: "x",
+            version: 1,
+          });
       }
       // The script the page downloaded and parsed by the time the chat settled (decoded KiB): the open's
       // cost that grows with every eager import, so the perf cron names the week it grows (it grew 29%,
       // 8302 to 10722 KiB, from 2026-11-02 to 11-09 with no row to say so).
       const scriptKiB = Math.round(median((r) => r.scriptKiB));
-      perfRow({ name: `chat_open.${arm}.script_kib`, p50: scriptKiB, p95: scriptKiB, unit: "KiB", clock: "cpu" });
+      perfRow({
+        name: `chat_open.${arm}.script_kib`,
+        p50: scriptKiB,
+        p95: scriptKiB,
+        unit: "KiB",
+        clock: "cpu",
+      });
     }
 } finally {
   await release();
