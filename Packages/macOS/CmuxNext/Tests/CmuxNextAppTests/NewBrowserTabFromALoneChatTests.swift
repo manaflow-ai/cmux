@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextLayout
 import CmuxNextTabs
 import Foundation
 import Testing
@@ -55,24 +57,32 @@ struct NewBrowserTabFromALoneChatTests {
         return LoneChat(store: store, content: content, pane: pane, chatID: chatID)
     }
 
-    /// Shift-Cmd-L (and New Browser Tab from the menu bar or palette, the same invocation): a new browser tab next to
-    /// the chat in its own pane. The chat does not dock and no pane opens on its right.
-    @Test func shiftCmdLInALoneChatOpensATabInTheChatsPane() async throws {
+    /// Shift-Cmd-L (no target), the palette's or a tab menu's New Browser Tab (the chat's tab as target) and the pane
+    /// toolbar's globe (the pane as target): a new browser tab next to the chat in its own pane. The chat does not dock
+    /// and no pane opens on its right.
+    @Test(arguments: ["key", "tab", "pane"])
+    func newBrowserTabInALoneChatOpensATabInTheChatsPane(_ via: String) async throws {
         try await PinnedPageTests.withApp { services, connection in
-            let lone = try await Self.loneChat(services, connection, session: "chat-lone-shift-cmd-l")
-            #expect(services.registry.perform("openBrowser", invocation: ActionInvocation(origin: .user)))
+            let lone = try await Self.loneChat(services, connection, session: "chat-lone-new-browser-\(via)")
+            let target: ActionTargetRef? = switch via {
+            case "tab": ActionTargetRef(kind: .tab, id: lone.chatID)
+            case "pane": ActionTargetRef(kind: .pane, id: lone.pane.paneKey)
+            default: nil
+            }
+            #expect(services.registry.perform("openBrowser", invocation: ActionInvocation(target: target, origin: .user)))
             // Docking makes the browser in the same daemon commit that moves the chat out, so the first read with the
             // browser decides.
-            try await PinnedPageTests.until({ lone.browser != nil }, report: { "no browser tab: \(lone.describe())" })
+            try await PinnedPageTests.until({ lone.browser != nil }, report: { "no browser tab (\(via)): \(lone.describe())" })
             let browser = try #require(lone.browser)
-            #expect(browser.pane === lone.pane.pane, "the browser opened in another pane: \(lone.describe())")
-            #expect(lone.chatPane === lone.pane.pane, "the chat left its pane (docked): \(lone.describe())")
-            #expect(lone.panes.count == 1, "a pane opened beside the chat: \(lone.describe())")
+            #expect(browser.pane === lone.pane.pane, "the browser opened in another pane (\(via)): \(lone.describe())")
+            #expect(lone.chatPane === lone.pane.pane, "the chat left its pane (docked, \(via)): \(lone.describe())")
+            #expect(lone.panes.count == 1, "a pane opened beside the chat (\(via)): \(lone.describe())")
         }
     }
 
     /// The chat header's Browser button keeps opening the browser on the chat's right: a pane other than the chat's,
-    /// which holds only the chat. The header goes through its tool placement first, as AgentTabs+Header wires it.
+    /// which holds only the chat. For a lone chat the header's tool placement declines and Split Browser Right runs (a
+    /// guard that the fix above leaves the header's path alone). The header goes through its tool placement first, as AgentTabs+Header wires it.
     @Test func theHeadersBrowserButtonOpensOnTheChatsRight() async throws {
         try await PinnedPageTests.withApp { services, connection in
             // Wide enough for a split beside the chat (RightColumnPlacement.minimumChatWidth on each side).
