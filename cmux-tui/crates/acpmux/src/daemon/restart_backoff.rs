@@ -29,7 +29,7 @@ pub(crate) fn own_unit(cgroup: &str) -> Option<String> {
 
 /// Starts the reset: once this daemon has served for [`STEADY`], under its systemd unit only
 /// (systemd set `INVOCATION_ID`; a daemon a client started has no unit counter to reset).
-pub(crate) fn start() {
+pub(crate) fn start(scope: &cmux_scope::Scope) {
     if std::env::var_os("INVOCATION_ID").is_none() {
         return;
     }
@@ -38,7 +38,7 @@ pub(crate) fn start() {
     else {
         return;
     };
-    tokio::spawn(async move {
+    scope.spawn_until_cancelled("restart-backoff-reset", async move {
         tokio::time::sleep(STEADY).await;
         let reset = tokio::process::Command::new("systemctl")
             .args(["--user", "reset-failed", &unit])

@@ -403,9 +403,6 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Under systemd's watchdog: pings only while this socket answers hello (`daemon/watchdog.rs`).
     #[cfg(target_os = "linux")]
     watchdog::start(socket_path());
-    // A daemon that serves for a minute resets its unit's restart delay (`daemon/restart_backoff.rs`).
-    #[cfg(target_os = "linux")]
-    restart_backoff::start();
     // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and `local-coderouter`
     // routes read its port and mint keys from it. Opt-in (the cmux app sets ACPMUX_LOCAL_ROUTER=1).
     // Its owner ties the router's life to this daemon (daemon/router_owner.rs: the owner FIFO,
@@ -932,6 +929,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Remote ssh handshakes are background work. Give the first local initialize and chat attach
     // a turn before dialing them; otherwise a god-sized peer fan-out can starve the pane after
     // the socket is already ready.
+    // A daemon that serves for a minute resets its unit's restart delay (`daemon/restart_backoff.rs`).
+    #[cfg(target_os = "linux")]
+    restart_backoff::start(&hub.scope);
     {
         let peers = hub.clone();
         hub.scope.spawn_until_cancelled("peer-start-gate", async move {
