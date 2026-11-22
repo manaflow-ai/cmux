@@ -209,6 +209,40 @@ import Testing
         }
     }
 
+    /// SUB-8's guard (SB ≤ 0.5 pt): a finished subagent whose tall row is measured while the
+    /// reader is near the end does not move the reader's row.
+    @Test func aFinishedTranscriptMeasuringATallRowNearTheEndMovesNothing() {
+        var follow = SubagentFollow()
+        // The reader scrolls to 40 pt from the end of a finished transcript and comes to rest.
+        _ = follow.changed(atEnd: true, grew: false, scrolling: true, running: false)
+        _ = follow.changed(atEnd: true, grew: false, scrolling: false, running: false)
+        // A log row near the reader is measured: its estimate grows by 14,000 pt.
+        var offset = 9_000.0
+        var height = 10_000.0
+        for growth in [2_000.0, 6_000.0, 6_000.0] {
+            let anchor = follow.sizeChangeAnchor(running: false)
+            let next = SubagentFollow.offset(offset, anchor: anchor, old: height, new: height + growth)
+            let shift = abs(next - offset)
+            #expect(shift <= 0.5, "a measured row moved the reader's row \(shift) pt (anchor \(anchor))")
+            #expect(!follow.changed(atEnd: false, grew: true, scrolling: false, running: false), "a finished transcript never scrolls to its end")
+            offset = next
+            height += growth
+        }
+    }
+
+    /// The same reader on a running subagent follows its end: growth keeps the end in place.
+    @Test func aRunningTranscriptAtTheEndKeepsTheEndInPlace() {
+        var follow = SubagentFollow()
+        _ = follow.changed(atEnd: true, grew: false, scrolling: false, running: true)
+        #expect(follow.sizeChangeAnchor(running: true) == .bottom)
+        let offset = SubagentFollow.offset(9_000, anchor: .bottom, old: 10_000, new: 10_120)
+        #expect(offset == 9_120, "the end stays in place")
+        // Scrolled away by the reader, growth moves nothing.
+        _ = follow.changed(atEnd: false, grew: false, scrolling: true, running: true)
+        #expect(follow.sizeChangeAnchor(running: true) == .top)
+        #expect(!follow.changed(atEnd: false, grew: true, scrolling: false, running: true))
+    }
+
     @Test func aStateChangeRebuildsTheRows() throws {
         let store = store(["b"])
         let memo = SubagentRowsMemo()

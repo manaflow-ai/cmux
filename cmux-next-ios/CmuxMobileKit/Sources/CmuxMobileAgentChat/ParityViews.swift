@@ -225,7 +225,7 @@ struct SubagentTranscriptScreen: View {
     @State private var position: ScrollPosition
     /// The reader is at the end: a running subagent's new rows scroll into view. Scrolled away,
     /// rows added below move nothing (the list keeps its place from the top).
-    @State private var follows: Bool
+    @State private var follow: SubagentFollow
     @State private var phase = ScrollPhase.idle
 
     /// `startsAtEnd`: opens on the transcript's end, following (the rig's follow measurement).
@@ -235,7 +235,7 @@ struct SubagentTranscriptScreen: View {
         self.subagentID = subagentID
         self.probe = probe
         _position = State(initialValue: ScrollPosition(edge: startsAtEnd ? .bottom : .top))
-        _follows = State(initialValue: startsAtEnd)
+        _follow = State(initialValue: SubagentFollow(follows: startsAtEnd))
     }
 
     var body: some View {
@@ -286,7 +286,7 @@ struct SubagentTranscriptScreen: View {
             // (no frame with the new row below the screen); otherwise it keeps the reader's row in
             // place. A finished transcript never anchors at the bottom: a lazy row measured as the
             // reader scrolls (a 15,000 pt log) would move everything above it.
-            .defaultScrollAnchor(follows && running ? .bottom : .top, for: .sizeChanges)
+            .defaultScrollAnchor(follow.sizeChangeAnchor(running: running) == .bottom ? .bottom : .top, for: .sizeChanges)
             .scrollPosition($position)
             .onScrollPhaseChange { _, new in phase = new }
             .onScrollGeometryChange(for: TranscriptEnd.self) { geometry in
@@ -295,14 +295,9 @@ struct SubagentTranscriptScreen: View {
                 TranscriptEnd(atEnd: geometry.visibleRect.maxY >= geometry.contentSize.height - 60, height: geometry.contentSize.height,
                               gap: probe == nil ? 0 : geometry.contentSize.height - geometry.visibleRect.maxY)
             } action: { old, new in
-                if let probe, follows, running, phase == .idle { probe.sample(gap: new.gap, grew: new.height > old.height) }
-                if phase == .interacting || phase == .decelerating {
-                    // The reader's own scroll decides.
-                    follows = new.atEnd
-                } else if new.atEnd {
-                    follows = true
-                } else if follows, running, new.height > old.height {
-                    // Rows came in below a reader at rest on the end: keep the end in view.
+                if let probe, follow.follows, running, phase == .idle { probe.sample(gap: new.gap, grew: new.height > old.height) }
+                if follow.changed(atEnd: new.atEnd, grew: new.height > old.height, scrolling: phase == .interacting || phase == .decelerating,
+                                  running: running) {
                     position.scrollTo(edge: .bottom)
                 }
             }
@@ -322,6 +317,43 @@ struct SubagentTranscriptScreen: View {
         } else {
             ContentUnavailableView("Subagent not found", systemImage: "person.2.slash")
         }
+    }
+}
+
+/// Whether a subagent transcript follows its end, and how its size changes hold the reader.
+struct SubagentFollow: Equatable {
+    enum Anchor { case top, bottom }
+
+    /// The reader is on the end (within 60 pt), by their own scroll or at rest there.
+    var follows = false
+
+    /// Where size changes anchor: the end only while following a running subagent (growth keeps
+    /// the end in place in the same pass); otherwise the top, so rows measured as the reader
+    /// scrolls (a finished transcript's 15,000 pt log) move nothing on screen.
+    func sizeChangeAnchor(running: Bool) -> Anchor {
+        follows && running ? .bottom : .top
+    }
+
+    /// A scroll geometry change; true when the view should scroll to its end (rows came in below
+    /// a reader at rest on the end of a running subagent).
+    mutating func changed(atEnd: Bool, grew: Bool, scrolling: Bool, running: Bool) -> Bool {
+        if scrolling {
+            // The reader's own scroll decides.
+            follows = atEnd
+            return false
+        }
+        if atEnd {
+            follows = true
+            return false
+        }
+        return follows && running && grew
+    }
+
+    /// The content offset after the content's height changes from `old` to `new` under `anchor`
+    /// (SwiftUI's size-change anchor: the top keeps the offset, the bottom keeps the distance to
+    /// the end).
+    static func offset(_ offset: Double, anchor: Anchor, old: Double, new: Double) -> Double {
+        anchor == .bottom ? offset + (new - old) : offset
     }
 }
 
