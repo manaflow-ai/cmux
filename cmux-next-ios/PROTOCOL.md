@@ -948,6 +948,33 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `not_found` when it shows none. Machines need the View grant for both. The phone
   stopped reading this service on 2026-11-13 and reads it again since 2026-11-17, only for
   the picture a frame's `chat` names, once per id (size and SHA-256 checked, one kept).
+- `tabs` (`tab-snapshots-v1`, 2026-11-22): the tab overview's cards for every tab of this
+  Mac (title, kind, favicon, thumbnail or terminal screen text), with deltas and
+  content-addressed blobs. No open args; machines need the View grant. Both ways the
+  channel carries frames, each behind its 4-byte big-endian length; a frame is a 1-byte
+  kind, then a body (`cmux-tab-snapshots` `wire.rs`). Phone to Mac (JSON, camelCase):
+  `0x01 viewport {cardPixelWidth, cardAspect, displayScale, screenPixelW, screenPixelH}`,
+  `0x02 want [hash]` (priority order, replaces the last; each named blob is sent even if
+  sent before), `0x03 have [hash]` (once on link-up), `0x04 resume {epoch?, rev}` (first on
+  reconnect; an empty epoch asks for a manifest). Mac to phone: `0x11 manifest {epoch,
+  rev, rows}`, `0x12 delta {epoch, rev, baseRev, changed: [partial row], removed: [tabId],
+  order?}` and `0x13 blob` (binary: 32 raw SHA-256 bytes, 1 mime byte: 0 octet-stream, 1
+  JPEG, 2 PNG, 3 screen text, then the bytes; the phone checks the hash). A row is
+  `{tabId, title, kind ("browser", "terminal", "agent", or a kind the phone shows as
+  other), faviconHash?, thumbHash?, thumbW, thumbH, thumbMime, screenHash?, screenCols,
+  screenRows, frameHash?, capturedAtMs}`; in a partial row an absent field is unchanged
+  and a `null` hash is cleared. `tabId` is the tab's daemon surface id as a decimal
+  string, so it lasts one daemon run. Revs of different epochs are unrelated. A tab naming
+  an agent session the phone's chat exposure blocks is hidden, and every tab is while the
+  exposure is unavailable. Browser favicons and thumbnails come from the Mac app on its
+  stdin line `{"type":"tab_picture","surface": <daemon surface u64>, "part": "thumb" |
+  "favicon", "path", "w"?, "h"?, "captured_at_ms"?}`: `path` is an absolute regular file
+  (not a link) in the app's caches (`phone-tab-pictures`) of 1 byte to 2 MiB, JPEG or PNG
+  by its magic bytes (any `mime` is ignored); others are logged and dropped. The app sends
+  one when a page's leave picture is taken (576 px wide at most, JPEG) or its favicon
+  changes (PNG), only for its own daemon's tabs that are not incognito, while a phone is
+  paired; it skips bytes it sent last for that tab and part, and resends the newest of each
+  to a new hostd.
 - `echo`: test service.
 - `version` (link protocol 2, added 2026-10-14): one data frame
   `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it
