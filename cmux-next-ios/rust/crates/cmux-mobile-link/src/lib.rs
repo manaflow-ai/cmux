@@ -32,7 +32,8 @@ pub mod timing;
 pub use build_space::BuildSpace;
 pub use dial::{Connected, DialError, DialOptions, LinkPath, TransportKind, UltraSetting};
 pub use link::{
-    Channel, ChannelEvent, CloseInfo, IncomingChannel, Lane, LaneState, Link, LinkConfig, LinkError, Role,
+    Channel, ChannelEvent, CloseInfo, IncomingChannel, KEEPALIVE_TIMEOUT, Lane, LaneState, Link, LinkConfig,
+    LinkError, Role,
 };
 pub use signaling::SignalingClient;
 pub use timing::Timeline;
