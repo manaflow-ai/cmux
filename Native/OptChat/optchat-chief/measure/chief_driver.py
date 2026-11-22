@@ -799,6 +799,14 @@ try:
         r1, t1 = say(f"Reply with exactly this word and nothing else: PONG-{tag}", "chat",
                      lambda t: f"PONG-{tag}" in t, 600)
         proof["chat"] = f"PONG-{tag}" in r1
+        # A count of 0 is also what a guess says: open 2 or 3 workspaces first (random), so only a
+        # real tool result names the count.
+        import random
+        for k in range(random.choice((2, 3))):
+            try:
+                ask({"cmd": "create-workspace", "name": f"brain-proof-{tag}-{k}"})
+            except (OSError, RuntimeError) as e:
+                log(f"BRAIN diag create-workspace failed: {e}")
         r2, t2 = say("Call the cmux MCP tool workspace_list (on the cmux server) once, then tell me how many "
                      "workspaces it listed, as a number.", "tool", lambda t: any(c.isdigit() for c in t), 600)
         tool_names = [str(e.get("name")) for e in trace_events() if e.get("ev") == "tool" and e.get("ts", 0) >= t2]
@@ -812,7 +820,7 @@ try:
         said = [int(x) for x in re.findall(r"\b\d+\b", r2 or "")]
         called = any("workspace_list" in n for n in tool_names)
         log(f"BRAIN tool check: called={called} real_count={real} numbers_in_reply={said[:5]}")
-        proof["cmux_mcp_tool"] = called and real is not None and real in said
+        proof["cmux_mcp_tool"] = called and bool(real) and real in said
         r3, _ = say(f"From now on, end every reply with the word HERON-{tag}. Save that as a lasting preference "
                     "with the Chief's remember tool now (`chief remember \"...\"` from your shell when you have "
                     "no remember tool), then confirm in one line.", "remember", lambda t: len(t) > 0, 600)
@@ -896,6 +904,20 @@ try:
                     lines = open(os.path.join(root, "agent.log"), errors="replace").read().splitlines()
                     for l in [l for l in lines if "tool" in l.lower()][-40:]:
                         log(f"BRAIN diag agent.log: {l[:300]}")
+            # Why the brain refused or failed a session: Hermes names it at WARNING level
+            # ("receipt refused: storage_unavailable at restore_policy, caused by ...") in its own
+            # logs, and only "Internal error" reaches the Chief (cmux-ci step be2ad7da45a6).
+            bad = re.compile(r"refused|storage_unavailable|invalid polic|Traceback|ERROR|Exception|caused by", re.I)
+            for root, _dirs, files in os.walk(MUX):
+                if os.sep + "brains" + os.sep not in root + os.sep:
+                    continue
+                for name in sorted(f for f in files if f.endswith(".log")):
+                    try:
+                        lines = open(os.path.join(root, name), errors="replace").read().splitlines()
+                    except OSError:
+                        continue
+                    for l in [l for l in lines if bad.search(l)][-30:]:
+                        log(f"BRAIN diag brain {name}: {l[:400]}")
         json.dump(run, open(os.path.join(OUT, "run.json"), "w"), indent=1)
         raise SystemExit(0 if all(proof.values()) else 1)
 

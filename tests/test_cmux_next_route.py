@@ -390,7 +390,8 @@ class PullRequestTiers(unittest.TestCase):
         self.assertEqual(result["swift_targets"], "CmuxNextAppTests CmuxNextDesignTests")
         self.assertEqual(result["daemon"], "false")
         self.assertEqual(result["scheme"], "false")
-        self.assertEqual(result["generated"], "true")
+        # No action or settings export input changed: the generated files job would repeat the base's verdict.
+        self.assertEqual(result["generated"], "false")
         self.assertEqual(result["native"], "true")
         self.assertEqual(result["swift_filter"], r"^(CmuxNextAppTests|CmuxNextDesignTests)\.")
 
@@ -761,6 +762,29 @@ class PullRequestTiers(unittest.TestCase):
         self.assertEqual(result["generated"], "true")
         self.assertIn("CmuxNextActionsTests", result["swift_targets"].split())
 
+    def test_generator_inputs_alone_run_the_generated_files_job(self):
+        """The job's verdict reads the action exports' closure (action_export_inputs.py) and the settings source
+        stamp's files; any other CmuxNext path gets the base's verdict there (2026-11-21: 104 of 290 runs)."""
+        for path in (f"{PACKAGE}/Sources/CmuxNextActions/ActionCatalog.swift",
+                     f"{PACKAGE}/Tests/CmuxNextActionsTests/ActionCatalogTests.swift",
+                     f"{PACKAGE}/Sources/CmuxNextSettings/SettingsSchema.swift",
+                     f"{PACKAGE}/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
+                     f"{PACKAGE}/Package.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(tiers([path])["generated"], "true")
+        for path in (f"{PACKAGE}/Sources/CmuxNextApp/Windows/WindowManager.swift",
+                     f"{PACKAGE}/Tests/CmuxNextAppTests/CloudBringBackTests.swift",
+                     f"{PACKAGE}/Tests/CmuxNextSettingsTests/OtherSettingsTests.swift"):
+            with self.subTest(path=path):
+                result = route(ROOT, "pull_request", [path], set())
+                self.assertFalse(result.generated)
+                self.assertTrue(result.swift)
+                self.assertTrue(any("(no generator input)" in reason for reason in result.reasons))
+
+    def test_an_unreadable_action_closure_keeps_every_package_path_an_input(self):
+        with mock.patch.object(cmux_next_route, "action_export_closure", return_value=None):
+            self.assertEqual(tiers([f"{PACKAGE}/Sources/CmuxNextApp/Windows/WindowManager.swift"])["generated"], "true")
+
 
 class EveryTier(unittest.TestCase):
     def assert_everything(self, result: dict[str, str]) -> None:
@@ -798,13 +822,13 @@ class EveryTier(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
         self.assertIn("vendored_pin: ${{ steps.route.outputs.vendored_pin }}", workflow)
         swift_test = workflow[workflow.index("\n  swift-test:\n"):workflow.index("\n  daemon-test:\n")]
-        # Swift runs on a PR labeled full-ci (same-repository or fork; since 2026-11-05, when every
-        # unlabeled PR run was cancelled or skipped and none passed) and on dispatches; a
-        # feat-cmux-next push skips it (push CI is the app build).
+        # Swift runs on a PR into feat-cmux-next labeled full-ci (same-repository or fork; since 2026-11-05,
+        # when every unlabeled PR run was cancelled or skipped and none passed), on a PR into another base
+        # (#49046) and on dispatches; a feat-cmux-next push skips it (push CI is the app build).
         condition = next(line for line in swift_test.splitlines() if line.startswith("    if: "))
         self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
-        self.assertIn("github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')",
-                      condition)
+        self.assertIn("github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next'"
+                      " || contains(github.event.pull_request.labels.*.name, 'full-ci')", condition)
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", condition)
         self.assertIn("    continue-on-error: false\n", swift_test)
         self.assertIn("    name: cmux-next swift test\n", swift_test)
@@ -1251,8 +1275,9 @@ class WorkflowRoute(unittest.TestCase):
         self.assertIsNotNone(start, job)
         end = re.compile(r"^  [\w-]+:\n", re.M).search(self.HEAD, start.end())
         block = self.HEAD[start.start():end.start() if end else len(self.HEAD)]
-        edited, count = re.subn(r"^    timeout-minutes: (\d+)$", lambda m: f"    timeout-minutes: {int(m.group(1)) + 1}",
-                                block, count=1, flags=re.M)
+        # A job's bound may say why after it ("timeout-minutes: 45  # up to 16 min reading the tip check", #48979).
+        edited, count = re.subn(r"^    timeout-minutes: (\d+)(?=\s*(?:#.*)?$)",
+                                lambda m: f"    timeout-minutes: {int(m.group(1)) + 1}", block, count=1, flags=re.M)
         self.assertEqual(count, 1, f"{job} has no job-level timeout-minutes")
         return self.HEAD.replace(block, edited)
 
@@ -2117,9 +2142,12 @@ class HotAwareWorkflows(unittest.TestCase):
         guards = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text(encoding="utf-8"))
         job = guards["jobs"]["tooling-tests"]
         # The 30-minute window gate (#48652) holds a push's guards; a pull request skips it (its output is
-        # empty, never 'false'), and a skipped or failed placement still runs the tests.
+        # empty, never 'false'), and a skipped or failed placement still runs the tests. A pull request into
+        # feat-cmux-next runs them only with full-ci; its push runs them (#49046, affected-jobs.json).
         self.assertEqual(job["needs"], ["coalesce", "portable-placement"])
-        self.assertEqual(job["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}")
+        self.assertEqual(job["if"], "${{ (!cancelled() && needs.coalesce.outputs.run != 'false') && "
+                                    "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != "
+                                    "'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}")
         legs = job["runs-on"].split(" || ")
         mini = [leg for leg in legs if "outputs.mini_runner" in leg]
         linux = [leg for leg in legs if "outputs.linux_runner" in leg]

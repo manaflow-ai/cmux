@@ -36,6 +36,7 @@ dependencies = [
  "cmux-config",
  "cmux-device-kind",
  "cmux-embed",
+ "cmux-fault",
  "cmux-file-lock",
  "cmux-git",
  "cmux-host",
@@ -61,9 +62,11 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-source-scan",
+ "cmux-stack-auth",
  "cmux-supervise-core",
  "cmux-tailnet",
  "cmux-transport",
+ "cmux-tui-hooks",
  "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-usage-patterns",
@@ -1810,6 +1813,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-fault"
+version = "0.1.0"
+dependencies = [
+ "cmux-scope",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-feed-core"
 version = "0.1.0"
 dependencies = [
@@ -2099,6 +2113,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "objc2-app-kit",
+ "png",
  "windows-sys 0.61.2",
 ]
 
@@ -2218,7 +2233,6 @@ name = "cmux-rd-host"
 version = "0.2.7"
 dependencies = [
  "cc",
- "cmux-computer-use",
  "cmux-encode",
  "cmux-file-lock",
  "cmux-hub-host",
@@ -2238,6 +2252,7 @@ dependencies = [
 name = "cmux-rd-link"
 version = "0.1.0"
 dependencies = [
+ "cmux-rd-proto",
  "cmux-transport",
  "hmac",
  "libc",
@@ -2285,6 +2300,7 @@ dependencies = [
  "bytes",
  "cmux-build-identity",
  "cmux-deadline",
+ "cmux-fault",
  "cmux-json",
  "cmux-link",
  "cmux-netwatch",
@@ -2617,6 +2633,7 @@ dependencies = [
  "cmux-customize",
  "cmux-customize-recipes",
  "cmux-device-kind",
+ "cmux-fault",
  "cmux-file-lock",
  "cmux-focus-core",
  "cmux-git",
@@ -2663,6 +2680,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.4",
  "ghostty-vt",
+ "ghostty-vt-sys",
  "glob",
  "libc",
  "notify",
@@ -2812,6 +2830,7 @@ dependencies = [
  "sha2 0.10.9",
  "socket2",
  "subsecond",
+ "tar",
  "tokio",
  "tokio-tungstenite",
  "toml",
