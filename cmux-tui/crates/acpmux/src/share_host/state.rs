@@ -5,7 +5,7 @@
 use super::{NotRunning, records};
 use cmux_hub_host::hub::Hub;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use tokio::sync::mpsc::UnboundedSender;
@@ -68,6 +68,8 @@ struct HubScreen {
 /// the kernel host name).
 fn host_key(name: &str) -> String {
     name.trim().split('.').next().unwrap_or_default().to_ascii_lowercase()
+    /// The share approval nonces this daemon took (`approval.rs`): each tap admits once.
+    seen_approvals: Mutex<HashSet<String>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -99,6 +101,7 @@ impl Shared {
             app: Mutex::new(AppNotes::default()),
             devices: Mutex::new(HashMap::new()),
             screens: Mutex::new(None),
+            seen_approvals: Mutex::new(HashSet::new()),
         })
     }
 
@@ -186,6 +189,14 @@ impl Shared {
             Some(s) => json!({"listed": true, "platform": s.platform, "screenShared": s.shared}),
             None => json!({"listed": false}),
         })
+    }
+
+    /// Runs `decide` with the taken approval nonces, one approval at a time.
+    pub(crate) fn with_seen_approvals<T>(
+        &self,
+        decide: impl FnOnce(&mut HashSet<String>) -> T,
+    ) -> T {
+        decide(&mut lock(&self.seen_approvals))
     }
 
     /// The hub's platform of device `id`, when listed.
