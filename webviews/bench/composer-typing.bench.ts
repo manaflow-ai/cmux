@@ -12,6 +12,8 @@
 //   layout    the page's layouts and style recalcs (CDP Performance.getMetrics LayoutCount, RecalcStyleCount)
 //   script    main-thread script, layout and style time (ScriptDuration, LayoutDuration, RecalcStyleDuration), ms
 //   to_frame  the page's own typingStats (keydown to the next frame, p50 / p95 / max), as the Mac bench reads it
+//   gc_ms     with --gc: garbage collection per key, ms (a 1 ms-sample CPU profile's "(garbage collector)" share)
+//   heap_mb   the JS heap in use when the keys end, MB
 //   long_tasks  main-thread tasks of 50 ms or more while the keys are typed (PerformanceObserver longtask), and
 //             longest_task_ms the longest (0 when none)
 //   stream    with --modes idle,stream: the same keys while the chat streams a reply (60 deltas/s, a tool call every
@@ -28,6 +30,7 @@
 // prints each arm's median and spread (composer-arms.ts).
 //   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--modes idle,stream] [--dev] [--profile]
 //     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--queue 10] [--engine webkit] [--cold] [--draft 20000]
+//     [--gc] [--cpu-load]
 // With --queue N the chat has N prompts waiting in its queue above the composer (ComposerQueue), which a key
 // should neither render nor lay out.
 // `--engine webkit` types the same keys in Playwright's WebKit, the engine the Mac app ships: the page's own typing
@@ -44,6 +47,7 @@ import type { Page } from "playwright";
 import { parseArms, runArms, servePane } from "./composer-arms";
 import { reportTrace, traceWindow } from "./styleInvalidationTrace";
 import { sourceMapper } from "./sourceMapper";
+import { startCpuBurners, type Burners } from "./loadModes";
 let mapUrl: (file: string, line: number, column: number) => string = (file, line) => `${file}:${line + 1}`;
 
 const argv = process.argv.slice(2);
@@ -79,6 +83,14 @@ if (PROFILE && (ENGINES.includes("webkit") || MODES.some((mode) => mode.startsWi
     "--profile currently supports legacy Chromium idle/stream only; L modes report observer capability explicitly",
   );
 const DEV = argv.includes("--dev");
+/// With --gc: a light CPU profile (1 ms samples) over the typed keys, read only for the garbage collector's share
+/// (gc_ms per key), beside the JS heap in use when the keys end (heap_mb, both modes): the renderer's GC time
+/// and heap as a stream runs (interim profile of Leo's NIGHTLY, 2026-11-22: 97.6% of a 3.2 GB renderer's CPU
+/// samples were V8 GC marking).
+const GC = argv.includes("--gc") && !PROFILE;
+/// With --cpu-load: every core saturated by other processes while it measures (load-modes.json L4, loadModes.ts
+/// `startCpuBurners`), started once the panes are built and stopped at the end.
+const CPU_LOAD = argv.includes("--cpu-load");
 /// With --trace: a Chromium trace with style invalidation tracking over the typed keys and, in stream mode, over a 2 s
 /// stream with no typing; it prints elements restyled per key and per token and what restyled them
 /// (styleInvalidationTrace.ts; `STYLE-TRACE ... SUMMARY` lines).
@@ -111,6 +123,13 @@ const ARM_METRICS = [
   "to_listener_p95",
   "longest_task_ms",
   "long_tasks",
+  "to_work_p95",
+  "style_ms",
+  "task_ms",
+  "gc_ms",
+  "heap_mb",
+  "transcript_per_stream_event",
+  "rows_per_stream_event",
 ] as const;
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
 const METRICS = [
@@ -120,6 +139,7 @@ const METRICS = [
   "LayoutDuration",
   "RecalcStyleDuration",
   "TaskDuration",
+  "JSHeapUsedSize",
 ] as const;
 
 async function openChat(page: Page, port: number, turns: number) {
@@ -281,9 +301,9 @@ async function measure(
       debug.resetTyping();
       debug.renders();
     });
-    if (PROFILE) {
+    if (PROFILE || GC) {
       await cdp.send("Profiler.enable");
-      await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
+      await cdp.send("Profiler.setSamplingInterval", { interval: PROFILE ? 100 : 1000 });
       await cdp.send("Profiler.start");
     }
     // Stream mode: a reply streams in for the whole typing run (no scrolling), a tool call every 30 deltas.
@@ -323,9 +343,18 @@ async function measure(
         () => (window as unknown as { __longTasks?: { at: number; ms: number }[] }).__longTasks ?? [],
       )) as { at: number; ms: number }[]
     ).filter((task) => task.at + task.ms >= since && task.at <= until);
-    if (PROFILE) {
+    let gcMs: number | undefined;
+    if (PROFILE || GC) {
       const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
-      printProfile(length, profile);
+      if (PROFILE) printProfile(length, profile);
+      const gcNodes = new Set(
+        profile.nodes.filter((node) => node.callFrame.functionName === "(garbage collector)").map((node) => node.id),
+      );
+      let gcUs = 0;
+      profile.samples.forEach((id, index) => {
+        if (gcNodes.has(id)) gcUs += profile.timeDeltas[index + 1] ?? 0;
+      });
+      gcMs = gcUs / 1000;
     }
     const { renders, typing } = (await page.evaluate(() => {
       const debug = (window as any).cmuxAcpmuxDebug;
@@ -415,6 +444,8 @@ async function measure(
       layout_ms: per(delta("LayoutDuration") * 1000),
       style_ms: per(delta("RecalcStyleDuration") * 1000),
       task_ms: per(delta("TaskDuration") * 1000),
+      gc_ms: gcMs === undefined ? undefined : per(gcMs),
+      heap_mb: Math.round((after.JSHeapUsedSize ?? 0) / 1e5) / 10,
       to_listener_p95: typing.to_listener?.p95_ms,
       to_work_p95: typing.to_work?.p95_ms,
       to_frame_p50: typing.to_frame?.p50_ms,
@@ -438,6 +469,14 @@ async function measure(
   }
 }
 
+let burners: Burners | undefined;
+function startLoad() {
+  if (!CPU_LOAD) return;
+  burners = startCpuBurners();
+  releases.push(() => burners?.stop());
+  console.log(`CPU-LOAD ${burners.count} spinning processes, one per core`);
+}
+
 try {
   const cases = LENGTHS.flatMap((length) => MODES.map((mode) => ({ length, mode })));
   if (ARMS && ENGINES.length > 1)
@@ -446,6 +485,7 @@ try {
     // Two source trees in one run: each built and served once, then every case interleaved (composer-arms.ts).
     const ports = new Map<string, number>();
     for (const arm of ARMS) ports.set(arm.name, await servePane(arm.dir, serveOptions, releases));
+    startLoad();
     const runs: Record<string, unknown>[] = [];
     for (const { length, mode } of cases)
       runs.push(
@@ -462,6 +502,7 @@ try {
     console.log(`COMPOSER-TYPING ${JSON.stringify(runs)}`);
   } else {
     const port = await servePane(webviews, serveOptions, releases);
+    startLoad();
     const table: Record<string, unknown>[] = [];
     for (const engine of ENGINES)
       for (const { length, mode } of cases)

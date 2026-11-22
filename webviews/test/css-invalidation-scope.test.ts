@@ -9,6 +9,11 @@
 //   inserted restyled the whole thread;
 // - a rule on an ancestor's `style` attribute (`.ol[style*=...] > li`): every inline style write (the send
 //   motion's, the follow glide's, each frame) restyled the elements it names under the written element.
+// - a `:has()` on the transcript's scroller, thread or an ancestor of them that looks at its whole subtree
+//   (`.acpmux-scroll:has(.acpmux-row[...]) X`): Chromium checks it again for every node a streamed chunk
+//   inserts, and each check restyled the mounted rows (Leo, 2026-11-22: "the interactive/visible parts of cmux
+//   are not prioritized enough": 5,900 elements in one recalc while a reply streamed, composer-typing.bench.ts
+//   --trace). The component sets an attribute instead (`data-live-line`, `data-asks`); `:has(> X)` is fine.
 // Each subject names a class, an id or an attribute instead (or `:nth-child(of)` / `:not(:first-child)`).
 import { expect, test } from "bun:test";
 import fs from "node:fs";
@@ -99,11 +104,23 @@ const named = (compound: string): boolean => {
 /// It names nothing at all: any element (`*`, `:last-child`, `:not(.a)`).
 const anyElement = (compound: string) => !named(compound) && !/^[a-z]/i.test(ownPart(compound));
 
+/// The transcript's scroller and thread and the pane boxes above them: every streamed node lands under these.
+const TRANSCRIPT_ANCESTOR = /\.acpmux-(?:scroll|thread|stage|main|pane)(?![\w-])/;
+
+/// A compound's `:has()` arguments that reach into the whole subtree (not `> X`, `+ X` or `~ X`).
+const subtreeHas = (compound: string) =>
+  [...compound.matchAll(/:has\(((?:[^()]|\((?:[^()]|\([^()]*\))*\))*)\)/g)].some(([, argument]) =>
+    splitTop(argument!, (ch) => ch === ",").some((branch) => !/^[>+~]/.test(branch.trim())),
+  );
+
 function findings(file: string, selector: string): string[] {
   const out: string[] = [];
+  const all = compounds(selector).parts;
+  if (all.some((part) => TRANSCRIPT_ANCESTOR.test(ownPart(part)) && subtreeHas(part)))
+    out.push("a :has() on a transcript ancestor that looks at its whole subtree");
   const { parts, combinators } = compounds(selector);
   const subject = parts.at(-1);
-  if (!subject || parts.length < 2) return out;
+  if (!subject || parts.length < 2) return out.filter(() => !ALLOWED.has(`${file} ${selector}`));
   if (parts.slice(0, -1).some((part) => /\[\s*style\b/.test(part))) out.push("a rule on an ancestor's style attribute");
   const hasAt = parts.findIndex((part) => part.includes(":has("));
   if (hasAt >= 0 && hasAt < parts.length - 1 && !named(subject))
@@ -136,4 +153,9 @@ test("the detector catches each kind", () => {
   expect(findings("x.css", ".a:has(.b)")).toEqual([]);
   expect(findings("x.css", '.icon[style*="background-image"]')).toEqual([]);
   expect(findings("x.css", ".tag > .x ~ svg[data-icon]")).toEqual([]);
+  expect(findings("x.css", '.acpmux-scroll:has(.acpmux-row[data-row-id="x"]) .acpmux-row')).toHaveLength(1);
+  expect(findings("x.css", ".acpmux-main:has(.acpmux-asks-stack)")).toHaveLength(1);
+  expect(findings("x.css", ".acpmux-scroll:has(> .acpmux-find)")).toEqual([]);
+  expect(findings("x.css", ".acpmux-stage:has(>.acpmux-scroll>.acpmux-find)>.acpmux-summary-card")).toEqual([]);
+  expect(findings("x.css", ".acpmux-dock:has(.acpmux-composer-foot)")).toEqual([]);
 });
