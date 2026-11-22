@@ -4767,7 +4767,7 @@ class SharedRunnerStateTests(unittest.TestCase):
             "ci-macos.yml": ("admission_placement.py", "late_placement.py"),
             "ios-internal-nightly.yml": ("ios_internal_runner.py",),
             "cmux-next-guards.yml": ("portable_job_placement.py",),
-            "cmux-tui-artifacts.yml": ("portable_job_placement.py",),
+            "cmux-tui-artifacts.yml": (),
             "nightly.yml": ("portable_job_placement.py", "nightly_build_runner.py", "signing_runner.py",
                             "nightly_runner_preflight.py"),
         }

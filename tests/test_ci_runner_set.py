@@ -45,19 +45,17 @@ def runs_on_text(job: dict, where: str) -> str:
 
 
 class RunnerSetTests(unittest.TestCase):
-    def test_secret_bearing_changes_takes_live_placement_then_ephemeral_blacksmith(self) -> None:
-        # Its credentialed body takes a live verified fleet Linux placement when available, then
-        # ephemeral Blacksmith on every attempt: GitHub-hosted Ubuntu left it queued for hours on
-        # 2026-11-18 (cmux#45735), so no attempt takes hosted Ubuntu.
+    def test_secret_bearing_changes_takes_ephemeral_blacksmith(self) -> None:
+        # Its credentialed body takes ephemeral Blacksmith on every attempt (cmux#49007), and needs no
+        # placement job: GitHub-hosted Ubuntu left it queued for hours on 2026-11-18 (cmux#45735), so no
+        # attempt takes hosted Ubuntu.
         job = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["changes"]
         runs_on = runs_on_text(job, "ci.yml#changes")
-        self.assertIn("needs.portable-placement.outputs.linux_runner", runs_on)
-        self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)", runs_on)
+        self.assertNotIn("needs.", runs_on)
         self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runs_on)
         self.assertTrue(runs_on.rstrip().endswith(
             "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"), runs_on)
-        self.assertEqual(job["needs"], ["portable-placement"])
-        self.assertEqual(yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["portable-placement"]["steps"][-1]["env"]["LINUX_ONLY"], "changes")
+        self.assertNotIn("needs", job)
 
     def test_light_report_jobs_run_on_blacksmith_every_attempt(self) -> None:
         # A few seconds of report or routing work each. They took hosted Ubuntu on attempt 1 until
@@ -72,7 +70,7 @@ class RunnerSetTests(unittest.TestCase):
         ephemeral = "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"
         cases = {
             ("pr-red-checks-comment.yml", "comment"): "|| 'cmux-linux' }}",
-            ("cmux-next.yml", "path_route"): ephemeral,
+            ("cmux-next.yml", "path_route"): "|| 'cmux-linux' }}",
             ("ci-guards.yml", "guard-status"): f"|| {POOL} }}}}",
         }
         for (workflow, name), tail in cases.items():
@@ -201,7 +199,7 @@ class RunnerSetTests(unittest.TestCase):
         self.assertTrue(jobs["dev-landing-place"]["if"].startswith("${{ github.event_name == 'push'"))
         self.assertEqual(needs("dev-landing-compile"), ["dev-landing-place"])
         # The Linux work starts at once: none of it waits for the sleep.
-        for name in ("portable-placement", "push-head-preflight", "path_route", "checks", "fast-tier-cargo",
+        for name in ("push-head-preflight", "path_route", "checks", "fast-tier-cargo",
                      "web-bundles", "app-compile-placement", "app-compile-fleet"):
             with self.subTest(job=name):
                 self.assertNotIn("macos-placement", ancestors(name), f"{name} waits for the quiet period")

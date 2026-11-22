@@ -5,10 +5,7 @@
       "runner-preflight": {
         "Every routing label has an online runner": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly runner preflight fails a run whose routing label has no online runner", "note": "tests/test_nightly_runner_preflight.py runs scripts/ci/nightly_runner_preflight.py on the 2026-11-10 census and variables"}},
       "decide": {
-        "Mint the routing token for early nightly controls": {"plumbing": true},
         "Mint a spare read token for decide": {"nightly_only": "mints an optional glaeda-route GitHub App token for decide's rate-limit fallback; pull requests do not run the scheduled nightly decision"},
-        "Place the light jobs on the all-nightly reservation while it has idle runners": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "guards-local.sh runs test_ci_portable_job_placement.py and test_nightly_dedicated_mini.py, which cover the reservation placement, its bounded wait and the runs-on fallbacks"},
-        "Place credentialed early picker on owned minis": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "Existing portable placement tests cover unknown API capacity and owned-only eligibility"},
         "Decide whether a nightly build is needed": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly push throttle"}},
       "promote-nightly-next": {
         "Decide the promotion": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly push throttle"},
@@ -65,9 +62,6 @@
         "libghostty-vt Zig packages are covered by the notices": {"pr": "cmux-next-guards.yml:static-checks:The nightly's Ghostty license checks pass on fixtures", "note": "check_ghostty_vt_notices.py --license-manifest on fixture manifests; the real manifests come from the source archive"},
         "Strip the Ghostty CLI helper": {"nightly_only": "Apple strip -S -x of the Zig-built helper (the pass prepare-nightly-variant made, now on Linux); only the nightly builds this helper for macOS"}},
       "build-nightly-app": {
-        "Mint the routing token for the light-job placement": {"plumbing": true},
-        "Place the light jobs on a free mini": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"},
-        "Collect the light-job placement": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow", "note": "joins the background placement the step above starts and copies its outputs; tests/test_nightly_trusted_routing.py holds the pair"},
         "Resolve immutable SSH daemon metadata": {"nightly_only": "reads the compiled Release app version and checks the current nightly feed build floors"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Mint the glaeda read token for the unsigned restore": {"nightly_only": "mints a glaeda-route GitHub App token with actions and contents read only, for the unsigned restore's run, artifact and compare reads, only on a nightly-next sign dispatch; an empty token falls back to GITHUB_TOKEN"},
