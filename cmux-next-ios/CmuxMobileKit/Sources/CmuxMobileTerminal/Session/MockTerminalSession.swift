@@ -42,6 +42,12 @@ public final class MockTerminalSession: TerminalSession {
     private var transcriptBytes = 0
     private var resizeAnswer: Task<Void, Never>?
     private var answers: [(due: ContinuousClock.Instant, columns: Int, rows: Int)] = []
+    /// `historywindow`: the older rows the "Mac" holds back until the reader
+    /// scrolls near the top of the rows shown, the rows shown, and how long
+    /// the older rows' replay takes to come.
+    private var heldBack: (older: [String], shown: [String], delay: Int)?
+    /// DEBUG bench: the older-row fetches taken (`loadOlderHistory`).
+    public private(set) var historyFetches = 0
 
     private enum Program {
         case shell
@@ -164,6 +170,24 @@ public final class MockTerminalSession: TerminalSession {
             replay += "\u{1B}[?1049h" + agentScreen()
         }
         handler?(.output(Data(replay.utf8)))
+    }
+
+    /// `historywindow`'s older rows: the Mac's reset and replay, `delay` ms
+    /// after the ask, like `DaemonTerminalSession.loadOlderHistory()`.
+    @discardableResult
+    public func loadOlderHistory() -> Bool {
+        guard let held = heldBack else { return false }
+        heldBack = nil
+        historyFetches += 1
+        let task = Task { [weak self] in
+            try? await self?.pause(held.delay)
+            guard let self, !Task.isCancelled else { return }
+            self.handler?(.output(TerminalReclaimHold.reset))
+            self.handler?(.output(Data((held.older + held.shown).map { $0 + "\r\n" }.joined().utf8)))
+            self.prompt()
+        }
+        tasks.append(task)
+        return true
     }
 
     public func stop() {
@@ -354,6 +378,19 @@ public final class MockTerminalSession: TerminalSession {
                 + "› Ask Codex to do anything\r\n\r\n  ? for shortcuts                          100% context left")
             write("\u{1B}[2A\r\u{1B}[2C")
             return
+        case "historywindow":
+            // historywindow [SHOWN=150] [OLDER=2000] [MS=60]: a Mac terminal
+            // attached with its latest rows first (DaemonTerminalSession): SHOWN
+            // rows now, and OLDER more once the reader scrolls near the top,
+            // MS ms later, as the Mac delivers them: a mirror reset (ESC c)
+            // and one replay of the whole window.
+            let shown = max(1, parts.count > 1 ? Int(parts[1]) ?? 150 : 150)
+            let older = max(1, parts.count > 2 ? Int(parts[2]) ?? 2000 : 2000)
+            let delay = max(0, parts.count > 3 ? Int(parts[3]) ?? 60 : 60)
+            func row(_ index: Int) -> String { "history row \(index) " + String(repeating: "lorem ", count: 1 + index % 7) }
+            let rows = (older + 1...older + shown).map(row)
+            heldBack = ((1...older).map(row), rows, delay)
+            write(rows.map { $0 + "\r\n" }.joined())
         case "clear": write("\u{1B}[H\u{1B}[2J")
         case "echo": write(parts.dropFirst().joined(separator: " ") + "\r\n")
         case "cat": try await stream(MockOutput.file(named: parts.dropFirst().first ?? ""))

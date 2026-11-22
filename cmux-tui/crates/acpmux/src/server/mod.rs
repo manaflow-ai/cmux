@@ -2416,6 +2416,9 @@ mod cancel_classes_tests;
 #[cfg(test)]
 #[path = "cancel_prompt_tests.rs"]
 mod cancel_prompt_tests;
+#[cfg(test)]
+#[path = "chatgpt_import_tests.rs"]
+mod chatgpt_import_tests;
 mod client_request;
 mod computer_use_relay;
 #[cfg(test)]
@@ -2481,6 +2484,7 @@ mod task_list;
 pub use pairing::serve_connection_device;
 pub(crate) mod host_power;
 pub(crate) mod interest;
+mod move_targets;
 pub mod peer_auth;
 mod peer_forward;
 pub(crate) mod peer_status;
