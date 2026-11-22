@@ -42,6 +42,9 @@ use crate::pairing::MacIdentity;
 
 /// How long a dial may take before the CLI hears `timeout`.
 const DIAL_TIMEOUT: Duration = Duration::from_secs(20);
+/// How long a cached Mac-to-Mac link may hear nothing after a keepalive
+/// ping before it closes (and the next socket dials anew).
+const CACHED_LINK_KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long the peer's person may take to decide (its `APPROVAL_WAIT` and a margin).
 const AUTH_TIMEOUT: Duration = Duration::from_secs(150);
 /// A request line's size limit.
@@ -293,7 +296,10 @@ async fn link_to(
         peer,
         TransportKind::WireGuard,
         &options,
-        LinkConfig::default(),
+        // The link stays cached and is reused while open: keep the old 20 s
+        // dead-peer bound here, not the phone link's longer one
+        // (`KEEPALIVE_TIMEOUT`, which outlasts a phone's blackout).
+        LinkConfig { keepalive_timeout: CACHED_LINK_KEEPALIVE_TIMEOUT, ..LinkConfig::default() },
     )
     .await
     .map_err(|error| match error.to_string() {
