@@ -53,7 +53,7 @@ describe("frames in order", () => {
     frames.push(zlibFrame(big));
     frames.push('{"id":5}');
     expect(got).toEqual(['{"id":1}']);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await frames.drained();
     expect(got).toEqual(['{"id":1}', big, '{"id":5}']);
     frames.push('{"id":6}');
     expect(got.at(-1)).toBe('{"id":6}');
@@ -69,7 +69,7 @@ describe("frames in order", () => {
     frames.push(new Uint8Array([9, 9, 9]).buffer);
     frames.push('{"id":2}');
     frames.push(new Uint8Array([9, 9, 9]).buffer);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await frames.drained();
     expect(errors).toBe(1);
     expect(got).toEqual([]);
   });
