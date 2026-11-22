@@ -594,7 +594,39 @@ jobs:
           git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/pr-changed-files"
           echo "CMUX_PR_CHANGED_FILES=$RUNNER_TEMP/pr-changed-files" >> "$GITHUB_ENV"
 
+      # Same-input receipt (scripts/ci/react_shard_receipt.py): this shard already went green on exactly these inputs
+      # (the merge commit's tree, the merge parent's tree, this run's shard handoff, the shard and the run's
+      # configuration), so it restores that run's head results and skips every step that would compute them again.
+      # Same-repository pull requests only; any error fails open and the shard runs in full. A push always runs.
+      - name: Key this shard's same-input receipt
+        id: receipt-key
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_REACT_SHARD_RECEIPT != '0' }}
+        continue-on-error: true
+        env:
+          RECEIPT_SHARD: ${{ matrix.shard }}
+          RECEIPT_CONFIG: ${{ format('{0}|full-ci={1}|base={2}|{3}-{4}', toJSON(matrix), contains(github.event.pull_request.labels.*.name, 'full-ci'), github.base_ref, runner.os, runner.arch) }}
+        run: python3 scripts/ci/react_shard_receipt.py key --shard "$RECEIPT_SHARD" --handoff "$RUNNER_TEMP/webviews-durations" --config "$RECEIPT_CONFIG" >> "$GITHUB_OUTPUT"
+
+      - name: Look up this shard's same-input receipt
+        id: receipt-restore
+        if: ${{ steps.receipt-key.outputs.key != '' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .same-tree/react-shard-receipt
+          key: ${{ steps.receipt-key.outputs.key }}
+
+      - name: Use the receipt's results
+        id: receipt
+        if: ${{ steps.receipt-restore.outputs.cache-hit == 'true' }}
+        continue-on-error: true
+        env:
+          RECEIPT_KEY: ${{ steps.receipt-key.outputs.key }}
+        run: python3 scripts/ci/react_shard_receipt.py check --key "$RECEIPT_KEY" --receipt "$GITHUB_WORKSPACE/.same-tree/react-shard-receipt" --results "$RUNNER_TEMP/webviews-head-results" >> "$GITHUB_OUTPUT"
+
       - name: Setup Bun
+        if: ${{ steps.receipt.outputs.hit != 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -604,12 +636,14 @@ jobs:
       # cache Bun's package blobs on this lane so a new source key
       # does not redownload the lockfile from scratch.
       - name: Cache Bun package cache
+        if: ${{ steps.receipt.outputs.hit != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
       - name: Cache Playwright browsers
+        if: ${{ steps.receipt.outputs.hit != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/ms-playwright
@@ -617,6 +651,7 @@ jobs:
 
       # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
       - name: Setup Node
+        if: ${{ steps.receipt.outputs.hit != 'true' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
@@ -630,11 +665,13 @@ jobs:
       # build skipped the type check and the tests after it.
       - name: Verify webviews source checks
         id: source-build
+        if: ${{ steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
         run: ./scripts/build-webviews-app.sh --check --skip-typecheck
 
       - name: Build the web bundles
         id: bundles
+        if: ${{ steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
         run: ./scripts/cmux-next/build-web-bundles.sh --force
 
@@ -643,26 +680,26 @@ jobs:
       # they run once, on shard 1: one red check, not one per shard.
       - name: Generated bundle merge driver
         id: merge-driver
-        if: matrix.shard == 1
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
         run: python3 tests/test_install_git_hooks.py
 
       # Runs after the webviews install, so the real-vp case runs too.
       - name: Post-edit formatting hook
         id: post-edit-format
-        if: matrix.shard == 1
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
         run: python3 tests/test_format_post_edit.py
 
       - name: Check diff viewer eager JS budget
         id: eager-js-budget
-        if: matrix.shard == 1
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
         run: node ./scripts/check-webviews-diff-budget.mjs
 
       - name: Verify React Compiler for webviews
         id: react-compiler
-        if: matrix.shard == 1
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
         run: ./scripts/check-webviews-react-compiler.mjs
 
@@ -675,7 +712,7 @@ jobs:
       # every red. Elsewhere every piece of `bun run check` (its `check:pieces` list) runs and gates, none stopping the next.
       - name: Check webviews (Oxlint, Oxfmt, type check)
         id: webviews-check
-        if: matrix.shard == 1
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
         working-directory: webviews
         env:
@@ -717,6 +754,7 @@ jobs:
       # without these engines; before, they skipped themselves and passed.
       - name: Cache Playwright's apt packages
         id: playwright-apt
+        if: ${{ steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
         uses: ./.github/actions/playwright-apt-cache
         with:
@@ -724,6 +762,7 @@ jobs:
 
       - name: Install headless engines
         id: engines
+        if: ${{ steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
         working-directory: webviews
         run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
@@ -735,7 +774,7 @@ jobs:
       # Leo, 2026-11-21: "these sorts of things probably shouldn't happen". A push keeps every red.
       - name: Check PR-scoped webview rules
         id: pr-scoped-rules
-        if: matrix.shard == 1
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
         run: |
           check=scripts/tests/test_pr_scoped_webviews_checks.py
@@ -770,7 +809,7 @@ jobs:
         id: webview-tests
         continue-on-error: ${{ github.event_name == 'pull_request' }}
         if: >-
-          ${{ !cancelled() && steps.engines.outcome != 'failure' && !(github.event_name == 'pull_request' && (
+          ${{ !cancelled() && steps.receipt.outputs.hit != 'true' && steps.engines.outcome != 'failure' && !(github.event_name == 'pull_request' && (
           steps.source-build.outcome == 'failure' || steps.bundles.outcome == 'failure' ||
           steps.merge-driver.outcome == 'failure' || steps.post-edit-format.outcome == 'failure' ||
           steps.webviews-check.outcome == 'failure' || steps.pr-scoped-rules.outcome == 'failure')) }}
@@ -862,7 +901,7 @@ jobs:
           ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
 
       - name: Upload head webview results
-        if: ${{ always() && github.event_name == 'pull_request' && steps.webview-tests.outcome != 'skipped' }}
+        if: ${{ always() && github.event_name == 'pull_request' && (steps.webview-tests.outcome != 'skipped' || steps.receipt.outputs.hit == 'true') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # Artifact names are stable across failed-job reruns: the rerun keeps
@@ -963,6 +1002,27 @@ jobs:
             fi
           done
           exit "$failed"
+
+      # A green shard (every gate above passed, and Test webviews passed with every test green) records its head
+      # results under its same-input key, for a later run of exactly these inputs (a re-run, a re-trigger with the
+      # same merge tree). Optional upkeep: neither step ever fails the shard.
+      - name: Write this shard's same-input receipt
+        id: receipt-write
+        if: ${{ success() && steps.receipt-key.outputs.key != '' && steps.receipt.outputs.hit != 'true' && steps.webview-tests.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          RECEIPT_KEY: ${{ steps.receipt-key.outputs.key }}
+          RECEIPT_RUN: ${{ format('{0}/{1}/actions/runs/{2}/attempts/{3}', github.server_url, github.repository, github.run_id, github.run_attempt) }}
+        run: python3 scripts/ci/react_shard_receipt.py write --key "$RECEIPT_KEY" --results "$RUNNER_TEMP/webviews-head-results" --out "$GITHUB_WORKSPACE/.same-tree/react-shard-receipt" --run "$RECEIPT_RUN"
+
+      - name: Save this shard's same-input receipt
+        if: ${{ steps.receipt-write.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .same-tree/react-shard-receipt
+          key: ${{ steps.receipt-key.outputs.key }}
 
   # The base's recorded red files, replayed on the merge parent while the head shards run. react-apps-base-check
   # replays each head red file once, alone, on the merge parent, but only after every head shard ends, and the
