@@ -550,6 +550,33 @@ impl Hub {
         json!({"never": never, "on": read_rules().any()})
     }
 
+    /// `_acpmux/auto_settle`: `never` true or false sets or clears the chat's Never Settle,
+    /// absent or null only reads; answers the summary with `changed` and `autoSettle`.
+    #[inline(never)]
+    pub(crate) fn auto_settle_request(
+        &self,
+        session: &Session,
+        never: Option<&Value>,
+    ) -> Result<Value, RpcError> {
+        let never = match never {
+            None | Some(Value::Null) => None,
+            Some(v) => Some(
+                v.as_bool()
+                    .ok_or_else(|| RpcError::invalid_params("never must be true or false"))?,
+            ),
+        };
+        let changed = match never {
+            Some(never) => self.set_settle_never(session, never)?,
+            None => false,
+        };
+        let mut summary = self.session_summary(session);
+        if let Some(obj) = summary.as_object_mut() {
+            obj.insert("changed".into(), Value::Bool(changed));
+            obj.insert("autoSettle".into(), self.auto_settle_state(session));
+        }
+        Ok(summary)
+    }
+
     /// The person's own prompt reached `session`: a settled chat comes back.
     pub(crate) fn unsettle_on_person_prompt(&self, session: &Session) {
         let change = |m: &SessionMeta| m.tags.contains_key(SETTLED_TAG).then(|| brought_back(m));

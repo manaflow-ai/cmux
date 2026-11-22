@@ -3038,25 +3038,10 @@ async fn dispatch_request_with_identity(
             Ok(summary)
         }
         // One tag with one value, as `_acpmux/archive`: the chat's own Never Settle.
+        // Its body is a hub call, not inline: this match's frame is near the stack limit.
         method::MUX_AUTO_SETTLE => {
             let s = hub.resolve(session_key(&params)?)?;
-            let never = match params.get("never") {
-                None | Some(Value::Null) => None,
-                Some(v) => Some(
-                    v.as_bool()
-                        .ok_or_else(|| RpcError::invalid_params("never must be true or false"))?,
-                ),
-            };
-            let changed = match never {
-                Some(never) => hub.set_settle_never(&s, never)?,
-                None => false,
-            };
-            let mut summary = hub.session_summary(&s);
-            if let Some(obj) = summary.as_object_mut() {
-                obj.insert("changed".into(), Value::Bool(changed));
-                obj.insert("autoSettle".into(), hub.auto_settle_state(&s));
-            }
-            Ok(summary)
+            hub.auto_settle_request(&s, params.get("never"))
         }
         // A true archive: the chat's log goes into one compressed file (`hub/cold_archive.rs`).
         method::MUX_COLD_ARCHIVE => {
