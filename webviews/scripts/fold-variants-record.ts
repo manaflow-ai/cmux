@@ -38,7 +38,7 @@ const WIDTH = 720;
 const HEIGHT = 640;
 
 type Row = [key: string, top: number, height: number, ink: number];
-type Sample = { t: number; folding: boolean; rows: Row[] };
+type Sample = { t: number; folding: boolean; rows: Row[]; view?: number };
 type Run = { look: string; samples: Sample[]; startedAt: number };
 
 /** The run's numbers: over the frames from the fold's start to when nothing moves any more. */
@@ -87,6 +87,33 @@ export function measure(run: Run) {
     }
     return widest;
   };
+  // The anchor: the row the reader is on, the kept row nearest the view's center in the frame before
+  // the fold, and how far it ends from there (the CLS a reader feels), the most it is ever away, and
+  // its biggest step in one frame. Kept: inked in every frame of the fold (a row id the swap gives to
+  // a new row, drawn from nothing, is not the row the reader was on).
+  const before = samples[Math.max(0, first - 1)]!;
+  const inkedThrough = (key: string) =>
+    samples.slice(first, lastChange + 1).every((sample) => sample.rows.some((row) => row[0] === key && seen(row[3])));
+  const center = (before.view ?? HEIGHT) / 2;
+  const anchor = before.rows
+    .filter((row) => seen(row[3]) && inkedThrough(row[0]))
+    .sort(
+      (a, b) =>
+        Math.abs(a[1] + a[2] / 2 - center) * (a[1] <= center && center <= a[1] + a[2] ? 0 : 1) -
+          Math.abs(b[1] + b[2] / 2 - center) * (b[1] <= center && center <= b[1] + b[2] ? 0 : 1) ||
+        Math.abs(a[1] + a[2] / 2 - center) - Math.abs(b[1] + b[2] / 2 - center),
+    )[0];
+  let anchorMaxPx = 0;
+  let anchorJumpPx = 0;
+  let anchorPrev = anchor?.[1];
+  for (let index = first; anchor && index <= lastChange; index += 1) {
+    const top = samples[index]!.rows.find((row) => row[0] === anchor[0])?.[1];
+    if (top === undefined) continue;
+    anchorMaxPx = Math.max(anchorMaxPx, Math.abs(top - anchor[1]));
+    if (anchorPrev !== undefined) anchorJumpPx = Math.max(anchorJumpPx, Math.abs(top - anchorPrev));
+    anchorPrev = top;
+  }
+  const anchorEnd = samples.at(-1)!.rows.find((row) => row[0] === anchor?.[0])?.[1];
   const rest = band(samples.at(-1)!);
   let gash = 0;
   for (let index = first; index <= lastChange; index += 1) gash = Math.max(gash, band(samples[index]!) - rest);
@@ -96,6 +123,11 @@ export function measure(run: Run) {
     worstFrameMs: Math.round(worstAt),
     durationMs: Math.round(samples[lastChange]!.t - samples[first]!.t),
     gashPx: Math.round(gash),
+    anchor: anchor?.[0],
+    anchorDriftPx:
+      anchor && anchorEnd !== undefined ? Math.round(Math.abs(anchorEnd - anchor[1]) * 10) / 10 : undefined,
+    anchorMaxPx: Math.round(anchorMaxPx * 10) / 10,
+    anchorJumpPx: Math.round(anchorJumpPx * 10) / 10,
     frames: lastChange - first + 1,
     foldStart: samples[first]!.t,
     foldEnd: samples[lastChange]!.t,

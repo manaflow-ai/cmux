@@ -18,7 +18,13 @@
 // above it come down to meet the folded line. Reduce Motion, `data-agent-motion="off"` or no Web
 // Animations: the swap applies at once and nothing here runs. The work is bounded by the rows
 // mounted now (the view's window), never the whole chat.
-import { MOTION_MS, MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
+import {
+  MOTION_MS,
+  MOTION_SETTLE,
+  MOTION_SETTLE_MS,
+  MOTION_SPRING,
+  MOTION_SPRING_STEP,
+} from "../../../motion/scale.generated";
 import { bezierAt, cssBezier, parseBezier, type CubicBezier } from "../../../ui/cubicBezier";
 import { currentChatMetrics } from "../chatDisplay";
 import { EXIT_EASING, exitLeadMs } from "./exitLead";
@@ -47,6 +53,23 @@ import { turnEndFoldLook } from "./turnEndFoldLook.experiment";
 /// - `spring`: a critically damped spring (no overshoot, 360 ms), its first frame still;
 /// - `wait`: the work stays in sight 320 ms after the answer lands, then folds as `fade` does;
 /// - `dissolve`: nothing slides; each row that moves fades out where it was and back in where it lands.
+///
+/// The motion-path looks (Leo, 2026-11-05: "imagine the surface tension of water and water into one
+/// another"): content moves on, never leaves a band. Each changes one thing from `fade`, or from the look
+/// it names, so the scenario matrix reads one variable at a time:
+/// - `sheet` (copy path): no lead; each copy rides with the row under it, so the work slides up under
+///   the folded line as one sheet with the answer, cropped by the rows that close over it, its ink going
+///   over the move's second half. No band opens: the answer's top edge is the work's bottom edge.
+/// - `capped` (curve and length): a speed limit of half the house frame bound; the move runs at that one
+///   speed, then decelerates to rest over its second half, as long as its distance needs (180 to 480 ms):
+///   no fast first frame, no long tail, and a long move takes longer instead of stepping farther.
+/// - `viscous` (per-row timing): every row that moves starts a frame after the one nearer the fold's
+///   seam, so the rows above and below are drawn in like a liquid, the nearest first.
+/// - `water` (`sheet` on the house spring): the sheet's path on MOTION_SPRING over its step, the curve
+///   that starts still and lands without overshoot (`spring` with the sheet's copies).
+/// - `edge` (start places): a kept row that starts out of sight starts just past the view's edge, so no
+///   row travels farther than it is seen. In a long turn the rows above come in from hundreds of pixels
+///   up, and on the settle's 180 ms they are the frame's biggest step.
 export type TurnEndLook =
   | "fade"
   | "tuck"
@@ -57,7 +80,12 @@ export type TurnEndLook =
   | "glide"
   | "spring"
   | "wait"
-  | "dissolve";
+  | "dissolve"
+  | "sheet"
+  | "capped"
+  | "viscous"
+  | "water"
+  | "edge";
 export const TURN_END_LOOKS: readonly TurnEndLook[] = [
   "fade",
   "tuck",
@@ -69,6 +97,11 @@ export const TURN_END_LOOKS: readonly TurnEndLook[] = [
   "spring",
   "wait",
   "dissolve",
+  "sheet",
+  "capped",
+  "viscous",
+  "water",
+  "edge",
 ];
 /// The look's attribute, on the transcript or any element over it (the gallery's variants set it).
 export const TURN_END_LOOK_ATTR = "data-turn-end-fold";
@@ -235,10 +268,37 @@ const SPRING_EASING = (() => {
 /// `wait`'s hold: how long the ended turn's work stays in sight before the fold.
 const WAIT_HOLD_MS = 320;
 
-/// The look's clock: `glide` and `spring` play their own; the rest the house settle.
+/// `capped`'s curve: constant speed over the first half, then a constant deceleration to rest over the
+/// second (continuous speed, zero at the end), sampled as a CSS linear(). The speed is the lowest a curve
+/// of that shape can have and land in the step: 4/3 of the straight line's.
+const CAPPED_CRUISE = 0.5;
+const CAPPED_EASING = (() => {
+  const speed = 1 / (1 - CAPPED_CRUISE / 2);
+  const points = Array.from({ length: 25 }, (_, index) => {
+    const t = index / 24;
+    const u = Math.max(0, t - (1 - CAPPED_CRUISE));
+    const x =
+      index === 24 ? 1 : speed * Math.min(t, 1 - CAPPED_CRUISE) + speed * u - (speed * u * u) / (2 * CAPPED_CRUISE);
+    return x.toFixed(4);
+  });
+  return `linear(${points.join(", ")})`;
+})();
+/// `capped`'s speed limit: half the house fold's frame bound (foldFrameBound), and the length that keeps a
+/// move of `px` under it on CAPPED_EASING, from the settle's length to twice the large step.
+function cappedMs(px: number): number {
+  const speed = 1 / (1 - CAPPED_CRUISE / 2);
+  const ms = (Math.abs(px) * speed * FRAME_MS) / (foldFrameBound() / 2);
+  return Math.min(2 * MOTION_MS.large, Math.max(MOTION_SETTLE_MS, ms));
+}
+/// The motion-path looks whose copies ride with the row under them (`sheet`, `water`).
+const ridesSheet = (look: TurnEndLook) => look === "sheet" || look === "water";
+
+/// The look's clock: `glide`, `spring`, `capped` and `water` play their own; the rest the house settle.
 function lookTiming(look: TurnEndLook, settled: { ms: number; easing: string }): { ms: number; easing: string } {
   if (look === "glide") return GLIDE;
   if (look === "spring") return { ms: SPRING_MS, easing: SPRING_EASING };
+  if (look === "capped") return { ms: settled.ms, easing: CAPPED_EASING };
+  if (look === "water") return { ms: MOTION_MS[MOTION_SPRING_STEP], easing: MOTION_SPRING };
   return settled;
 }
 
@@ -457,7 +517,8 @@ export function playTurnEnd(
   // the first pass, 77 px at the next). When the curve changes the clock starts again from that pass,
   // and every row and copy goes on from where it was drawn in the last painted frame (its place and
   // ink then), never from the swap's: nothing is drawn back and no fading copy comes back up.
-  const ms = settleMs;
+  // `capped` alone changes the length, as its move is read (cappedMs).
+  let ms = settleMs;
   let easing = settleEasing;
   let grew = false;
   const fold: TurnEndFold = { animations: new Set(), copies: new Set() };
@@ -477,7 +538,7 @@ export function playTurnEnd(
     ? 0
     : look === "wait"
       ? WAIT_HOLD_MS
-      : look === "crossfade" || look === "cascade"
+      : look === "crossfade" || look === "cascade" || ridesSheet(look)
         ? 0
         : exitLeadMs(ms, 1, thread);
   /// The first painted frame (the exit's clock), and when the move's clock starts.
@@ -521,9 +582,11 @@ export function playTurnEnd(
   /// clock started again (`starts` has its drawn ink) goes on from that ink over the exit left.
   // With no lead (the gallery's `none` arm, the look before) the copy fades on the move's own clock,
   // gone by 60% of it, as #41078 had it.
-  const exitMs = look === "crossfade" || look === "cascade" ? ms : lead > 0 ? lead : ms * 0.6; // motion-allow: the `none` arm's share of the settle
+  const exitMs = look === "crossfade" || look === "cascade" || ridesSheet(look) ? ms : lead > 0 ? lead : ms * 0.6; // motion-allow: the `none` arm's share of the settle
   /// `wait`: the copies keep their ink through the hold, and fade over the house exit lead at its end.
-  const exitFrom = look === "wait" ? Math.max(0, lead - exitLeadMs(settleMs, 1, thread)) : 0;
+  /// `sheet` and `water`: the copies keep their ink over the move's first half, riding in under the line.
+  const exitFrom =
+    look === "wait" ? Math.max(0, lead - exitLeadMs(settleMs, 1, thread)) : ridesSheet(look) ? ms / 2 : 0;
   /// `morph`'s card, behind the rows, and the geometry it plays (to play it again only when that changes).
   let card: { element: HTMLElement; key: string; animations: Animation[] } | undefined;
   const exit = (copy: HTMLElement, offset: number) => {
@@ -611,6 +674,43 @@ export function playTurnEnd(
       tops.find((_, index) => was.get(nodes[index]!.dataset.rowId!)?.replacesHeader) ??
       tops.find((_, index) => !was.has(nodes[index]!.dataset.rowId!));
     const startTop = (node: HTMLElement, fallback: number) => starts.get(node)?.top ?? fallback;
+    // `edge`: a kept row that starts wholly out of the view (above or below it) starts just past the
+    // view's edge instead, stacked on the row next to it, so nothing travels farther than it is seen; a
+    // row already moving keeps its start. Read before anything plays.
+    if (look === "edge" && scroller) {
+      const view = scroller.getBoundingClientRect();
+      const heights = nodes.map((node) => node.offsetHeight);
+      const kept = (index: number) => {
+        const before = was.get(nodes[index]!.dataset.rowId!);
+        return before && !arrives(nodes[index]!, index) ? before : undefined;
+      };
+      let next: number | undefined;
+      for (let index = nodes.length - 1; index >= 0; index -= 1) {
+        const before = kept(index);
+        if (!before) continue;
+        const node = nodes[index]!;
+        let from = startTop(node, before.top);
+        if (!moving.has(node) && from + heights[index]! <= view.top && from < tops[index]!) {
+          const nearest = Math.min(view.top, next ?? view.top) - heights[index]!;
+          from = Math.min(tops[index]!, Math.max(from, nearest));
+          starts.set(node, { ...starts.get(node), top: from });
+        }
+        next = from;
+      }
+      let previous: number | undefined;
+      for (let index = 0; index < nodes.length; index += 1) {
+        const before = kept(index);
+        if (!before) continue;
+        const node = nodes[index]!;
+        let from = startTop(node, before.top);
+        if (!moving.has(node) && from >= view.bottom && from > tops[index]!) {
+          const nearest = Math.max(view.bottom, previous ?? view.bottom);
+          from = Math.max(tops[index]!, Math.min(from, nearest));
+          starts.set(node, { ...starts.get(node), top: from });
+        }
+        previous = from + heights[index]!;
+      }
+    }
     const longestMove = () => {
       let longest = 0;
       nodes.forEach((node, index) => {
@@ -631,12 +731,16 @@ export function playTurnEnd(
     const longest = early ? longestMove() : 0;
     // `glide` and `spring` keep their own curve whole: leaned to the frame bound, a long move ran on the
     // straight line, which is the look they are there to compare against.
-    const ownCurve = look === "glide" || look === "spring";
+    const ownCurve = look === "glide" || look === "spring" || look === "capped" || look === "water";
     const timing =
-      early && !ownCurve && !foldFits(longest, ms, easing)
-        ? turnEndFoldTiming(longest, settleMs, settleEasing)
-        : undefined;
-    grew = timing !== undefined && timing.easing !== easing;
+      look === "capped"
+        ? early
+          ? { ms: cappedMs(longest), easing }
+          : undefined
+        : early && !ownCurve && !foldFits(longest, ms, easing)
+          ? turnEndFoldTiming(longest, settleMs, settleEasing)
+          : undefined;
+    grew = timing !== undefined && (timing.easing !== easing || Math.abs(timing.ms - ms) >= FRAME_MS);
     if (grew) {
       if (startedAt !== undefined) {
         // A frame has painted: each row and copy goes on from where it was drawn. All reads first.
@@ -656,6 +760,7 @@ export function playTurnEnd(
       }
       // The clock starts again from this pass: its end moves out with it.
       easing = timing!.easing;
+      ms = timing!.ms;
       if (fold.timer !== undefined) arm();
     }
     const restart = (
@@ -714,6 +819,19 @@ export function playTurnEnd(
     /// How far into the move this pass runs, and the latest hold it gives a row that arrives.
     const elapsed = Math.max(0, -toMove());
     let holds = 0;
+    /// `viscous`: each moving row's delay, a 120 Hz frame per row between it and the fold's seam (the
+    /// folded line), the nearest first; the spread stays inside the quick step.
+    const seam = line ?? tops[0] ?? 0;
+    const viscousDelay = new Map<HTMLElement, number>();
+    if (look === "viscous") {
+      const movers = nodes
+        .map((node, index) => ({ node, index }))
+        .filter(({ index }) => Math.abs(drift[index]!) >= 0.5)
+        .sort((a, b) => Math.abs(tops[a.index]! - seam) - Math.abs(tops[b.index]! - seam));
+      const step = Math.min(FRAME_MS, MOTION_MS.quick / Math.max(1, movers.length - 1));
+      movers.forEach(({ node }, rank) => viscousDelay.set(node, rank * step));
+      holds = Math.max(holds, ...viscousDelay.values());
+    }
     nodes.forEach((node, index) => {
       const before = was.get(node.dataset.rowId!);
       // Its path, for the copies under or over it (`coverClip`), with the clip it starts under (below).
@@ -800,10 +918,17 @@ export function playTurnEnd(
         );
         return;
       }
-      restart(node, moving, { delta, fades: false, animations: [], clip }, () => [
-        [{ translate: `0 ${delta}px` }, { translate: "0 0" }],
-        ...(clip >= 0.5 ? [[{ clipPath: clipBottom(Math.ceil(clip)) }, { clipPath: clipBottom(0) }]] : []),
-      ]);
+      const lag = viscousDelay.get(node) ?? 0;
+      restart(
+        node,
+        moving,
+        { delta, fades: false, animations: [], clip, ...(lag > 0 && { hold: lag }) },
+        () => [
+          [{ translate: `0 ${delta}px` }, { translate: "0 0" }],
+          ...(clip >= 0.5 ? [[{ clipPath: clipBottom(Math.ceil(clip)) }, { clipPath: clipBottom(0) }]] : []),
+        ],
+        lag > 0 ? { delay: lag, fill: "backwards" } : {},
+      );
     });
     if (Math.abs(holds - tail) >= 1) {
       tail = holds;
@@ -831,6 +956,13 @@ export function playTurnEnd(
       const from = copyStarts[order]!;
       const at = from - copyTops[order]!;
       let end = (look === "tuck" || look === "cascade") && line !== undefined ? line - copyTops[order]! : at;
+      // `sheet`, `water`: the copy moves as the row under it does (else the row over it), so the work and
+      // the answer travel as one surface and the rows closing over it crop it.
+      if (ridesSheet(look)) {
+        const { above: over, below: under } = boundaries.get(copy) ?? {};
+        const rider = under ?? over;
+        if (rider) end = at + tops[rider.index]! - startTop(rider.node, rider.row.top);
+      }
       // Under a clipped row (above): it ends no higher than that row's bottom at rest, so with the clip
       // opening on the same clock, the row's drawn bottom never passes the copy's drawn top. The move
       // is linear in the fold's progress on both, so where it holds at the first and last frame it
