@@ -24,7 +24,16 @@ import { currentChatMetrics } from "../chatDisplay";
 import { EXIT_EASING, exitLeadMs } from "./exitLead";
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_FRAME_LINES } from "./followChase";
-import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPath } from "./turnFold";
+import {
+  boxOf,
+  clippedBottom,
+  clippedBottomOf,
+  coverClip,
+  drawnInk,
+  ghostOf,
+  HIDDEN_INK,
+  type CoverPath,
+} from "./turnFold";
 import { ACTIVITY_LINE, LIVE_THINKING, WORKED, WORKING } from "./turns";
 import { isLineRow, type AcpmuxRow } from "../model";
 
@@ -96,6 +105,9 @@ type Drawn = {
   copy?: HTMLElement;
   clip?: number;
   shown?: number;
+  /// Drawn with (almost) no ink at the swap: a row still held hidden by the fold before (an arrival
+  /// waiting out the rows sliding through its box). Its box says nothing about where it was seen.
+  hidden?: boolean;
 };
 
 /// A clip that hides `bottom` px of a row's bottom and nothing past its other edges (tailGlide.ts's).
@@ -175,13 +187,21 @@ export function captureTurnEnd(
     // A row clipped over the row gliding under it (tailGlide.ts) draws only down to that row's top:
     // the fold goes on from what it drew, never from its whole box (one read, only while clipped).
     const clip = clippedBottom(node);
+    // A turn can end while the fold before still plays: a row that fold holds at no ink (an
+    // arrival waiting for the rows sliding through its box, `clearFraction`) has a box where it was
+    // never seen. Started from that box, it drew at full ink over the row sliding there once that
+    // fold settled (agent-pane-stream-row-overlap, agent messages lagging: two replies drawn at one
+    // place, 52 px of ink; Leo, 2026-11-21: "it was in the agent chat gui the text goes atop one
+    // another"). A copy of it would draw at full ink too: a clone takes none of its animations.
+    const hidden = drawnInk(node) < HIDDEN_INK;
     return {
       id,
       top: box.top,
       height: box.height,
       ...(id !== priorId && { replacesHeader: true }),
       ...(clip > 0 && { clip, shown: box.bottom - clip }),
-      ...(!kept.has(id) && { copy: ghostOf(node) }),
+      ...(hidden && { hidden: true }),
+      ...(!kept.has(id) && !hidden && { copy: ghostOf(node) }),
     };
   });
   return { rows, scrollTop: scroller.scrollTop, sessionId };
@@ -467,7 +487,10 @@ export function playTurnEnd(
   };
   // The rows the swap kept, by id; a row it took away left its copy, and its id may come back as
   // a new row (the edits card), which comes in as one.
-  const was = new Map(capture.rows.filter((row) => !row.copy).map((row) => [row.id, row]));
+  // A row not drawn at the swap (`Drawn.hidden`) is none of them: like a row the swap added, it
+  // comes in where it lands, once no kept row slides through its box.
+  const was = new Map(capture.rows.filter((row) => !row.copy && !row.hidden).map((row) => [row.id, row]));
+  const hidden = new Set(capture.rows.filter((row) => row.hidden).map((row) => row.id));
   const gone = capture.rows.filter((row) => row.copy);
   const goneByCopy = new Map(gone.map((row) => [row.copy!, row]));
   const moving = new Map<HTMLElement, Moving>();
@@ -508,6 +531,9 @@ export function playTurnEnd(
       }
     });
     const arrives = (node: HTMLElement, index: number) => !was.has(node.dataset.rowId!) && tops[index]! > lowest;
+    /// A row that holds at no ink at its place until no kept row slides through its box: one that
+    /// arrives, or one not drawn at the swap wherever it lands (`Drawn.hidden`).
+    const waits = (node: HTMLElement, index: number) => arrives(node, index) || hidden.has(node.dataset.rowId!);
     // The copies of what the ended turn drew under its last kept row (its live line) go once the next
     // turn's rows come in there: those rows take that place, and a copy fading under them drew its
     // text through theirs (the same replay: the new tool row over the old "Thinking" line, 107 px).
@@ -619,7 +645,7 @@ export function playTurnEnd(
     // move's end.
     const drift = nodes.map((node, index) => {
       const before = was.get(node.dataset.rowId!);
-      return before && !arrives(node, index) ? startTop(node, before.top) - tops[index]! : 0;
+      return before && !waits(node, index) ? startTop(node, before.top) - tops[index]! : 0;
     });
     const curve = parseBezier(easing);
     const clearFraction = (index: number) => {
@@ -630,7 +656,7 @@ export function playTurnEnd(
       for (let step = 0; step <= 200; step++) {
         const progress = bezierAt(curve, step / 200);
         const overlaps = nodes.some((other, k) => {
-          if (k === index || drift[k] === 0 || arrives(other, k)) return false;
+          if (k === index || drift[k] === 0 || waits(other, k)) return false;
           const drawn = tops[k]! + drift[k]! * (1 - progress);
           return Math.min(bottom, drawn + other.offsetHeight) - Math.max(top, drawn) > 0.5;
         });
@@ -646,7 +672,7 @@ export function playTurnEnd(
       // Its path, for the copies under or over it (`coverClip`), with the clip it starts under (below).
       const path = boxes.length ? { from: tops[index]!, to: tops[index]!, ...boxes[index]! } : undefined;
       if (path) paths.push(path);
-      if (arrives(node, index)) {
+      if (waits(node, index)) {
         // A row first mounted in the settle snapshot has its final layout top, so it is placed there
         // at once. The kept rows above it still slide into their places, and drawn over them it
         // doubled its text (Leo, 2026-11-18: "doubled up looking ass text"; agent-pane-stream-row-
@@ -679,7 +705,21 @@ export function playTurnEnd(
         return;
       }
       if (!before) {
-        // A row the swap added fades in where it lands, unless it plays its own entrance.
+        // A row the swap added above the lowest kept row, with a kept row sliding through its box,
+        // holds at no ink until that row has passed, as an arrival does. Its own entrance (a reply's
+        // 80 ms `acpmux-row--message-enter`) drew it at its place at once, over the kept row still
+        // travelling there (Leo, 2026-11-21: "it was in the agent chat gui the text goes atop one
+        // another"; agent-pane-stream-row-overlap, chromium no lag: 108 px of a new reply over the
+        // reply above it). With nothing crossing it, it keeps its own entrance.
+        const clear = curve ? clearFraction(index) : 0;
+        if (clear > 0) {
+          restart(node, moving, { delta: 0, fades: true, animations: [] }, () => [[{ opacity: 0 }, { opacity: 1 }]], {
+            delay: ms * clear,
+            fill: "backwards",
+          });
+          return;
+        }
+        // Otherwise it fades in where it lands, unless it plays its own entrance.
         if (node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) return;
         const from = starts.get(node)?.opacity ?? 0;
         restart(node, moving, { delta: 0, fades: true, animations: [] }, () => [[{ opacity: from }, { opacity: 1 }]]);
