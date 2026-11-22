@@ -5,6 +5,7 @@ import CmuxMobileAgentChat
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxSpinner
+import Observation
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -42,8 +43,12 @@ public struct WorkspacesList: View {
     /// Opens Settings → Account (the empty state, when no Mac uses this account).
     var openAccount: (() -> Void)?
     @State private var filter: MacFilter
-    /// Reloads the failed team/Mac discovery, not just already-connected workspaces.
+    /// Reloads the failed team/Mac discovery, not just already-connected workspaces. The page
+    /// runs it on its own (``AutoRetry``) while the first load has failed; it never asks.
     var retryLoad: (() async -> Void)?
+    /// Retries a failed first load on its own: placeholders first, the failure page (no button)
+    /// only past the quiet bound.
+    @State private var autoRetry = AutoRetry()
     @State private var query = ""
     /// Offline Macs whose rows are unfolded (this session).
     @State private var unfolded: Set<String> = []
@@ -184,6 +189,7 @@ public struct WorkspacesList: View {
 
     private var page: some View {
         content
+            .autoRetry(autoRetry, failing: firstLoadFailed && retryLoad != nil) { await retryFirstLoad() }
             .navigationTitle("Workspaces")
             .navigationSubtitle(subtitle)
             // The toolbar from plain values in a view of its own: SwiftUI skips it
@@ -376,8 +382,16 @@ public struct WorkspacesList: View {
         switch launchState {
         case .firstLoad: true
         case .noMacs, .content: !macs.isEmpty && listShowsPlaceholder
-        case .failed: false
+        // A failed first load keeps its placeholders while it is retried on its own; the
+        // failure page shows only once it has lasted past the quiet bound.
+        case .failed: !autoRetry.isQuietLineShown
         }
+    }
+
+    /// The team's first load failed with nothing to show (retried on its own).
+    private var firstLoadFailed: Bool {
+        if case .failed = launchState { return true }
+        return false
     }
 
     private var content: some View {
@@ -392,12 +406,17 @@ public struct WorkspacesList: View {
         case .firstLoad:
             Color.clear
         case .failed(let offline):
-            EmptyState(symbol: offline ? "wifi.slash" : "cloud", title: "Couldn't load workspaces",
-                       message: offline ? "This iPhone is offline. Workspaces load when it's back online."
-                           : "cmux couldn't reach the service. It tries again on its own.",
-                       // The offline pill is status only: Retry stays here (the one on screen).
-                       retry: retryLoad == nil ? nil : retry)
-                .accessibilityIdentifier("workspaces.retry")
+            // Nothing to decide: the load is retried on its own (`autoRetry`), so the page says
+            // why it is still empty and offers no button. Before the quiet bound the
+            // placeholders show instead (`showsSkeleton`).
+            if autoRetry.isQuietLineShown {
+                EmptyState(symbol: offline ? "wifi.slash" : "cloud", title: "Couldn't load workspaces",
+                           message: offline ? "This iPhone is offline. Workspaces load when it's back online."
+                               : "cmux couldn't reach the service. It tries again on its own.")
+                    .accessibilityIdentifier("workspaces.loadFailed")
+            } else {
+                Color.clear
+            }
         case .noMacs, .content:
             if macs.isEmpty {
                 ConnectMacEmptyState(
@@ -878,6 +897,10 @@ public struct WorkspacesList: View {
                 .accessibilityLabel(Text("\(displayName(fold.mac)) · \(detail)"))
                 Spacer(minLength: 8)
                 if fold.reason != .offline {
+                    // Connect moves this phone's link to a Mac it is not linked to (the person's choice);
+                    // Retry redials a failed Mac, which re-asks the Mac's "Allow … to connect?" when it
+                    // refused this phone (LiveCoordinator.retry(macID:)), so it waits for the person.
+                    // retry-prompt-ok: links another Mac, or re-asks the Mac's Allow prompt (a side effect on the Mac)
                     if reconnect != nil { Text(fold.reason == .notConnected ? "Connect" : "Retry") }
                 } else if !fold.isForcedOpen {
                     Text("\(fold.workspaces.count)")
@@ -964,6 +987,9 @@ public struct WorkspacesList: View {
                 symbol: "bolt.horizontal.circle",
                 title: "Can't connect to \(displayName(mac))",
                 message: "\(displayName(mac)) is online, but this iPhone can't reach it.",
+                // A redial re-asks the Mac's "Allow … to connect?" when it refused this phone
+                // (LiveCoordinator.retry(macID:)); the Mac's link redials on its own.
+                // retry-prompt-ok: re-asks the Mac's Allow prompt (a side effect on the Mac)
                 primaryTitle: reconnect == nil ? nil : "Retry",
                 primary: reconnect.map { reconnect in { reconnect(mac.id) } }
             )
@@ -973,6 +999,7 @@ public struct WorkspacesList: View {
                 symbol: "link",
                 title: "\(displayName(mac)) isn't connected",
                 message: "Connect to this Mac to view its workspaces.",
+                // retry-prompt-ok: Connect links this phone to a Mac it is not linked to (the person's choice).
                 primaryTitle: reconnect == nil ? nil : "Connect",
                 primary: reconnect.map { reconnect in { reconnect(mac.id) } }
             )
@@ -1032,8 +1059,20 @@ public struct WorkspacesList: View {
         Binding(get: { scope == value }, set: { if $0 { select(value) } })
     }
 
-    func retry() async {
-        await retryLoad?()
+    /// One retry of the failed first load, returning once it has answered (``AutoRetry`` waits
+    /// for it): the reload marks the team loading, and the attempt ends when it is not, or after
+    /// 30 s. Offline, nothing is asked; the page waits for the network.
+    func retryFirstLoad() async {
+        guard let retryLoad, !store.isOffline else { return }
+        await retryLoad()
+        let store = store
+        await BoundedWait(.seconds(30)).run { @MainActor in
+            while store.teamDataState == .loading, !Task.isCancelled {
+                await withCheckedContinuation { (changed: CheckedContinuation<Void, Never>) in
+                    withObservationTracking { _ = store.teamDataState } onChange: { changed.resume() }
+                }
+            }
+        }
     }
 }
 

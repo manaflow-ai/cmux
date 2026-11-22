@@ -40,7 +40,15 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// The filtered list, built once per change of the rows or the search.
     @State private var listMemo = MacHomeList.Memo()
     @State private var query = ""
-    @State private var homeRetries = 0
+    /// Home's list retries on its own while it is not live (Leo, 2026-11-22: "vacuous decisions like that
+    /// should be just done"): no Retry on the toast or the empty state.
+    @State private var homeAutoRetry = AutoRetry()
+    /// The Cloud Chief's failed look (``ChiefSources/CloudAction/retry``) looks again on its own;
+    /// its line shows only past the quiet bound, with no Try Again.
+    @State private var cloudAutoRetry = AutoRetry()
+    /// A Turn On that failed (no answer, a server error) is made again on its own: the person
+    /// asked for it, and turning a brain on twice is the same as once.
+    @State private var turnOnAutoRetry = AutoRetry()
     /// The New Chief name prompt is up.
     @State private var namingChief = false
     @State private var newChiefName = ""
@@ -81,8 +89,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// The Mac whose Home shows: the one its rows came from, else the Mac Chief's.
     private var homeMacID: String? { feed.macID ?? sources.mac.macID }
 
-    /// Home's list is not live (``connectionStatus``): the read failed or the Mac is offline,
-    /// and for as long as a retry runs.
+    /// Home's list is not live (``connectionStatus``): the read failed or the Mac is offline.
     private var showsHomeProblem: Bool { connectionStatus != nil }
 
     private var homeIsOffline: Bool {
@@ -95,7 +102,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     private var connectionStatus: HomeConnectionStatus? {
         let mac = homeMacID.flatMap { id in store.activeTeam?.macs.first { $0.id == id } }
         return HomeConnectionStatus.make(linkDown: homeIsOffline, macOnline: mac?.isOnline, failed: feed.problem != nil,
-                                         retrying: homeRetries > 0, macName: macTag)
+                                         retrying: false, macName: macTag)
     }
 
     /// Rows show in the list (the kept ones a Delete Conversation from List did not hide).
@@ -119,16 +126,17 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         connectionStatus != nil && !keptRowsShow && !searching
     }
 
-    /// The status the arrival retry last ran for: returning to Home in the same state (from a
-    /// kept conversation, say) does not dial again; the Mac's link reconnects on its own.
-    @State private var autoRetriedFor: String?
+    /// Home's list should be read again on its own: it is not live and there is something to dial
+    /// (an offline Mac has nothing to dial; its link reconnects when it is back).
+    private var homeNeedsRetry: Bool {
+        guard let status = connectionStatus else { return false }
+        return status.kind != .macOffline
+    }
 
-    /// Retry (the empty state's, or arriving at Home while it is not live). The status stays
-    /// "Updating…" until the retry answers: reconnecting clears the offline state first.
+    /// One automatic retry (``homeAutoRetry``): dials the Mac when its link is down, then reads the
+    /// list; returns once the read answers. The status stays as it is meanwhile (no "Updating…" flicker
+    /// on each attempt): a failed read was only read again on the next event before (CMUX-489).
     private func retryHome() async {
-        guard homeRetries == 0 else { return }
-        homeRetries += 1
-        defer { homeRetries -= 1 }
         await HomeRetryAction(feed: feed, reconnect: reconnect).retry(macID: homeMacID, reconnectNeeded: homeIsOffline)
     }
 
@@ -295,9 +303,10 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("home.chief.creating")
                 .transition(.opacity)
-            } else if !searching, let card = sources.offCard {
+            } else if !searching, let card = sources.offCard?.shown(failingPastBound: turnOnAutoRetry.isQuietLineShown) {
                 // The Cloud Chief's brain is off: say so and offer Turn On (a Chief that
-                // never answers would otherwise sit silent on a phone with no Mac).
+                // never answers would otherwise sit silent on a phone with no Mac). A failed
+                // Turn On is made again on its own (``turnOnAutoRetry``), with no Try Again.
                 VStack(spacing: 8) {
                     ChiefOffCardView(card, name: primaryName) {
                         guard case let .turnOn(chief)? = sources.cloudAction else { return }
@@ -318,8 +327,10 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .listRowSeparator(.hidden)
                 .listRowBackground(theme.colors.bg.color)
                 .animation(theme.motion.smooth.animation.unlessReduceMotion, value: card)
-            } else if !searching, let status = sources.cloudStatus {
-                // The Cloud Chief could not take the pin: say why.
+            } else if !searching, let status = sources.cloudStatus,
+                      sources.cloudAction != .retry || cloudAutoRetry.isQuietLineShown {
+                // The Cloud Chief could not take the pin: say why (a failed look only once it has
+                // lasted the quiet bound; it is looked up again on its own meanwhile).
                 VStack(spacing: 6) {
                     Text(status)
                         .font(.footnote)
@@ -380,10 +391,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 // Nothing kept: Workspaces' empty state for the same Mac.
                 if let empty = status.empty {
                     // Interpolated, so a Mac's name is shown as written (never read as Markdown).
-                    EmptyState(symbol: empty.symbol, title: "\(empty.title)", message: "\(empty.message)",
-                               primaryTitle: empty.canRetry ? "Retry" : nil,
-                               isPrimaryLoading: status.isRetrying,
-                               primary: empty.canRetry ? { Task { await retryHome() } } : nil)
+                    // No Retry: Home reads again on its own (``homeAutoRetry``).
+                    EmptyState(symbol: empty.symbol, title: "\(empty.title)", message: "\(empty.message)")
                         .padding(.top, 80)
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
@@ -460,22 +469,18 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .accessibilityIdentifier("home.note.updating")
             }
         }
-        // Arriving at Home while its list is not live dials the Mac again (Workspaces dials a
-        // failed Mac again on a choice); the Mac's link also reconnects on its own.
-        .task(id: homeMacID) {
-            guard let status = connectionStatus, status.empty?.canRetry != false, homeRetries == 0 else { return }
-            let key = "\(homeMacID ?? "")|\(status.kind)"
-            guard autoRetriedFor != key else { return }
-            autoRetriedFor = key
-            await retryHome()
-        }
-        .onChange(of: connectionStatus == nil) { _, live in
-            if live { autoRetriedFor = nil }
+        // While its list is not live Home dials the Mac and reads again on its own, with backoff,
+        // and at once on returning to the foreground: no Retry to tap.
+        .autoRetry(homeAutoRetry, failing: homeNeedsRetry) { await retryHome() }
+        .autoRetry(cloudAutoRetry, failing: sources.cloudAction == .retry) { await sources.retryLookup() }
+        .autoRetry(turnOnAutoRetry, failing: sources.offCard == .failed) {
+            guard case let .turnOn(chief)? = sources.cloudAction else { return }
+            await sources.turnOn(chief)
         }
         // Kept rows while the Mac is not live: Workspaces' connection toast over them (the user,
         // 2026-11-13: "reuse the toast strategy"). It takes its own room and covers no row; a
-        // swipe hides it. With nothing kept, the empty state says it instead.
-        .cmuxMobileBanner(homeBanner, retry: { Task { await retryHome() } })
+        // swipe hides it. No Retry on it: Home retries on its own. With nothing kept, the empty state says it instead.
+        .cmuxMobileBanner(homeBanner)
         .onChange(of: connectionStatus?.kind, initial: true) { old, kind in
             // VoiceOver hears that Home is not live when it stops being live (also on arriving
             // with the Mac already away), not on each retry.
@@ -831,10 +836,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             case .create:
                 Button("Create Cloud Chief", action: startNewChief)
                     .accessibilityIdentifier("home.chief.create")
-            case .retry:
-                Button("Try Again") { sources.refresh() }
-                    .accessibilityIdentifier("home.chief.retry")
-            case .turnOn, nil:
+            case .turnOn, .retry, nil:
+                // A failed look runs again on its own (``cloudAutoRetry``): no Try Again.
                 // Turn On is the off card's (``ChiefOffCardView``), above.
                 EmptyView()
             }

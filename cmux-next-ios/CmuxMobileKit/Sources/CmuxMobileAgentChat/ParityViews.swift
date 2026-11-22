@@ -341,6 +341,12 @@ enum ParityLoad<Value> {
     case loaded(Value)
     case unavailable(String)
     case failed(String)
+
+    /// A transient failure (retried on its own); `unavailable` is deterministic and is not.
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
 }
 
 /// Repository checkpoints around the session's turns (web acpmux/checkpoints):
@@ -355,6 +361,7 @@ struct CheckpointsScreen: View {
     @State private var restoring: String?
     @State private var toast: CmuxMobileToast?
     @State private var restoredTrigger = 0
+    @State private var autoRetry = AutoRetry()
 
     var body: some View {
         Group {
@@ -368,12 +375,17 @@ struct CheckpointsScreen: View {
                     Text(message)
                 }
             case .failed(let message):
-                ContentUnavailableView {
-                    Label("Couldn't load checkpoints", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(message)
-                } actions: {
-                    RetryButton("Try Again") { await reload() }
+                // Retried on its own (AutoRetry): the spinner stays, then one quiet line.
+                if autoRetry.isQuietLineShown {
+                    ContentUnavailableView {
+                        Label("Couldn't load checkpoints", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(message)
+                    } actions: {
+                        AutoRetryQuietLine(autoRetry)
+                    }
+                } else {
+                    CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             case .loaded(let checkpoints):
                 List {
@@ -402,6 +414,7 @@ struct CheckpointsScreen: View {
         .chatDemoReceiver(store: store, surface: surface)
         .navigationTitle("Checkpoints")
         .navigationBarTitleDisplayMode(.inline)
+        .autoRetry(autoRetry, failing: load.isFailed) { await reload() }
         .cmuxMobileToast($toast)
         .sensoryFeedback(.success, trigger: restoredTrigger)
         .confirmationDialog("Restore this checkpoint?", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
@@ -475,7 +488,7 @@ struct CheckpointsScreen: View {
                 restoredTrigger += 1
                 await reload()
             } catch {
-                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: UserFacingError.message(error, fallback: "Couldn't restore the checkpoint. Try again."))
+                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: UserFacingError.message(error, fallback: "Couldn't restore the checkpoint."))
             }
             restoring = nil
         }
@@ -493,6 +506,7 @@ struct HandoffScreen: View {
     let surface: AgentChatSurface
     @State private var load: ParityLoad<[AgentHandoffTarget]> = .loading
     @State private var selected: AgentHandoffTarget?
+    @State private var autoRetry = AutoRetry()
 
     var body: some View {
         Group {
@@ -506,12 +520,17 @@ struct HandoffScreen: View {
                     Text(message)
                 }
             case .failed(let message):
-                ContentUnavailableView {
-                    Label("Couldn't load agents", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(message)
-                } actions: {
-                    RetryButton("Try Again") { await reload() }
+                // Retried on its own (AutoRetry): the spinner stays, then one quiet line.
+                if autoRetry.isQuietLineShown {
+                    ContentUnavailableView {
+                        Label("Couldn't load agents", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(message)
+                    } actions: {
+                        AutoRetryQuietLine(autoRetry)
+                    }
+                } else {
+                    CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             case .loaded(let targets):
                 List {
@@ -547,6 +566,7 @@ struct HandoffScreen: View {
             }
         }
         .chatDemoReceiver(store: store, surface: surface)
+        .autoRetry(autoRetry, failing: load.isFailed) { await reload() }
         .navigationTitle("Continue in…")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selected) { target in
@@ -767,7 +787,7 @@ struct HandoffReviewScreen: View {
             do {
                 receipt = try await store.source.startHandoff(reviewed)
             } catch {
-                self.error = UserFacingError.message(error, fallback: "Couldn't start the handoff. Try again.")
+                self.error = UserFacingError.message(error, fallback: "Couldn't start the handoff.")
             }
             starting = false
         }

@@ -38,9 +38,10 @@ import Testing
                                     refusal: .init(chief: Self.other, kind: .unavailable)) == .off)
     }
 
-    @Test func onlyOffAndFailedTakeATap() {
+    @Test func onlyOffTakesATap() {
         #expect(ChiefOffCard.off.offersTurnOn)
-        #expect(ChiefOffCard.failed.offersTurnOn)
+        // A failed Turn On is tried again on its own (Leo, 2026-11-22): no Try Again.
+        #expect(!ChiefOffCard.failed.offersTurnOn)
         #expect(!ChiefOffCard.turningOn.offersTurnOn)
         #expect(!ChiefOffCard.unavailable.offersTurnOn)
     }
@@ -54,6 +55,13 @@ import Testing
         #expect(kind(ChiefCloudError.badReply("x")) == .retryable)
         #expect(kind(URLError(.notConnectedToInternet)) == .retryable)
         #expect(ChiefOffCard.refusal(of: Self.hosted, for: URLError(.timedOut)).chief == Self.hosted)
+    }
+
+    @Test func aFailedTurnOnShowsAsTurningOnUntilTheQuietBound() {
+        #expect(ChiefOffCard.failed.shown(failingPastBound: false) == .turningOn)
+        #expect(ChiefOffCard.failed.shown(failingPastBound: true) == .failed)
+        #expect(ChiefOffCard.off.shown(failingPastBound: true) == .off)
+        #expect(ChiefOffCard.unavailable.shown(failingPastBound: false) == .unavailable)
     }
 
     // MARK: Turn On over the service

@@ -213,7 +213,7 @@ public final class ScreenSharingService {
                                                  deviceName: configuration.deviceName, platform: .ios, tokens: configuration.tokens)
             } catch {
                 guard !Task.isCancelled else { return }
-                self?.loadStatus = .failed(UserFacingError.message(error, fallback: "Screen sharing couldn't start. Try again."))
+                self?.loadStatus = .failed(UserFacingError.message(error, fallback: "Screen sharing couldn't start."))
                 return
             }
             guard let self, !Task.isCancelled else { return }
@@ -280,6 +280,39 @@ public final class ScreenSharingService {
         // A failed list (the hub, the list read, or a socket replaced or signed out) starts over;
         // otherwise everything is read again.
         if case .failed = discovery { await hub.start() } else { await hub.refreshAll() }
+    }
+
+    /// The list can't be reached for a reason that can pass (the network, the hub, a list read):
+    /// the page reads it again on its own. A socket another connection took over, or a phone
+    /// removed or signed out of the hub, is not retried: starting again takes the connection
+    /// back or registers the phone again, which is the person's choice.
+    public var listFailureRetries: Bool {
+        guard case .failed = discovery else { return false }
+        #if DEBUG
+        if demoDiscovery != nil { return true }
+        #endif
+        switch hub?.connection {
+        case .replaced?, .removed?, .signedOut?: return false
+        default: return true
+        }
+    }
+
+    /// Reads the list again and returns once it answered (listed or failed), or after `bound`:
+    /// the page's automatic retry waits on this, so a moment of "finding" is not a recovery.
+    public func refreshUntilAnswered(within bound: Duration = .seconds(30)) async {
+        await refresh()
+        // A first start loads this phone's identity in its own task: wait for it too.
+        await startTask?.value
+        guard discovery == .finding else { return }
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor in
+                for await state in Observations({ self.discovery }) where state != .finding { return }
+            }
+            // The bound: a list that never answers still lets the next retry run.
+            group.addTask { try? await Task.sleep(for: bound) }
+            await group.next()
+            group.cancelAll()
+        }
     }
 
     private func attach(_ hub: DeviceHub) {

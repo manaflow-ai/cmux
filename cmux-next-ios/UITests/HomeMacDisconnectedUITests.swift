@@ -2,9 +2,10 @@ import XCTest
 
 /// CMUX-489, reworked 2026-11-13: Home says its Mac's list is not live the way the Workspaces
 /// tab does: kept rows show exactly as normal under Workspaces' connection toast ("Offline" or
-/// "Couldn't refresh", with Retry), which takes its own room and covers no row; with nothing kept, Workspaces' empty state for that Mac shows
-/// ("Can't connect to …" with Retry, or "… is offline"). A kept row opens the conversation
-/// under its own "Not connected" bar, never a full-screen error.
+/// "Couldn't refresh"), which takes its own room and covers no row; with nothing kept, Workspaces' empty state for that Mac shows
+/// ("Can't connect to …", or "… is offline"). A kept row opens the conversation
+/// under its own "Not connected" bar, never a full-screen error. Home reads again on its own: no
+/// Retry to tap (Leo, 2026-11-22: "vacuous decisions like that should be just done").
 final class HomeMacDisconnectedUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -46,13 +47,12 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         XCTAssertTrue(name.exists, "the header\n\(app.debugDescription)")
         XCTAssertEqual(name.label, "Conversation 5", "the header names the conversation")
 
-        // Back on Home: the Mac button says it, with Retry; the rows stay after it.
+        // Back on Home: the toast says it, with no Retry; the rows stay.
         app.buttons["Back"].firstMatch.tap()
         XCTAssertTrue(row.waitForExistence(timeout: 10), "back on Home\n\(app.debugDescription)")
         try expectToast(app, saying: "Offline", above: row)
         attach(app, "1b-home-offline-toast")
-        app.buttons["Retry"].firstMatch.tap()
-        XCTAssertTrue(row.waitForExistence(timeout: 10), "the rows stay after Retry")
+        XCTAssertTrue(row.exists, "the rows stay")
     }
 
     @MainActor
@@ -65,11 +65,11 @@ final class HomeMacDisconnectedUITests: XCTestCase {
     }
 
     @MainActor
-    func testNothingKeptShowsWorkspacesEmptyStateWithRetry() throws {
+    func testNothingKeptShowsWorkspacesEmptyStateWithoutRetry() throws {
         let app = launch("retry-home-unreachable-empty")
         let title = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Can't connect to Demo Mac 1")).firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 30), "Workspaces' empty state\n\(app.debugDescription)")
-        XCTAssertTrue(app.buttons["Retry"].exists, "Retry\n\(app.debugDescription)")
+        XCTAssertFalse(app.buttons["Retry"].exists, "it retries on its own\n\(app.debugDescription)")
         XCTAssertFalse(app.staticTexts["No Conversations"].exists, "one empty state, not two")
         attach(app, "4-home-unreachable-empty")
     }
@@ -83,13 +83,12 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         attach(app, "5-home-asleep-empty")
     }
 
-    /// Workspaces' connection toast: its words and Retry, above the rows (never over them).
+    /// Workspaces' connection toast: its words, no Retry, above the rows (never over them).
     @MainActor
     private func expectToast(_ app: XCUIApplication, saying text: String, above row: XCUIElement) throws {
         let toast = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", text)).firstMatch
         XCTAssertTrue(toast.waitForExistence(timeout: 10), "the connection toast\n\(app.debugDescription)")
-        let retry = app.buttons["Retry"].firstMatch
-        XCTAssertTrue(retry.exists, "Retry on the toast\n\(app.debugDescription)")
+        XCTAssertFalse(app.buttons["connection.retry"].exists, "no Retry on the toast\n\(app.debugDescription)")
         XCTAssertLessThanOrEqual(toast.frame.maxY, row.frame.minY, "the toast covers no row")
     }
 

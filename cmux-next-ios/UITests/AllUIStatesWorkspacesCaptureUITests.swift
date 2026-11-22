@@ -50,8 +50,8 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
             },
             Scene(group: g, id: "first-launch-loading", args: ["-cmux-mobile-demo", "retry-first-launch"], settle: 3),
             Scene(group: g, id: "first-launch-offline", args: ["-cmux-mobile-demo", "retry-first-launch-offline"], settle: 3),
-            Scene(group: g, id: "first-launch-failed-offline", args: ["-cmux-mobile-demo", "retry-first-launch-failed"], settle: 3),
-            Scene(group: g, id: "load-failed-retry", args: ["-cmux-mobile-demo", "retry-workspaces"], settle: 3),
+            Scene(group: g, id: "first-launch-failed-offline", args: ["-cmux-mobile-demo", "retry-first-launch-failed"], settle: 12),  // past AutoRetry's 10 s quiet bound
+            Scene(group: g, id: "load-failed-retry", args: ["-cmux-mobile-demo", "retry-workspaces"], settle: 12),  // past AutoRetry's 10 s quiet bound
             Scene(group: g, id: "refresh-failed-last-known", args: ["-cmux-mobile-demo", "retry-refresh-failed"], settle: 3),
             Scene(group: g, id: "connect-mac", args: ["-cmux-mobile-demo", "connect-mac"], settle: 2.5),
             Scene(group: g, id: "connect-mac-no-account", args: ["-cmux-mobile-demo", "connect-mac-no-account"], settle: 3),
