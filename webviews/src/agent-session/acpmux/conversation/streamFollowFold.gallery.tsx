@@ -24,8 +24,8 @@ const playFold: Play = async (ctx) => {
 };
 
 const ARMS = {
-  send: "Today's default: only a send rises; each chunk, tool row and fold moves at once.",
-  steady: "Steady drift: the view moves at the stream's own pace, a small reserve under the composer.",
+  send: "The slim arm (the default before): each chunk, tool row and fold moves at once.",
+  steady: "Steady drift (the default): the view moves at the stream's own pace, a small reserve under the composer.",
   blocks: "Chase each chunk home in one eased step.",
   linear: "Chase each chunk home at a constant speed.",
 } as const;
