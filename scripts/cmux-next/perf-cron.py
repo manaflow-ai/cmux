@@ -455,6 +455,34 @@ def load_budgets_module():
     return mod
 
 
+_BUDGET_TABLE = {}
+
+
+def budget_table():
+    """perf-budget-table.py and its table, loaded once a process: (module, rows)."""
+    if "rows" not in _BUDGET_TABLE:
+        spec = importlib.util.spec_from_file_location("perf_budget_table", os.path.join(HERE, "perf-budget-table.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _BUDGET_TABLE.update(mod=mod, rows=mod.load_table())
+    return _BUDGET_TABLE["mod"], _BUDGET_TABLE["rows"]
+
+
+def budget_report(state, now):
+    """The budget of every producer from the state (perf-budget-table.py): (module, result), or (None, error text) when
+    the table does not load. Reported, never judged: it opens, closes and fails nothing."""
+    try:
+        mod, rows = budget_table()
+        return mod, mod.evaluate(rows, state, now)
+    except (OSError, ValueError, re.error) as error:
+        return None, f"Budget: the table did not load ({error})"
+
+
+def budget_issue_lines(state, now):
+    mod, result = budget_report(state, now)
+    return mod.issue_lines(result) if mod else [f"**{result}.**"]
+
+
 def animation_budgets(budgets_mod):
     """perf-budgets' animation rows; scripts/perf-bench/budget.py imports its siblings, so their directory goes
     on sys.path first. None of them on this checkout: no animation rows (their default budgets apply)."""
@@ -1361,11 +1389,16 @@ def host_last_seen(state, host):
     return parse_iso(info.get("last_part_at") or info.get("at") or info.get("absent_since") or None)
 
 
-def host_gone(state, host, t):
-    """host left the fleet (pure): the controller said it has no such worker (gone_at, a host_gone result), or it ran
-    no part for HOST_GONE_HOURS (the caller checks that Mac parts ran elsewhere meanwhile)."""
+def host_retired(state, host):
+    """The controller said it has no such worker (gone_at, a host_gone result), and the host ran no part since (pure)."""
     info = host_info(state, host)
-    if info.get("gone_at") and not (info.get("last_part_at") and info["last_part_at"] > info["gone_at"]):
+    return bool(info.get("gone_at") and not (info.get("last_part_at") and info["last_part_at"] > info["gone_at"]))
+
+
+def host_gone(state, host, t):
+    """host left the fleet (pure): the controller said it has no such worker (host_retired), or it ran no part for
+    HOST_GONE_HOURS (the caller checks that Mac parts ran elsewhere meanwhile)."""
+    if host_retired(state, host):
         return True
     seen = host_last_seen(state, host)
     return seen is not None and hours_between(seen, t) > HOST_GONE_HOURS
@@ -1644,8 +1677,12 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     # at every tick, and no Mac part ran while the bench host could have taken each one.
     # A bench host the measurement gave up for its silence (give_up_host) is still asked here: the give-up is for
     # trying another host, and this rule leaves none. 2026-11-15 00:54Z to 02:54Z: no Mac part was asked for.
+    # Only the controller's word retires the bench host here (host_retired), never its silence: host_gone's
+    # HOST_GONE_HOURS clause assumes Mac parts ran elsewhere meanwhile, and with the bench host the only measure host
+    # none did. From 2026-11-18 cmux20-bench refused every claim (not isolated) for 3.5 days; once repaired, it was
+    # "gone" by silence, so every tick a nightly waited for a Mac held its parts back and no Mac row could refresh.
     bench_only = bool(github_busy and fleet and cur.get("host") in (None, BENCH_WORKER)
-                      and not host_unreachable(state, BENCH_WORKER, t) and not host_gone(state, BENCH_WORKER, t))
+                      and not host_unreachable(state, BENCH_WORKER, t) and not host_retired(state, BENCH_WORKER))
     if github_busy and fleet and not bench_only:
         fleet = ""
         start_yield(cur, t)  # the wait does not count against ABANDON_HOURS
@@ -2541,6 +2578,7 @@ def issue_body(state, repo, now):
                          f"{str(rng.get('good') or '?')[:7]}..{str(rng.get('bad') or '?')[:7]} |")
     else:
         lines.append("No confirmed regression.")
+    lines += ["", *budget_issue_lines(state, now)]
     unconfirmed = [u for u in state.get("unconfirmed") or [] if isinstance(u, dict)]
     if unconfirmed:
         lines += ["", f"**Unconfirmed ({len(unconfirmed)} row(s), not a regression):** a row is a regression only with "
@@ -4376,7 +4414,13 @@ def report(o, t=None):
     nxt = next_now(state, fleet_done)
     if nxt:
         line += "; a measure host is idle: the next tick starts now"
+    # The budget of every producer, each tick (perf-budget-table.py): one summary line, then each row over or not measured.
+    mod, budget = budget_report(state, t)
+    budget_lines = mod.text_lines(budget) if mod else [budget]
+    line += f"; {budget_lines[0]}"
     print(f"perf-cron report: {line}")
+    for text in budget_lines:
+        print(f"perf-cron budget: {text}")
     write_outputs(o.output, {"changed": "true" if changed else "false", "line": line.replace("\n", " "),
                              "next_now": "true" if nxt else "false",
                              "not_measuring": (not_measuring or "").replace("\n", " ")})
