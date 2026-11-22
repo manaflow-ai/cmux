@@ -26,7 +26,8 @@ the launch has no such mark). Prints LR-PROFILE lines:
 A nightly's executable is stripped, so its frames are bare addresses in the trace. Beside the trace the first form
 writes SIDE-LABEL.samples.json.gz (the main thread's samples to 600 ms after the frame, each frame's address and its
 image's load address and UUID); launch-ready.sh keeps it in report.tgz. The second form prints the same lines from
-that file, and with --dsym (the build's cmux.app.dSYM, or the DWARF file in it) names the app's frames: atos on a
+that file, and with --dsym (the build's cmux.app.dSYM or CmuxNextApp.framework.dSYM, a folder holding them, or a DWARF
+file) names the app's frames, the stub's and the framework's: atos on a
 Mac, else llvm-nm's symbol table ($LLVM_NM), demangled by swift-demangle ($SWIFT_DEMANGLE) when one is found.
 """
 import bisect
@@ -119,10 +120,7 @@ def save(path, samples, t0, until_ms, images, run, side):
 class Symbols:
     """Names for one image's addresses from its dSYM: atos when there is one, else llvm-nm's symbol table."""
 
-    def __init__(self, dsym, image, load):
-        path = pathlib.Path(dsym)
-        if path.suffix == ".dSYM":
-            path = path / "Contents" / "Resources" / "DWARF" / image
+    def __init__(self, path, load):
         self.path, self.load, self.names = path, load, {}
         self.atos = shutil.which("atos")
         self.starts, self.symbols = [], []
@@ -135,8 +133,8 @@ class Symbols:
                 if len(parts) == 3 and parts[1] in ("t", "T"):
                     self.starts.append(int(parts[0], 16))
                     self.symbols.append(parts[2][1:] if parts[2].startswith("_") else parts[2])  # Mach-O's own "_"
-        # The image's link address (__TEXT's vmaddr): 0x100000000 for an executable.
-        self.base = 0x100000000
+        # The image's link address (__TEXT's vmaddr): 0x100000000 for an executable, 0 for a framework's dylib.
+        self.base = 0x100000000 if not self.starts or self.starts[0] >= 0x100000000 else 0
 
     def resolve(self, addrs):
         """Names for addrs (ints, runtime addresses) that fall in this image; the others are left out."""
@@ -167,30 +165,73 @@ class Symbols:
         self.names.update(names)
 
 
-def symbolicate(samples, images, dsym):
-    """samples with the app's bare-address frames named from dsym (its own executable's frames only)."""
-    if "cmux" not in images:
-        return samples
-    load = int(images["cmux"]["load"], 16)
-    symbols = Symbols(dsym, "cmux", load)
-    top = load + (symbols.starts[-1] - symbols.base if symbols.starts else 0x10000000)
+# The app's own images: the stub executable and, since cmux#44204, the framework that holds all of the app's code.
+APP_IMAGES = ("cmux", "CmuxNextApp")
 
-    def ours(name, binary, addr):
-        return addr and (binary == "cmux" or (binary == "?" and load <= int(addr, 16) < top)) and name.startswith("0x")
+
+def dwarf_files(dsym, images):
+    """{image: DWARF file} for the app images dsym holds. dsym is one .dSYM bundle (cmux.app.dSYM,
+    CmuxNextApp.framework.dSYM), a folder of them (a build's Release folder, the nightly's dSYM artifact), or one
+    DWARF file named for its image."""
+    path, found = pathlib.Path(dsym), {}
+    for image in (i for i in APP_IMAGES if i in images):
+        if path.suffix == ".dSYM":
+            bundles = [path]
+        elif path.is_dir():
+            bundles = [path / f"{image}{ext}.dSYM" for ext in (".app", ".framework", "")]
+        else:
+            if path.name == image:
+                found[image] = path
+            continue
+        for bundle in bundles:
+            dwarf = bundle / "Contents" / "Resources" / "DWARF" / image
+            if dwarf.exists():
+                found[image] = dwarf
+                break
+    if not found and path.suffix == ".dSYM":  # a bundle not on this disk: the image its name says (cmux.app.dSYM)
+        image = path.name.split(".")[0]
+        if image in images:
+            found[image] = path / "Contents" / "Resources" / "DWARF" / image
+    return found
+
+
+def symbolicate(samples, images, dsym):
+    """samples with the app images' bare-address frames named from dsym (the stub's and the framework's)."""
+    tables = []
+    for image, path in dwarf_files(dsym, images).items():
+        load = int(images[image]["load"], 16)
+        symbols = Symbols(path, load)
+        top = load + (symbols.starts[-1] - symbols.base if symbols.starts else 0x10000000)
+        tables.append((image, load, top, symbols))
+    if not tables:
+        return samples
+
+    def owner(name, binary, addr):
+        if not addr or not name.startswith("0x"):
+            return None
+        at = int(addr, 16)
+        for table in tables:
+            image, load, top, _ = table
+            if binary == image or (binary == "?" and load <= at < top):
+                return table
+        return None
 
     # A caller's frame holds its return address, the instruction after the call: look up the one before it.
-    wanted = set()
+    wanted = collections.defaultdict(set)
     for _, _, frames in samples:
         for depth, (name, binary, addr) in enumerate(frames):
-            if ours(name, binary, addr):
-                wanted.add(int(addr, 16) - (1 if depth else 0))
-    symbols.resolve(wanted)
+            table = owner(name, binary, addr)
+            if table:
+                wanted[table[0]].add(int(addr, 16) - (1 if depth else 0))
+    for image, _, _, symbols in tables:
+        symbols.resolve(wanted[image])
     out = []
     for ns, w, frames in samples:
         named = []
         for depth, (name, binary, addr) in enumerate(frames):
-            if ours(name, binary, addr):
-                name, binary = symbols.names.get(int(addr, 16) - (1 if depth else 0), name), "cmux"
+            table = owner(name, binary, addr)
+            if table:
+                name, binary = table[3].names.get(int(addr, 16) - (1 if depth else 0), name), table[0]
             named.append((name, binary, addr))
         out.append((ns, w, named))
     return out
@@ -302,8 +343,9 @@ def from_samples(path, dsym):
         samples = symbolicate(samples, saved["images"], dsym)
     run = saved["run"]
     marks = run.get("marks", {})
-    if saved["images"].get("cmux"):
-        print(f"LR-PROFILE {saved['side']} cmux image {saved['images']['cmux']['uuid']} at {saved['images']['cmux']['load']}")
+    for image in APP_IMAGES:
+        if saved["images"].get(image):
+            print(f"LR-PROFILE {saved['side']} {image} image {saved['images'][image]['uuid']} at {saved['images'][image]['load']}")
     report(saved["side"], samples, 0, marks, run.get("window_on_screen") or 1500.0, marks.get("first_window_frame_committed"))
 
 
