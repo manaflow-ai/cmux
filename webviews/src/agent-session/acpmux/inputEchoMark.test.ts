@@ -12,7 +12,7 @@ function keys() {
     addEventListener: (_: string, listener: Listener) => listeners.add(listener),
     removeEventListener: (_: string, listener: Listener) => listeners.delete(listener),
     send(event: Partial<KeyboardEvent>) {
-      for (const listener of [...listeners]) listener(event as Event);
+      for (const listener of Array.from(listeners)) listener(event as Event);
     },
   };
 }
