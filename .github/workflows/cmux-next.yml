@@ -297,6 +297,9 @@ on:
       - scripts/cmux-next/base-autofix-exports-pack.sh
       - tests/test_cmux_next_pr_autofix_settings.py
       - scripts/cmux-next/check-generator-inputs.sh
+      # The daemon-test generated-files verdict reads these when the PR autofix may repair a stale export.
+      - scripts/cmux-next/generated-autofixable.sh
+      - scripts/cmux-next/autofix-areas.sh
       - tests/test_ci_generator_input_freshness.sh
       - .github/workflows/cmux-next-pr-autofix.yml
       - .github/workflows/cmux-next-base-autofix.yml
