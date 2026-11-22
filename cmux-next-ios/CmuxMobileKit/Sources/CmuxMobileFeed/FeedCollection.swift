@@ -651,7 +651,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         #if DEBUG
         if FeedStressRig.shared.config.isActive {
             Logger(subsystem: "dev.cmux.mobile", category: "frames").notice(
-                "FRAMELOG feed-cell new=\(self.newCells, privacy: .public) spares=\(self.spares.count, privacy: .public) taken=\(self.sparesTaken, privacy: .public) made=\(self.sparesMade, privacy: .public) warmed=\(self.warmedLayouts.count, privacy: .public)")
+                "FRAMELOG list-stress feed-cell new=\(self.newCells, privacy: .public) spares=\(self.spares.count, privacy: .public) taken=\(self.sparesTaken, privacy: .public) made=\(self.sparesMade, privacy: .public) warmed=\(self.warmedLayouts.count, privacy: .public)")
         }
         #endif
         return FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
@@ -671,8 +671,13 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         return result
     }
 
-    /// One spare row cell with every shape's parts built (one per idle run-loop turn).
+    /// One spare row cell with every shape's parts built (one per idle run-loop turn, while the list
+    /// has been still `spareStillness`, never under a finger or a coast; at most `spareTarget`).
     private func makeSpare() {
+        #if DEBUG
+        let t0 = CACurrentMediaTime()
+        let before = Self.footprint()
+        #endif
         let cell = FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
         cell.overrideUserInterfaceStyle = collectionView?.traitCollection.userInterfaceStyle ?? .unspecified
         for layout in spareShapes() {
@@ -684,12 +689,28 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         spares.append(cell)
         sparesMade += 1
         #if DEBUG
+        let ms = (CACurrentMediaTime() - t0) * 1000
+        spareBuildMaxMs = max(spareBuildMaxMs, ms)
         if FeedStressRig.shared.config.isActive {
             Logger(subsystem: "dev.cmux.mobile", category: "frames").notice(
-                "FRAMELOG feed-spare made=\(self.sparesMade, privacy: .public) since_scroll_ms=\(Int((CACurrentMediaTime() - self.lastScroll) * 1000), privacy: .public) settled=\(self.rowsSettled, privacy: .public)")
+                "FRAMELOG list-stress feed-spare made=\(self.sparesMade, privacy: .public) ms=\(ms, format: .fixed(precision: 2), privacy: .public) max_ms=\(self.spareBuildMaxMs, format: .fixed(precision: 2), privacy: .public) footprint_delta_kb=\((Self.footprint() - before) / 1024, privacy: .public) since_scroll_ms=\(Int((CACurrentMediaTime() - self.lastScroll) * 1000), privacy: .public)")
         }
         #endif
     }
+
+    #if DEBUG
+    /// The longest spare build so far (ms): a frame's budget it must stay well under.
+    private(set) var spareBuildMaxMs = 0.0
+
+    static func footprint() -> Int64 {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+        }
+        return result == KERN_SUCCESS ? Int64(info.phys_footprint) : 0
+    }
+    #endif
 
     private static let emptyKey = FeedRowKey(
         item: FeedItem(id: "", kind: .finished, workspaceID: "", tabID: "", agentName: "", harness: "", workspaceTitle: "", markdown: "",
