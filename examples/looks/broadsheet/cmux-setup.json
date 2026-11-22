@@ -1,0 +1,44 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/broadsheet-look",
+  "name": "Broadsheet",
+  "tagline": "cmux as a reading instrument: one type scale, a 4 px baseline, a 70-character measure, hairline rules for boxes.",
+  "description": "Broadsheet v0.1, a design-system proposal as a drop-in look. What agents produce is writing (plans, reports, diffs, logs), so the hierarchy is built from type, measure and rhythm, not from boxes: reading text at 16 px on a 24 px line in a column about 70 characters wide, code and tool output at 13 px on a 20 px line, chrome at 13 px in 28 px rows, every line height a multiple of 4 px, your prompt and the tool cards drawn with a faint wash or a hairline in place of a filled bubble, a sidebar and tab strip one quiet step of lightness off the page with a hairline between them, and color kept for links and status. Built only from public surfaces: two theme files (Broadsheet, light, the default; Broadsheet Dark), settings, and two stylesheets of public tokens. Remove it and everything you had comes back.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/looks/broadsheet",
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "broadsheet",
+
+    // The reading voice: the system sans at 16 px on a 24 px line (1.5, six 4 px baseline units).
+    // 16 is one step above the chrome's 13 on the scale (13 x 1.2 = 15.6); the default is 14 px
+    // on a 22.75 px line, which sits on no grid.
+    "agentPane.display.font.ui": "system-ui",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.size": 16,
+    "agentPane.display.font.lineHeight": 1.5,
+    // The code voice: 13 px (0.8125 of 16) on a 20 px line, the same size and line as the chrome,
+    // so a tool row, a shell block and a sidebar row share one cadence.
+    "agentPane.display.code.scale": 0.8125,
+    // The measure: a 680 px column, about 70 characters of 16 px text after the gutters
+    // (the default 800 px column at 14 px runs past 100).
+    "agentPane.display.width": 680,
+
+    // The Markdown viewer in the same hand: 16 px on a 24 px line, code at 13 px, 70 characters.
+    "markdown.font.preset": "system",
+    "markdown.font.size": 16,
+    "markdown.font.lineHeight": 1.5,
+    "markdown.code.scale": 0.8125,
+    "markdown.layout.width": 70,
+
+    // Sidebar groups are separated by a hairline and a larger gap, never by a card.
+    "sidebar.density": "compact",
+    "sidebar.sectionLook": "lines",
+
+    // The address field: a 6 px corner (the tab's), no shadow.
+    "browser.omnibar.cornerRadius": 6,
+    "browser.omnibar.shadow": false
+  }
+}
