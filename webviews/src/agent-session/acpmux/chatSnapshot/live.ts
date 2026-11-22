@@ -1,6 +1,7 @@
 // The live page's side of a chat's snapshot (shared.ts): it tells the host the chat is on screen as
 // soon as the bundle runs, takes over from the copy in one frame once it drew the chat itself, and
 // writes the copy the next launch draws (capture.ts), from the visible window only.
+import { SWAP_PREPARE_EVENT } from "../../../pages/shared/swapHandoff";
 import { captureMiss, captureSnapshot } from "./capture";
 import {
   SNAPSHOT_GLOBAL,
@@ -268,6 +269,8 @@ export function watchChatSnapshot(
   };
   doc.addEventListener("visibilitychange", hidden);
   view.addEventListener(SNAPSHOT_WRITE_EVENT, now);
+  // A web swap reloads the page next (pages/shared/swapHandoff.ts): the copy the reload paints first is this one.
+  view.addEventListener(SWAP_PREPARE_EVENT, now);
   changedAt = performance.now();
   wroteAt = -WRITE_GAP_MS;
   schedule();
@@ -277,5 +280,6 @@ export function watchChatSnapshot(
     if (timer !== undefined) view.clearTimeout(timer);
     doc.removeEventListener("visibilitychange", hidden);
     view.removeEventListener(SNAPSHOT_WRITE_EVENT, now);
+    view.removeEventListener(SWAP_PREPARE_EVENT, now);
   };
 }

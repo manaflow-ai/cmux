@@ -24,6 +24,8 @@ import { elementPath } from "./pageHealth";
 export const SWAP_HANDOFF_KEY = "cmux.webSwap.handoff";
 /** On <html> while a swapped-in document restores itself: it draws nothing over the host's still. */
 export const SWAP_RESTORING_ATTRIBUTE = "data-cmux-swap-restoring";
+/** On window right before the hand-off is written: a page's own last-moment saves run then. */
+export const SWAP_PREPARE_EVENT = "cmux-web-swap-prepare";
 /** A hand-off older than this is from a swap that did not happen: ignored. */
 export const SWAP_HANDOFF_FRESH_MS = 10_000;
 /** The longest a swapped-in document stays invisible: it shows as it is then. */
@@ -242,6 +244,8 @@ export function captureHandoff(doc: Document = document): SwapHandoff {
 
 /** The host is about to reload the page into new web: hands its state over. True when it was kept. */
 export function prepareSwap(doc: Document = document): boolean {
+  // Pages that keep a drawn copy of themselves (the agent chat, chatSnapshot/live.ts) write it now.
+  doc.defaultView?.dispatchEvent(new doc.defaultView.Event(SWAP_PREPARE_EVENT));
   try {
     doc.defaultView!.sessionStorage.setItem(SWAP_HANDOFF_KEY, JSON.stringify(captureHandoff(doc)));
     return true;
