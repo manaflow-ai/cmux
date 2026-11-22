@@ -41,6 +41,14 @@ fn carried(session: &Session) -> Option<Vec<String>> {
     })
 }
 
+/// The chat runs another agent's turn that takes steers: a message that is no FYI steers in at
+/// once (`inbox_tests.rs` `running`).
+fn running(session: &Session) {
+    let turn = TurnInfo::prompted("test", "go", "t-run", "p-run", Control::Local);
+    *session.turn.lock().unwrap() = Some(turn);
+    session.steering.store(true, Ordering::SeqCst);
+}
+
 /// A notice went: it is in flight, or it went and the chat (no agent here) refused it.
 fn went(session: &Session) -> bool {
     let inbox = session.inbox();
@@ -128,6 +136,7 @@ fn a_whole_notice_has_no_summaries() {
 #[tokio::test]
 async fn a_notice_waits_for_a_fast_summary_and_its_cache_serves_the_next() {
     let (hub, session) = hub_with_chat("reader-fast");
+    running(&session);
     let calls = Arc::new(AtomicUsize::new(0));
     let counted = Arc::clone(&calls);
     set_test_summarizer(
@@ -161,6 +170,7 @@ async fn a_notice_waits_for_a_fast_summary_and_its_cache_serves_the_next() {
 #[tokio::test]
 async fn a_slow_reader_fails_open_at_two_seconds() {
     let (hub, session) = hub_with_chat("reader-slow");
+    running(&session);
     set_test_summarizer(
         &session.id,
         Arc::new(|_| {
@@ -169,7 +179,7 @@ async fn a_slow_reader_fails_open_at_two_seconds() {
         }),
     );
     let now = now_ms();
-    session.inbox().items.push(item("s-a", "ta", PromptClass::Fyi, now, &long("alpha")));
+    session.inbox().items.push(item("s-a", "ta", PromptClass::Result, now, &long("alpha")));
     hub.inbox_review(&session);
     let took = until_carried(&session, Duration::from_secs(4)).await.expect("delivered");
     assert!(
@@ -185,6 +195,7 @@ async fn a_blocker_never_waits_for_the_reader() {
         [PromptClass::Block, PromptClass::Question, PromptClass::Fyi].into_iter().enumerate()
     {
         let (hub, session) = hub_with_chat(&format!("reader-urgent-{n}"));
+        running(&session);
         set_test_summarizer(
             &session.id,
             Arc::new(|_| {
@@ -252,5 +263,66 @@ fn inbox_reader_render_cost() {
         "{}",
         json!({"threads": 12, "plain_us": {"p50": plain.0, "p95": plain.1},
                "reader_cached_us": {"p50": read.0, "p95": read.1}})
+    );
+}
+
+/// The live read through `complete_own` (the `claude` CLI on its small model, its own login):
+/// wall time of each read of one real-shaped status message, p50 and p90 over 8. Manual, needs a
+/// signed-in `claude` on PATH: `cargo test -p acpmux --lib inbox_reader_live_haiku -- --ignored
+/// --nocapture`. Prints timings, the parsed score and an error's code only (never its detail,
+/// which carries the CLI's last stderr line).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore]
+async fn inbox_reader_live_haiku() {
+    use super::super::super::complete::ModelFallback;
+    let profile = crate::config::HarnessProfile {
+        kind: crate::config::HarnessKind::ClaudeStdio,
+        argv: vec!["claude".into()],
+        env: Default::default(),
+        description: None,
+        fallback: None,
+        family: None,
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    };
+    let mut cfg = crate::config::Config::default();
+    cfg.harnesses.insert("claude".into(), profile);
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.begin_startup(true);
+    hub.finish_startup().await;
+    let text = "lane cap status 15:40Z\ngcp-agent-lane-2: 7/8 lanes busy, load 11.2\n\
+                gcp-agent-lane-6: 8/8 busy, queue 3 (oldest 6 min)\nhuge-blue: deploys tail clean\n\
+                No action unless gcp-agent-lane-6's queue passes 10 min.";
+    let mut took = Vec::new();
+    for _ in 0..8 {
+        let prompt = read_prompt(Some("coordinate the fleet's lanes"), "lane-cap-watch", text);
+        let t = Instant::now();
+        let answer = hub
+            .complete_own(
+                Some("claude"),
+                prompt,
+                MAX_TOKENS,
+                READ_TIMEOUT,
+                ModelFallback::SmallOnly,
+            )
+            .await
+            .map_err(|e| e.reason().to_owned());
+        took.push(t.elapsed());
+        let score = answer.as_deref().ok().and_then(parse_read).map(|s| s.score);
+        let why = answer.as_ref().err().map(|e| e.chars().take(120).collect::<String>());
+        println!(
+            "read {:.2} s, ok {}, score {score:?}, error {why:?}",
+            took.last().unwrap().as_secs_f64(),
+            answer.is_ok()
+        );
+    }
+    took.sort();
+    println!(
+        "{}",
+        json!({"reads": took.len(), "p50_s": took[4].as_secs_f64(), "p90_s": took[7].as_secs_f64()})
     );
 }
