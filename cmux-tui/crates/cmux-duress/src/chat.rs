@@ -65,7 +65,7 @@ pub fn chat(
         if index == 0 {
             renamed.clear();
         }
-        let record = &recorded[index];
+        let Some(record) = recorded.get(index) else { continue };
         let msg = if replay == 0 {
             record.msg.clone()
         } else {
@@ -84,7 +84,7 @@ pub fn chat(
         let bytes = serde_json::to_string(&line).map_err(|error| error.to_string())?.len() + 1;
         line.at = link.deliver(sent_us, bytes) / 1000;
         out.push(serde_json::to_string(&line).map_err(|error| error.to_string())?);
-        sent_us += gaps[index];
+        sent_us += gaps.get(index).copied().unwrap_or(0);
     }
     Ok(out)
 }
@@ -95,8 +95,13 @@ fn scaled_gaps(recorded: &[ChatRecord], rate: u64) -> Vec<u64> {
     if rate == 0 {
         return vec![0; recorded.len()];
     }
-    let mut gaps: Vec<u64> =
-        recorded.windows(2).map(|pair| pair[1].at.saturating_sub(pair[0].at)).collect();
+    let mut gaps: Vec<u64> = recorded
+        .windows(2)
+        .map(|pair| match pair {
+            [before, after] => after.at.saturating_sub(before.at),
+            _ => 0,
+        })
+        .collect();
     let mean_ms = gaps.iter().sum::<u64>() as f64 / gaps.len().max(1) as f64;
     gaps.push(mean_ms as u64);
     let target_us = 1_000_000.0 / rate as f64;
@@ -119,23 +124,26 @@ pub fn rename_ids(msg: &str, suffix: &str) -> String {
         let mut next = String::with_capacity(out.len() + 64);
         let mut rest = out.as_str();
         while let Some(found) = rest.find(&needle) {
-            let value_start = found + needle.len();
-            next.push_str(&rest[..value_start]);
-            rest = &rest[value_start..];
-            let value_end = string_end(rest);
-            let value = &rest[..value_end];
-            match (*key == "segment").then(|| value.rfind('.')).flatten() {
-                Some(dot) => {
-                    next.push_str(&value[..dot]);
+            let Some((head, tail)) = rest.split_at_checked(found + needle.len()) else { break };
+            next.push_str(head);
+            let Some((value, after)) = tail.split_at_checked(string_end(tail)) else {
+                next.push_str(tail);
+                rest = "";
+                break;
+            };
+            let dot = if *key == "segment" { value.rfind('.') } else { None };
+            match dot.and_then(|dot| value.split_at_checked(dot)) {
+                Some((stem, last)) => {
+                    next.push_str(stem);
                     next.push_str(suffix);
-                    next.push_str(&value[dot..]);
+                    next.push_str(last);
                 }
                 None => {
                     next.push_str(value);
                     next.push_str(suffix);
                 }
             }
-            rest = &rest[value_end..];
+            rest = after;
         }
         next.push_str(rest);
         out = next;
@@ -148,8 +156,8 @@ pub fn rename_ids(msg: &str, suffix: &str) -> String {
 fn string_end(text: &str) -> usize {
     let bytes = text.as_bytes();
     let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
+    while let Some(&byte) = bytes.get(index) {
+        match byte {
             b'\\' => index += 2,
             b'"' => return index,
             _ => index += 1,

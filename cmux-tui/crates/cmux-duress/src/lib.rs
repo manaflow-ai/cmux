@@ -93,7 +93,12 @@ pub fn generate(knobs: &Knobs, inputs: &Inputs) -> Result<Generated, String> {
     let mut stream_link = link::Link::new(link.clone(), seed.split(3));
     let mut chat_link = link::Link::new(link.clone(), seed.split(4));
 
-    let banner = inputs.pty.iter().find(|chunk| chunk.bytes.len() >= 512).unwrap_or(&inputs.pty[0]);
+    let banner = inputs
+        .pty
+        .iter()
+        .find(|chunk| chunk.bytes.len() >= 512)
+        .or(inputs.pty.first())
+        .ok_or("the pty recording has no chunks")?;
     let (history, history_prefix_bytes) =
         history::history(knobs.history_rows, &banner.bytes, &mut rows);
     let stream = stream::stream(
