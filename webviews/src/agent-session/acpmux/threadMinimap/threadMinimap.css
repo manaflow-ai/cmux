@@ -65,6 +65,24 @@
    (data-rail-scrolls, railWheel.ts): the wheel over it moves only the list, never chaining to the
    transcript at its ends. Its scrollbar is hidden in both engines, so the transcript's shared one is
    the only one on screen (SCROLLBARS-THIN; #23285 left this list a second visible scroller). */
+.acpmux-minimap__cutover {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  z-index: 2;
+  width: 100%;
+  height: 2px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--acpmux-minimap-mark, var(--agent-accent));
+  opacity: 0.9;
+  cursor: pointer;
+}
+.acpmux-minimap__cutover:hover {
+  opacity: 1;
+}
 .acpmux-minimap__list {
   display: flex;
   flex-direction: column;
