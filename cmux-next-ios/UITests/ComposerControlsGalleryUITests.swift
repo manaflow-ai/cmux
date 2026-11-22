@@ -100,4 +100,29 @@ final class ComposerControlsGalleryUITests: XCTestCase {
         shoot(app, "setting")
         app.terminate()
     }
+
+    /// Leo, 2026-11-22: "chatgpt you csn swipe down inside the composer to collapse it. we need that
+    /// here too". A downward drag that starts inside the focused field puts the keyboard away.
+    /// Without the change the drag does nothing: a short draft's text view does not scroll.
+    @MainActor
+    func testSwipeDownInsideTheFieldCollapsesTheComposer() {
+        let app = launch(["-cmux-mobile-demo", "voice-terminal"])
+        let field = app.textViews["terminal.composer.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 30), "the composer field shows\n\(app.debugDescription)")
+        field.tap()
+        field.typeText("hi")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10),
+                      "tapping the field brings up the keyboard (simulator software keyboard on)")
+        shoot(app, "swipe-before")
+        let start = field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let end = start.withOffset(CGVector(dx: 0, dy: 160))
+        start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0)
+        let gone = NSPredicate(format: "exists == false")
+        expectation(for: gone, evaluatedWith: app.keyboards.firstMatch)
+        waitForExpectations(timeout: 5)
+        XCTAssertTrue(field.exists, "the field stays, collapsed")
+        XCTAssertEqual(field.value as? String, "hi", "collapsing keeps the draft")
+        shoot(app, "swipe-after")
+        app.terminate()
+    }
 }
