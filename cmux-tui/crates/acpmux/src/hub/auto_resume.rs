@@ -110,6 +110,9 @@ pub(super) fn set_after_finish_replaced_check(hook: Box<dyn FnOnce()>) {
 /// `_acpmux/retry`: a failed turn retried on demand.
 pub(crate) mod retry_turn;
 
+/// `_acpmux/retry {atReset}`: a usage-limited turn retried once at its reported reset, opt-in.
+pub(crate) mod at_reset;
+
 /// A first send a revoked OAuth token failed goes again once, 2 s later.
 mod first_send;
 

@@ -113,6 +113,11 @@ async fn retry(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value
         full_access_device: super::remote_guard::sending_device(conn, params),
         from: None,
     };
+    // The one-shot resume at the reset, armed or cancelled (`hub/auto_resume/at_reset.rs`).
+    if params.get("atReset").and_then(Value::as_bool) == Some(true) {
+        let cancel = params.get("cancel").and_then(Value::as_bool) == Some(true);
+        return hub.resume_at_reset(&s, by, cancel).await;
+    }
     hub.retry(&s, str_param(params, "subagentId"), by).await
 }
 

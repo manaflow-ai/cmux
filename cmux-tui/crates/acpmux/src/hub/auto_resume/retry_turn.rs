@@ -45,7 +45,7 @@ pub struct RetryBy {
     pub from: Option<String>,
 }
 
-fn refused(reason: &str, why: &str) -> RpcError {
+pub(super) fn refused(reason: &str, why: &str) -> RpcError {
     RpcError::invalid_params(format!("{reason}: {why}")).with_data(json!({"reason": reason}))
 }
 
@@ -79,7 +79,13 @@ fn not_resendable() -> RpcError {
 }
 
 fn answer(prompt_id: String, turn_id: Option<String>) -> Value {
-    let result = RetryResult { prompt_id, turn_id, kind: RetryKind::Turn };
+    let result = RetryResult {
+        prompt_id,
+        turn_id,
+        kind: RetryKind::Turn,
+        resets_at: None,
+        cancelled: false,
+    };
     serde_json::to_value(result).unwrap_or(Value::Null)
 }
 

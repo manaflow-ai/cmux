@@ -1522,6 +1522,8 @@ impl Hub {
             // goes on: its queue then waits for the hold, and its continuation for the park.
             self.restore_rate_hold(session);
             self.restore_auto_resume(session);
+            // A resume at the reset the person armed waits again (`auto_resume/at_reset.rs`).
+            self.restore_resume_at_reset(session);
             // What the restored inbox holds new goes in as it may (`inbox.rs`).
             {
                 let (hub, session) = (self.clone(), session.clone());

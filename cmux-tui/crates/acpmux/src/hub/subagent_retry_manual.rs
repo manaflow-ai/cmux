@@ -147,8 +147,13 @@ impl Hub {
         };
         let prompt_id = accepted.get("promptId").and_then(Value::as_str).unwrap_or_default();
         let turn_id = accepted.get("turnId").and_then(Value::as_str).map(str::to_owned);
-        let result =
-            RetryResult { prompt_id: prompt_id.to_owned(), turn_id, kind: RetryKind::Subagent };
+        let result = RetryResult {
+            prompt_id: prompt_id.to_owned(),
+            turn_id,
+            kind: RetryKind::Subagent,
+            resets_at: None,
+            cancelled: false,
+        };
         Ok(serde_json::to_value(result).unwrap_or(Value::Null))
     }
 

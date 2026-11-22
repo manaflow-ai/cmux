@@ -168,6 +168,12 @@ impl RateHold {
         self.lock().strikes
     }
 
+    /// Whether acpmux's own continuation waits for the hold's deadline: the chat goes on by
+    /// itself at the reset (`auto_resume/at_reset.rs` offers nothing over it).
+    pub(super) fn continues(&self) -> bool {
+        self.lock().continuation
+    }
+
     /// Whether the limit has the chat: held, parked, or with a strike. A Stop parks such a chat
     /// ([`Hub::park_at_stop`]).
     pub(super) fn limited(&self) -> bool {
