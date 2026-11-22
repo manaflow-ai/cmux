@@ -58,8 +58,10 @@ ditto "$(find "$mnt" -maxdepth 1 -name '*.app' | head -1)" "$work/app/cmux NIGHT
 hdiutil detach "$mnt" >/dev/null; mnt=""
 rm -f "$work/nightly.dmg"
 "$side" make "$name" --from "$work/app/cmux NIGHTLY.app" --label "cmux meet" >&2 || exit 3
-version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$work/app/cmux NIGHTLY.app/Contents/Info.plist" 2>/dev/null)"
-build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$work/app/cmux NIGHTLY.app/Contents/Info.plist" 2>/dev/null)"
+plist="$work/app/cmux NIGHTLY.app/Contents/Info.plist"
+version="" build=""
+[[ -f "$plist" ]] && version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" 2>/dev/null || true)"
+[[ -f "$plist" ]] && build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" 2>/dev/null || true)"
 python3 scripts/measure/meet-browser.py --side "$side" --name "$name" --work "$work" --out "$out" \
   --dmg "$dmg" --version "$version ($build)" --call "$call" ${only:+--only "$only"} 2>&1 | tee "$out/run.log"
 status=${PIPESTATUS[0]}
