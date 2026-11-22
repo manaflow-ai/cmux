@@ -27,58 +27,6 @@ fn dir() -> PathBuf {
 /// The records that name a prompt's images.
 const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
 
-/// An image's picture size from its header: PNG, GIF, WebP and JPEG (a JPEG with an Exif block
-/// may be turned by its orientation, so it gives none). The web transcript reserves a sent image's
-/// box at its own shape from this on the first frame, never a square that reshapes when its bytes
-/// land (Leo, 2026-11-22: "you guys didn't predict the placements in time").
-pub(crate) fn image_size(bytes: &[u8]) -> Option<(u32, u32)> {
-    let be16 =
-        |at: usize| bytes.get(at..at + 2).map(|b| u32::from(u16::from_be_bytes([b[0], b[1]])));
-    let le16 =
-        |at: usize| bytes.get(at..at + 2).map(|b| u32::from(u16::from_le_bytes([b[0], b[1]])));
-    let be32 =
-        |at: usize| bytes.get(at..at + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
-    let size = match sniffed_type(bytes)? {
-        "image/png" if bytes.get(12..16) == Some(b"IHDR") => (be32(16)?, be32(20)?),
-        "image/gif" => (le16(6)?, le16(8)?),
-        "image/webp" => match bytes.get(12..16)? {
-            b"VP8X" => {
-                let le24 = |at: usize| {
-                    bytes.get(at..at + 3).map(|b| u32::from_le_bytes([b[0], b[1], b[2], 0]))
-                };
-                (le24(24)? + 1, le24(27)? + 1)
-            }
-            b"VP8 " => (le16(26)? & 0x3fff, le16(28)? & 0x3fff),
-            b"VP8L" => {
-                let bits =
-                    bytes.get(21..25).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))?;
-                ((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1)
-            }
-            _ => return None,
-        },
-        "image/jpeg" => {
-            let mut at = 2;
-            loop {
-                if *bytes.get(at)? != 0xff {
-                    return None;
-                }
-                let marker = *bytes.get(at + 1)?;
-                let length = usize::try_from(be16(at + 2)?).ok()?;
-                if marker == 0xe1 && bytes.get(at + 4..at + 10) == Some(b"Exif\0\0") {
-                    return None;
-                }
-                // Start of frame (SOF0-SOF15, less DHT, JPG and DAC): its height, then its width.
-                if (0xc0..=0xcf).contains(&marker) && !matches!(marker, 0xc4 | 0xc8 | 0xcc) {
-                    break (be16(at + 7)?, be16(at + 5)?);
-                }
-                at += 2 + length;
-            }
-        }
-        _ => return None,
-    };
-    (size.0 > 0 && size.1 > 0).then_some(size)
-}
-
 /// The type a kept file's bytes are, from their magic number: PNG, JPEG, GIF, WebP, BMP, TIFF,
 /// HEIC/HEIF, AVIF and PDF. `None` for anything else (an SVG is text: its record names it).
 pub(crate) fn sniffed_type(bytes: &[u8]) -> Option<&'static str> {
@@ -381,15 +329,11 @@ pub(super) fn inline_parts(
                     Some(part)
                 }
                 "image" => {
-                    let (bytes, named) = decode(block)?;
+                    let (_, named) = decode(block)?;
                     let id = named.get("id").and_then(Value::as_str)?;
                     let persisted = kept_images.contains(id);
                     let mut part = named;
                     part.set("kind", Value::String("image".into()));
-                    if let Some((width, height)) = image_size(&bytes) {
-                        part.set("width", json!(width));
-                        part.set("height", json!(height));
-                    }
                     if companion_images.contains(&(block_index as u64)) {
                         part.set("blockIndex", json!(block_index));
                     }
@@ -1002,35 +946,6 @@ mod tests {
                     .all(|part| part.get("placed").is_none())
             );
         }
-    }
-
-    #[test]
-    fn image_size_reads_each_header() {
-        use base64::Engine;
-        // A 1x1 PNG, widened in its IHDR to 1550x300.
-        let mut png = base64::engine::general_purpose::STANDARD
-            .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
-            .unwrap();
-        png[16..20].copy_from_slice(&1550u32.to_be_bytes());
-        png[20..24].copy_from_slice(&300u32.to_be_bytes());
-        assert_eq!(image_size(&png), Some((1550, 300)));
-        let gif = [b"GIF89a".as_slice(), &[0x10, 0x00, 0x20, 0x00]].concat();
-        assert_eq!(image_size(&gif), Some((16, 32)));
-        // A JPEG: SOI, an APP0, then SOF0 of 434 rows by 1406 columns.
-        let jpeg = [
-            &[0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00][..],
-            &[0xff, 0xc0, 0x00, 0x11, 0x08, 0x01, 0xb2, 0x05, 0x7e],
-        ]
-        .concat();
-        assert_eq!(image_size(&jpeg), Some((1406, 434)));
-        // One with an Exif block may be turned: no size.
-        let exif = [&[0xff, 0xd8, 0xff, 0xe1, 0x00, 0x08][..], b"Exif\0\0", &jpeg[2..]].concat();
-        assert_eq!(image_size(&exif), None);
-        let mut webp = [b"RIFF\0\0\0\0WEBPVP8X".as_slice(), &[0; 14]].concat();
-        webp[24..27].copy_from_slice(&[0x7d, 0x05, 0x00]);
-        webp[27..30].copy_from_slice(&[0x2b, 0x01, 0x00]);
-        assert_eq!(image_size(&webp), Some((1406, 300)));
-        assert_eq!(image_size(b"not an image"), None);
     }
 
     #[test]
