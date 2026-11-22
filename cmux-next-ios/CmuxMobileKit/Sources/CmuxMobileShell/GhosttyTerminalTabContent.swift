@@ -71,6 +71,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     private var appActive = UIApplication.shared.applicationState != .background
 
     init() {
+        if ProcessInfo.processInfo.environment["CMUX_SIZE_PROBE"] != nil { print("cmux size probe: terminal tab content") }
         backgroundObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
         ) { [weak self] _ in
