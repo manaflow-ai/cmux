@@ -270,12 +270,13 @@ pub(super) fn human(request: &Request, answer: &Value, label: &str) -> String {
                     text(row, "name"),
                 ));
             }
-            let first = &rows[0];
-            out.push_str(&format!(
-                "check the fingerprint against the asking device, then: cmux mobile pair-requests allow {} --fingerprint {} --mac {mac}\n",
-                text(first, "deviceId"),
-                text(first, "fingerprint"),
-            ));
+            if let Some(first) = rows.first() {
+                out.push_str(&format!(
+                    "check the fingerprint against the asking device, then: cmux mobile pair-requests allow {} --fingerprint {} --mac {mac}\n",
+                    text(first, "deviceId"),
+                    text(first, "fingerprint"),
+                ));
+            }
             out
         }
     }
