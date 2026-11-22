@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
-import { TAB_ROW_ACCESSORY } from "./tabRow";
+import { accessoryWidth, HEADER_LEADING_RESERVE } from "./headerSlots";
 
 /// One quick-action button's share of the row at the default interface size: its 24px square and
 /// the 2px gap (header.css). useHeaderFold measures the real pitch, which scales with the interface
@@ -7,8 +7,8 @@ import { TAB_ROW_ACCESSORY } from "./tabRow";
 export const HEADER_TOOL_PITCH = 26;
 
 /// The room the header's leading part keeps beside the tools: the title, or the pane's tabs when
-/// the tools sit in the tab row (header/tabRow.ts), so a narrow pane still shows one of them.
-export const HEADER_LEADING_RESERVE = 120;
+/// the tools sit in the tab row (header/tabRow.ts), so a narrow pane still shows one of them (headerSlots.ts).
+export { HEADER_LEADING_RESERVE };
 
 /// How many of the `count` trailing quick-action buttons fold into "..." so the tools fit `room`
 /// (the header's content width less the leading reserve). `toolsWidth` is the tools' width with
@@ -70,14 +70,10 @@ export function useHeaderFold(tools: RefObject<HTMLElement | null>, count: numbe
         px(style.paddingRight) -
         px(style.columnGap) -
         HEADER_LEADING_RESERVE;
-      // The row's accessories (the rolling summary, tabRow.ts TAB_ROW_ACCESSORY) take only the room the tools leave:
-      // a button never folds to make room for one (Leo, 2026-11-22: "the icons on the top right have gotten
-      // displaced due to putting things on a line").
-      let width = element.getBoundingClientRect().width;
-      for (const accessory of element.querySelectorAll<HTMLElement>(`[${TAB_ROW_ACCESSORY}]`)) {
-        const box = accessory.getBoundingClientRect().width;
-        if (box > 0) width -= box + px(getComputedStyle(element).columnGap);
-      }
+      // The accessory slot (headerSlots.ts: the summary, the pull request chip, presence...) takes only the room the
+      // tools leave: a button never folds to make room for one (Leo, 2026-11-22: "the icons on the top right have
+      // gotten displaced due to putting things on a line").
+      const width = element.getBoundingClientRect().width - accessoryWidth(element);
       const pitch = tools.current ? measuredPitch(tools.current) : HEADER_TOOL_PITCH;
       setFold(headerFoldCount(width, folded.current, room, count, pitch));
     };

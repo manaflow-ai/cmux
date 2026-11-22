@@ -22,6 +22,22 @@
   padding: 0 var(--ds-space-2);
   color: var(--agent-text);
 }
+/* Short of room in the chat header the count gives way (header/headerSlots.ts `needsYouCount`): the button is a
+   plain tool again, and the count's dot alone stays, on its corner, so open asks still show. */
+.acpmux-header-tool.acpmux-needs-you-button[data-count]:has(> .acpmux-needs-you-count[data-header-hidden]) {
+  position: relative;
+  width: var(--acpmux-header-tool-size, var(--grid-pill, 24px));
+  gap: 0;
+  padding: 0;
+}
+.acpmux-header .acpmux-needs-you-button > .acpmux-needs-you-count[data-header-hidden] {
+  display: inline-flex !important;
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  gap: 0;
+  font-size: 0;
+}
 .acpmux-needs-you-count {
   display: inline-flex;
   align-items: center;

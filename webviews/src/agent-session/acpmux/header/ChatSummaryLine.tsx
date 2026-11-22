@@ -1,4 +1,5 @@
 import { useT } from "../i18n";
+import { headerItemProps } from "./headerSlots";
 
 /** A chat's rolling summary as the daemon keeps it (acpmux `rollingSummary`, hub/rolling_summary.rs). */
 export type ChatSummary = { text: string; next?: string | null };
@@ -8,8 +9,8 @@ export type ChatSummary = { text: string; next?: string | null };
  * ("Tests pass → Open the PR"). The daemon writes it after each turn a person started, from the
  * agent's own wrap-up when it made one, else from one small-model call (David Beyer, 2026-11-20:
  * rolling summaries of every chat with a next action for each). Cut to the room it has; the whole
- * text is its tooltip. `inline`: the tab-row header, where it leads the tools instead, as an accessory of the row
- * (tabRow.ts TAB_ROW_ACCESSORY): it takes only the room the tools leave in the half of the row the tabs give up, at
+ * text is its tooltip. `inline`: the tab-row header, where it leads the tools instead, in the header's accessory slot
+ * (headerSlots.ts `inlineSummary`): it takes only the room the tools leave in the half of the row the tabs give up, at
  * one width while it shows so a new summary moves nothing, and hides whole when that room is too small; it never
  * pushes the tools out of the row.
  */
@@ -25,7 +26,7 @@ export function ChatSummaryLine({ summary, inline }: { summary?: ChatSummary | n
       /* tooltip-allow: the summary's whole text, cut to one line here */ title={full}
       aria-label={full}
       data-chat-summary=""
-      data-tab-row-accessory={inline ? "" : undefined}
+      {...(inline ? headerItemProps("inlineSummary") : {})}
     >
       <span className="acpmux-chat-summary__text">{text}</span>
       {next && (

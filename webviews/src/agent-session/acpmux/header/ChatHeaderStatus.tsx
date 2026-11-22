@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Icon } from "../icons/Icon";
+import { headerItemProps } from "./headerSlots";
 
 /** The slot stays in place; the problem label cannot resize it or move the header tools. Right's
  * Environment line uses this slot; Left uses the dedicated row below tabs. */
@@ -40,6 +41,7 @@ function StatusLabel({ status, detail, inline }: { status: string; detail?: stri
       className={inline ? "acpmux-status acpmux-status--inline" : "acpmux-status"}
       /* tooltip-allow: the warning's detail, shown nowhere else */ title={detail}
       aria-label={detail}
+      {...(inline ? headerItemProps("inlineStatus") : {})}
     >
       <Icon name="status.warning" size={14} />
       <span>{status}</span>
