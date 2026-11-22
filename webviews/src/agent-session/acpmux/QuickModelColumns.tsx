@@ -16,6 +16,7 @@ import { Spinner } from "./conversation/icons";
 import { AgentMark } from "../shared/AgentMark";
 import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
+import { focusRoute } from "../../ui/focusRoute";
 import { DrivenList, DrivenRow, InlineCard } from "../../ui/DrivenList";
 import { isMousePress } from "../../ui/pressRelease";
 import { useOpenSide } from "../../ui/openSide";
@@ -1189,7 +1190,9 @@ function Columns({
   const pickAccount = (routeId: string | null) => {
     setProfileOpen(false);
     // Return on a card row unmounts the row it focused: the keyboard goes back to the search field.
-    field.current?.focus({ preventScroll: true });
+    focusRoute(field.current, "person", "an account picked on the card: back to the search field", {
+      preventScroll: true,
+    });
     accounts.pick(routeId);
   };
   // The card lists only the accounts the harness is not on: its other routes (transports, logins,
