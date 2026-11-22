@@ -14,7 +14,8 @@
 //!    short idle window, and the next message resumes it (cmux-api `mux-machine-wake.ts`). With
 //!    `keep_awake: true` it never pauses early instead (`idle_seconds: 0`; the platform's 24 h
 //!    backstop pauses it only after a day with no activity reports). And `cloud.machine.keep`
-//!    (never deleted by the plan's retention);
+//!    (never deleted by the plan's retention). Both are set last, once the host runs (step 4), so
+//!    a start that fails before then leaves no kept machine that never pauses;
 //! 3. the pairing, with no session token ever on the machine: the machine's own
 //!    `optchat-chief cloud pair` (in the background, as the work user) prints a code; this call
 //!    approves it as the signed-in person (`server.pair.approve`, the same op the app's Add
@@ -511,11 +512,8 @@ async fn placed_chief<C: Cloud>(
     Ok(chief)
 }
 
-/// The whole start; see the module docs.
-pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
-    let size = plan_size(cloud).await;
-    let row = machine(cloud, start, size).await?;
-    let id = id_of(&row, "/id").unwrap_or_default();
+/// Step 2's idle policy and keep, once the host runs (each found done or done now).
+async fn settle<C: Cloud>(cloud: &C, start: &Start, row: &Value, id: &str) -> Result<(), Failure> {
     let idle = row.pointer("/idle_policy/idle_seconds").and_then(Value::as_i64);
     let want = if start.keep_awake { 0 } else { CHIEF_IDLE_SECONDS };
     if idle != Some(want) {
@@ -536,6 +534,14 @@ pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
             )
             .await?;
     }
+    Ok(())
+}
+
+/// The whole start; see the module docs.
+pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
+    let size = plan_size(cloud).await;
+    let row = machine(cloud, start, size).await?;
+    let id = id_of(&row, "/id").unwrap_or_default();
     if start.until_machine {
         return Ok(
             json!({ "machine": id, "machine_name": start.machine_name, "stage": "machine" }),
@@ -591,6 +597,10 @@ pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
         exec_ok(cloud, &id, &command).await?;
         how
     };
+    // Only a machine whose host runs is kept and given its idle policy: a start that failed
+    // above (no host, pairing refused, timed out) leaves a plain machine the plan's retention
+    // removes, not a kept one that never pauses.
+    settle(cloud, start, &row, &id).await?;
     let chief = probe.chief.clone().unwrap_or_default();
     Ok(json!({
         "machine": id,

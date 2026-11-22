@@ -200,7 +200,9 @@ async fn until_machine_stops_before_the_machine_is_touched() {
     let answer = run(&fake, &start(true)).await.unwrap();
     assert_eq!(answer["stage"], "machine");
     assert_eq!(fake.count("exec"), 0);
-    assert_eq!(fake.count("cloud.machine.idle_policy.set"), 1);
+    // Not kept nor given its idle policy until its host runs.
+    assert_eq!(fake.count("cloud.machine.idle_policy.set"), 0);
+    assert_eq!(fake.count("cloud.machine.keep"), 0);
 }
 
 #[tokio::test]
@@ -218,6 +220,9 @@ async fn an_image_without_a_host_is_refused_with_what_to_do() {
     let Err(Failure::Http { code, .. }) = run(&fake, &start(false)).await else { panic!() };
     assert_eq!(code.as_deref(), Some("chief.host_missing"));
     assert_eq!(fake.count("server.pair.approve"), 0);
+    // A failed start leaves no kept machine that never pauses (review of #50110).
+    assert_eq!(fake.count("cloud.machine.keep"), 0);
+    assert_eq!(fake.count("cloud.machine.idle_policy.set"), 0);
 }
 
 #[tokio::test]
