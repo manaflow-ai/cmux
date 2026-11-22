@@ -249,9 +249,14 @@ impl Hub {
             answer: None,
             reader: None,
         };
-        let mut inbox = session.inbox();
-        inbox.items.push(item);
-        trim(&mut inbox);
+        {
+            let mut inbox = session.inbox();
+            inbox.items.push(item);
+            trim(&mut inbox);
+        }
+        // The holder asks for the pass that triages what it held (`hub/surge_triage.rs`). Only
+        // a restore did, so a chat's held count grew until the daemon restarted (2026-11-22).
+        super::surge_triage::resume_after_restore(session);
         Ok(Some(
             json!({"sessionId":session.id,"promptId":prompt_id,"threadId":thread,"inbox":true,"surgeHeld":true,"queued":false}),
         ))

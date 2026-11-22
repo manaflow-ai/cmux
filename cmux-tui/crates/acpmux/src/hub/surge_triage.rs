@@ -69,7 +69,7 @@ pub(crate) const RETRIES: u32 = 5;
 /// The first retry's wait; each next one doubles it.
 pub(crate) const RETRY_AFTER: Duration = Duration::from_secs(30);
 
-/// A restored inbox holds held messages: triage them with no new arrival (module doc). Outside
+/// A restored inbox holds held messages, or the holder held one: triage them (module doc). Outside
 /// a runtime, or for a chat the hub no longer holds, nothing runs.
 pub(super) fn resume_after_restore(session: &Session) {
     if tokio::runtime::Handle::try_current().is_err() {
