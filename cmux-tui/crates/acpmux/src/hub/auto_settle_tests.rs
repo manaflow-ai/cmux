@@ -90,6 +90,11 @@ fn never_archived_and_held_chats_are_left_alone() {
     assert_eq!(idle_due_at(&ALL, &never), None);
     let archived = Facts { archived: true, ..facts(&[1], 0) };
     assert_eq!(decide(&ALL, &archived, states(&done), now), None);
+    // A sub-session (another agent started it) goes with its parent: neither its merged pull
+    // request nor its idle days settle it (review of #46223 at 0f30f80f, F1).
+    let child = Facts { child: true, ..facts(&[1], 0) };
+    assert_eq!(decide(&ALL, &child, states(&done), now), None);
+    assert_eq!(idle_due_at(&ALL, &child), None);
     // Un-settled with one pull request: that one does not settle it again, idle days still do.
     let held = Facts { held_at: Some(1), ..facts(&[1], now) };
     assert_eq!(decide(&ALL, &held, states(&done), now), None);

@@ -148,6 +148,9 @@ pub(crate) struct Facts {
     pub pull_requests: Vec<String>,
     /// The newest log record's time (Unix ms).
     pub last_activity_ms: u64,
+    /// Another session's agent started it (a sub-session, or one with a lineage): it goes with
+    /// its parent, so no rule settles it on its own while the parent may still be working.
+    pub child: bool,
 }
 
 impl Facts {
@@ -162,6 +165,7 @@ impl Facts {
             held_at: tag(UNSETTLED_TAG).and_then(|v| v.parse().ok()),
             pull_requests: m.pull_requests.clone(),
             last_activity_ms: m.updated_at,
+            child: m.subsession.is_some() || m.lineage.is_some(),
         }
     }
 
@@ -173,7 +177,7 @@ impl Facts {
     }
 
     fn eligible(&self, rules: &Rules) -> bool {
-        rules.any() && !self.archived && !self.never
+        rules.any() && !self.archived && !self.never && !self.child
     }
 }
 
