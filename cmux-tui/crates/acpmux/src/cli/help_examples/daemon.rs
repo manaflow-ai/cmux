@@ -37,6 +37,17 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "daemon prune",
+        &[
+            (
+                "List every daemon home, what a prune would clear and why the rest stay",
+                "acpmux daemon prune",
+            ),
+            ("Clear the records dead daemons left", "acpmux daemon prune --apply"),
+            ("The same list as JSON", "acpmux --json daemon prune"),
+        ],
+    ),
+    (
         "daemon restart",
         &[("Restart the daemon; hosted sessions resume after", "acpmux daemon restart")],
     ),
