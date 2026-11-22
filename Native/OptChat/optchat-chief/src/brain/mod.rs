@@ -23,6 +23,7 @@
 
 mod approvals;
 mod background;
+mod budget_hold;
 mod chief_inbox;
 pub use chief_inbox::name as chief_inbox_name;
 mod children;
