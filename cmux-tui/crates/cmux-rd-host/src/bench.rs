@@ -15,6 +15,7 @@ use crate::args::Opts;
 use crate::clock::{now_ns, Rng};
 use crate::fdwait::wait_readable;
 use crate::marker;
+use crate::scaled::Scale;
 use crate::wire::{
     write_control, write_frame, Control, FrameReader, FRAME_CONTROL, FRAME_DATAGRAM,
 };
@@ -219,6 +220,9 @@ struct Viewer {
     record: Option<std::fs::File>,
     /// `--marker-origin X,Y`: the marker's top-left in stream pixels (default 0,0).
     marker_origin: (usize, usize),
+    /// The stream's size once the host negotiated cap `video.scaled` (`--caps video.scaled`):
+    /// a decoded picture smaller than it is read scaled up to it (src/scaled.rs).
+    scaled_stream: Option<(usize, usize)>,
     /// macOS: the hardware decoder the viewer pane uses (`--decoder videotoolbox`, the
     /// default there); OpenH264 decodes constrained baseline only.
     #[cfg(target_os = "macos")]
@@ -321,8 +325,11 @@ impl Viewer {
                                 if let Some(log) = self.eval_decode.as_mut() {
                                     log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
                                 }
+                                let scale = scale_of(self.scaled_stream, picture.size());
                                 if let Some(quality) = self.eval_quality.as_mut() {
-                                    if let Some(pixels) = picture.with_luma(crate::eval::roi) {
+                                    if let Some(pixels) =
+                                        picture.with_luma(|y, stride| quality_roi(scale, y, stride))
+                                    {
                                         quality.decoded(
                                             u64::from(frame.frame),
                                             frame.body.t_capture_us,
@@ -332,9 +339,8 @@ impl Viewer {
                                     }
                                 }
                                 let origin = self.marker_origin;
-                                let read = picture.with_luma(|y, stride| {
-                                    marker::decode_luma_at(y, stride, true, origin)
-                                });
+                                let read = picture
+                                    .with_luma(|y, stride| read_marker(scale, y, stride, origin));
                                 self.saw_marker(
                                     read,
                                     frame.frame,
@@ -363,8 +369,12 @@ impl Viewer {
                                 if let Some(log) = self.eval_decode.as_mut() {
                                     log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
                                 }
+                                let scale = scale_of(
+                                    self.scaled_stream,
+                                    (pic.width, pic.y.len() / pic.width.max(1)),
+                                );
                                 if let Some(quality) = self.eval_quality.as_mut() {
-                                    if let Some(pixels) = crate::eval::roi(&pic.y, pic.width) {
+                                    if let Some(pixels) = quality_roi(scale, &pic.y, pic.width) {
                                         quality.decoded(
                                             u64::from(frame.frame),
                                             frame.body.t_capture_us,
@@ -373,12 +383,8 @@ impl Viewer {
                                         );
                                     }
                                 }
-                                let read = marker::decode_luma_at(
-                                    &pic.y,
-                                    pic.width,
-                                    true,
-                                    self.marker_origin,
-                                );
+                                let read =
+                                    read_marker(scale, &pic.y, pic.width, self.marker_origin);
                                 self.saw_marker(
                                     read,
                                     frame.frame,
@@ -416,8 +422,10 @@ impl Viewer {
                                 if let Some(log) = self.eval_decode.as_mut() {
                                     log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
                                 }
+                                let scale = scale_of(self.scaled_stream, yuv.dimensions());
                                 if let Some(quality) = self.eval_quality.as_mut() {
-                                    if let Some(pixels) = crate::eval::roi(yuv.y(), yuv.strides().0)
+                                    if let Some(pixels) =
+                                        quality_roi(scale, yuv.y(), yuv.strides().0)
                                     {
                                         quality.decoded(
                                             u64::from(frame.frame),
@@ -435,12 +443,7 @@ impl Viewer {
                                     yuv.write_rgb8(&mut rgb);
                                     self.snapshot = Some((w, h, rgb));
                                 }
-                                marker::decode_luma_at(
-                                    yuv.y(),
-                                    yuv.strides().0,
-                                    true,
-                                    self.marker_origin,
-                                )
+                                read_marker(scale, yuv.y(), yuv.strides().0, self.marker_origin)
                             }
                             Ok(None) => None,
                             Err(_) => {
@@ -451,6 +454,13 @@ impl Viewer {
                     };
                     self.saw_marker(read, frame.frame, frame.body.t_capture_us, now, t1);
                 }
+            }
+            // An ultra capacity probe: only its arrival goes back, in the media feedback.
+            DatagramKind::Probe => {
+                self.arrivals.push(Arrival {
+                    transport_seq: h.transport_seq,
+                    arrival_us: (now / 1000) as u32,
+                });
             }
             DatagramKind::Feedback if h.stream == UP_STREAM => {
                 let resends = match self.upstream.as_mut() {
@@ -513,9 +523,12 @@ impl Viewer {
             };
             match serde_json::from_slice::<Control>(&payload)? {
                 Control::Stats { .. } => self.stats.push(serde_json::from_slice(&payload)?),
-                Control::Welcome { max_datagram, .. } => {
+                Control::Welcome { max_datagram, width, height, caps: ref negotiated, .. } => {
                     // Upstream datagrams use the size the host agreed to.
                     self.max_datagram = max_datagram;
+                    if negotiated.iter().any(|c| c == caps::VIDEO_SCALED) {
+                        self.scaled_stream = Some((width as usize, height as usize));
+                    }
                     let welcome: serde_json::Value = serde_json::from_slice(&payload)?;
                     // An older host refuses the probe kinds: ping only when it lists `clock`.
                     let lists = |cap: &str| {
@@ -911,6 +924,7 @@ pub fn run(opts: &Opts) -> Res<()> {
             }
             None => (0, 0),
         },
+        scaled_stream: None,
         #[cfg(target_os = "linux")]
         presenter: opts.get("present").map(crate::present::Presenter::open).transpose()?,
         present_errors: 0,
@@ -946,12 +960,16 @@ pub fn run(opts: &Opts) -> Res<()> {
             None => None,
         },
         service: cmux_rd_core::service::SERVICE_DESKTOP.into(),
-        // Upstream media needs both caps (rd change C4).
+        // Upstream media needs both caps (rd change C4). `--caps A,B` offers more, such as
+        // `video.scaled` (the resolution ladder).
         caps: {
             let mut offered = vec![caps::CLOCK.into(), caps::LEDGER.into()];
             if upstream.is_some() {
                 offered.extend([caps::UP_MEDIA.into(), caps::STREAM_OPEN.into()]);
             }
+            offered.extend(opts.get("caps").into_iter().flat_map(|list| {
+                list.split(',').map(str::trim).filter(|c| !c.is_empty()).map(str::to_owned)
+            }));
             offered
         },
     })?;
@@ -1210,6 +1228,33 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
     Ok(())
 }
 
+/// How a decoded picture of size `picture` maps onto the stream, when the host negotiated cap
+/// `video.scaled` (`stream`) and sent a picture smaller than it; `None`: read it directly.
+fn scale_of(stream: Option<(usize, usize)>, picture: (usize, usize)) -> Option<Scale> {
+    stream.map(|stream| Scale::new(picture, stream)).filter(|scale| !scale.is_identity())
+}
+
+/// The quality region (`eval::RECT`, stream pixels) of a decoded luma plane.
+fn quality_roi(scale: Option<Scale>, y: &[u8], stride: usize) -> Option<Vec<u8>> {
+    match scale {
+        Some(scale) => scale.luma_rect(y, stride, crate::eval::RECT),
+        None => crate::eval::roi(y, stride),
+    }
+}
+
+/// The marker (at `origin`, stream pixels) of a decoded luma plane.
+fn read_marker(
+    scale: Option<Scale>,
+    y: &[u8],
+    stride: usize,
+    origin: (usize, usize),
+) -> Option<u16> {
+    match scale {
+        Some(scale) => marker::decode_with(true, origin, |x, row| scale.luma(y, stride, x, row)),
+        None => marker::decode_luma_at(y, stride, true, origin),
+    }
+}
+
 /// `--snapshot PATH`: the newest decoded frame, so a run shows what the viewer received.
 fn write_snapshot(opts: &Opts, v: &Viewer) -> Res<()> {
     #[cfg(target_os = "macos")]
@@ -1219,6 +1264,11 @@ fn write_snapshot(opts: &Opts, v: &Viewer) -> Res<()> {
     if let (Some(path), Some((w, h, rgb))) =
         (opts.get("snapshot"), converted.as_ref().or(v.snapshot.as_ref()))
     {
+        // A smaller picture (cap `video.scaled`) is written as a viewer shows it: stream size.
+        let scaled = scale_of(v.scaled_stream, (*w, *h)).map(|scale| scale.rgb(rgb));
+        let (w, h, rgb) = scaled
+            .as_ref()
+            .map_or((*w, *h, rgb.as_slice()), |(w, h, rgb)| (*w, *h, rgb.as_slice()));
         let mut ppm = format!("P6\n{w} {h}\n255\n").into_bytes();
         ppm.extend_from_slice(rgb);
         std::fs::write(path, ppm)?;
