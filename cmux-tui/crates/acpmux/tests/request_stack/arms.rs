@@ -160,6 +160,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ),
         (method::MUX_STATUS, Run(json!({}))),
         (method::MUX_SESSIONS, Run(json!({"usage": true}))),
+        (method::MUX_USAGE, Run(json!({}))),
         (
             method::MUX_WEB_MODES,
             Run(json!({"sessionId": "$S", "configId": "model", "value": "m1"})),
