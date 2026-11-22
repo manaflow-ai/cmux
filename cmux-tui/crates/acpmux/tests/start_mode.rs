@@ -1947,7 +1947,8 @@ async fn the_composer_selection_is_what_the_next_chat_runs() {
             assert_eq!(selection["harness"], harness, "{level:?}: {shown}");
             let (id, ran) = app.chat(&dir, harness).await;
             assert_eq!(selection["mode"], ran, "{level:?} {harness}: {shown}");
-            // The model too, where the chat names the one it runs.
+            // The model too, where the chat names one the composer offers (a stand-in agent
+            // names its own).
             let info = app.call("_acpmux/info", json!({"sessionId": id})).await;
             let options = info["result"]["configOptions"].as_array().cloned().unwrap_or_default();
             let ran_model = options
@@ -1956,7 +1957,8 @@ async fn the_composer_selection_is_what_the_next_chat_runs() {
                 .map(|o| o["currentValue"].clone())
                 .filter(|m| m.is_string())
                 .unwrap_or_else(|| info["result"]["models"]["currentModelId"].clone());
-            if ran_model.is_string() {
+            let offered = shown["offer"]["models"].as_array().cloned().unwrap_or_default();
+            if offered.iter().any(|m| m["id"] == ran_model) {
                 assert_eq!(selection["model"], ran_model, "{level:?} {harness}: {shown}");
             }
             assert_eq!(shown["offer"]["startMode"], ran, "{level:?} {harness}: {shown}");
