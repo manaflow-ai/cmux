@@ -35,7 +35,8 @@ installed plugin; can be turned on and off, not removed). --project defaults to 
 Claude Code turns user and local servers on and off per folder. Env and header values are written to
 the agent's file and never printed. Every write keeps the file before it as <file>.cmux-backup.
 
-Skills and slash commands: `cmux agent-config skills --help`.
+Skills and slash commands: `cmux agent-config skills --help`. Settings (model, permission or approval
+mode, sandbox, env): `cmux agent-config settings --help`.
 ";
 
 /// Takes `--json` out of `args`, only before `--`: after it, every word is the server's command.
@@ -111,8 +112,10 @@ fn parse(rest: &[String]) -> Result<Parsed, String> {
     let mut words = rest.iter();
     match words.next().map(String::as_str) {
         Some("mcp") => {}
-        Some(other) => return Err(format!("unknown part {other:?}: `mcp`, `hooks` or `skills`")),
-        None => return Err("name a part: mcp, hooks or skills".into()),
+        Some(other) => {
+            return Err(format!("unknown part {other:?}: `skills`, `hooks`, `settings` or `mcp`"));
+        }
+        None => return Err("name a part: skills, hooks, settings or mcp".into()),
     }
     let mut parsed = Parsed {
         verb: words.next().cloned().ok_or("name a verb: list, add, remove, enable or disable")?,
@@ -343,7 +346,11 @@ mod tests {
         assert_eq!(server.transport, Transport::Http { url: "https://d.example/mcp".into() });
         assert!(parse(&words("mcp list --agent gemini")).unwrap_err().contains("unknown agent"));
         assert!(parse(&words("mcp frob")).unwrap_err().contains("unknown verb"));
-        assert!(parse(&words("hooks list")).unwrap_err().contains("`mcp` or `skills`"));
+        // Every part agent_config.rs dispatches, settings among them (it was left out of the message).
+        let unknown = parse(&words("frob list")).unwrap_err();
+        for part in ["`skills`", "`hooks`", "`settings`", "`mcp`"] {
+            assert!(unknown.contains(part), "{unknown} names {part}");
+        }
         assert!(
             new_server(&parse(&words("mcp add x --agent codex")).unwrap(), "x")
                 .unwrap_err()

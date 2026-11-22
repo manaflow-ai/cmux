@@ -271,9 +271,17 @@ const TASKS: &[Task] = &[
         id: "cloud_chat",
         summary: "Start a chat on cmux Cloud and send it a follow-up",
         setup: None,
-        check: &["cmux whoami", "cmux cloud diagnostics", "cmux vm ls"],
+        check: &[
+            "cmux whoami",
+            "cmux cloud diagnostics",
+            "cmux vm ls",
+            "cmux cloud connections --json",
+        ],
         apply: &[
             "cmux login",
+            "cmux cloud connect claude",
+            "cmux cloud connect chatgpt",
+            "cmux cloud connect api-key --provider anthropic|openai",
             "cmux chat --on vm --prompt TEXT --wait --json",
             "cmux chat send SESSION_ID TEXT --wait",
             "open cmux://settings/cloud/claude",
@@ -281,7 +289,7 @@ const TASKS: &[Task] = &[
         person: Some(
             "signing in to cmux in the browser, picking a Cloud plan, and connecting a model in Settings > Cloud (Claude setup token, ChatGPT or an API key; `cmux://settings/cloud/claude`) when the team shares none",
         ),
-        prompt: "Start me a chat on cmux Cloud and show me it works: run `cmux whoami`; if I am signed out, run `cmux login` and wait while I finish it in the browser. Then run `cmux chat --on vm --harness HARNESS --prompt 'Say hello in one sentence.' --wait --json` (HARNESS is claude or codex) and show me its reply, then `cmux chat send SESSION_ID 'Say it once more, shorter.' --wait` with the answer's session_id. If a start is refused for a model connection, open `cmux://settings/cloud/claude` (Settings > Cloud; `/cloud/chatgpt` or `/cloud/api-key` for those), not `cmux accounts`, which is CodeRouter. If it is refused for a Cloud plan or GitHub, tell me the one card or Settings page that fixes it. Run it again once I have. Tell me how long each step took, and that `cmux vm pause NAME` or `cmux vm rm NAME --yes` stops the machine.",
+        prompt: "Start me a chat on cmux Cloud and show me it works: run `cmux whoami`; if I am signed out, run `cmux login` and wait while I finish it in the browser. Then run `cmux chat --on vm --harness HARNESS --prompt 'Say hello in one sentence.' --wait --json` (HARNESS is claude or codex) and show me its reply, then `cmux chat send SESSION_ID 'Say it once more, shorter.' --wait` with the answer's session_id. If a start is refused for a model connection, run `cmux cloud connections`: when none of them serves Cloud, open `cmux://settings/cloud/claude` (Settings > Cloud; `/cloud/chatgpt` or `/cloud/api-key` for those), or connect from here with `cmux cloud connect claude` (I open its link and paste the code back) or `cmux cloud connect chatgpt` (I open its link in a browser on this Mac); not `cmux accounts`, which is CodeRouter. Then start again. If it is refused for a Cloud plan or GitHub, tell me the one card or Settings page that fixes it and run it again once I have. Tell me how long each step took, and that `cmux vm pause NAME` or `cmux vm rm NAME --yes` stops the machine.",
     },
     Task {
         id: "cloud_session",

@@ -142,9 +142,13 @@ dependencies = [
  "cmux-layout-reducer-ffi",
  "cmux-motion",
  "cmux-palette-ranker",
+ "cmux-process",
  "cmux-rd-ffi",
  "cmux-sdk-ffi",
  "cmux-terminal-prediction",
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -282,6 +286,8 @@ dependencies = [
 name = "cmux-launch-shell"
 version = "0.1.0"
 dependencies = [
+ "cmux-launch-record",
+ "cmux-window-rules",
  "proptest",
 ]
 
@@ -289,6 +295,7 @@ dependencies = [
 name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
+ "cmux-action-catalog",
  "serde",
  "serde_json",
  "unicode-normalization",
@@ -336,6 +343,14 @@ dependencies = [
  "serde_json",
  "unicode-general-category",
  "unicode-normalization",
+]
+
+[[package]]
+name = "cmux-process"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "wait-timeout",
 ]
 
 [[package]]

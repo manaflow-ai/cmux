@@ -49,7 +49,9 @@ public struct CEFStagedPrewarm: Sendable {
         self.closeTimeout = closeTimeout
     }
 
-    /// The switches beyond the app's own: no background fetches into a profile that is thrown away.
+    /// The switches beyond the app's own: no background fetches into a profile that is thrown away. The staged
+    /// pre-warm keeps Chromium's code-sign clone enabled because this is the only Chromium process started while a
+    /// newer Sparkle bundle is staged, so its helpers remain safe when Sparkle replaces the running bundle.
     nonisolated static let extraSwitches = ["disable-background-networking", "disable-component-update"]
 
     /// The pre-warm's root cache: one folder per bundle in the temporary directory, reused by each pre-warm (one at a
@@ -62,7 +64,7 @@ public struct CEFStagedPrewarm: Sendable {
     /// mock keychain) plus ``extraSwitches``.
     nonisolated static func switches(forkAPIVersion: Int32, rendererPaths: Bool, bundleIdentifier: String?) -> [String] {
         var set = CEFSwitches.current(forkAPIVersion: forkAPIVersion, rendererPaths: rendererPaths,
-                                      bundleIdentifier: bundleIdentifier, environment: [:])
+                                      bundleIdentifier: bundleIdentifier, environment: [:], keepsCodeSignClone: true)
         set.useMockKeychain = true
         set.loadExtensions = []
         set.builtInExtensions = []

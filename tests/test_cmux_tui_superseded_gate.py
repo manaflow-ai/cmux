@@ -107,7 +107,8 @@ class SupersededGateTest(unittest.TestCase):
 
     def test_no_other_job_starts_before_preflight(self) -> None:
         for name, job in jobs().items():
-            if name in ("push-gate", "tree-preflight", "reject-untrusted-pin-ref"):
+            # coalesce (base-coalesce.yml) is the other upfront gate: one 2 vCPU job, as push-gate.
+            if name in ("push-gate", "coalesce", "tree-preflight", "reject-untrusted-pin-ref"):
                 continue
             with self.subTest(job=name):
                 self.assertIn("needs", job, f"{name} would start beside the gate and take a runner")

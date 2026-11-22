@@ -52,6 +52,8 @@ mod carrier;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod clipboard;
 mod clock;
+#[cfg(all(target_os = "macos", feature = "computer-use"))]
+pub mod computer_use_worker;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
 mod connect;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -100,6 +102,8 @@ mod screen_host;
 mod selftest;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
 mod serve;
+#[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
+mod serve_wish;
 #[cfg(target_os = "linux")]
 mod shm;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -108,6 +112,8 @@ mod stream;
 mod synthetic;
 #[cfg(target_os = "linux")]
 mod systemd;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod test_loss;
 #[cfg(target_os = "linux")]
 mod testapp;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -129,10 +135,17 @@ mod wire;
 mod workload;
 #[cfg(target_os = "linux")]
 mod x11;
+#[cfg(target_os = "linux")]
+mod x11_view;
 #[cfg(feature = "x264")]
 mod x264;
 
 pub type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+/// cmux Computer Use's screenshots through ScreenCaptureKit, for the helper's Computer Use worker
+/// mode to hand to the engine's macOS desktop (`src/mac/cu_host.rs`).
+#[cfg(all(target_os = "macos", feature = "computer-use"))]
+pub use mac::cu_host::computer_use_host_services;
 
 /// Runs one `cmux-rd` subcommand (`args[0]`) with its options. Returns the process exit
 /// code: 0 on success, 1 when the command failed, 2 for a usage error.
@@ -242,6 +255,12 @@ pub fn run_cli(args: &[String]) -> i32 {
         eprintln!("{USAGE}");
         return 2;
     };
+    // The Computer Use worker the cmux-tui daemon starts on a Mac with no cmux Remote: its stdin
+    // and stdout are the daemon's control channel, so nothing else may print there.
+    #[cfg(all(target_os = "macos", feature = "computer-use"))]
+    if cmd == computer_use_worker::MODE {
+        return computer_use_worker::run(&args[1..]);
+    }
     if matches!(cmd.as_str(), "-h" | "--help" | "help") {
         println!("{USAGE}");
         return 0;

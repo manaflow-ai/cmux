@@ -797,6 +797,12 @@ export interface ModelsParams {
   refresh?: unknown;
 }
 
+export interface MoveTargetsParams {
+  _meta?: RequestMeta;
+  source?: unknown;
+  sourceKind?: unknown;
+}
+
 export interface NativeHistoryParams {
   _meta?: RequestMeta;
   before?: unknown;
@@ -811,6 +817,18 @@ export interface OfferRespondParams {
   outcome?: unknown;
   sessionId?: unknown;
 }
+
+/** The one thing a person does about an [`OfflineReason`] (`action`). */
+export type OfflineAction = ("reconnect" | "start-machine" | "sign-in" | "restart-daemon" | "free-disk");
+
+/**
+ * Why a down link is `offline` and what a person does about it (`reason`): a terminal named
+ * state, so a link that cannot heal on its own never reads as still connecting (design
+ * `remote-cloud-durability.md` 4.3, handbook `connection-state-with-no-action-or-bound`).
+ * Attempts go on behind it (`nextRetryAt`, hourly once parked); the reason only makes the
+ * reported state true. Each has one [`OfflineAction`].
+ */
+export type OfflineReason = ("credential-unavailable" | "machine-stopped" | "login-needed" | "restart-budget-exceeded" | "disk-full");
 
 /**
  * One person in a chat. The hub never marks the caller's own entry: a connection may carry
@@ -859,11 +877,13 @@ export interface PeerSnapshotParams {
 
 /**
  * `_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's
- * link changes (`link`, `carrier`, `cause` or `nextRetryAt`), never twice for the same one: a
+ * link changes (`link`, `carrier`, `cause`, `reason` or `nextRetryAt`), never twice for the same one: a
  * peer that is added sends its first state, and one that is removed a last `offline` with
  * `error: "removed"`. Listed as the `peerStateEvents` feature.
  */
 export type PeerStateChanged = {
+  /** What a person does about `reason`; null when there is none. */
+  action: (OfflineAction | null);
   /** When the note was made, ms since the epoch. */
   at: number;
   /** The carrier the open link runs over; null while none is open. */
@@ -880,6 +900,11 @@ export type PeerStateChanged = {
   nextRetryAt: (number | null);
   /** The peer's name, as in `_acpmux/peers`. */
   peer: string;
+  /**
+   * Why a down link is `offline` (or `authFailed`) and will not heal by retrying alone;
+   * null otherwise. Attempts still go on (`nextRetryAt`).
+   */
+  reason: (OfflineReason | null);
   /** When `link` took its value, ms since the epoch. */
   since: number;
   /** `link` folded to the older five words, for an app that predates `link`. */
@@ -1078,7 +1103,9 @@ export interface ProcessKillParams {
 
 export interface ProcessListParams {
   _meta?: RequestMeta;
+  calls?: unknown;
   cursor?: unknown;
+  endedWithin?: unknown;
   limit?: unknown;
   recent?: unknown;
   sessionId?: unknown;
@@ -1335,6 +1362,24 @@ export type RetrySummary = {
   turnId: string;
 } & Record<string, unknown>;
 
+/**
+ * A chat's rolling summary (`hub/rolling_summary.rs`): one short line on where it stands and
+ * the next action, kept current after each turn a person started (or one that ended on a
+ * `wrap_up`). The sidebar and the chat header draw it.
+ */
+export type RollingSummary = {
+  /** When it was written, Unix ms. */
+  at: number;
+  /** The next action, for the person or the agent; absent when there is none. */
+  next?: (string | null);
+  /** Who wrote it: `wrap_up` (the agent's own recap and ask, no model call) or `model`. */
+  source: string;
+  /** Where the chat stands, one or two short sentences. */
+  text: string;
+  /** The chat's turn count it covers. */
+  turn: number;
+} & Record<string, unknown>;
+
 export interface RouteListParams {
   _meta?: RequestMeta;
   sessionId?: unknown;
@@ -1519,6 +1564,14 @@ export type SessionDetail = {
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
   /**
+   * Whether the chat forks, and edits, through any completed turn, not only its latest: its
+   * harness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever
+   * family name its profile carries. Absent when unknown (the configuration was being written
+   * as the summary was built) and from a peer on an older acpmux: a client then falls back to
+   * the family, never reads absence as false.
+   */
+  forksAnyTurn?: (boolean | null);
+  /**
    * The names it had before its renames, oldest first: each still names it where no session
    * has it as its current name. Absent when it was never renamed, and from an older acpmux.
    */
@@ -1655,6 +1708,12 @@ export type SessionDetail = {
    * settled. Absent otherwise, and from a peer on an older acpmux.
    */
   retryDeciding?: boolean;
+  /**
+   * Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar
+   * and the chat header. Absent before the first turn that makes one, and from a peer on an
+   * older acpmux.
+   */
+  rollingSummary?: (RollingSummary | null);
   /**
    * The root of its lineage tree: the first ancestor no agent started; its own
    * id for a root. Absent from a peer on an older acpmux.
@@ -1885,6 +1944,14 @@ export type SessionSummary = {
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
   /**
+   * Whether the chat forks, and edits, through any completed turn, not only its latest: its
+   * harness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever
+   * family name its profile carries. Absent when unknown (the configuration was being written
+   * as the summary was built) and from a peer on an older acpmux: a client then falls back to
+   * the family, never reads absence as false.
+   */
+  forksAnyTurn?: (boolean | null);
+  /**
    * The names it had before its renames, oldest first: each still names it where no session
    * has it as its current name. Absent when it was never renamed, and from an older acpmux.
    */
@@ -2016,6 +2083,12 @@ export type SessionSummary = {
    * settled. Absent otherwise, and from a peer on an older acpmux.
    */
   retryDeciding?: boolean;
+  /**
+   * Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar
+   * and the chat header. Absent before the first turn that makes one, and from a peer on an
+   * older acpmux.
+   */
+  rollingSummary?: (RollingSummary | null);
   /**
    * The root of its lineage tree: the first ancestor no agent started; its own
    * id for a root. Absent from a peer on an older acpmux.
@@ -2353,6 +2426,12 @@ export interface TrustSetParams {
   sessionId?: unknown;
 }
 
+export interface TurnShotsParams {
+  _meta?: RequestMeta;
+  sessionId?: unknown;
+  turnId?: unknown;
+}
+
 /** The running turn. */
 export type TurnSummary = {
   /**
@@ -2385,6 +2464,27 @@ export interface TypingParams {
   on: boolean;
   sessionId: string;
 }
+
+/** `_acpmux/usage` (capability `session-usage-v1`): what Session Info's Usage reads. */
+export interface UsageParams {
+  /**
+   * The `digest` of the last reply the client holds: while the stats read the same, the reply
+   * is `{digest, unchanged: true}` and carries none.
+   */
+  known?: (string | null);
+}
+
+export type UsageResult = {
+  /** Names what `usage` holds: equal digests, equal stats (within one daemon run). */
+  digest: string;
+  /** `known` is `digest`: the client's stats stand. */
+  unchanged?: (boolean | null);
+  /**
+   * Every listed chat that reports usage, its `usageStats` by the `sessionId` its row lists it
+   * under (this daemon's chats and the peers' rows). Absent with `unchanged`.
+   */
+  usage?: (Record<string, UsageStats> | null);
+} & Record<string, unknown>;
 
 /**
  * A chat's spend and context as its harness recorded them (`usage_stats.rs`):

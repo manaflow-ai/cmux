@@ -120,6 +120,62 @@ pub fn takes_session_mcp(name: &str, profile: &crate::config::HarnessProfile) ->
     !NO_SESSION_MCP_FAMILIES.contains(&crate::config::derive_family(name, profile).as_str())
 }
 
+/// Harness families that start a stdio MCP server with a scrubbed environment: Hermes passes a
+/// child only PATH, HOME, USER, LANG, LC_ALL, TERM, SHELL and TMPDIR plus the entry's own `env`
+/// (`tools/mcp_tool_config.py` `_SAFE_ENV_KEYS`). The cmux server then cannot find the session's
+/// socket and every cmux tool fails ("the cmux session socket is unavailable", cmux-ci step
+/// 20724a44bada). [`with_routing_env`] writes the routing variables into each stdio entry.
+pub const SCRUBBED_ENV_FAMILIES: [&str; 1] = ["hermes"];
+
+/// Environment names a cmux-owned MCP server reads to reach this session's daemons: the sockets
+/// and state folders of cmux, the mux and acpmux, and the Chief's tool list. Values only, never a
+/// key or a token.
+pub const ROUTING_ENV: [&str; 9] = [
+    "CMUX_TUI_SOCKET",
+    "CMUX_SOCKET_PATH",
+    "CMUX_MUX_SOCKET",
+    "CMUX_TUI_STATE_DIR",
+    "CMUX_TUI_CHIEF_TOOLS_SOCKET",
+    "CMUX_MCP_TOOLS",
+    "MUX_HOME",
+    "ACPMUX_HOME",
+    "XDG_RUNTIME_DIR",
+];
+
+/// `servers` (an ACP `mcpServers` array) with [`ROUTING_ENV`] added to each stdio entry's `env`
+/// for a harness in [`SCRUBBED_ENV_FAMILIES`]: the value from `env` (the harness's own spawn env)
+/// or else this process's. An entry's own value wins; HTTP entries and other harnesses are
+/// unchanged.
+pub fn with_routing_env(
+    mut servers: Value,
+    name: &str,
+    profile: &crate::config::HarnessProfile,
+    env: &BTreeMap<String, String>,
+) -> Value {
+    if !SCRUBBED_ENV_FAMILIES.contains(&crate::config::derive_family(name, profile).as_str()) {
+        return servers;
+    }
+    let routing: Vec<(&str, String)> = ROUTING_ENV
+        .iter()
+        .filter_map(|k| {
+            env.get(*k)
+                .cloned()
+                .or_else(|| std::env::var(k).ok())
+                .filter(|v| !v.is_empty())
+                .map(|v| (*k, v))
+        })
+        .collect();
+    for entry in servers.as_array_mut().into_iter().flatten() {
+        let Some(list) = entry.get_mut("env").and_then(Value::as_array_mut) else { continue };
+        for (k, v) in &routing {
+            if !list.iter().any(|e| e.get("name").and_then(Value::as_str) == Some(*k)) {
+                list.push(json!({"name": k, "value": v}));
+            }
+        }
+    }
+    servers
+}
+
 /// The agent memory server's name (`optchat-chief agent-memory mcp`).
 pub const MEMORY_SERVER_NAME: &str = "cmux-agent-memory";
 /// The person's saved MCP servers (`optchat-chief integrations serve`): one `mcp_servers` tool

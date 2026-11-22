@@ -120,8 +120,8 @@ import Testing
         _ = machine.handle(.target(mac))
         _ = machine.handle(.dialSucceeded(generation: 1, path: .turn))
         #expect(machine.handle(.foreground) == [.probe(generation: 1)])
-        // A dead link redials at once.
-        #expect(machine.handle(.probeFailed(generation: 1, reason: "closed")) == [.close, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
+        // A silent link redials at once, and is kept beside the redial.
+        #expect(machine.handle(.probeFailed(generation: 1, reason: "closed")) == [.keepStandby, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
         _ = machine.handle(.dialFailed(generation: 2, reason: "x"))
         _ = machine.handle(.dialFailed(generation: 3, reason: "x"))
         // Foreground while waiting dials now instead of waiting out the timer.
@@ -155,7 +155,7 @@ import Testing
         _ = machine.handle(.target(mac))
         _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
         #expect(machine.handle(.macSignaled) == [.quickProbe(generation: 1)])
-        #expect(machine.handle(.probeFailed(generation: 1, reason: "timeout")) == [.close, .dial(generation: 2, macID: "m1", transport: .webRTC)])
+        #expect(machine.handle(.probeFailed(generation: 1, reason: "timeout")) == [.keepStandby, .dial(generation: 2, macID: "m1", transport: .webRTC)])
         // A dial in flight when the host's socket connects again is restarted
         // (its offer may have gone to the old socket): D2b.
         #expect(machine.handle(.macSignaled) == [.dial(generation: 3, macID: "m1", transport: .webRTC)])
@@ -182,6 +182,53 @@ import Testing
         guard case .waiting(_, let attempt, _, _) = machine.phase else { Issue.record("expected waiting"); return }
         #expect(machine.handle(.networkChanged) == [.dial(generation: 6, macID: "m1", transport: .wireGuard)])
         #expect(machine.phase == .connecting(.wireGuard, attempt: attempt + 1))
+    }
+
+    /// An unanswered probe keeps the link beside the redial (make before
+    /// break): a blackout that ends first resumes on the old link, with no
+    /// channel closed or re-attached; a redial that lands first closes it.
+    @Test func probeFailureKeepsTheLinkBesideTheRedial() {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(mac))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
+        #expect(machine.handle(.probeFailed(generation: 1, reason: "timeout")) == [.keepStandby, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
+        #expect(machine.standby == 1)
+        #expect(machine.phase == .connecting(.wireGuard, attempt: 1))
+        // The redial on the dark path fails; the silent retry goes out.
+        #expect(machine.handle(.dialFailed(generation: 2, reason: "timeout")) == [.dial(generation: 3, macID: "m1", transport: .wireGuard)])
+        // The old link answers first: it is the link again, the redial is dropped.
+        #expect(machine.handle(.standbyAlive(generation: 1, path: .direct, rttMillis: 40)) == [.promoteStandby(generation: 4)])
+        #expect(machine.phase == .connected(.wireGuard, .direct, rttMillis: 40))
+        #expect(machine.standby == nil)
+        #expect(machine.handle(.dialSucceeded(generation: 3, path: .direct)) == [], "the dropped redial's late success is ignored")
+        #expect(machine.handle(.standbyAlive(generation: 1, path: .direct, rttMillis: 40)) == [])
+        // Silent again; this time the redial lands first and the old link closes.
+        #expect(machine.handle(.probeFailed(generation: 4, reason: "timeout")) == [.keepStandby, .dial(generation: 5, macID: "m1", transport: .wireGuard)])
+        #expect(machine.handle(.dialSucceeded(generation: 5, path: .turn)) == [.closeStandby])
+        #expect(machine.standby == nil)
+        #expect(machine.handle(.standbyAlive(generation: 4, path: .direct, rttMillis: 40)) == [])
+        // A standby that closes or stays silent is dropped; the redial goes on.
+        _ = machine.handle(.probeFailed(generation: 5, reason: "timeout"))
+        #expect(machine.handle(.standbyLost(generation: 5)) == [.closeStandby])
+        #expect(machine.phase == .connecting(.wireGuard, attempt: 1))
+        // A link that closed itself is not kept; neither is one in the background.
+        _ = machine.handle(.dialSucceeded(generation: 6, path: .direct))
+        #expect(machine.handle(.linkDropped(generation: 6, reason: "closed")) == [.close, .dial(generation: 7, macID: "m1", transport: .wireGuard)])
+        _ = machine.handle(.dialSucceeded(generation: 7, path: .direct))
+        _ = machine.handle(.background)
+        #expect(machine.handle(.probeFailed(generation: 7, reason: "timeout")) == [.close, .dial(generation: 8, macID: "m1", transport: .wireGuard)])
+        #expect(machine.standby == nil)
+    }
+
+    /// A retarget or a reset while a standby is kept drops it with the link.
+    @Test func aRetargetDropsTheStandby() {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(mac))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
+        _ = machine.handle(.probeFailed(generation: 1, reason: "timeout"))
+        #expect(machine.handle(.target(nil)) == [.close])
+        #expect(machine.standby == nil)
+        #expect(machine.handle(.standbyAlive(generation: 1, path: .direct, rttMillis: 1)) == [])
     }
 
     /// The link really died while presence says the Mac is offline: no dial
@@ -382,7 +429,7 @@ struct MockDialer: MacLinkDialer {
             Issue.record("expected waiting, got \(controller.phase)")
             return
         }
-        #expect(reason == "the Mac didn't answer in time")
+        #expect(reason == LinkError.timeoutReason)
     }
 }
 

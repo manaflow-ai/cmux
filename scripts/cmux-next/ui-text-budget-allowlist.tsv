@@ -41,7 +41,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Cloud.xcstrings	cloud.gith
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Cloud.xcstrings	cloud.progress.machinePaused	15	12
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Cloud.xcstrings	cloud.progress.next.paused	14	12
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Cloud.xcstrings	cloud.progress.next.pausedIdle	19	12
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/CloudCredentialRecovery.xcstrings	cloud.credentialRecovery.codexDisclosure	33	25
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/FilePages.xcstrings	filePages.editorSettings.none	11	10
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/FilePages.xcstrings	filePages.restoreConflict	21	20
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Handlers.xcstrings	confirm.allowAgent.bodyNone	22	10
