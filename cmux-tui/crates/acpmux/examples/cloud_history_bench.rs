@@ -51,15 +51,44 @@ fn open_all(store: &LocalStore, ids: &[String]) -> Vec<f64> {
         .collect()
 }
 
+/// Runs `each` over `ids` on every core (archiving is zstd level 19 plus an fsync per chat, so one
+/// thread leaves the machine idle on fsync), printing progress to stderr; keeps the ids it said
+/// yes to, in order.
+fn par_filter(phase: &str, ids: &[String], each: impl Fn(&str) -> bool + Sync) -> Vec<String> {
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let done = std::sync::atomic::AtomicUsize::new(0);
+    let kept: Vec<std::sync::Mutex<bool>> =
+        ids.iter().map(|_| std::sync::Mutex::new(false)).collect();
+    let started = Instant::now();
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| {
+                loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(id) = ids.get(i) else { break };
+                    *kept[i].lock().unwrap() = each(id);
+                    let n = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                    if n % 100 == 0 || n == ids.len() {
+                        eprintln!(
+                            "{phase}: {n}/{} in {:.0}s",
+                            ids.len(),
+                            started.elapsed().as_secs_f64()
+                        );
+                    }
+                }
+            });
+        }
+    });
+    ids.iter().zip(kept).filter_map(|(id, k)| k.into_inner().unwrap().then(|| id.clone())).collect()
+}
+
 /// Archives every chat in `ids`; returns the ones that were.
 fn archive_all(store: &LocalStore, ids: &[String]) -> Vec<String> {
-    ids.iter()
-        .filter(|id| match Store::stage_cold(store, id) {
-            Ok(Some(staged)) => Store::commit_cold(store, id, staged).unwrap_or(false),
-            _ => false,
-        })
-        .cloned()
-        .collect()
+    par_filter("archive", ids, |id| match Store::stage_cold(store, id) {
+        Ok(Some(staged)) => Store::commit_cold(store, id, staged).unwrap_or(false),
+        _ => false,
+    })
 }
 
 fn main() {
@@ -94,6 +123,12 @@ fn main() {
     let mut ids: Vec<String> =
         Store::list(&store).expect("list").into_iter().map(|m| m.id).collect();
     ids.sort();
+    // CLOUD_HISTORY_BENCH_CHATS=N measures the first N chats only, for a home too big to archive
+    // inside a session's bound.
+    if let Some(n) = std::env::var("CLOUD_HISTORY_BENCH_CHATS").ok().and_then(|v| v.parse().ok()) {
+        ids.truncate(n);
+    }
+    eprintln!("{} chats", ids.len());
     let bytes_before = disk_bytes(&sessions);
     let local = open_all(&store, &ids);
 
@@ -106,18 +141,16 @@ fn main() {
     let archived = archive_all(&store, &archived);
 
     let started = Instant::now();
-    let mut offloaded = Vec::new();
-    let mut offload_errors = 0;
-    for id in &archived {
-        match Store::offload_cold(&store, id) {
-            Ok(Some(_)) => offloaded.push(id.clone()),
-            Ok(None) => {}
-            Err(error) => {
-                offload_errors += 1;
-                eprintln!("offload {id}: {error:#}");
-            }
+    let offload_errors = std::sync::atomic::AtomicUsize::new(0);
+    let offloaded = par_filter("offload", &archived, |id| match Store::offload_cold(&store, id) {
+        Ok(found) => found.is_some(),
+        Err(error) => {
+            offload_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            eprintln!("offload {id}: {error:#}");
+            false
         }
-    }
+    });
+    let offload_errors = offload_errors.into_inner();
     let offload_ms = started.elapsed().as_millis() as u64;
     // One GC root for the batch, as the daemon's pass will register it.
     let started = Instant::now();
