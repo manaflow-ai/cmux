@@ -83,8 +83,7 @@ fn a_refusal_exits_4_or_7() {
     assert_eq!(exit_of(&r), 7);
     let app = errors::classify(r.as_ref().unwrap_err());
     assert_eq!((app.code.name(), app.message.as_str()), ("refused", "folder is not trusted"));
-    let paused =
-        json!({"status": "held", "reason": "pair_paused", "error": "the pair is paused"});
+    let paused = json!({"status": "held", "reason": "pair_paused", "error": "the pair is paused"});
     let r = handed_off("lane", &json!({}), &paused);
     assert_eq!(exit_of(&r), 7);
     assert_eq!(errors::classify(r.as_ref().unwrap_err()).detail, "pair_paused");
