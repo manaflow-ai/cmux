@@ -927,8 +927,12 @@ if [[ "$mode" == rd-host ]]; then
   cd "$root/cmux-tui/crates/cmux-rd-host"
   warm_target_guard
   step "rd-host fmt" cargo fmt --check
-  step "rd-host clippy" cargo clippy --locked --all-targets --no-default-features --features bench -- -D warnings
-  step "rd-host test" cargo test --locked ${no_fail_fast[@]+"${no_fail_fast[@]}"} --no-default-features --features bench ${filter:+"$filter"}
+  # Clippy as the Screen Sharing helper builds the crate (link, computer-use: `cmux rd serve` and
+  # the Computer Use worker) plus the bench client, then the library as cmux-tui links it for
+  # `cmux rd` (link only), so code that only one of them reaches is still compiled and linted.
+  step "rd-host clippy" cargo clippy --locked --all-targets --no-default-features --features bench,link,computer-use -- -D warnings
+  step "rd-host clippy (as cmux-tui links it)" cargo clippy --locked --lib --no-default-features --features link -- -D warnings
+  step "rd-host test" cargo test --locked ${no_fail_fast[@]+"${no_fail_fast[@]}"} --no-default-features --features bench,computer-use ${filter:+"$filter"}
   finish
 fi
 copy_rd_bench() {
