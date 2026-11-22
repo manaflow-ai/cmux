@@ -16,19 +16,17 @@ fn json_after_the_separator_is_the_servers_own() {
 
 #[test]
 fn parses_each_verb() {
-    let p = parse(&words(
-        "mcp add fs --agent codex --scope project --env A=1 -- npx -y srv --flag",
-    ))
-    .unwrap();
+    let p =
+        parse(&words("mcp add fs --agent codex --scope project --env A=1 -- npx -y srv --flag"))
+            .unwrap();
     assert_eq!(
         (p.verb.as_str(), p.name.as_deref(), p.agent, p.scope),
         ("add", Some("fs"), Some(Agent::Codex), Some(Scope::Project))
     );
     assert_eq!(p.env, vec![("A".to_owned(), "1".to_owned())]);
     assert_eq!(p.command, words("npx -y srv --flag"));
-    let p =
-        parse(&words("mcp add docs --agent=claude --url https://d.example/mcp --header X=y"))
-            .unwrap();
+    let p = parse(&words("mcp add docs --agent=claude --url https://d.example/mcp --header X=y"))
+        .unwrap();
     let server = new_server(&p, "docs").unwrap();
     assert_eq!(server.transport, Transport::Http { url: "https://d.example/mcp".into() });
     assert!(parse(&words("mcp list --agent gemini")).unwrap_err().contains("unknown agent"));
@@ -77,10 +75,7 @@ fn edits_round_trip_through_the_cli() {
     assert!(!claude.servers[0].enabled);
     let codex = mcp::list(&paths, Agent::Codex, &options);
     assert!(codex.servers[0].enabled);
-    assert_eq!(
-        run(&words(&format!("mcp remove fs --agent codex {project}")), &env, true),
-        Ok(0)
-    );
+    assert_eq!(run(&words(&format!("mcp remove fs --agent codex {project}")), &env, true), Ok(0));
     assert!(mcp::list(&paths, Agent::Codex, &options).servers.is_empty());
     assert!(
         run(&words(&format!("mcp remove fs --agent codex {project}")), &env, true)
