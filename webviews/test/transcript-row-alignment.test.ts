@@ -29,13 +29,6 @@ import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { MARK_MESSAGE, MARK_STEP, transcriptGap } from "../src/agent-session/acpmux/transcriptGrid";
 
-const rowSeq = (page: Page) =>
-  page.evaluate(() =>
-    [...document.querySelectorAll<HTMLElement>(".acpmux-row")].map((n) => {
-      const r = n.getBoundingClientRect();
-      return `${n.dataset.rowId ?? ""}|${n.className}|${Math.round(r.top)}-${Math.round(r.bottom)}|${(n.textContent ?? "").trim().slice(0, 50)}`;
-    }),
-  ); // DIAG-TEMP
 await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
   setDefaultTimeout(240_000);
   const ENTRY = "agent-pane.transcript-row-alignment";
@@ -237,7 +230,6 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
         await page.locator(".cv-subagent-done").first().waitFor();
         const measured = await measure(page);
         console.log(`ROW_ALIGNMENT ${theme.file} ${JSON.stringify(measured)}`);
-        console.log("ROWSEQ", JSON.stringify(await rowSeq(page), null, 1)); // DIAG-TEMP
         const found = problems(measured);
         if (artifacts) {
           await mkdir(artifacts, { recursive: true });
@@ -270,8 +262,10 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
           "agent message",
         ])
           expect(kinds.has(kind), `measured a ${kind}`).toBe(true);
+        // Another agent's line is no longer between two replies: it opens its own turn under that
+        // turn's "Working for" head (66beef47be6, #49052), so only its left edge is measured here
+        // (transcript-continuation-spacing.test.ts measures the gap over that turn).
         expect(measured.gaps.map((gap) => gap.kind).sort()).toEqual([
-          "agent message",
           "background command",
           "subagent finished",
           "subagent started",
