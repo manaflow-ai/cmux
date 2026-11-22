@@ -191,6 +191,44 @@ fn a_record_sent_just_before_the_close_still_reaches_the_peer() {
     assert!(ended_at < closed_at, "the record comes before the close");
 }
 
+/// A send the system refuses (here a broadcast address without SO_BROADCAST; on a Mac, a LAN
+/// address while the app has no Local Network access) used to be dropped without a word, so
+/// the failure read only "heard 0" (cmuxterm-hq CMUX-572). The reason now counts it.
+#[test]
+fn a_link_whose_sends_are_refused_says_so_when_it_fails() {
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let viewer = Net::start(NetConfig {
+        role: Role::Initiator,
+        session: b"refused-session".to_vec(),
+        local: v,
+        expected_remote: h.public,
+        stun: Vec::new(),
+        bind: "0.0.0.0:0".parse().unwrap(),
+        turn: Vec::new(),
+        relay_only: false,
+    })
+    .unwrap();
+    viewer.add_remote_candidate(Candidate {
+        kind: CandidateKind::Host,
+        addr: "255.255.255.255:9".parse().unwrap(),
+    });
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut failed = None;
+    while failed.is_none() && Instant::now() < deadline {
+        let mut fd = libc::pollfd { fd: viewer.event_fd(), events: libc::POLLIN, revents: 0 };
+        // SAFETY: one valid pollfd.
+        unsafe { libc::poll(&mut fd, 1, 100) };
+        failed = viewer.events().into_iter().find_map(|e| match e {
+            NetEvent::Failed(reason) => Some(reason),
+            _ => None,
+        });
+    }
+    let reason = failed.expect("the handshake times out");
+    assert!(reason.contains("heard 0"), "{reason}");
+    assert!(reason.contains("sends refused: "), "{reason}");
+    assert!(reason.contains("os error"), "{reason}");
+}
+
 fn receipt_datagram(frame: u32, index: u16, seq: u16) -> Vec<u8> {
     cmux_rd_proto::DatagramHeader {
         flags: 0,
