@@ -110,7 +110,6 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
-  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -119,13 +118,14 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
+  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  withCloudStartFolder,
   withDraftFolder,
   shownCloudStartPick,
+  withCloudStartFolder,
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import {
@@ -604,8 +604,6 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
@@ -614,6 +612,8 @@ import {
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   pageOnOtherMachine,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
@@ -717,7 +717,7 @@ import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./sig
 import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
 import { ForkPendingLine } from "./ForkPendingLine";
-import { HostError, HostRecoveringLine, HostUnavailableLine, HostWaitingLine } from "./HostError";
+import { HostError, HostLineSlot, HostRecoveringLine, HostUnavailableLine, HostWaitingLine } from "./HostError";
 import { hostLineText } from "./hostLine";
 import {
   AcpmuxRestartGate,
@@ -13825,17 +13825,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // While the pane gets its chat back on its own, one quiet line says so: "Restoring sessions…"
   // while the host says acpmux restores, "Reconnecting…" for a lost connection before the deadline.
   // A Restart acpmux in flight keeps its own line.
-  const hostLine = restartingAcpmux ? (
-    hostWaitOrError
-  ) : (
-    <HostRecoveringLine
-      relinkingSince={relinkingSince}
-      restoring={hostRestoring}
-      failureShown={hostErrorSaid}
-      // "Reconnecting…" stays until the waiting line, whose wait starts a moment later, replaces it.
-      waitingSince={hostWaitingSince}
-      otherwise={hostWaitOrError}
-    />
+  // It is drawn out of flow, in a slot that is always there (HostLineSlot): no state of it moves a row.
+  const hostLine = (
+    <HostLineSlot>
+      {restartingAcpmux ? (
+        hostWaitOrError
+      ) : (
+        <HostRecoveringLine
+          relinkingSince={relinkingSince}
+          restoring={hostRestoring}
+          failureShown={hostErrorSaid}
+          // "Reconnecting…" stays until the waiting line, whose wait starts a moment later, replaces it.
+          waitingSince={hostWaitingSince}
+          otherwise={hostWaitOrError}
+        />
+      )}
+    </HostLineSlot>
   );
   // A pending Fork Conversation and its Cancel, in the dock and in Quick Chat alike: Quick Chat's
   // menu forks too (review of #36979).
