@@ -10,6 +10,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { devHighlightWorker } from "./support/devHighlightWorker";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 
 await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -158,6 +159,10 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
         const page = await browser.newPage({ viewport: { width, height: HEIGHT }, colorScheme: "dark" });
         try {
           await installPaintedFrames(page);
+          // The folded message run is a finished run in a running turn: the `runs` arm of live-turn-work. The
+          // shipped `open` keeps every finished call on its own line until the turn ends (#48766), so the run
+          // never folds and the turn grows past the pane while it runs.
+          await pinLiveTurnRuns(page);
           const out = new Map<State, Measured>();
           for (const state of STATES) out.set(state, await measure(page, state, width));
           return out;
