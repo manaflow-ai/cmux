@@ -1899,9 +1899,20 @@
    and show while the pointer is on the card or focus is
    inside it (Leo 2026-11-01, on a tree diagram under "</> Plain text": "could we render this type of
    thing better in cmux-next"). The body starts at the card's inset instead of under a row. */
+/* The actions' 26px box centres on the first line, not on a fixed inset: the body's 13px top plus
+   half a line, less half the box (Leo 2026-11-22, on Wrap and Copy riding above a card's first
+   line: "this is off centered. we cant be having icons off centered"; icon-button-centers.test.ts).
+   `--cv-code-corner-line` is that line's height: the card's code line, or a diagram's 1.15em. */
+.cv-codeblock--corner {
+  --cv-code-corner-line: var(--cv-codeblock-line-height, 20px);
+  --cv-code-corner-top: calc(13px + var(--cv-code-corner-line) / 2 - 13px);
+}
+.cv-codeblock--corner.cv-codeblock--diagram {
+  --cv-code-corner-line: calc(1.15 * var(--cv-codeblock-size, 12px));
+}
 .cv-codeblock--corner .cv-codeblock__header {
   position: absolute;
-  top: 6px;
+  top: var(--cv-code-corner-top);
   right: 6px;
   z-index: var(--layer-raised);
   min-height: 0;
@@ -1961,7 +1972,7 @@
    hover fade), so at rest every line reads to the card's edge. Both the plain lines and Pierre's
    shadow root are inside the body, so one mask covers both. `--cv-code-corner-clear` is the
    actions' footprint from the body's right edge (their 6px inset less the body's 1px);
-   `--cv-code-corner-veil-height` is their bottom below the body's top (6px + 26px - 13px). */
+   `--cv-code-corner-veil-height` is their bottom below the body's top (their top + 26px - 13px). */
 @property --cv-code-corner-veil {
   syntax: "<number>";
   inherits: false;
@@ -1972,7 +1983,7 @@
     var(--cv-code-corner-actions) * 26px + (var(--cv-code-corner-actions) - 1) * var(--cv-code-action-gap) + 5px
   );
   --cv-code-corner-veil-fade: 8px;
-  --cv-code-corner-veil-height: 19px;
+  --cv-code-corner-veil-height: calc(var(--cv-code-corner-top) + 13px);
 }
 /* A mask cuts everything outside the body's border box, and a highlighted card's horizontal
    scrollbar hangs below that box into the card's bottom inset (HighlightedCode.tsx `codeUnsafeCSS`,
