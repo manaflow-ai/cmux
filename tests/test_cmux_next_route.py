@@ -2168,6 +2168,7 @@ class HotAwareWorkflows(unittest.TestCase):
         directory the route step opens, for a hot, an app and an unread change, is inside the sparse patterns, so
         it routes from the sparse checkout as from a full one."""
         import os
+        import subprocess
         import tempfile
         checkout = workflow_step("cmux-next-guards.yml", "portable-placement",
                                  "Check out the merge commit and its base (hot-only route)")["with"]
@@ -2185,8 +2186,17 @@ class HotAwareWorkflows(unittest.TestCase):
             Path(hooks, "sitecustomize.py").write_text(
                 "import atexit, os, sys\n"
                 "_seen = set()\n"
+                "def _globbing():\n"
+                "    frame = sys._getframe(2)\n"
+                "    while frame:\n"
+                "        if os.path.basename(frame.f_code.co_filename) in ('glob.py', 'pathlib.py', '_local.py', '_abc.py'):\n"
+                "            return True\n"
+                "        frame = frame.f_back\n"
+                "    return False\n"
                 "def _hook(event, args):\n"
                 "    if event in ('open', 'os.listdir', 'os.scandir') and args and isinstance(args[0], (str, os.PathLike)):\n"
+                "        if event != 'open' and _globbing():\n"
+                "            event = 'glob'\n"
                 "        _seen.add((event, os.path.abspath(os.fspath(args[0]))))\n"
                 "sys.addaudithook(_hook)\n"
                 "def _write():\n"
@@ -2194,6 +2204,20 @@ class HotAwareWorkflows(unittest.TestCase):
                 "        log.writelines(f'{event}\\t{path}\\n' for event, path in sorted(_seen))\n"
                 "atexit.register(_write)\n", encoding="utf-8")
             log = Path(hooks, "opened.log")
+            # Each tracked directory's entries, and which of them keep a file in the sparse checkout.
+            entries: dict[str, set[str]] = {}
+            kept: set[str] = set()
+            for name in subprocess.run(["git", "-C", root, "ls-files", "-z"], capture_output=True, check=True,
+                                       text=True).stdout.split("\0"):
+                if not name:
+                    continue
+                parts = name.split("/")
+                keep = sparse_includes(patterns, name)
+                for depth in range(1, len(parts) + 1):
+                    entry = "/".join(parts[:depth])
+                    entries.setdefault("/".join(parts[:depth - 1]), set()).add(entry)
+                    if keep:
+                        kept.add(entry)
             for changed in (self.HOT, self.APP, ["zz-unread/never-read.txt"]):
                 done, _, _ = self.run_step(step["run"], ROOT, changed,
                                            extra_env={"PYTHONPATH": hooks, "ROUTE_OPEN_LOG": str(log)})
@@ -2205,10 +2229,19 @@ class HotAwareWorkflows(unittest.TestCase):
                 relative = path[len(root) + 1:]
                 if relative.startswith(".git/") or relative == ".git":
                     continue
-                # A listed directory must be whole in the checkout; an opened file only itself.
-                probe = f"{relative}/x" if event != "open" or os.path.isdir(path) else relative
-                if os.path.exists(path) and not sparse_includes(patterns, probe):
-                    outside.add(relative)
+                if not os.path.exists(path):
+                    continue
+                if event == "open" and not os.path.isdir(path):
+                    if not sparse_includes(patterns, relative):
+                        outside.add(relative)
+                    continue
+                if event == "glob":
+                    # A glob's scan (`Packages/*/*/Package.swift` lists every package directory) matters only through
+                    # what it matches, and a match is then opened (checked above) or one the patterns name.
+                    continue
+                # Any other listing lists the same tracked entries in the sparse checkout: each child that holds a
+                # tracked file holds one the patterns keep.
+                outside.update(entries.get(relative, set()) - kept)
         self.assertEqual(sorted(outside), [], "the hot-only route reads these outside its sparse checkout:\n"
                          + "\n".join(sorted(outside)))
 
