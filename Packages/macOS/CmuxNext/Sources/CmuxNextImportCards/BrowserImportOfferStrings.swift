@@ -2,7 +2,8 @@ import CmuxNextCompat
 import Foundation
 
 /// The browser-data import offer's strings (table `BrowserImportOffer`).
-public nonisolated enum BrowserImportOfferStrings {
+public nonisolated struct BrowserImportOfferStrings {
+    public nonisolated init() {}
     /// The bundle that holds `Resources/BrowserImportOffer.xcstrings` (this module's), for tests.
     static var bundle: Bundle { .module.inAppLanguage }
     /// `browser`: the detected browser's name ("Google Chrome").
