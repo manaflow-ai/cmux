@@ -25,7 +25,7 @@ on:
         required: true
         type: string
   push:
-    branches: ["pair-e2e/**"]
+    branches: ["pair-e2e/**", "lane/pair-e2e-**"]
 
 permissions:
   contents: read
