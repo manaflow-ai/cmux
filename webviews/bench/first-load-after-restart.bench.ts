@@ -363,7 +363,10 @@ const keptTail = (() => {
   const opener =
     first && !startsTurn(first)
       ? ((kept.length < opened.page.length
-          ? [...opened.page.slice(0, opened.page.length - kept.length)].reverse().find(startsTurn)
+          ? opened.page
+              .slice(0, opened.page.length - kept.length)
+              .reverse()
+              .find(startsTurn)
           : undefined) ?? turnOpener(opened.page, opened.hasMore))
       : undefined;
   return hostTailOf({
@@ -1668,6 +1671,11 @@ try {
             ].join(" | "),
           );
         });
+        console.log(
+          `  final rows in view:\n    ${(worst.frames.at(-1)?.rows ?? [])
+            .map((row) => `${row.id}@${row.top.toFixed(0)} "${(row.text ?? "").trim().slice(0, 50)}"`)
+            .join("\n    ")}`,
+        );
       }
     }
     if (isReopen(mode)) {

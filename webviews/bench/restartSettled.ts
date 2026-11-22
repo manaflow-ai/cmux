@@ -28,17 +28,20 @@ export type RestartSettled = {
   goneFrames: number;
 };
 
-/// The rows in view in some frame and not in the last one, and the frames that showed any of them.
+/// The rows in view in some frame and not in the last one, and the frames that showed any of them. A row
+/// whose words a last-frame row shows is that row under another id (the copy's v1 rows before the row
+/// store's), not a gone one.
 export function goneRows(frames: FrameRecord[]): { rows: number; frames: number } {
   const last = frames.at(-1);
   if (!last) return { rows: 0, frames: 0 };
   const final = new Set(last.rows.map((row) => row.id));
+  const finalText = new Set(last.rows.map((row) => row.text).filter((text) => !!text));
   const gone = new Set<string>();
   let shown = 0;
   for (const frame of frames) {
     let any = false;
     for (const row of frame.rows)
-      if (!final.has(row.id)) {
+      if (!final.has(row.id) && !(row.text && finalText.has(row.text))) {
         gone.add(row.id);
         any = true;
       }
