@@ -112,7 +112,7 @@ extension SidebarSectionsSetting {
     public nonisolated static let groupHeaderUnreadCountDefault = false
     /// `sidebar.groupHeader.background`.
     public nonisolated static let groupHeaderBackgroundPath = ["sidebar", "groupHeader", "background"]
-    public nonisolated static let groupHeaderBackgroundDefault: SidebarGroupBackgroundStyle = .auto
+    public nonisolated static let groupHeaderBackgroundDefault: SidebarGroupBackgroundStyle = .folder
     /// `sidebar.groupPalette`.
     public nonisolated static let groupPalettePath = ["sidebar", "groupPalette"]
     public nonisolated static let groupPaletteDefault: GroupPalette = .glass
