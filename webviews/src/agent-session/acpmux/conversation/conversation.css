@@ -7496,8 +7496,29 @@ a.cv-sha:focus-visible {
   line-height: 16px;
 }
 .cv-plan__text {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+/* A step's first line (PlanList.tsx PlanStep): at most two lines in a card, its chips inline; the
+   rest of its words are its detail, muted and smaller, at most two lines more. */
+.cv-plan__title,
+.cv-plan__detail {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.cv-plan__detail {
+  margin-top: 2px;
+  color: var(--cv-text-muted);
+  font-size: var(--text-caption, 11px);
+  line-height: 14px;
+}
+.cv-plan__title .cv-chip {
+  vertical-align: baseline;
 }
 .cv-plan__mark {
   flex: 0 0 auto;
