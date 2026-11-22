@@ -46,6 +46,10 @@ const REOPEN = Number(process.env.REOPEN ?? 10);
 // NOCHAT=1: each page is the pane with no chat attached (no session in its URL), so a row is what one more document
 // of the app costs before any chat content: the share a chat would not pay if hidden chats shared one document.
 const NOCHAT = process.env.NOCHAT === "1";
+// SHARED=1: the hidden chats are views in one document (cut 2a, cmuxterm-hq goals/memory-per-chat.md): each count opens
+// one page with that many chats mounted (`?mounts=N#sessions=…`, mountModel.tsx and dev-host/host.ts), every one but the
+// newest display:none, and closes the page before it.
+const SHARED = process.env.SHARED === "1";
 if (COUNTS.some((n) => !Number.isInteger(n) || n < 1) || !Number.isInteger(TURNS) || TURNS < 1) {
   console.error("usage: bun bench/chat-pages-memory.bench.ts [counts=1,10,30] [turns=100]");
   process.exit(2);
@@ -339,7 +343,32 @@ try {
   let kindsAt: { count: number; sizes: Map<string, number> } | undefined;
   let first: { count: number; mb: number } | undefined;
   for (const count of COUNTS) {
-    while (pages.length < count) {
+    if (SHARED) {
+      for (const entry of pages.splice(0)) {
+        await entry.cdp.detach().catch(() => undefined);
+        await entry.page.close();
+      }
+      const page = await context.newPage();
+      const sessions = Array.from({ length: count }, (_, index) => sessionId(index)).join(",");
+      await page.goto(
+        `${origin}/?mounts=${count}#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&sessions=${sessions}`,
+      );
+      await page.waitForFunction(
+        ([text, n]) => {
+          const mounts = [...document.querySelectorAll<HTMLElement>("[data-pane-mount]")];
+          const all = n === 1 ? [document.getElementById("root")!] : mounts;
+          return all.length === n && all.every((el) => el.textContent?.includes(text as string));
+        },
+        [FIRST_TEXT, count] as const,
+        { timeout: 300_000, polling: 500 },
+      );
+      await page.evaluate(() => {
+        const mounts = [...document.querySelectorAll<HTMLElement>("[data-pane-mount]")];
+        for (const el of mounts.slice(0, -1)) el.style.display = "none";
+      });
+      pages.push({ page, cdp: await context.newCDPSession(page) });
+    }
+    while (!SHARED && pages.length < count) {
       const index = pages.length;
       const page = await context.newPage();
       await page.goto(urlFor(index));
