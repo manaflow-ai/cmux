@@ -792,10 +792,12 @@ fn place_run(
                     })
                 });
             let after = after.map_or(Value::Null, |(_, id)| Value::String(id.clone()));
-            let mut place = serde_json::json!({ "section": item.section, "after": after });
-            if let Some(parent) = &item.parent {
-                place["parent"] = Value::String(parent.clone());
-            }
+            let place = match &item.parent {
+                Some(parent) => {
+                    serde_json::json!({ "section": item.section, "after": after, "parent": parent })
+                }
+                None => serde_json::json!({ "section": item.section, "after": after }),
+            };
             (item.id.clone(), place)
         })
         .collect();
@@ -1009,7 +1011,8 @@ fn remembered_place(doc: &Doc, item: &Item, machine: &str) -> Option<Target> {
             return None;
         }
         // A pinned group whose old parent sank deeper since then no longer fits there.
-        if item.body.is_group() && doc.group_level(group) + doc.group_height(item) > MAX_GROUP_DEPTH
+        if item.body.is_group()
+            && doc.group_level(group).saturating_add(doc.group_height(item)) > MAX_GROUP_DEPTH
         {
             return None;
         }
