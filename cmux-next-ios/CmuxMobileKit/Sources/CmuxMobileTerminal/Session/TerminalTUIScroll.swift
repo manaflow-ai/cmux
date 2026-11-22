@@ -1,10 +1,11 @@
 import CoreGraphics
 import Foundation
 
-/// T-SCROLL-12: a vertical drag over a full-screen app (the alternate
-/// screen) scrolls the app, like a Mac trackpad in Ghostty, and never the
-/// page. The phone turns the finger into precise wheel deltas in points, in
-/// the natural direction (a finger moving down scrolls toward older content,
+/// T-SCROLL-12: a two-finger vertical drag over a full-screen app (the
+/// alternate screen) scrolls the app, like a Mac trackpad in Ghostty, and
+/// never the page. A one-finger pan is reading and sends the app nothing
+/// (`TerminalTUIScrollController`). The phone turns the fingers into
+/// precise wheel deltas in points, in the natural direction (a finger moving down scrolls toward older content,
 /// a wheel up), and a release with speed into momentum deltas that decay.
 /// The surface scales them to pixels and Ghostty's own scroll path decides
 /// what the app gets: SGR wheel reports (buttons 64/65) at the finger when
