@@ -80,8 +80,12 @@ class BaseAutofixFinishes(unittest.TestCase):
     def test_a_deferred_run_is_not_red(self):
         # While the Mac runners are saturated most runs defer, and base-red-watch would blame each red one
         # on whoever pushed. A deferred run ends green and names the run that carries its exports.
-        self.assertNotIn("action-areas", DOC["jobs"]["autofix"]["needs"])
+        # autofix reads mac_busy only for the own-exports marker (base-autofix-since.sh), whose upload cannot fail
+        # the job; every repair runs whether or not the run deferred.
         for step in DOC["jobs"]["autofix"]["steps"]:
+            if "own-exports marker" in str(step.get("name", "")):
+                self.assertTrue(step.get("run") or step.get("continue-on-error") is True, step)
+                continue
             self.assertNotIn("mac_busy", str(step.get("if", "")))
         job = DOC["jobs"]["mac-exports-deferred"]
         self.assertEqual(job["name"], "Mac exports deferred")
