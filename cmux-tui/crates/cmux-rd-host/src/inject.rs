@@ -169,6 +169,9 @@ pub struct Injector {
     /// Where the person's pointer was last sent, restored when the master is made again.
     last_pointer: Option<(i32, i32)>,
     hold: HoldGuard,
+    /// The core keyboard's focus at the person's last key press: a key follows the core
+    /// focus only once it moved (see [`Injector::follow_core_focus`]).
+    core_focus_seen: Option<Window>,
     /// Events with no XTest mapping (for example text), counted for stats.
     pub unsupported: u64,
 }
@@ -194,6 +197,7 @@ impl Injector {
             last_input: None,
             last_pointer: None,
             hold: HoldGuard::default(),
+            core_focus_seen: None,
             unsupported: 0,
         })
     }
@@ -202,13 +206,48 @@ impl Injector {
     /// with XIChangeHierarchy has a focus of its own, and window managers and apps set only
     /// the core keyboard's (XSetInputFocus), so without this the person's keys reach no
     /// window (CMUX-572: 0 of 20 key presses arrived on an Xvfb desktop).
-    fn follow_core_focus(&self, m: PersonMaster) -> Res<()> {
+    ///
+    /// It copies the core focus only when the person keyboard has no window of its own yet,
+    /// or when the core focus moved since the last key. A window manager that focuses on a
+    /// click (openbox) does so while it holds the person pointer's grab, and the server
+    /// then sets the person keyboard's focus, not the core one: copying the older core focus
+    /// over it sent the keys to the window the person had just clicked away from (CMUX-572,
+    /// a viewer's clicks moved windows but no typed key arrived).
+    fn follow_core_focus(&mut self, m: PersonMaster) -> Res<()> {
         if m.core_keyboard == 0 {
             return Ok(());
         }
-        let focus = self.conn.xinput_xi_get_focus(m.core_keyboard)?.reply()?.focus;
-        self.conn.xinput_xi_set_focus(focus, x11rb::CURRENT_TIME, m.keyboard)?;
+        let core = self.conn.xinput_xi_get_focus(m.core_keyboard)?.reply()?.focus;
+        let moved = self.core_focus_seen.is_some_and(|seen| seen != core);
+        let first = self.core_focus_seen.is_none();
+        self.core_focus_seen = Some(core);
+        let follow = moved || (first && self.person_focus_unset(m)?);
+        if !follow {
+            return Ok(());
+        }
+        self.conn.xinput_xi_set_focus(core, x11rb::CURRENT_TIME, m.keyboard)?;
         Ok(())
+    }
+
+    /// A click is the person's latest focus choice: the core focus it finds is taken as seen,
+    /// so only a core change after the click (a window opened later) moves the person's keys.
+    /// Without it a core change from before the click (a new window took the core focus while
+    /// the person typed elsewhere) undid the click at the next key, and the keys reached the
+    /// newer window instead of the clicked one.
+    fn note_core_focus_at_click(&mut self, m: PersonMaster) -> Res<()> {
+        if m.core_keyboard == 0 || self.core_focus_seen.is_none() {
+            return Ok(());
+        }
+        let core = self.conn.xinput_xi_get_focus(m.core_keyboard)?.reply()?.focus;
+        self.core_focus_seen = Some(core);
+        Ok(())
+    }
+
+    /// The person keyboard routes keys to no window of its own: None, PointerRoot (1) or
+    /// the root window, as a newly made master keyboard does.
+    fn person_focus_unset(&self, m: PersonMaster) -> Res<bool> {
+        let mine = self.conn.xinput_xi_get_focus(m.keyboard)?.reply()?.focus;
+        Ok(mine == x11rb::NONE || mine == 1 || mine == self.root)
     }
 
     fn fake(&self, ty: u8, detail: u8, x: i32, y: i32) -> Res<()> {
@@ -314,6 +353,7 @@ impl Injector {
     fn detach(&mut self) {
         let Person::Attached(_) = self.person else { return };
         self.person = Person::Detached;
+        self.core_focus_seen = None;
         self.property_stale = false;
         self.last_property = None;
         let mut guard = PERSON_USERS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -493,6 +533,9 @@ impl Injector {
             }
             InputEvent::Button { button, down } => {
                 let b = (*button).clamp(1, 9);
+                if let (true, Some(m)) = (*down, person) {
+                    self.note_core_focus_at_click(m)?;
+                }
                 self.fake(if *down { BUTTON_PRESS_EVENT } else { BUTTON_RELEASE_EVENT }, b, 0, 0)?;
                 if *down {
                     self.buttons.insert(b);
@@ -848,6 +891,195 @@ pub(crate) mod tests {
         }
         person.release_all().unwrap();
         assert!(pressed, "the person's key press reached the focused window");
+    }
+
+    /// On a real Xvfb with openbox, the desktop a Linux host shares: openbox focuses the
+    /// newest window, then the person clicks the other one and types. openbox focuses on
+    /// that click while it holds the person pointer's grab, so the server gives the person
+    /// keyboard the focus and the core keyboard keeps the old window. The key must reach
+    /// the window the person clicked (CMUX-572: the viewer's clicks moved windows, but no
+    /// typed key ever arrived).
+    #[test]
+    #[ignore = "needs Xvfb and openbox; run with --ignored on a Linux host"]
+    fn person_keys_reach_the_window_the_person_clicked_under_openbox() {
+        use x11rb::protocol::xproto::{CreateWindowAux, EventMask, WindowClass};
+        use x11rb::protocol::Event;
+        let xvfb = Xvfb::start();
+        let display = xvfb.display.clone();
+        let _wm = Openbox::start(&display);
+        let (app, screen) = x11rb::connect(Some(&display)).unwrap();
+        let root = app.setup().roots[screen].root;
+        let make = |x: i16| {
+            let win = app.generate_id().unwrap();
+            app.create_window(
+                0,
+                win,
+                root,
+                x,
+                100,
+                300,
+                200,
+                0,
+                WindowClass::INPUT_OUTPUT,
+                0,
+                &CreateWindowAux::new().event_mask(EventMask::KEY_PRESS),
+            )
+            .unwrap();
+            app.map_window(win).unwrap();
+            app.sync().unwrap();
+            win
+        };
+        let clicked = make(100);
+        std::thread::sleep(Duration::from_millis(300));
+        let newest = make(600);
+        std::thread::sleep(Duration::from_millis(500));
+        let at = app.translate_coordinates(clicked, root, 150, 100).unwrap().reply().unwrap();
+        let (x, y) = (i32::from(at.dst_x), i32::from(at.dst_y));
+
+        let mut person = Injector::new(&display).unwrap();
+        person.apply(&InputEvent::Pointer { x, y }).unwrap();
+        person.apply(&InputEvent::Button { button: 1, down: true }).unwrap();
+        person.apply(&InputEvent::Button { button: 1, down: false }).unwrap();
+        person.conn.sync().unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        person.apply(&InputEvent::Key { usage: 0x0007_0004, down: true }).unwrap();
+        person.apply(&InputEvent::Key { usage: 0x0007_0004, down: false }).unwrap();
+        person.conn.sync().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let (mut on_clicked, mut on_newest) = (false, false);
+        while !on_clicked && Instant::now() < deadline {
+            while let Some(event) = app.poll_for_event().unwrap() {
+                if let Event::KeyPress(k) = event {
+                    on_clicked |= k.event == clicked;
+                    on_newest |= k.event == newest;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        person.release_all().unwrap();
+        assert!(
+            on_clicked,
+            "the key reached the clicked window (it went to the other one: {on_newest})"
+        );
+    }
+
+    /// The person types in window A, a new window B then takes the core focus, and the person
+    /// clicks A and types again. The core change came before the click, so the click wins and
+    /// the second key reaches A, not B (review on #47957: copying the core focus at the next
+    /// key undid the click).
+    #[test]
+    #[ignore = "needs Xvfb and openbox; run with --ignored on a Linux host"]
+    fn a_click_after_a_new_window_took_the_core_focus_keeps_the_keys_on_the_clicked_window() {
+        use x11rb::protocol::xproto::{CreateWindowAux, EventMask, WindowClass};
+        use x11rb::protocol::Event;
+        let xvfb = Xvfb::start();
+        let display = xvfb.display.clone();
+        let _wm = Openbox::start(&display);
+        let (app, screen) = x11rb::connect(Some(&display)).unwrap();
+        let root = app.setup().roots[screen].root;
+        let make = |x: i16| {
+            let win = app.generate_id().unwrap();
+            app.create_window(
+                0,
+                win,
+                root,
+                x,
+                100,
+                300,
+                200,
+                0,
+                WindowClass::INPUT_OUTPUT,
+                0,
+                &CreateWindowAux::new().event_mask(EventMask::KEY_PRESS),
+            )
+            .unwrap();
+            app.map_window(win).unwrap();
+            app.sync().unwrap();
+            win
+        };
+        // Which windows the person's key presses reached, read for up to 2 s until `want`.
+        let read = |want: Window| {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut got = Vec::new();
+            while !got.contains(&want) && Instant::now() < deadline {
+                while let Some(event) = app.poll_for_event().unwrap() {
+                    if let Event::KeyPress(k) = event {
+                        got.push(k.event);
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            got
+        };
+        let type_a = |person: &mut Injector| {
+            person.apply(&InputEvent::Key { usage: 0x0007_0004, down: true }).unwrap();
+            person.apply(&InputEvent::Key { usage: 0x0007_0004, down: false }).unwrap();
+            person.conn.sync().unwrap();
+        };
+        let click = |person: &mut Injector, win: Window| {
+            let at = app.translate_coordinates(win, root, 150, 100).unwrap().reply().unwrap();
+            person
+                .apply(&InputEvent::Pointer { x: i32::from(at.dst_x), y: i32::from(at.dst_y) })
+                .unwrap();
+            person.apply(&InputEvent::Button { button: 1, down: true }).unwrap();
+            person.apply(&InputEvent::Button { button: 1, down: false }).unwrap();
+            person.conn.sync().unwrap();
+            std::thread::sleep(Duration::from_millis(300));
+        };
+        let clicked = make(100);
+        std::thread::sleep(Duration::from_millis(500));
+        let mut person = Injector::new(&display).unwrap();
+        click(&mut person, clicked);
+        type_a(&mut person);
+        let first = read(clicked);
+        assert!(first.contains(&clicked), "the first key reached A, the only window: {first:?}");
+
+        let newest = make(600);
+        std::thread::sleep(Duration::from_millis(500));
+        click(&mut person, clicked);
+        type_a(&mut person);
+        let second = read(clicked);
+        person.release_all().unwrap();
+        assert!(
+            second.contains(&clicked) && !second.contains(&newest),
+            "the key after the click reached A (clicked {clicked}, newest {newest}): {second:?}"
+        );
+    }
+
+    /// openbox on a test display, ended with the test. It reads no config of the host's
+    /// session: `--sm-disable` and an empty HOME for its rc lookup.
+    struct Openbox(std::process::Child);
+
+    impl Openbox {
+        fn start(display: &str) -> Self {
+            let home = std::env::temp_dir().join(format!("cmux-rd-openbox-{}", std::process::id()));
+            std::fs::create_dir_all(&home).unwrap();
+            let child = std::process::Command::new("openbox")
+                .arg("--sm-disable")
+                .env("DISPLAY", display)
+                .env("HOME", &home)
+                .env_remove("XDG_CONFIG_HOME")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .expect("openbox");
+            // openbox owns the screen once it holds WM_S0.
+            let (conn, _) = x11rb::connect(Some(display)).unwrap();
+            let atom = conn.intern_atom(false, b"WM_S0").unwrap().reply().unwrap().atom;
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while conn.get_selection_owner(atom).unwrap().reply().unwrap().owner == x11rb::NONE {
+                assert!(Instant::now() < deadline, "openbox took the screen");
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Self(child)
+        }
+    }
+
+    impl Drop for Openbox {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
     }
 
     /// On a real Xvfb: the person's XTest moves the person master, not the core pointer,

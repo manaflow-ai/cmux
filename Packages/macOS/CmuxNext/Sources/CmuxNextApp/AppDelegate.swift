@@ -172,10 +172,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog
         DebugTimings.markReveal(services.launchReveal)
-        // This launch's times, in every build, for `cmux app launch-times` (CMUX-571): after the first frame, at Home's reveal or 10 s on (a relaunch into another workspace never shows Home).
+        // This launch's times and stages (LaunchStages), in every build, for `cmux app launch-times` (CMUX-571): after the first frame, at Home's reveal or 10 s on (a relaunch into another workspace never shows Home).
         if let bundleID = environment.launch.bundleID, let file = LaunchTimesFile.app(bundleID: bundleID) {
             let recorder = LaunchTimesRecorder(file: file, work: services.work, info: Bundle.main.infoDictionary ?? [:], listen: AgentPaneLaunchTimings.shared.listen, marks: DebugTimings.launchMarkTimes) { StagedUpdatePrewarm.consumeLaunchMarker(build: $0, bundleIdentifier: bundleID) }
-            firstFrame.whenOpen { [launchReveal = services.launchReveal] in launchReveal.whenReady(.home, orAfter: .seconds(10)) { recorder.write(marks: DebugTimings.launchMarkTimes()) } }
+            firstFrame.whenOpen { [launchReveal = services.launchReveal, weak services] in launchReveal.whenReady(.home, orAfter: .seconds(10)) { recorder.write(marks: DebugTimings.launchMarkTimes(), workspaces: services?.daemon.store.workspaces.count) } }
         }
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
@@ -231,17 +231,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     await services.agentPaneStateLoss.showNotices(in: window, pairedSealCleared: { await services.iphone.pairedSealClearedForCutOff() })
                 }
             }
-            CATransaction.setMainCompletion { [weak self] in
+            DebugTimings.markLaunch("frame.commit_start"); CATransaction.setMainCompletion { [weak self] in
                 DebugTimings.markLaunch("first_window_frame_committed")
                 TerminalLaunchFrames.closeLaunches() // the terminals that asked by now are this frame's
                 self?.firstFrame.open()
             }
         }
-        // At idle after the first terminal frame: the palette panel (native) and the icon catalog (off the main actor). The icon picker and
+        // At idle after the first terminal frame: the palette panel (native), the icon catalog (off the main actor), then the hover card. The icon picker and
         // group editor (WebKit, ~60 MB of processes) wait for a menu or palette open, where every Set Icon and Rename Group is,
         // and are freed again once their idle limit passes with no open or menu (IconPickerService/GroupEditorService.idleLimit);
         // each menu or palette open makes them again or pushes that limit back.
-        launchSettle.whenSettled { [palette = services.palette, weak services] in Self.preparePalette(palette, step: 0); services?.iconPicker.prepare(page: false) }
+        launchSettle.whenSettled { [palette = services.palette, weak services] in Self.preparePalette(palette, step: 0) { services?.hoverCards.warm() }; services?.iconPicker.prepare(page: false) }
         let warmOverlays = { @MainActor [weak services] in services?.iconPicker.prepare(); services?.groupEditor.prepare() }
         services.keyRouter.menuPickKeys.tracking.onMenus(warmOverlays)
         services.palette.onShows(warmOverlays)
@@ -264,7 +264,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.home.start()
         services.harnessIcons.start()
         mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
-        services.keybindingsFile.start()
+        services.keybindingsFile.start(); services.machines.local.languagePacks.start()  // CMUX-570
         services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
         services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
         // cmux-page:// first-party pages for Chromium, before any window can start it.
@@ -312,11 +312,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         firstFrame.armBackstop(after: .seconds(3))
     }
 
-    /// One palette warm-up step per idle moment (`PaletteController.prepare`).
-    private static func preparePalette(_ palette: PaletteController?, step: Int) {
+    /// One palette warm-up step per idle moment (`PaletteController.prepare`), then `done` at the next idle moment.
+    private static func preparePalette(_ palette: PaletteController?, step: Int, done: @escaping @MainActor () -> Void) {
         IdleOnce.schedule {
-            guard let palette, palette.prepare(step: step) else { return }
-            preparePalette(palette, step: step + 1)
+            guard let palette, palette.prepare(step: step) else { return IdleOnce.schedule(done) }
+            preparePalette(palette, step: step + 1, done: done)
         }
     }
 
@@ -383,7 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         services.configActions.start(settings: settings)
-        services.personInput.start()
+        services.personInput.start(); services.cache.cef.personInput = { [ledger = services.personInput] in ledger.isPerson($0) }
         services.joinConsent.follow(settings: settings)
         if !environment.noActivate { services.signInEnroll.follow() } // an agent-launched build enrolls no machine
         // Agent-launched builds never take system-wide keys from the person's app, nor a menu bar item.

@@ -9,6 +9,6 @@ public struct HomeChatColorsRefusal: LocalizedError, Equatable {
 
     public var errorDescription: String? {
         String(format: String(localized: "home.chatColors.refusal.badColor",
-                              defaultValue: "%1$@ is not a color for --%2$@: use #RRGGBB, or default.", bundle: .module), value, role)
+                              defaultValue: "%1$@ is not a color for --%2$@: use #RRGGBB, or default.", bundle: .localizedModule), value, role)
     }
 }
