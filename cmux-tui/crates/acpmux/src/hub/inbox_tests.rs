@@ -27,6 +27,7 @@ fn item(
 ) -> Item {
     Item {
         surge_held: false,
+        verdict: None,
         prompt_id: prompt_id.to_owned(),
         notice: None,
         answered: None,
