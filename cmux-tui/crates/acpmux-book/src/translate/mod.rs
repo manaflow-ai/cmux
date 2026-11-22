@@ -18,6 +18,7 @@ mod input;
 mod kinds;
 #[cfg(test)]
 mod kinds_tests;
+mod narration;
 #[cfg(test)]
 mod tests;
 mod user;
@@ -613,8 +614,9 @@ pub fn translate(
         state.invalid_records = state.invalid_records.saturating_add(1);
         return Ok(Vec::new());
     }
-    // A row born on the line before has been offered as entering: from this line on it is live.
-    state.rows_went_live();
+    // A row born on the line before has been offered as entering: from a line that changes
+    // anything on, it is live. A line that changes nothing (a duplicate) leaves it entering.
+    let went_live = state.rows_went_live();
     let result = match harness {
         Harness::V1 => v1::line(state, place, span, bytes, &mut out),
         Harness::Claude => claude::line(state, bytes, &mut out),
@@ -623,9 +625,13 @@ pub fn translate(
     debug_assert!(result.is_ok(), "validated harness line failed during apply");
     if result.is_err() {
         state.line_errors = state.line_errors.saturating_add(1);
+        state.rows_entering(&went_live);
         return Ok(Vec::new());
     }
     state.bound_open_rows(&mut out);
+    if out.ops.is_empty() {
+        state.rows_entering(&went_live);
+    }
     // The queue is counted apart from the translator's 32 KiB segment: its records go to the
     // book's prompt section.
     Ok(out.ops)
@@ -798,9 +804,21 @@ impl State {
     }
     /// The rows born on the last line are entering no more. Costs the open rows the translator
     /// holds, which its bounds keep under about 200.
-    fn rows_went_live(&mut self) {
-        for row in self.stored_rows_mut() {
+    fn rows_went_live(&mut self) -> Vec<u64> {
+        let mut went = Vec::new();
+        for row in self.stored_rows_mut().filter(|row| row.entering) {
             row.entering = false;
+            went.push(row.id);
+        }
+        went
+    }
+    /// The rows `ids` are entering again: the line that made them live changed nothing.
+    fn rows_entering(&mut self, ids: &[u64]) {
+        if ids.is_empty() {
+            return;
+        }
+        for row in self.stored_rows_mut().filter(|row| ids.contains(&row.id)) {
+            row.entering = true;
         }
     }
     fn row(&mut self, kind: RowKind, out: &mut input::Output<'_>) -> Result<OwnedRow, Error> {
@@ -963,6 +981,10 @@ impl State {
         }
         let mut row = self.row(RowKind::Group, out)?;
         row.fields.insert("calls".into(), "0".into());
+        // The turn header's clock: one start, here, and `ms` at the end (step 9 of the motion
+        // model); a group born before any turn started starts at its birth.
+        let start = if self.turn.is_some() { self.turn_start_ms } else { self.at_ms };
+        row.fields.insert("startMs".into(), start.to_string());
         for (key, value) in fields {
             row.fields.insert(key.into(), value);
         }

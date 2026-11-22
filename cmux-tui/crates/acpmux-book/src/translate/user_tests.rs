@@ -397,6 +397,8 @@ fn a_turns_group_row_names_its_prompt_and_its_first_words() {
         .unwrap();
     assert_eq!(fields["prompt"], id.to_string());
     assert_eq!(fields["promptId"], "\"p\"");
+    // The group row is the turn header: it carries the turn's start, its phase says running.
+    assert!(fields["startMs"].parse::<u64>().is_ok(), "{fields:?}");
     let head: String = serde_json::from_str(&fields["head"]).unwrap();
     assert!(head.starts_with("Line one\nsecond \"quoted\" \u{1F600} é"), "{head:?}");
     assert!(head.len() <= user::HEAD_BYTES && head.len() > user::HEAD_BYTES - 2, "{}", head.len());
