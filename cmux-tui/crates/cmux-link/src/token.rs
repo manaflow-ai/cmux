@@ -259,13 +259,30 @@ pub fn mode_log_line(
     };
     let reason = match (choice.reason, checks) {
         (_, Err(refused)) => format!("refused at start: {refused}"),
-        (VerifierReason::Absent, Ok(_)) => format!("{VERIFIER_ENV} is not set"),
+        (VerifierReason::Absent, Ok(_)) => absent_reason(),
         (VerifierReason::Named, Ok(_)) => format!("named by {VERIFIER_ENV}"),
         (VerifierReason::Unrecognized, Ok(_)) => {
             format!("{VERIFIER_ENV} holds an unrecognized value (not shown)")
         }
     };
     format!("cmux link: token verifier mode {mode}: {reason}")
+}
+
+/// The reason for an unset [`VERIFIER_ENV`], in plain words: what deny_all
+/// means, that it is the normal state, and what turns a verifier on.
+fn absent_reason() -> String {
+    let enable = if cfg!(any(target_os = "linux", target_os = "android")) {
+        format!(
+            "{VERIFIER_ENV}=control_plane would check control-plane link tokens, \
+             but this platform does not support it yet"
+        )
+    } else {
+        format!("set {VERIFIER_ENV}=control_plane to check control-plane link tokens")
+    };
+    format!(
+        "{VERIFIER_ENV} is not set, so this host refuses link tokens. This is normal \
+         for a host that pairs by invitation or enrollment, which works as usual; {enable}"
+    )
 }
 
 /// How this build binds a recorded check to its source and time.

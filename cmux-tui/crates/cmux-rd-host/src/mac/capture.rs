@@ -970,6 +970,8 @@ extern "C" fn capture_stopped(block: *mut Block<SyncSender<()>>, _error: Id) {
 }
 
 impl Capture {
+    /// A capture that draws the cursor, for the bench's observer (`observe.rs`, its one caller).
+    #[cfg(feature = "bench")]
     pub fn start(which: &str, fps: u32, max_width: Option<u32>) -> Res<Self> {
         Self::start_with_marker(which, fps, max_width, true, None)
     }

@@ -25,11 +25,12 @@
 
 use crate::args::Opts;
 use crate::capture_backend::CaptureBackend;
-use crate::carrier::{Carrier, Incoming, LinkCarrier};
+use crate::carrier::{Carrier, Incoming, LinkCarrier, MediaQueueStats};
 use crate::stream::{MediaSession, SessionCfg};
 use crate::wire::Control;
 use crate::Res;
 use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, Principal, PrincipalClass};
+use cmux_rd_core::profile::EncodeProfile;
 use cmux_rd_core::service::{negotiate, SERVICE_DESKTOP};
 use cmux_rd_core::session::{Actor, SessionTable, StartRequest};
 use cmux_rd_link::net::{Candidate, Net, NetConfig, NetEvent};
@@ -79,6 +80,18 @@ struct Setup {
     /// The person sharing turned clipboard text sync on for this session (default off).
     #[serde(default)]
     clipboard: bool,
+    /// The profile the viewer asks for (`standard` or `ultra`, the person's choice).
+    #[serde(default)]
+    encode_profile: Option<String>,
+}
+
+/// The session's profile: the viewer's choice, else `--encode-profile`, else standard. A
+/// profile this host does not know runs standard, so a newer viewer still gets a picture.
+fn session_profile(opts: &Opts, setup: &Setup) -> Result<EncodeProfile, String> {
+    match setup.encode_profile.as_deref() {
+        Some(asked) => Ok(EncodeProfile::parse(asked).unwrap_or_default()),
+        None => opts.encode_profile(),
+    }
 }
 
 #[derive(Deserialize)]
@@ -233,6 +246,14 @@ impl ServeCarrier {
 }
 
 impl Carrier for ServeCarrier {
+    fn drain_departures(&mut self, out: &mut Vec<cmux_rd_proto::DatagramDeparture>) {
+        self.link.drain_departures(out);
+    }
+
+    fn departure_overflows(&self) -> u64 {
+        self.link.departure_overflows()
+    }
+
     fn fds(&self) -> Vec<RawFd> {
         let mut fds = self.link.fds();
         fds.push(libc::STDIN_FILENO);
@@ -250,8 +271,16 @@ impl Carrier for ServeCarrier {
         self.link.path_rtt_us()
     }
 
+    fn media_queue_stats(&self) -> Option<MediaQueueStats> {
+        self.link.media_queue_stats()
+    }
+
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {
         self.link.send_datagram(datagram)
+    }
+
+    fn send_datagram_frame(&mut self, datagrams: Vec<Vec<u8>>, droppable: bool) -> io::Result<()> {
+        self.link.send_datagram_frame(datagrams, droppable)
     }
 
     fn send_control(&mut self, control: &Control) -> io::Result<()> {
@@ -458,6 +487,8 @@ fn serve_session(
     if crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
     }
+    // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
+    host_caps.extend([cmux_rd_core::service::caps::CLOCK, cmux_rd_core::service::caps::LEDGER]);
     // Clipboard text only when the app's setup turned it on and this host has a clipboard it
     // can watch (macOS). A `view` scope session still never applies or sends one: it never
     // holds control (clipboard.rs).
@@ -498,7 +529,12 @@ fn serve_session(
     let display = display.to_owned();
     // The viewer's rate wins; else the display's refresh rate (60 when it cannot be read).
     let max_fps = setup.max_fps.unwrap_or_else(|| crate::desktop::default_max_fps(&display));
-    let max_kbps = opts.num_or("max-kbps", 50_000)?;
+    // Ultra (the viewer's choice or `--encode-profile ultra`): frames at that rate up to 120,
+    // a higher ceiling, and the encoder's ultra settings. Standard (the default) is unchanged.
+    let encode_profile = session_profile(opts, setup)?;
+    let max_fps = encode_profile.stream_fps(max_fps);
+    let explicit_max_kbps = opts.get("max-kbps").map(|_| opts.num_or("max-kbps", 0)).transpose()?;
+    let max_kbps = cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000);
     let start_kbps = opts.num_or(
         "start-kbps",
         default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
@@ -506,6 +542,7 @@ fn serve_session(
     let cfg = SessionCfg {
         display,
         max_fps,
+        encode_profile,
         start_kbps,
         max_kbps,
         preset: String::new(),

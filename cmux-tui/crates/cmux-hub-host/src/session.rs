@@ -436,6 +436,7 @@ pub fn setup_line(ticket: &Ticket, offer: &RdDocument, view_only: bool) -> Value
         "display": offer.display.map_or_else(|| "main".to_owned(), |d| d.to_string()),
         "max_fps": offer.max_fps.map(|f| f.min(120)),
         "max_width": offer.max_width,
+        "encode_profile": offer.encode_profile,
     })
 }
 

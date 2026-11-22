@@ -12,9 +12,11 @@ fn documents_round_trip_like_the_mac() {
         display: Some(1),
         max_width: Some(1920),
         max_fps: Some(60),
+        encode_profile: Some("ultra".into()),
         displays: vec![(2560, 1440)],
         current_display: Some(0),
     };
+    assert!(doc.text().contains("\r\na=cmux-rd-encode-profile:ultra\r\n"));
     let text = doc.text();
     assert!(text.starts_with("cmux.rd/1\r\na=fingerprint:cmux-rd-key 0011"));
     assert_eq!(RdDocument::parse(&text), Some(doc));
@@ -54,6 +56,10 @@ fn ice_servers_become_stun_and_udp_turn() {
     assert_eq!(stun, vec!["stun.example:3478"]);
     assert_eq!(
         turn,
-        vec![Turn { addr: "turn.example:3478".into(), username: "u".into(), password: "p".into() }]
+        vec![Turn {
+            addr: "turn.example:3478".into(),
+            username: "u".into(),
+            password: "p".into()
+        }]
     );
 }

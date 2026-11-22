@@ -1,3 +1,13 @@
+#[test]
+fn a_missing_admin_socket_names_the_next_command() {
+    let gone = AdminError::Io(io::Error::from(io::ErrorKind::NotFound)).to_string();
+    assert!(gone.starts_with("admin socket failed: "), "{gone}");
+    assert!(gone.contains("cmux daemon start --remote-ws"), "{gone}");
+    assert!(gone.contains("--session NAME"), "{gone}");
+    let denied = AdminError::Io(io::Error::from(io::ErrorKind::PermissionDenied)).to_string();
+    assert!(!denied.contains("cmux daemon start"), "{denied}");
+}
+
 use tempfile::tempdir;
 use tokio::io::AsyncWriteExt;
 use tokio::net::UnixListener;
@@ -10,7 +20,11 @@ use crate::session::SessionLimits;
 #[test]
 fn admin_listener_retries_recoverable_accept_errors() {
     let status = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "admin::tests::admin_listener_accept_exhaustion_fixture", "--nocapture"])
+        .args([
+            "--exact",
+            "admin::tests::admin_listener_accept_exhaustion_fixture",
+            "--nocapture",
+        ])
         .env("CMUX_TEST_ADMIN_ACCEPT_EXHAUSTION", "1")
         .status()
         .unwrap();
@@ -37,7 +51,8 @@ async fn admin_server_shutdown_reports_listener_task_failure() {
 #[tokio::test]
 async fn owner_can_create_invitation_and_read_status() {
     let directory = tempdir().unwrap();
-    let auth = AuthDatabase::load_or_create(directory.path().join("state"), "test", true).unwrap();
+    let auth =
+        AuthDatabase::load_or_create(directory.path().join("state"), "test", true).unwrap();
     let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
     let socket = directory.path().join("admin.sock");
     let server =
@@ -86,7 +101,8 @@ fn an_older_admin_client_create_request_has_no_device_binding() {
 #[tokio::test]
 async fn owner_can_create_an_invitation_bound_to_one_device() {
     let directory = tempdir().unwrap();
-    let auth = AuthDatabase::load_or_create(directory.path().join("state"), "test", false).unwrap();
+    let auth =
+        AuthDatabase::load_or_create(directory.path().join("state"), "test", false).unwrap();
     let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
     let socket = directory.path().join("admin.sock");
     let server =
@@ -112,7 +128,8 @@ async fn owner_can_create_an_invitation_bound_to_one_device() {
     let uri = bound.result.unwrap()["uri"].as_str().unwrap().to_owned();
     assert!(!crate::identity::EnrollmentInvitation::from_uri(&uri).unwrap().approval_required);
 
-    let unnamed_key = call_admin(&socket, &create(None, Some("agent-vm".into()))).await.unwrap();
+    let unnamed_key =
+        call_admin(&socket, &create(None, Some("agent-vm".into()))).await.unwrap();
     assert!(!unnamed_key.ok);
     let bad_key = call_admin(&socket, &create(Some("short".into()), None)).await.unwrap();
     assert!(!bad_key.ok);
@@ -122,14 +139,16 @@ async fn owner_can_create_an_invitation_bound_to_one_device() {
 #[tokio::test]
 async fn legacy_owner_can_request_runtime_shutdown() {
     let directory = tempdir().unwrap();
-    let auth = AuthDatabase::load_or_create(directory.path().join("state"), "shutdown-test", true)
-        .unwrap();
+    let auth =
+        AuthDatabase::load_or_create(directory.path().join("state"), "shutdown-test", true)
+            .unwrap();
     let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
     let socket = directory.path().join("admin.sock");
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
-    let server = serve_admin_with_shutdown(daemon, &socket, Vec::new(), None, Some(shutdown_tx))
-        .await
-        .unwrap();
+    let server =
+        serve_admin_with_shutdown(daemon, &socket, Vec::new(), None, Some(shutdown_tx))
+            .await
+            .unwrap();
 
     let response = call_admin(&socket, &AdminRequest::Shutdown).await.unwrap();
     assert!(response.ok);
@@ -141,8 +160,9 @@ async fn legacy_owner_can_request_runtime_shutdown() {
 #[tokio::test]
 async fn lifecycle_shutdown_requires_the_matching_daemon_instance() {
     let directory = tempdir().unwrap();
-    let auth = AuthDatabase::load_or_create(directory.path().join("state"), "shutdown-test", true)
-        .unwrap();
+    let auth =
+        AuthDatabase::load_or_create(directory.path().join("state"), "shutdown-test", true)
+            .unwrap();
     let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
     let socket = directory.path().join("admin.sock");
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
@@ -221,7 +241,8 @@ async fn admin_server_respects_the_socket_path_lock() {
         .unwrap();
     assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
     let auth =
-        AuthDatabase::load_or_create(directory.path().join("state"), "locked-admin", true).unwrap();
+        AuthDatabase::load_or_create(directory.path().join("state"), "locked-admin", true)
+            .unwrap();
     let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
 
     let result = serve_admin(daemon, &socket, Vec::new()).await;
@@ -263,15 +284,17 @@ async fn admin_server_shutdown_never_unlinks_a_bound_successor() {
 async fn repeated_admin_requests_do_not_fail_spuriously() {
     let directory = tempdir().unwrap();
     let auth =
-        AuthDatabase::load_or_create(directory.path().join("state"), "stress-test", true).unwrap();
+        AuthDatabase::load_or_create(directory.path().join("state"), "stress-test", true)
+            .unwrap();
     let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
     let socket = directory.path().join("admin.sock");
     let server = serve_admin(daemon, &socket, Vec::new()).await.unwrap();
 
     for iteration in 0..1_000 {
-        let response = call_admin(&socket, &AdminRequest::Connections)
-            .await
-            .unwrap_or_else(|error| panic!("admin request {iteration} failed spuriously: {error}"));
+        let response =
+            call_admin(&socket, &AdminRequest::Connections).await.unwrap_or_else(|error| {
+                panic!("admin request {iteration} failed spuriously: {error}")
+            });
         assert!(response.ok);
     }
 
@@ -282,7 +305,8 @@ async fn repeated_admin_requests_do_not_fail_spuriously() {
 async fn oversized_unterminated_request_is_rejected_without_waiting_for_eof() {
     let directory = tempdir().unwrap();
     let auth =
-        AuthDatabase::load_or_create(directory.path().join("state"), "bounded-test", true).unwrap();
+        AuthDatabase::load_or_create(directory.path().join("state"), "bounded-test", true)
+            .unwrap();
     let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
     let socket = directory.path().join("admin.sock");
     let server = serve_admin(daemon, &socket, Vec::new()).await.unwrap();
@@ -306,15 +330,17 @@ async fn oversized_unterminated_request_is_rejected_without_waiting_for_eof() {
 #[tokio::test]
 async fn exact_maximum_request_payload_is_accepted_before_dispatch() {
     let directory = tempdir().unwrap();
-    let auth = AuthDatabase::load_or_create(directory.path().join("state"), "boundary-test", true)
-        .unwrap();
+    let auth =
+        AuthDatabase::load_or_create(directory.path().join("state"), "boundary-test", true)
+            .unwrap();
     let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
     let socket = directory.path().join("admin.sock");
     let server = serve_admin(daemon, &socket, Vec::new()).await.unwrap();
     let empty = AdminRequest::Deny { invitation_id: String::new() };
     let fixed_bytes = serde_json::to_vec(&empty).unwrap().len();
-    let request =
-        AdminRequest::Deny { invitation_id: "x".repeat(MAX_ADMIN_MESSAGE_BYTES - fixed_bytes - 1) };
+    let request = AdminRequest::Deny {
+        invitation_id: "x".repeat(MAX_ADMIN_MESSAGE_BYTES - fixed_bytes - 1),
+    };
     assert_eq!(serde_json::to_vec(&request).unwrap().len() + 1, MAX_ADMIN_MESSAGE_BYTES);
 
     let response = call_admin(&socket, &request).await.unwrap();

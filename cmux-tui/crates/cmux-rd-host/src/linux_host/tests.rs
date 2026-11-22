@@ -62,11 +62,17 @@ fn a_person_cannot_sign_in_over_a_join() {
     machine::Joined { acpmux_home: home.clone(), ..Default::default() }.save(&dir).unwrap();
     let token = dir.join("token");
     identity::write_private(&token, b"person-token").unwrap();
-    let args =
-        Args::parse(&["enable".into(), "--stack-token-file".into(), token.display().to_string()])
-            .unwrap();
+    let args = Args::parse(&[
+        "enable".into(),
+        "--stack-token-file".into(),
+        token.display().to_string(),
+    ])
+    .unwrap();
     let Err(e) = sign_in_and_register(&args, &dir) else { panic!("signed in over the join") };
-    assert_eq!(e.to_string(), "this machine is joined to p:b; run `acpmux machine leave` first");
+    assert_eq!(
+        e.to_string(),
+        "this machine is joined to p:b; run `acpmux machine leave` first"
+    );
     assert_eq!(
         machine::Joined::load(&dir).unwrap(),
         Some(machine::Joined { acpmux_home: home.clone(), ..Default::default() })
@@ -257,8 +263,8 @@ fn a_dropped_hub_link_stops_the_session_it_served() {
 }
 
 fn consent_dir(tag: &str) -> std::path::PathBuf {
-    let dir =
-        std::env::temp_dir().join(format!("cmux-screen-host-consent-{tag}-{}", std::process::id()));
+    let dir = std::env::temp_dir()
+        .join(format!("cmux-screen-host-consent-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     dir
 }
@@ -420,14 +426,22 @@ fn a_joined_machine_signs_itself_in_registers_and_turns_sharing_on() {
     identity::private_dir(&dir).unwrap();
     let credential: machine::MachineCredential =
         serde_json::from_str(r#"{"credential":"cmm_x","name":"lane-vm"}"#).unwrap();
-    let (hub, account) =
-        sign_in_machine(&dir, &origin, std::path::Path::new("/acpmux-home"), credential).unwrap();
+    let join = machine::Join::at(std::path::Path::new("/acpmux-home"), credential, &origin);
+    let (hub, account) = sign_in_machine(&dir, &join, None).unwrap();
     assert_eq!(hub.device.name, "lane-vm", "named as the join named the machine");
-    assert_eq!(account, Account { hub: origin.clone(), user_id: "p:u".into(), anchored_until: 0 });
+    assert_eq!(
+        account,
+        Account { hub: origin.clone(), user_id: "p:u".into(), anchored_until: 0 }
+    );
     assert_eq!(Account::load(&dir).unwrap(), Some(account));
     assert_eq!(
         machine::Joined::load(&dir).unwrap(),
-        Some(machine::Joined { acpmux_home: "/acpmux-home".into(), ..Default::default() })
+        Some(machine::Joined {
+            acpmux_home: "/acpmux-home".into(),
+            consent_tracked: true,
+            ..Default::default()
+        }),
+        "a first sign-in by this build tracks its join's consent"
     );
     machine::Joined::clear(&dir).unwrap();
     assert_eq!(machine::Joined::load(&dir).unwrap(), None);
@@ -456,13 +470,44 @@ fn a_joined_machine_signs_itself_in_registers_and_turns_sharing_on() {
 fn without_a_join_an_anchored_account_stays() {
     let dir = consent_dir("no-join");
     identity::private_dir(&dir).unwrap();
-    assert!(join_device(&dir, "http://127.0.0.1:1", None, &NoUnit).unwrap().is_none());
+    assert!(join_device(&dir, Some("http://127.0.0.1:1"), None, &NoUnit).unwrap().is_none());
     let old = Device::generate("desk").unwrap();
     old.save(&dir).unwrap();
     let hub = "http://127.0.0.1:1".to_owned();
-    Account { hub, user_id: "p:a".into(), anchored_until: now_ms() + 60_000 }.save(&dir).unwrap();
-    let kept = join_device(&dir, "http://127.0.0.1:1", None, &NoUnit).unwrap().unwrap();
+    Account { hub, user_id: "p:a".into(), anchored_until: now_ms() + 60_000 }
+        .save(&dir)
+        .unwrap();
+    let kept = join_device(&dir, Some("http://127.0.0.1:1"), None, &NoUnit).unwrap().unwrap();
     assert_eq!(kept.id, old.id);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review F2 of #45480: the machine left and joined again under another deployment while
+/// the acpmux daemon kept the first join's device hub. The credential on disk is the new
+/// deployment's, so it is never sent to the earlier deployment's hub, and nothing is set
+/// up for it there.
+#[test]
+fn a_rejoin_under_another_deployment_never_signs_in_at_the_earlier_hub() {
+    use super::stack_login::tests::stub;
+    let (earlier_hub, seen) = stub(|_, _| {
+        (
+            200,
+            serde_json::json!({ "session": "s", "userId": "p:u", "expiresAt": now_ms() + 3_600_000 }),
+        )
+    });
+    let dir = consent_dir("rejoin-other-deployment");
+    identity::private_dir(&dir).unwrap();
+    let credential: machine::MachineCredential = serde_json::from_str(
+        r#"{"credential":"cmm_new","name":"vm","machine_id":"m-new","credential_generation":1,"hub_origin":"https://cmux-platform-production.debussy.workers.dev"}"#,
+    )
+    .unwrap();
+    let home = dir.join("acpmux-home");
+    let got = join_device(&dir, Some(&earlier_hub), Some((home, credential)), &NoUnit);
+    assert!(got.is_err(), "a hub that is not the credential's own deployment's is refused");
+    let calls: Vec<String> = seen.lock().unwrap().iter().map(|s| s.path.clone()).collect();
+    assert!(calls.is_empty(), "the earlier deployment's hub saw {calls:?}");
+    assert_eq!(Account::load(&dir).unwrap(), None, "nothing is signed in");
+    assert_eq!(machine::Joined::load(&dir).unwrap(), None);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

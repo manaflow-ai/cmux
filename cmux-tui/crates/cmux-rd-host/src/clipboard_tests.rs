@@ -52,6 +52,7 @@ fn sent_text(c: Option<Control>) -> Option<String> {
     c.and_then(Control::into_clipboard_part).map(|p| p.text)
 }
 
+#[cfg(feature = "link")]
 #[test]
 fn the_cap_is_never_offered_unless_the_person_sharing_turned_it_on() {
     assert!(!offered(false));
@@ -70,6 +71,16 @@ fn a_view_session_never_applies_the_viewers_clipboard() {
     assert_eq!(ch.counters().view_refused, 1);
     assert_eq!(ch.on_part(part(2, "ok"), true), Received::Applied(2));
     assert_eq!(board.0.borrow().writes, vec!["ok".to_owned()]);
+}
+
+#[test]
+fn the_session_log_names_refusals_and_says_nothing_without_them() {
+    let board = Shared::default();
+    let mut ch = ClipboardChannel::new(Box::new(board), 0);
+    assert_eq!(ch.counters().log_line(), None);
+    ch.on_part(part(1, "secret"), false);
+    let line = ch.counters().log_line().expect("a refusal is logged");
+    assert!(line.contains("1 refused in view"), "{line}");
 }
 
 #[test]

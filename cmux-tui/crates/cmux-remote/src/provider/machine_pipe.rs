@@ -71,6 +71,9 @@ pub fn machine_pipe_request(machine: &str, port: u16) -> String {
 /// - `service.unknown`, `service.bad_answer`: the far side does not speak this service (a
 ///   version apart).
 /// - `machine.unknown`: this machine has no route to the machine named.
+/// - `carrier.not_serving`: the far machine's hub carrier is off (the hub has none registered for
+///   it, or it never joined); its owner updates or restarts acpmux there, and a redial only waits
+///   out the command's own timeout.
 pub const TERMINAL_REFUSALS: &[&str] = &[
     "consent_required",
     "consent_declined",
@@ -80,6 +83,7 @@ pub const TERMINAL_REFUSALS: &[&str] = &[
     "service.unknown",
     "service.bad_answer",
     "machine.unknown",
+    "carrier.not_serving",
 ];
 
 /// The reason the local daemon gives for any failed dial; the far machine's own reason, when it

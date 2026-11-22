@@ -11,6 +11,8 @@ fn the_head_is_the_root_and_subpath_folders_own_files_and_their_harness_folders(
         ("app/CLAUDE.md", "app/web", true),
         ("app/web/CLAUDE.md", "app/web", true),
         ("app/web/.codex/config.toml", "app/web", true),
+        (".agents/skills/review/SKILL.md", "", true),
+        ("app/web/.agents/skills/a/SKILL.md", "app/web", true),
         ("app/.claude/settings.json", "app/web", true),
         ("app/web/src/index.ts", "app/web", false),
         ("app/other/CLAUDE.md", "app/web", false),
@@ -35,6 +37,25 @@ fn start_settings_in_the_root_or_a_subpath_folder_keep_the_head_unmarked() {
     std::fs::create_dir_all(root.join(".claude")).unwrap();
     std::fs::write(root.join(".claude/settings.local.json"), "{}").unwrap();
     assert!(!head_allowed(root, &[]), "the root's hooks");
+}
+
+/// Codex's project config and hooks run outside its tool gate, so either keeps the head
+/// unmarked, at the root or in a subpath folder.
+#[test]
+fn codex_project_config_or_hooks_keep_the_head_unmarked() {
+    for settings in [".codex/config.toml", ".codex/hooks.json"] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("app/.codex")).unwrap();
+        std::fs::create_dir_all(root.join(".codex")).unwrap();
+        std::fs::write(root.join(".codex/AGENTS.md"), "notes").unwrap();
+        assert!(head_allowed(root, &[Path::new("app")]), "{settings}: other files");
+        std::fs::write(root.join("app").join(settings), "").unwrap();
+        assert!(!head_allowed(root, &[Path::new("app")]), "{settings} in a subpath folder");
+        assert!(head_allowed(root, &[]), "{settings}: the root alone has none");
+        std::fs::write(root.join(settings), "").unwrap();
+        assert!(!head_allowed(root, &[]), "{settings} at the root");
+    }
 }
 
 /// A project's MCP servers no longer keep the head unmarked: acpmux starts each under

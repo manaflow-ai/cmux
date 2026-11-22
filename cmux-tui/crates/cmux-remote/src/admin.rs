@@ -874,7 +874,18 @@ pub enum AdminError {
 impl fmt::Display for AdminError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io(error) => write!(formatter, "admin socket failed: {error}"),
+            Self::Io(error) => {
+                write!(formatter, "admin socket failed: {error}")?;
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+                ) {
+                    formatter.write_str(
+                        "; no remote daemon answers there. Start one with `cmux daemon start --remote-ws 127.0.0.1:PORT`, or name the one that runs with `--session NAME` or `--state-dir PATH`",
+                    )?;
+                }
+                Ok(())
+            }
             Self::Json(error) => write!(formatter, "admin JSON failed: {error}"),
             Self::Protocol(message) => write!(formatter, "admin protocol failed: {message}"),
             Self::MessageTooLarge(size) => write!(formatter, "admin message is too large: {size}"),

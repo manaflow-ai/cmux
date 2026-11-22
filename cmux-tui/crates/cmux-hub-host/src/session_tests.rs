@@ -82,6 +82,10 @@ fn setup_line_is_the_macs_and_view_only_wins() {
     assert_eq!(line["viewer"]["user"], "v1");
     assert_eq!(setup_line(&ticket, &RdDocument::default(), false)["display"], "main");
     assert_eq!(setup_line(&ticket, &RdDocument::default(), false)["scope"], "control");
+    // The viewer's profile reaches serve as it was asked; no attribute leaves it unset.
+    assert!(line["encode_profile"].is_null());
+    let ultra = RdDocument { encode_profile: Some("ultra".into()), ..RdDocument::default() };
+    assert_eq!(setup_line(&ticket, &ultra, false)["encode_profile"], "ultra");
 }
 
 #[test]

@@ -1,9 +1,36 @@
 use super::*;
 
 #[test]
+fn serve_preserves_frame_boundaries_before_the_link_connects() {
+    let local = KeyPair::generate().unwrap();
+    let peer = KeyPair::generate().unwrap();
+    let net = Net::start(NetConfig {
+        role: Role::Responder,
+        session: b"serve-queue-test".to_vec(),
+        local,
+        expected_remote: peer.public,
+        stun: Vec::new(),
+        bind: "127.0.0.1:0".parse().unwrap(),
+        turn: Vec::new(),
+        relay_only: false,
+    })
+    .unwrap();
+    let mut carrier = ServeCarrier {
+        link: LinkCarrier { net, paths: Vec::new(), rtt_us: None },
+        app: AppLines { buf: Vec::new() },
+    };
+    carrier.send_datagram_frame(vec![vec![1], vec![2]], true).unwrap();
+    carrier.send_datagram_frame(vec![vec![3]], true).unwrap();
+    let stats = carrier.media_queue_stats().unwrap();
+    assert_eq!(stats.queue_frames, 1);
+    assert_eq!(stats.queue_datagrams, 1);
+    assert_eq!(stats.dropped_replaced_frames, 1);
+    assert_eq!(stats.dropped_replaced_datagrams, 2);
+}
+
+#[test]
 fn clipboard_sync_is_off_unless_the_setup_turns_it_on() {
-    let base =
-        r#"{"session":"s","peer_key":"00","viewer":{"user":"u","install":"i"},"scope":"control"}"#;
+    let base = r#"{"session":"s","peer_key":"00","viewer":{"user":"u","install":"i"},"scope":"control"}"#;
     let off: Setup = serde_json::from_str(base).expect("setup");
     assert!(!off.clipboard);
     let on = r#"{"session":"s","peer_key":"00","viewer":{"user":"u","install":"i"},"scope":"control","clipboard":true}"#;
@@ -52,6 +79,39 @@ fn every_app_line_reaches_the_pipe_whole_and_flushed() {
 }
 
 #[test]
+fn the_viewers_profile_wins_and_standard_is_the_default() {
+    let setup = |profile: Option<&str>| -> Setup {
+        let mut line = serde_json::json!({
+            "session": "s1", "peer_key": "ab".repeat(32),
+            "viewer": {"user": "v", "install": "v"}, "scope": "view",
+        });
+        if let Some(p) = profile {
+            line["encode_profile"] = p.into();
+        }
+        serde_json::from_value(line).unwrap()
+    };
+    let flags = |args: &[&str]| {
+        Opts::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()
+    };
+    let none = flags(&[]);
+    let ultra_flag = flags(&["--encode-profile", "ultra"]);
+    // An old viewer sends no profile: the flag decides, else standard.
+    assert_eq!(session_profile(&none, &setup(None)), Ok(EncodeProfile::Standard));
+    assert_eq!(session_profile(&ultra_flag, &setup(None)), Ok(EncodeProfile::Ultra));
+    // The person's choice in the viewer wins over the host's flag, either way.
+    assert_eq!(session_profile(&none, &setup(Some("ultra"))), Ok(EncodeProfile::Ultra));
+    assert_eq!(
+        session_profile(&ultra_flag, &setup(Some("standard"))),
+        Ok(EncodeProfile::Standard)
+    );
+    // A profile this host does not know still streams, as standard.
+    assert_eq!(
+        session_profile(&ultra_flag, &setup(Some("hyper"))),
+        Ok(EncodeProfile::Standard)
+    );
+}
+
+#[test]
 fn portal_sessions_control_only_with_a_remote_desktop_grant() {
     // Without the grant the portal drops input: a control session there would not be one.
     let x11 = CaptureBackend::X11.applies_input_with(false);
@@ -79,7 +139,10 @@ fn a_lan_path_starts_at_the_lan_bitrate() {
 #[test]
 fn other_paths_keep_the_old_start_and_max_caps_both() {
     assert_eq!(default_start_kbps(None, None, None, 50_000), 8_000);
-    assert_eq!(default_start_kbps(Some("direct_wan"), Some("routed"), Some(5_000), 50_000), 8_000);
+    assert_eq!(
+        default_start_kbps(Some("direct_wan"), Some("routed"), Some(5_000), 50_000),
+        8_000
+    );
     assert_eq!(default_start_kbps(Some("direct_wan"), None, Some(40_000), 50_000), 8_000);
     // A relay is never LAN, whatever its round trip.
     assert_eq!(default_start_kbps(Some("turn_relay"), Some("lan"), Some(1_000), 50_000), 8_000);

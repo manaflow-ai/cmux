@@ -7,18 +7,28 @@
 use std::path::Path;
 
 /// The folders a harness reads at start, beside a folder's own files (the repo pick's
-/// `head_dirs` in cmux-cloud-start-core `machine_repo/step.sh`).
+/// `head_dirs` in cmux-cloud-start-core `machine_repo/step.sh`). `.agents`: Codex reads the
+/// project's `.agents/skills` as it starts.
 pub const HEAD_DIRS: &[&str] =
-    &[".claude", ".codex", ".cursor", ".gemini", ".github", ".vscode", ".devcontainer"];
+    &[".agents", ".claude", ".codex", ".cursor", ".gemini", ".github", ".vscode", ".devcontainer"];
 
 /// The head's harness settings that run a command when the harness starts (hooks): a start at
 /// the head would run them on a partial checkout, so such a head is never marked.
 ///
+/// Codex's project `.codex/config.toml` and `.codex/hooks.json` are: their hooks and MCP servers
+/// run outside the PreToolUse gate acpmux gives a Codex start at the head
+/// (acpmux `codex_repo_gate.rs`).
+///
 /// A project `.mcp.json` is not one of them. Its stdio servers start outside the tool gate too,
-/// but the only start that goes ahead at a head, acpmux's Claude Code, replaces each one Claude
-/// would run with the same server under `cmux repo mcp-lazy`, which starts it once the whole
-/// checkout is in (acpmux `agent_tools::project_mcp`).
-pub const START_SETTINGS: &[&str] = &[".claude/settings.json", ".claude/settings.local.json"];
+/// but acpmux's Claude Code replaces each one Claude would run with the same server under
+/// `cmux repo mcp-lazy`, which starts it once the whole checkout is in (acpmux
+/// `agent_tools::project_mcp`), and Codex does not read it.
+pub const START_SETTINGS: &[&str] = &[
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+    ".codex/config.toml",
+    ".codex/hooks.json",
+];
 
 /// Whether the head of `root` may be marked ready. `folders`: the folders below `root`,
 /// relative, whose own files and harness folders the head holds too (a chat's subpath and

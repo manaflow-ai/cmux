@@ -36,8 +36,10 @@ fn job(target_kbps: u32, halve_first: bool) -> Job {
         force_idr: true,
         idr_reason: None,
         target_kbps,
+        profile: Default::default(),
+        refine: false,
     };
-    Job { req, halve_first }
+    Job { req, released_us: 0, halve_first }
 }
 
 #[test]
