@@ -120,6 +120,76 @@ async fn queue_once(
         )
         .await
         .unwrap_or_else(|_| queued.clone());
+    let handoff = handed_off(&key, &queued, &status)?;
+    if json_out {
+        print_json(&handoff_json(&handoff, &key, &id, &prompt_id.id, &status, superseding));
+    } else {
+        warn_host_pressure(&status["accepted"]);
+        for line in handoff_lines(&handoff, &key, &id, &status, superseding) {
+            println!("{line}");
+        }
+    }
+    Ok(())
+}
+
+/// How far a send got once it left the sender: the word its first stdout line and `--json`'s
+/// `state` give, so a script reads success from the exit code and this word, never from the
+/// human sentence after it (a lane resent one report 7 times on 2026-11-22: its retry
+/// loop read `held in its inbox` and `queued` as failures).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SentState {
+    /// In this daemon's outbox (the target not reached yet, or its machine down), or in the
+    /// target's queue behind its running turn.
+    Queued,
+    /// In the idle receiver's inbox, which goes with its next turn.
+    Held,
+    /// The target took it: a turn of its own, or its queue.
+    Delivered,
+    /// Into the target's running turn, read at its next tool step.
+    Steered,
+}
+
+impl SentState {
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            SentState::Queued => "queued",
+            SentState::Held => "held",
+            SentState::Delivered => "delivered",
+            SentState::Steered => "steered",
+        }
+    }
+
+    /// What the target's acceptance says (`_acpmux/prompt_accepted`).
+    pub(crate) fn of_accepted(accepted: &Value) -> Self {
+        if accepted.get(super::super::output::HELD_IN_INBOX) == Some(&json!(true)) {
+            SentState::Held
+        } else if accepted.get("steer") == Some(&json!(true)) {
+            SentState::Steered
+        } else {
+            SentState::Delivered
+        }
+    }
+}
+
+/// The first stdout line of every send that returns once handed off: `sent STATE id=ID to=TARGET`.
+/// Its words stay as they are; the lines after it are for people and may change.
+pub(crate) fn sent_line(state: SentState, id: &str, target: &str) -> String {
+    format!("sent {} id={id} to={target}", state.name())
+}
+
+/// A send the outbox took, as [`handed_off`] reads its first status.
+#[derive(Debug)]
+pub(crate) struct Handoff {
+    pub state: SentState,
+    /// The outbox's own word: queued, delivering or delivered.
+    pub status: String,
+    /// Queued because the target's machine is down.
+    pub unreachable: bool,
+}
+
+/// The outbox's answers for one send (`send_queue`, then the first `send_status`): a hand-off,
+/// or the refusal the target gave at once (exit 4 for no such session, 7 for any other).
+pub(crate) fn handed_off(key: &str, queued: &Value, status: &Value) -> Result<Handoff> {
     let state = status.get("status").and_then(Value::as_str).unwrap_or("queued");
     // A refusal the target gave at once (its folder's trust, a bad prompt, a paused or full agent
     // pair) is this send's error, as it was before the outbox.
@@ -133,10 +203,13 @@ async fn queue_once(
                 "delivery_no_session",
                 text,
             )
-            .with_session(&key)
+            .with_session(key)
             .into());
         }
-        return Err(anyhow!("{error}"));
+        let detail = status.get("reason").and_then(Value::as_str).unwrap_or("delivery_refused");
+        return Err(errors::AppError::new(errors::Code::Refused, detail, error)
+            .with_session(key)
+            .into());
     }
     // Queued because the target's machine is down: said, so a sender knows it waits for it.
     let unreachable = queued.get("hostUnreachable") == Some(&json!(true))
@@ -145,47 +218,73 @@ async fn queue_once(
                 .get("error")
                 .and_then(Value::as_str)
                 .is_some_and(|e| e.contains("peer_unreachable")));
-    let steered = status.pointer("/accepted/steer") == Some(&json!(true));
-    if !json_out {
-        warn_host_pressure(&status["accepted"]);
-    }
-    if json_out {
-        let session_id = status.pointer("/accepted/sessionId").cloned().unwrap_or(json!(key));
-        let accepted = status.get("accepted").cloned().unwrap_or(Value::Null);
-        let mut out = json!({
-            "deliveryId": id,
-            "target": key,
-            "sessionId": session_id,
-            "promptId": prompt_id.id,
-            "status": state,
-            "queued": !steered,
-            "steered": steered,
-            "accepted": accepted,
-            "hostUnreachable": unreachable,
-        });
-        if superseding {
-            // null until delivered, or when the target's daemon predates the key.
-            out["replaced"] = accepted.get("replaced").cloned().unwrap_or(Value::Null);
-            out["replacedPromptIds"] =
-                accepted.get("replacedPromptIds").cloned().unwrap_or(Value::Null);
-        }
-        print_json(&out);
-    } else if state == "delivered" {
-        let accepted = status.get("accepted").cloned().unwrap_or(Value::Null);
-        let mut lines = sent_lines(&accepted, superseding);
-        lines[0].push_str(&format!(" (delivery {id})"));
-        for line in lines {
-            println!("{line}");
-        }
-    } else if unreachable {
-        println!(
-            "queued; host unreachable, will retry (delivery {id}; {} send --status {id})",
-            crate::cli::entry::program()
-        );
+    let sent = if state == "delivered" {
+        SentState::of_accepted(status.get("accepted").unwrap_or(&Value::Null))
     } else {
-        println!("queued for delivery {id} ({} send --status {id})", crate::cli::entry::program());
+        SentState::Queued
+    };
+    Ok(Handoff { state: sent, status: state.to_owned(), unreachable })
+}
+
+/// What a hand-off prints without `--json`: [`sent_line`], then what it means for a person.
+pub(crate) fn handoff_lines(
+    handoff: &Handoff,
+    key: &str,
+    id: &str,
+    status: &Value,
+    superseding: bool,
+) -> Vec<String> {
+    let mut lines = vec![sent_line(handoff.state, id, key)];
+    let program = crate::cli::entry::program();
+    if handoff.status == "delivered" {
+        let accepted = status.get("accepted").cloned().unwrap_or(Value::Null);
+        let mut said = sent_lines(&accepted, superseding);
+        said[0].push_str(&format!(" (delivery {id})"));
+        lines.extend(said);
+    } else if handoff.unreachable {
+        lines.push(format!(
+            "queued; host unreachable, will retry (delivery {id}; {program} send --status {id})"
+        ));
+    } else {
+        lines.push(format!("queued for delivery {id} ({program} send --status {id})"));
     }
-    Ok(())
+    lines
+}
+
+/// What a hand-off prints with `--json`: `ok`, `state` and `id` as [`sent_line`] names them,
+/// beside the outbox's own fields.
+pub(crate) fn handoff_json(
+    handoff: &Handoff,
+    key: &str,
+    id: &str,
+    prompt_id: &str,
+    status: &Value,
+    superseding: bool,
+) -> Value {
+    let steered = status.pointer("/accepted/steer") == Some(&json!(true));
+    let session_id = status.pointer("/accepted/sessionId").cloned().unwrap_or(json!(key));
+    let accepted = status.get("accepted").cloned().unwrap_or(Value::Null);
+    let mut out = json!({
+        "ok": true,
+        "state": handoff.state.name(),
+        "id": id,
+        "deliveryId": id,
+        "target": key,
+        "sessionId": session_id,
+        "promptId": prompt_id,
+        "status": handoff.status,
+        "queued": !steered,
+        "steered": steered,
+        "accepted": accepted,
+        "hostUnreachable": handoff.unreachable,
+    });
+    if superseding {
+        // null until delivered, or when the target's daemon predates the key.
+        out["replaced"] = accepted.get("replaced").cloned().unwrap_or(Value::Null);
+        out["replacedPromptIds"] =
+            accepted.get("replacedPromptIds").cloned().unwrap_or(Value::Null);
+    }
+    out
 }
 
 /// The daemon answered that it has no such method: it is older than this CLI.
@@ -214,8 +313,13 @@ async fn queue_direct(
     let id = resolve_id(client, key).await?;
     let accepted = queue_prompt(client.clone(), &id, text, steer, None, prompt_id).await?;
     let steered = accepted.get("steer") == Some(&json!(true));
+    // No outbox, so no delivery id: the prompt id names this send.
+    let state = SentState::of_accepted(&accepted);
     if json_out {
         let mut out = json!({
+            "ok": true,
+            "state": state.name(),
+            "id": prompt_id.id,
             "sessionId": id,
             "target": key,
             "promptId": prompt_id.id,
@@ -231,6 +335,7 @@ async fn queue_direct(
         }
         print_json(&out);
     } else {
+        println!("{}", sent_line(state, &prompt_id.id, key));
         for line in sent_lines(&accepted, superseding) {
             println!("{line}");
         }

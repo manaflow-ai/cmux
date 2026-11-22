@@ -21,6 +21,9 @@ pub enum Code {
     PermissionDenied = 5,
     /// A conditional stop refused (`hub/stop_if_idle.rs`): nothing was stopped.
     NotIdle = 6,
+    /// The target refused a send at once (`send_async.rs`): its folder's trust, a bad prompt, a
+    /// paused or full agent pair. Nothing was delivered.
+    Refused = 7,
     /// Reserved: a SIGINT ends the process with the shell's own 130.
     #[allow(dead_code)]
     Interrupted = 130,
@@ -35,6 +38,7 @@ impl Code {
             Code::NoSession => "no_session",
             Code::PermissionDenied => "permission_denied",
             Code::NotIdle => "not_idle",
+            Code::Refused => "refused",
             Code::Interrupted => "interrupted",
         }
     }
