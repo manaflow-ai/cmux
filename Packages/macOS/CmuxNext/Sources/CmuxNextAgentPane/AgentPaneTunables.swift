@@ -2,6 +2,7 @@ import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 
 /// How the chat header's top-right icons move (webviews header/headerMotion.ts), Thunderdome B
