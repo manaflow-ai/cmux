@@ -70,6 +70,7 @@ const sampleFrame = () => {
     phase,
     rows,
     middle: (view.top + view.bottom) / 2,
+    bottom: view.bottom,
     opened: line?.getAttribute("aria-expanded") === "true",
   });
 };
