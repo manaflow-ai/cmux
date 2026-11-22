@@ -4,6 +4,7 @@
 //   generated/scopes.json    op name -> scope (the host's scope check and the consent UI)
 //   generated/ops.json       op names
 //   generated/signals.json   signal sources for cmux.watch (from schema/v2/signals.json)
+//   generated/REFERENCE.md   the docs reference: ops, event streams and signal sources in tables
 // Sources until the merged D7 catalog exists: cmux-tui resource ops, cloud ops,
 // app actions, and every first-party app's catalog fragment (app-catalogs.ts).
 // `--check` exits 1 when a generated file is stale.
@@ -12,6 +13,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { loadAppCatalogs, schemaType } from "./app-catalogs.ts"
 import { SchemaValidator } from "./json-schema.ts"
+import { referenceMarkdown } from "./gen-reference.ts"
 import { createCmux } from "../js/src/cmux.ts"
 
 const here = new URL(".", import.meta.url).pathname
@@ -591,9 +593,16 @@ declare function radialGradient(colors: readonly string[]): CmuxGradient
   const scopesJson = JSON.stringify({ apiVersion: API_VERSION, ops: Object.fromEntries(Object.entries(scopes).sort(([a], [b]) => a.localeCompare(b))), never: never.sort() }, null, 2) + "\n"
   const opsJson = JSON.stringify({ apiVersion: API_VERSION, ops: Object.keys(scopes).sort() }, null, 2) + "\n"
   // Checked here, read where it is used: the SDKs read events.json with scopes.json (cmux-extension-sdk).
-  loadEvents(scopes)
+  const events = loadEvents(scopes)
+  const reference = referenceMarkdown({
+    apiVersion: API_VERSION,
+    ops: Object.fromEntries(Object.entries(scopes).map(([n, o]) => [n, { ...o, docs: ops[n]?.docs }])),
+    never,
+    events,
+    signals: JSON.parse(signals.json).signals
+  })
   return {
-    "cmux-app.d.ts": dts, "scopes.json": scopesJson, "ops.json": opsJson, "signals.json": signals.json
+    "cmux-app.d.ts": dts, "scopes.json": scopesJson, "ops.json": opsJson, "signals.json": signals.json, "REFERENCE.md": reference
   }
 }
 
