@@ -645,7 +645,7 @@ jobs:
                 emit_all_areas
                 exit 0
               fi
-              workflow_base_args=(--ci-workflow-base ${RUNNER_TEMP}/cmux-ci-base-workflow.yml)
+              workflow_base_args=(--ci-workflow-base "${RUNNER_TEMP}/cmux-ci-base-workflow.yml")
             fi
 
             python3 scripts/ci/detect_ci_change_areas.py \
