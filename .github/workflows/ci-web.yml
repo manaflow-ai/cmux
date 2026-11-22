@@ -841,6 +841,11 @@ jobs:
           # took them to 2, which doubled the phase that is most of a shard's wall time. The
           # shard split reads these widths (run-webviews-tests.sh), so it balances on them.
           CMUX_WEB_TEST_DEV_JOBS: "4"
+          # The runs whose verdicts become the base's history: the condition of the upload below and of the
+          # webviews-test-history job. Keyed on push alone, a batch tick or post-merge batch run wrote no inputs
+          # key, its history job failed "no single inputs key", and the history (with the base reds a pull
+          # request skips alone retries for) froze at the last push.
+          CMUX_WEB_TEST_RECORD_HISTORY: ${{ (github.event_name == 'push' || github.event.inputs.tick == 'true' || inputs.sha != '' && inputs.sha == github.sha && inputs.only == '') && '1' || '0' }}
         run: |
           # Replay uses this exact runner and result parser, with the base's tests and bun.
           # Different deadline policies can otherwise turn an old named failure into a new timeout.
@@ -856,9 +861,10 @@ jobs:
             export CMUX_WEB_TEST_RETRY_BUDGET="$CMUX_WEB_TEST_RETRY_DEADLINE"
           fi
           mkdir -p "$RUNNER_TEMP/webviews-head-results/runner"
-          # A push records its webview inputs key with its verdicts (the history job's checkout is sparse, and the key
-          # reads files the router routes on). Best effort: no key, and the history job records nothing.
-          if [ "${GITHUB_EVENT_NAME:-}" = push ]; then
+          # A recorded run (a push, a batch tick, a post-merge batch run) records its webview inputs key with its
+          # verdicts (the history job's checkout is sparse, and the key reads files the router routes on). Best
+          # effort: no key, and the history job records nothing.
+          if [ "${CMUX_WEB_TEST_RECORD_HISTORY:-0}" = 1 ]; then
             python3 ../scripts/ci/webviews_test_history.py inputs > "$RUNNER_TEMP/webviews-head-results/webviews-inputs-key" ||
               rm -f "$RUNNER_TEMP/webviews-head-results/webviews-inputs-key"
           fi
