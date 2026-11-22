@@ -27,6 +27,10 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Chromium's AsyncLiveResize (below fork API 27): off only for the Debug Settings "Synced live"
     /// drag resize (a Synced live drag resize, removed 2026-11-06), which lets Chromium hold a frame for the page again.
     var asyncLiveResize = true
+    /// Chromium presents a page's frame as soon as it has drawn it (`CEFFramePacing`), off by
+    /// default: the Debug Settings read, taken at launch because Chromium reads its command line once.
+    var noFrameRateLimit = false
+
     /// The profile Chromium opens at startup (`profile-directory`), a directory name under the root
     /// cache: the default cmux profile's (`CEFProfileStorage.initialProfileDirectory`). Nil leaves
     /// Chromium's own choice (its last-used profile, `Default` on a first launch).
@@ -98,6 +102,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // app's energy with 20 hidden tabs from about 0.24 to 4 mW (msg 2654).
         result.append("disable-stack-profiler")
         result.append(Self.youngGeneration)
+        // A page draws when it has a frame, not when the display asks (`CEFFramePacing`): off by
+        // default, since it also lets an animating page draw frames the display never shows.
+        if noFrameRateLimit { result.append(contentsOf: CEFFramePacing.switches) }
         result.append(Self.overlayScrollbars)
         // Chromium's UI thread is the app's main thread (external message pump): one
         // `CefDoMessageLoopWork` pass ran ready work for up to CEF's 10 ms slice, longer than a
@@ -284,6 +291,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             keepsUnpackedEnabled: keepsUnpackedEnabled,
             extraSwitches: extra,
             asyncLiveResize: asyncLiveResize,
+            noFrameRateLimit: CEFFramePacing.noFrameRateLimit.settledValue,
             initialProfileDirectory: initialProfileDirectory,
             keepsCodeSignClone: keepsCodeSignClone
         )
