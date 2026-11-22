@@ -25,7 +25,7 @@ const WIDTH = 720;
 const HEIGHT = 640;
 
 type Row = [key: string, top: number, height: number, ink: number];
-type Sample = { t: number; folding: boolean; rows: Row[] };
+type Sample = { t: number; folding: boolean; rows: Row[]; view?: number };
 type Run = { look: string; samples: Sample[]; startedAt: number; view?: number };
 
 /** The run's numbers: over the frames from the fold's start to when nothing moves any more. */
@@ -80,7 +80,7 @@ export function measure(run: Run) {
   const before = samples[Math.max(0, first - 1)]!;
   const last = samples.at(-1)!;
   const kept = new Set(last.rows.map((row) => row[0]));
-  const center = (run.view ?? 0) / 2;
+  const center = (run.view ?? before.view ?? HEIGHT) / 2;
   const candidates = before.rows.filter((row) => kept.has(row[0]) && !row[0].startsWith("ghost-"));
   const anchor = candidates
     .map((row) => ({
@@ -93,12 +93,14 @@ export function measure(run: Run) {
     .sort((a, b) => a.off - b.off)[0]?.row;
   let anchorStep = 0;
   let anchorDrift = 0;
+  let anchorMax = 0;
   if (anchor) {
     let prior = anchor[1];
     for (let index = first; index <= lastChange; index += 1) {
       const row = samples[index]!.rows.find((r) => r[0] === anchor[0]);
       if (!row) continue;
       anchorStep = Math.max(anchorStep, Math.abs(row[1] - prior));
+      anchorMax = Math.max(anchorMax, Math.abs(row[1] - anchor[1]));
       prior = row[1];
     }
     const end = last.rows.find((r) => r[0] === anchor[0]);
@@ -123,6 +125,7 @@ export function measure(run: Run) {
     gashPx: Math.round(gash),
     anchorDriftPx: Math.round(anchorDrift * 10) / 10,
     anchorStepPx: Math.round(anchorStep * 10) / 10,
+    anchorMaxPx: Math.round(anchorMax * 10) / 10,
     blink: Math.round(blink * 100) / 100,
     frames: lastChange - first + 1,
     foldStart: samples[first]!.t,

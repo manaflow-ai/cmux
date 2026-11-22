@@ -42,6 +42,35 @@ export const turnEndFoldLook = defineExperiment({
       label: "Dissolve",
       description: "Nothing slides: every row that moves fades out where it was and in where it lands.",
     },
+    sheet: {
+      label: "Sheet",
+      description:
+        "The folded work rides up with the answer under the Worked for line as one surface, cropped as it goes.",
+    },
+    capped: {
+      label: "Capped speed",
+      description:
+        "A speed limit at half the house bound: one steady speed, then a soft landing; a long move takes longer.",
+    },
+    viscous: {
+      label: "Viscous",
+      description:
+        "Each moving row starts a frame after the one nearer the fold, so the rows are drawn in like a liquid.",
+    },
+    water: {
+      label: "Water",
+      description:
+        "Sheet on the house spring: the work flows in under the line, starting still and landing without overshoot.",
+    },
+    edge: {
+      label: "Edge start",
+      description:
+        "Rows that start out of sight start just past the view's edge, so nothing travels farther than it is seen.",
+    },
+    anchored: {
+      label: "Anchored",
+      description: "Fade, with the view scrolled so the row under its center stays where the reader saw it.",
+    },
   },
   defaultArm: "fade",
 });

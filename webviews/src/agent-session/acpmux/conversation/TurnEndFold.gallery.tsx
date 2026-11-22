@@ -16,7 +16,7 @@
 // The variants for Leo's "gash" (2026-11-22: "the big fold we do for claude is not good looking enough. it
 // looks like a gash collapsing. you need to figure out more and more variations to deal with things."):
 // `crossfade`, `morph`, `cascade`, `glide`, `spring`, `wait` and `dissolve` (turnEndFold.ts `TurnEndLook`),
-// each short and `-long`. The dev setting `turn-end-fold-look` picks one in the running pane;
+// each short and `-long`; the motion-path looks `sheet`, `capped`, `viscous`, `water`, `edge` and `anchored` the same way. The dev setting `turn-end-fold-look` picks one in the running pane;
 // scripts/fold-variants-record.ts records and measures each in the big Claude turn.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
@@ -291,5 +291,17 @@ export default componentEntry<{ variant: Variant; long?: boolean; lead?: ExitLea
     "wait-long": { props: { variant: "wait", long: true }, play: runToFold },
     dissolve: { props: { variant: "dissolve" }, play: runToFold },
     "dissolve-long": { props: { variant: "dissolve", long: true }, play: runToFold },
+    sheet: { props: { variant: "sheet" }, play: runToFold },
+    "sheet-long": { props: { variant: "sheet", long: true }, play: runToFold },
+    capped: { props: { variant: "capped" }, play: runToFold },
+    "capped-long": { props: { variant: "capped", long: true }, play: runToFold },
+    viscous: { props: { variant: "viscous" }, play: runToFold },
+    "viscous-long": { props: { variant: "viscous", long: true }, play: runToFold },
+    water: { props: { variant: "water" }, play: runToFold },
+    "water-long": { props: { variant: "water", long: true }, play: runToFold },
+    edge: { props: { variant: "edge" }, play: runToFold },
+    "edge-long": { props: { variant: "edge", long: true }, play: runToFold },
+    anchored: { props: { variant: "anchored" }, play: runToFold },
+    "anchored-long": { props: { variant: "anchored", long: true }, play: runToFold },
   },
 });
