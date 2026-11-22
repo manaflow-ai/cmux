@@ -248,9 +248,7 @@ struct EnvInspectorDirection {
             // The note takes the row's width and wraps in a narrow window, as a SwiftUI Text does.
             let text = envV([title, envLabel(kind.promise, size: TypeScale.caption, color: EnvInk.secondary, wraps: true)], spacing: 1, fill: true)
             text.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            let radio = envSymbol(on ? "largecircle.fill.circle" : "circle", size: TypeScale.body, color: on ? .controlAccentColor : EnvInk.tertiary)
-            let row = envH([radio, text], spacing: 8, align: .top)
-            return EnvClickArea(row) { [model, reload] in
+            return EnvClickArea(envRadioRow(picked: on, title: title, text: text, size: TypeScale.body)) { [model, reload] in
                 if let entry { model.setKind(kind, for: entry) }
                 reload()
             }
@@ -348,6 +346,7 @@ struct EnvInspectorDirection {
     private func noHostDetail() -> NSView {
         let entry = sample.noHost
         let host = NSTextField(string: "")
+        host.focusRingType = .none
         host.placeholderString = "api.example.com"
         host.isBezeled = true
         host.bezelStyle = .roundedBezel
@@ -436,6 +435,7 @@ struct EnvInspectorDirection {
 
     private func requestDetail() -> NSView {
         let value = NSSecureTextField(string: "")
+        value.focusRingType = .none
         value.placeholderString = "Type or paste the value"
         value.isBezeled = true
         value.bezelStyle = .roundedBezel
