@@ -586,7 +586,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     }
 
     private func pumpWarmUp() {
-        guard !warmScheduled, !warmQueue.isEmpty || (spares.count < Self.spareTarget && !warmedLayouts.isEmpty) else { return }
+        guard !warmScheduled, !warmQueue.isEmpty || (spares.count < Self.spareTarget && !shownOrder.isEmpty) else { return }
         warmScheduled = true
         RunLoop.main.perform(inModes: [.default]) { [weak self] in
             MainActor.assumeIsolated {
@@ -657,11 +657,25 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         return FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
     }
 
-    /// One spare row cell with every warmed shape's parts built (one per idle run-loop turn).
+    /// One laid-out row of each shape the list holds (its first rows, where a scroll starts): what a
+    /// spare builds the parts for. From the layouts at hand, not only the warm-up queue's (which
+    /// sees just the rows a change added: none had a layout yet on the first one, green-10).
+    private func spareShapes() -> [FeedRowLayout] {
+        var seen: Set<String> = []
+        var result = warmedLayouts
+        for layout in warmedLayouts { seen.insert(Self.shape(layout)) }
+        for id in shownOrder.prefix(200) {
+            guard let key = shownKeys[id], let layout = layouts.cached(key) else { continue }
+            if seen.insert(Self.shape(layout)).inserted { result.append(layout) }
+        }
+        return result
+    }
+
+    /// One spare row cell with every shape's parts built (one per idle run-loop turn).
     private func makeSpare() {
         let cell = FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
         cell.overrideUserInterfaceStyle = collectionView?.traitCollection.userInterfaceStyle ?? .unspecified
-        for layout in warmedLayouts {
+        for layout in spareShapes() {
             cell.frame = CGRect(x: 0, y: 0, width: CGFloat(layout.key.width), height: layout.height)
             cell.apply(layout, item: items[layout.key.item.id], settled: false)
             cell.layoutIfNeeded()
@@ -993,6 +1007,8 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             self.settleTask = nil
             self.rowsSettled = true
             self.visibleCells.forEach { $0.scrollSettled() }
+            // Still again: spares the scroll took are made again, off the scroll.
+            self.pumpWarmUp()
         }
     }
 
