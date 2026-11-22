@@ -199,6 +199,9 @@ public final class GlassMenu {
         return find(in: menu)
     }
 
+    /// The submenu open beside this menu, else nil (tests reach its rows).
+    var shownSubmenu: GlassMenu? { child }
+
     /// The last open menu of the chain (the root without a submenu open).
     private var deepest: GlassMenu { child?.deepest ?? self }
 
