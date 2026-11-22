@@ -209,6 +209,11 @@ pub(super) fn release_refused(
         (None, Some(name)) => release(runner, name, deadline),
         (None, None) => return outcome,
     };
+    // No machine of the fresh name was listed and none is being created: the refusal came before any machine,
+    // so there was nothing to delete and the app's own retry stands (cmux#47002 review).
+    if released.gone && released.machine_id.is_none() {
+        return outcome;
+    }
     let next = if released.gone {
         "The new machine was deleted because its agent could not start.".to_owned()
     } else {
