@@ -1,5 +1,6 @@
 public import CmuxNextPages
 public import CmuxNextSettings
+import CmuxNextCompat
 import Foundation
 
 /// Settings > Updates' App Update card: where a download shows its progress and its Cancel now
@@ -88,7 +89,7 @@ extension UpdaterService {
 
     /// The running bundle's creation date: when the install (or the person) put it in place.
     nonisolated static func bundleInstalledDate(_ bundle: URL = Bundle.main.bundleURL) -> Date? {
-        try? bundle.resourceValues(forKeys: [.creationDateKey]).creationDate
+        try? bundle.blockingResourceValues(forKeys: [.creationDateKey]).creationDate
     }
 
     /// "Today at 9:41 PM", "Yesterday at 8:02 AM", "Nov 20, 2026 at 6:15 PM", in the person's locale.
