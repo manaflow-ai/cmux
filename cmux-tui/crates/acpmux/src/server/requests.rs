@@ -1798,6 +1798,16 @@ async fn dispatch_request_with_identity(
                     workspace: workspace_id.clone(),
                 })
             });
+            // The owner's own daemon starts this machine's own chat, not a remote chain
+            // (`remote_guard::owner_control`, cmux#50026): no remote start rule, no asking-mode
+            // settle, the mode it asks as this machine's own start. A VM-boundary start stays one.
+            let remote_start = conn.origin.web_class()
+                && !(super::remote_guard::owner_control(conn.origin, conn.auth, &params)
+                    && !crate::hub::vm_boundary::asked(
+                        conn.auth,
+                        super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                        &params,
+                    ));
             let req = crate::hub::NewRequest {
                 harness: copy.harness.or_else(|| pick("harness")),
                 preset: copy.preset.or_else(|| pick("preset")),
@@ -1810,15 +1820,7 @@ async fn dispatch_request_with_identity(
                 workspace_id,
                 env,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
-                // The owner's own daemon starts this machine's own chat, not a remote chain
-                // (`remote_guard::owner_control`, cmux#50026); a VM-boundary start stays one.
-                remote: conn.origin.web_class()
-                    && !(super::remote_guard::owner_control(conn.origin, conn.auth, &params)
-                        && !crate::hub::vm_boundary::asked(
-                            conn.auth,
-                            super::remote_guard::control_of(conn.origin, conn.auth, &params),
-                            &params,
-                        )),
+                remote: remote_start,
                 vm_boundary: crate::hub::vm_boundary::asked(
                     conn.auth,
                     super::remote_guard::control_of(conn.origin, conn.auth, &params),
@@ -1858,7 +1860,7 @@ async fn dispatch_request_with_identity(
             {
                 hub.set_tags(&s, Some(tags), &[], None);
             }
-            if conn.origin.web_class() {
+            if remote_start {
                 let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
                 let cloud_mobile = super::remote_guard::cloud_mobile(&params);
                 // The VM boundary its caller asked for (`hub/vm_boundary.rs`): a
