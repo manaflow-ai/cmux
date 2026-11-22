@@ -401,7 +401,8 @@
    so the two always match. */
 .acpmux-composer-box,
 .acpmux-asks-stack {
-  --acpmux-composer-radius: 18px;
+  /* A theme's corner (--cmux-composer-radius); unset, 18 px. */
+  --acpmux-composer-radius: var(--cmux-composer-radius, 18px);
 }
 /* The card's material is the liquid glass (.ui-glass, ui/glass/glass.css) with the composer's own
    tokens (composerStates.css): the solid composer surface on an opaque window, glass over art or a

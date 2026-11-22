@@ -73,9 +73,13 @@
      lighter than the page (near white, as Aside's and ChatGPT's are); in a dark theme one small step
      toward the text, as the theme's elevated surface. Solid on an opaque window; over art or a
      see-through window it is glass (below). */
-  --acpmux-composer-solid: light-dark(
-    color-mix(in srgb, var(--cmux-surface-solid, var(--acpmux-base)) 35%, var(--cmux-tone-light)),
-    color-mix(in srgb, var(--agent-text) 7%, var(--cmux-surface-solid, var(--acpmux-base)))
+  /* A theme's fill (--cmux-composer-fill) replaces the derived one; unset, the derivation. */
+  --acpmux-composer-solid: var(
+    --cmux-composer-fill,
+    light-dark(
+      color-mix(in srgb, var(--cmux-surface-solid, var(--acpmux-base)) 35%, var(--cmux-tone-light)),
+      color-mix(in srgb, var(--agent-text) 7%, var(--cmux-surface-solid, var(--acpmux-base)))
+    )
   );
   --acpmux-composer-surface: var(--acpmux-composer-solid);
   /* The glass's light rim, as iOS 26 draws it (Leo 2026-10-21, "a bit more glass on the input box"):
@@ -94,7 +98,7 @@
     );
   /* The composer's shadow (cg-design-judge, 10-14): the shared --elevation-1 in a light theme;
      none in a dark one, where a drop shadow on a dark page shows nothing. */
-  --acpmux-composer-shadow: var(--elevation-1);
+  --acpmux-composer-shadow: var(--cmux-composer-shadow, var(--elevation-1));
   --acpmux-menu-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
 }
 
@@ -137,7 +141,12 @@
 /* All cards in the bottom stack use the input's material. Extra text washes on individual
    cards otherwise change the wallpaper's tint at every seam. */
 .acpmux-shell {
-  --acpmux-stack-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-tint), transparent);
+  /* A theme's hat fill (--cmux-composer-hat-fill) on an opaque window; over art, under Lens or
+     Spectrum and under Reduce Transparency the rules below keep theirs. */
+  --acpmux-stack-tint: var(
+    --cmux-composer-hat-fill,
+    color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-tint), transparent)
+  );
   --acpmux-stack-backdrop: var(--ds-glass-popover-blur);
 }
 :root[data-cmux-see-through] .acpmux-shell {
