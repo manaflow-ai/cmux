@@ -1810,7 +1810,15 @@ async fn dispatch_request_with_identity(
                 workspace_id,
                 env,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
-                remote: conn.origin.web_class(),
+                // The owner's own daemon starts this machine's own chat, not a remote chain
+                // (`remote_guard::owner_control`, cmux#50026); a VM-boundary start stays one.
+                remote: conn.origin.web_class()
+                    && !(super::remote_guard::owner_control(conn.origin, conn.auth, &params)
+                        && !crate::hub::vm_boundary::asked(
+                            conn.auth,
+                            super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                            &params,
+                        )),
                 vm_boundary: crate::hub::vm_boundary::asked(
                     conn.auth,
                     super::remote_guard::control_of(conn.origin, conn.auth, &params),
@@ -2385,8 +2393,10 @@ async fn dispatch_request_with_identity(
             let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
             let start_later = super::fork_through::starts_later(&params);
-            // A remote device's switch is its new chat (`hub/fork.rs` `Retarget::remote`).
-            let remote_switch = conn.origin.web_class();
+            // A remote device's switch is its new chat (`hub/fork.rs` `Retarget::remote`); the
+            // owner's own daemon's is this machine's (`remote_guard::owner_control`).
+            let remote_switch = conn.origin.web_class()
+                && !super::remote_guard::owner_control(conn.origin, conn.auth, &params);
             let retarget = super::fork_through::retarget(&params)?
                 .map(|r| crate::hub::Retarget { remote: remote_switch, ..r });
             let switched = retarget.is_some();
