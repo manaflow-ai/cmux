@@ -38,9 +38,10 @@ pub(super) fn workspace_create(
         // Run from a cmux terminal: the new workspace goes below the one
         // the script runs in, not next to the person's selection
         // (ask-48544d7525). A place hint only; an older daemon gets the
-        // request without it (wire/workspace_created_by.rs).
+        // request without it (wire/created_by_stamp.rs).
         params.insert("created_by".into(), creator(key, std::env::var("ACPMUX_SESSION_ID").ok()));
     }
+    insert_purpose(&mut params, flags);
     // The daemon refuses these with --empty: there is no terminal to launch.
     if let Some(cwd) = flags.take("cwd") {
         params.insert("cwd".into(), Value::String(cwd));

@@ -168,11 +168,15 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// A Chromium page's file while the live web loop runs: ``reply(to:range:webView:)`` for a
     /// handler of `page` at `root`, as Chromium takes it, with that reply's CSP. A 404 when there is
     /// no root or no reply.
+    /// `pinnedIn`: the host view of the Chromium page asking, whose requests read the update its
+    /// document loaded with (``WebBundleServedViews/chromiumDocument(_:)``); nil reads the active one.
     static func liveChromiumResponse(to url: URL, range: String?, page: PageDescriptor, root: URL?,
-                                     dynamicSource: (any PageDynamicResourceSource)?) async -> PageChromiumResponse {
+                                     dynamicSource: (any PageDynamicResourceSource)?,
+                                     pinnedIn webView: WKWebView? = nil) async -> PageChromiumResponse {
         guard let root else { return .notFound }
         let handler = PageSchemeHandler(page: page, root: root, dynamicSource: dynamicSource)
-        guard let reply = await handler.reply(to: url, range: range) else { return .notFound }
+        if let webView, PageDevServer.isDocument(url, page: page) { WebBundleServedViews.shared.chromiumDocument(webView) }
+        guard let reply = await handler.reply(to: url, range: range, webView: webView) else { return .notFound }
         return chromiumResponse(reply)
     }
 

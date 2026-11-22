@@ -9,17 +9,17 @@ import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import { fromDetail, listCatalog, listInstalled, listUpdates, type WireDetail } from "./wire";
 import {
   categories,
-  featuredApps,
   filterApps,
   listedInStore,
   parseRoute,
-  type BrowseStyle,
   type CardStyle,
+  type StoreLayout,
+  type StoreTab,
+  featuredApps,
+  type BrowseStyle,
   type DiscoverShelf,
   type ExamplesStyle,
   type ListingStyle,
-  type StoreLayout,
-  type StoreTab,
 } from "./model";
 import {
   AppsOps,
@@ -34,6 +34,7 @@ import {
   type LogLine,
   type WireAsset,
   type WireLogs,
+  CUSTOMIZE_ACTION,
 } from "./types";
 
 export type Connection = "connecting" | "connected" | "disconnected";
@@ -683,6 +684,15 @@ export class AppsStore {
     return this.intent(
       OPEN_ACTION.op,
       { action: OPEN_ACTION.action, args: { app } },
+      { reread: false, mutation: false },
+    );
+  }
+
+  /** Opens Settings > Customize, every customization one click each (the Customize cmux… card). */
+  openCustomize(): Promise<void> {
+    return this.intent(
+      CUSTOMIZE_ACTION.op,
+      { action: CUSTOMIZE_ACTION.action, args: CUSTOMIZE_ACTION.args },
       { reread: false, mutation: false },
     );
   }
