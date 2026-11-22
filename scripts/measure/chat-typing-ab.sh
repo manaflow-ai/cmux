@@ -5,11 +5,16 @@
 # rounds (base, head, base, head, ...) on the same Mac, so both arms see the same host state.
 #   cmux-ci run --class exclusive --measurement --label bench \
 #     --script scripts/measure/chat-typing-ab.sh --ref <this script's sha> \
-#     --arg=base=<sha> --arg=head=<sha> [--arg=rounds=2] \
+#     --arg=base=<sha> --arg=head=<sha> [--arg=rounds=2] [--arg=draft=8000] \
 #     --artifact .build/chat-typing-ab/report.tgz --timeout 7200
 #   --arg=base=SHA   arm A, the commit to compare against (40 hex)
 #   --arg=head=SHA   arm B, the measured commit (40 hex)
 #   --arg=rounds=N   measurements per arm (default 2, at most 6)
+#   --arg=draft=N    type the keys at the end of an N-character draft (0 to 15000, default 0: an empty composer).
+#                    Per-key work that grows with the draft (serialize, persist, re-render) only shows here; the
+#                    2015 editor-latency study moved 2x to 10x between an empty file and a large one
+#                    (hq docs/reading/2026-11-19-fatin-typing-with-pleasure.md). Both arms then run this
+#                    checkout's agent-engine-bench.py, so a base from before --draft-chars measures the same case.
 # Each arm is its own git worktree at its commit, measured by that commit's split-spring.sh with --app-cache: the
 # first round builds the arm's app, later rounds reuse it. The app-cache entries this step made, the worktrees and
 # the benches' scratch folders in TMPDIR are removed at the end; free disk is printed at the start and the end.
@@ -23,17 +28,19 @@
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 here="$PWD"
-base="" head="" rounds=2
+base="" head="" rounds=2 draft=0
 for arg in "$@"; do
   case "$arg" in
     base=*) base="${arg#base=}" ;;
     head=*) head="${arg#head=}" ;;
     rounds=*) rounds="${arg#rounds=}" ;;
+    draft=*) draft="${arg#draft=}" ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
 [[ "$base" =~ ^[0-9a-f]{40}$ && "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "base= and head= must be 40-hex commits" >&2; exit 2; }
 [[ "$rounds" =~ ^[0-9]+$ ]] && (( rounds >= 1 && rounds <= 6 )) || { echo "rounds= must be 1 to 6" >&2; exit 2; }
+[[ "$draft" =~ ^[0-9]+$ ]] && (( draft <= 15000 )) || { echo "draft= must be 0 to 15000" >&2; exit 2; }
 out="$here/.build/chat-typing-ab"
 rm -rf "$out" && mkdir -p "$out"
 # A cancelled or timed-out step gets SIGTERM, which skips an EXIT trap unless the signal is trapped.
@@ -69,7 +76,7 @@ cleanup() {
 }
 trap cleanup EXIT
 echo "CHAT-TYPING-AB disk free before: $(df -h "$here" | awk 'NR==2 {print $4}')"
-echo "CHAT-TYPING-AB host $(hostname -s) macOS $(sw_vers -productVersion 2>/dev/null) base $base head $head rounds $rounds"
+echo "CHAT-TYPING-AB host $(hostname -s) macOS $(sw_vers -productVersion 2>/dev/null) base $base head $head rounds $rounds draft $draft"
 # The benches launch the app, which draws only in this account's GUI session. Without one every round measures
 # nothing, after both arms' app builds (2026-11-18: cmux21-23, the austin minis and a display mini each spent about an
 # hour, then "no-gui-session" and 0 rounds), so check before building (the bench_launch session rule).
@@ -106,7 +113,10 @@ for arm in base head; do
     done
   fi
   git worktree add --quiet --detach "$scratch/$arm" "$ref" || { echo "CHAT-TYPING-AB cannot check out $arm $ref" >&2; exit 3; }
+  # The driver, not the app: one bench script for both arms, so both type into the same draft.
+  (( draft > 0 )) && cp "$here/scripts/cmux-next/agent-engine-bench.py" "$scratch/$arm/scripts/cmux-next/agent-engine-bench.py"
 done
+export CMUX_BENCH_TYPING_DRAFT_CHARS="$draft"
 for i in $(seq 1 "$rounds"); do
   for arm in base head; do
     mkdir -p "$out/$arm-$i"
