@@ -31,8 +31,6 @@ extension SidebarListViewComponents {
             switch displayed.rows[index].key {
             case let .workspace(id):
                 ids.insert(id)
-            case let .tab(id, _):
-                ids.insert(id)
             case let .group(id):
                 for member in groupSubtrees[id] ?? [id] {
                     ids.formUnion(groups[member]?.workspaces.map(\.id) ?? [])
