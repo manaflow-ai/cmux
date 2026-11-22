@@ -171,7 +171,7 @@ export type MatrixCell = {
   /** `recap`: a long closing recap that fills the view (the end of a long coordinator turn). */
   answer: "short" | "recap";
   /** The turn closes on acpmux's wrap-up call, its recap card coming in under the answer (Leo's "the recap"). */
-  wrapUp?: boolean;
+  wrapUp?: "short" | "long";
 };
 
 const COMMANDS = ["bun test test/net", "rg -n attempts src", "git status --short", "bun x tsc --noEmit -p ."];
@@ -215,7 +215,11 @@ function matrixTurn(cell: MatrixCell): SimScenario {
   if (cell.viewport === "up") b.reader({ scrollBy: -400 });
   const answer = cell.answer === "recap" ? LONG_ANSWER : ANSWER;
   b.say(answer, { chunks: cell.answer === "recap" ? 12 : 4, chunkMs: 90, after: 400 });
-  if (cell.wrapUp) b.tool("mcp__acpmux__wrap_up", { kind: "other", rawInput: RECAP });
+  if (cell.wrapUp)
+    b.tool("mcp__acpmux__wrap_up", {
+      kind: "other",
+      rawInput: cell.wrapUp === "long" ? { ...RECAP, recap: LONG_ANSWER.split("\n\n").slice(0, 4).join(" ") } : RECAP,
+    });
   return b.turnEnd("completed", cell.timing === "during" ? 20 : 1_500).build();
 }
 

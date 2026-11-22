@@ -143,8 +143,14 @@ export const TURN_END_SNAPSHOT_ATTR = "data-fold-snapshot";
 /// - `rise`: fades in as it rises half a line into its place, on the house ease-out;
 /// - `unfurl`: opens down from its top edge (a clip) as it fades in, as if poured into its room;
 /// - `bead`: fades in as it grows from 96% of its size from its top, the way a drop joins the surface.
-export type TurnEndRecap = "hold" | "rise" | "unfurl" | "bead";
-export const TURN_END_RECAPS: readonly TurnEndRecap[] = ["hold", "rise", "unfurl", "bead"];
+/// - `place`: drawn at full ink in its place in the frame it comes, no entrance at all.
+/// - `open`: full ink from its first frame, its room opening down from its top edge (a clip, no fade),
+///   while the rows above rise into the room on the follow's chase at a line a frame, instead of the
+///   card's whole height in one frame (VirtualTranscript `recapCame`). Nothing fades up from below.
+/// Leo, 2026-11-22: "i think the fade in from the bottom is pretty awkward sometimes when you finish
+/// chats. this is in relation to me calling the folding looking like a gash."
+export type TurnEndRecap = "hold" | "rise" | "unfurl" | "bead" | "place" | "open";
+export const TURN_END_RECAPS: readonly TurnEndRecap[] = ["hold", "rise", "unfurl", "bead", "place", "open"];
 export const TURN_END_RECAP_ATTR = "data-turn-end-recap";
 
 /// How a subagent block (it stays out of the fold, turns.ts `staysOut`) gets to its place under the
@@ -607,6 +613,12 @@ function recapEntrance(recap: TurnEndRecap, from: number, height: number): Keyfr
   if (recap === "unfurl")
     return [
       { opacity: from, clipPath: clipBottom(Math.ceil(height)) },
+      { opacity: 1, clipPath: clipBottom(0) },
+    ];
+  if (recap === "place") return [{ opacity: 1 }, { opacity: 1 }];
+  if (recap === "open")
+    return [
+      { opacity: 1, clipPath: clipBottom(Math.ceil(height)) },
       { opacity: 1, clipPath: clipBottom(0) },
     ];
   if (recap === "bead")

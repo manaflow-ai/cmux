@@ -64,7 +64,10 @@ export const CELLS: Cell[] = [
   cell("scrolled-up", "the reader scrolled up", { viewport: "up" }),
   cell("streaming", "the turn ends while the answer streams", { timing: "during" }),
   cell("long-answer", "a long closing answer fills the view", { answer: "recap" }),
-  cell("recap-card", "the wrap-up recap card comes in under the answer", { wrapUp: true }),
+  cell("recap-card", "the wrap-up recap card comes in under the answer", { wrapUp: "short" }),
+  cell("recap-long", "a long recap card", { wrapUp: "long" }),
+  cell("recap-up", "the recap card, the reader scrolled up", { wrapUp: "short", viewport: "up" }),
+  cell("recap-long-up", "a long recap card, the reader scrolled up", { wrapUp: "long", viewport: "up" }),
   cell("split-half", "half split (360 x 640)", {}, 360, 640),
   cell("split-third", "third split (240 x 640)", {}, 240, 640),
   cell("split-quarter", "quarter split (360 x 320)", {}, 360, 320),
@@ -119,7 +122,10 @@ function sideBySide(clips: string[], target: string, width: number, height: numb
 
 if (import.meta.main) {
   const { TURN_END_LOOKS } = await import("../src/agent-session/acpmux/conversation/turnEndFold");
-  const looks = value("--looks")?.split(",") ?? [...TURN_END_LOOKS];
+  // `--recaps a,b`: the columns are recap entrances (turnEndFold.ts TURN_END_RECAPS), on the first look.
+  const recaps = value("--recaps")?.split(",");
+  const lookList = value("--looks")?.split(",") ?? [...TURN_END_LOOKS];
+  const looks = recaps ?? lookList;
   const only = value("--cells")?.split(",");
   const cells = only ? CELLS.filter((c) => only.includes(c.id)) : CELLS;
   mkdirSync(out, { recursive: true });
@@ -133,7 +139,7 @@ if (import.meta.main) {
       let kept: string | undefined;
       for (let attempt = 0; attempt < repeats; attempt += 1) {
         const options = {
-          look,
+          ...(recaps ? { look: lookList[0]!, recap: look } : { look }),
           scenario: `matrix:${encodeURIComponent(JSON.stringify(c.cell))}`,
           width: c.width,
           height: c.height,
@@ -214,6 +220,10 @@ export function table(cells: Cell[], looks: string[], results: Record<string, Re
       "Pixels: the worst frame's share of all the change (an instant swap is near 1)",
       (n) => `${(n as { worstFrameShare?: number }).worstFrameShare ?? "-"}`,
     ),
+    metric("Recap card's live arrival: the rows around it, biggest step / the card's own (px)", (n) => {
+      const arrival = (n as { recapArrival?: { neighbourStepPx: number; cardStepPx: number } }).recapArrival;
+      return arrival ? `${arrival.neighbourStepPx} / ${arrival.cardStepPx}` : "-";
+    }),
     metric("Duration (ms)", (n) => `${n.durationMs}`),
     metric("Gap (px past the gap at rest)", (n) => `${n.gashPx}`),
   ].join("\n");

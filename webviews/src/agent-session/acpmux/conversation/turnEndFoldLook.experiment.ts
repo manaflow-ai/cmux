@@ -105,6 +105,11 @@ export const turnEndRecapLook = defineExperiment({
     rise: { label: "Rise", description: "Fades in as it rises half a line into its place." },
     unfurl: { label: "Unfurl", description: "Opens down from its top edge as it fades in." },
     bead: { label: "Bead", description: "Fades in as it grows from 96% from its top edge." },
+    place: { label: "In place", description: "Drawn at full ink in its place at once, with no entrance." },
+    open: {
+      label: "Open",
+      description: "Full ink, its room opening down from its top as the rows above rise into it at a line a frame.",
+    },
   },
   defaultArm: "hold",
 });
