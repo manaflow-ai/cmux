@@ -134,8 +134,8 @@ EXPECTED["following(request)"] = {
 EXPECTED["jumping(request)"] = EXPECTED.jumping!;
 
 test("every state x event pair is a named transition or a named refusal", () => {
-  const sampledKinds = new Set(Object.values(FOLLOW_STATE_SAMPLES).map((state) => state.kind));
-  const sampledTypes = new Set(Object.values(FOLLOW_EVENT_SAMPLES).map((event) => event.type));
+  const sampledKinds = new Set<string>(Object.values(FOLLOW_STATE_SAMPLES).map((state) => state.kind));
+  const sampledTypes = new Set<string>(Object.values(FOLLOW_EVENT_SAMPLES).map((event) => event.type));
   expect([...sampledKinds].sort()).toEqual(Object.keys(KINDS).sort());
   expect([...sampledTypes].sort()).toEqual(Object.keys(TYPES).sort());
   for (const [name, state] of Object.entries(FOLLOW_STATE_SAMPLES))

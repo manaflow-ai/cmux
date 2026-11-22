@@ -310,7 +310,7 @@ export const FOLLOW_EVENT_SAMPLES: Readonly<Record<string, FollowEvent>> = {
 
 /// The machine as data (RFD 0026 rule 4), committed at schemas/transcript-follow/table.json.
 export function followTable() {
-  const rows = [];
+  const rows: { state: string; event: string; to: FollowKind; outcome?: FollowOutcome; refusal?: FollowRefusal }[] = [];
   for (const [state, from] of Object.entries(FOLLOW_STATE_SAMPLES))
     for (const [event, input] of Object.entries(FOLLOW_EVENT_SAMPLES)) {
       const step = stepFollow(from, input);

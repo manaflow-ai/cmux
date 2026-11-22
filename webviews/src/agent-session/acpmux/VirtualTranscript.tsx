@@ -7003,8 +7003,7 @@ function TranscriptView({
         downInput &&
         (event?.type === "wheel" ||
           (event?.type === "keydown" && (event.target === node || event.target === node.ownerDocument.body))) &&
-        !isFollowing(followState.current) &&
-        followState.current.kind !== "jumping" &&
+        followState.current.kind === "reading" &&
         node.clientHeight > 0 &&
         node.scrollTop >= node.scrollHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX
       ) {
