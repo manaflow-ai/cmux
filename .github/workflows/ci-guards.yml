@@ -1232,6 +1232,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_gh_call_log.py
 
+      - name: Validate the API call log names its blind spots and leaves scripts' PATH alone
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_api_call_log_blind_spots.py
+
+      - name: Validate the API call log loads in a sparse checkout and switches off cleanly
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_api_call_log_bootstrap.py
+
       - name: Validate refused routing reads say why and retry once on Retry-After
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_route_refusal_detail.py
