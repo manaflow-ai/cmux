@@ -135,7 +135,7 @@ pub(super) fn check_in(batches: &[&Value], surface: Surface, system: &System) ->
             Some((rgb, alpha)) => behind
                 .iter()
                 .map(|(name, under)| {
-                    let mixed = std::array::from_fn(|i| rgb[i] * alpha + under[i] * (1.0 - alpha));
+                    let mixed = over(rgb, alpha, *under);
                     let under = name.strip_prefix("its tinted background over ").unwrap_or(name);
                     (
                         format!("its tinted background over {}", under.trim_start_matches("its ")),
@@ -353,7 +353,7 @@ fn text(
         let floor = if large { 3.0 } else { 4.5 };
         for (what, bg) in behind {
             // A translucent text color shows its background through: measure what is drawn.
-            let drawn = std::array::from_fn(|i| color[i] * alpha + bg[i] * (1.0 - alpha));
+            let drawn = over(color, alpha, *bg);
             let ratio = contrast(drawn, *bg);
             if ratio < floor {
                 findings.add(
@@ -436,13 +436,24 @@ fn hex(text: &str) -> Option<([f64; 3], f64)> {
     if !(digits.len() == 6 || digits.len() == 8) || !digits.chars().all(|c| c.is_ascii_hexdigit()) {
         return None;
     }
-    let channel =
-        |i: usize| u8::from_str_radix(&digits[i..i + 2], 16).ok().map(|v| f64::from(v) / 255.0);
+    let channel = |i: usize| {
+        let pair = digits.get(i..)?.get(..2)?;
+        u8::from_str_radix(pair, 16).ok().map(|v| f64::from(v) / 255.0)
+    };
     let alpha = if digits.len() == 8 { channel(6)? } else { 1.0 };
     Some(([channel(0)?, channel(2)?, channel(4)?], alpha))
 }
 
 /// WCAG 2 contrast ratio of two sRGB colors.
+/// `fg` at `alpha` drawn over `bg`: what the eye sees, channel by channel.
+fn over(fg: [f64; 3], alpha: f64, bg: [f64; 3]) -> [f64; 3] {
+    let mut drawn = bg;
+    for (out, top) in drawn.iter_mut().zip(fg) {
+        *out = top * alpha + *out * (1.0 - alpha);
+    }
+    drawn
+}
+
 fn contrast(a: [f64; 3], b: [f64; 3]) -> f64 {
     let luminance = |c: [f64; 3]| {
         let lin = |v: f64| if v <= 0.040_45 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) };
