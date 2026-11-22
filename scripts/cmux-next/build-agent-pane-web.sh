@@ -141,8 +141,12 @@ content_hash() { shasum -a 256 "$1" | cut -c1-16; }
 PANE_CSS="pane.css?h=$(content_hash "$WORK/pane.css")"
 COPY_CSS="pane-copy.css?h=$(content_hash "$WORK/pane-copy.css")"
 
+# The root starts as its bundle leaves it (focusModality.ts installFocusModality sets `pointer` at
+# once): the chat's drawn copy is up long before the bundle runs, and a first write of a root attribute
+# that a rule reads (FOCUS_RING_GATE) restyles every element of the copy too. The locale loader sets
+# `lang` and `dir` the same way (split-strings.mjs).
 {
-  printf '<!doctype html>\n<html lang="en">\n<head>\n'
+  printf '<!doctype html>\n<html lang="en" data-focus-modality="pointer">\n<head>\n'
   printf '<meta charset="utf-8" />\n'
   printf '<meta http-equiv="Content-Security-Policy" content="%s" />\n' "$CSP"
   printf '<meta name="viewport" content="width=device-width, initial-scale=1" />\n'

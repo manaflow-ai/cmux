@@ -15,6 +15,12 @@ import { fileURLToPath } from "node:url";
 
 /// The per-locale scripts and the loader for `table`, served from `dir` beside the page: `files`
 /// maps a file name in `dir` (`<locale>.js`, `loader.js`) to its text; `tags` is the <head> markup.
+/// The languages written right to left, as src/pages/shared/i18n.ts isRtlLanguage has them
+/// (test/split-strings-loader.test.ts keeps the two the same). The loader sets the root's `dir` with
+/// its `lang`, before anything draws, so the bundle's own write of both (setDocumentLanguage) changes
+/// nothing and restyles nothing.
+export const RTL_LANGUAGES = ["ar", "fa", "he", "ur", "ps", "sd", "ug", "yi"];
+
 export function splitStrings(table, { global = "__cmuxStrings", dir = "locales", loaderFile = false } = {}) {
   if (!/^[A-Za-z_$][\w$]*$/.test(global)) throw new Error(`not a property name: ${global}`);
   const locales = Object.keys(table);
@@ -30,7 +36,7 @@ export function splitStrings(table, { global = "__cmuxStrings", dir = "locales",
   // the browser's; the shipped locales stay on window.__cmuxStringLocales for a live switch
   // (src/pages/shared/appLanguage.ts).
   const select = `(function () {
-  var known = ${JSON.stringify(locales)};
+  var known = ${JSON.stringify(locales)}, rtl = ${JSON.stringify(RTL_LANGUAGES)};
   window.__cmuxStringLocales = known;
   var chosen = window.__cmuxAppLanguage;
   var tag = (typeof chosen === "string" && chosen && chosen !== "system" ? chosen : navigator.language || "en").replace(/_/g, "-");
@@ -43,6 +49,7 @@ export function splitStrings(table, { global = "__cmuxStrings", dir = "locales",
   var locale = "en";
   for (var i = 0; i < candidates.length; i++) if (known.indexOf(candidates[i]) >= 0) { locale = candidates[i]; break; }
   document.documentElement.lang = locale;
+  document.documentElement.dir = rtl.indexOf(locale.split("-")[0].toLowerCase()) >= 0 ? "rtl" : "ltr";
   if (locale !== "en") document.write('<script src="${dir}/' + locale + '.js"><\\/script>');
 })();`;
   if (loaderFile) {

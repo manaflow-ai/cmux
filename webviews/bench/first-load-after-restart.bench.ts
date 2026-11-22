@@ -146,6 +146,9 @@ for (const [name, value] of [
 const LINK_NAME = process.env.LINK ?? "local";
 const NO_TAIL = process.env.NO_TAIL === "1";
 const WIRE_TRACE = process.env.WIRE_TRACE === "1";
+/// STYLE_TRACE=1 (reopen modes): a Chromium trace of the renderer per round, printed as its style recalcs (count,
+/// ms, elements restyled), the biggest ones with the JS that forced them, and the invalidation reasons.
+const STYLE_TRACE = process.env.STYLE_TRACE === "1";
 const LINK = linkProfile(LINK_NAME);
 /// How long each relaunch is recorded from navigation: acpmux's absence, the page's next retry (at most
 /// 2 s apart while it recovers, hostRetry.ts `nextRetryDelay`), the attach and the settle after it.
@@ -711,6 +714,130 @@ const sumsFor = (label: string): ProfileSums => {
 /// React's own scheduler and reconciler frames, left out of the per-bucket table so the pane's functions show.
 const REACT_FRAME =
   /^(perform|render|workLoop|begin|complete|commit|flush|recursively|update[A-Z]|mount[A-Z]|reconcile|process|run|call|dispatch|scheduleUpdate|batched|exports\.)/;
+type TraceEvent = {
+  name: string;
+  ph: string;
+  ts: number;
+  dur?: number;
+  pid: number;
+  tid: number;
+  args?: { elementCount?: number; beginData?: { stackTrace?: { functionName: string; url: string; lineNumber: number }[] }; data?: Record<string, unknown> };
+};
+/// STYLE_TRACE=1: what dirtied the copy's host, its stand-in root or the page root (each event with its
+/// reason and the JS that did it), and the recorded frame's layouts of 300 objects or more.
+function copyInvalidations(mode: string, events: TraceEvent[], frame: string): string {
+  const t0 = Math.min(...events.filter((e) => e.ts > 0).map((e) => e.ts));
+  type Stack = { functionName: string; url: string; lineNumber: number }[];
+  const where = (stack: Stack | undefined) =>
+    stack?.length
+      ? stack
+          .slice(0, 5)
+          .map((f) => `${f.functionName || "(anon)"}@${f.url.split("/").pop()}:${f.lineNumber}`)
+          .join(" < ")
+      : "";
+  const lines: string[] = [];
+  for (const e of [...events].sort((a, b) => a.ts - b.ts)) {
+    const data = (e.args?.data ?? {}) as Record<string, unknown>;
+    const beginData = (e.args?.beginData ?? {}) as Record<string, unknown>;
+    const at = `+${((e.ts - t0) / 1000).toFixed(0)} ms`;
+    if (e.name.endsWith("InvalidationTracking")) {
+      if (frame && data.frame && data.frame !== frame) continue;
+      const node = String(data.nodeName ?? "");
+      if (!/cmux-chat-snapshot|cmux-snapshot|^HTML|^BODY|^#document/i.test(node)) continue;
+      lines.push(
+        `  ${at} ${e.name.replace("InvalidationTracking", "")} ${node.slice(0, 40)} ${String(data.reason ?? "")} ${JSON.stringify(data.invalidationList ?? data.changedAttribute ?? data.extraData ?? "").slice(0, 120)} ${where(data.stackTrace as Stack | undefined)}`,
+      );
+    } else if (e.name === "Layout" && (e.ph === "B" || e.ph === "X")) {
+      if (frame && beginData.frame && beginData.frame !== frame) continue;
+      const total = Number(beginData.totalObjects ?? 0);
+      if (total < 300) continue;
+      lines.push(
+        `  ${at} Layout dirty ${String(beginData.dirtyObjects)} of ${total} partial ${String(beginData.partialLayout)} ${where(beginData.stackTrace as Stack | undefined)}`,
+      );
+    }
+  }
+  return [`${mode} copy invalidations and layouts:`, ...lines.slice(0, 120)].join("\n");
+}
+
+/// STYLE_TRACE=1: the renderer main threads' time by trace event name up to the recorded page's live frame
+/// (nested events count in each name), and the busy ms of their top-level tasks.
+function mainThreadSummary(mode: string, events: TraceEvent[], liveMs: number): string {
+  const mains = new Set(
+    events
+      .filter((e) => e.ph === "M" && e.name === "thread_name" && (e.args as { name?: string } | undefined)?.name === "CrRendererMain")
+      .map((e) => `${e.pid}:${e.tid}`),
+  );
+  const nav = events.find((e) => e.name === "navigationStart" || e.name === "NavigationTiming")?.ts;
+  const t0 = nav ?? Math.min(...events.filter((e) => e.ts > 0).map((e) => e.ts));
+  const end = t0 + (liveMs || 20_000) * 1000;
+  const byName = new Map<string, number>();
+  let busy = 0;
+  for (const e of events) {
+    if (e.ph !== "X" || !mains.has(`${e.pid}:${e.tid}`) || e.ts < t0 || e.ts > end) continue;
+    byName.set(e.name, (byName.get(e.name) ?? 0) + (e.dur ?? 0) / 1000);
+    if (e.name === "RunTask" || e.name === "ThreadControllerImpl::RunTask") busy += (e.dur ?? 0) / 1000;
+  }
+  const top = [...byName].sort((a, b) => b[1] - a[1]).slice(0, 28);
+  return [
+    `${mode} main threads to live (${liveMs.toFixed(0)} ms, ${mains.size} threads): busy ${busy.toFixed(0)} ms`,
+    ...top.map(([name, ms]) => `  ${ms.toFixed(0).padStart(6)} ms ${name}`),
+  ].join("\n");
+}
+
+/// STYLE_TRACE=1: one round's style work on the recorded page's frame, from the trace's first event.
+function styleTraceSummary(mode: string, events: TraceEvent[], frame: string): string {
+  if (!events.length) return `${mode} style trace: no events`;
+  const t0 = Math.min(...events.filter((e) => e.ts > 0).map((e) => e.ts));
+  type Stack = { functionName: string; url: string; lineNumber: number }[];
+  const where = (stack: Stack | undefined) =>
+    stack?.length
+      ? stack
+          .slice(0, 4)
+          .map((f) => `${f.functionName || "(anon)"}@${f.url.split("/").pop()}:${f.lineNumber}`)
+          .join(" < ")
+      : "(frame)";
+  const frameOfEvent = (e: TraceEvent) =>
+    String((e.args?.beginData as { frame?: string } | undefined)?.frame ?? e.args?.data?.frame ?? "");
+  const stack: TraceEvent[] = [];
+  const paired: { ts: number; dur: number; elements: number; by: string }[] = [];
+  for (const e of [...events].sort((a, b) => a.ts - b.ts)) {
+    if (e.name !== "UpdateLayoutTree") continue;
+    const ours = (begin: TraceEvent) => !frame || !frameOfEvent(begin) || frameOfEvent(begin) === frame;
+    if (e.ph === "X" && ours(e))
+      paired.push({ ts: e.ts, dur: e.dur ?? 0, elements: e.args?.elementCount ?? 0, by: where(e.args?.beginData?.stackTrace) });
+    else if (e.ph === "B") stack.push(e);
+    else if (e.ph === "E") {
+      const begin = stack.pop();
+      if (begin && ours(begin))
+        paired.push({
+          ts: begin.ts,
+          dur: e.ts - begin.ts,
+          elements: e.args?.elementCount ?? 0,
+          by: where(begin.args?.beginData?.stackTrace),
+        });
+    }
+  }
+  const ms = paired.reduce((a, r) => a + r.dur, 0) / 1000;
+  const elements = paired.reduce((a, r) => a + r.elements, 0);
+  const big = paired.filter((r) => r.elements >= 300).sort((a, b) => a.ts - b.ts);
+  const reasons = new Map<string, number>();
+  for (const e of events) {
+    if (!e.name.endsWith("InvalidationTracking")) continue;
+    const data = e.args?.data ?? {};
+    if (frame && data.frame && data.frame !== frame) continue;
+    const at = where(data.stackTrace as Stack | undefined);
+    const key = `${e.name.replace("InvalidationTracking", "")} ${String(data.reason ?? "")} ${String(data.changedAttribute ?? data.changedClass ?? data.changedId ?? data.changedPseudo ?? data.invalidationList ?? "")} ${String(data.nodeName ?? "").slice(0, 50)} ${at}`.slice(0, 260);
+    reasons.set(key, (reasons.get(key) ?? 0) + 1);
+  }
+  const topReasons = [...reasons].sort((a, b) => b[1] - a[1]).slice(0, 30);
+  return [
+    `${mode} style trace: ${paired.length} recalcs, ${ms.toFixed(0)} ms, ${elements} elements restyled`,
+    ...big.map((r) => `  +${((r.ts - t0) / 1000).toFixed(0)} ms ${(r.dur / 1000).toFixed(1)} ms ${r.elements} el by ${r.by}`),
+    `  invalidations:`,
+    ...topReasons.map(([key, n]) => `    ${n} ${key}`),
+  ].join("\n");
+}
+
 /// PROFILE=1: the vite build the profile's urls name, so a printed `file:line` shows the line it is.
 let profileSourceDir: string | undefined;
 const sourceLines = new Map<string, string[]>();
@@ -1016,7 +1143,7 @@ try {
     plugins: [{ name: "immutable-pane-baseline", enforce: "pre", load: (id) => priorSources.get(id) }],
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
     // PROFILE=1 keeps names, so the adopt profile names the pane's own functions.
-    build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
+    build: { outDir: out, emptyOutDir: true, ...(PROFILE || STYLE_TRACE ? { minify: false } : {}) },
     logLevel: "error",
   });
   const bundle = async (entry: string): Promise<string> => {
@@ -1470,6 +1597,25 @@ try {
         await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
         await cdp.send("Profiler.start");
       }
+      const styleCdp = STYLE_TRACE && isReopen(mode) ? await context.newCDPSession(page) : null;
+      const styleEvents: TraceEvent[] = [];
+      let styleFrame = "";
+      if (styleCdp) {
+        styleCdp.on("Tracing.dataCollected", (data: { value: TraceEvent[] }) => styleEvents.push(...data.value));
+        const tree = (await styleCdp.send("Page.getFrameTree")) as { frameTree: { frame: { id: string } } };
+        styleFrame = tree.frameTree.frame.id;
+        await styleCdp.send("Tracing.start", {
+          transferMode: "ReportEvents",
+          traceConfig: {
+            includedCategories: [
+              "devtools.timeline",
+              "disabled-by-default-devtools.timeline.invalidationTracking",
+              "disabled-by-default-devtools.timeline.stack",
+              "__metadata",
+            ],
+          },
+        });
+      }
       wireT0 = Date.now();
       await Promise.all(pages.map((one) => one.goto(url, { waitUntil: "commit" })));
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
@@ -1497,6 +1643,16 @@ try {
         console.log(
           `${mode} profile: ${profile.samples.length} samples over ${span.toFixed(0)} ms, ends ${seen.now.toFixed(0)} ms from navigation, live ${seen.live.toFixed(0)}`,
         );
+      }
+      if (styleCdp) {
+        const done = new Promise<void>((resolve) => styleCdp.once("Tracing.tracingComplete", () => resolve()));
+        await styleCdp.send("Tracing.end");
+        await done;
+        await styleCdp.detach();
+        const liveMs = await page.evaluate(() => (window as unknown as BenchWindow).__firstLoad.liveLatestAt);
+        console.log(styleTraceSummary(mode, styleEvents, styleFrame));
+        console.log(mainThreadSummary(mode, styleEvents, liveMs));
+        console.log(copyInvalidations(mode, styleEvents, styleFrame));
       }
       if (TRACE) console.log(`${mode} relaunch bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
       if (WIRE_TRACE) {
