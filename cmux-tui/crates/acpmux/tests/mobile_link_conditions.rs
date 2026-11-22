@@ -546,7 +546,8 @@ async fn reconnect(
     let dark_ms = match disruption {
         Some(Disruption::Blackout { duration_ms }) => duration_ms,
         Some(Disruption::AddressChange { stall_ms }) => stall_ms[1],
-        None => return,
+        // The LAN link this bench dials never drops; nothing here rides the internet path yet.
+        Some(Disruption::InternetDown) | None => return,
     };
     // A tick each 100 ms, for the dark plus the give-up and the redial.
     let ticks = (dark_ms + 35_000) / 100;
@@ -716,7 +717,7 @@ async fn chat_open_and_reconnect_under_mobile_link_profiles() {
                 else {
                     continue;
                 };
-                if profile.disruption.is_some() {
+                if profile.disrupts_lan() {
                     let k = Key { profile: &name, phase: "reconnect", scale, run, seed };
                     reconnect(&shaper, &mut control, link, &listener.token, &session, &k).await;
                 }
