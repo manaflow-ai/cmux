@@ -523,6 +523,9 @@ protocol SurfacePresenter: AnyObject {
     /// destroyed. Drop the view if it is still installed here; do not
     /// withdraw or pause it.
     func surfaceWasDisplaced(_ key: String)
+    /// `key`, which another presenter took from this one, has no presenter now (it went, or showed another tab):
+    /// show it again if it is still the selected tab and nothing shows here.
+    func surfaceIsFree(_ key: String)
 }
 
 struct WeakPresenter {
