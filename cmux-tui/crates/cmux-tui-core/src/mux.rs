@@ -518,7 +518,9 @@ type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, 
 
 /// Startup diagnostics kept until the frontend installs its sink.
 const MAX_PENDING_DIAGNOSTICS: usize = 8;
-const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
+/// The most live workspaces one session holds. The perf cron's workspace-scale part seeds 5,000 (plus Home), and 4,096
+/// refused the 4,097th create, so no 5,000-workspace row could be measured.
+const WORKSPACE_REGISTRY_LIMIT: usize = 8_192;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 /// How long a closed terminal's host gets to end its programs (SIGHUP, grace,

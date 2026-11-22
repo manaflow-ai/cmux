@@ -558,6 +558,9 @@ def workspace_ids():
     return [w.get("id") for w in topology.get("workspaces") or [] if isinstance(w, dict)]
 
 
+UNREACHED = []  # the --workspaces counts the app could not be grown to
+
+
 def workspace_count():
     """The workspaces of the measured topology: every listed one but those reset_workspaces could not close."""
     return len([ws for ws in workspace_ids() if ws not in KEPT_WORKSPACES])
@@ -778,13 +781,24 @@ def main():
     rows = []
     switched = switch_keys(opts.switch_keys) if opts.switch_keys else []
     counts = [int(c) for c in opts.workspaces.split(",") if c] or [None]
-    for count in counts:
+    for index, count in enumerate(counts):
         suffix = ""
         if count is not None:
-            if opts.exact_workspaces:
+            # The first count starts from a cleared list; a later, larger one grows the same list (each new_workspace
+            # run closes its workspace), so 1,1000,5000 seeds 5,000 rows once instead of 6,001.
+            if opts.exact_workspaces and (index == 0 or workspace_count() > count):
                 reset_workspaces()
             ensure_terminal()
-            suffix = f"@{grow_workspaces(count)}ws"
+            try:
+                suffix = f"@{grow_workspaces(count)}ws"
+            except SystemExit as error:
+                if index == 0:
+                    raise
+                # A later count the app cannot hold: the counts measured so far still go into the report, which
+                # names the one it could not reach, and the bench exits 1.
+                UNREACHED.append({"workspaces": count, "reason": str(error)})
+                print(f"unreached: {error}", flush=True)
+                break
             if opts.exact_workspaces and workspace_count() != count:
                 sys.exit(f"exact workspace count failed: requested {count}, have {workspace_count()}")
         for phase in opts.phases.split(","):
@@ -809,6 +823,7 @@ def main():
             except SystemExit as error:
                 print(f"cold: no app after the cold arm ({error}); the report is written from the rows", flush=True)
     result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "summary": summary(rows), "runs": rows,
+              "unreached": UNREACHED,
               "chromium": CHROMIUM[0] if CHROMIUM else None, "page_engine_asked": opts.page_engine,
               "page_engines": bench_page_engine.counts(rows)}
     if opts.switch_keys:
@@ -841,8 +856,8 @@ def main():
         bad = [k for k, v in result["summary"].items()
                if v["missed"] or (v["frames_p95"] or 99) > opts.budget_frames or (v["key_max"] or 0) > opts.budget_key_ms]
         print("BUDGET", "FAIL " + ", ".join(bad) if bad else "PASS", flush=True)
-        return not bad
-    return True
+        return not bad and not UNREACHED
+    return not UNREACHED
 
 
 ok = False
