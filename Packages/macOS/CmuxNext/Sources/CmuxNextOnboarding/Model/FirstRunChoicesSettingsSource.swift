@@ -16,8 +16,8 @@ import UniformTypeIdentifiers
 @MainActor
 public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
     /// The built-in backgrounds the step offers after None (cmux#49636): Shuffle Paintings, then
-    /// well-known, calm works that read well behind text, the ones that ship in the app first (they
-    /// show at once, offline); the others download on their first pick. Settings > Appearance has the rest.
+    /// well-known, calm works that read well behind text. Each has a bundled thumbnail; a work whose full
+    /// image is not in the app downloads on its first pick. Settings > Appearance has the rest.
     nonisolated static let offered = [
         shuffleID,
         "van-gogh-starry-night", "hokusai-great-wave", "friedrich-wanderer", "dahl-dresden-moonlight", "monet-water-lilies-setting-sun",
