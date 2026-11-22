@@ -50,6 +50,8 @@ struct ChatComposer: View {
     @State private var expandRequested = false
     /// The slash-command list's bottom edge, window y (its height bound's floor).
     @State private var suggestionsBottom: CGFloat?
+    /// Emoji shortcodes typed in the field (`:plead`): the list over the card.
+    @State private var emoji = ComposerEmoji()
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var hasContent: Bool { !trimmed.isEmpty || !attachments.isEmpty }
@@ -67,6 +69,9 @@ struct ChatComposer: View {
         VStack(spacing: 8) {
             if !slashMatches.isEmpty {
                 slashSuggestions
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            } else if emoji.isOpen {
+                EmojiSuggestionList(emoji: emoji)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             } else if let mention = ComposerMention(text: text), !mentionMatches(mention).isEmpty {
                 mentionSuggestions(mention)
@@ -108,11 +113,21 @@ struct ChatComposer: View {
         .task {
             let arguments = ProcessInfo.processInfo.arguments
             guard let index = arguments.firstIndex(of: "-cmux-mobile-demo"),
-                  arguments.indices.contains(index + 1), arguments[index + 1] == "offline-send",
-                  !ranOfflineSendDemo else { return }
-            ranOfflineSendDemo = true
-            text = "Run the tests and summarize the results."
-            send(steer: false)
+                  arguments.indices.contains(index + 1), !ranOfflineSendDemo else { return }
+            switch arguments[index + 1] {
+            case "offline-send":
+                ranOfflineSendDemo = true
+                text = "Run the tests and summarize the results."
+                send(steer: false)
+            case "emoji-chat":
+                // The emoji list as `:plead` shows it (screenshots of its looks).
+                ranOfflineSendDemo = true
+                expand()
+                try? await Task.sleep(for: .seconds(0.6))
+                text = "hi :plead"
+            default:
+                break
+            }
         }
         #endif
         // A returned prompt the Mac turned out to have run: out of the composer again,
@@ -222,7 +237,7 @@ struct ChatComposer: View {
                 // Return starts a new line, the send button sends; a hardware
                 // keyboard's Return sends, Shift-Return starts a new line.
                 ChatComposerField(text: $text, placeholder: placeholder, isFocused: focus, onSend: sendFromKeyboard,
-                                  onPasteAttachments: pasteAttachments)
+                                  onPasteAttachments: pasteAttachments, emoji: emoji)
                     .padding(.horizontal, 16)
                     .padding(.top, 14)
                     .padding(.bottom, 6)

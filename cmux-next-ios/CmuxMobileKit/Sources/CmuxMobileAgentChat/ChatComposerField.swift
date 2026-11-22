@@ -19,6 +19,8 @@ struct ChatComposerField: UIViewRepresentable {
     /// A copied image or file pasted into the field (edit menu Paste or
     /// Command-V): the composer attaches it.
     var onPasteAttachments: (() -> Void)?
+    /// Emoji shortcodes (`:plead`): the list's state, which this field's text view drives.
+    var emoji: ComposerEmoji?
 
     static let maxLines = ComposerFieldHeight.defaultMaxLines
     static let accessibilityIdentifier = "chat.composer.field"
@@ -28,7 +30,11 @@ struct ChatComposerField: UIViewRepresentable {
     func makeUIView(context: Context) -> ChatComposerTextView {
         let view = ChatComposerTextView()
         view.delegate = context.coordinator
-        view.onSend = { [weak coordinator = context.coordinator] in coordinator?.parent.onSend() }
+        // A hardware Return writes the highlighted emoji while the list is open, else sends.
+        view.onSend = { [weak coordinator = context.coordinator] in
+            if coordinator?.parent.emoji?.accept() == true { return }
+            coordinator?.parent.onSend()
+        }
         view.font = .preferredFont(forTextStyle: .body)
         view.adjustsFontForContentSizeCategory = true
         view.backgroundColor = .clear
@@ -53,6 +59,15 @@ struct ChatComposerField: UIViewRepresentable {
     func updateUIView(_ view: ChatComposerTextView, context: Context) {
         context.coordinator.parent = self
         markReadyIfShown()
+        if view.emoji !== emoji {
+            view.emoji = emoji
+            emoji?.textView = view
+            emoji?.onTextChange = { [weak coordinator = context.coordinator, weak view] text in
+                guard let coordinator, let view else { return }
+                coordinator.textViewDidChange(view)
+                if coordinator.parent.text != text { coordinator.parent.text = text }
+            }
+        }
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
             coordinator?.parent.onPasteAttachments?()
         }
@@ -65,6 +80,9 @@ struct ChatComposerField: UIViewRepresentable {
         if view.text != text {
             view.text = text
             view.invalidateIntrinsicContentSize()
+            // Sent, or written from outside (a mention, a returned draft): the emoji list follows,
+            // after this update (it is state the composer draws).
+            if let emoji { DispatchQueue.main.async { [weak view] in if let view { emoji.refresh(view) } } }
         }
         if view.placeholder != placeholder { view.placeholder = placeholder }
         // Focus follows the binding both ways; the change waits for the
@@ -107,11 +125,20 @@ struct ChatComposerField: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: ChatComposerField
         var lastTypeSize: DynamicTypeSize?
+        /// The pending edit is the person typing `:` (it may close a `:code:`).
+        private var typedColon = false
 
         init(parent: ChatComposerField) { self.parent = parent }
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            let undoing = textView.undoManager.map { $0.isUndoing || $0.isRedoing } ?? false
+            typedColon = text == ":" && range.length == 0 && textView.markedTextRange == nil && !undoing
             guard text == "\n", let view = textView as? ComposerReturnTextView else { return true }
+            // The on-screen keyboard's Return writes the highlighted emoji while the list is open.
+            if textView.markedTextRange == nil, let emoji = parent.emoji, emoji.isOpen, !view.insertingLineBreak {
+                emoji.accept()
+                return false
+            }
             return view.returnShouldInsert(text)
         }
 
@@ -120,6 +147,13 @@ struct ChatComposerField: UIViewRepresentable {
             (textView as? ComposerReturnTextView)?.updatePlaceholder()
             textView.invalidateIntrinsicContentSize()
             (textView as? ComposerReturnTextView)?.followCaret()
+            let colon = typedColon
+            typedColon = false
+            parent.emoji?.textDidChange(textView, typedColon: colon)
+        }
+
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            parent.emoji?.refresh(textView)
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) { if !parent.isFocused { parent.isFocused = true } }
@@ -136,6 +170,7 @@ extension EnvironmentValues {
 
 final class ChatComposerTextView: ComposerReturnTextView {
     var focusWhenInWindow = false
+    weak var emoji: ComposerEmoji?
 
     init() {
         super.init(policy: ComposerReturnPolicy(style: .chat, maxLines: ChatComposerField.maxLines))
@@ -143,6 +178,36 @@ final class ChatComposerTextView: ComposerReturnTextView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    // MARK: Emoji list keys
+
+    /// While the emoji list is open: Tab writes the highlighted row, the arrows move it, Esc
+    /// closes the list. (Return is the field's send, which writes the row first: `onSend`.)
+    override var keyCommands: [UIKeyCommand]? {
+        guard let emoji, emoji.isOpen, markedTextRange == nil else { return super.keyCommands }
+        let commands = [
+            UIKeyCommand(input: "\t", modifierFlags: [], action: #selector(emojiAccept)),
+            UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(emojiUp)),
+            UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(emojiDown)),
+            UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(emojiDismiss)),
+        ]
+        commands.forEach { $0.wantsPriorityOverSystemBehavior = true }
+        return commands + (super.keyCommands ?? [])
+    }
+
+    @objc private func emojiAccept() { emoji?.accept() }
+    @objc private func emojiUp() { emoji?.move(-1) }
+    @objc private func emojiDown() { emoji?.move(1) }
+    @objc private func emojiDismiss() { emoji?.dismiss() }
+
+    /// A pasted `:code:` becomes its emoji, one undo step after the paste itself.
+    override func paste(_ sender: Any?) {
+        let before = text ?? ""
+        let from = selectedRange.location
+        super.paste(sender)
+        guard let emoji, let after = text, after != before, selectedRange.location > from else { return }
+        emoji.didPaste(NSRange(location: from, length: selectedRange.location - from), in: self)
+    }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
