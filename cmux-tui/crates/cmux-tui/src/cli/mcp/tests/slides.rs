@@ -220,3 +220,55 @@ fn slides_refuses_what_it_cannot_show() {
     let tools = tool_list::first_party();
     assert!(tools.iter().any(|tool| tool["name"] == "slides"));
 }
+
+/// A deck the app cannot open leaves the file as it was: the write is not kept when the
+/// open fails, so a saved deck is never replaced by text the person never saw.
+#[test]
+fn slides_keeps_the_saved_deck_when_the_open_fails() {
+    let folder = tempfile::tempdir().expect("a temp dir");
+    let existing = folder.path().join("saved.md");
+    std::fs::write(&existing, "# Saved\n").unwrap();
+    let fresh = folder.path().join("fresh.md");
+    let mut server = Server::new(Fake { refuse_actions: true, ..Fake::default() }, None);
+    for (path, markdown) in [(&existing, "# Replacement\n"), (&fresh, "# New\n")] {
+        let result = server
+            .call(&json!({"name": "slides", "arguments": {
+                "path": path.to_str().unwrap(), "markdown": markdown}}))
+            .expect("a result");
+        assert_eq!(result["isError"], true, "{result}");
+    }
+    assert_eq!(std::fs::read_to_string(&existing).unwrap(), "# Saved\n");
+    assert!(!fresh.exists(), "a deck that never opened is not left behind");
+    assert!(!folder.path().join("saved.md.cmux-slides-tmp").exists(), "no temporary file is left");
+}
+
+/// A deck's raw HTML cannot load a script from the CDN: the page's policy allows the
+/// runtime's hash and the one PowerPoint writer file the runtime loads, not the whole host.
+#[test]
+fn a_deck_page_allows_only_the_writer_script_from_the_cdn() {
+    let folder = tempfile::tempdir().expect("a temp dir");
+    let path = folder.path().join("q4.md");
+    let reloads = Arc::new(Mutex::new(Vec::new()));
+    let mut server = slides_server(&reloads);
+    let result = server
+        .call(&json!({"name": "slides", "arguments": {
+            "path": path.to_str().unwrap(),
+            "markdown": "# Hi\n\n---\n\n<script src=\"https://cdn.jsdelivr.net/npm/any/x.js\"></script>\n"}}))
+        .expect("a result");
+    assert_ne!(result["isError"], true, "{result}");
+    let url = result["structuredContent"]["deck_viewer"].as_str().expect("a viewer url");
+    let rest = url.strip_prefix("http://127.0.0.1:").unwrap();
+    let (port, rest) = rest.split_once('/').unwrap();
+    let port: u16 = port.parse().unwrap();
+    let host = format!("127.0.0.1:{port}");
+    let (status, head, _) = fetch(port, "GET", &format!("/{}/", rest.trim_end_matches('/')), &host);
+    assert!(status.contains("200"), "{status}");
+    let hash = base64::engine::general_purpose::STANDARD
+        .encode(sha2::Sha256::digest(md_deck::runtime_script().as_bytes()));
+    let writer = "https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js";
+    assert!(
+        head.contains(&format!("script-src 'sha256-{hash}' {writer};")),
+        "script-src is the hash and the writer file only: {head}"
+    );
+    assert!(md_deck::runtime_script().contains(writer), "the runtime loads that writer");
+}
