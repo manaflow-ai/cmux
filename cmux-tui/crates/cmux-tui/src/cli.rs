@@ -216,6 +216,9 @@ mod computer_use;
 #[cfg(unix)]
 mod mcp;
 mod older_daemon;
+// `cmux pack`: theme packs (a whole look as one folder), swap, undo, redo, live edit.
+#[cfg(unix)]
+mod pack;
 mod pane_context;
 #[cfg(unix)]
 mod pane_identify;
@@ -1008,6 +1011,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| ext::run_reload_config_if_requested(args))
         .or_else(|| community::run_if_requested(args))
         .or_else(|| theme_scheme::run_if_requested(args))
+        .or_else(|| pack::run_if_requested(args))
         .or_else(|| wallpaper::run_if_requested(args))
         .or_else(|| change_background::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))
