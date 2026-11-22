@@ -43,7 +43,7 @@ struct ToolRowView: View {
             } label: {
                 header
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             // The 44 pt target overlaps the gaps between rows (a 32 pt row in the layout).
             .padding(.vertical, -6)
             if expanded {
@@ -206,7 +206,7 @@ struct ToolGroupView: View {
                 .frame(minHeight: 44)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .padding(.vertical, -6)
             // The header's 44 pt target overlaps the first call's: the header
             // wins, so a tap on it always closes the group.
@@ -286,7 +286,7 @@ struct ThoughtRow: View {
                 .frame(minHeight: 44)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .padding(.vertical, -6)
             if expanded {
                 // Opened by the person: all of it. Opened because it is live: its newest
@@ -379,7 +379,7 @@ struct DiffSnippet: View {
                 .frame(height: 44)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .accessibilityLabel(Text("Edited \(file.fileName), \(file.additions) additions, \(file.deletions) deletions. Open diff"))
             ScrollView(.horizontal) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -468,7 +468,7 @@ struct EditedFilesCard: View {
                 .frame(minHeight: 48)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             Divider().padding(.leading, 16)
             ForEach(changeSet.files) { file in
                 Button {
@@ -513,7 +513,7 @@ struct EditedFilesCard: View {
                     .frame(minHeight: 44)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
             }
         }
         .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))

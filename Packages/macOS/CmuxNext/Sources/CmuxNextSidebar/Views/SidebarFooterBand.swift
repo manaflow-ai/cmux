@@ -126,9 +126,9 @@ final class SidebarFooterBand {
 
     // MARK: Search button
 
-    /// The Search button's side: the footer row's height (one slim row, no extra padding; it was a
-    /// 28 pt HIG minimum that added 2 pt under the line). Lawrence 2026-10-27: footer too tall.
-    static var searchButtonSide: CGFloat { Metrics.sidebarRowHeight }
+    /// The Search button's side: the visible footer row's height, including the density's fill gain,
+    /// so its hit target matches the avatar row without adding footer padding.
+    static var searchButtonSide: CGFloat { SidebarStyle.searchHeight }
 
     /// Resolves Search's horizontal placement. An empty or fitting pinned row stays on the shared
     /// trailing column; an overfull row keeps the column on a dedicated footer line.
@@ -198,7 +198,11 @@ final class SidebarFooterBand {
                 : host.bounds.maxY - SidebarStyle.bottomInset - side / 2)
         }
         let scale = host.window?.backingScaleFactor ?? 2
-        button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded() / scale, width: side, height: side)
+        // Round the origin up the screen (the view is flipped), never down past the drop: a density's
+        // half-point footer height (every density is Default scaled, #44449) otherwise added half a
+        // pixel to the lens drop, 1.5 pt under the avatar's line at scale 1.
+        button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded(.down) / scale,
+                              width: side, height: side)
         return button.frame.minX
     }
 
@@ -342,7 +346,9 @@ final class SidebarFooterBand {
     /// point is, the styles mix and they don't look good. So they need to look good." and, of
     /// drawing this menu on our own glass: "Well, that's the whole point, right? Like that's what
     /// we wanted to do anyways. have better design (systems too)"). A click on the control while
-    /// the menu is open closes it. The control holds its selected fill until the menu closes.
+    /// the menu is open closes it. The control holds its selected fill until the menu closes. A press
+    /// that opened it and is still held tracks as an `NSMenu`'s does: drag onto a row, release, and the
+    /// row runs (``GlassMenu/trackPress(_:)``).
     ///
     /// The open happens on a later pass of the main run loop, so a caller (a socket action, a
     /// palette run) returns first (Leo, 2026-10-29: "clicking out of a ... context menu is
@@ -359,9 +365,14 @@ final class SidebarFooterBand {
             }
             let glass = GlassMenu(menu: menu)
             let control = anchor as? SidebarItemRowView
-            glass.onClose = { control?.showsMenu = false }
+            glass.onClose = {
+                control?.showsMenu = false
+                control?.pressTracker = nil
+            }
             guard glass.show(from: anchor, preferred: .above) else { return }
             control?.showsMenu = true
+            // Opened by a press still held: the drag and the release pick a row, as on an NSMenu.
+            if let control, control.holdsPress { control.pressTracker = { [weak glass] in glass?.trackPress($0) } }
             self?.openProfileMenu = glass
         }
     }

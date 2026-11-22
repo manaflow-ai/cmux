@@ -1,6 +1,8 @@
 //! CRC-framed bounded log records and recoverable generation changes.
 use super::compaction::{Compaction, cleanup_stages};
-use super::{DiskSnapshot, IndexRecord, OriginRecord, RowKey, Summary, SummaryIndex, codec};
+use super::{
+    DiskSnapshot, IndexRecord, MarkRecord, OriginRecord, RowKey, Summary, SummaryIndex, codec,
+};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -110,11 +112,20 @@ impl IndexLog {
         let mut next_seq = seq;
         let mut previous_seq = 0;
         let mut oldest_seq = seq.saturating_add(1);
+        let mut first = true;
         loop {
             match codec::read_any(&mut reader) {
+                // A mark carries the sequence of the row before it, so it may
+                // equal the previous record's; every other record climbs.
+                Ok(Some((codec::LogRecord::Mark(mark), len))) if mark.seq >= previous_seq => {
+                    offset += len as u64;
+                    previous_seq = mark.seq;
+                    next_seq = next_seq.max(mark.seq);
+                }
                 Ok(Some((record, len))) if record_seq(&record) > previous_seq => {
-                    if offset == covered {
+                    if first {
                         oldest_seq = record_seq(&record);
+                        first = false;
                     }
                     offset += len as u64;
                     previous_seq = record_seq(&record);
@@ -205,6 +216,43 @@ impl IndexLog {
         self.offset += bytes.len() as u64;
         self.next_seq = seq;
         Ok(seq)
+    }
+
+    /// Writes one mirrored frame's unit: its rows, then its mark, with one
+    /// `write_all`. A cut anywhere leaves complete rows before a torn frame,
+    /// and the torn frame is the tail the opener truncates, so the mark on
+    /// disk is never ahead of the rows. The mark carries the last row's
+    /// sequence (or the log's current one when the unit writes no row).
+    /// Returns the bytes appended.
+    pub fn append_unit(&mut self, records: &[IndexRecord], mark: &MarkRecord) -> io::Result<u64> {
+        let mut previous = self.next_seq;
+        let mut bytes = Vec::new();
+        for record in records {
+            if record.seq <= previous {
+                return Err(codec::invalid("nonmonotonic log append"));
+            }
+            if record.origin != mark.origin {
+                return Err(codec::invalid("unit row of another origin"));
+            }
+            previous = record.seq;
+            bytes.extend(codec::encode(record)?);
+        }
+        if mark.seq != previous {
+            return Err(codec::invalid("mark sequence is not the unit's last"));
+        }
+        bytes.extend(codec::encode_mark(mark)?);
+        self.file.set_len(self.offset)?;
+        self.file.seek(SeekFrom::Start(self.offset))?;
+        self.file.write_all(&bytes)?;
+        self.offset += bytes.len() as u64;
+        self.next_seq = previous;
+        Ok(bytes.len() as u64)
+    }
+
+    /// Writes a mark alone (a takeover writes the mark off this way). It takes
+    /// the log's current sequence.
+    pub fn append_mark(&mut self, mark: &MarkRecord) -> io::Result<u64> {
+        self.append_unit(&[], mark)
     }
 
     pub fn flush(&mut self) -> io::Result<()> {
@@ -355,6 +403,13 @@ pub fn replay_log_from(
     reader.seek(SeekFrom::Start(offset))?;
     while let Some((record, _)) = codec::read_any(&mut reader)? {
         let seq = record_seq(&record);
+        // Every generation replayed here was written after its snapshot's
+        // capture, so a mark applies in log order whatever its sequence: it
+        // shares its sequence with the row before it.
+        if let codec::LogRecord::Mark(mark) = &record {
+            index = index.apply_mark(mark);
+            continue;
+        }
         if seq <= index.seq() {
             continue;
         }
@@ -367,6 +422,7 @@ pub fn replay_log_from(
                     .advance_seq(seq);
             }
             codec::LogRecord::Row(record) => index = index.apply_summary(seq, record.summary),
+            codec::LogRecord::Mark(_) => {}
         }
     }
     Ok(index)
@@ -376,6 +432,7 @@ fn record_seq(record: &codec::LogRecord) -> u64 {
     match record {
         codec::LogRecord::Row(record) => record.seq,
         codec::LogRecord::Origin(record) => record.seq,
+        codec::LogRecord::Mark(record) => record.seq,
     }
 }
 

@@ -6,6 +6,7 @@ public import CmuxNextSettings
 public final class ContextMenusPageProvider: PageProvider {
     public nonisolated static let prefix = ContextMenusSettingsPage.prefix
     private let page: @MainActor () -> ContextMenusSettingsPage?
+    private let menus = ContextMenusSettingsPage.HostCache()
 
     public init(page: @escaping @MainActor () -> ContextMenusSettingsPage?) {
         self.page = page
@@ -13,7 +14,7 @@ public final class ContextMenusPageProvider: PageProvider {
 
     /// The host lists' `context_menus`; null before settings load.
     public var hostJSON: JSONValue {
-        page()?.hostJSON ?? .null
+        page()?.hostJSON(reusing: menus) ?? .null
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {

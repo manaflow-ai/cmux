@@ -70,12 +70,13 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let num = |name: &str, default: f64| -> f64 {
         arg(&args, name).and_then(|v| v.parse().ok()).unwrap_or(default)
     };
-    // `h264` is OpenH264, `h264-vt` the macOS hardware encoder.
+    // `h264` is OpenH264, `h264-vt` the macOS hardware encoder, `h264-mf` and `h264-mf-sw`
+    // Media Foundation's hardware and software MFTs on Windows.
     let mut codecs: Vec<(Codec, H264Impl)> = list("--codecs", "h264,vp9,av1")
         .iter()
-        .map(|c| match c.as_str() {
-            "h264-vt" => Ok((Codec::H264, H264Impl::VideoToolbox)),
-            _ => Codec::parse(c)
+        .map(|c| match H264Impl::parse(c) {
+            Some(imp) => Ok((Codec::H264, imp)),
+            None => Codec::parse(c)
                 .map(|codec| (codec, H264Impl::OpenH264))
                 .ok_or(format!("unknown codec {c}")),
         })

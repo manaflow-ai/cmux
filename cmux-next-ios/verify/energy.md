@@ -38,6 +38,9 @@ user), and runs `top` beside it as a cross-check of CPU (`top_cpu_pct` in the ru
 | `stream-chat` | a chat with 40 turns | one long answer streams |
 | `background-home` | Home, 20 rows | Settings in front: the app is in the background |
 | `drift-30m` | Home, 20 rows | 30 minutes idle, foreground |
+| `hidden-terminals-4` | four terminal tabs opened, then the workspaces list in front | each mock shell streams a row every 20 ms, none on screen |
+| `idle-terminal` | one terminal tab, on screen | its mock shell idles at its prompt |
+| `visible-busy-terminal` | one terminal tab, on screen | its mock shell streams a row every 20 ms |
 
 ## The columns
 
@@ -50,6 +53,11 @@ Every rate is a counter's growth over the window, (last - first) / seconds
 - **Energy mW**: `ri_energy_nj`, the kernel's energy estimate for the process in nanojoules,
   per second, in milliwatts (`ri_billed_energy` when that does not move; `energy_source` in the
   JSON says which). It is the Mac's estimate for the simulator's process, not an iPhone's.
+- **Received B/s**: the bytes the app received over the window (`ReceivedByteCount.swift`): every
+  chunk its link's `daemon` channels deliver, and in mock mode, which has no link, the mock
+  shells' output in its place (terminal bytes, not the JSON and base64 a link carries). The app
+  logs its total a second after bytes arrive (nothing while none do); the bench takes the last
+  total before and after the window. `-` for an app without the counter.
 - **MEM**: `ri_phys_footprint`, the footprint Xcode's gauge shows, at the first and last
   reading, and its peak.
 
@@ -60,12 +68,13 @@ silicon) IDLEW read 0 in every case, streaming included: it reports package idle
 (`ri_pkg_idle_wkups`), which stay 0 for the simulator's app there. And POWER repeated CPU %. Interrupt
 wakeups and `ri_energy_nj` are the counters that move.
 
-### The probe
+### Why not xctrace's Activity Monitor
 
-The head's first rep of each case runs `energy_probe` after its window: one 10 to 12 s window
-read by `ps`, `proc_pid_rusage`, `top` and an `xctrace record --template 'Activity Monitor'`
-(attached, else all processes), with the xctrace process table rows for the app. It prints to
-the step log and keeps `energy/probe-RUN/`, so the methods can be compared on the same window.
+The first run with `proc_pid_rusage` (cmux#42818) also read one window per case with
+`xctrace record --template 'Activity Monitor'`. `--attach PID` refuses a simulator app ("Cannot
+find process for provided pid"), and `--all-processes` hung saving its trace and gave no tables,
+at about 2 minutes per case, so the bench no longer runs it. rusage's CPU % agreed with top's
+within 0.1 on every run.
 
 ## Limits
 

@@ -26,8 +26,14 @@ pub(crate) fn apply_resource_patch_timed(
     let prune = started.elapsed();
     // Moves by any path keep ephemeral content ephemeral (or are refused).
     crate::state::ephemeral_moves::carry_ephemeral(transaction, &patch)?;
+    // A close that takes a space's last workspace deletes the space, its
+    // record joining this close's closed group (LAST-WORKSPACE-CLOSES-SPACE).
+    let room_cascade = crate::state::room_emptied::delete_emptied_rooms(transaction, &patch)?;
     // Closes by any path land in the closed history before their rows go.
     crate::state::closed_history_store::capture_closed(transaction, &patch)?;
+    if room_cascade {
+        crate::state::closed_history_store::flush_pending_group(transaction)?;
+    }
     let closing = closing_browsers(transaction, &patch)?;
     // Creations by any path get their personal row (personal-mixed-order-v1).
     let created = crate::state::personal_order::created_workspaces(transaction, &patch)?;

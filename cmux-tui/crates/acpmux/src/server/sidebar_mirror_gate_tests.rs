@@ -4,6 +4,7 @@
 //! (`scripts/cmux-next/run-v2-gates.sh`) runs them in the gate profile on Linux.
 
 use super::*;
+use acpmux_book::gate_rounds::{self, all_p95, best_p95};
 
 const LIVE: usize = 20;
 const WANTED: usize = 8;
@@ -14,24 +15,12 @@ const SAMPLES: usize = 40;
 /// listen").
 const ROWS_WALL_MAX_NS: u128 = 200_000_000;
 
-fn p95(values: &[u128]) -> u128 {
-    let mut values = values.to_vec();
-    values.sort_unstable();
-    values[((values.len() * 95).div_ceil(100)).saturating_sub(1)]
-}
-
-/// The best round's p95 and the p95 of every sample.
-fn measures(rounds: &[Vec<u128>]) -> (u128, u128) {
-    let best = rounds.iter().map(|round| p95(round)).min().unwrap_or(0);
-    let all: Vec<_> = rounds.iter().flatten().copied().collect();
-    (best, p95(&all))
-}
-
-/// Prints the measured line first, so a red run still has its numbers, and appends it to
-/// `V2_GATE_OUT` for the registry.
+/// Prints the rounds ([`gate_rounds::report`]) and the measured line first, so a red run still
+/// has its numbers, and appends the line to `V2_GATE_OUT` for the registry.
 fn emit(name: &str, small: &[Vec<u128>], god: &[Vec<u128>], unit: &str) -> (u128, u128) {
-    let (small_p95, _) = measures(small);
-    let (god_p95, god_p95_all) = measures(god);
+    gate_rounds::report(name, &[("small", small), ("god", god)]);
+    let small_p95 = best_p95(small);
+    let (god_p95, god_p95_all) = (best_p95(god), all_p95(god));
     let line = json!({
         "name": name,
         "small_p95": small_p95,

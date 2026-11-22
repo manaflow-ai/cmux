@@ -112,7 +112,7 @@ public struct IconAction: View {
         Button(action: action) {
             IconActionLabel(systemImage)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel(label)
     }
 }
@@ -170,10 +170,8 @@ public struct CmuxMobileCapsuleButtonStyle: ButtonStyle {
             .frame(minHeight: height, maxHeight: size == .bar || dynamicTypeSize.isAccessibilitySize ? nil : height)
             .frame(maxWidth: size == .inline ? nil : .infinity)
             .foregroundStyle(foreground)
-            .background(background, in: .capsule)
-            .opacity(configuration.isPressed ? 0.85 : 1)
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(.cmuxMobileSnap.unlessReduceMotion, value: configuration.isPressed)
+            // Held: the pressed wash over the fill; the label never dims, shrinks or changes weight.
+            .cmuxMobilePressFill(configuration.isPressed, rest: AnyShapeStyle(background), in: Capsule())
             // 40 pt capsules keep a 44 pt hit target (HIG): 2 pt of invisible margin above and below.
             .padding(.vertical, height < 44 ? (44 - height) / 2 : 0)
             .contentShape(.rect)

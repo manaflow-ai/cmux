@@ -5,8 +5,8 @@
 // per load and compares while it is visible. Coming back to the viewer refreshes it when nothing
 // would be lost; while the reader is in it, an inline notice offers Refresh, since a refresh starts
 // the diff from the top. A session host older than the read cannot say: the page then wakes no
-// timer, and each time the reader comes back it asks one time more and reloads the diff
-// (FINGERPRINT_UNSUPPORTED).
+// timer while that host's machine answers, and each time the reader comes back it asks one time
+// more and reloads the diff (FINGERPRINT_UNSUPPORTED).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSyncedRef } from "./useSyncedRef";
 import type { DiffSource } from "../diff/generated/protocol";
@@ -19,6 +19,10 @@ export const FINGERPRINT_UNSUPPORTED = "native.unsupported";
 export const FRESHNESS_INTERVAL = 4000;
 /** Keep a visible background window current without running git every four seconds. */
 export const UNFOCUSED_FRESHNESS_INTERVAL = 30_000;
+/** The baseline of a shown diff that was loaded from a session host without the read: no digits equal it. */
+const NO_DIGITS = "";
+/** Read at each use: the page can become hidden while a read is in flight. */
+const pageHidden = () => document.visibilityState === "hidden";
 
 /** Reads the fingerprint of the diff `shown` compares; undefined where the host can't say. */
 export function diffFingerprintReader(
@@ -81,7 +85,14 @@ export function usePrecomputedFingerprint(): [
 /// the session host has the read at a return (it was replaced), that return runs `refresh` one time
 /// (or, when `canRefresh` is false, the result is true: the shown diff can be an old one) and each
 /// later return compares again; the timer starts again with that load, or when the page next loses
-/// or gets the focus. Refresh in the toolbar works as before.
+/// or gets the focus. Until that load the shown diff has no digits of its own: after the draft is
+/// closed, the next return runs `refresh`. Refresh in the toolbar works as before.
+///
+/// One timer does live for such a session host: when its machine does not answer at a return (a
+/// Cloud machine that is not connected), the page asks again at the interval of the checks until the
+/// machine answers, so the reason of `onUnavailable` does not stay after the machine is connected
+/// again. That answer ends the timer, and it is the return's answer (it runs the `refresh` that the
+/// return could not). The timer also ends when the page is hidden, and none starts in a hidden page.
 export function useDiffFreshness(
   read: (() => Promise<string | undefined>) | undefined,
   generation: number,
@@ -112,6 +123,15 @@ export function useDiffFreshness(
   const unsupported = useRef(false);
   // An older session host: the page was away since the last `refresh` that a return ran.
   const away = useRef(true);
+  // An older session host whose machine did not answer at a return: the interval at which the page
+  // asks again, until the machine answers. The timer is an effect of its own, so its cleanup ends it.
+  const [retryEvery, setRetryEvery] = useState<number>();
+  const retry = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => {
+    if (retryEvery === undefined || !read) return;
+    const timer = setInterval(() => retry.current?.(), retryEvery);
+    return () => clearInterval(timer);
+  }, [retryEvery, read]);
   useEffect(() => {
     let first = precomputedKey !== undefined && consumed.current !== precomputedKey;
     baseline.current = first || reconcileFailed ? precomputedFingerprint : undefined;
@@ -130,18 +150,24 @@ export function useDiffFreshness(
         const now = await read();
         if (!current || now === undefined) return;
         latest.current.onUnavailable?.(undefined);
+        setRetryEvery(undefined);
         if (unsupported.current) {
           // The session host has the read now. The shown diff has no digits of its own, so it is
           // loaded one time more, and `now` is the baseline of the next checks. When a load would
-          // lose a draft, the notice says that the shown diff can be an old one. No timer starts
+          // lose a draft, the notice says that the shown diff can be an old one, and no digits
+          // are its baseline: the first return after the draft is closed loads it. No timer starts
           // here: the load's new generation starts it, or the next `schedule` (the page loses or
           // gets the focus, or is shown).
           unsupported.current = false;
           if (first) consumed.current = precomputedKey;
           first = false;
-          baseline.current = now;
-          if (latest.current.canRefresh()) latest.current.refresh();
-          else setStale({ generation, read });
+          if (latest.current.canRefresh()) {
+            baseline.current = now;
+            latest.current.refresh();
+          } else {
+            baseline.current = NO_DIGITS;
+            setStale({ generation, read });
+          }
           return;
         }
         const reconcile = first ? latest.current.reconcile : undefined;
@@ -156,11 +182,13 @@ export function useDiffFreshness(
           else setStale({ generation, read });
         }
       } catch (error) {
-        if (!current || !isPageError(error)) return;
+        if (!current) return;
+        if (!isPageError(error)) return;
         if (error.code === FINGERPRINT_UNSUPPORTED) {
           // The machine is connected (its session host is only older than the read): a reason
           // from a time when it was not connected is no longer true.
           latest.current.onUnavailable?.(undefined);
+          setRetryEvery(undefined);
           // Nothing was sent: stop the timer, and reload when this is a return from time away.
           unsupported.current = true;
           clearInterval(timer);
@@ -173,13 +201,20 @@ export function useDiffFreshness(
         }
         // Keep the patch and drafts while the machine is unavailable; a successful read clears
         // the host's localized reason, even when its fingerprint has not changed.
-        if (error.code.startsWith("cmux.diff.machine_")) latest.current.onUnavailable?.(error.message);
+        if (error.code.startsWith("cmux.diff.machine_")) {
+          latest.current.onUnavailable?.(error.message);
+          // An older session host has no timer that asks again: one runs until its machine answers.
+          // Not in a page that was hidden while this read was in flight: the return asks again.
+          if (unsupported.current && !pageHidden())
+            setRetryEvery(document.hasFocus() ? FRESHNESS_INTERVAL : UNFOCUSED_FRESHNESS_INTERVAL);
+        }
         // Other repository failures retry on the next check as before.
       } finally {
         busy = false;
       }
     };
     void check(false);
+    retry.current = () => void check(true);
     const schedule = (focused: boolean) => {
       clearInterval(timer);
       timer = undefined;
@@ -189,22 +224,30 @@ export function useDiffFreshness(
     schedule(document.hasFocus());
     const back = () => {
       schedule(true);
+      setRetryEvery((every) => (every === undefined ? undefined : FRESHNESS_INTERVAL));
       void check(true);
     };
     const blur = () => {
       away.current = true;
       schedule(false);
+      setRetryEvery((every) => (every === undefined ? undefined : UNFOCUSED_FRESHNESS_INTERVAL));
     };
     const visible = () => {
       schedule(document.hasFocus());
       if (document.visibilityState === "visible") void check(true);
-      else away.current = true;
+      else {
+        away.current = true;
+        // A hidden page wakes nothing (a late machine error starts no timer in it); the return
+        // asks again.
+        setRetryEvery(undefined);
+      }
     };
     window.addEventListener("focus", back);
     window.addEventListener("blur", blur);
     document.addEventListener("visibilitychange", visible);
     return () => {
       current = false;
+      retry.current = undefined;
       clearInterval(timer);
       window.removeEventListener("focus", back);
       window.removeEventListener("blur", blur);

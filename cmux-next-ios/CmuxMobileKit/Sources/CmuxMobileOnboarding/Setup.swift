@@ -359,7 +359,7 @@ private struct TeamStep: View {
 
     private func row<Label: View>(action: @escaping () -> Void, @ViewBuilder label: () -> Label) -> some View {
         Button(action: action, label: label)
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .padding(.horizontal, theme.metrics.selectedRowInset)
     }
 
@@ -636,11 +636,9 @@ private struct PairMacCTAStyle: ButtonStyle {
             // Grows with Dynamic Type instead of clipping its label.
             .padding(.vertical, 12)
             .frame(minHeight: CmuxMobileCapsuleSize.large.height)
-            .background(theme.colors.neutralAccent.color.opacity(primary ? 1 : 0), in: .capsule)
+            // Held: the pressed wash over the fill; the label never dims or shrinks.
+            .cmuxMobilePressFill(pressed, rest: AnyShapeStyle(theme.colors.neutralAccent.color.opacity(primary ? 1 : 0)), in: Capsule())
             .contentShape(.rect)
-            .opacity(pressed ? 0.85 : 1)
-            .scaleEffect(primary && pressed ? 0.98 : 1)
-            .animation(theme.motion.snap.animation.unlessReduceMotion, value: pressed)
     }
 }
 

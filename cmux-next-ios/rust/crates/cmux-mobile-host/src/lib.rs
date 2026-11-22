@@ -40,6 +40,7 @@ mod notify_secfix_tests;
 pub mod notify_terminal;
 mod notify_waiting;
 pub mod pairing;
+pub mod path_probe;
 pub mod peer;
 pub mod policy;
 pub mod push_keys;
@@ -48,6 +49,7 @@ pub mod sealed_notify;
 pub mod services;
 pub mod size_release;
 pub mod surface;
+pub mod traffic;
 
 mod side_completion;
 mod workspace_cache;
