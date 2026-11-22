@@ -63,6 +63,15 @@ import Testing
         #expect(LaunchDisplay.builtIn.frame(nil, defaultSize: Self.size, screens: []) == nil)
     }
 
+    /// An onboarding or other auxiliary window with no parent (the app is not active) opens on
+    /// the launch display, not on `NSScreen.main`, which is then the person's display.
+    @Test func aParentlessAuxiliaryWindowOpensOnTheLaunchDisplay() {
+        #expect(WindowPlacement.ownerScreen(parent: nil, launch: 1, main: 0) == 1)
+        #expect(WindowPlacement.ownerScreen(parent: 0, launch: 1, main: 0) == 0)
+        #expect(WindowPlacement.ownerScreen(parent: nil, launch: nil, main: 2) == 2)
+        #expect(WindowPlacement.ownerScreen(parent: nil, launch: nil, main: nil) == 0)
+    }
+
     @Test func anIndexPicksThatScreenAndOnePastTheEndPicksTheLast() {
         #expect(LaunchDisplay.index(0).screenIndex(builtIn: [false, true]) == 0)
         #expect(LaunchDisplay.index(5).screenIndex(builtIn: [false, true]) == 1)
