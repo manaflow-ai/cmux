@@ -40,5 +40,12 @@
   "appearance.surfaces.newTabPage.opacity": 0.6,
 
   "appearance.statusIndicator.style": "arc",
-  "appearance.statusIndicator.color": "#a8c6a0"
+  "appearance.statusIndicator.color": "#a8c6a0",
+
+  // Shape, not only color (Leo: "customizing the tabs/sidebars a lot deeper"): nothing in the way: a slim 220 pt sidebar, soft 8 pt rows, wide spacing, and the top right buttons and + only on hover.
+  "density": { "basedOn": "spacious", "tokens": {"tabCornerRadius": 8, "verticalTabCornerRadius": 8, "sidebarCornerRadius": 8, "sidebarWidth": 220, "sidebarRowGap": 4, "tabGap": 8 } },
+  "window.titlebarButtons": "hover",
+  "tabs.plusButton": "hover",
+  "agentPane.display.sessionInfo.placement": "overlay",
+  "focus.inactiveTabStyle": "quiet"
 }
