@@ -1,3 +1,4 @@
+import { BrowserSidebar } from "./browser/BrowserSidebar";
 import { composerHealthHarness } from "./composerPickerEntries";
 import { forkMenuRows } from "./header/forkMenu";
 import { useFold } from "./conversation/fold";
@@ -109,7 +110,6 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
-  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -118,12 +118,13 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
+  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  withCloudStartFolder,
   withDraftFolder,
+  withCloudStartFolder,
   shownCloudStartPick,
   withCloudStartPick,
 } from "./newtab/draftFolder";
@@ -139,8 +140,13 @@ import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
+import { SurgeHoldRow } from "./SurgeHoldRow";
+import { surgeShows } from "./conversation/surgeHold";
+import type { InboxMessage } from "./conversation/inboxNotice";
 import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
+import { jumpLatestPlace } from "./jumpPlace.experiment";
+import { jumpSide } from "./jumpPlace";
 import { githubFolder, githubFolderRepo } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
@@ -192,12 +198,13 @@ import {
   CloudTypingPrewarm,
   cloudIdentityKept,
   cloudTypingMachineID,
-  type CloudIdentityView,
   sameNewChat,
+  type CloudIdentityView,
 } from "./cloudTypingPrewarm";
 import { CloudComposeReservation, reservedCloudCall } from "./cloudComposeReservation";
 import { harnessProfiles } from "./harnessProfiles";
 import { setStartModeSource } from "./startMode";
+import { setStartRecoveryPreview } from "./startRecoveryPreview";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
 import type { MockScript } from "./mock";
 import { preparedMockTransport } from "./mockTransport";
@@ -233,7 +240,7 @@ import { PICKER_LABELS } from "./composerPickerModel";
 import { openComposerControl } from "./composerControls";
 import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
 import { openPicker } from "./pickerOpeners";
-import { SIGN_IN_REQUIRED, startRefusalRoute } from "./startRefusal";
+import { startRefusalRoute, SIGN_IN_REQUIRED } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
 import { isNewChat, projectName } from "./emptyStateModel";
 import { TourStartContext } from "./repoTour/TourBlock";
@@ -279,12 +286,12 @@ import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import {
   cloudMachineAsleep,
-  currentCloudPlan,
-  readCloudPlanFresh,
   readUntilMoved,
   refreshCloudMachines,
   useCloudMachines,
   type CloudMachine,
+  currentCloudPlan,
+  readCloudPlanFresh,
 } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
@@ -451,7 +458,7 @@ import {
 } from "./conversation/runInBackground";
 import { SkillWordsContext, useSkillWords } from "./conversation/skillWords";
 import { TranscriptChief } from "./conversation/sentFrom";
-import { trackEditableTurns, trackPromptTurns, type EditableTurns, type PromptTurns } from "./conversation/editPrompt";
+import { trackEditableTurns, type EditableTurns, trackPromptTurns, type PromptTurns } from "./conversation/editPrompt";
 import {
   CloudTurnCheckpoints,
   readyPromptKey,
@@ -582,6 +589,7 @@ import { HarnessStatusCard } from "./HarnessStatusCard";
 import type { LocalCommand } from "./localCommands";
 import {
   cloudPageRefusal,
+  pageOnOtherMachine,
   cloudRunsHere,
   composerAgentLocal,
   cloudFolderGrants,
@@ -590,21 +598,20 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   cloudSendAfterCheck,
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
-  pageOnOtherMachine,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
-import { folderRunLocation, newChatRunLocation, defaultFolderFor } from "./runLocationDefault";
+import { defaultFolderFor, folderRunLocation, newChatRunLocation } from "./runLocationDefault";
 import {
   lastNewChatPlace,
   pickedRunLocation,
@@ -616,12 +623,12 @@ import { harnessLabel } from "./subagents/agentRuns";
 import {
   cloudStartBegun,
   cloudStartEnded,
-  cloudStartPlanHeld,
   cloudStartPushed,
   cloudStartStalled,
   watchCloudStartStall,
   cloudStartSignedIn,
   type CloudStartProgress,
+  cloudStartPlanHeld,
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
@@ -1012,6 +1019,10 @@ async function saveLogNatively(text: string, suggestedName: string): Promise<Exp
     return "unavailable";
   }
 }
+
+/// The held surge's listing and a thread's posts, through the pane's own actions (SurgeHoldRow.tsx).
+const listSurgeThreads = () => callNative<unknown>("chat.inbox.threads");
+const readInboxThread = (threadId: string) => callNative<InboxMessage[]>("chat.inbox.thread", { threadId });
 
 /** Saves a side panel document through the host's save panel (`pane.saveFile`); a host without one, or a failed write, is unavailable (the panel copies the document instead). */
 const saveDocumentNatively: SaveDocument = async (text, suggestedName, kind) => {
@@ -2271,7 +2282,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A turn end of the settled view acpmux opened the chat from stands in until the rows hold one
   // (cmuxterm-hq#9655): the fork is offered from the chat's first settled frame.
   const forkSeq = latestForkSeq(snapshot.rows) ?? newestSettledForkSeq(snapshot.settled);
-  const forkAny = forksAnyTurn(snapshot.summary?.family);
+  const forkAny = forksAnyTurn(snapshot);
   const tryAnotherApproachInFlight = useRef<Promise<void> | undefined>(undefined);
   // One machine rewind at a time: a second while one runs is refused, so its button says so.
   const rewindInFlight = useRef(false);
@@ -2289,7 +2300,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const editsServed = snapshot.canFork && connected;
   const lastEditTurns = useRef<EditableTurns | undefined>(undefined);
   const rowsForEdits = editsServed ? snapshot.rows : NO_ROWS;
-  const editFamily = snapshot.summary?.family;
+  // acpmux's answer for the chat (a Claude Code profile under any family name edits every turn).
+  const editFamily = forkAny;
   const stableEditSeqs = useMemo(
     () => (lastEditTurns.current = trackEditableTurns(rowsForEdits, editFamily, lastEditTurns.current)).seqs,
     [rowsForEdits, editFamily],
@@ -3375,6 +3387,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const trayTucked = useTrayTucked();
   // Where its tuck chevron and pull tab sit along the composer's top edge (chatDisplay.ts TRAY_HANDLE_KEY).
   const trayHandle = useTrayHandle();
+  // Where the jump stack stands over the composer (jumpPlace.experiment.ts; Leo, 2026-11-21: "didn't
+  // we say we wanted to move these to the side or smth?"): beside the hat's handle, never on it.
+  const [jumpPlaceArm] = useState(() => experimentArm(jumpLatestPlace));
   // Debug Settings agent.sessionStatus draws its activity line under the pinned list, so it pins it.
   const planInHat = subagentTray && !pinnedPlan && !sessionStatus && !quick && !childRows && snapshot.isWorking;
   const hatPlanRow = useMemo(() => (planInHat ? liveTurnPlan(turnRowsShown) : undefined), [planInHat, turnRowsShown]);
@@ -8333,6 +8348,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // Cloud's own checks stay: Cloud allowed by policy, a signed-in account, and an explicit
         // pick; nothing creates a paid VM without one.
         setPromptSurfaces(on === true);
+        setStartRecoveryPreview(on === true);
         // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
       },
       applyLiveTree(on) {
@@ -9954,6 +9970,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // An inbox notice's thread the person opened: its messages, read without marking them
           // read (conversation/InboxNoticeCard.tsx).
           "chat.inbox.thread": ({ threadId }) => client.inboxThread(String(threadId ?? "")),
+          // The held surge's threads (SurgeHoldRow.tsx): the chat's inbox listing, read as its panel opens.
+          "chat.inbox.threads": () => client.inboxThreads(),
           // An agent link or `HOST/NAME` in a reply (conversation/sessionRefs.ts): the session it names.
           "chat.session.resolve": ({ query }) => client.resolveSession(String(query ?? "")),
           // Open a started offer or a sub-session: the app shows its tab or opens it beside this
@@ -12963,6 +12981,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         {/* The agent's questions waiting on the person, over the hat (question/HatQuestions.tsx). */}
         {/* The card under it keeps answering the question it shows; the hat shows only with more to
             step to than that one (hatShows), and stays mounted so it arrives and leaves as a move. */}
+        {/* The chat's held surge, one row however many messages its inbox holds (SurgeHoldRow.tsx). */}
+        {!showNewTab && snapshot.sessionId && (
+          <SurgeHoldRow
+            key={`surge:${snapshot.sessionId}`}
+            surge={snapshot.surge}
+            sessionId={snapshot.sessionId}
+            listThreads={listSurgeThreads}
+            readThread={readInboxThread}
+            onOpenSender={openSenderChat}
+          />
+        )}
         {!goalAtFoot && goalNode}
         <HatQuestions
           key={shownSessionId}
@@ -12999,6 +13028,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             stackAbove={
               (trayPlacement === "tray" && trayNode !== null) ||
               goalNode !== null ||
+              (!showNewTab && surgeShows(snapshot.surge)) ||
               statusCardOpen ||
               hatShows(hatQuestionList)
             }
@@ -13908,6 +13938,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         aria-label={composerSnapshot.summary?.title || t("header.agentChat")}
         style={inTabRow ? tabRowStyle(tabRow) : undefined}
       >
+        {document.documentElement.hasAttribute("data-cmux-browser-pane") && connected && (
+          <BrowserSidebar
+            sessions={snapshot.sessions}
+            workspaces={snapshot.browserWorkspaces}
+            selected={snapshot.sessionId}
+            onSelect={selectSession}
+            onRefresh={() => void directClient.current?.refreshBrowserWorkspaces()}
+          />
+        )}
         {steering && steerQueueOn ? (
           <SteerQueue
             items={steerItems}
@@ -13929,6 +13968,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           data-dock={!reviewing && !freshView && !inspectorOpen ? "float" : undefined}
           data-summary={summaryCard.column ? "inline" : "popover"}
           data-cu-preview={previewBeside ? "" : undefined}
+          // The jump stack's place and side (jumpPlace.css): the whole stack moves together.
+          data-jump-place={jumpPlaceArm}
+          data-jump-side={jumpSide(jumpPlaceArm, trayHandle)}
           data-vscode-minimap={chatMinimapBeside ? "" : undefined}
           // A question or permission card in the bottom stack (conversation.css). An attribute, not a
           // `:has()` over the pane: that would be checked again for every node a streamed chunk inserts
