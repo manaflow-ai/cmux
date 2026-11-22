@@ -7,6 +7,7 @@
   "description": "Bosch's garden behind jade glass; candy pink and lime, everything on, everything moving.",
 
   // The terminal theme and its colors: loud and saturated.
+  "appearance.appTheme": "followTerminal",
   "appearance.theme": "Cyberpunk",
   "colors": {
     "background": "#06231a",

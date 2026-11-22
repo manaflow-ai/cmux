@@ -8,6 +8,7 @@
 
   // The terminal theme and its colors. ANSI 1, 2, 3 and 4 are the danger, success, warning and
   // highlight tones extensions draw with; colors.accent is the accent.
+  "appearance.appTheme": "followTerminal",
   "appearance.theme": "Sakura",
   "colors": {
     "background": "#fff5f8",

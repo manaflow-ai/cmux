@@ -7,6 +7,7 @@
 
   // The terminal theme and its colors: greys only, so the danger, success and warning tones show as
   // weight, not hue.
+  "appearance.appTheme": "followTerminal",
   "appearance.theme": "Sequoia Monochrome Dark",
   "colors": {
     "background": "#131313",

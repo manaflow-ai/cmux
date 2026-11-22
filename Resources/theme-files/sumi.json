@@ -6,6 +6,7 @@
   "description": "Ink on washi paper over Hokusai's Fuji; one seal-red accent, serif reading, stillness.",
 
   // The terminal theme and its colors: ink tones, with the seal's red as the only loud color.
+  "appearance.appTheme": "followTerminal",
   "appearance.theme": "Kanagawa Lotus",
   "colors": {
     "background": "#f4eee1",

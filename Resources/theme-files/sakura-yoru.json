@@ -7,6 +7,7 @@
   "description": "Plum-black glass over blossom against the sky; lantern pink and moonlit teal.",
 
   // The terminal theme and its colors.
+  "appearance.appTheme": "followTerminal",
   "appearance.theme": "Rose Pine",
   "colors": {
     "background": "#1a0f17",
