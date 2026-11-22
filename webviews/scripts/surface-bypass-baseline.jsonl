@@ -76,7 +76,7 @@
 {"file":"agent-session/acpmux/conversation/CloudSignIn.tsx","kind":"raw-button","count":12}
 {"file":"agent-session/acpmux/conversation/CodeRouterOffer.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/conversation/CommandRow.tsx","kind":"raw-button","count":1}
-{"file":"agent-session/acpmux/conversation/conversation.css","kind":"own-shell","count":20}
+{"file":"agent-session/acpmux/conversation/conversation.css","kind":"own-shell","count":21}
 {"file":"agent-session/acpmux/conversation/CopyButton.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/conversation/CopyButton.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/conversation/DiagramBlock.tsx","kind":"raw-button","count":2}
