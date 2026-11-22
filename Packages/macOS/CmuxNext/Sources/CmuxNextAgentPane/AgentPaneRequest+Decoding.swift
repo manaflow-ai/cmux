@@ -258,6 +258,15 @@ extension AgentPaneRequest {
         case "pane.painted":
             self = .painted(fromKeptTail: params?["drewKeptTail"] as? Bool ?? false,
                             settled: params?["settled"] as? Bool ?? false)
+        case "pane.launchSettle":
+            if let epochMs = params?["settledEpochMs"] as? Double, epochMs.isFinite,
+               let px = params?["maxMovePx"] as? Double, px.isFinite, px >= 0,
+               let shifts = params?["shifts"] as? Double, shifts.isFinite, shifts >= 0 {
+                self = .launchSettle(settledAt: Date(timeIntervalSince1970: epochMs / 1_000), maxMovePx: px,
+                                     element: params?["element"] as? String ?? "other", shifts: Int(min(shifts, 1_000_000)))
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.renderRate":
             if let full = params?["full"] as? Bool {
                 self = .renderRate(full)
