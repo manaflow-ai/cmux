@@ -44,7 +44,7 @@ const CARD_COLLISION = { side: "flip", align: "shift", fallbackAxisSide: "none" 
 
 export interface TooltipProps {
   label: ReactNode;
-  /** Optional supporting text on a dimmer second line. */
+  /** A hover card's supporting text, on a dimmer second line; a plain tooltip is one line and shows none. */
   detail?: ReactNode;
   /** The control it describes (its `render` target). */
   children: ReactElement;
@@ -154,7 +154,8 @@ export function Tooltip({
               ) : (
                 label
               )}
-              {detail != null && <span className="ui-tooltip-detail">{detail}</span>}
+              {/* A tooltip is one line (titleTooltips.ts firstLine); only a hover card has a detail line. */}
+              {detail != null && wraps && <span className="ui-tooltip-detail">{detail}</span>}
             </BaseTooltip.Popup>
           </BaseTooltip.Positioner>
         </BaseTooltip.Portal>

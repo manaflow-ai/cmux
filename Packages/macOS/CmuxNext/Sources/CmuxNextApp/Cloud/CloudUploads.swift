@@ -177,8 +177,8 @@ final class CloudUploads {
 /// A Cloud chat upload's failure text, shown in the composer. Keys live in Resources/Cloud.xcstrings.
 enum CloudUploadStrings {
     /// The bundle that holds `Resources/Cloud.xcstrings` (this module's), for tests.
-    static var bundle: Bundle { .module }
+    static var bundle: Bundle { .module.inAppLanguage }
     static var failed: String {
-        String(localized: "cloud.upload.failed", defaultValue: "Couldn't send the file to the Cloud machine.", table: "Cloud", bundle: .module)
+        String(localized: "cloud.upload.failed", defaultValue: "Couldn't send the file to the Cloud machine.", table: "Cloud", bundle: .module.inAppLanguage)
     }
 }
