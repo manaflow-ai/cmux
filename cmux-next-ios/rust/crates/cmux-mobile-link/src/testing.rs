@@ -31,6 +31,11 @@ pub struct FakeOptions {
     pub strip_wg_version: bool,
     /// What `GET /v1/ice` returns besides Cloudflare STUN (a [`TestTurn`]).
     pub ice_servers: Vec<crate::api::IceServer>,
+    /// `GET /v1/ice` answers after this long (a slow Worker or TURN API).
+    pub ice_delay: std::time::Duration,
+    /// The STUN server `GET /v1/ice` names instead of Cloudflare's
+    /// (`host:port`, say a local socket that never answers).
+    pub ice_stun: Option<String>,
 }
 
 /// How often the backend answers an older peer's relay frames for one
@@ -48,6 +53,8 @@ struct State {
     /// sessionId → the two devices in it.
     sessions: HashMap<String, (String, String)>,
     refused_binary_frames: u64,
+    /// When each signal was forwarded: (sessionId, payload kind, instant).
+    forwarded: Vec<(String, String, std::time::Instant)>,
 }
 
 pub struct FakeSignaling {
@@ -81,6 +88,19 @@ impl FakeSignaling {
             }
         });
         Self { base_url, state, task }
+    }
+
+    /// When the server forwarded the first `kind` signal (`wg-init`,
+    /// `wg-resp`, ...) of `session`.
+    pub fn forwarded_at(&self, session: &str, kind: &str) -> Option<std::time::Instant> {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.forwarded.iter().find(|(s, k, _)| s == session && k == kind).map(|(_, _, at)| *at)
+    }
+
+    /// Every session the server forwarded a `kind` signal of, in order.
+    pub fn sessions_with(&self, kind: &str) -> Vec<String> {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.forwarded.iter().filter(|(_, k, _)| k == kind).map(|(s, _, _)| s.clone()).collect()
     }
 
     /// Binary frames (an older peer's relay frames) refused so far.
@@ -123,7 +143,7 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
     let mut stream = stream;
     match peek_head(&stream).await {
         Some(head) if !head.to_ascii_lowercase().contains("upgrade: websocket") => {
-            answer_http(&mut stream, &head, &ice).await;
+            answer_http(&mut stream, &head, &ice, &options).await;
             return;
         }
         Some(_) => {}
@@ -239,6 +259,8 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
                 let target = state.devices.get(&to).map(|d| d.out.clone());
                 match (admitted, target) {
                     (true, Some(target)) => {
+                        let kind = value["payload"]["kind"].as_str().unwrap_or_default().to_owned();
+                        state.forwarded.push((session.clone(), kind, std::time::Instant::now()));
                         if existing.is_none() {
                             state.sessions.insert(session, (device.clone(), to));
                         }
@@ -319,7 +341,12 @@ async fn peek_head(stream: &tokio::net::TcpStream) -> Option<String> {
     None
 }
 
-async fn answer_http(stream: &mut tokio::net::TcpStream, head: &str, ice: &[crate::api::IceServer]) {
+async fn answer_http(
+    stream: &mut tokio::net::TcpStream,
+    head: &str,
+    ice: &[crate::api::IceServer],
+    options: &FakeOptions,
+) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let length = head
         .lines()
@@ -340,7 +367,9 @@ async fn answer_http(stream: &mut tokio::net::TcpStream, head: &str, ice: &[crat
     } else if !authorized {
         ("401 Unauthorized", json!({"error": "unauthorized"}))
     } else if line.starts_with("GET /v1/ice") {
-        let mut servers = vec![json!({"urls": ["stun:stun.cloudflare.com:3478"]})];
+        tokio::time::sleep(options.ice_delay).await;
+        let stun = options.ice_stun.as_deref().unwrap_or("stun.cloudflare.com:3478");
+        let mut servers = vec![json!({"urls": [format!("stun:{stun}")]})];
         servers.extend(ice.iter().map(|server| {
             json!({"urls": server.urls, "username": server.username, "credential": server.credential})
         }));

@@ -115,7 +115,9 @@ TERMINAL_PAINT_MARKS = ("first_terminal_content", "first_terminal_content_applie
 PAINT_MARK = {"chat": "agent_pane.painted", "terminal": "first_terminal_frame", "browser": BROWSER_PAINT}
 KEPT_MARKS = ("main_start", "first_window_frame_committed", "reveal.pane", "reveal.home", "agent_pane.painted",
               CHAT_MARK, "first_terminal_surface_created", *TERMINAL_PAINT_MARKS, "terminal_input_accepted",
-              "terminal_echo", PROBE_TYPED, PROBE_NO_KEY_WINDOW, BROWSER_PAINT, BROWSER_INPUT)
+              "terminal_echo", PROBE_TYPED, PROBE_NO_KEY_WINDOW, BROWSER_PAINT, BROWSER_INPUT,
+              "agent_pane.launch_images_read", "agent_pane.launch_image_shown", "agent_pane.launch_image_missed",
+              "agent_pane.launch_image_cleared", "launch_snapshot_shown", "window.restore_wait_end")
 LOADS = ("none", "busy")
 BROWSER_PAGE = (b"<!doctype html><html><head><meta charset=utf-8><title>tti page</title></head><body>"
                 b"<h1>launch tti</h1><input id=q autofocus placeholder=type></body></html>")

@@ -339,6 +339,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// (webviews inputEchoMark.ts, once per page life), the launch mark `agent_pane.input_echoed`:
     /// the chat's first input in scripts/ci/launch_tti_check.py beside the terminal's `terminal_echo`.
     case inputEchoed
+    /// `pane.launchSettle {settledEpochMs, maxMovePx, element, shifts}` (webviews launchSettle.ts): once per chat
+    /// document, what moved after its first paint. Forwarded as launch marks only
+    /// (``AgentPaneLaunchTimings/layoutSettle(at:maxMovePx:element:shifts:)``).
+    case launchSettle(settledAt: Date, maxMovePx: Double, element: String, shifts: Int)
     /// `pane.clientReady {ready}`: the page's acpmux client finished connecting (its handshake,
     /// machines and first chat list are in, and its page actions answer), or lost its connection.
     /// A prewarmed page serves a tab opening an existing chat only while it is ready

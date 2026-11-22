@@ -89,7 +89,7 @@ enum AgentHandlers {
                              } else { pane = try context.pane(invocation) }
                              guard let pane else { return }
                              context.services.macScreenTabs.open(try record(), in: pane, focus: ActionRunScope.viewChangeAllowed(), byPerson: byPerson)
-                         }, refusal: { registry.refuse(thrown: $0) }, worker: context.services.cmuxRemote.screenSessionWorker).bind(into: registry, paletteRows: { context.services.palette.sources.extraProviders.append($0) })
+                         }, refusal: { registry.refuse(thrown: $0) }, listedDevices: { [weak services = context.services] in (await services?.devices.readDevices()?.devices ?? []).compactMap { MacScreenListedDevice(name: $0.name, screenAction: $0.screen?.action, reason: $0.screen?.reason) } }, worker: context.services.cmuxRemote.screenSessionWorker).bind(into: registry, paletteRows: { context.services.palette.sources.extraProviders.append($0) })
         context.services.cmuxRemoteActions.bind(into: registry)
         AgentSessionWorkspace.bind(into: registry, context: context)
         AgentSessionTab.bind(into: registry, context: context)
