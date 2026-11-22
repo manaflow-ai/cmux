@@ -278,6 +278,7 @@
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
+        "appearance.terminalCellBackgrounds",
         "appearance.background",
         "appearance.backgroundRotation",
         "appearance.backgroundLight",
