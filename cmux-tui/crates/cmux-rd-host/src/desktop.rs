@@ -172,14 +172,15 @@ fn synthetic_size() -> Option<(u32, u32)> {
     None
 }
 
-/// The displays a viewer may pick, and the current one (macOS). A synthetic source is one
-/// display of its own size, listed without asking ScreenCaptureKit (which needs the grant).
+/// The displays a viewer may pick, the index of the one `which` picks, and their
+/// CGDirectDisplayIDs (macOS). A synthetic source is one display of its own size, listed without
+/// asking ScreenCaptureKit (which needs the grant), with no id.
 #[cfg_attr(not(feature = "link"), allow(dead_code))]
 #[cfg(target_os = "macos")]
-pub fn displays() -> Res<(Vec<(u32, u32)>, usize)> {
+pub fn displays(which: &str) -> Res<crate::mac::capture::Displays> {
     match synthetic_size() {
-        Some(size) => Ok((vec![size], 0)),
-        None => crate::mac::capture::displays(),
+        Some(size) => Ok((vec![size], 0, Vec::new())),
+        None => crate::mac::capture::displays(which),
     }
 }
 
