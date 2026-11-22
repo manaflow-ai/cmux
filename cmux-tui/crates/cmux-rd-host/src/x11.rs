@@ -4,7 +4,7 @@
 //! The picture is the viewer's pick of the X screen (the whole screen or one monitor),
 //! fitted into its `max_width` ([`View`]).
 
-use crate::capture::{Capturer, Rect as CapRect};
+use crate::capture::{readback_plan, Capturer, Rect as CapRect};
 use crate::desktop::{Desktop, FrameSource, Halves};
 use crate::encoder::{self, EncCfg, H264Encoder};
 use crate::inject::Injector;
@@ -26,9 +26,14 @@ pub struct X11Desktop {
 
 /// The encode thread's half: XShm readback into the I420 picture and the encoder.
 pub struct X11Frames {
+    /// Keeps the root's damage as a server-side region too: each capture reads back exactly
+    /// the rects that changed since its last one, which the persistent `pic` makes enough.
     cap: Capturer,
     enc: Box<dyn H264Encoder>,
     pic: I420,
+    /// Set once the whole screen has been read back (the picture starts black).
+    whole: bool,
+    damage: Vec<CapRect>,
     view: View,
     /// The source at its own size, read back before scaling; only when the view is scaled.
     full: Option<I420>,
@@ -37,7 +42,7 @@ pub struct X11Frames {
 /// Opens both halves of the X display `cfg.display`.
 pub fn open(cfg: &SessionCfg) -> Res<Halves> {
     let damage = Capturer::new(&cfg.display, true)?;
-    let cap = Capturer::new(&cfg.display, false)?;
+    let cap = Capturer::with_region(&cfg.display)?;
     // x264 and 4:2:0 need even sizes; an odd last column or row is not sent.
     let listed = x11_view::listing((cap.width, cap.height), &cap.monitors());
     let view = View::new(x11_view::pick(cfg.display_pick.as_deref(), &listed)?, cfg.max_width);
@@ -61,7 +66,8 @@ pub fn open(cfg: &SessionCfg) -> Res<Halves> {
         view,
     };
     let full = view.scaled().then(|| I420::new(view.src.w as usize, view.src.h as usize));
-    let frames = X11Frames { pic: I420::new(w as usize, h as usize), cap, enc, view, full };
+    let pic = I420::new(w as usize, h as usize);
+    let frames = X11Frames { pic, cap, enc, whole: false, damage: Vec::new(), view, full };
     Ok((Box::new(desktop), Box::new(frames)))
 }
 
@@ -108,8 +114,61 @@ impl FrameSource for X11Frames {
     fn capture(&mut self, damage: Rect) -> Res<()> {
         let view = self.view;
         let (w, h) = view.out;
-        let r = CapRect { x: damage.x, y: damage.y, w: damage.width, h: damage.height }
-            .align_even(w, h);
+        // What changed since the last readback, taken from the server in one round trip: it
+        // holds every change the loop thread's connection has already reported (the engine's
+        // `damage` is one union box over the same changes). A change made after the take is
+        // read back now (newer pixels) and taken again next frame. In the picture's
+        // coordinates: clipped to the view, scaled when it is.
+        self.damage.clear();
+        self.cap.take_damage(&mut self.damage)?;
+        let changed: Vec<CapRect> = self
+            .damage
+            .iter()
+            .filter_map(|&r| view.clip(r))
+            .map(|r| if view.scaled() { view.to_out(r) } else { r })
+            .collect();
+        let gate = CapRect { x: damage.x, y: damage.y, w: damage.width, h: damage.height };
+        let plan = if !self.whole {
+            self.whole = true;
+            vec![CapRect { x: 0, y: 0, w, h }]
+        } else if changed.is_empty() {
+            // A forced frame (keyframe, a dropped frame's requeue) with nothing new.
+            vec![gate]
+        } else {
+            readback_plan(&changed, w, h)
+        };
+        for r in plan {
+            self.read_rect(r.align_even(w, h))?;
+        }
+        Ok(())
+    }
+
+    fn encode(&mut self, force_idr: bool, pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
+        self.enc.encode(&self.pic, force_idr, pts_us, out)
+    }
+
+    fn set_bitrate(&mut self, kbps: u32) {
+        self.enc.set_bitrate(kbps);
+    }
+
+    fn kbps(&self) -> u32 {
+        self.enc.kbps()
+    }
+
+    fn encoder_name(&self) -> String {
+        self.enc.name()
+    }
+
+    fn idr_cause(&self) -> Option<&'static str> {
+        self.enc.idr_cause()
+    }
+}
+
+impl X11Frames {
+    /// Reads back the picture's rect `r` (even, in the picture's coordinates) into `pic`.
+    fn read_rect(&mut self, r: CapRect) -> Res<()> {
+        let view = self.view;
+        let (w, h) = view.out;
         if r.w == 0 || r.h == 0 {
             return Ok(());
         }
@@ -134,25 +193,5 @@ impl FrameSource for X11Frames {
         x11_view::scale_plane(&full.u, half(src), &mut self.pic.u, half(out), chroma);
         x11_view::scale_plane(&full.v, half(src), &mut self.pic.v, half(out), chroma);
         Ok(())
-    }
-
-    fn encode(&mut self, force_idr: bool, pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
-        self.enc.encode(&self.pic, force_idr, pts_us, out)
-    }
-
-    fn set_bitrate(&mut self, kbps: u32) {
-        self.enc.set_bitrate(kbps);
-    }
-
-    fn kbps(&self) -> u32 {
-        self.enc.kbps()
-    }
-
-    fn encoder_name(&self) -> String {
-        self.enc.name()
-    }
-
-    fn idr_cause(&self) -> Option<&'static str> {
-        self.enc.idr_cause()
     }
 }
