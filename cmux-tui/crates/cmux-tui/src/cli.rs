@@ -11,6 +11,8 @@ mod agent_config;
 mod agent_input_hint;
 mod agent_message;
 #[cfg(unix)]
+mod agent_move;
+#[cfg(unix)]
 mod agent_names;
 #[cfg(unix)]
 mod agent_start;
@@ -67,6 +69,8 @@ mod cloud_api;
 mod cloud_automation_relay;
 #[cfg(unix)]
 mod cloud_client_session;
+#[cfg(unix)]
+mod cloud_connect;
 #[cfg(unix)]
 mod cloud_environment;
 #[cfg(unix)]
@@ -147,6 +151,8 @@ mod safe_mode;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;
+#[cfg(unix)]
+mod start_stages;
 #[cfg(unix)]
 mod vm;
 #[cfg(unix)]
@@ -910,7 +916,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         Err(code) => return code,
     };
     #[cfg(unix)]
-    if let Some(code) = agent_start::run_if_requested(args)
+    if let Some(code) = agent_move::run_if_requested(args)
+        .or_else(|| agent_start::run_if_requested(args))
         .or_else(|| agent_config::run_if_requested(args))
         .or_else(|| chat_start::run_if_requested(args))
         .or_else(|| mcp::run_if_requested(args))
@@ -932,6 +939,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| cloud_connect::run_if_requested(args))
         .or_else(|| cloud_team_keys::run_if_requested(args))
         .or_else(|| key_broker::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))

@@ -1,5 +1,6 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-21 (hide-app-store-2): Sidebar-Look: David Beyer, Nov 20 call: "don't show the app store until it's ready, it takes too much space"; the person: hide it by default, keep a setting that turns it back on. With `labs.previewFeatures` off (the default) the App Store item is hidden in every look: the `cmux/app-store` app item (0aa5aa4a64043, `SidebarAppItemInfo`) and now the `app_store` built-in of a layout stored before it became an app (`SidebarBuiltIn.defaultInfo(showsStore:)`). The stored layout keeps both; Labs on draws them again. `AppStoreHiddenUntilReadyTests`.
 - 2026-11-21 (lane/sidebar-pin-archive): Sidebar-Look: Leo, 2026-11-21: "the pin button does not make sense. you
   expect this to be the pinned thing. but it isn't. when you pin it, the pin goes to teh left of the bar as an empty
   looking pin symbol." A hover control says what a press does, never what the row is: Pin on an unpinned row is the
@@ -2618,3 +2619,10 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
 - 2026-11-21 (a-chat-task-list): the Chief's subagent rows under the top Chief row show a subagent's task count ("1/3",
   `SidebarItemInfo.taskProgress`) left of their trailing marks, as a chat row does; `SidebarItemRowView.taskCount`,
   row looks only (not icon, chip or tile). Test: ChiefSubagentTaskCountTests.
+
+- 2026-11-21 (a1315): the footer Search button sits at most one device pixel under the avatar's line at every
+  density. `placeSearch` rounded its origin to the nearest pixel after the one-pixel lens drop; Compact and
+  Comfortable have half-point footer heights since every density is Default scaled (#44449), so the rounding
+  added half a pixel more (1.5 pt at scale 1). It now rounds toward the line. Regression: `SidebarSearchButtonTests`
+  (red on feat-cmux-next and on base 19421bb).
+  Sidebar-Look: Leo 2026-10-21 "move the magnifying glass a bit lower": one device pixel, no more.
