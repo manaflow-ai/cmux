@@ -336,7 +336,7 @@ fn a_send_to_a_down_ssh_peer_is_delivered_once_over_ssh_and_not_again_on_reconne
 
 /// B's `user_message` record of the prompt whose text holds `words`, once it is there. A miss
 /// says what both machines saw: the carries counted, B's whole record, and each daemon's log.
-fn carried(pair: &Pair, words: &str) -> Value {
+fn carried(pair: &Pair, delivery: &str, words: &str) -> Value {
     let info = json_of(&cli(&pair.b.home, &["--json", "info", "lane-x"]));
     let session = info["sessionId"].as_str().or(info["id"].as_str()).expect("lane-x's id");
     let events = |params: Value| unix(&pair.b.home, "_acpmux/events", params);
@@ -353,14 +353,27 @@ fn carried(pair: &Pair, words: &str) -> Value {
             return found;
         }
         if Instant::now() >= deadline {
+            let on_a = pair.status(delivery);
+            let far = on_a["accepted"]["sshDeliveryId"].as_str().unwrap_or("none");
             let tail = |log: String| {
                 let lines: Vec<&str> = log.lines().collect();
                 lines[lines.len().saturating_sub(40)..].join("\n")
             };
             panic!(
-                "{words}: not on B within 60 s\ncarries: {}\nB's record: {}\nA's log:\n{}\nB's log:\n{}",
+                "{words}: not on B within 60 s\ncarries: {}\nA's sends: {}\nB's sends: {}\nB's record: {}\nA's log:\n{}\nB's log:\n{}",
                 pair.calls("carry"),
-                events(json!({"sessionId": session})),
+                on_a,
+                text(&cli(&pair.b.home, &["--json", "send", "--status", far])),
+                events(json!({"sessionId": session}))["result"]["events"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .skip(8)
+                    .map(|e| {
+                        let msg: String = e["msg"].to_string().chars().take(700).collect();
+                        format!("\n  {} {} {} {msg}", e["seq"], e["dir"], e["kind"])
+                    })
+                    .collect::<String>(),
                 tail(pair.log()),
                 tail(fs::read_to_string(pair.b.home.join("daemon.log")).unwrap_or_default()),
             );
@@ -398,7 +411,8 @@ fn an_agents_send_carried_over_ssh_is_never_recorded_as_the_person() {
         .unwrap();
     assert!(sent.status.success(), "{}", text(&sent));
     eprintln!("the agent's send: {}", text(&sent));
-    let agent = carried(&pair, "agent-shell-words");
+    let id = json_of(&sent)["deliveryId"].as_str().expect("a delivery id").to_owned();
+    let agent = carried(&pair, &id, "agent-shell-words");
     assert_eq!(agent.pointer("/_meta/origin"), None, "an agent's shell is no person: {agent}");
     assert_eq!(
         agent.pointer("/_meta/provenance/fromRelay/by"),
@@ -410,8 +424,8 @@ fn an_agents_send_carried_over_ssh_is_never_recorded_as_the_person() {
         "and the machine it came from: {agent}"
     );
 
-    pair.send("owner-words");
-    let owner = carried(&pair, "owner-words");
+    let id = pair.send("owner-words");
+    let owner = carried(&pair, &id, "owner-words");
     assert_eq!(owner.pointer("/_meta/origin/actor"), Some(&json!("person")), "{owner}");
     assert_eq!(owner.pointer("/_meta/provenance"), None, "{owner}");
     assert_eq!(pair.calls("carry"), 2);
