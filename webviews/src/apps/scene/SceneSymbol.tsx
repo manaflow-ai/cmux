@@ -3,7 +3,7 @@ import { useIcons } from "../../agent-session/acpmux/icons/iconsContextModel";
 import { bundledIconPack } from "../../agent-session/acpmux/icons/iconPack";
 import type { IconPack } from "../../agent-session/acpmux/icons/types";
 import { sceneText } from "./sceneStyle";
-import { symbolGlyphColor } from "./sceneSymbolRendering";
+import { symbolLayerPaint } from "./sceneSymbolRendering";
 
 /** SF Symbols apps and widgets emit, drawn with the pack glyph that means the same thing. A `.fill`
  *  name draws the glyph's Solid form (SceneSymbol), as the native sidebar draws the filled SF Symbol.
@@ -18,13 +18,12 @@ export const SCENE_SF_SYMBOLS: Readonly<Record<string, string>> = {
   "doc.text": "file.text",
   "doc.text.fill": "file.text",
   checkmark: "action.confirm",
-  "checkmark.circle": "status.success",
-  "checkmark.circle.fill": "status.success",
+  "checkmark.circle": "action.confirm",
+  "checkmark.circle.fill": "action.confirm",
   "checkmark.square": "checkbox.on",
   "checkmark.square.fill": "checkbox.on",
   square: "checkbox.off",
-  checklist: "tunable.tasks",
-  circle: "radio.off",
+  checklist: "view.list",
   "circle.fill": "color.swatch",
   "largecircle.fill.circle": "radio.on",
   xmark: "action.close",
@@ -36,16 +35,11 @@ export const SCENE_SF_SYMBOLS: Readonly<Record<string, string>> = {
   plus: "action.add",
   "plus.circle": "action.add.circle",
   "plus.circle.fill": "action.add.circle",
-  "chevron.right": "disclosure.collapsed",
   "chevron.down": "disclosure.expanded",
   "chevron.left": "nav.previous",
   "chevron.up": "nav.previous.match",
-  "list.bullet": "view.list",
-  star: "bookmark",
-  "star.fill": "bookmark",
   heart: "heart",
   "heart.fill": "heart",
-  bell: "notification",
   "bell.fill": "notification",
   flag: "flag",
   "flag.fill": "flag",
@@ -113,6 +107,29 @@ export const SCENE_SF_SYMBOLS: Readonly<Record<string, string>> = {
   "square.stack": "apps.stack",
   link: "link",
   "arrow.up.right": "link.external",
+  // The symbols `cmux ext new`'s templates and its design defaults (templates/common/DESIGN.md) use.
+  circle: "task.status.todo",
+  sparkles: "task.ai",
+  rectangle: "workspace",
+  "rectangle.inset.filled": "workspace",
+  "chevron.right": "disclosure.collapsed",
+  house: "home",
+  timer: "time.waiting",
+  bell: "notification",
+  gearshape: "settings",
+  magnifyingglass: "search",
+  "chart.bar": "agent.activity",
+  star: "bookmark",
+  "star.fill": "bookmark.active",
+  tray: "inbox",
+  person: "account",
+  globe: "link.web",
+  "play.fill": "media.play",
+  "pause.fill": "media.pause",
+  "list.bullet": "view.list",
+  "square.grid.2x2": "view.grid",
+  "bubble.left": "agent.chat",
+  "arrow.clockwise": "action.reload",
 };
 
 /** Drawn for a name neither the pack nor SCENE_SF_SYMBOLS knows: a small dot, so an app that names a
@@ -146,8 +163,8 @@ export function appSceneIconFilled(value: unknown): boolean {
 
 /** Unknown SF names deliberately draw the neutral fallback without an icon-pack warning, unfitted so it
  *  stays a small dot rather than being scaled up to the shared glyph box. `rendering`
- *  (`symbolRendering`) and `palette` (`symbolColors`) pick the glyph's color as SF Symbols' modes
- *  do, for the glyph as a whole (sceneSymbolRendering.ts). */
+ *  (`symbolRendering`) and `palette` (`symbolColors`) color the glyph's layers as SF Symbols' modes
+ *  do, as far as the pack's layers allow (sceneSymbolRendering.ts). */
 export function SceneSymbol({
   symbol,
   size = 14,
@@ -166,7 +183,7 @@ export function SceneSymbol({
   const { pack } = useIcons();
   const value = sceneText(symbol);
   const name = resolve(pack, value);
-  const modeColor = name === SCENE_FALLBACK_ICON ? undefined : symbolGlyphColor(value, rendering, palette);
+  const layerPaint = name === SCENE_FALLBACK_ICON ? undefined : symbolLayerPaint(value, rendering, palette);
   return (
     <Icon
       name={name}
@@ -174,8 +191,9 @@ export function SceneSymbol({
       size={size}
       row
       fit={name !== SCENE_FALLBACK_ICON}
-      color={modeColor ?? color}
+      color={color}
       className={className}
+      layerPaint={layerPaint}
     />
   );
 }

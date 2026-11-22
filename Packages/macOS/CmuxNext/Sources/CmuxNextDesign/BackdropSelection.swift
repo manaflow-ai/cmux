@@ -53,7 +53,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .art(let art): return art.label
         case .system(let path): return Self.systemTitle(path, aerialNames: aerialNames)
         case .file(let path): return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
-        case .desktop: return String(localized: "backdrop.desktop.title", defaultValue: "Desktop Wallpaper", bundle: .module)
+        case .desktop: return String(localized: "backdrop.desktop.title", defaultValue: "Desktop Wallpaper", bundle: .localizedModule)
         case .pair(let light, let dark):
             return light == dark ? light.title(aerialNames: aerialNames)
                 : "\(light.title(aerialNames: aerialNames)) / \(dark.title(aerialNames: aerialNames))"
@@ -104,7 +104,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
     }
 
     private static var videoCollection: (String, String) {
-        (AppleWallpapers.videoCollection, String(localized: "backdrop.collection.video", defaultValue: "Moving wallpapers", bundle: .module))
+        (AppleWallpapers.videoCollection, String(localized: "backdrop.collection.video", defaultValue: "Moving wallpapers", bundle: .localizedModule))
     }
 
     /// The attribution shown below the thumbnail.
@@ -117,15 +117,15 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         switch self {
         case .art(let art): return art.attribution
         case .system, .moment:
-            return String(localized: "backdrop.system.attribution", defaultValue: "macOS system wallpaper · %@", bundle: .module)
+            return String(localized: "backdrop.system.attribution", defaultValue: "macOS system wallpaper · %@", bundle: .localizedModule)
                 .replacingOccurrences(of: "%@", with: title)
         case .pair(let light, let dark):
             return light == dark ? light.attribution : "\(light.attribution) / \(dark.attribution)"
         case .file(let path):
-            return String(localized: "backdrop.file.attribution", defaultValue: "Your image · %@", bundle: .module)
-                .replacingOccurrences(of: "%@", with: URL(fileURLWithPath: path).lastPathComponent)
+            return String(localized: "backdrop.file.attribution", defaultValue: "Your image · %@", bundle: .localizedModule)
+                .replacingOccurrences(of: "%@", with: (path as NSString).lastPathComponent)
         case .desktop:
-            return String(localized: "backdrop.desktop.attribution", defaultValue: "Your current macOS desktop picture", bundle: .module)
+            return String(localized: "backdrop.desktop.attribution", defaultValue: "Your current macOS desktop picture", bundle: .localizedModule)
         case .shader(let shader): return shader.attribution
         }
     }

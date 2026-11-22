@@ -187,6 +187,7 @@ extension ScreenContentView {
         var changed = force
         let scale = self.scale
         let laysOutNow = window != nil && bounds.width >= 1 && bounds.height >= 1
+        if zoomDim.motion.acts { MotionTrace.begin("layout.place") } // a probe's time of this loop, in the pass that shows an act
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             let scrolls = geometry.scrolls(pane: pane)
@@ -194,7 +195,9 @@ extension ScreenContentView {
             // strip's, a row column's and a scroll area's are springs too: rounded before them, every edge sat
             // off the grid for the whole camera motion and its content was resampled). Two edges a whole number
             // of pixels apart (a pane and the divider beside it, both on the one spring) stay that far apart.
-            let placed = frame.rect.offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane)).pixelEdges(scale)
+            // A lifted pane (a whole-pane drag) follows the pointer: the same frame plus the drag's offset, its size unchanged.
+            let carried = lift.flatMap { $0.pane == pane ? $0.offset : nil } ?? .zero
+            let placed = frame.rect.offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: pane) + carried.dx, dy: -rowOffset(of: pane) + carried.dy).pixelEdges(scale)
             // Before the frame moves: chrome that re-checks itself on the move reads the rest. On the pixel grid as the
             // placed frame is, so a pane at rest under a camera resting between pixels has a zero rest offset.
             let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStrip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
@@ -241,6 +244,7 @@ extension ScreenContentView {
             if host.isDocked == (scrolls || geometry.floatingCards[pane] != nil) { host.isDocked.toggle() }
             clips.append((host, scrolls))
         }
+        MotionTrace.end("layout.place")
         // The panes this change brought back from a zoom's cover show now, placed.
         if showSnapReturning() { changed = true }
         // Once every frame is placed: a pane is clipped by the panes in front of it. A host whose

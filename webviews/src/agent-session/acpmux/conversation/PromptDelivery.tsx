@@ -105,7 +105,7 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
             type="button"
             className="cv-user__cancel"
             disabled={retryWaits !== undefined}
-            title={retryWaits && t(retryWaits)}
+            aria-description={retryWaits && t(retryWaits)}
             onClick={() => act("chat.retryPrompt")}
           >
             {t("turn.retry")}

@@ -150,6 +150,28 @@ import Testing
         #expect(p.field.string == "Hello world")
     }
 
+    /// The box holds the keyboard by the time the window is asked to come forward. A host whose window,
+    /// when it becomes key with no click, gives the keys back to its own last focus target reads the
+    /// first responder there: cmux's `ChildPageFocus.keysReturned` gave them to a browser page in another
+    /// pane, whose page window took them, and the box stayed first responder of a window that was not
+    /// key (Lawrence 2026-11-19: "i just put image here, and i had to click; it did not auto focus on
+    /// the text input area"). With the box first, the host's focus already follows it: no page takes
+    /// the keys back.
+    @Test func theBoxHoldsTheKeyboardBeforeTheWindowComesForward() {
+        var heldAtForward: [Bool] = []
+        var field: FieldTextView?
+        let p = pane { window in heldAtForward.append(field != nil && window.firstResponder === field) }
+        field = p.field
+        p.window.makeFirstResponder(p.host.scrollView.document)
+        let pb = board()
+        defer { pb.releaseGlobally() }
+
+        #expect(p.controller.takeDrop(pb))
+
+        #expect(heldAtForward == [true], "the window came forward before the box held the keyboard: \(heldAtForward)")
+        #expect(p.window.firstResponder === p.field)
+    }
+
     /// A drop the intake refuses moves nothing: no focus, no window.
     @Test func aRefusedDropLeavesFocusAlone() {
         var forwarded = 0
