@@ -56,12 +56,15 @@ export function setSessionBranch(next: string | undefined): void {
   for (const listener of branchListeners) listener();
 }
 
+function subscribeBranch(listener: () => void) {
+  branchListeners.add(listener);
+  return () => void branchListeners.delete(listener);
+}
+
+const readBranch = () => branch;
+
+/// The session's branch; the same read serves a server render (renderToStaticMarkup in tests and
+/// galleries), which throws on a store with no server snapshot.
 export function useSessionBranch(): string | undefined {
-  return useSyncExternalStore(
-    (listener) => {
-      branchListeners.add(listener);
-      return () => branchListeners.delete(listener);
-    },
-    () => branch,
-  );
+  return useSyncExternalStore(subscribeBranch, readBranch, readBranch);
 }
