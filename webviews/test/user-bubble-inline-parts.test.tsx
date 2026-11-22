@@ -175,11 +175,14 @@ try {
         // The bubble holds no attachment: its words are one plain run.
         expect(bubble.querySelector(".cv-user__inline-image, .cv-user__inline-file, .cv-user__video, img")).toBeNull();
         expect(bubble.querySelector("[data-inline-content]")!.textContent).toBe("look at this and that please");
-        // The placeholder's box is the thumbnail's own (120 tall, 4:3), so nothing moves when it lands.
+        // The placeholder's box is the thumbnail's own (SENT_IMAGE_HEIGHT tall, 4:3), so nothing moves
+        // when it lands.
+        const { SENT_IMAGE_HEIGHT } = await import("../src/agent-session/acpmux/conversation/userBubbleModel");
+        const width = Math.round((SENT_IMAGE_HEIGHT * 4) / 3);
         const placeholder = block.querySelector<HTMLElement>(".cv-user__inline-image > .cv-user__image-placeholder")!;
         expect(placeholder).not.toBeNull();
-        expect(placeholder.style.width).toBe("160px");
-        expect(placeholder.style.aspectRatio).toBe("160 / 120");
+        expect(placeholder.style.width).toBe(`${width}px`);
+        expect(placeholder.style.aspectRatio).toBe(`${width} / ${SENT_IMAGE_HEIGHT}`);
       } finally {
         await act(async () => setComposerSettings({ attachmentView: "inline" }));
       }
@@ -585,7 +588,9 @@ try {
       "[data-inline-attachment-strip] .cv-user__inline-file",
     ]) {
       const box = style(selector);
-      expect(box.display).toBe("inline-block");
+      // An image tile lays its thumbnail out as a flex box, so no text line's descent sits under it
+      // (conversation.css, #48558); a file chip stays on the line.
+      expect(box.display).toBe(selector.endsWith("image") ? "flex" : "inline-block");
       expect(box.verticalAlign).toBe("middle");
       expect([box.marginTop, box.marginBottom, box.marginLeft, box.marginRight]).toEqual(
         [
@@ -599,10 +604,14 @@ try {
     expect(style("[data-inline-attachment-strip] .cv-user__inline-file").maxWidth).toBe(
       `min(${INLINE_FILE_CHIP.maxWidth}px, 72vw)`,
     );
-    // The image's box: its own shape at most 320 wide and 120 tall (UserBubble.tsx sentImageSize).
+    // The image's box: its own shape at most SENT_IMAGE_MAX_WIDTH wide and SENT_IMAGE_HEIGHT tall
+    // (userBubbleModel.ts sentImageSize): the 1600 x 400 image is width-bound.
+    const { sentImageSize } = await import("../src/agent-session/acpmux/conversation/userBubbleModel");
+    const drawn = sentImageSize({ width: 1600, height: 400 });
+    expect(drawn.width / drawn.height).toBe(4);
     const img = host.querySelector<HTMLImageElement>("[data-inline-attachment-strip] img")!;
-    expect(img.style.width).toBe("320px");
-    expect(img.style.aspectRatio.replace(/\s/g, "")).toBe("320/80");
+    expect(img.style.width).toBe(`${drawn.width}px`);
+    expect(img.style.aspectRatio.replace(/\s/g, "")).toBe(`${drawn.width}/${drawn.height}`);
     // The chip's own box (composerAttachments.css `.acpmux-file-chip`): its height, sides and gap.
     const chip = readFileSync(
       new URL("../src/agent-session/acpmux/composerAttachments.css", import.meta.url),
