@@ -334,23 +334,39 @@ fn a_send_to_a_down_ssh_peer_is_delivered_once_over_ssh_and_not_again_on_reconne
     assert_eq!(pair.status(&id)["status"], "delivered");
 }
 
-/// B's `user_message` record of the prompt whose text holds `words`, once it is there.
+/// B's `user_message` record of the prompt whose text holds `words`, once it is there. A miss
+/// says what both machines saw: the carries counted, B's whole record, and each daemon's log.
 fn carried(pair: &Pair, words: &str) -> Value {
     let info = json_of(&cli(&pair.b.home, &["--json", "info", "lane-x"]));
     let session = info["sessionId"].as_str().or(info["id"].as_str()).expect("lane-x's id");
-    within(60, words, || {
-        let page = unix(
-            &pair.b.home,
-            "_acpmux/events",
-            json!({"sessionId": session, "kinds": ["user_message"]}),
-        );
-        page["result"]["events"]
+    let events = |params: Value| unix(&pair.b.home, "_acpmux/events", params);
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let page = events(json!({"sessionId": session, "kinds": ["user_message"]}));
+        let found = page["result"]["events"]
             .as_array()
             .into_iter()
             .flatten()
             .map(|e| e["msg"].clone())
-            .find(|m| m["text"].as_str().is_some_and(|t| t.contains(words)))
-    })
+            .find(|m| m["text"].as_str().is_some_and(|t| t.contains(words)));
+        if let Some(found) = found {
+            return found;
+        }
+        if Instant::now() >= deadline {
+            let tail = |log: String| {
+                let lines: Vec<&str> = log.lines().collect();
+                lines[lines.len().saturating_sub(40)..].join("\n")
+            };
+            panic!(
+                "{words}: not on B within 60 s\ncarries: {}\nB's record: {}\nA's log:\n{}\nB's log:\n{}",
+                pair.calls("carry"),
+                events(json!({"sessionId": session})),
+                tail(pair.log()),
+                tail(fs::read_to_string(pair.b.home.join("daemon.log")).unwrap_or_default()),
+            );
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
 }
 
 /// Leo, 2026-11-22, on a lane's messages drawn in his chat as his own bubbles ("you · via CLI on
@@ -381,6 +397,7 @@ fn an_agents_send_carried_over_ssh_is_never_recorded_as_the_person() {
         .output()
         .unwrap();
     assert!(sent.status.success(), "{}", text(&sent));
+    eprintln!("the agent's send: {}", text(&sent));
     let agent = carried(&pair, "agent-shell-words");
     assert_eq!(agent.pointer("/_meta/origin"), None, "an agent's shell is no person: {agent}");
     assert_eq!(
