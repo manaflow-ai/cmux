@@ -370,14 +370,12 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.isHidden = mutedMark.image == nil
         cloudMark.image = shown.runsInCloud && !leadsWithCloud && !isShowingPlaceholder ? NSImage.icon(.cloud, size: SidebarStyle.indicatorSize) : nil
         cloudMark.isHidden = cloudMark.image == nil
-        // The bell-slash alone does not say what is muted: notifications, not the tabs' sound
-        // (the row's accessibility label says it too).
-        mutedMark.themedToolTip = mutedMark.isHidden ? nil : Strings.notificationsMuted
+        // The bell-slash alone does not say what is muted: notifications, not the tabs' sound. The row's hover card
+        // and its accessibility label say it (a1315's cut 3: rows carry no tooltips).
         // acpmux's own lines name the rule and the number ("90 subagents started in the last hour, above 40").
         usageWarningMark.image = ws.usageWarnings.isEmpty || isShowingPlaceholder ? nil
             : NSImage.icon(symbol: "exclamationmark.triangle.fill", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1))
         usageWarningMark.isHidden = usageWarningMark.image == nil
-        usageWarningMark.themedToolTip = usageWarningMark.isHidden ? nil : ws.usageWarnings.joined(separator: "\n")
         audio = isShowingPlaceholder ? nil : ws.audio
         if audio != nil { _ = audioSlot.control(in: self) }
         audioSlot.made.map(applyAudio)
@@ -397,7 +395,7 @@ final class WorkspaceRowView: SidebarRowView {
             rowBadge.configure([], look: .plain)
         }
         configureAgentBadges(ws.id, experiment: content.agentBadges, pill: pill)
-        themedToolTip = nil // the workspace hover card shows the cwd (and CPU and memory)
+        themedToolTip = nil // the workspace hover card shows the cwd (and CPU and memory); a row has no tooltip
         // A placeholder says nothing; its section header says it connects.
         setAccessibilityElement(!isShowingPlaceholder)
         setAccessibilityRole(.row)
