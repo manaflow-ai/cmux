@@ -261,6 +261,13 @@ public final class AppStore {
                             lastActive: lastActiveTabByWorkspace[workspace.id]).tab(in: workspace)
     }
 
+    /// The tab the person chose in `workspace`, listed or not: the one an open asked for, else the
+    /// one last on screen there in this launch. A tab missing from a list the Mac sent while its
+    /// link came back is still this.
+    public func chosenTab(for workspace: Workspace) -> String? {
+        requestedTabByWorkspace[workspace.id] ?? lastActiveTabByWorkspace[workspace.id]
+    }
+
     /// The tab on screen in each workspace in this launch (`noteOpened`): back to the list and
     /// into the workspace again, it opens there. Never saved, so after a relaunch a workspace
     /// first opens at its layout's top-left. Not observed: it only decides where the next

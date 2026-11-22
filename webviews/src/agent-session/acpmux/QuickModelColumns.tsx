@@ -1134,10 +1134,10 @@ function Columns({
     : undefined;
   const signedOut = (!!owner?.note && !!owner.logIn) || (onChatTab && !!auth && canSessionLogin(auth.verdict));
   const authNote = auth ? authText(auth.verdict, t) : undefined;
-  // No harness (an empty Starred tab) or one this Mac does not have: no account, so a blank person
-  // ring with no badge and no card.
+  // No harness (an empty Starred tab) or one this Mac does not have: no account, so the corner draws
+  // nothing (first-run cuts, 2026-11-21: an empty person ring there was decoration). The rail's fill
+  // still runs up through it, so nothing moves when a tab with an account brings the avatar back.
   const avatarShown = !!owner && !owner.setUp;
-  const avatarBlank = !avatarShown;
   const routeFace: Face | undefined = routes.length > 1 && owner ? { id: owner.id, name: owner.name } : undefined;
   const face: Face | undefined = signedOut
     ? undefined
@@ -1572,11 +1572,6 @@ function Columns({
                   >
                     <Avatar face={face} size={24} {...(badge ? { badge } : {})} />
                   </button>
-                )}
-                {avatarBlank && (
-                  <span className="acpmux-cols-profile" data-blank="" aria-hidden="true">
-                    <Avatar size={24} />
-                  </span>
                 )}
                 {card}
               </span>

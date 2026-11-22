@@ -618,12 +618,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ChiefLauncherPanel.swift": {
   "string scan inside a loop": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/CmuxRemote/CmuxRemoteComputerUseActivity.swift": {
-  "JSON / property-list encode": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/CmuxRemote/CmuxRemoteService+ComputerUse.swift": {
-  "JSON / property-list encode": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenHubDebug.swift": {
   "JSON / property-list decode": 2,
   "JSON / property-list encode": 2
