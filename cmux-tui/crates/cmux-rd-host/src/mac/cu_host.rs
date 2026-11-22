@@ -128,6 +128,18 @@ impl HostServices for ScreenCaptureKitHost {
     fn request_permission(&self, _which: &str) -> DResult<()> {
         Err(DesktopError::Unsupported("the engine asks macOS directly".into()))
     }
+
+    /// The `record` tool's encoder: VideoToolbox H.264 (`cu_record.rs`).
+    fn frame_encoder(
+        &self,
+        width: u32,
+        height: u32,
+        fps: u32,
+    ) -> DResult<Box<dyn cmux_computer_use::record::FrameEncoder>> {
+        super::cu_record::VideoToolboxFrames::new(width, height, fps)
+            .map(|encoder| Box::new(encoder) as Box<dyn cmux_computer_use::record::FrameEncoder>)
+            .map_err(DesktopError::Failed)
+    }
 }
 
 fn require_grant() -> DResult<()> {

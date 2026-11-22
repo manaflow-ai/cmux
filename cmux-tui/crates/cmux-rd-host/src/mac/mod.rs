@@ -8,6 +8,8 @@ pub(crate) mod capture;
 pub(crate) mod cpu;
 #[cfg(feature = "computer-use")]
 pub(crate) mod cu_host;
+#[cfg(feature = "computer-use")]
+pub(crate) mod cu_record;
 pub(crate) mod cursor;
 mod input;
 mod keys;
