@@ -728,7 +728,7 @@ mod timeout_tests {
     fn remote_budget() -> ListBudget {
         ListBudget {
             deadline: tokio::time::Instant::now() + LS_TOTAL_DEADLINE,
-            machine: "huge-blue".to_owned(),
+            machine: "loaded-host".to_owned(),
             route: "hub/carrier",
         }
     }
@@ -784,7 +784,7 @@ mod timeout_tests {
         let error = paged_read(10, Some(Duration::from_secs(3))).await.unwrap_err().to_string();
         // The last page's step bound is cut to what the total leaves, so either names it.
         assert_eq!(started.elapsed(), LS_TOTAL_DEADLINE);
-        assert!(error.contains("huge-blue") && error.contains("step stalled"), "{error}");
+        assert!(error.contains("loaded-host") && error.contains("step stalled"), "{error}");
     }
 
     #[tokio::test(start_paused = true)]
@@ -793,7 +793,7 @@ mod timeout_tests {
         let read =
             async { Err::<(), _>(anyhow::Error::new(list_read::PageStalled(LS_STEP_DEADLINE))) };
         let error = whole_read(Some(&budget), read).await.unwrap_err().to_string();
-        assert!(error.contains("huge-blue"), "{error}");
+        assert!(error.contains("loaded-host"), "{error}");
         assert!(error.contains("page step stalled after 4s"), "{error}");
     }
 }
