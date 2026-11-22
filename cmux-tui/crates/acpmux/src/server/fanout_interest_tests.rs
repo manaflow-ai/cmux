@@ -8,7 +8,7 @@
 //! The cost harness is manual:
 //! `cargo test -p acpmux --lib fanout_wake_cost -- --ignored --nocapture --test-threads=1`.
 
-use super::fanout::tests::{WAKE_PREFIX, wakes};
+use super::fanout::tests::{WAKE_PREFIX, wakes, wakes_for};
 use crate::config::{Config, StoreMode};
 use crate::rpc::{Message, method};
 use serde_json::{Value, json};
@@ -117,6 +117,12 @@ impl Client {
     fn wakes(&self) -> u64 {
         wakes(&self.name)
     }
+
+    /// Wakes for chat `session`'s events only: another chat's late record (a row or status that
+    /// follows a test's last append) never moves it.
+    fn wakes_for(&self, session: &str) -> u64 {
+        wakes_for(&self.name, session)
+    }
 }
 
 fn chunk(id: &str, text: &str) -> Value {
@@ -157,7 +163,7 @@ async fn a_connection_not_attached_and_not_watching_is_never_woken_by_other_chat
     let mut watcher = Client::connect(&hub, "watcher").await;
     watcher.attach(&t).await;
     watcher.watch(true).await;
-    let (quiet_before, watcher_before) = (quiet.wakes(), watcher.wakes());
+    let (quiet_before, watcher_before) = (quiet.wakes_for(&s), watcher.wakes_for(&s));
 
     let busy = session(&hub, &s);
     for n in 0..STREAMED {
@@ -172,13 +178,14 @@ async fn a_connection_not_attached_and_not_watching_is_never_woken_by_other_chat
     let watched = watcher.until("end-of-t").await;
     let read = reader.until(&format!("w{} ", STREAMED - 1)).await;
 
-    let quiet_woke = quiet.wakes() - quiet_before;
+    let quiet_woke = quiet.wakes_for(&s) - quiet_before;
     assert_eq!(
-        quiet_woke, 1,
+        quiet_woke, 0,
         "a connection attached to {t} only woke {quiet_woke} times for {STREAMED} streamed records \
-         and {CHANGES} changes of {s} and one record of {t}"
+         and {CHANGES} changes of {s}"
     );
-    let watcher_woke = watcher.wakes() - watcher_before;
+    assert!(quiet.wakes_for(&t) >= 1, "the connection attached to {t} woke for its record");
+    let watcher_woke = watcher.wakes_for(&s) - watcher_before;
     assert!(
         watcher_woke < (STREAMED / 4) as u64,
         "a watcher woke {watcher_woke} times: {s}'s streamed text wakes it"
@@ -206,14 +213,14 @@ async fn a_watch_turned_off_stops_waking_for_other_chats_changes() {
     page.attach(&t).await;
     page.watch(true).await;
     page.watch(false).await;
-    let before = page.wakes();
+    let before = page.wakes_for(&s);
     let busy = session(&hub, &s);
     for n in 0..CHANGES {
         hub.append(&busy, "mux", "titled", json!({"title": format!("off{n}")}));
     }
     hub.append(&session(&hub, &t), "in", "agent_message_chunk", chunk(&t, "paused-end"));
     let paused = page.until("paused-end").await;
-    assert_eq!(page.wakes() - before, 1, "a paused watch woke for {s}'s changes");
+    assert_eq!(page.wakes_for(&s) - before, 0, "a paused watch woke for {s}'s changes");
     assert_eq!(changed_of(&paused, &s, "titled"), 0);
 
     page.watch(true).await;

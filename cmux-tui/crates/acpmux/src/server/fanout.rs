@@ -42,7 +42,7 @@ fn send_event(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
     #[cfg(test)]
     tests::panic_if_marked(&ev.session_id);
     #[cfg(test)]
-    tests::count_wake(conn);
+    tests::count_wake(conn, &ev.session_id);
     let row = ev.row.clone();
     deliver(hub, conn, ev);
     // Queued what this connection owes for it: the last connection to get here times the
@@ -213,18 +213,28 @@ pub(super) mod tests {
     /// name is one test's own, so parallel tests never read each other's counts.
     pub(in crate::server) const WAKE_PREFIX: &str = "fanout-wake-";
 
-    static WAKES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, u64>>> =
+    /// Wakes per connection name, each split by the chat (`session_id`) of the event it woke for.
+    type BySession = std::collections::HashMap<String, u64>;
+    static WAKES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, BySession>>> =
         std::sync::LazyLock::new(Default::default);
 
-    pub(super) fn count_wake(conn: &super::Conn) {
+    pub(super) fn count_wake(conn: &super::Conn, session: &str) {
         let name = conn.name.lock().unwrap_or_else(|e| e.into_inner()).clone();
         if name.starts_with(WAKE_PREFIX) {
-            *WAKES.lock().unwrap_or_else(|e| e.into_inner()).entry(name).or_default() += 1;
+            let mut wakes = WAKES.lock().unwrap_or_else(|e| e.into_inner());
+            *wakes.entry(name).or_default().entry(session.to_owned()).or_default() += 1;
         }
     }
 
     /// Hub events the fan-out of the connection named `name` woke for.
     pub(in crate::server) fn wakes(name: &str) -> u64 {
-        WAKES.lock().unwrap_or_else(|e| e.into_inner()).get(name).copied().unwrap_or(0)
+        let wakes = WAKES.lock().unwrap_or_else(|e| e.into_inner());
+        wakes.get(name).map(|by| by.values().sum()).unwrap_or(0)
+    }
+
+    /// Hub events of chat `session` the fan-out of the connection named `name` woke for.
+    pub(in crate::server) fn wakes_for(name: &str, session: &str) -> u64 {
+        let wakes = WAKES.lock().unwrap_or_else(|e| e.into_inner());
+        wakes.get(name).and_then(|by| by.get(session)).copied().unwrap_or(0)
     }
 }
