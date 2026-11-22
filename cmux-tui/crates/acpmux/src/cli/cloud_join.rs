@@ -780,7 +780,7 @@ mod tests {
     #[test]
     fn a_store_error_names_its_cause() {
         // 2026-11-21: a join that stopped at the store said only "unavailable".
-        let cause = std::io::Error::new(std::io::ErrorKind::Other, "home is a symlink");
+        let cause = std::io::Error::other("home is a symlink");
         let error = super::store_error_from(cause);
         assert_eq!(error.message, "local machine store unavailable: home is a symlink");
         assert_eq!(super::store_error().message, "local machine store unavailable");
