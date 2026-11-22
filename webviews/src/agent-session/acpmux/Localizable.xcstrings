@@ -260694,6 +260694,138 @@
     "machineMenu.chats": {"comment":"Agent pane: a received message's machine label opens a menu; its title and the heading over the chats listed on that machine; {machine} is a machine name such as studio-mac","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chats on {machine}"}},"ar":{"stringUnit":{"state":"needs_review","value":"الدردشات على {machine}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Chatovi na {machine}"}},"da":{"stringUnit":{"state":"needs_review","value":"Chats på {machine}"}},"de":{"stringUnit":{"state":"needs_review","value":"Chats auf {machine}"}},"es":{"stringUnit":{"state":"needs_review","value":"Chats en {machine}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Discussions sur {machine}"}},"it":{"stringUnit":{"state":"needs_review","value":"Chat su {machine}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{machine} のチャット"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែកលើ {machine}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{machine}의 채팅"}},"nb":{"stringUnit":{"state":"needs_review","value":"Chatter på {machine}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Czaty na {machine}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Chats em {machine}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Чаты на {machine}"}},"th":{"stringUnit":{"state":"needs_review","value":"แชตบน {machine}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{machine} üzerindeki sohbetler"}},"uk":{"stringUnit":{"state":"needs_review","value":"Чати на {machine}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện trên {machine}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{machine} 上的聊天"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{machine} 上的聊天"}}}},
     "machineMenu.copyName": {"comment":"Agent pane: the machine menu's row that copies the machine's name","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Copy machine name"}},"ar":{"stringUnit":{"state":"needs_review","value":"نسخ اسم الجهاز"}},"bs":{"stringUnit":{"state":"needs_review","value":"Kopiraj naziv mašine"}},"da":{"stringUnit":{"state":"needs_review","value":"Kopiér maskinens navn"}},"de":{"stringUnit":{"state":"needs_review","value":"Maschinennamen kopieren"}},"es":{"stringUnit":{"state":"needs_review","value":"Copiar nombre de la máquina"}},"fr":{"stringUnit":{"state":"needs_review","value":"Copier le nom de la machine"}},"it":{"stringUnit":{"state":"needs_review","value":"Copia nome della macchina"}},"ja":{"stringUnit":{"state":"needs_review","value":"マシン名をコピー"}},"km":{"stringUnit":{"state":"needs_review","value":"ចម្លងឈ្មោះម៉ាស៊ីន"}},"ko":{"stringUnit":{"state":"needs_review","value":"머신 이름 복사"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kopier maskinnavn"}},"pl":{"stringUnit":{"state":"needs_review","value":"Kopiuj nazwę maszyny"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Copiar nome da máquina"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скопировать имя машины"}},"th":{"stringUnit":{"state":"needs_review","value":"คัดลอกชื่อเครื่อง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Makine adını kopyala"}},"uk":{"stringUnit":{"state":"needs_review","value":"Копіювати назву машини"}},"vi":{"stringUnit":{"state":"needs_review","value":"Sao chép tên máy"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"复制机器名称"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"複製機器名稱"}}}},
     "message.quoteReply": {"comment":"Agent pane: the small chip over selected transcript text (and a message action row's button) that quotes the text into the composer, the same as Quote in Reply","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Reply"}},"ar":{"stringUnit":{"state":"needs_review","value":"رد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odgovori"}},"da":{"stringUnit":{"state":"needs_review","value":"Svar"}},"de":{"stringUnit":{"state":"needs_review","value":"Antworten"}},"es":{"stringUnit":{"state":"needs_review","value":"Responder"}},"fr":{"stringUnit":{"state":"needs_review","value":"Répondre"}},"it":{"stringUnit":{"state":"needs_review","value":"Rispondi"}},"ja":{"stringUnit":{"state":"needs_review","value":"返信"}},"km":{"stringUnit":{"state":"needs_review","value":"ឆ្លើយតប"}},"ko":{"stringUnit":{"state":"needs_review","value":"답장"}},"nb":{"stringUnit":{"state":"needs_review","value":"Svar"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odpowiedz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Responder"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ответить"}},"th":{"stringUnit":{"state":"needs_review","value":"ตอบกลับ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yanıtla"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відповісти"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trả lời"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"回复"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"回覆"}}}},
+    "turn.failedMark": {
+      "comment": "Agent pane: a failed turn's mark in its footer row (an icon's label, or one muted word); short",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فشل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neuspješno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mislykkedes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Falló"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Échec"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non riuscito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "失敗"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បរាជ័យ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "실패"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mislyktes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Niepowodzenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Falhou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ошибка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ล้มเหลว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Başarısız"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Помилка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thất bại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "失敗"
+          }
+        }
+      }
+    },
     "turn.stoppedMark": {"comment":"Agent pane: one muted word in a stopped turn's footer (the person's Stop, or one cmux had to force); short","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"متوقف"}},"bs":{"stringUnit":{"state":"needs_review","value":"Zaustavljeno"}},"da":{"stringUnit":{"state":"needs_review","value":"Stoppet"}},"de":{"stringUnit":{"state":"needs_review","value":"Gestoppt"}},"en":{"stringUnit":{"state":"translated","value":"Stopped"}},"es":{"stringUnit":{"state":"needs_review","value":"Detenido"}},"fr":{"stringUnit":{"state":"needs_review","value":"Arrêté"}},"it":{"stringUnit":{"state":"needs_review","value":"Interrotto"}},"ja":{"stringUnit":{"state":"needs_review","value":"停止済み"}},"km":{"stringUnit":{"state":"needs_review","value":"បានឈប់"}},"ko":{"stringUnit":{"state":"needs_review","value":"중지됨"}},"nb":{"stringUnit":{"state":"needs_review","value":"Stoppet"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zatrzymano"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Interrompido"}},"ru":{"stringUnit":{"state":"needs_review","value":"Остановлено"}},"th":{"stringUnit":{"state":"needs_review","value":"หยุดแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Durduruldu"}},"uk":{"stringUnit":{"state":"needs_review","value":"Зупинено"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã dừng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已停止"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已停止"}}}},
     "composer.heldForWake": {"comment":"Agent pane: heads the prompts sent in a Cloud chat whose machine was paused; the machine wakes and they go once the chat is back","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ تشغيل الجهاز…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Mašina se budi…"}},"da":{"stringUnit":{"state":"needs_review","value":"Vækker maskinen…"}},"de":{"stringUnit":{"state":"needs_review","value":"Maschine wird geweckt…"}},"en":{"stringUnit":{"state":"translated","value":"Waking the machine…"}},"es":{"stringUnit":{"state":"needs_review","value":"Activando la máquina…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Réveil de la machine…"}},"it":{"stringUnit":{"state":"needs_review","value":"Riattivazione della macchina…"}},"ja":{"stringUnit":{"state":"needs_review","value":"マシンを起動しています…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងដាស់ម៉ាស៊ីន…"}},"ko":{"stringUnit":{"state":"needs_review","value":"머신을 깨우는 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vekker maskinen…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wybudzanie maszyny…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ativando a máquina…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Пробуждение машины…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังปลุกเครื่อง…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Makine uyandırılıyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Пробудження машини…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang đánh thức máy…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在唤醒机器…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在喚醒機器…"}}}},
     "tools.approved": {"comment":"Agent pane: at the end of a tool row whose permission ask the person approved (Allow once or Always allow); the approval reads on its row, never as a line of its own","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تمت الموافقة"}},"bs":{"stringUnit":{"state":"translated","value":"Odobreno"}},"da":{"stringUnit":{"state":"translated","value":"Godkendt"}},"de":{"stringUnit":{"state":"translated","value":"Genehmigt"}},"en":{"stringUnit":{"state":"translated","value":"Approved"}},"es":{"stringUnit":{"state":"translated","value":"Aprobado"}},"fr":{"stringUnit":{"state":"translated","value":"Approuvée"}},"it":{"stringUnit":{"state":"translated","value":"Approvata"}},"ja":{"stringUnit":{"state":"translated","value":"承認済み"}},"km":{"stringUnit":{"state":"translated","value":"បានយល់ព្រម"}},"ko":{"stringUnit":{"state":"translated","value":"승인됨"}},"nb":{"stringUnit":{"state":"translated","value":"Godkjent"}},"pl":{"stringUnit":{"state":"translated","value":"Zatwierdzono"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Aprovado"}},"ru":{"stringUnit":{"state":"translated","value":"Одобрено"}},"th":{"stringUnit":{"state":"translated","value":"อนุมัติแล้ว"}},"tr":{"stringUnit":{"state":"translated","value":"Onaylandı"}},"uk":{"stringUnit":{"state":"translated","value":"Схвалено"}},"vi":{"stringUnit":{"state":"translated","value":"Đã duyệt"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"已批准"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"已核准"}}}},
