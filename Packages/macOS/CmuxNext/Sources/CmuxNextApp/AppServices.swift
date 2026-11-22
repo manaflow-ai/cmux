@@ -76,8 +76,7 @@ final class AppServices {
     let sidebarSnapshots: SidebarSnapshotStore
     /// Launch load-in by region; tests inject one with their own clock.
     let launchReveal: LaunchReveal
-    /// Page views wait for the first window frame (`LaunchPageDeferral`); AppDelegate binds its gate.
-    let launchPages = LaunchPageDeferral()
+    let launchPages = LaunchPageDeferral() // page views wait for the first window frame; AppDelegate binds its gate
     /// Run marker, restart notice, crash reports (`debug.crashes`).
     let crashRecovery: CrashRecoveryService
     /// Crash and exception reports to Sentry (cx-urd.58); started only for the app process.

@@ -19,6 +19,9 @@ public final class LaunchPageDeferral {
     /// Pages wait for `gate`'s first frame from now on; `mark` gets `pages.deferred_until_frame` and `pages.created`.
     public func bind(_ gate: FirstFrameGate, mark: @escaping @MainActor (String) -> Void) { self.gate = gate; self.mark = mark }
 
+    /// Pages wait now (the gate is bound and not open yet).
+    public var holds: Bool { gate.map { !$0.isOpen } ?? false }
+
     /// True when `key`'s page must wait for the first frame: `show` runs once it committed (once per key).
     public func defers(_ key: String, show: @escaping @MainActor () -> Void) -> Bool {
         guard let gate, !gate.isOpen else { return false }
