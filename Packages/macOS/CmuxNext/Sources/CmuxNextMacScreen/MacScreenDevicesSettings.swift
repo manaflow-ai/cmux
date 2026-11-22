@@ -227,7 +227,7 @@ public final class MacScreenDevicesSettings {
     }
 
     public var state: State {
-        let labels = Labels.current
+        var labels = Labels.current
         guard box.configured else {
             return State(available: false, status: .init(text: L.t("devices.status.invalidHubAddress", "The Device Hub Address in Settings › Development is not a valid web address. Fix it, or clear it to use the built-in hub."), tone: "neutral"),
                          signIn: nil, error: nil, labels: labels, thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
@@ -237,6 +237,11 @@ public final class MacScreenDevicesSettings {
                 return State(available: true, status: .init(text: message, tone: "danger"), signIn: nil,
                              error: message, labels: labels, thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
             }
+            if box.restoring || box.connecting {
+                // The saved sign-in is still restoring, or signed in with the hub still starting: not signed out.
+                return State(available: true, status: .init(text: L.t("macScreen.home.devicesLoading", "Loading your devices…"), tone: "neutral"),
+                             signIn: nil, error: nil, labels: labels, thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
+            }
             let signIn = canSignIn() ? L.t("devices.signIn", "Sign In to Your Devices") : nil
             let text = signIn == nil ? L.t("devices.status.signedOut", "Sign in to cmux to see your devices.")
                 : L.t("devices.status.removed", "This Mac left your devices.")
@@ -244,6 +249,12 @@ public final class MacScreenDevicesSettings {
                          thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
         }
         let me = hub.identity.id
+        // Other Devices with no row: "sign in on your other Macs" only after a list read succeeded (ask-6a79af928f).
+        switch DeviceDiscovery.of(hub, shown: hub.otherDevices.count) {
+        case .list, .noDevices: break
+        case .finding: labels.noOthers = L.t("macScreen.home.devicesLoading", "Loading your devices…")
+        case let .failed(reason, detail): labels.noOthers = reason.words(detail: detail)
+        }
         let names = store.deviceNames.merging(hub.devices.map { ($0.id, $0.name) }) { _, listed in listed }
         let this = hub.thisDevice.map { device(for: $0, hub: hub, me: me) }
         let sharing = hub.thisDevice.map { _ in
@@ -439,7 +450,9 @@ public final class MacScreenDevicesSettings {
         case .peerOffline: L.t("devices.history.offline", "A device went offline")
         case .failed: L.t("devices.history.failed", "The stream could not start")
         case .expired: L.t("devices.history.expired", "No answer in time")
+        case .consentRequired: String(format: L.t("devices.history.consentRequired", "%@ hasn’t allowed screen sharing"), host)
         case .approveFailed: L.t("devices.history.approveFailed", "Approved, but the session couldn’t start")
+        case .moved: L.t("devices.history.moved", "Moved to another device")
         case .other: L.t("devices.history.other", "Ended")
         }
     }
@@ -516,7 +529,10 @@ public final class MacScreenDevicesSettings {
             case "remove":
                 guard let id = run.id else { return RunResult(error: "id") }
                 let isMe = id == hub.identity.id
-                try await hub.removeDevice(id)
+                // Another Mac lists once for all its records (its builds, renewals): Remove takes them all.
+                for record in isMe ? [id] : hub.recordIDs(of: id) {
+                    try await hub.removeDevice(record)
+                }
                 if isMe { thisDeviceRemoved() }
             case "setAccess":
                 guard let id = run.id, let scope = run.scope.flatMap(MacScreenAccess.init(value:)) else {

@@ -175,7 +175,15 @@ export async function open120Hz(
       },
       async close() {
         running = false;
-        await pump;
+        // A beginFrame the browser leaves unanswered holds the pump (chrome-headless-shell 158.0.8127.36,
+        // scripts/ci/ensure-system-chrome.sh): closing the browser ends that call, so the pump gets a bound.
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+          pump,
+          // fixed-wait: the most a close waits for the pump's last frame before it closes the browser
+          new Promise((resolve) => (timer = setTimeout(resolve, 5000))),
+        ]);
+        clearTimeout(timer);
         await browser?.close();
         await owner.close();
       },

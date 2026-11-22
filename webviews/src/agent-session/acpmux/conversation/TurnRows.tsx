@@ -2,7 +2,7 @@
 // footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
 import { FindReveal, isRevealRow } from "./chatFind";
-import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AcpmuxRow } from "../model";
 import { RETRY_HOLD_MS, useAnswerHold } from "../answerHold";
 import { ErrorDetails } from "./ErrorDetails";
@@ -23,7 +23,7 @@ import { ToolRunSteps } from "./ToolRunSteps";
 import { KeepOpenedLine } from "./KeepOpenedLine";
 import { visibleToolItems } from "./mcpPresentation";
 import { ThoughtRow } from "./ThoughtRow";
-import { groupId, runStretches, stretchStart, toolGroups, type RunStretch, type ToolGroup } from "./toolGroups";
+import { groupId, runStretches, stretchStart, toolGroups, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext } from "./turnActions";
@@ -41,21 +41,16 @@ import {
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
 import { TimedLabel } from "./TurnTokens";
-import { AlertCircle, ChevronRight, Retry } from "./icons";
+import { AlertCircle, ChevronRight, Close, Retry } from "./icons";
 import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
+import { dismissFailure, useFailureDismissed } from "./dismissedFailures";
+import { SteerChatContext } from "./pendingSteerModel";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import { offersGateway, type CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
 import { useT } from "../i18n";
-import {
-  failureCopy,
-  failureKind,
-  failureRecovery,
-  isCloudRejectedCredential,
-  isTeamMachineSignIn,
-  type FailureRoute,
-} from "../failureCopy";
+import { failureCopy, failureKind, failureRecovery, isTeamMachineSignIn, type FailureRoute } from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
@@ -64,9 +59,7 @@ import { useCodeRouterChoice } from "./codeRouterOfferModel";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
 import { useTurnWaterfall } from "./useTurnWaterfall";
-import { FinishCheck } from "../finish/FinishCheck";
-import { useFinishedTurn } from "../finish/finishMoments";
-import { groupDisclosureKey, runDisclosureKey, runShape, thoughtIds } from "./turnRowsModel";
+import { groupDisclosureKey, runDisclosureKey, runLinks, runShape, thoughtIds } from "./turnRowsModel";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -91,11 +84,9 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   );
 }
 
-/// The turn ends that are no success: stopped (`turns.ts` isStopped) or failed.
-const UNFINISHED = new Set(["cancelled", "interrupted", "failed", "error"]);
-
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls. It says the time alone,
 /// as Codex does (Lucas, 2026-11-06): the turn's tokens stay on the running line (WorkingFor.tsx).
+/// A turn's end draws no done flash here: Codex has none (Lucas, 2026-11-14).
 export function WorkedFor({
   row,
   expanded,
@@ -107,15 +98,10 @@ export function WorkedFor({
   controls?: string;
   onToggle: () => void;
 }) {
-  // A long turn that just ended shows its short done state here (finish/finishMoments.ts); a turn
-  // that was stopped or failed did not succeed, so it gets none.
-  const ended = useFinishedTurn(row.at, row.durationMs === undefined ? undefined : row.at + row.durationMs);
-  const finished = ended && !UNFINISHED.has(row.status ?? "");
   return (
     <button
       type="button"
       className="cv-worked has-divider is-toggle"
-      data-finish={finished ? "turn" : undefined}
       aria-expanded={expanded}
       aria-controls={expanded ? controls : undefined}
       onClick={onToggle}
@@ -124,7 +110,6 @@ export function WorkedFor({
         <WorkedLabel row={row} />
       </span>
       <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
-      {finished && <FinishCheck />}
     </button>
   );
 }
@@ -240,26 +225,6 @@ function groupNode(
   }
 }
 
-/// How a folded stretch's line follows the group lines it grew from and splits back into
-/// (`useTranscriptDisclosure` links): any of them the reader opened opens it (`inherits`); its own
-/// choice passes down to those they set, but never to an edits group, which keeps its own state as it
-/// draws inside the opened line (`passesDown`); and closing every group that drew open while the turn
-/// ran, one by one, closes it (`closedBy`).
-function runLinks(stretch: RunStretch, rowId: string) {
-  const inherits: string[] = [];
-  const passesDown: string[] = [];
-  const closedBy: string[] = [];
-  stretch.groups.forEach((group, offset) => {
-    const key = groupDisclosureKey(group, stretch.from + offset, rowId);
-    if (!key) return;
-    inherits.push(key);
-    if (group.type === "group" && group.kind === "edits") return;
-    passesDown.push(key);
-    if (group.type === "group") closedBy.push(key);
-  });
-  return { inherits, passesDown, closedBy };
-}
-
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
   const reveal = useContext(FindReveal);
   // Keep the original transcript for copy/export and reveal discovery calls when Find names them.
@@ -356,7 +321,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     canSendPromptAgain,
     retryWith,
     reauthenticate,
-    transferCloudCredentials,
     cloudSignIn,
     apiKeySignIn,
     resume,
@@ -374,12 +338,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const prompt = row.prompt;
   const seq = row.seq;
   const failed = row.status === "failed" || row.status === "error";
-  const kind = failed ? failureKind(row.error, route, row.errorCode) : undefined;
-  // Only the CLI's own login (or an unexplained 401 on a direct route) asks to sign in (cx-w10a);
-  // its Sign in again is on the card (TurnFailure), and a Cloud chat's credential transfer stays here.
-  // A team Cloud machine refuses a personal login transfer: no Set up credentials, and no automatic one.
-  const teamMachine = route?.hostKind === "cloud" && route.teamMachine === true;
-  const authenticationFailed = (kind === "subscription-login" || kind === "auth") && !teamMachine;
   // The turn's time and tokens, for the time's tooltip: "Worked for 13s", then one token count per
   // row (turnTokensModel.ts `replyTimeDetail`). A Stop acpmux had to force (the agent never answered it)
   // says so here only, never in the transcript's text (Leo, 2026-11-03: "idk if it should be showing
@@ -429,27 +387,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       )
       .finally(() => setRetrying(false));
   };
-  const automaticRecoveryAttempted = useRef<string | undefined>(undefined);
-  const automaticRecoveryRow =
-    failed &&
-    !teamMachine &&
-    row.retryable === true &&
-    row.retryRowId &&
-    prompt &&
-    isCloudRejectedCredential(row.error, route)
-      ? row.retryRowId
-      : undefined;
-  useEffect(() => {
-    if (
-      !automaticRecoveryRow ||
-      !transferCloudCredentials ||
-      !prompt ||
-      automaticRecoveryAttempted.current === automaticRecoveryRow
-    )
-      return;
-    automaticRecoveryAttempted.current = automaticRecoveryRow;
-    void transferCloudCredentials(automaticRecoveryRow, prompt, true).catch(() => undefined);
-  }, [automaticRecoveryRow, prompt, transferCloudCredentials]);
   // acpmux's retry needs no prompt: an attempt it sent (a hidden prompt row) that failed again
   // still offers Retry. Without it, Retry sends the turn's prompt again, so it needs one.
   const failedRetry = !failed
@@ -487,6 +424,12 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       if (retrying) return;
       runRetry(recovery.run, recovery.label);
     });
+  // A failed turn's card goes once the chat went on and a later turn finished (turns.ts
+  // `markRecovered`), or once the person closed it with its × (cmux#48434). The footer's own Retry
+  // stays for the turn that is still the chat's last.
+  const chat = useContext(SteerChatContext);
+  const dismissed = useFailureDismissed(chat, row.id);
+  const showsCard = failed && !row.recovered && !dismissed;
   const promptOnly = row.toolCount === 0 && !text && !copy && !row.turnWork?.length && !row.changedFiles;
   if (!failed && promptOnly && !stoppedWord) return null;
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
@@ -495,8 +438,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // turn the reader points at, from its answer to its footer).
   return (
     <>
-      {failed && (
+      {showsCard && (
         <TurnFailure
+          onDismiss={() => dismissFailure(chat, row.id)}
           message={row.error}
           code={row.errorCode}
           route={route}
@@ -564,19 +508,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             {!messages && text && <ReadAloudButton id={row.id} text={text} />}
             {!messages && text && <RowReplyButton text={text} />}
             {!messages && ((text && row.answerId) || menuRetry) && <MessageMore rowId={row.answerId ?? row.id} />}
-            {authenticationFailed && transferCloudCredentials && row.retryRowId && prompt && (
-              <button
-                type="button"
-                className="cv-turn-auth-action"
-                onClick={() => {
-                  void transferCloudCredentials(row.retryRowId!, prompt).catch(() => undefined);
-                }}
-              >
-                {t("turn.transferCredentials", {
-                  harness: route?.name || route?.harness || t("turn.failure.theAgent"),
-                })}
-              </button>
-            )}
           </span>
           {stoppedLook === "word" && stoppedWord}
           {stoppedLook === "trailing" && stoppedWord}
@@ -594,6 +525,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
 /// Switch model after it; Compact for a chat that outgrew its context window, with Retry after it); Details opens the agent's own message with Copy error. Its surface is the
 /// `turn-error-card` experiment's arm (turnErrorCard.experiment.ts).
 function TurnFailure({
+  onDismiss,
   message,
   code,
   route,
@@ -613,6 +545,8 @@ function TurnFailure({
   failedAgain = false,
   retryNote,
 }: {
+  /// Closes the card for good (dismissedFailures.ts); the turn's footer stays.
+  onDismiss?: () => void;
   message: string | undefined;
   code?: string;
   route?: FailureRoute;
@@ -755,10 +689,7 @@ function TurnFailure({
     </button>
   );
   return (
-    <div
-      className={`cv-turn-note cv-turn-error ui-transient-error cv-turn-error--${arm}${arm === "card" ? " ui-glass" : ""}`}
-      data-failure-kind={kind}
-    >
+    <div className={`cv-turn-note cv-turn-error cv-turn-error--${arm}`} data-failure-kind={kind}>
       <span className="cv-turn-error__cause">
         {arm !== "note" && <AlertCircle size={arm === "card" ? 16 : 14} className="cv-turn-error__icon" />}
         <span className="text-fg">
@@ -853,6 +784,17 @@ function TurnFailure({
         )}
         {message && <ErrorDetails text={message} />}
       </span>
+      {onDismiss && (
+        <button
+          type="button"
+          className="cv-iconbtn cv-iconbtn--compact cv-turn-error__dismiss text-dim"
+          aria-label={t("toast.dismiss")}
+          title={t("toast.dismiss")}
+          onClick={onDismiss}
+        >
+          <Close size={14} />
+        </button>
+      )}
     </div>
   );
 }

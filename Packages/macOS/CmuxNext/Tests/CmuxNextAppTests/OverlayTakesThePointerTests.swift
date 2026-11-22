@@ -107,6 +107,7 @@ import Testing
         }
 
         func close() {
+            window.overlayLayer.teardown() // as WindowController.teardown does when the window closes: its catcher panels close
             PointerHover.debugPointers[ObjectIdentifier(window)] = nil
             let panel = WindowOverlayHost.existingHost(for: window)?.panel
             if let page {

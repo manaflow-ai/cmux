@@ -81,6 +81,7 @@ public struct TabItemMapping {
         let hover = hoverFacts(tab, turns: turns)
         item.hover = hover.facts
         if isConversation { item.subtitle = hover.folder }
+        if hover.facts.kind == .agentChat { item.agentBadgeCount = agentBadgeCount(tab) }
         if restarting, tab.kind != .browser, tab.kind != .remoteTerminal, !isConversation {
             if item.icon == .terminalDead { item.icon = .terminal }
             if item.status == .failure { item.status = .none }
@@ -166,6 +167,18 @@ public struct TabItemMapping {
         case .done: .success
         default: tab.dead || tab.progress?.state == .error ? .failure : .none
         }
+    }
+
+    /// An agent chat tab's count for `experiments.agentBadges`: unread agent messages plus pending approvals, from
+    /// what this Mac mirrors. Neither is a true count today: acpmux's session summary carries an `unread` flag and an
+    /// `input` indicator (one waiting prompt), and a tab holds one retained notification. So the count is 1 for
+    /// unread (an unread notification, the manual mark, or a turn that ended unseen) plus 1 for a pending
+    /// approval (the turn waits on the person, or the agent asked for the person's attention): 0, 1 or 2. A real
+    /// per-chat message count or approval list from acpmux would replace these two terms.
+    func agentBadgeCount(_ tab: TabModel) -> Int {
+        let unread = tab.hasUnread || tab.markedUnread || StatusMapping.shared.turn(tab) == .done
+        let pending = StatusMapping.shared.needsInput(tab) || tab.attention != nil
+        return (unread ? 1 : 0) + (pending ? 1 : 0)
     }
 
     /// The daemon parsed running OSC 9;4 progress for the tab's terminal

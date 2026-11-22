@@ -149,6 +149,9 @@ def literal_reads(source_dir: Path) -> list[str]:
         for literal in STRING_LITERAL.findall(text):
             # An interpolated path counts up to its first interpolation.
             literal = literal.split("\\(", 1)[0]
+            # "./" is no segment: AppWebPaneTests' rejected app root "./web" made all of web/ a read.
+            while literal.startswith("./"):
+                literal = literal[2:]
             # Two path segments at least: a lone "docs/" is a folder name in a
             # fixture far more often than a read of the repository's docs.
             if "/" not in literal.strip("/") or literal.startswith(SYSTEM_PREFIXES) or "://" in literal:
