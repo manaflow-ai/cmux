@@ -23,6 +23,8 @@ extension SettingsSchema {
         "agents.chats.enabled": .privacy,
         // Each recap is an extra model call on the person's usage: theirs to turn on or off.
         "agents.chats.sessionRecap": .userOnly,
+        // Machine cleanup removes worktrees and build caches from this Mac's disk: only the person turns it on or off.
+        "worktrees.autoCleanup": .destructive, "worktrees.cleanBuildCaches": .destructive,
         "picker.pinned": .userOnly,
         // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
         "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
