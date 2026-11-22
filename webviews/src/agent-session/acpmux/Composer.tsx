@@ -1297,6 +1297,10 @@ function ComposerFrame({
     };
   }, [sessionId, draftActionsVersion, onDraftSettled]);
   useEffect(() => {
+    // The person's own keys made this text (promptChange); whatever this run does with it, the mark
+    // is spent, so a later change to the same text from elsewhere writes at once.
+    const typed = typedText.current === text;
+    typedText.current = undefined;
     if (restoringSession.current) {
       restoringSession.current = false;
       return;
@@ -1308,9 +1312,8 @@ function ComposerFrame({
       return;
     }
     // Typing: one write to acpmux per pause, not per key (composerDraft.ts, cmux#48612).
-    if (typedText.current === text) writeTypedDraft(sessionId, text);
+    if (typed) writeTypedDraft(sessionId, text);
     else writePersistedDraft(sessionId, text);
-    typedText.current = undefined;
   }, [sessionId, text]);
   useEffect(() => {
     if (sessionId || !onUnsentDraft) return;

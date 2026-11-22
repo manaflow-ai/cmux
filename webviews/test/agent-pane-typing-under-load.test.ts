@@ -15,9 +15,9 @@
 //   composer's pickers and context), counted by acpmuxPerf;
 // - the messages it sent to acpmux (draft writes, typing presence), from the mock daemon's socket.
 //
-// Its writes to acpmux coalesce while the person types: one per pause, not one per key. On the base
-// (job of 2026-11-21, 6x slowdown, 41 keys): 41 `_acpmux/draft_set`, key to paint p95 425-461 ms,
-// max 605-633 ms; with the fix: none during the burst, p95 299-373 ms, max 475-499 ms. Latency is
+// Its writes to acpmux coalesce while the person types: the draft's first key, then one per pause or
+// per second of typing, not one per key. On the base (2026-11-21, 6x slowdown, 41 keys): 41
+// `_acpmux/draft_set`, key to paint p95 425-461 ms; with the fix, 6 writes, p95 about the same. Latency is
 // reported, not asserted: a shared VM's timing varies too much to gate on.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -107,7 +107,9 @@ await requireBrowserLane("agent-pane-typing-under-load.test.ts", async () => {
     const chunksBefore = await page.evaluate(() => (window as any).__chunks as number);
     await page.evaluate(() => ((window as any).__sent = {}));
 
+    const typingStarted = Date.now();
     await prompt.pressSequentially(KEYS, { delay: KEY_GAP_MS });
+    const typingMs = Date.now() - typingStarted;
 
     const sent = (await page.evaluate(() => ({ ...(window as any).__sent }))) as Record<string, number>;
     const renders = (await page.evaluate(
@@ -134,6 +136,7 @@ await requireBrowserLane("agent-pane-typing-under-load.test.ts", async () => {
       keys,
       chunks,
       typed: stats.composer_text,
+      typing_ms: typingMs,
       to_paint: stats.to_paint,
       to_work: stats.to_work,
       renders,
@@ -145,6 +148,12 @@ await requireBrowserLane("agent-pane-typing-under-load.test.ts", async () => {
     expect(stats.keys).toBeGreaterThanOrEqual(keys - 2);
     expect(chunks, "the reply streamed through the typing").toBeGreaterThan(20);
     // The keys asked acpmux for their draft once typing paused, not once per key (41 before).
-    expect(sent["_acpmux/draft_set"] ?? 0, "draft writes to acpmux while typing").toBeLessThanOrEqual(1);
+    // The draft's first key, then at most one write per started second of typing (composerDraft.ts
+    // `typedMaxWaitMs`), however many keys: on the base, one per key.
+    const writes = sent["_acpmux/draft_set"] ?? 0;
+    expect(writes, `draft writes to acpmux over ${typingMs} ms of typing`).toBeLessThanOrEqual(
+      1 + Math.ceil(typingMs / 1000),
+    );
+    expect(writes, "draft writes to acpmux, against one per key").toBeLessThan(keys / 4);
   });
 });

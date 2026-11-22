@@ -10,7 +10,11 @@ import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import { notifyDraftActionsChanged, settlePendingDraftWrites } from "../src/agent-session/acpmux/composerDraft";
+import {
+  draftWriteLimits,
+  notifyDraftActionsChanged,
+  settlePendingDraftWrites,
+} from "../src/agent-session/acpmux/composerDraft";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -165,7 +169,7 @@ async function type(text: string) {
   await act(async () => markdownField()!.insertTyped(text));
 }
 
-test("a burst of typed keys is one draft write, after typing pauses", async () => {
+test("a burst of typed keys is two draft writes: the draft's first key, then the rest once typing pauses", async () => {
   const acpmux = daemon();
   await acpmux.connect();
   await render("typing-a");
@@ -173,35 +177,46 @@ test("a burst of typed keys is one draft write, after typing pauses", async () =
   const before = acpmux.writes.length;
   for (const key of "buy bread") await type(key);
   await until(() => prompt() === "buy bread", "the typed text");
-  // Mid-burst: the keys are the page's (the remount cache has them), acpmux not asked yet.
-  expect(acpmux.writes.length - before).toBe(0);
-  expect(dom.window.localStorage.getItem("cmux.acpmux.composer-draft.typing-a")).toBe("buy bread");
-  // Typing pauses: the one write goes (draftWriteLimits.typedIdleMs).
-  await until(() => acpmux.writes.length > before, "the write once typing pauses");
   await settle();
-  const written = acpmux.writes.slice(before);
-  expect(written).toEqual([{ sessionId: "typing-a", text: "buy bread" }]);
+  // Mid-burst: the first key told acpmux a draft exists (its `hasDraft`, which an update's
+  // install-when-idle reads); the rest are the page's (the remount cache has them), acpmux not asked.
+  expect(acpmux.writes.slice(before)).toEqual([{ sessionId: "typing-a", text: "b" }]);
+  expect(dom.window.localStorage.getItem("cmux.acpmux.composer-draft.typing-a")).toBe("buy bread");
+  // Typing pauses: the one write of the rest goes (draftWriteLimits.typedIdleMs).
+  await until(() => acpmux.writes.length > before + 1, "the write once typing pauses");
+  await settle();
+  expect(acpmux.writes.slice(before)).toEqual([
+    { sessionId: "typing-a", text: "b" },
+    { sessionId: "typing-a", text: "buy bread" },
+  ]);
   expect(acpmux.held.get("typing-a")).toBe("buy bread");
 });
 
 test("a quit right after a key does not wait for the pause: acpmux holds the last key", async () => {
-  const acpmux = daemon();
+  // acpmux holds a draft, so the key is not a draft's first: it waits for the pause.
+  const acpmux = daemon({ "typing-b": "ship" });
   await acpmux.connect();
   await render("typing-b");
+  await until(() => prompt() === "ship", "the saved draft");
   await settle();
-  await type("ship it");
+  const before = acpmux.writes.length;
+  await type(" it");
   await until(() => prompt() === "ship it", "the typed text");
+  expect(acpmux.writes.length).toBe(before);
   await act(async () => settlePendingDraftWrites());
   expect(acpmux.held.get("typing-b")).toBe("ship it");
 });
 
 test("the composer going right after a key writes the key", async () => {
-  const acpmux = daemon();
+  const acpmux = daemon({ "typing-c": "keep" });
   await acpmux.connect();
   await render("typing-c");
+  await until(() => prompt() === "keep", "the saved draft");
   await settle();
-  await type("keep me");
+  const before = acpmux.writes.length;
+  await type(" me");
   await until(() => prompt() === "keep me", "the typed text");
+  expect(acpmux.writes.length).toBe(before);
   act(() => root?.unmount());
   root = undefined;
   await settle();
@@ -217,4 +232,27 @@ test("clearing the prompt writes the clear at once", async () => {
   await settle();
   await settle();
   expect(acpmux.held.has("typing-d")).toBe(false);
+});
+
+test("a person who types on without pausing still has acpmux catch up within the cap", async () => {
+  // A renderer that dies mid-typing reloads with the remount cache and acpmux's draft, and merges the
+  // two: the cap keeps acpmux at most `typedMaxWaitMs` behind. Here the pause is far off (10 s), so
+  // only the cap can send the write.
+  const limits = { ...draftWriteLimits };
+  Object.assign(draftWriteLimits, { typedIdleMs: 10_000, typedMaxWaitMs: 50 });
+  try {
+    // acpmux already holds a draft, so no key here is a draft's first.
+    const acpmux = daemon({ "typing-e": "still" });
+    await acpmux.connect();
+    await render("typing-e");
+    await until(() => prompt() === "still", "the saved draft");
+    await settle();
+    const before = acpmux.writes.length;
+    await type(" typing");
+    await until(() => prompt() === "still typing", "the typed text");
+    await until(() => acpmux.writes.length > before, "the write at the cap");
+    expect(acpmux.held.get("typing-e")).toBe("still typing");
+  } finally {
+    Object.assign(draftWriteLimits, limits);
+  }
 });

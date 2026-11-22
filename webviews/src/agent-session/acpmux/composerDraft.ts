@@ -136,7 +136,16 @@ const WRITE_TIMED_OUT = new Error("chat.writeDraft timed out");
 
 /** How long one draft write may go unanswered before it counts as failed, and how long after that
  * a web swap still waits in case it lands late (tests change them). */
-export const draftWriteLimits = { timeoutMs: Number.POSITIVE_INFINITY, lateHoldMs: 30_000, typedIdleMs: 400 };
+export const draftWriteLimits = {
+  timeoutMs: Number.POSITIVE_INFINITY,
+  lateHoldMs: 30_000,
+  /** A typed draft goes to acpmux once typing pauses this long (`writeTypedDraft`)... */
+  typedIdleMs: 400,
+  /** ...or this long after the first key it holds, whichever comes first: a renderer that dies while
+   * the person types leaves acpmux at most this far behind the remount cache, which a reload then
+   * merges with it (`hydratedDraft`). acpmux keeps a draft by the same second (store/durability.rs). */
+  typedMaxWaitMs: 1000,
+};
 
 // A write that timed out may still land later. Nothing newer goes through the same connection
 // until it answers, so it can never land over a newer draft or a clear, and nothing is replayed.
@@ -345,6 +354,8 @@ export function cachePersistedDraft(sessionId: string | undefined, text: string)
 // `draftWriteLimits.typedIdleMs`): longer than the gap between two typed keys, so a burst of keys is
 // one write.
 let typedDraftTimer: ReturnType<typeof setTimeout> | undefined;
+// When the first key the waiting write holds was typed (`draftWriteLimits.typedMaxWaitMs`).
+let typedDraftSince = 0;
 
 /// Stores or clears an unsent prompt in the remount cache and daemon session state.
 export function writePersistedDraft(sessionId: string | undefined, text: string): void {
@@ -354,8 +365,8 @@ export function writePersistedDraft(sessionId: string | undefined, text: string)
 
 /**
  * A key the person typed: the remount cache holds it at once and the write is queued as
- * `writePersistedDraft` queues it, but it goes to acpmux once typing pauses (`draftWriteLimits.typedIdleMs`),
- * not on every key (https://github.com/manaflow-ai/cmux/issues/48612). Each write made acpmux save
+ * `writePersistedDraft` queues it, but it goes to acpmux once typing pauses (`draftWriteLimits.typedIdleMs`)
+ * or a second after the first waiting key (`typedMaxWaitMs`), not on every key (https://github.com/manaflow-ai/cmux/issues/48612). Each write made acpmux save
  * the chat's meta, append it to its journal and re-date the chat's list row, so a fast typist cost
  * acpmux, the app and every list one round each per key, on the same saturated cores the pane types
  * on. The queued text is authoritative while it waits (`hasPendingDraftWrite`), and every path that
@@ -364,14 +375,26 @@ export function writePersistedDraft(sessionId: string | undefined, text: string)
  * unmounting, and the page hiding.
  */
 export function writeTypedDraft(sessionId: string | undefined, text: string): void {
+  // A draft's first key goes at once (acpmux held none): acpmux then counts the chat as holding a
+  // draft (`hasDraft`), which an update's install-when-idle waits for, from the first key, not the
+  // first pause.
+  const starts = Boolean(sessionId && !lastQueuedDraft.has(sessionId));
   if (!queueDraftWrite(sessionId, text)) return;
   // A cleared prompt goes at once: a send's clear must land before anything after it.
-  if (!text || draftWriteLimits.typedIdleMs <= 0) return flushPendingDraftWrites();
-  if (typedDraftTimer !== undefined) clearTimeout(typedDraftTimer);
-  typedDraftTimer = setTimeout(() => {
-    typedDraftTimer = undefined;
-    flushPendingDraftWrites();
-  }, draftWriteLimits.typedIdleMs);
+  if (!text || starts || draftWriteLimits.typedIdleMs <= 0) return flushPendingDraftWrites();
+  const now = Date.now();
+  if (typedDraftTimer === undefined) typedDraftSince = now;
+  else clearTimeout(typedDraftTimer);
+  // The pause, but never past the cap from the first waiting key: a person who types on without
+  // pausing still has acpmux catch up every `typedMaxWaitMs`.
+  const left = Math.max(0, typedDraftSince + draftWriteLimits.typedMaxWaitMs - now);
+  typedDraftTimer = setTimeout(
+    () => {
+      typedDraftTimer = undefined;
+      flushPendingDraftWrites();
+    },
+    Math.min(draftWriteLimits.typedIdleMs, left),
+  );
 }
 
 if (typeof document !== "undefined" && typeof window !== "undefined") {
