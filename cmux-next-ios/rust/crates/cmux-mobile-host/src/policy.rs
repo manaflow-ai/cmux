@@ -224,9 +224,13 @@ fn creation_fields(command: &str) -> Option<HashSet<&'static str>> {
         // A saved group of this daemon, reopened into one of its panes: the
         // daemon starts each terminal member as the login shell in the
         // folder the record holds; the phone names no program, folder or env.
-        "reopen-saved-tab-group" => return Some(["saved", "pane", "transaction"].into_iter().collect()),
+        "reopen-saved-tab-group" => {
+            return Some(["saved", "pane", "transaction"].into_iter().collect());
+        }
         "delete-saved-tab-group" => return Some(["saved"].into_iter().collect()),
-        "notification-reply" => return Some(["notification", "text", "reply_id"].into_iter().collect()),
+        "notification-reply" => {
+            return Some(["notification", "text", "reply_id"].into_iter().collect());
+        }
         "new-tab" | "new-pane" => &["pane"],
         "new-pane-right" => &["pane", "width"],
         "split" => &["pane", "dir"],
@@ -645,7 +649,9 @@ fn group_params(operation: &str, params: &Map<String, Value>) -> Result<(), Stri
             match params.get("group") {
                 Some(Value::Null) => {}
                 Some(group) if short_id(Some(group), 64) => {}
-                _ => return Err("workspace.place takes a group, or null to remove it from one".into()),
+                _ => {
+                    return Err("workspace.place takes a group, or null to remove it from one".into());
+                }
             }
         }
     }
@@ -863,6 +869,8 @@ mod tests {
             // Latest screen first (attach-replay-history-rows-v1): screen only, then a chunk more.
             br#"{"cmd":"attach-surface","cols":80,"id":"m2","replay_history_rows":0,"rows":24,"surface":7}"#,
             br#"{"cmd":"attach-surface","id":"m2","replay_history_rows":2000,"surface":7}"#,
+            // A window far up the history (attach-replay-history-window-v1).
+            br#"{"cmd":"attach-surface","id":"m2","replay_history_rows":4000,"replay_history_start":0,"surface":7}"#,
             br#"{"bytes":"bHMK","cmd":"send","id":"m3","surface":7}"#,
             br#"{"cmd":"resize-surface","cols":80,"id":"m4","rows":24,"surface":7}"#,
             br#"{"cmd":"release-surface-size","id":"m5","surface":7}"#,
@@ -1095,7 +1103,8 @@ mod tests {
         // A notification's own reply is PR B's narrow command, with only its notification
         // and text (`notification_reply_takes_only_its_notification_and_text`); a stray
         // field still refuses it.
-        let line = br#"{"cmd":"notification-reply","id":"m4","notification":1,"text":"y","surface":7}"#.as_slice();
+        let line =
+            br#"{"cmd":"notification-reply","id":"m4","notification":1,"text":"y","surface":7}"#.as_slice();
         assert!(matches!(policy().evaluate(line), Verdict::Refuse(_)));
     }
 
@@ -1528,7 +1537,11 @@ mod tests {
             br#"{"cmd":"set-size-policy","id":"s5","surface":7,"policy":{"mode":"fixed"}}"#.as_slice(),
             br#"{"cmd":"set-size-counts","id":"s6","surface":7,"counts":false}"#,
         ] {
-            assert!(matches!(policy().evaluate(line), Verdict::Refuse(_)), "{}", String::from_utf8_lossy(line));
+            assert!(
+                matches!(policy().evaluate(line), Verdict::Refuse(_)),
+                "{}",
+                String::from_utf8_lossy(line)
+            );
         }
         let line = br#"{"cmd":"set-client-info","id":"c1","device_kind":"mac","device_id":"someone-else","remote":false}"#;
         let Verdict::Rewrite(sent) = policy().evaluate(line) else { panic!("not rewritten") };
