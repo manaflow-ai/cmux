@@ -264,6 +264,37 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     }
   });
 
+  // Background tasks opened into a split (Leo, 2026-11-22: "it gave me the agent pane could not be
+  // drawn after i opedn up background tasks. i guess it sent you to that split."). The app opens the
+  // chat's Background tasks tab on the chat's session with the reveal `subagent:cmux:background-tasks`
+  // (backgroundPane.ts); that page hides the chat's column and the panel fills the tab. In a real
+  // layout engine: the hidden column measures nothing, which is where a measuring loop would show.
+  test("the chat's Background tasks tab draws the panel, with no update loop and nothing caught", async () => {
+    const page = await browser!.newPage({ viewport: { width: 520, height: 760 } });
+    const errors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    page.on("pageerror", (error) => errors.push(`${error.message}\n${error.stack ?? ""}`));
+    try {
+      await page.goto(url(CHAT));
+      await page.getByText("Dev server stopped.").waitFor();
+      await page.evaluate(() =>
+        (window as unknown as { cmuxAcpmuxBridge: { revealTurn(value: string): void } }).cmuxAcpmuxBridge.revealTurn(
+          "subagent:cmux:background-tasks",
+        ),
+      );
+      await page.locator(".acpmux-shell[data-background-pane] > .acpmux-bg").waitFor({ timeout: 10_000 });
+      // A loop that starts once the panel draws, or once its tasks' clocks tick, shows up in this time.
+      await page.waitForTimeout(2_500);
+      expect(errors.filter((error) => /Maximum update depth|Too many re-renders|#185|#301/.test(error))).toEqual([]);
+      expect(await page.locator(".acpmux-pane-failed").count()).toBe(0);
+      expect(await panelCard(page, "cargo watch -x test").count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
   /// A page whose native host records what the page asks of it (CmuxNextAgentPane's `agentSession`).
   const recordingPage = async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
