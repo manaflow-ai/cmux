@@ -434,14 +434,19 @@ fn watch_folder(
                 .map_err(|error| failure(format!("could not watch {}: {error}", path.display())))?;
         }
     }
+    // Saves seen while a build ran: the next round builds them.
+    let mut pending: Vec<PathBuf> = Vec::new();
     loop {
-        let Ok(first) = receive.recv() else {
-            return Err(failure("the folder watch stopped".into()));
-        };
-        let mut paths: Vec<PathBuf> = first.map(|event| event.paths).unwrap_or_default();
+        let mut paths = std::mem::take(&mut pending);
+        if paths.is_empty() {
+            let Ok(first) = receive.recv() else {
+                return Err(failure("the folder watch stopped".into()));
+            };
+            paths = saved_paths(first);
+        }
         // A save is often several events: take what comes in the next moment too.
         while let Ok(more) = receive.recv_timeout(Duration::from_millis(300)) {
-            paths.extend(more.map(|event| event.paths).unwrap_or_default());
+            paths.extend(saved_paths(more));
         }
         paths.sort();
         paths.dedup();
@@ -457,11 +462,10 @@ fn watch_folder(
             }
         );
         match build_layer(customize, dir, app, false) {
+            Ok((next, seconds)) if next.web == layer.web => {
+                println!("  built in {seconds:.0} s: the same bundles, nothing to apply");
+            }
             Ok((next, seconds)) => {
-                if next.web == layer.web {
-                    println!("  built in {seconds:.0} s: the same bundles, nothing to apply");
-                    continue;
-                }
                 let old = std::mem::replace(&mut layer, next.clone());
                 let applied = customize.library_update_code(next.clone(), origin, now_ms());
                 // The replaced layer goes before the line that says so: a watch
@@ -485,9 +489,36 @@ fn watch_folder(
                 println!("  the build failed; the last layer stays on:\n{}", error.message);
             }
         }
-        // What the build itself changed (generated files git does not ignore,
-        // if any) is not a save.
-        while receive.try_recv().is_ok() {}
+        // A save made while the build ran is built next. The build's own
+        // reads are no save (`saved_paths`), and what it writes under the
+        // folder is git-ignored (`worth_a_build`).
+        while let Ok(event) = receive.try_recv() {
+            pending.extend(saved_paths(event));
+        }
+        if !pending.is_empty() {
+            pending = worth_a_build(dir, pending);
+        }
+    }
+}
+
+/// The paths an event changed. Linux reports a file opened or read too
+/// (`Access`): every build reads the whole folder, so counting those made a
+/// watch build again forever with nothing saved.
+fn saved_paths(event: notify::Result<notify::Event>) -> Vec<PathBuf> {
+    match event {
+        Ok(event) if saves(&event.kind) => event.paths,
+        _ => Vec::new(),
+    }
+}
+
+fn saves(kind: &notify::EventKind) -> bool {
+    use notify::EventKind;
+    use notify::event::{AccessKind, AccessMode, MetadataKind, ModifyKind};
+    match kind {
+        EventKind::Access(AccessKind::Close(AccessMode::Write)) => true,
+        EventKind::Access(_) | EventKind::Other => false,
+        EventKind::Modify(ModifyKind::Metadata(MetadataKind::AccessTime)) => false,
+        _ => true,
     }
 }
 

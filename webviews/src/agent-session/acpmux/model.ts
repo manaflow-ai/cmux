@@ -1550,6 +1550,9 @@ export type AcpmuxSnapshot = {
     unavailable?: string;
     /** `unavailable` is only a failed model probe (a timeout, a rate limit): the harness may run. */
     probeFailed?: boolean;
+    /** acpmux's `_acpmux/harnesses` named no default harness (default_harness.rs): New Tab starts
+     * on no agent until one is picked. */
+    noDefault?: true;
     pickable?: boolean;
     /** The declared launcher or route kind; routers cannot represent a harness family. */
     kind?: string;
