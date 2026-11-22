@@ -40,7 +40,7 @@ final class TerminalComposerLookUITests: XCTestCase {
                       note: "\(readout) runner isDarkerSystemColorsEnabled=\(UIAccessibility.isDarkerSystemColorsEnabled)")
     }
 
-    private static let accessibilityDomain = "com.apple.Accessibility" as CFString
+    private static var accessibilityDomain: CFString { "com.apple.Accessibility" as CFString }
 
     /// `key` on in the simulator's com.apple.Accessibility, read back; skips when the
     /// write does not take (the runner could not reach the domain).
