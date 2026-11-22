@@ -125,6 +125,15 @@
   Regression: `PinnedRowShownTabIconTests`; stills `AAPinnedShownTabIconGalleryTests` (`pinned-tab-icon-gallery.tar`).
 
 - 2026-11-19 (tip-card-padding): Sidebar-Look: Lawrence, 2026-11-19 (msg 40504), on the "Did you know?" tip card: "need more padding here". Every notice card (tips, announcements, asks, the star prompt, the update notice) holds its rows, buttons and shortcut `Metrics.cardPadding` in from each edge (`space5`: 12 pt at the default density, was `space3`, 6 pt) and keeps its button row `Metrics.cardRowGap` under the text (`space4`, 8 pt, was `space2`, 4 pt). Its corner still rounds from its buttons (`Metrics.buttonContainer(padding: Metrics.cardPadding)`: 8 + 12 = 20 pt, was 14), and the x stays concentric with it (`Metrics.cornerControl`). Both scale with the density and the interface scale. The Update Ready card keeps its compact 5 pt (Leo 2026-10-19), and toasts keep their own tuned padding. Regression: `SidebarTipCardPaddingTests` (every density).
+- 2026-11-19 (lane/taste-agent-badges, taste build 5): Sidebar-Look: the desktop coordinator's taste build list,
+  relaying Leo's "just build out a bunch that are really promising": "sidebar rows get one tinted status pill
+  (Running, Needs approval, Done); variant: a thin light beam travels along the row edge while an agent runs."
+  Only behind Settings > Advanced > Experiments > Agent Badges (`experiments.agentBadges`, off by default; nothing changes
+  off). On: one pill on the shared trailing column in place of the status mark (`SidebarAgentPill.of`), every row
+  reserving the widest label's width so titles never move; Pills and Beam adds a Motion-gated Core Animation light
+  on a running row's edge, removed when it stops running or leaves the screen. It puts status words on rows, which
+  design/sidebar.md otherwise forbids; that rule stands for the default. `SidebarAgentPillTests`; gallery
+  `sidebar.agent-badges`.
 - 2026-11-18 (a590, hover card grid base red): Sidebar-Look: the workspace hover card's tab rows line up with its
   header again, icons on one column and text on one edge, as before #44449. d8917c9 (#44449) scaled every density
   from Default by one factor, so the card's padding (7.5 pt), its icon-to-text gap and the tab rows' fill outset
@@ -2619,3 +2628,10 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
 - 2026-11-21 (a-chat-task-list): the Chief's subagent rows under the top Chief row show a subagent's task count ("1/3",
   `SidebarItemInfo.taskProgress`) left of their trailing marks, as a chat row does; `SidebarItemRowView.taskCount`,
   row looks only (not icon, chip or tile). Test: ChiefSubagentTaskCountTests.
+
+- 2026-11-21 (a1315): the footer Search button sits at most one device pixel under the avatar's line at every
+  density. `placeSearch` rounded its origin to the nearest pixel after the one-pixel lens drop; Compact and
+  Comfortable have half-point footer heights since every density is Default scaled (#44449), so the rounding
+  added half a pixel more (1.5 pt at scale 1). It now rounds toward the line. Regression: `SidebarSearchButtonTests`
+  (red on feat-cmux-next and on base 19421bb).
+  Sidebar-Look: Leo 2026-10-21 "move the magnifying glass a bit lower": one device pixel, no more.

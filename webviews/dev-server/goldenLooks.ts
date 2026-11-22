@@ -107,7 +107,7 @@ export function lookFromSetup(dir: string, base: Partial<RegistryLook> = {}): Go
     tagline?: string;
     settings?: Record<string, unknown>;
   };
-  const settings = { ...(setup.settings ?? {}) };
+  const settings = { ...setup.settings };
   const schemes: GoldenLook["schemes"] = { light: {}, dark: {} };
   const themeName = settings["appearance.themeFile"];
   if (typeof themeName === "string") {

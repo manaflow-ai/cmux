@@ -899,6 +899,31 @@ class ApplyRustTest(unittest.TestCase):
         (argv,) = self.calls
         self.assertIn(self.HEAD, argv)
 
+    def test_the_copy_s_acpmux_daemons_take_the_change_and_the_receipt_says_which(self):
+        # 2026-11-21 hot-swap end to end: an acpmux change's look left the copy's acpmux daemon on the old build,
+        # and the look's receipt kept only hot-apply's phases, so nothing said so.
+        self.published = True
+        left = [{"home": "/h/old", "pid": 7, "why": "its launch environment is unreadable"}]
+        stdout = json.dumps({"phases": {"swap": 1.0}, "steps": {
+            "rust": {"to": "x", "acpmux_left_on_old_build": left},
+            "acpmux": [{"home": "/h/new", "from_pid": 5, "pid": 6}]}}) + "\n"
+
+        def run(argv, **kw):
+            self.calls.append([str(a) for a in argv])
+            return subprocess.CompletedProcess(argv, 0, stdout=stdout, stderr="")
+        with unittest.mock.patch.object(hv.subprocess, "run", run):
+            applied = hv.apply_rust(self.root, {"head": self.HEAD, "tree_key": "k"}, None,
+                                    self.StubSide(self.root), self.root)
+        for planned in ({"head": self.HEAD, "tree_key": "k"}, {"head": self.HEAD, "daemon_from": self.ONTO,
+                                                               "tree_key": "k"}):
+            self.calls.clear()
+            self.apply(planned)
+            (argv,) = self.calls
+            self.assertIn("--restart-acpmux", argv)
+        self.assertEqual(applied["acpmux"], [{"home": "/h/new", "from_pid": 5, "pid": 6}])
+        self.assertEqual(applied["acpmux_left_on_old_build"], left)
+        self.assertEqual(applied["phases"], {"swap": 1.0})
+
 
 class PublishedPullRequestWebTest(unittest.TestCase):
     """look --pr N: a pull request's web layer comes from the bundles CI published for its head."""
