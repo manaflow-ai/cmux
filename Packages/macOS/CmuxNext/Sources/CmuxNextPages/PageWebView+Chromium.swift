@@ -31,14 +31,13 @@ extension PageWebView {
     /// An off-screen parking view's alpha (``PageOffscreenParking``) does not count either:
     /// a prewarmed page waits there to paint before it is adopted. Nor does any ancestor's alpha
     /// once the page lies wholly outside its window's content (``liesOutsideWindowContent``): its
-    /// child window shows nothing there, and a hidden page drew a held chat only when its paint
-    /// hold gave up (an adopted spare, HQ#5914).
+    /// child window shows nothing there, and a hidden page drew a held chat only when its paint hold gave up (an adopted spare, HQ#5914).
     /// A page out of sight (outside the window's content, or in an off-screen parking) is visible only
     /// while it has to draw there (``drawsAway``, `PageWebView+AwayDrawing`), then hidden like a chat
     /// behind another tab, so it can be frozen and released (CMUX-571).
     public func setChromiumVisibility(_ requested: Bool) {
-        guard let page = chromiumSession?.page else { return }
-        guard requested, window != nil, !isHiddenOrHasHiddenAncestor else { return page.setVisible(false) }
+        guard let session = chromiumSession else { return }
+        guard requested, window != nil, !isHiddenOrHasHiddenAncestor else { return session.setVisible(false) }
         let ancestors = sequence(first: self as NSView, next: \.superview).dropFirst()
         let clear = ancestors.contains { $0.alphaValue <= 0.001 && !($0 is PageOffscreenParking) }
         let outside = liesOutsideWindowContent
@@ -47,9 +46,10 @@ extension PageWebView {
         // workspace, `addPrewarmedSubview`). A page outside the window with no clear ancestor (a column
         // scrolled out of the viewport) keeps its visibility: nothing lays it out again when it scrolls back.
         let away = shown && (inOffscreenParking || (outside && clear))
-        page.setVisible(away ? drawsAway : shown)
+        session.setVisible(away ? drawsAway : shown)
         if away, drawsAway { drawAwayIfNeeded() }
     }
+    public var chromiumShows: Bool { chromiumSession?.shows == true } // what ``setChromiumVisibility(_:)`` told the Chromium page last; false on WebKit
 
     /// Whether the page is laid out wholly outside its window's content (a page held away until it
     /// drew, as an adopted New Tab spare is). A page or window not laid out yet is not.
@@ -355,6 +355,10 @@ extension PageWebView {
         case .ended:
             chromiumSession.questionKeys?.invalidate()
             fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended", ended: true)
+        case .engineStopped:
+            // The app quits: nothing reopens in WebKit, and the host hears no crash (``PageChromiumEvent/engineStopped``).
+            chromiumSession.questionKeys?.invalidate()
+            logger.info("page \(self.descriptor.id, privacy: .public) Chromium stopped for quit")
         case .openRequested(let url):
             openOutside(url, modifiers: [])
         case .filesDragged(let urls):

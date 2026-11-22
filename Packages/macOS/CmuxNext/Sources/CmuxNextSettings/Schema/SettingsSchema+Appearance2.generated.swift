@@ -88,6 +88,20 @@ extension AppearanceSettingsSchema {
                 keywords: ["accent", "color", "colour", "highlight", "selection", "personality", "rose pine", "ansi"]
             ),
             SettingDescriptor(
+                SelectionSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.selection", "Selection"),
+                help: SettingsText.keyed("settings.appearance.selection.help", "Accent tints the selected row and tab with the accent. Neutral keeps them gray."),
+                summary: SettingsText.keyed("settings.appearance.selection.summary", "Color of the selected row and tab"),
+                kind: .choice([
+                    SettingChoice(ThemeSelection.accent.rawValue, SettingsText.keyed("settings.choice.selection.accent", "Accent")),
+                    SettingChoice(ThemeSelection.neutral.rawValue, SettingsText.keyed("settings.choice.selection.neutral", "Neutral")),
+                ]),
+                default: .string(SelectionSetting.fallback.rawValue),
+                keywords: ["selection", "selected", "row", "highlight", "accent", "gray", "neutral", "sidebar"]
+            ),
+            SettingDescriptor(
                 ThemeFileSetting.configPath,
                 section: .appearance,
                 group: group,
@@ -99,6 +113,16 @@ extension AppearanceSettingsSchema {
                 defaultLabel: SettingsText.keyed("settings.choice.none", "None"),
                 keywords: ["theme file", "rice", "ricing", "dotfile", "dotfiles", "look", "config", "themes folder", "json"]
             ),
+            SettingDescriptor(
+                ThemeFileExceptionsSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.themeFileExceptions", "Changed Over Theme File"),
+                help: SettingsText.keyed("settings.appearance.themeFileExceptions.help", "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list."),
+                kind: .stringList,
+                default: .array(ThemeFileExceptionsSetting.fallback.map { .string($0) }),
+                keywords: ["theme file", "override", "exception"]
+            ).hiddenFromSettingsPage("bookkeeping of the rows changed over the theme file; each row's note says so").hiddenFromPalette("a Settings change to a row the theme file sets edits it: a list of setting keys"),
             SettingDescriptor(
                 HighlightColorSetting.configPath,
                 section: .appearance,
@@ -222,6 +246,16 @@ extension AppearanceSettingsSchema {
                 placeholder: SettingText(key: nil, text: "37.77,-122.42")
             ),
             SettingDescriptor(
+                BackdropSelectionSetting.memoryPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundMemory", "Background Mode Memory"),
+                help: SettingsText.keyed("settings.appearance.backgroundMemory.help", "The folder and picture each background mode last showed, so switching back restores them."),
+                kind: .stringMap,
+                default: nil,
+                keywords: ["wallpaper", "background", "folder", "rotate", "restore"]
+            ),
+            SettingDescriptor(
                 BackdropSelectionSetting.displayBackgroundsPath,
                 section: .appearance,
                 group: group,
@@ -264,6 +298,26 @@ extension AppearanceSettingsSchema {
                 kind: .toggle,
                 default: .bool(ReducedBackgroundsSetting.fallback),
                 keywords: ["background", "plain", "reduce", "reduced", "painting", "wallpaper", "glass", "transparency", "backdrop", "art", "simple", "performance"]
+            ),
+            SettingDescriptor(
+                AgentGlowSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.agentGlow", "React to Agents"),
+                help: SettingsText.keyed("settings.appearance.agentGlow.help", "Calm while agents are idle; a soft glow in the machine's color when an agent needs you."),
+                kind: .toggle,
+                default: .bool(AgentGlowSetting.fallback),
+                keywords: ["agent", "agents", "glow", "react", "reactive", "background", "attention", "needs you", "idle", "calm", "machine color"]
+            ),
+            SettingDescriptor(
+                PreviousGlassSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.previousGlass", "Previous Glass Look"),
+                help: SettingsText.keyed("settings.appearance.previousGlass.help", "Draws menus, popovers, the composer and cards with the glass from before November 2026."),
+                kind: .toggle,
+                default: .bool(PreviousGlassSetting.fallback),
+                keywords: ["glass", "liquid glass", "previous", "old", "classic look", "blur", "frost", "translucent", "transparency", "menu", "popover"]
             ),
             SettingDescriptor(
                 ExperimentalAppearanceSetting.configPath,
@@ -323,44 +377,6 @@ extension AppearanceSettingsSchema {
                 kind: .toggle,
                 default: .bool(WallpaperTintSetting.fallback),
                 keywords: ["wallpaper", "desktop", "tint", "tinting", "glass", "color", "colour", "space", "background"]
-            ),
-        ]
-    }
-}
-
-extension AppearanceSettingsSchema {
-    static var tuning: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
-        return [
-            SettingDescriptor(
-                AppearanceTuningSetting.glassTransparencyPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.glassTransparency", "Glass Transparency"),
-                help: SettingsText.keyed("settings.appearance.glassTransparency.help", "How much of the desktop or wallpaper shows through the glass."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.glassTransparencyRange, step: 0.05, unit: .fraction)),
-                default: .number(AppearanceTuningSetting.glassTransparencyDefault),
-                keywords: ["glass", "transparency", "alpha", "clear"]
-            ).hiddenFromSettingsPage("duplicates appearance.backgroundOpacity; the key still loads"),
-            SettingDescriptor(
-                AppearanceTuningSetting.huePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.hue", "Hue"),
-                help: SettingsText.keyed("settings.appearance.hue.help", "Shift the tint color around the hue wheel."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.hueRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.huePlaceholder)),
-                default: .number(AppearanceTuningSetting.hueDefault),
-                keywords: ["tint", "color", "colour"]
-            ),
-            SettingDescriptor(
-                AppearanceTuningSetting.saturationPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.saturation", "Saturation"),
-                help: SettingsText.keyed("settings.appearance.saturation.help", "Increase or reduce the tint color intensity."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.saturationRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.saturationPlaceholder)),
-                default: .number(AppearanceTuningSetting.saturationDefault),
-                keywords: ["tint", "color", "colour", "intensity"]
             ),
         ]
     }

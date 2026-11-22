@@ -181,6 +181,7 @@ pub use orphan_shutdown::stop_orphaned_owner;
 pub use owner_keepers::{Keepers, OwnerKeepersWatch, watch_owner_keepers};
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 mod starter_exit;
+mod stop_if_idle;
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 pub use starter_exit::{Starter, exit_with_process};
 mod pending_handoff;
@@ -196,6 +197,7 @@ mod close_tabs_command;
 mod cloud_attachments;
 mod cloud_conversations;
 pub mod cloud_host_replica;
+pub(crate) mod computer_use_command;
 mod conversation_attachments;
 mod conversation_live;
 mod conversation_resource;
@@ -253,6 +255,7 @@ mod cmd_tabs;
 mod cmd_terminal_io;
 mod cmd_terminals;
 mod creating_input;
+mod send_once;
 use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
 mod column_move;
@@ -434,6 +437,11 @@ pub const TERMINAL_COLOR_OVERRIDES_CAPABILITY: &str = "terminal-color-overrides-
 /// to receive the replay's incomplete sequence as a separate `pending` field.
 /// Other attachments get it appended to the replay bytes, in the legacy shape.
 pub const TERMINAL_PENDING_SEQUENCE_CAPABILITY: &str = "terminal-pending-sequence-v1";
+/// A byte attach of a connection that declared this gets `offset` and
+/// `generation` on its `vt-state`, `output`, `resized` and `colors-changed`
+/// events, and may reattach with `resume_offset` and `resume_generation` for
+/// only the missing bytes (server/terminal_resume.rs).
+pub const TERMINAL_RESUME_CAPABILITY: &str = "terminal-resume-v1";
 /// `replay_history_rows` on a bytes `attach-surface`: the `vt-state` replay
 /// keeps only that many of the newest history rows above the active area
 /// and says how many older ones it left out (`history_rows_omitted`).
@@ -470,6 +478,12 @@ pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
 /// [`DAEMON_SHUTDOWN_EVENT`] (whether a replacement daemon follows). Others
 /// get the bare event, which strict older SDK decoders accept.
 pub const DAEMON_SHUTDOWN_RESTART_CAPABILITY: &str = "daemon-shutdown-restart-v1";
+/// Advertises `if_idle` on `shutdown-daemon`: stop only while no other
+/// client is connected and no terminal is live, else refuse with
+/// `error_code` `daemon_busy` and what uses the daemon in `error_details`.
+/// An older daemon ignores the field and stops, so a client sends it only
+/// to a daemon that advertises this.
+pub const DAEMON_STOP_IF_IDLE_CAPABILITY: &str = "daemon-stop-if-idle-v1";
 /// `error_code` of a request refused while the daemon's shutdown handoff is
 /// reserved and not yet announced. The [`DAEMON_SHUTDOWN_EVENT`] follows
 /// unless the shutdown is cancelled.
@@ -585,6 +599,10 @@ pub const WORKSPACE_SIDEBAR_PLACEMENT_CAPABILITY: &str = "workspace-sidebar-plac
 /// creator `workspace`, the agent `session`): an agent or script workspace
 /// goes below its creator; workspaces carry it as `extra.created_by`.
 pub const WORKSPACE_CREATED_BY_CAPABILITY: &str = "workspace-created-by-v1";
+/// `created_by` also names the agent's `session_name`, `host` and a one-line `purpose`, and
+/// `room.create`, `tab.create_terminal` and `tab.create_browser` take it too: a space shows it as
+/// `created_by`, a tab and a workspace as `extra.created_by` (state/created_by.rs).
+pub const CREATED_BY_DETAIL_CAPABILITY: &str = "created-by-detail-v1";
 /// `terminal.screen.read` takes `unwrap` (soft wraps joined into logical
 /// lines) and `lines` (the last N lines of scrollback and screen), and
 /// `terminal.copy` takes `unwrap`.
@@ -894,6 +912,20 @@ enum Command {
         app_permissions: Option<crate::remote_host::AppPermissions>,
     },
     RemoteHostApp,
+    /// cmux Computer Use (`computer-use-v1`, server/computer_use_command.rs).
+    ComputerUseEndpoint,
+    ComputerUseConfig {
+        config: Value,
+    },
+    ComputerUseApprovals {
+        action: String,
+        #[serde(default)]
+        app_id: Option<String>,
+        #[serde(default)]
+        id: Option<u64>,
+        #[serde(default)]
+        answer: Option<String>,
+    },
     /// `cmux device setup|start` for the app (server/device_setup_command.rs).
     DeviceSetup {
         device: String,
@@ -978,6 +1010,11 @@ enum Command {
         /// exits. Absent from older callers, which leave it unknown.
         #[serde(default)]
         restart: Option<bool>,
+        /// Stop only while no other client is connected and no terminal is
+        /// live (`daemon-stop-if-idle-v1`); else refuse with `daemon_busy`.
+        /// Checked under the handoff reservation, which refuses new clients.
+        #[serde(default)]
+        if_idle: bool,
     },
     Ping,
     SetClientInfo {
@@ -2498,6 +2535,14 @@ enum Command {
         hybrid_stream: Option<String>,
         #[serde(default)]
         hybrid_frame: Option<u64>,
+        /// Bytes mode, `terminal-resume-v1`: the last `offset` this viewer
+        /// applied and the `generation` that stamped it (both or neither). The
+        /// reply says `resume: "exact"` with only the missing bytes, or
+        /// `"gap"` with the replay as without them.
+        #[serde(default)]
+        resume_offset: Option<u64>,
+        #[serde(default)]
+        resume_generation: Option<String>,
         #[serde(flatten)]
         snapshot: terminal_snapshot::SnapshotAttachParams,
     },
@@ -3191,6 +3236,9 @@ mod session_identity_tests;
 #[cfg(all(test, any(target_vendor = "apple", target_os = "linux")))]
 #[path = "server/starter_exit_tests.rs"]
 mod starter_exit_tests;
+#[cfg(test)]
+#[path = "server/terminal_resume_tests.rs"]
+mod terminal_resume_tests;
 
 #[cfg(test)]
 #[path = "server/personal_tests.rs"]
@@ -3264,3 +3312,4 @@ mod cloud_api;
 mod cloud_repos;
 #[cfg(unix)]
 mod cloud_runs;
+mod language_packs_op;

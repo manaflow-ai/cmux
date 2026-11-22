@@ -50,7 +50,7 @@ final class TabContentCache {
     /// on demand for its hover card.
     var lastFrames = TerminalLastFrames()
     /// Releases terminals whose daemon tree dropped their tab (a closed workspace).
-    let goneTabs = GoneTabWatch()
+    let goneTabs = GoneTabWatch(); let attachAhead = TerminalAttachAhead<DaemonTerminalIO> { $0.close() } // and visible terminals attached ahead of their surfaces (startup-tti)
     /// Browser pages' hover card thumbnails (R131), at most `PreviewImageCache.pagePixelSize`
     /// each, with the page version each shows (`BrowserTabState.pictureVersion`): a page is captured again only when
     /// its version moved. Kept apart from `previews`, whose full-size page images hibernation shows.
@@ -199,8 +199,6 @@ final class TabContentCache {
             if entry.gate != nil, entry.confirming !== tab { awaitConfirm(entry, of: tab, daemon: daemon) } // a new record of the tab
             return entry
         }
-        let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
-                                                     generation: daemon.store.generation)
         let identity = daemon.terminalIdentity(of: tab), carried = terminals[tab.id]?.session.carriedFrame(for: identity)
         if let stale = terminals.removeValue(forKey: tab.id) {
             // Daemon restarted or the tab's surface changed: the old pane lets the view go first; a new view of the same terminal shows its frame.
@@ -209,15 +207,10 @@ final class TabContentCache {
             pendingMounts[tab.id] = nil
             stale.close()
         }
-        let target = DaemonTerminalIO.Target(attachment: attachTarget, initialSize: tab.size ?? CellSize(cols: 80, rows: 24),
-                                             cursorDefault: .user)
-        // Paused (and not claiming geometry) until a visible pane presents it.
+        // Paused (and not claiming geometry) until a visible pane presents it; a visible pane that waited for its surface attached it ahead (``attachAhead(_:daemon:)``).
         let render = ledger.isRendering(tab.id)
         let gate = ProvisionalTab.isProvisional(surface: tab.surface) ? TerminalTargetGate() : nil
-        let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, gate: gate, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
-                                  remoteShell: !daemon.isLocal, uploadsPasteboardFiles: daemon.machineID != "local",
-                                  burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
-                                  endpoint: { try await daemon.endpoint() })
+        let io = gate == nil ? attachAhead.take(tab.id, validity: validity).map { io in if !render { io.setVisible(false) }; return io } ?? newIO(for: tab, daemon: daemon, visible: render, gate: nil) : newIO(for: tab, daemon: daemon, visible: render, gate: gate)
         let session = makeSession(io: io, tab: tab, daemon: daemon)
         session.showsTerminal(identity, carrying: carried)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
@@ -233,6 +226,13 @@ final class TabContentCache {
         return entry
     }
 
+    /// startup-tti: a visible pane waiting for its surface (one per frame) starts its terminal's attach now; the surface takes it (``TerminalAttachAhead``).
+    func attachAhead(_ tab: TabModel, daemon: DaemonService) { if terminals[tab.id] == nil, tab.kind == .pty, !tab.dead, !ProvisionalTab.isProvisional(surface: tab.surface) { attachAhead.start(tab.id, validity: daemon.terminalViewValidity(of: tab)) { newIO(for: tab, daemon: daemon, visible: true, gate: nil) } } }
+    private func newIO(for tab: TabModel, daemon: DaemonService, visible: Bool, gate: TerminalTargetGate?) -> DaemonTerminalIO { // the daemon attachment of `tab`'s view: its making starts the attach
+        DaemonTerminalIO(target: DaemonTerminalIO.Target(attachment: TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID, generation: daemon.store.generation), initialSize: tab.size ?? CellSize(cols: 80, rows: 24), cursorDefault: .user),
+                         resizes: resizes, visible: visible, gate: gate, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } }, remoteShell: !daemon.isLocal, uploadsPasteboardFiles: daemon.machineID != "local",
+                         burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check, endpoint: { try await daemon.endpoint() })
+    }
     /// Tab ids whose Ghostty surface has focus (first responder in the key
     /// window), for `debug.focus`.
     var focusedTerminalTabs: [String] {
@@ -246,11 +246,11 @@ final class TabContentCache {
 
     // MARK: Browsers
 
-    func browser(for key: String, url: URL?, profile: BrowserProfileID? = nil) -> BrowserEntry {
+    func browser(for key: String, url: URL?, profile: BrowserProfileID? = nil, loadsAfterFrame: Bool = false) -> BrowserEntry {
         if let entry = browsers[key] { return entry }
         let profile = profile ?? browserProfile?(key) ?? .default
         if let page = MachineBrowserPages(cache: self).page(key: key, url: url, profile: profile) { return install(page, for: key) }
-        let tab = webKit.makeWebKitTab(id: BrowserTabID(rawValue: key), profile: profile, initialURL: pageRequests.staysOffThisMacLocalhost(key) ? nil : url)
+        let tab = webKit.makeWebKitTab(id: BrowserTabID(rawValue: key), profile: profile, initialURL: pageRequests.staysOffThisMacLocalhost(key) ? nil : url, loadsAfter: loadsAfterFrame ? afterFrame : nil) // a stand-in's first load after its chrome and omnibar focus
         return install(tab, for: key)
     }
 
@@ -293,7 +293,7 @@ final class TabContentCache {
             if crashedPages.contains(key), !startedDeferred.contains(key) { return deferred(tab, url: url) }
             onRestoredPageStart?(key)
         }
-        guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url), tab) }
+        guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url, loadsAfterFrame: ProvisionalTab.isProvisional(surface: tab.surface)), tab) }
         if let reason = browserTabs.cefUnavailable() { return chromiumUnavailable(tab, url: url, reason: reason) }
         if !pendingBrowsers.contains(key), let page = ChromiumNewTabNow(cache: self).page(tab, url: url) { return tracked(install(page, for: key), tab) }
         guard pendingBrowsers.insert(key).inserted, cef.notePoint("page_task") else { return nil }
@@ -452,10 +452,10 @@ final class TabContentCache {
 
     /// Stand-in tab `key`'s page and chrome become daemon tab `tab`'s (`PaneBrowserTabOpener.openStandIn`), in the
     /// turn the store swaps the two: nothing is rebuilt or reloaded, and the pane that shows the
-    /// stand-in keeps the same view when it moves to `tab`. False when the stand-in has no page
-    /// (yet) or `tab` has one: `tab` then makes its own.
+    /// stand-in keeps the same view when it moves to `tab`, and its omnibar what was typed into it. False when the stand-in
+    /// has no entry (yet) or `tab` has one: `tab` then makes its own.
     func moveBrowser(_ key: String, to tab: TabModel) -> Bool {
-        guard !pendingBrowsers.contains(key), browsers[tab.id] == nil, let entry = browsers.removeValue(forKey: key) else { return false }
+        guard browsers[tab.id] == nil, let entry = browsers.removeValue(forKey: key) else { return false } // its entry moves also while its page is pending (a cold Chromium, its first frame): release ends that wait
         release(key, displacing: false)
         mount(entry, as: tab.id)
         goneTabs.track(tab.id, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
@@ -504,7 +504,7 @@ final class TabContentCache {
         hibernation?.forget(key)
         agentMarks.forget(key)
         pageRequests.services?.remoteViewPages.forget(key)
-        terminals.removeValue(forKey: key)?.close()
+        terminals.removeValue(forKey: key)?.close(); attachAhead.drop(key)
         goneTabs.forget(key)
         browsers.removeValue(forKey: key)?.close()
         browserTabs.untrack(key)
@@ -523,6 +523,9 @@ protocol SurfacePresenter: AnyObject {
     /// destroyed. Drop the view if it is still installed here; do not
     /// withdraw or pause it.
     func surfaceWasDisplaced(_ key: String)
+    /// `key`, which another presenter took from this one, has no presenter now (it went, or showed another tab):
+    /// show it again if it is still the selected tab and nothing shows here.
+    func surfaceIsFree(_ key: String)
 }
 
 struct WeakPresenter {

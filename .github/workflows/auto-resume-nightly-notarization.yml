@@ -28,6 +28,8 @@ permissions:
   {}
 
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   SOURCE_WORKFLOW_PATHS: .github/workflows/nightly.yml
 
 jobs:
@@ -37,6 +39,7 @@ jobs:
       ((github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'success') &&
       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read
@@ -165,7 +168,7 @@ jobs:
     outputs:
       all_accepted: ${{ steps.poll.outputs.all_accepted }}
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
     timeout-minutes: 90
     concurrency:
       group: notarization-poll-${{ needs.preflight.outputs.channel }}-${{ needs.preflight.outputs.short_sha }}
@@ -366,18 +369,6 @@ jobs:
             printf '%s=%s\n' "$key" "$value" >> "$GITHUB_ENV"
           done < "$RUNNER_TEMP/recovery.env"
 
-      # Only a recovered Computer Use helper needs a keychain before the wait:
-      # the helper re-seals the app. notarize-nightly-dmg.sh deletes it after
-      # the outer DMG signature. The DMG around the stapled app is signed with
-      # a keychain that resume-stapled-app-notarization.sh makes just before
-      # that signature.
-      - name: Import signing certificate for recovered DMG
-        if: env.RECOVERY_KIND == 'computer-use-helper'
-        env:
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: ./scripts/ci/signing-keychain.sh create
-
       # The step limit leaves the job time to stage the outer submission below
       # (a step that runs out of time fails; a job that does is cancelled).
       - name: Wait, staple, and validate exact submitted DMG
@@ -397,39 +388,22 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p verified
-          if [ "${RECOVERY_KIND:-dmg}" = "computer-use-helper" ]; then
-            outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
-            # Two bounded waits (the outer DMG, then the DMG around its
-            # stapled app) inside the 150-minute step limit.
-            CMUX_CHANNEL="$CHANNEL" \
-            CHANNEL_RELEASE_TAG="$RELEASE_TAG" \
-            CHANNEL_DMG_PREFIX="$DMG_PREFIX" \
-            NIGHTLY_VARIANT="$VARIANT" \
-            CMUX_OUTER_NOTARY_WAIT_TIMEOUT=25m \
-            CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=20m \
-              ./scripts/ci/resume-helper-notarization.sh \
-              "$HELPER_STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
-              "${APP_ENTITLEMENTS:-cmux.$CHANNEL.entitlements}" "$APPLE_SIGNING_IDENTITY" "$outer_state"
-          else
-            # The first DMG is accepted: staple its app, then submit the DMG
-            # around the stapled app and wait for it like an outer DMG.
-            outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
-            CMUX_CHANNEL="$CHANNEL" \
-            CHANNEL_RELEASE_TAG="$RELEASE_TAG" \
-            CHANNEL_DMG_PREFIX="$DMG_PREFIX" \
-            NIGHTLY_VARIANT="$VARIANT" \
-            CMUX_NOTARY_WAIT_TIMEOUT=2m \
-            CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
-            CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=40m \
-              ./scripts/ci/resume-stapled-app-notarization.sh \
-              "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
-              "${APP_ENTITLEMENTS:-cmux.$CHANNEL.entitlements}" "$outer_state"
-          fi
+          # The first DMG is accepted: staple its app, then submit the DMG
+          # around the stapled app and wait for it like an outer DMG.
+          outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
+          CMUX_CHANNEL="$CHANNEL" \
+          CHANNEL_RELEASE_TAG="$RELEASE_TAG" \
+          CHANNEL_DMG_PREFIX="$DMG_PREFIX" \
+          NIGHTLY_VARIANT="$VARIANT" \
+          CMUX_NOTARY_WAIT_TIMEOUT=2m \
+          CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
+          CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=40m \
+            ./scripts/ci/resume-stapled-app-notarization.sh \
+            "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
+            "${APP_ENTITLEMENTS:-cmux.$CHANNEL.entitlements}" "$outer_state"
 
       # The DMG around the stapled app (stapled_app=true) is handed off when
-      # it exists. Otherwise a recovered helper hands off its outer DMG
-      # (<outer-state>.first). A recovered DMG hands off only the stapled-app
-      # DMG: nothing else of it is still at Apple.
+      # it exists: nothing else of a recovered DMG is still at Apple.
       - name: Prepare outer DMG recovery after bounded wait
         id: prepare-outer
         if: always() && steps.wait-staple.outcome == 'failure'
@@ -437,10 +411,6 @@ jobs:
           set -euo pipefail
           outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
           require=(--require-stapled-app)
-          if [ ! -s "$outer_state" ] && [ "${RECOVERY_KIND:-dmg}" = computer-use-helper ]; then
-            outer_state="$outer_state.first"
-            require=()
-          fi
           if [ ! -s "$outer_state" ]; then
             echo "The failure came before an outer DMG was submitted; nothing to hand off."
             exit 0
@@ -532,7 +502,7 @@ jobs:
     outputs:
       decided: ${{ steps.poll.outputs.decided }}
       outer_variants: ${{ steps.poll.outputs.outer_variants }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
     # A stapled-app DMG is polled until Accepted or its 6 h fallback.
     timeout-minutes: 360
     environment: release
@@ -634,8 +604,8 @@ jobs:
             --run-attempt "$SOURCE_RUN_ATTEMPT" --strict --extract-app > "$RUNNER_TEMP/recovery.env"
           while IFS='=' read -r key value; do printf '%s=%s\n' "$key" "$value" >> "$GITHUB_ENV"; done < "$RUNNER_TEMP/recovery.env"
 
-      # An outer DMG of a recovered helper (no stapled_app=true) still needs
-      # the DMG around its stapled app: packaging tools, a certificate and a
+      # An outer DMG without stapled_app=true still needs the DMG around its
+      # stapled app: packaging tools, a certificate and a
       # second, bounded wait. A stapled-app DMG is only stapled here.
       - name: Classify outer DMG
         run: |
@@ -794,8 +764,8 @@ jobs:
           ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
             || security delete-keychain build.keychain >/dev/null 2>&1 || true
 
-  # A recovered helper's outer DMG gets the DMG around its stapled app in
-  # staple-outer; one still at Apple is polled here like poll-outer does.
+  # An outer DMG without stapled_app=true gets the DMG around its stapled
+  # app in staple-outer; one still at Apple is polled here like poll-outer does.
   poll-stapled:
     needs: [preflight, staple-outer]
     if: >-
@@ -804,7 +774,7 @@ jobs:
     outputs:
       decided: ${{ steps.poll.outputs.decided }}
       outer_variants: ${{ steps.poll.outputs.outer_variants }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
     # A stapled-app DMG is polled until Accepted or its 6 h fallback.
     timeout-minutes: 360
     environment: release
@@ -1043,7 +1013,8 @@ jobs:
       actions: read
       contents: write
       issues: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
+    timeout-minutes: 45
     concurrency:
       group: release-publish-${{ needs.preflight.outputs.release_tag }}
       cancel-in-progress: false
@@ -1472,7 +1443,8 @@ jobs:
     permissions:
       actions: read
       contents: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 15
     environment: release
     env:
       GH_TOKEN: ${{ github.token }}

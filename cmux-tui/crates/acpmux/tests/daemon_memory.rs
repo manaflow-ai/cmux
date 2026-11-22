@@ -179,11 +179,9 @@ impl Drop for Daemon {
     }
 }
 
-fn scratch(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("amx-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+/// Removed when the test ends, passing or not (`ACPMUX_KEEP_SCRATCH=1` keeps it).
+fn scratch(tag: &str) -> daemon_env::Scratch {
+    daemon_env::Scratch::new(&format!("amx-{tag}"))
 }
 
 fn private_dir(path: &Path) {
@@ -327,7 +325,6 @@ fn a_start_skips_purged_sessions_a_late_save_wrote_back_and_keeps_every_chat() {
     let daemon = Daemon::start(&dir, &home);
     let mut rpc = Rpc::connect(&daemon.socket);
     assert_eq!(listed(&mut rpc), kept);
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 fn env_or(name: &str, default: u64) -> u64 {
@@ -368,7 +365,6 @@ fn a_chief_home_of_purged_leftovers_and_chats_stays_within_the_memory_budget() {
     );
     assert!(rss_mb <= budget_mb, "the daemon holds {rss_mb} MB (budget {budget_mb} MB)");
     drop(daemon);
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Real-daemon retained-state measurement, run unchanged on base and head on the same host:
@@ -465,7 +461,6 @@ fn idle_session_resident_memory_benchmark() {
         let listed_rss = daemon.rss_bytes();
         drop(rpc);
         drop(daemon);
-        std::fs::remove_dir_all(dir).unwrap();
         (loaded_rss, listed_rss)
     }
 
@@ -570,7 +565,6 @@ fn chats_by_turns_resident_memory_scale() {
         );
         drop(rpc);
         drop(daemon);
-        std::fs::remove_dir_all(dir).unwrap();
     }
 }
 
@@ -729,7 +723,6 @@ fn waits_on_some_chats_cost_nothing_extra_while_other_chats_log_records() {
     );
     release(&daemon, waits);
     drop(daemon);
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Two keys for one chat, its name and its id, are two rows of the same chat: neither
@@ -761,7 +754,6 @@ fn a_wait_on_one_chat_by_name_and_by_id_reads_it_twice() {
         "{closed}"
     );
     drop(daemon);
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Opt-in allocation experiment; the ordinary 400-chat/166 MiB guard stays unchanged.
@@ -885,7 +877,6 @@ fn retained_session_list_allocation_benchmark() {
                 println!("acpmux-list-cost chats={chats}: {line}");
             }
         }
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
 
@@ -972,7 +963,6 @@ fn peer_memory_case(closed: bool, fillers: u64) -> (u64, u64) {
     );
     drop(local_daemon);
     drop(remote_daemon);
-    let _ = std::fs::remove_dir_all(&dir);
     (peak_kib, cpu_ms)
 }
 

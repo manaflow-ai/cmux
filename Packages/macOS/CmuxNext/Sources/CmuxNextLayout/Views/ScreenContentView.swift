@@ -47,6 +47,9 @@ final class ScreenContentView: NSView {
             if holdsGrids { context.gridHoldScreens.insert(screenID) } else { context.gridHoldScreens.remove(screenID) }
         }
     }
+    /// The pane a whole-pane drag carries (RFD 0022 item 2) and how far the pointer moved it from rest: its real host
+    /// follows the pointer at full size with its live content, placed in `applyPresentation` (never a snapshot).
+    var lift: (pane: PaneID, offset: CGVector)?
     /// A divider released with this pointer velocity (pt/s along its axis): the next layout's
     /// spring starts from it (`SplitMotion.seed`).
     var releasedDivider: (kind: DividerHandleView.Kind, velocity: CGFloat, time: CFTimeInterval, sharedEdges: Bool)?

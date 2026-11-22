@@ -103,6 +103,17 @@ struct CloudNewMachineTests {
         #expect(throws: ActionFailure.self) { try CloudHandlers.newMachineRequest(Self.invocation(["size": .string("huge")])) }
     }
 
+    @Test func pauseExperimentOnlyOptsInNonpersistentMachines() {
+        #expect(CloudMachineRequest().idlePauseMinutes(startedByPerson: false, pauseAgentMachines: false) == nil)
+        #expect(CloudMachineRequest().idlePauseMinutes(startedByPerson: false, pauseAgentMachines: true) == CloudMachineRequest.experimentIdlePauseMinutes)
+        #expect(CloudMachine.idlePauseChoices.contains(CloudMachineRequest.experimentIdlePauseMinutes))
+        // A person's own create keeps the server's idle pause; the toggle names agent machines.
+        #expect(CloudMachineRequest().idlePauseMinutes(startedByPerson: true, pauseAgentMachines: true) == nil)
+        // Persistent stays never-paused either way.
+        #expect(CloudMachineRequest(persistent: true).idlePauseMinutes(startedByPerson: false, pauseAgentMachines: true) == 0)
+        #expect(CloudMachineRequest(persistent: true).idlePauseMinutes(startedByPerson: true, pauseAgentMachines: false) == 0)
+    }
+
     @Test func aLaneBootstrapNeedsItsScriptAndAName() {
         #expect(throws: ActionFailure.self) { try CloudHandlers.newMachineRequest(Self.invocation(["bootstrap": .string("lane"), "name": .string("lane-vm-1")])) }
         #expect(throws: ActionFailure.self) { try CloudHandlers.newMachineRequest(Self.invocation(["bootstrap": .string("lane"), "bootstrapScript": .string("/tmp/x")])) }
