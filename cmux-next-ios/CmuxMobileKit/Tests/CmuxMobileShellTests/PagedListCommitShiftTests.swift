@@ -174,10 +174,16 @@ import UIKit
     @Test func aRowAloneOnScreenCutByTheTopEdgeKeepsItsTopWhenItGrows() throws {
         let hosted = try host()
         defer { hosted.window.isHidden = true }
+        let list = hosted.list
+        // Row 10 on screen first, so the list measures it at its new height (a row out of view keeps
+        // its old one until it comes in).
+        list.setContentOffset(CGPoint(x: 0, y: 10 * 60 - 100 - list.adjustedContentInset.top), animated: false)
+        settle()
         hosted.rows.items[10].huge = 1200
         settle()
-        let list = hosted.list
-        list.setContentOffset(CGPoint(x: 0, y: 10 * 60 + 100 - list.adjustedContentInset.top), animated: false)
+        let row = try #require(list.layoutAttributesForItem(at: IndexPath(item: 10, section: 0)))
+        #expect(row.frame.height >= 1199, "row 10 measured \(row.frame.height) pt")
+        list.setContentOffset(CGPoint(x: 0, y: row.frame.minY + 100 - list.adjustedContentInset.top), animated: false)
         settle()
         let visible = list.indexPathsForVisibleItems.map(\.item)
         #expect(visible == [10], "row 10 alone on screen, saw \(visible)")
