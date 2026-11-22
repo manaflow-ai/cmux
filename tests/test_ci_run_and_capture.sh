@@ -4,6 +4,16 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP_DIR="$(mktemp -d)"
 cleanup() {
+  if [ "${startup_fifo_open:-0}" -eq 1 ]; then
+    printf x >&9 || true
+  fi
+  if [ -n "${startup_capture_pid:-}" ]; then
+    kill "$startup_capture_pid" 2>/dev/null || true
+    wait "$startup_capture_pid" 2>/dev/null || true
+  fi
+  if [ -r "$TMP_DIR/startup/child.pid" ]; then
+    kill -TERM -- "-$(cat "$TMP_DIR/startup/child.pid")" 2>/dev/null || true
+  fi
   if [ -r "$TMP_DIR/child.pid" ]; then
     kill "$(cat "$TMP_DIR/child.pid")" 2>/dev/null || true
   fi
@@ -142,6 +152,68 @@ done
 if kill -0 "$command_pid" 2>/dev/null || kill -0 "$grandchild_pid" 2>/dev/null; then
   ps -o pid,ppid,pgid,stat,command -p "$command_pid","$grandchild_pid" 2>/dev/null || true
   echo "FAIL: cancellation left the captured command group alive"
+  exit 1
+fi
+
+# Hold Popen after the child starts, before the supervisor can return from it.
+# Cancellation in this window must reach the child once its handle is known.
+startup_dir="$TMP_DIR/startup"
+mkdir -p "$startup_dir"
+mkfifo "$startup_dir/resume"
+exec 9<>"$startup_dir/resume"
+startup_fifo_open=1
+cat >"$startup_dir/sitecustomize.py" <<'PY'
+import os
+import pathlib
+import subprocess
+
+original_popen = subprocess.Popen
+
+def pause_after_spawn(*args, **kwargs):
+    child = original_popen(*args, **kwargs)
+    directory = pathlib.Path(os.environ["CMUX_CAPTURE_STARTUP_DIR"])
+    (directory / "child.pid").write_text(str(child.pid))
+    (directory / "supervisor.pid").write_text(str(os.getpid()))
+    with (directory / "resume").open("rb", buffering=0) as resume:
+        resume.read(1)
+    return child
+
+subprocess.Popen = pause_after_spawn
+PY
+PYTHONPATH="$startup_dir" CMUX_CAPTURE_STARTUP_DIR="$startup_dir" \
+  /bin/bash "$ROOT_DIR/scripts/ci/run-and-capture.sh" "$startup_dir/capture.log" \
+    /bin/bash -c '
+      trap "echo term-forwarded >\"$1/term\"; exit 42" TERM
+      sleep 60 &
+      echo ready >"$1/ready"
+      wait
+    ' _ "$startup_dir" >"$startup_dir/streamed.log" 2>&1 &
+startup_capture_pid=$!
+ready=0
+for _ in $(seq 1 100); do
+  if [ -s "$startup_dir/supervisor.pid" ] && [ -s "$startup_dir/ready" ]; then
+    ready=1
+    break
+  fi
+  sleep 0.05
+done
+if [ "$ready" -ne 1 ]; then
+  cat "$startup_dir/streamed.log"
+  echo "FAIL: startup cancellation fixture did not start"
+  exit 1
+fi
+kill -TERM "$(cat "$startup_dir/supervisor.pid")"
+printf x >&9
+set +e
+wait "$startup_capture_pid"
+startup_status=$?
+set -e
+startup_capture_pid=""
+exec 9>&-
+startup_fifo_open=0
+if [ "$startup_status" -ne 143 ] || [ ! -f "$startup_dir/term" ]; then
+  cat "$startup_dir/streamed.log"
+  echo "FAIL: cancellation during supervisor startup did not reach the command (status $startup_status)"
   exit 1
 fi
 

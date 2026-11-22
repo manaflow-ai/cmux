@@ -28,6 +28,14 @@
       is latest-wins) prints `superseded=true` and exits 0 instead of
       refusing; otherwise `superseded=false` follows.
 
+  published-source --feed FILE_OR_URL
+      Prints the cmux:sourceCommit of the feed's newest item (the highest
+      sparkle:version), or nothing when that item names none. It is the
+      commit the live feed serves, written by the publishing job itself
+      (the nightly-next R2 publisher's write-feed, a compare-and-swap that only
+      moves to a descendant source), so it is current as soon as the feed
+      is, before the release body and tag a run's tail writes after it.
+
 CFBundleVersion is the run-derived number (`<run id><attempt, 2 digits>`),
 which only grows; Sparkle compares it, never the marketing version.
 """
@@ -43,6 +51,10 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+# Feed prefixes, bound on the <rss> root when a feed uses one without declaring
+# it there (publish-nightly-next-r2.py bind_feed_prefixes writes them since 11-01).
+FEED_PREFIXES = {"sparkle": SPARKLE_NS, "cmux": "https://cmux.com/xml-namespaces/cmux"}
+RSS_OPEN = re.compile(rb"<rss\b[^>]*>")
 TRACK_CHANNEL = {"nightly": "nightly", "rc": "rc", "nightly-next": "nightly"}
 VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 BUILD = re.compile(r"^[0-9]+$")
@@ -130,6 +142,24 @@ def fetch(source):
             time.sleep(delays[attempt])
 
 
+def bind_feed_prefixes(data):
+    """DATA with every feed prefix it uses declared on the <rss> root.
+
+    A feed whose carried-over item used a bare <cmux:sourceCommit> without the
+    root declaring cmux: (nightly-next, 2026-11-01) is otherwise unreadable here,
+    and this reader runs before the writer that repairs the feed.
+    """
+    root = RSS_OPEN.search(data)
+    if root is None:
+        return data
+    opening = root.group(0)
+    for prefix, uri in FEED_PREFIXES.items():
+        used = re.search(rb"[<\s]" + prefix.encode() + rb":[A-Za-z_]", data) is not None
+        if used and re.search(rb"\sxmlns:" + prefix.encode() + rb"\s*=", opening) is None:
+            opening = opening[:-1] + f' xmlns:{prefix}="{uri}">'.encode()
+    return data[:root.start()] + opening + data[root.end():]
+
+
 def read_feed(source):
     try:
         # http:// only for a loopback test server; real feeds are https.
@@ -138,7 +168,7 @@ def read_feed(source):
         else:
             with open(source, "rb") as handle:
                 data = handle.read()
-        return ET.fromstring(data)
+        return ET.fromstring(bind_feed_prefixes(data))
     except urllib.error.HTTPError as error:
         if error.code == 404:
             raise Missing(f"cannot read feed {source}: it does not exist") from error
@@ -163,6 +193,24 @@ def feed_builds(root):
             raise Refused(f"feed has a non-numeric sparkle:version {build!r}")
         numeric.append(int(build))
     return numeric
+
+
+CMUX_NS = "https://cmux.com/xml-namespaces/cmux"
+SOURCE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def published_source(source):
+    """The newest item's cmux:sourceCommit (40 lowercase hex), or "" when it has none."""
+    newest, commit = None, ""
+    for item in read_feed(source).iter("item"):
+        versions = [int(b) for b in feed_builds(item)]
+        if not versions:
+            continue
+        found = item.find(f"{{{CMUX_NS}}}sourceCommit")
+        text = (found.text or "").strip().lower() if found is not None else ""
+        if newest is None or max(versions) > newest:
+            newest, commit = max(versions), text if SOURCE.match(text) else ""
+    return commit
 
 
 class Superseded(Exception):
@@ -222,12 +270,16 @@ def main(argv):
     c.add_argument("--already-published-ok", action="store_true", help="a feed already offering this build is not a refusal")
     c.add_argument("--superseded-ok", action="store_true",
                    help="a feed already above this build (a newer build published first) is not a refusal")
+    s = commands.add_parser("published-source")
+    s.add_argument("--feed", required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == "marketing":
             print(marketing(args.track, args.project_version, args.build, args.next_base))
         elif args.command == "next-base":
             print(next_base(args.root))
+        elif args.command == "published-source":
+            print(published_source(args.feed))
         else:
             try:
                 published = check_build(args.build, args.feed, args.feed_if_present, args.already_published_ok,

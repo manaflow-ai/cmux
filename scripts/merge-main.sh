@@ -11,5 +11,6 @@
 #   scripts/merge-main.sh --tip        merge main's tip even when it is red
 #   scripts/merge-main.sh --all-guards run every guard group after the merge
 #   scripts/merge-main.sh --strict     exit 3 when this branch introduced a guard failure
+#   scripts/merge-main.sh --base feat-cmux-next  merge feat-cmux-next's tip (a PR into it)
 set -euo pipefail
 exec python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ci/merge_main.py" "$@"

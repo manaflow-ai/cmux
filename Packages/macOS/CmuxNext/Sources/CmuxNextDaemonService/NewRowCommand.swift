@@ -31,14 +31,16 @@ public struct NewRowCommand: Sendable {
         options.tabID = provisional.tabID
         options.terminalID = TerminalID(rawValue: provisional.terminalID)
         let pane = pane, height = height, sent = options
-        let intent = Intent.splitPane(pane: pane, direction: .down, ratio: 0.5, provisional: provisional)
+        // The stand-in's terminal opens in the folder this create sends: its tab shows it from the key's frame.
+        let intent = Intent.splitPane(pane: pane, direction: .down, ratio: 0.5, provisional: provisional.opening(in: options.cwd))
         // The target at send time (see ``NewColumnCommand``): a stand-in has become the daemon's pane.
-        let target: @MainActor @Sendable () -> PaneID = { daemon.store.daemonHandle(showing: pane) ?? pane }
-        let send = daemon.intendNow("new-row", intent, transaction: transaction) { connection in
-            try await RowCommands(connection).newRow(below: await target(), height: height, options: sent)
+        let target: @MainActor @Sendable () async throws -> PaneID = { try await daemon.store.daemonTarget(pane) }
+        let send = daemon.intendNowReporting("new-row", intent, transaction: transaction) { connection in
+            try await RowCommands(connection).newRow(below: try await target(), height: height, options: sent)
         }
         return {
-            guard let created = await send() else { throw PaneSplitFailure() }
+            // A failure is the real one (``NewTerminalTabCommand``, FC-1), never a fixed text that hides it.
+            let created = try await send().get()
             daemon.store.creations.noteReply(transaction, surface: created.surface)
             guard !daemon.store.creations.wasCancelled(transaction) else { throw PaneSplitCancelled() }
             await daemon.store.applied(transaction, connection: daemon.connection)

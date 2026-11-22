@@ -29,6 +29,10 @@ export interface UpdateHighlightMedia {
 export interface UpdateHighlights {
   /** The staged (popover) or installed (card) display version. */
   version: string;
+  /** How the installed update (the Updated card) arrived: `background`, an automatic install that
+   *  relaunched cmux while it was not in front (nobody clicked Restart to Update), so the card says
+   *  so instead of looking like it came from nowhere (Leo 2026-11-03); absent, a restart he clicked. */
+  delivery?: "background";
   build: string;
   fromVersion: string;
   fromBuild: string;
@@ -51,10 +55,17 @@ export interface UpdateHighlights {
   changelog: { from: string; to: string };
 }
 
+/** Where What's New opens: the area a change is in (areas.ts key) and the change's title; the page
+    scrolls to that change, else to its area. */
+export interface ChangelogTarget {
+  area?: string;
+  title?: string;
+}
+
 /** What the card and popover ask the host to do (the mount point's bridge). */
 export interface UpdateSurfaceActions {
   /** "See What's New" / "See all changes": `updates.openChangelog` (ChangelogPageTab.open(from, to)). */
-  openChangelog(): void;
+  openChangelog(target?: ChangelogTarget): void;
   /** The card's x: hides the card for this version. */
   dismiss?(): void;
 }

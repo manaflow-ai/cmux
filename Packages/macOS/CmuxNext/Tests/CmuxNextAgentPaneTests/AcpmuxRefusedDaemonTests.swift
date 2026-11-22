@@ -94,7 +94,7 @@ struct AcpmuxRefusedDaemonTests {
         let server = try FakeDaemon(socketPath: socketPath, home: daemonHome)
         defer { server.stop() }
 
-        let host = AcpmuxHost(environment: environment, startsDaemons: false)
+        let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: environment, startsDaemons: false)
         do {
             _ = try await host.reconnectHandshake(sessionId: "s")
             Issue.record("a daemon that is not this app's acpmux was accepted")

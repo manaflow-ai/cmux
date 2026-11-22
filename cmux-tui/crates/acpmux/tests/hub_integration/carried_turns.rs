@@ -8,6 +8,12 @@
 use super::*;
 
 async fn claude_hub() -> (Arc<Hub>, TestClient, String) {
+    claude_hub_with_inbox(true).await
+}
+
+/// [`claude_hub`], with the agent inbox (`hub/inbox.rs`) on or off: off, another agent's plain
+/// message takes the queue path as before the inbox.
+async fn claude_hub_with_inbox(agent_inbox: bool) -> (Arc<Hub>, TestClient, String) {
     let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
     let home = std::env::temp_dir().join(format!("carried-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&home).unwrap();
@@ -31,6 +37,7 @@ async fn claude_hub() -> (Arc<Hub>, TestClient, String) {
         ..Default::default()
     };
     cfg.store.mode = StoreMode::Memory;
+    cfg.agent_inbox = Some(agent_inbox);
     cfg.permission_policy = PermissionPolicy::ApproveAll;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
@@ -459,10 +466,11 @@ async fn a_sub_sessions_next_step_result_read_in_the_turn_does_not_hold_it_open(
 
 /// Each carried turn is a turn of its own with its own turn cap (`hub/turn_cap.rs`): the cap's
 /// timer is armed for a carried turn that follows a carried turn too, so an agent's message queued
-/// behind it gets the notice at the cap.
+/// behind it gets the notice at the cap. The queue path: with the inbox on (#27686), another
+/// agent's plain message goes to the inbox and is never queued behind the turn.
 #[tokio::test]
 async fn a_carried_turn_after_a_carried_turn_has_its_own_cap() {
-    let (hub, mut c, id) = claude_hub().await;
+    let (hub, mut c, id) = claude_hub_with_inbox(false).await;
     let cap = 3_000;
     c.request(method::MUX_SET_TURN_CAP, json!({"sessionId": id, "turnCapMs": cap})).await.unwrap();
     let gates = Gates::new();

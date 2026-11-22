@@ -36,9 +36,9 @@ const ENGINES: &[(&str, bool)] = &[
 
 /// The system text of a Chief turn, exactly as the Mac host renders it.
 ///
-/// - `profile_json`: `{person?, instructions?, channels?, record?}`: the
-///   person profile (`person.md`), the instructions file (`AGENTS.md`), the
-///   Channels block, and the Chief's record (`{display_name, role,
+/// - `profile_json`: `{person?, instructions?, channels?, record?, contact?}`:
+///   the person profile (`person.md`), the instructions file (`AGENTS.md`), the
+///   Channels block, the optional coordinator session, and the Chief's record (`{display_name, role,
 ///   personality, instructions, is_default}`), each optional.
 /// - `engine`: one of ``ENGINES``; a `cli` engine needs `tools.chief`.
 /// - `tools_json`: `{mode?: "mcp" | "cli" | "cloud", chief?, offered?, profile_tool?, chiefs_tool?}`;
@@ -116,6 +116,7 @@ pub fn render_system(profile_json: &str, engine: &str, tools_json: &str) -> Resu
         parts.extend(render_record(&record));
     }
     let user = (!parts.is_empty()).then(|| parts.join("\n\n"));
+    let user = prompt::with_coordinator_contact(user, text("contact").as_deref());
     Ok(chief_system_text(
         user.as_deref(),
         &tools_mode,

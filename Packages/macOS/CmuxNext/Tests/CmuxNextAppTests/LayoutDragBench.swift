@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextTestSupport
 import Darwin
 import Foundation
 @testable import CmuxNextLayout
@@ -14,7 +15,7 @@ import Testing
 /// gesture emitted for the daemon (the app sends one daemon command per
 /// intent, at most one in flight per gesture).
 @MainActor
-@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_DRAG_BENCH"] == "1"))
+@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_DRAG_BENCH"] == "1"), .closesItsWindows)
 struct LayoutDragBench {
     nonisolated static let rounds = Int(ProcessInfo.processInfo.environment["CMUX_DRAG_BENCH_ROUNDS"] ?? "") ?? 3
     static let moves = 360
@@ -53,6 +54,7 @@ struct LayoutDragBench {
                 switch intent {
                 case .setSplitRatio(_, _, _, let phase), .setColumnWidth(_, _, _, _, let phase):
                     if phase == .ended { ended += 1 } else { changed += 1 }
+                case .setLayoutSizes: ended += 1
                 default: break
                 }
             }
@@ -130,6 +132,7 @@ struct LayoutDragBench {
             var intents = 0, ended = 0
             for _ in 0..<Self.rounds {
                 let harness = Harness()
+                defer { harness.window.closeAfterTest() }
                 let screen = harness.screen
                 let center: CGPoint
                 switch kind {

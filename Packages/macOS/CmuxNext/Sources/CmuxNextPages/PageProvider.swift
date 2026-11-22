@@ -16,6 +16,9 @@ public protocol PageProvider: AnyObject {
 
     func eventDeliveryDropped(stream: String, data: JSONValue, publicationID: UInt64?)
     var eventDeliveryID: UInt64? { get }
+    /// Ends page-owned resources (for example app mounts) when the page closes
+    /// or is rebound.
+    func pageDidClose()
 }
 
 public extension PageProvider {
@@ -29,4 +32,5 @@ public extension PageProvider {
     var eventDeliveryID: UInt64? { nil }
     func eventDeliveryDropped(stream: String, data: JSONValue) {}
     func eventDeliveryDropped(stream: String, data: JSONValue, publicationID: UInt64?) {}
+    func pageDidClose() {}
 }

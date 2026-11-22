@@ -19,7 +19,7 @@ describe("Home attachments: upload intent", { timeout: 60_000 }, () => {
     expect((await intent({ ...eve, token: "" }, id, body)).status).toBe(401)
   })
 
-  it("refuses types off the owner's list (any name attaches) and sizes over the cap", async () => {
+  it("refuses types off the owner's list (any name attaches) and accepts large originals", async () => {
     const alice = await signIn("att-type-alice")
     const { id } = await group(alice)
     const body = bytesOf("<svg/>")
@@ -28,20 +28,27 @@ describe("Home attachments: upload intent", { timeout: 60_000 }, () => {
     expect((await intent(alice, id, body, { mime_type: "text/plain", name: "index.html" })).status).toBe(200)
     expect((await intent(alice, id, bytesOf("\u0000bin"), { mime_type: "application/octet-stream", name: "setup.exe" })).status).toBe(200)
     const big = await intent(alice, id, body, { byte_count: 100_000_001 })
-    expect(big.status).toBe(413)
-    expect(big.json.error.code).toBe("attachment.too_large")
+    expect(big.status).toBe(200)
   })
 
-  it("takes the daily byte quota per user (2 GB); every slot is charged, also a repeated intent for the same hash", async () => {
+  it("takes the daily intent quota per user; every slot is charged, also a repeated intent for the same hash", async () => {
     const alice = await signIn("att-quota-alice")
     const { id } = await group(alice)
-    const video = (i: number) => ({ sha256: sha(bytesOf(`v${i}`)), byte_count: 100_000_000, mime_type: "video/mp4", name: `v${i}.mp4`, duration_ms: 1000 })
-    for (let i = 0; i < 19; i++) expect((await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(i) })).status).toBe(200)
-    // Same (conversation, hash) again: a new slot, charged too.
-    expect((await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(0) })).status).toBe(200)
-    const over = await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(0) })
+    const video = (i: number) => ({ sha256: sha(bytesOf(`v${i}`)), byte_count: 1_000_000, mime_type: "video/mp4", name: `v${i}.mp4`, duration_ms: 1000 })
+    // Seed earlier slots through the owner: sending 300 HTTP requests at once would test
+    // the separate 60/minute burst limiter instead of the rolling daily quota.
+    const user = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(alice.user)) as unknown as {
+      takeAttachmentQuota(entity: string, key: string, bytes: number): Promise<{ ok: boolean }>
+    }
+    for (let i = 0; i < 298; i++) expect(await user.takeAttachmentQuota(alice.user, `prior-${i}`, 1_000_000)).toEqual({ ok: true })
+    // Both new slots for the same hash count: intents 299 and 300 pass, 301 fails.
+    const request = { conversation: id, ...video(0) }
+    expect((await post("/v1/home/attachments/intent", alice.token, request)).status).toBe(200)
+    expect((await post("/v1/home/attachments/intent", alice.token, request)).status).toBe(200)
+    const over = await post("/v1/home/attachments/intent", alice.token, request)
     expect(over.status).toBe(429)
     expect(over.json.error.code).toBe("attachment.quota")
+    expect(over.json.error.message).toBe("attachment quota reached (day_intents)")
     expect(over.json.error.retry_after_ms).toBeGreaterThan(0)
   })
 })

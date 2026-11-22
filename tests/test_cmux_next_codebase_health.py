@@ -10,7 +10,7 @@ prints, and that its "warns at push" claim is what guardrails.py really does for
 NotificationCenter observer behind the `MainActorObservation(` wrapper counts as an observer at each use of the
 wrapper, its own body does not (sections 1 and 2),
 and that the header cites a sha on feat-cmux-next, not a local commit a rebase rewrites. Not on CI (Lawrence
-2026-10-23: no new CI gates): run it yourself after a change to codebase-health.py or to guardrails.py's diff
+2026-10-23: no new CI gates, lifted 2026-11-18): run it yourself after a change to codebase-health.py or to guardrails.py's diff
 scope or declaration parser: python3 tests/test_cmux_next_codebase_health.py
 """
 import re

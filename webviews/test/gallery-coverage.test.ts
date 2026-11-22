@@ -5,7 +5,8 @@
 //
 // Components: a `.tsx` file's exported PascalCase function or const (`export function Name`,
 // `export const Name =`, `export default function Name`). An entry covers `path#Name`, or `path`
-// for every export of the file. Pages: the `id:` of each PageDescriptor in the Swift sources,
+// for every export of the file. A cover may also name another source file under webviews/src (and
+// a name it holds) that the entry exercises; it must exist, and it covers no component. Pages: the `id:` of each PageDescriptor in the Swift sources,
 // covered by `page:<id>`.
 //
 // On a pull request only its own findings fail (test/support/prScope.ts): ones about a file it
@@ -56,6 +57,20 @@ function components(): Map<string, string[]> {
   return byFile;
 }
 
+/**
+ * A cover that names no exported component still names something real when its file exists under
+ * webviews/src and, with `#name`, the file holds that name as a word: the logic, hook, stylesheet
+ * or inner component the entry exercises (`conversation/turns.ts#codexRuns`, `conversation.css#SEND-ENTRANCE`).
+ * Such a cover counts toward no component's coverage; a renamed or removed file or name still fails.
+ */
+function namesSource(file: string, name: string | undefined): boolean {
+  const full = path.join(SRC, file);
+  if (!full.startsWith(SRC + path.sep) || !fs.existsSync(full) || !fs.statSync(full).isFile()) return false;
+  if (name === undefined) return true;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^\\w-])${escaped}($|[^\\w-])`).test(fs.readFileSync(full, "utf8"));
+}
+
 /** The app's page descriptors: each id, and the repository paths of the Swift files declaring it. */
 function pages(): Map<string, string[]> {
   const ids = new Map<string, string[]>();
@@ -76,8 +91,10 @@ const RULES = [
 const LISTS = ["webviews/test/gallery-coverage.allowlist.json", /^webviews\/src\/.*\.gallery\.tsx?$/];
 const scope = prScope({ rules: RULES, lists: LISTS });
 // validateEntries and its helpers decide only "the entries are valid": a pull request that edits
-// them owns every entry problem, not the base branch's coverage gaps.
+// them owns every entry problem, not the base branch's coverage gaps. Strict: an invalid id fails its own pull
+// request on feat-cmux-next too (CMUX_NEXT_STYLE_GUARDS=warn), since the URL and the experiment registry refuse it.
 const validation = prScope({
+  strict: true,
   rules: [
     ...RULES,
     "webviews/src/gallery/format.ts",
@@ -173,7 +190,8 @@ describe("gallery coverage", async () => {
           if (cover.startsWith("page:")) return !allPages.includes(cover.slice(5));
           const [file, name] = cover.split("#");
           const names = byFile.get(file!);
-          return !names || (name !== undefined && !names.includes(name));
+          if (names && (name === undefined || names.includes(name))) return false;
+          return !namesSource(file!, name);
         }),
     );
     expect(

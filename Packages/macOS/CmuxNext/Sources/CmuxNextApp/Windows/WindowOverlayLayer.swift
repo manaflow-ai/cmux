@@ -81,7 +81,7 @@ final class WindowOverlayLayer {
         // The sidebar reports from WindowRootView.layout(): inside the
         // window's layout pass the pages follow after it.
         WindowOverlayHost.host(for: window).onOccludersChange = { [weak self] in
-            guard let self else { return }
+            guard let self, !self.planes.contains(where: { $0.carriesPageUpdate() }) else { return }
             self.requestPageUpdate()
         }
         observers.append(center.addObserver(forName: NSWindow.didUpdateNotification, object: window, queue: .main) { [weak self] _ in
@@ -215,14 +215,14 @@ final class WindowOverlayLayer {
         requestPageUpdate()
     }
 
-    func interactiveRectsDidChange() {
-        // Inside the window's layout pass: pages and catcher panels follow
-        // after it (`windowDidLayout`), not from inside a view's layout.
+    /// `shapesChanged`: a pane's strip clip changed too; the pages hear both in one update (one per overlay sync).
+    func interactiveRectsDidChange(shapesChanged: Bool = false) {
+        // Inside the window's layout pass: pages and catcher panels follow after it (`windowDidLayout`).
         guard layoutDepth == 0 else {
-            rectsChangedInLayout = true
+            (rectsChangedInLayout, pageUpdateAfterLayout) = (true, pageUpdateAfterLayout || shapesChanged)
             return
         }
-        updateInteractiveRects()
+        updateInteractiveRects(shapesChanged: shapesChanged)
         // The plane syncs on every layout step: a cheap moment to confirm
         // no page window was re-added above the overlay meanwhile.
         evaluate()
@@ -251,7 +251,7 @@ final class WindowOverlayLayer {
         }
     }
 
-    private func updateInteractiveRects() {
+    private func updateInteractiveRects(shapesChanged: Bool = false) {
         var rects: [CGRect] = []
         var areas: [LayoutMouseArea] = []
         for plane in planes {
@@ -265,17 +265,17 @@ final class WindowOverlayLayer {
         }
         dividerAreas = areas
         if let sidebarResizeArea { areas.append(sidebarResizeArea) }
-        // A spring moves the dividers on every display frame until it lands: the catcher panels
-        // (one window move each, a new panel for a new divider) follow once, at the landing,
-        // which the root reports even when no rect changes then (`isInLayoutMotion`).
+        // A spring or a divider drag moves the dividers on every display frame or pointer event: the catcher panels
+        // (one window move each) follow once, at the landing or release, which the root reports even when no rect
+        // changes then (`isInLayoutMotion`). The pressed panel keeps the drag's events and cursor where it is.
         let springing = planes.contains { ($0.home as? LayoutRootView)?.isInLayoutMotion == true }
         if areas != catcherAreas, !springing {
             catcherAreas = areas
             syncCatchers()
         }
-        guard rects != interactiveRects else { return }
+        guard rects != interactiveRects || shapesChanged else { return }
         interactiveRects = rects
-        requestPageUpdate()
+        requestPageUpdate(geometryOnly: !shapesChanged) // no clip shape changed: only moved pages work geometry out
     }
 
     // MARK: Placement and order
@@ -312,6 +312,7 @@ final class WindowOverlayLayer {
             syncCatchers()
         }
         if placement == .overlayWindow { enforceOrder() }
+        if catchers.pagesMoved, !planes.contains(where: { ($0.home as? LayoutRootView)?.isInLayoutMotion == true }) { syncCatchers() }
     }
 
     private func showPanel() {
@@ -361,6 +362,9 @@ final class WindowOverlayLayer {
     /// Click-catching panels over divider hit areas while pages show.
     private func syncCatchers() { // perf-hot: 1ms cef-geometry (one window move per divider catcher panel)
         if catchers.onHover == nil {
+            catchers.isDividerDragging = { [weak self] in
+                self?.planes.contains { ($0.home as? LayoutRootView)?.isDividerDragging == true } ?? false
+            }
             catchers.onHover = { [weak self] id, hovered in
                 if id == Self.sidebarResizeAreaID {
                     (self?.window.contentView as? WindowRootView)?.sidebar.refreshResizeHover()
@@ -370,8 +374,7 @@ final class WindowOverlayLayer {
             }
         }
         // A modal or dimming overlay blocks the whole window: no divider takes the mouse under it.
-        let blocked = WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow == true
-        catchers.update(catcherAreas, active: placement == .overlayWindow && !blocked)
+        catchers.update(catcherAreas, active: placement == .overlayWindow && WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow != true)
         // The panels pass hover through to the layout, and moving them under
         // a still pointer sends no event: the layout recomputes now (cx-ww20).
         for plane in planes {
@@ -386,7 +389,7 @@ final class WindowOverlayLayer {
     /// changed since the fork last read it re-applies them (`CEFHostView`
     /// posts the fork's geometry notification; the others have nothing new).
     /// `force`: every page re-applies, changed or not (a page window moved by another app).
-    private func requestPageUpdate(force: Bool = false) {
+    private func requestPageUpdate(force: Bool = false, geometryOnly: Bool = false) {
         // Pages move their child windows on this: after the layout pass.
         guard layoutDepth == 0 else {
             pageUpdateAfterLayout = true
@@ -394,7 +397,7 @@ final class WindowOverlayLayer {
             return
         }
         NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window,
-                                        userInfo: force ? [browserPagesForceUpdateKey: true] : nil)
+                                        userInfo: force ? [browserPagesForceUpdateKey: true] : geometryOnly ? [browserPagesGeometryOnlyKey: true] : nil)
     }
 
     // MARK: Diagnostics

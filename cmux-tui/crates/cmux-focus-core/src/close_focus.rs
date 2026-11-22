@@ -1,30 +1,60 @@
-//! The pane successor rule when the focused pane closes
-//! (plans/cmux-next/close-focus.md; formal model closefocus.tla).
+//! The focus successor rules for every close kind
+//! (plans/cmux-next/close-focus.md; formal model closefocus.tla): one pure
+//! function per kind. The focus reducer runs the pane rule ([`pane`]); the
+//! app's tab selection, the daemon's active tab and the cmux-tui client run
+//! [`tab`] (Chrome's rule), and window and sidebar selection run
+//! [`workspace`]. Nothing else decides a successor. ([`live_openers`] keeps
+//! the browser's opener tree, for where a link's new tab goes and for
+//! [`tab`]'s opener steps.)
 //!
-//! - C1 a focus that survives stays,
-//! - C2 the successor is a surviving, shown pane,
-//! - C3 the successor is none only when no shown pane survives,
+//! Shared contract (the model checks in this crate's tests):
+//! - C1 a focus that survives stays (closing an unfocused item, or a close
+//!   by another client or the daemon of an item this client did not focus,
+//!   never moves focus),
+//! - C2 the successor is a surviving, shown item,
+//! - C3 the successor is none only when no shown item survives,
 //! - C4 deterministic: the result depends only on the arguments.
+//!
+//! The rules compare ids only by identity, so they take any `Eq + Hash`
+//! id: the app's string ids, or the small integers its C ABI maps them to.
 
 use crate::state::CloseFocusPolicy;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
+
+/// The items of `old` after and before `closed` (nearest first), or none
+/// when `closed` is not in `old`.
+fn around<'a, T: PartialEq>(
+    closed: &T,
+    old: &'a [T],
+) -> Option<(impl Iterator<Item = &'a T>, impl Iterator<Item = &'a T>)> {
+    let index = old.iter().position(|id| id == closed)?;
+    let (before, rest) = old.split_at_checked(index)?;
+    Some((rest.iter().skip(1), before.iter().rev()))
+}
 
 /// The item in `old` order to focus after `closed` left: the next surviving
 /// one after it, else the previous one (`prefer_next`), or the reverse.
-fn neighbor<'a>(
-    closed: &str,
-    old: &'a [String],
+/// None when `closed` was not in `old` or nothing survives.
+pub fn neighbor<'a, T: PartialEq>(
+    closed: &T,
+    old: &'a [T],
     prefer_next: bool,
-    survives: impl Fn(&str) -> bool,
-) -> Option<&'a String> {
-    let index = old.iter().position(|id| id == closed)?;
-    let after = old[index + 1..].iter().find(|id| survives(id));
-    let before = old[..index].iter().rev().find(|id| survives(id));
-    if prefer_next { after.or(before) } else { before.or(after) }
+    survives: impl Fn(&T) -> bool,
+) -> Option<&'a T> {
+    let (mut after, mut before) = around(closed, old)?;
+    let next = after.find(|id| survives(id));
+    let previous = before.find(|id| survives(id));
+    if prefer_next { next.or(previous) } else { previous.or(next) }
 }
 
-fn first_pane(columns: &[Vec<String>], history: &[String]) -> Option<String> {
-    let all: Vec<&String> = columns.iter().flatten().collect();
+/// The newest pane of `history` in `panes`, else the first of `panes`.
+fn entry<'a, T: PartialEq>(panes: &'a [T], history: &'a [T]) -> Option<&'a T> {
+    history.iter().find(|id| panes.contains(id)).or_else(|| panes.first())
+}
+
+fn first_pane<T: PartialEq + Clone>(columns: &[Vec<T>], history: &[T]) -> Option<T> {
+    let all: Vec<&T> = columns.iter().flatten().collect();
     history.iter().find(|id| all.contains(id)).or_else(|| all.first().copied()).cloned()
 }
 
@@ -34,44 +64,284 @@ fn first_pane(columns: &[Vec<String>], history: &[String]) -> Option<String> {
 /// identity) after the change, empty when the column is gone. `history` is
 /// this window's focus history for the workspace, newest first. Returns
 /// `focused` when it survives.
-pub fn pane(
-    focused: Option<&str>,
-    before: &[Vec<String>],
-    after: &[Vec<String>],
-    history: &[String],
+pub fn pane<T: Eq + Hash + Clone>(
+    focused: Option<&T>,
+    before: &[Vec<T>],
+    after: &[Vec<T>],
+    history: &[T],
     policy: CloseFocusPolicy,
-) -> Option<String> {
-    let surviving: HashSet<&str> = after.iter().flatten().map(String::as_str).collect();
+) -> Option<T> {
+    let surviving: HashSet<&T> = after.iter().flatten().collect();
     let Some(focused) = focused else { return first_pane(after, history) };
     if surviving.contains(focused) {
-        return Some(focused.to_owned());
+        return Some(focused.clone());
     }
     if policy == CloseFocusPolicy::MostRecent
-        && let Some(recent) =
-            history.iter().find(|id| id.as_str() != focused && surviving.contains(id.as_str()))
+        && let Some(recent) = history.iter().find(|id| *id != focused && surviving.contains(id))
     {
         return Some(recent.clone());
     }
-    let Some(column) = before.iter().position(|col| col.iter().any(|id| id == focused)) else {
+    let Some(column) = before.iter().position(|col| col.contains(focused)) else {
         return first_pane(after, history);
     };
-    if column >= after.len() {
+    let (Some(old_column), Some(new_column)) = (before.get(column), after.get(column)) else {
         return first_pane(after, history);
-    }
-    let stayed: HashSet<&str> = after[column].iter().map(String::as_str).collect();
-    if let Some(in_column) = neighbor(focused, &before[column], false, |id| stayed.contains(id)) {
+    };
+    let stayed: HashSet<&T> = new_column.iter().collect();
+    if let Some(in_column) = neighbor(focused, old_column, false, |id| stayed.contains(id)) {
         return Some(in_column.clone());
     }
     if let Some(added) =
-        history.iter().find(|id| stayed.contains(id.as_str())).or_else(|| after[column].first())
+        history.iter().find(|id| stayed.contains(id)).or_else(|| new_column.first())
     {
         return Some(added.clone());
     }
     // The column is empty or gone: the nearest non-empty column to the
     // left, else to the right.
-    let alive = |index: usize| index < after.len() && !after[index].is_empty();
-    let left = (0..column).rev().find(|&i| alive(i));
-    let right = (column + 1..before.len()).find(|&i| alive(i));
-    let Some(next) = left.or(right) else { return first_pane(after, history) };
-    history.iter().find(|id| after[next].contains(id)).or_else(|| after[next].first()).cloned()
+    let alive = |col: &&Vec<T>| !col.is_empty();
+    let (left, right) = after.split_at_checked(column).unwrap_or((after, &[]));
+    let next = left.iter().rev().find(alive).or_else(|| {
+        right.iter().skip(1).take(before.len().saturating_sub(column).saturating_sub(1)).find(alive)
+    });
+    let Some(next) = next else { return first_pane(after, history) };
+    entry(next, history).cloned()
+}
+
+/// [`pane`] with cmux classic's fallback (issue 38194): under `MostRecent`,
+/// when no surviving pane of `history` other than `focused` is left (a tree
+/// whose remaining panes were never focused, as after a relaunch), the
+/// closed pane's `sibling`, the first pane of the subtree that takes its
+/// space (Bonsplit's `closePaneRecursively`), when it survives. Otherwise
+/// exactly [`pane`].
+pub fn pane_or_sibling<T: Eq + Hash + Clone>(
+    focused: Option<&T>,
+    before: &[Vec<T>],
+    after: &[Vec<T>],
+    history: &[T],
+    sibling: Option<&T>,
+    policy: CloseFocusPolicy,
+) -> Option<T> {
+    if policy == CloseFocusPolicy::MostRecent
+        && let Some(focused) = focused
+        && let Some(sibling) = sibling
+    {
+        let surviving: HashSet<&T> = after.iter().flatten().collect();
+        let recent = history.iter().any(|id| id != focused && surviving.contains(id));
+        if !surviving.contains(focused) && !recent && surviving.contains(sibling) {
+            return Some(sibling.clone());
+        }
+    }
+    pane(focused, before, after, history, policy)
+}
+
+/// What Chrome's close rule reads besides the strip order: each link tab's
+/// opener (child to opener; relations through tabs that are gone are
+/// followed, as Chrome's `FixOpeners` keeps them) and each grouped tab's
+/// group. Both empty: the rule is positional only (the daemon, the cmux-tui
+/// client).
+#[derive(Debug, Clone)]
+pub struct TabRelations<T, G = u32> {
+    /// Child to the tab that opened it.
+    pub opener: HashMap<T, T>,
+    /// A grouped tab to its group; an ungrouped tab is absent.
+    pub group: HashMap<T, G>,
+}
+
+impl<T, G> Default for TabRelations<T, G> {
+    fn default() -> Self {
+        Self { opener: HashMap::new(), group: HashMap::new() }
+    }
+}
+
+/// The tab a pane selects after `selected` closed, as Chrome's
+/// `TabStripModel::DetermineNewSelectedIndex` picks it
+/// (chrome/browser/ui/tabs/tab_strip_model.cc; close-focus.md, Tab). Only a
+/// surviving, shown tab (not a member of a collapsed group) qualifies, in
+/// this order:
+///
+/// 1. a tab `selected` opened, the nearest after it, else before it
+///    (`GetIndexOfNextWebContentsOpenedBy`);
+/// 2. a tab opened by `selected`'s opener (a sibling), nearest after, else
+///    before (`GetIndexOfNextWebContentsOpenedByOpenerOf`);
+/// 3. `selected`'s opener;
+/// 4. in `selected`'s group, the surviving tab right after it, else right
+///    before it (shown or not: the group was not collapsed);
+/// 5. the nearest shown tab after it, else before it
+///    (`GetNextExpandedActiveTab`);
+/// 6. none shown: the surviving tab after it, else before it (its group then
+///    expands).
+///
+/// So with no relations, closing the selected tab selects the tab to its
+/// right, else the one to its left. One rule for every tab kind and every
+/// way a tab closes (Cmd-W, the close button, a middle click, the menus, the
+/// CLI, a terminal that exits, a batch close). `old` is the strip order
+/// before the close (pinned tabs first), `surviving` the tabs left, `shown`
+/// the surviving tabs that are not hidden. A surviving selection stays
+/// (closing a tab that is not selected never moves the selection); no
+/// selection takes the first shown survivor.
+pub fn tab<T: Eq + Hash + Clone, G: Eq>(
+    selected: Option<&T>,
+    old: &[T],
+    surviving: &[T],
+    shown: &HashSet<T>,
+    relations: &TabRelations<T, G>,
+) -> Option<T> {
+    let live: HashSet<&T> = surviving.iter().collect();
+    let Some(selected) = selected else {
+        return surviving
+            .iter()
+            .find(|id| shown.contains(*id))
+            .or_else(|| surviving.first())
+            .cloned();
+    };
+    if live.contains(selected) {
+        return Some(selected.clone());
+    }
+    let eligible = |id: &T| live.contains(id) && shown.contains(id);
+    if let Some(family) = chrome_relations(selected, old, &live, relations, eligible) {
+        return Some(family);
+    }
+    neighbor(selected, old, true, eligible)
+        .or_else(|| surviving.iter().find(|id| shown.contains(*id)))
+        .or_else(|| neighbor(selected, old, true, |id| live.contains(id)))
+        .or_else(|| surviving.first())
+        .cloned()
+}
+
+/// Steps 1 to 4 of [`tab`]: a child of `closed`, a sibling, its opener,
+/// then its group's neighbor. None when no step picks (or `closed` is not in
+/// `old`).
+fn chrome_relations<T: Eq + Hash + Clone, G: Eq>(
+    closed: &T,
+    old: &[T],
+    live: &HashSet<&T>,
+    relations: &TabRelations<T, G>,
+    eligible: impl Fn(&T) -> bool,
+) -> Option<T> {
+    if !old.contains(closed) {
+        return None;
+    }
+    if !relations.opener.is_empty() {
+        // The relations among the tabs left and the closed one, through tabs
+        // that left with it (`FixOpeners`).
+        let present: Vec<T> =
+            old.iter().filter(|id| *id == closed || live.contains(id)).cloned().collect();
+        let opener = live_openers(&relations.opener, &present);
+        // `GetIndexOfNextWebContentsOpenedBy`: the nearest after, else before.
+        let opened_by = |parent: &T| -> Option<T> {
+            let (mut after, mut before) = around(closed, old)?;
+            let child = |id: &&T| opener.get(*id) == Some(parent) && eligible(id);
+            after.find(child).or_else(|| before.find(child)).cloned()
+        };
+        if let Some(child) = opened_by(closed) {
+            return Some(child);
+        }
+        if let Some(parent) = opener.get(closed) {
+            if let Some(sibling) = opened_by(parent) {
+                return Some(sibling);
+            }
+            if eligible(parent) {
+                return Some(parent.clone());
+            }
+        }
+    }
+    // In its group: the surviving tab right after it, else right before it.
+    let group = relations.group.get(closed)?;
+    let (mut after, mut before) = around(closed, old)?;
+    let in_group = |id: &T| relations.group.get(id) == Some(group);
+    after
+        .find(|id| live.contains(id))
+        .filter(|id| in_group(id))
+        .or_else(|| before.find(|id| live.contains(id)).filter(|id| in_group(id)))
+        .cloned()
+}
+
+/// The rule of 2026-11-08 ("always the tab before it"): the shown tab before
+/// `selected`, else the shown tab after it. Kept only for the pinned app
+/// FFI's `cmux_close_focus_tab`, so a re-pin does not change the app's
+/// selection before the app moves to `cmux_close_focus_tab_chrome`; goes
+/// with that symbol at the next ABI change.
+pub fn tab_before<T: Eq + Hash + Clone>(
+    selected: Option<&T>,
+    old: &[T],
+    surviving: &[T],
+    shown: &HashSet<T>,
+) -> Option<T> {
+    let live: HashSet<&T> = surviving.iter().collect();
+    let Some(selected) = selected else {
+        return surviving
+            .iter()
+            .find(|id| shown.contains(*id))
+            .or_else(|| surviving.first())
+            .cloned();
+    };
+    if live.contains(selected) {
+        return Some(selected.clone());
+    }
+    let visible = |id: &T| live.contains(id) && shown.contains(id);
+    neighbor(selected, old, false, visible)
+        .or_else(|| surviving.iter().find(|id| shown.contains(*id)))
+        .or_else(|| neighbor(selected, old, false, |id| live.contains(id)))
+        .or_else(|| surviving.first())
+        .cloned()
+}
+
+/// The opener relations among `order`, from `opener` (child to opener,
+/// possibly naming tabs that are gone), for a link tab's slot. A tab whose opener is not in
+/// `order` takes that opener's own opener, as Chrome's `FixOpeners` does
+/// when a tab leaves the strip; a relation back to the tab itself is
+/// dropped. Only tabs in `order` are keys.
+pub fn live_openers<T: Eq + Hash + Clone>(opener: &HashMap<T, T>, order: &[T]) -> HashMap<T, T> {
+    let present: HashSet<&T> = order.iter().collect();
+    let mut result = HashMap::new();
+    for tab in order {
+        let mut seen: HashSet<&T> = HashSet::from([tab]);
+        let mut parent = opener.get(tab);
+        while let Some(current) = parent
+            && !present.contains(current)
+            && seen.insert(current)
+        {
+            parent = opener.get(current);
+        }
+        if let Some(parent) = parent
+            && present.contains(parent)
+            && parent != tab
+        {
+            result.insert(tab.clone(), parent.clone());
+        }
+    }
+    result
+}
+
+/// The workspace a window shows after `shown` left it: the next one below
+/// in the sidebar's visual order, else the one above. `old` is the order
+/// before (a window's members, in the order they joined it, or the sidebar
+/// model's), `surviving` the workspaces the window still lists. `orders`,
+/// the sidebar's row orders before the close, most preferred first (the
+/// rows as drawn, then the model's rows), are tried in turn: the first that
+/// lists `shown` and has a surviving neighbor among `old` picks it. So a
+/// drawn row hands off to a drawn row (folder sorting and a filter apply; a
+/// collapsed group's members only when no drawn row is left), and a list
+/// row never to a workspace no row lists (a pinned tile) while a row is
+/// left. `old` decides last.
+pub fn workspace<T: Eq + Hash + Clone>(
+    shown: Option<&T>,
+    old: &[T],
+    surviving: &[T],
+    orders: &[Vec<T>],
+) -> Option<T> {
+    let live: HashSet<&T> = surviving.iter().collect();
+    let Some(shown) = shown else { return surviving.first().cloned() };
+    if live.contains(shown) {
+        return Some(shown.clone());
+    }
+    let members: HashSet<&T> = old.iter().collect();
+    for order in orders.iter().filter(|order| order.contains(shown)) {
+        let rows: Vec<T> =
+            order.iter().filter(|id| *id == shown || members.contains(id)).cloned().collect();
+        if let Some(next) = neighbor(shown, &rows, true, |id| live.contains(id)) {
+            return Some(next.clone());
+        }
+    }
+    neighbor(shown, old, true, |id| live.contains(id)).or_else(|| surviving.first()).cloned()
 }

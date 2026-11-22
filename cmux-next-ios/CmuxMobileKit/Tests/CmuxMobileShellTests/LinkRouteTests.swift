@@ -55,8 +55,28 @@ import Testing
         #expect(resolve("cmux://agent/codex/e8f63fd9") == nil)
     }
 
-    @Test func aHomeConversationLinkOpensChief() {
-        #expect(resolve("cmux://conversation/c1/message/m1") == .chief)
+    @Test func aHomeConversationLinkOpensTheNamedConversation() {
+        #expect(resolve("cmux://conversation/c1/message/m1") == .chief(conversationID: "c1"))
+        #expect(resolve("cmux://conversation/c2") == .chief(conversationID: "c2"))
+        #expect(resolve("https://cmux.com/link/conversation/c3") == .chief(conversationID: "c3"))
+        // The message portion remains an optional scroll anchor; conversation
+        // identity is always retained even if no message anchor is shown yet.
+        #expect(resolve("cmux://conversation/c4/message/m4") == .chief(conversationID: "c4"))
+    }
+
+    @Test func aColdHomeLinkWaitsForItsExactConversation() {
+        // No Home identity has loaded yet: a navigation fallback would open
+        // the wrong Chief. Once the Mac list arrives, only the named id opens.
+        #expect(!NotificationTarget.knowsHomeConversation("target", macChief: nil, cloudChief: nil,
+                                                        homeChief: nil, homeRows: []))
+        #expect(NotificationTarget.knowsHomeConversation("target", macChief: nil, cloudChief: nil,
+                                                       homeChief: nil, homeRows: ["target", "other"]))
+        #expect(!NotificationTarget.knowsHomeConversation("missing", macChief: "mac", cloudChief: "cloud",
+                                                        homeChief: "mac", homeRows: ["target"]))
+        #expect(NotificationTarget.knowsHomeConversation("mac", macChief: "mac", cloudChief: nil,
+                                                       homeChief: nil, homeRows: []))
+        #expect(NotificationTarget.knowsHomeConversation("cloud", macChief: nil, cloudChief: "cloud",
+                                                       homeChief: nil, homeRows: []))
     }
 
     @Test func aGroupLinkOpensItsWorkspaceOrTheList() {

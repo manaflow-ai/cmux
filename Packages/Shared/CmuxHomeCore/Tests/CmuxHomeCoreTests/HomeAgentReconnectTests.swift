@@ -17,7 +17,7 @@ import CmuxHomeCoreTestSupport
         await source.finishReport(in: conversation, answering: question)
         let page = try await source.snapshot(of: conversation, tail: 100)
         store.handle(.conversationPage(page))
-        await waitUntil { store.transcript(for: conversation).contains { $0.plainText.contains("Recovered report") } }
+        await waitUntil { store.transcript(for: conversation).contains { $0.agentMessage?.latest == "Recovered report" } }
         #expect(store.transcript(for: conversation).filter(\.isReadOnly).count == 1)
     }
 
@@ -34,9 +34,9 @@ import CmuxHomeCoreTestSupport
         let question = try #require(store.transcript(for: conversation).first?.messageID)
         if !ownerOnly { store.handle(.connection(.offline(since: Date()))) }
         await source.finishReport(in: conversation, answering: question)
-        #expect(!store.transcript(for: conversation).contains { $0.plainText.contains("Recovered report") })
+        #expect(!store.transcript(for: conversation).contains { $0.agentMessage?.latest == "Recovered report" })
         store.handle(ownerOnly ? .ownerRecovered : .connection(.online))
-        await waitUntil { store.transcript(for: conversation).contains { $0.plainText.contains("Recovered report") } }
+        await waitUntil { store.transcript(for: conversation).contains { $0.agentMessage?.latest == "Recovered report" } }
         #expect(store.transcript(for: conversation).filter(\.isReadOnly).count == 1)
     }
 }

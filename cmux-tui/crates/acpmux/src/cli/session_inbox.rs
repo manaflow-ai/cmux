@@ -16,9 +16,99 @@ pub async fn run(
     session: &str,
     thread: Option<&str>,
     mark_read: bool,
+    search: Option<&str>,
+    before: Option<u64>,
+    subscribe: Option<&str>,
+    unsubscribe: Option<&str>,
+    subscriptions: bool,
     json_out: bool,
 ) -> Result<()> {
     let id = resolve_id(client, session).await?;
+    if let Some(thread) = subscribe {
+        let reply = client
+            .request(
+                method::MUX_INBOX_SUBSCRIPTION_SET,
+                json!({"sessionId": id, "threadId": thread}),
+            )
+            .await?;
+        if json_out {
+            print_json(&reply);
+        } else {
+            println!(
+                "Subscribed to surge thread {}.",
+                reply.get("threadId").and_then(Value::as_str).unwrap_or(thread)
+            );
+        }
+        return Ok(());
+    }
+    if let Some(thread) = unsubscribe {
+        let reply = client
+            .request(
+                method::MUX_INBOX_SUBSCRIPTION_REMOVE,
+                json!({"sessionId": id, "threadId": thread}),
+            )
+            .await?;
+        if json_out {
+            print_json(&reply);
+        } else {
+            println!(
+                "Unsubscribed from surge thread {}.",
+                reply.get("threadId").and_then(Value::as_str).unwrap_or(thread)
+            );
+        }
+        return Ok(());
+    }
+    if subscriptions {
+        let reply =
+            client.request(method::MUX_INBOX_SUBSCRIPTIONS, json!({"sessionId": id})).await?;
+        if json_out {
+            print_json(&reply);
+        } else {
+            let rows =
+                reply.get("subscriptions").and_then(Value::as_array).cloned().unwrap_or_default();
+            if rows.is_empty() {
+                println!("No surge thread subscriptions.");
+            } else {
+                for row in rows {
+                    println!("{}", row.get("threadId").and_then(Value::as_str).unwrap_or_default());
+                }
+            }
+        }
+        return Ok(());
+    }
+    if let Some(query) = search {
+        let reply = client
+            .request(
+                method::MUX_INBOX_THREADS,
+                json!({"sessionId":id,"search":query,"before":before}),
+            )
+            .await?;
+        let hits = reply
+            .get("hits")
+            .and_then(Value::as_array)
+            .ok_or_else(|| anyhow::anyhow!("this daemon does not support held-inbox search"))?;
+        if json_out {
+            print_json(&reply);
+        } else {
+            for hit in hits {
+                let field = |key: &str| hit.get(key).and_then(Value::as_str).unwrap_or_default();
+                println!(
+                    "[{}] {} · {}\n{}",
+                    field("promptId"),
+                    field("from"),
+                    field("threadId"),
+                    field("text")
+                );
+            }
+            if hits.is_empty() {
+                println!("No matching held messages.");
+            }
+            if let Some(next) = reply.get("next").and_then(Value::as_u64) {
+                println!("Continue with --before {next}.");
+            }
+        }
+        return Ok(());
+    }
     let reply = match thread {
         Some(thread) => {
             let params = json!({"sessionId": id, "threadId": thread, "markRead": mark_read});
@@ -26,13 +116,43 @@ pub async fn run(
         }
         None => client.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await?,
     };
+    // The thread list ends with the messages this session sent and their delivery state: queued
+    // here, delivering, delivered or failed (`hub/outbox.rs`). A daemon from before the list,
+    // or a session on a peer (whose outbox is that daemon's), adds nothing.
+    let sent = match thread {
+        Some(_) => None,
+        None => client
+            .request(
+                method::MUX_SEND_STATUS,
+                json!({"list": true, "caller": id, "limit": SENT_SHOWN}),
+            )
+            .await
+            .ok()
+            .filter(|v| {
+                v.get("deliveries").and_then(Value::as_array).is_some_and(|d| !d.is_empty())
+            }),
+    };
     if json_out {
+        let mut reply = reply;
+        if let (Some(sent), Some(obj)) = (sent, reply.as_object_mut()) {
+            obj.insert("sent".into(), sent);
+        }
         print_json(&reply);
     } else {
         println!("{}", describe(&reply));
+        if let Some(sent) = sent {
+            println!("\nSent by this session:");
+            let lines = crate::cli::run::sent_list_lines(&sent, crate::store::now_ms());
+            for line in lines.iter().skip(1) {
+                println!("{line}");
+            }
+        }
     }
     Ok(())
 }
+
+/// How many of the session's sent messages its inbox shows.
+const SENT_SHOWN: u64 = 10;
 
 /// A reply of `_acpmux/inbox_threads`, `_acpmux/inbox_thread` or `_acpmux/inbox_reply` as text.
 pub fn describe(reply: &Value) -> String {
@@ -43,7 +163,7 @@ pub fn describe(reply: &Value) -> String {
         }
         let from = |t: &Value| {
             let names = t["from"].as_array().cloned().unwrap_or_default();
-            names.iter().map(s).collect::<Vec<_>>().join(", ")
+            names.iter().map(&s).collect::<Vec<_>>().join(", ")
         };
         let lines: Vec<String> = threads
             .iter()

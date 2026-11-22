@@ -11,7 +11,7 @@ import Testing
 /// workspace or pane picture, no glass), applied where the app applies `appearance.*`
 /// (`TerminalThemeSetting` on the scope windows inherit from). Off restores exactly what the
 /// person chose, because their `appearance.*` values never change.
-@MainActor @Suite(.serialized) struct ReducedBackgroundsTests {
+@MainActor @Suite(.serialized, .ghosttyOverrides) struct ReducedBackgroundsTests {
     static let work = "van-gogh-starry-night"
     static let pinned = BackdropSelection.art(.munchScream)
 
@@ -33,13 +33,15 @@ import Testing
         let ui = reduced.map { #", "ui": {"reducedBackgrounds": \#($0)}"# } ?? ""
         let json = #"{"appearance": {"background": "\#(Self.work)", "backgroundBlur": "glass"}\#(ui)}"#
         try Data(json.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let room = ThemeScope(level: .room)
         let workspace = ThemeScope(level: .workspace, parent: room)
         workspace.pinBackdrop(.selection(Self.pinned))
         let terminal = TerminalThemeSetting(backdropScope: room)
+        // Ghostty's own values, this test's (#36891: never this Mac's, which every config load records).
+        terminal.ghostty = { GhosttyConfigBackground() }
         terminal.reload = {}
         terminal.repaint = {}
         terminal.follow(settings)
@@ -48,7 +50,6 @@ import Testing
 
     func tearDown(_ harness: Harness) {
         GhosttyRuntime.backgroundOverride = WindowBackgroundOverride()
-        GhosttyConfigBackground.loaded = GhosttyConfigBackground()
         try? FileManager.default.removeItem(at: harness.url.deletingLastPathComponent())
     }
 

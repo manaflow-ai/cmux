@@ -27,11 +27,11 @@ WORKFLOW = ROOT / ".github/workflows/ci-health-report.yml"
 DOC = ROOT / "docs/ci/health-report.md"
 FIXTURES = ROOT / "tests/fixtures/ci-health-report"
 
-SPEC = importlib.util.spec_from_file_location("ci_health_report", SCRIPT)
-report = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
-sys.modules["ci_health_report"] = report
-SPEC.loader.exec_module(report)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import ci_health_report as report  # noqa: E402
 
 NOW = dt.datetime(2026, 9, 22, 18, 0, tzinfo=dt.timezone.utc)
 REPO = "manaflow-ai/cmux"
@@ -636,7 +636,7 @@ class WorkflowStructureTests(unittest.TestCase):
 
     def test_the_runner_comes_from_a_repository_variable(self):
         self.assertIn(
-            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", self.text
+            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}", self.text
         )
 
     def test_it_can_read_runs_and_write_issue_comments_but_not_cancel(self):

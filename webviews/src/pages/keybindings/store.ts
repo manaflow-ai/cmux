@@ -3,6 +3,7 @@
 // (`cmux.keybindings.list`); the page keeps no optimistic copy: a write re-reads after the
 // provider confirms. React reads it through `useSyncExternalStore` (no effects).
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import {
   canEditWhen,
@@ -377,7 +378,9 @@ export class KeybindingsStore {
         // The keys stay the other action's: the recorder says why.
         const current = this.snapshot.recording;
         const shown = failure(error);
-        if (current?.target === "row" && shown.notice?.kind === "failed") {
+        // Only the recorder that asked says why: another row's, opened while the removal ran, has
+        // its own keys, and the failure goes to the page's notice instead.
+        if (current?.target === "row" && current.session === recording.session && shown.notice?.kind === "failed") {
           this.set({ recording: { ...current, refusal: shown.notice.message, warned: current.warned + 1 } });
         } else this.set(shown);
         await this.reload();
@@ -630,8 +633,8 @@ export class KeybindingsStore {
         const why =
           shown.notice?.kind === "failed"
             ? shown.notice.message
-            : shown.notice?.kind === "unsupported" && error instanceof Error
-              ? error.message
+            : shown.notice?.kind === "unsupported"
+              ? userMessage(error, SENTENCES)
               : undefined;
         if (mine) {
           if (why) {
@@ -751,8 +754,18 @@ export class KeybindingsStore {
   }
 }
 
+/** The keybinding owner words these refusals for the person (KeybindingStrings); a failed write or
+ *  keymap file shows the plain sentence. */
+const SENTENCES = {
+  [UNSUPPORTED]: OWNER_SENTENCE,
+  "cmux.keybindings.refused": OWNER_SENTENCE,
+  "cmux.keybindings.conflict": OWNER_SENTENCE,
+  "cmux.keybindings.read_only": OWNER_SENTENCE,
+  "cmux.keybindings.invalid": OWNER_SENTENCE,
+} as const;
+
 function failure(error: unknown): Partial<KeybindingsSnapshot> {
   if (isPageError(error) && error.code === UNSUPPORTED) return { notice: { kind: "unsupported" } };
   if (isPageError(error) && error.code === LINK_CLOSED) return { connection: "disconnected" };
-  return { notice: { kind: "failed", message: error instanceof Error ? error.message : String(error) } };
+  return { notice: { kind: "failed", message: userMessage(error, SENTENCES) } };
 }

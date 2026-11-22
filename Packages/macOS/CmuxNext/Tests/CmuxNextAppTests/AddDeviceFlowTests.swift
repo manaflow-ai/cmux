@@ -99,6 +99,40 @@ import Testing
         #expect(fake.clouds == 1)
     }
 
+    /// With nothing on the network, the card lands on "Set up a new device"; a computer the person
+    /// already reaches with ssh can still be added by name from there (HQ #4877 break 5).
+    @Test func setUpANewDeviceStillOffersOtherComputer() async throws {
+        let fake = Fake()
+        fake.listing = Self.listing(available: [])
+        let model = AddDeviceModel(services: fake.services())
+        await model.begin()
+        #expect(model.way == .newDevice)
+        #expect(model.offersOtherComputer)
+        let view = AddDeviceView(model: model)
+        #expect(Self.texts(in: view).contains(AddDeviceStrings.otherComputerHint))
+        let other = try #require(AddDeviceShotsTests.find(view, id: "cmux.addDevice.button.otherComputer") as? NSButton)
+        other.performClick(nil)
+        #expect(fake.byName == 1, "the row's Other Computer… runs the same perform as the network way's")
+        model.choose(.windows)
+        #expect(model.offersOtherComputer)
+        model.choose(.phone)
+        #expect(!model.offersOtherComputer, "a phone is not added over ssh")
+        #expect(!Self.texts(in: AddDeviceView(model: model)).contains(AddDeviceStrings.otherComputerHint))
+        model.choose(.code)
+        #expect(!model.offersOtherComputer)
+    }
+
+    /// The network way says before Add that enroll signs in with an ssh key, not a password
+    /// (HQ #4877 break 6): a password-only computer otherwise fails only on the reach row.
+    @Test func theNetworkWaySaysItNeedsAnSSHKeyBeforeAdd() async {
+        let fake = Fake()
+        let model = AddDeviceModel(services: fake.services())
+        await model.begin()
+        #expect(model.way == .network)
+        #expect(Self.texts(in: AddDeviceView(model: model)).contains(AddDeviceStrings.sshKeyHint))
+        #expect(AddDeviceStrings.sshKeyHint.contains("key"))
+    }
+
     @Test func noCLIShowsTheNetworkAsUnavailableAndStillOffersAName() async {
         let fake = Fake()
         fake.listing = nil

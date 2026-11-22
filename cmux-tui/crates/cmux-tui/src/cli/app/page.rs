@@ -22,8 +22,8 @@ pub(super) const WAIT_MARGIN: Duration = Duration::from_secs(5);
 pub(super) const SCREENSHOT_TIMEOUT: Duration = Duration::from_secs(35);
 
 /// `cmux browser <tab_…|page> <verb> …`: page commands for a browser tab the
-/// app hosts (`page` is the focused tab). A daemon browser (`browser_…`) is
-/// the mux grammar's.
+/// app hosts (`page` is the browser nearest the caller, or the focused tab
+/// outside cmux). A daemon browser (`browser_…`) is the mux grammar's.
 pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
     let messages = &crate::localization::catalog().app_control;
     let usage = || UsageError::new(messages.browser_page_usage);
@@ -292,10 +292,12 @@ const AGENT_METHODS: &[&str] = &[
 ];
 
 /// The methods the CLI names its caller on: [`super::CALLER_METHODS`], and
-/// every page input verb, so the agent cursor's tag says who drives and where
-/// and a click on it goes there (user, 2026-10-20).
+/// every page verb. A verb without a tab runs on the browser nearest the
+/// caller (its own workspace, then its window), never on the person's focused
+/// tab in another window (#26648); an input verb's agent cursor tag says who
+/// drives and where, and a click on it goes there (user, 2026-10-20).
 pub(super) fn takes_caller(method: &str) -> bool {
-    super::CALLER_METHODS.contains(&method) || AGENT_METHODS.contains(&method)
+    super::CALLER_METHODS.contains(&method) || method.starts_with("browser.page.")
 }
 
 /// `--agent NAME` (or `--agent=NAME`) anywhere in `args`, taken out; None
@@ -672,3 +674,30 @@ fn storage(args: &[String], params: &mut Map<String, Value>) -> Option<&'static 
 #[cfg(test)]
 #[path = "page_browser_use_tests.rs"]
 mod browser_use_tests;
+
+/// The line a person's `cmux window|pane|tab screenshot` adds under the result when the app
+/// masked areas of the image (`masked_areas`: `home`, `chat`, `browser`, ...): an agent's capture
+/// covers them in grey for privacy, and without this line the grey reads as a blank pane. None
+/// for any other run, a raw capture, or a result with no masked area.
+pub(super) fn masked_note(params: &Value, value: &Value) -> Option<String> {
+    let action = params.get("action")?.as_str()?;
+    if !matches!(
+        action,
+        "window screenshot"
+            | "pane screenshot"
+            | "tab screenshot"
+            | "window.screenshot"
+            | "pane.screenshot"
+            | "tab.screenshot"
+    ) {
+        return None;
+    }
+    let result = value.get("result").unwrap_or(value);
+    let areas: Vec<&str> =
+        result.get("masked_areas")?.as_array()?.iter().filter_map(Value::as_str).collect();
+    if areas.is_empty() {
+        return None;
+    }
+    let messages = &crate::localization::catalog().app_control;
+    Some(messages.screenshot_masked.replace("{areas}", &areas.join(", ")))
+}

@@ -13,6 +13,7 @@ use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
+use cmux_cloud_api::sandbox::{AGENTS, TASK_MAX_CHARS, task_fits};
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
@@ -30,13 +31,10 @@ const WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 /// The app's own work around the server's long-poll (auth, the HTTP round trip).
 const WAIT_TRANSIT: Duration = Duration::from_secs(15);
 const WAIT_SLICE_MS: u64 = 10_000;
-/** The server's limit on a sandbox task (web/services/runs/model.ts SANDBOX_TASK_MAX_CHARS). */
-const TASK_MAX_CHARS: usize = 16_000;
 /** The app's `runs.cancel` deadline is 65 s: it destroys the VM before it answers. */
 const CANCEL_TIMEOUT: Duration = Duration::from_secs(70);
-/** The agents a sandboxed run can use (the server's CLOUD_VM_AGENTS). */
-const AGENTS: [&str; 4] = ["claude", "codex", "opencode", "pi"];
 /** What an app call may take past its budget and probe (connecting, the thread handoff). */
+// timeout: a margin added to each call's own bound, never a deadline of its own.
 const CALL_MARGIN: Duration = Duration::from_secs(1);
 /** The pause after a wait that got no answer, doubling to `RETRY_PAUSE_MAX`, never past the deadline. */
 const RETRY_PAUSE_MIN: Duration = Duration::from_millis(500);
@@ -123,8 +121,8 @@ pub(super) fn parse(rest: &[String]) -> Result<Invocation, UsageError> {
         let value = value.trim().to_owned();
         match name {
             "agent" => {
-                // The agents a sandbox runs (web/services/vms CLOUD_VM_AGENTS); checked here so a
-                // typo is a usage error before anything is sent.
+                // The agents the daemon's Run takes (its own list); checked here so a typo is a
+                // usage error before anything is sent.
                 if !AGENTS.contains(&value.as_str()) {
                     return Err(UsageError::new(messages.bad_agent.replace("{value}", &value)));
                 }
@@ -146,8 +144,9 @@ pub(super) fn parse(rest: &[String]) -> Result<Invocation, UsageError> {
     if request.task.is_empty() {
         return Err(UsageError::new(messages.task_required));
     }
-    // The server counts UTF-16 code units (JavaScript `length`), so this does too.
-    if request.task.encode_utf16().count() > TASK_MAX_CHARS {
+    // The daemon's own check (grapheme clusters, the composer's characters), so the two never
+    // disagree: a task it takes is never refused here, and one it refuses never leaves.
+    if !task_fits(&request.task) {
         return Err(UsageError::new(
             messages.task_too_long.replace("{max}", &TASK_MAX_CHARS.to_string()),
         ));
@@ -276,8 +275,9 @@ pub(super) fn is_input_refusal(error: &Value) -> bool {
     )
 }
 
-/// Signed out, or the preview is off: the app's Labs flag, an administrator's policy
-/// (`feature.disabled`) or the server's allowlist; or the app has no Cloud backend
+/// Signed out, or Cloud is off: an administrator's policy (`feature.disabled`), the server's
+/// allowlist, Cloud not callable here (`cloud_disabled`: a managed team missing or a local-only
+/// backend), or an older app's Labs flag (`labs_off`); or the app has no Cloud backend
 /// (`no_backend`). Exit 3: nothing to wait for, act first.
 pub(super) fn is_gate_refusal(error: &Value) -> bool {
     matches!(
@@ -285,6 +285,7 @@ pub(super) fn is_gate_refusal(error: &Value) -> bool {
         Some(
             "not_signed_in"
                 | "labs_off"
+                | "cloud_disabled"
                 | "feature.disabled"
                 | "run_sandbox_unavailable"
                 | "no_backend"
@@ -496,7 +497,7 @@ pub(super) fn run(global: &GlobalArgs, invocation: Invocation) -> i32 {
     loop {
         let Some((server, budget)) = wait_slice(Instant::now(), deadline, probe) else {
             // Past the deadline the run is not worth more VM time: cancel it, which destroys its
-            // VM before it answers (bounded; the server's reaper covers a cancel that fails).
+            // VM before it answers (bounded; the daemon's cleanup covers a cancel that fails).
             let mut params = Map::new();
             params.insert("id".into(), json!(id));
             let cancelled = call(global, "runs.cancel", params, CANCEL_TIMEOUT);
@@ -580,7 +581,7 @@ pub(super) fn run(global: &GlobalArgs, invocation: Invocation) -> i32 {
                 continue;
             }
             // Signed out or Cloud turned off after the run started: the run goes on to its own
-            // timeout, where the server destroys its VM. Exit 3 with that said.
+            // timeout, where the daemon deletes its machine. Exit 3 with that said.
             Err(mut refused) if is_gate_refusal(&refused.error) => {
                 let reason =
                     refused.error.get("message").and_then(Value::as_str).unwrap_or_default();
@@ -677,7 +678,7 @@ pub(super) fn is_wait_transient(error: &Value) -> bool {
 }
 
 /// A create error after which the run may exist: no answer, or a server failure. Anything else
-/// (signed out, Labs off, a refused image, agent or task, no app to ask) proves nothing started.
+/// (signed out, an older app's Labs flag, a refused image, agent or task, no app to ask) proves nothing started.
 pub(super) fn create_may_have_committed(error: &Value) -> bool {
     matches!(
         error.get("code").and_then(Value::as_str),
@@ -695,7 +696,7 @@ pub(super) fn run_receipt<'a>(snapshot: &'a Value, id: &str) -> Option<&'a Value
         && field("runId") == Some(id)
         && field("environment") == Some("sandboxed")
         && matches!(field("status"), Some("succeeded" | "failed" | "cancelled"))
-        && matches!(field("cleanup"), Some("destroyed" | "pending")))
+        && matches!(field("cleanup"), Some("destroyed" | "pending" | "abandoned")))
     .then_some(receipt)
 }
 
@@ -765,6 +766,7 @@ pub(super) fn receipt_text(receipt: &Value, messages: &SandboxRunMessages) -> St
     }
     lines.push(match field(&["cleanup"]).and_then(Value::as_str) {
         Some("destroyed") => messages.cleanup_destroyed.to_owned(),
+        Some("abandoned") => messages.cleanup_abandoned.to_owned(),
         _ => messages.cleanup_pending.to_owned(),
     });
     lines.join("\n")

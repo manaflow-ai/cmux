@@ -35,14 +35,14 @@ public nonisolated struct WorkspaceRowSetting: Sendable {
     }
 
     public func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> WorkspaceRowPreferences {
-        var shown = WorkspaceRowElements.standard.shown
+        var shown = Set(WorkspaceRowElement.allCases.filter(Self.fallback))
         for element in WorkspaceRowElement.allCases {
             var path = Self.path(element)
             if root.value(at: path) == nil, let legacy = Self.legacyPaths[element], root.value(at: legacy) != nil { path = legacy }
             guard let on = flag(root, path, &diagnostics) else { continue }
             if on { shown.insert(element) } else { shown.remove(element) }
         }
-        let order = self.order(root, Self.orderPath(), &diagnostics) ?? WorkspaceRowElement.secondLine
+        let order = self.order(root, Self.orderPath(), &diagnostics) ?? Self.secondLineOrderDefault.compactMap(WorkspaceRowElement.init(rawValue:))
         var overrides: [WorkspaceRowKind: WorkspaceRowOverride] = [:]
         for kind in WorkspaceRowKind.allCases {
             var change = WorkspaceRowOverride()
@@ -79,94 +79,31 @@ public nonisolated struct WorkspaceRowSetting: Sendable {
 }
 
 extension WorkspaceRowSetting {
-    static func title(_ element: WorkspaceRowElement) -> SettingText {
+    /// The rows, generated from schemas/settings/source/sidebar.json: one toggle per element and
+    /// the order, shown on the page and in the palette; per-kind overrides are cmux.json and MDM
+    /// only (56 rows would bury the page), so they stay off the page and palette.
+    static var descriptors: [SettingDescriptor] {
+        SidebarSettingsSchema.workspaceRows + SidebarSettingsSchema.terminalWorkspaceRows + SidebarSettingsSchema.agentWorkspaceRows
+            + SidebarSettingsSchema.browserWorkspaceRows + SidebarSettingsSchema.mixedWorkspaceRows
+    }
+
+    /// Whether `element` shows when its `sidebar.workspaceRow.<element>` key is unset.
+    static func fallback(_ element: WorkspaceRowElement) -> Bool {
         switch element {
-        case .icon: SettingsText.keyed("settings.workspaceRow.icon", "Icon")
-        case .directory: SettingsText.keyed("settings.workspaceRow.directory", "Folder")
-        case .branch: SettingsText.keyed("settings.workspaceRow.branch", "Git Branch")
-        case .process: SettingsText.keyed("settings.workspaceRow.process", "Running Program")
-        case .agentStatus: SettingsText.keyed("settings.workspaceRow.agentStatus", "Agent Status")
-        case .tabCount: SettingsText.keyed("settings.workspaceRow.tabCount", "Tab Count")
-        case .ports: SettingsText.keyed("settings.workspaceRow.ports", "Ports")
-        case .lastActivity: SettingsText.keyed("settings.workspaceRow.lastActivity", "Last Activity")
-        case .pullRequest: SettingsText.keyed("settings.workspaceRow.pullRequest", "Pull Request")
-        case .progress: SettingsText.keyed("settings.workspaceRow.progress", "Progress")
-        case .working: SettingsText.keyed("settings.workspaceRow.working", "Agent Working")
-        case .log: SettingsText.keyed("settings.workspaceRow.log", "Log")
-        case .notification: SettingsText.keyed("settings.workspaceRow.notification", "Latest Notification")
+        case .icon: iconDefault
+        case .directory: directoryDefault
+        case .branch: branchDefault
+        case .process: processDefault
+        case .agentStatus: agentStatusDefault
+        case .tabCount: tabCountDefault
+        case .ports: portsDefault
+        case .lastActivity: lastActivityDefault
+        case .pullRequest: pullRequestDefault
+        case .progress: progressDefault
+        case .working: workingDefault
+        case .log: logDefault
+        case .notification: notificationDefault
         }
-    }
-
-    static func help(_ element: WorkspaceRowElement) -> SettingText? {
-        switch element {
-        case .icon: SettingsText.keyed("settings.workspaceRow.icon.help", "The icon or emoji you chose for a workspace.")
-        case .process: SettingsText.keyed("settings.workspaceRow.process.help", "The terminal's title, which the shell or program sets.")
-        case .agentStatus: SettingsText.keyed("settings.workspaceRow.agentStatus.help", "The status agents and hooks report, one line each.")
-        case .ports: SettingsText.keyed("settings.workspaceRow.ports.help", "Set by a hook: cmux workspace status set ports <text>.")
-        case .pullRequest: SettingsText.keyed("settings.workspaceRow.pullRequest.help", "Set by a hook: cmux workspace status set pr <text>.")
-        case .progress: SettingsText.keyed("settings.workspaceRow.progress.help", "A progress bar under the row and the busy mark of running work.")
-        case .working: SettingsText.keyed("settings.workspaceRow.working.help", "A mark while an agent works in the workspace.")
-        case .log: SettingsText.keyed("settings.workspaceRow.log.help", "The newest line agents and scripts log: cmux workspace log append <text>.")
-        case .notification: SettingsText.keyed("settings.workspaceRow.notification.help", "The text of the workspace's newest unread notification.")
-        case .directory, .branch, .tabCount, .lastActivity: nil
-        }
-    }
-
-    /// The Settings page line; only Log needs one beside its title.
-    static func summary(_ element: WorkspaceRowElement) -> SettingText? {
-        element == .log ? SettingsText.keyed("settings.workspaceRow.log.summary", "Newest line agents and scripts log") : nil
-    }
-
-    static func kindName(_ kind: WorkspaceRowKind) -> SettingText {
-        switch kind {
-        case .terminal: SettingsText.keyed("settings.workspaceRow.kind.terminal", "Terminal Workspaces")
-        case .agent: SettingsText.keyed("settings.workspaceRow.kind.agent", "Agent Workspaces")
-        case .browser: SettingsText.keyed("settings.workspaceRow.kind.browser", "Browser Workspaces")
-        case .mixed: SettingsText.keyed("settings.workspaceRow.kind.mixed", "Mixed Workspaces")
-        }
-    }
-
-    /// Every `sidebar.workspaceRow.*` key (agents may set them: looks only).
-    static var keys: Set<String> { Set(descriptors().map(\.id)) }
-
-    static var orderChoices: [SettingChoice] {
-        WorkspaceRowElement.secondLine.map { SettingChoice($0.rawValue, title($0)) }
-    }
-
-    /// The Settings rows: one toggle per element and the order, shown on the
-    /// page and in the palette; per-kind overrides are cmux.json and MDM only
-    /// (44 rows would bury the page), so they stay off the page and palette.
-    static func descriptors() -> [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.workspaceRows", "Workspace Rows")
-        let defaults = WorkspaceRowElements.standard
-        var rows = WorkspaceRowElement.allCases.map { element in
-            SettingDescriptor(path(element), section: .appearance, group: group, title: title(element), help: help(element),
-                              summary: summary(element), kind: .toggle, default: .bool(defaults.shows(element)),
-                              keywords: ["sidebar", "workspace", "row", element.rawValue])
-        }
-        rows.append(SettingDescriptor(
-            orderPath(), section: .appearance, group: group,
-            title: SettingsText.keyed("settings.workspaceRow.secondLineOrder", "Second Line Order"),
-            help: SettingsText.keyed("settings.workspaceRow.secondLineOrder.help", "The order of the shown items under the workspace name."),
-            kind: .orderedChoices(orderChoices), default: .array(WorkspaceRowElement.secondLine.map { .string($0.rawValue) }),
-            keywords: ["sidebar", "workspace", "row", "order", "subtitle"]
-        ))
-        let sameAsAll = SettingsText.keyed("settings.workspaceRow.default.sameAsAll", "Same as All Workspaces")
-        for kind in WorkspaceRowKind.allCases {
-            let kindGroup = kindName(kind)
-            for element in WorkspaceRowElement.allCases {
-                rows.append(SettingDescriptor(path(element, kind: kind), section: .appearance, group: kindGroup, title: title(element),
-                                              kind: .toggle, default: nil, defaultLabel: sameAsAll,
-                                              keywords: ["sidebar", "workspace", "row", kind.rawValue, element.rawValue])
-                    .hiddenFromSettingsPage("per-kind override: cmux.json only"))
-            }
-            rows.append(SettingDescriptor(orderPath(kind: kind), section: .appearance, group: kindGroup,
-                                          title: SettingsText.keyed("settings.workspaceRow.secondLineOrder", "Second Line Order"),
-                                          kind: .orderedChoices(orderChoices), default: nil, defaultLabel: sameAsAll,
-                                          keywords: ["sidebar", "workspace", "row", kind.rawValue, "order"])
-                .hiddenFromSettingsPage("per-kind override: cmux.json only"))
-        }
-        return rows
     }
 }
 

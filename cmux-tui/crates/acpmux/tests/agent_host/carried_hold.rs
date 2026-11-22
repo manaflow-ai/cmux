@@ -17,6 +17,8 @@ fn claude_spec(dir: &Path, session: &str) -> SpawnSpec {
         model: "haiku".into(),
         effort: "default".into(),
         fast: false,
+        prompt_suggestions: true,
+        recap: None,
         claude_session_id: None,
     });
     spec

@@ -4,6 +4,7 @@
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { MockPageStreams } from "../shared/pageStreams";
 import { threadOf } from "./model";
+import { fixtureRank, type PaletteRankRequest } from "./paletteRank";
 import {
   HomeOps,
   type HomeAttachment,
@@ -495,6 +496,12 @@ export class MockHomeProvider implements PageClient {
   private readonly pictures = new Map<string, { mediaType: string; data: string }>();
   /** Also serve the host's `cmux.chief.profile.*` relay (a page in the app). */
   hostGrants = false;
+  /** The link the mock answers for a video (gallery `video`: a sample MP4 as a data URL); none:
+   * the video cannot be had, as from an owner without attachment reads. */
+  videoUrl: string | undefined = undefined;
+  /** The Cloud inbox read fails with this reason (gallery `cloudError`): the inbox answers its rows
+   * with `cloudError`, as the daemon does with the last good Cloud list. */
+  cloudError: string | undefined = undefined;
   /** My Send Later messages (`cmux.home.scheduled`), by id. The gallery never sends one at its
    * time: Send Now does. */
   private readonly scheduled = new Map<string, HomeScheduled>();
@@ -736,7 +743,13 @@ export class MockHomeProvider implements PageClient {
     const id = String(params.conversation ?? "");
     switch (op) {
       case HomeOps.inbox:
-        return { me, conversations: this.data.conversations, rev: 1, inboxState: true } as R;
+        return {
+          me,
+          conversations: this.data.conversations,
+          rev: 1,
+          inboxState: true,
+          ...(this.cloudError ? { cloudError: this.cloudError } : {}),
+        } as R;
       case HomeOps.page: {
         const found = this.data.conversations.find((c) => c.id === id);
         if (!found) throw pageError("cmux.home.not_found", id);
@@ -777,7 +790,16 @@ export class MockHomeProvider implements PageClient {
           conversation: id,
           pinned,
           markedUnread,
-          ...(pinned ? { pinPosition: op === HomeOps.pin && !current.pinned ? Date.now() : current.pinPosition } : {}),
+          ...(pinned
+            ? {
+                pinPosition:
+                  op === HomeOps.pin && typeof params.position === "number"
+                    ? params.position
+                    : op === HomeOps.pin && !current.pinned
+                      ? Date.now()
+                      : current.pinPosition,
+              }
+            : {}),
         };
         const updated = { ...current, pinned, markedUnread, pinPosition: change.pinPosition };
         this.data.conversations[index] = updated;
@@ -843,7 +865,26 @@ export class MockHomeProvider implements PageClient {
         return {} as R;
       }
       case HomeOps.capabilities:
-        return { start: true, invite: true, chiefs: true, sendLater: true } as R;
+        return { start: true, invite: true, chiefs: true, chiefWork: true, sendLater: true } as R;
+      case HomeOps.chiefWork:
+        if (!this.chiefs.has(String(params.chief))) throw pageError("cmux.page.invalid_params", "unknown Chief");
+        return {
+          agents: [
+            { id: "builder", name: "Builder", state: "working", task: "Build a hello page" },
+            { id: "reviewer", name: "Reviewer", state: "waiting", task: "Review the finished preview" },
+          ],
+          tasks: [
+            {
+              id: "builder/preview",
+              sessionId: "builder",
+              title: "Preview server",
+              command: "bun run dev",
+              status: "running",
+            },
+          ],
+          taskSources: ["harness"],
+          truncated: false,
+        } as R;
       case HomeOps.scheduled:
         return {
           scheduled: [...this.scheduled.values()].filter((entry) => entry.conversation === id),
@@ -907,6 +948,11 @@ export class MockHomeProvider implements PageClient {
       }
       case HomeOps.chiefAvatar:
         return { avatar: this.pictures.get(String(params.chief)) ?? null } as R;
+      case HomeOps.avatar:
+        return { avatar: this.pictures.get(String(params.participant)) ?? null } as R;
+      case HomeOps.paletteRank:
+        // The fixture ranker (a case-insensitive substring filter in row order), not the daemon's.
+        return fixtureRank(params as unknown as PaletteRankRequest) as R;
       case "cmux.chief.profile.list":
         if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
         return {
@@ -1056,7 +1102,8 @@ export class MockHomeProvider implements PageClient {
         return { mimeType: "image/png", byteCount: data.length, offset: 0, data, eof: true } as R;
       }
       case HomeOps.attachmentUrl:
-        // No video bytes in the mock: the player shows its poster.
+        // Without a sample video the mock serves no bytes: the player shows its poster.
+        if (this.videoUrl && params.hash === "f".repeat(64)) return { url: this.videoUrl, expiresInMs: 600_000 } as R;
         throw pageError("cmux.page.unavailable", "the mock serves no video");
       case HomeOps.runs: {
         const turns = (params.turns as string[] | undefined) ?? [];

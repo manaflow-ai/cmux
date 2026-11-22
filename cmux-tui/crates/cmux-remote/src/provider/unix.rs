@@ -165,7 +165,7 @@ mod tests {
         let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
         address.sun_family = libc::AF_UNIX as libc::sa_family_t;
         let bytes = path.as_os_str().as_bytes();
-        assert!(bytes.len() < address.sun_path.len(), "socket path too long: {}", path.display());
+        assert!(cmux_unix_socket::fits(path), "socket path too long: {}", path.display());
         for (slot, byte) in address.sun_path.iter_mut().zip(bytes) {
             *slot = *byte as libc::c_char;
         }

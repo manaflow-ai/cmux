@@ -128,7 +128,7 @@ final class SidebarNowPlayingCardView: NSView {
     }
 
     static var closeLabel: String {
-        String(localized: "sidebar.nowPlaying.close", defaultValue: "Hide Media Card", bundle: .module)
+        String(localized: "sidebar.nowPlaying.close", defaultValue: "Hide Media Card", bundle: .localizedModule)
     }
 
     /// Shows the x while the pointer is on the card, with the hover-reveal fade (instant under Reduce Motion).
@@ -184,7 +184,7 @@ final class SidebarNowPlayingCardView: NSView {
         super.layout()
         let b = bounds, pad = Self.padding
         surface.frame = b
-        surface.cornerRadius = Metrics.space3
+        surface.cornerRadius = Metrics.surfaceCornerRadius
         siteLabel.font = Typography.caption
         titleLabel.font = Typography.bodyEmphasized
         artistLabel.font = Typography.caption
@@ -220,7 +220,7 @@ final class SidebarNowPlayingCardView: NSView {
         // and Picture in Picture; the level bars close the row.
         let control = Self.controlSide, play = Self.playSide, gap = Metrics.space2
         let controlY = y + (play - control) / 2
-        var x = pad - (control - Metrics.smallIconSize) / 2
+        var x = max(0, pad - (control - Metrics.smallIconSize) / 2)
         previousButton.frame = NSRect(x: x, y: controlY, width: control, height: control).integral
         x += control + gap
         playPauseButton.frame = NSRect(x: x, y: y, width: play, height: play).integral
@@ -237,7 +237,11 @@ final class SidebarNowPlayingCardView: NSView {
         levels.frame = levelsX < controlsEnd ? .zero
             : NSRect(x: levelsX, y: y + (play - levelsSize.height) / 2, width: levelsSize.width, height: levelsSize.height).integral
         let close = Self.closeSide
-        closeButton.frame = NSRect(x: b.width - Metrics.space1 - close, y: Metrics.space1, width: close, height: close).integral
+        // In the card's top trailing corner, concentric with it (Lawrence 2026-11-15): the same inset from the top and
+        // the side, its hover the corner less it.
+        let corner = Metrics.cornerControl(outerRadius: surface.cornerRadius, side: close)
+        closeButton.frame = corner.topTrailingFrame(side: close, in: b, flipped: true)
+        closeButton.concentricRadius = corner.childRadius
     }
 
     private static let closeSide: CGFloat = 18
@@ -356,7 +360,7 @@ final class SidebarNowPlayingScrubber: NSView {
         fill.bounds = CGRect(x: 0, y: 0, width: width * position / duration, height: bar)
         guard dragged == nil, nowPlaying.isPlaying, nowPlaying.rate > 0, window != nil, width > 0, position < duration else { return }
         let remaining = (duration - position) / nowPlaying.rate
-        let glides = reduceMotionOverride.map { !$0 } ?? Motion.overlays.animatesMovement
+        let glides = reduceMotionOverride.map { !$0 } ?? Motion.overlays.animatesMovement(in: window)
         fill.add(Self.progress(from: fill.bounds.width, to: width, over: remaining, glides: glides), forKey: Self.progressKey)
     }
 

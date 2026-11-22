@@ -17,7 +17,7 @@ struct ChiefPetRoutes {
         // The notices' card shows over cmux only; over another app the pet's badge counts what waits.
         ChiefPetController(makePanel: { ChiefPetPanel() }, actions: ChiefPetActions(
             registry: services?.registry, open: { open($0) }, send: { await send(to: $0, $1) }, openSettings: { openSettings() }),
-            appIsActive: { NSApp.isActive })
+            appIsActive: { services?.appActiveSource() ?? false })
     }
 
     /// Chief Pet Settings…: the Chief Settings popover over a Chief's Home on screen (its
@@ -28,9 +28,10 @@ struct ChiefPetRoutes {
         if let window = services.windows.active?.window { WindowActivation.show(window, services.environment.noActivate ? .raise : .focus) }
     }
 
-    /// The Chief opens Home (`home.show`, as the palette does); a notice opens its tab as its banner click does.
+    /// The Chief opens Home (`home.show`, as the palette does), the mini's chat its chat tab; a notice opens its tab as its banner click does.
     func open(_ target: ChiefPetReplyTarget) {
         guard let services else { return }
+        if case .chat(let chat, _) = target { return services.chiefPetMini.open(chat, registry: services.registry) }
         guard case .notice(let notice) = target else {
             _ = services.registry.perform("home.show", invocation: ActionInvocation(origin: .user))
             return
@@ -38,9 +39,10 @@ struct ChiefPetRoutes {
         services.notifications.open(surface: notice.surface.map(SurfaceID.init(rawValue:)))
     }
 
-    /// A message to the Chief's conversation (this Mac's or a paired server's), or a reply typed into a terminal.
+    /// A message to the Chief's conversation (this Mac's or a paired server's) or the mini's chat, or a reply typed into a terminal.
     func send(to target: ChiefPetReplyTarget, _ text: String) async -> Bool {
         guard let services else { return false }
+        if case .chat(let chat, _) = target { return await services.chiefPetMini.send(text, to: chat) }
         guard case .notice(let notice) = target else {
             guard let chief = TopHomePageView.chief(services.home) else { return false }
             return (try? await services.home.homeStore.send(conversation: ConversationID(chief), text: text, attachments: [])) != nil

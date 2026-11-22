@@ -42,7 +42,7 @@ def main():
         ms = r.get("intervalsMs") or []
         st = stats(ms, r["expectedMs"], r.get("mainThreadCPUMs"), r.get("mainThreadCPUPerFrameMs")) if ms else {}
         print(f"{r['label']:28} " + " ".join(f"{k}={v}" for k, v in st.items()))
-        if r["label"].startswith("feed-autoscroll"):
+        if r["label"].startswith("feed-autoscroll") or any(d in r["label"] for d in ("-down-", "-up-", "-right-", "-left-")):
             pooled += ms
             expected = r["expectedMs"]
             frame_cpu += r.get("mainThreadCPUPerFrameMs") or []

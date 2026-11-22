@@ -33,6 +33,50 @@ public extension AuthCoordinator {
         }
     }
 
+    /// Pending invitations addressed to the signed-in user's verified emails.
+    func receivedTeamInvitations() async throws -> [CMUXReceivedTeamInvitation] {
+        guard isAuthenticated else { throw CMUXTeamError.signedOut }
+        guard let manager = client as? any TeamManaging else { throw CMUXTeamError.unavailable }
+        return try await runPhase(.teamManagement, timeout: timeouts.network) {
+            try await manager.receivedTeamInvitations()
+        }
+    }
+
+    /// Joins the team a received invitation names, re-reads the membership list, and makes the
+    /// joined team active, as the server already saved it as the account's selection.
+    /// - Returns: The joined team's id and the role in it.
+    @discardableResult
+    func acceptTeamInvitation(id: String) async throws -> CMUXTeamJoin {
+        guard isAuthenticated else { throw CMUXTeamError.signedOut }
+        guard let manager = client as? any TeamManaging else { throw CMUXTeamError.unavailable }
+        let generation = sessionGeneration
+        // A team-list read already in flight answers without the joined team.
+        teamListGeneration &+= 1
+        let joined = try await runPhase(.teamManagement, timeout: timeouts.network) {
+            try await manager.acceptTeamInvitation(id: id)
+        }
+        guard generation == sessionGeneration, isAuthenticated else { throw CMUXTeamError.signedOut }
+        // A team-list read that started while the accept ran may have read the list before the
+        // join: it must not land over the re-read below.
+        teamListGeneration &+= 1
+        await refreshTeams()
+        // The membership is already written; a failed local selection leaves the person in the
+        // team with their previous team active, which the team picker can change.
+        if generation == sessionGeneration, availableTeams.contains(where: { $0.id == joined.teamID }) {
+            try? await selectTeam(id: joined.teamID)
+        }
+        return joined
+    }
+
+    /// Declines a received invitation; the membership does not change.
+    func declineTeamInvitation(id: String) async throws {
+        guard isAuthenticated else { throw CMUXTeamError.signedOut }
+        guard let manager = client as? any TeamManaging else { throw CMUXTeamError.unavailable }
+        try await runPhase(.teamManagement, timeout: timeouts.network) {
+            try await manager.declineTeamInvitation(id: id)
+        }
+    }
+
     /// Renames a team (admins only), then shows the new name in the
     /// membership list at once and re-reads it.
     /// - Returns: The renamed team as the server stored it.

@@ -1,5 +1,6 @@
 //! The frames that grant something and so need a fresh user gesture
-//! (CmuxNextAgentPane AcpmuxPaneMethods.swift `gestureRules`, `needsGesture`)
+//! (CmuxNextAgentPane AcpmuxPaneMethods.swift `gestureRules`, `needsGesture`),
+//! the answer frames that need a click (`answerAllowed`)
 //! and the permission options that tell a deny from an allow
 //! (AgentPaneUserGestures.swift `AcpmuxPermissionOptions`).
 
@@ -21,14 +22,79 @@ pub fn needs_gesture(object: &Map<String, Value>, is_deny: impl Fn(&str, &str) -
     match rule {
         GestureRule::Always => true,
         GestureRule::WhenTrusting => {
-            !text("level").is_some_and(|l| contains(&p.non_trusting_levels, l))
+            params.contains_key("peer")
+                || !text("level").is_some_and(|l| contains(&p.non_trusting_levels, l))
         }
         GestureRule::WhenOptionAllows => match (text("permissionId"), text("optionId")) {
             (Some(permission), Some(option)) => !is_deny(permission, option),
             _ => true,
         },
         GestureRule::WhenDecisionAllows => text("decision") != Some("deny"),
+        GestureRule::WhenPrompting => params.contains_key("prompt"),
     }
+}
+
+/// The person's gesture the host holds when it checks a page frame: what
+/// the host itself recorded from the person's input, never what the page
+/// says.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Gesture {
+    /// No gesture, or the host did not say: nothing click-only passes.
+    #[default]
+    None,
+    /// Every gesture that is not a [`Gesture::Click`]: a key press, and a
+    /// click older than `policy.json` `click_window_ms`.
+    Key,
+    /// A host may say `Click` for two inputs only, each the person's own and
+    /// not older than `click_window_ms`: a pointer click on the answer
+    /// control in the pane, or the host's own answer shortcut on the focused
+    /// answer card (a native shortcut the page does not get as a key).
+    ///
+    /// A host that can not see which control of the page got the click says
+    /// `Click` for the person's pointer click inside the pane's page or the
+    /// person's own answer shortcut, and for no other input. The Swift host
+    /// does so (`AgentPaneView` records each mouse press of the person in
+    /// the web view, and its permission shortcut without a look at the
+    /// card's focus).
+    ///
+    /// A host must never say `Click` for: a key that the web page gets (the
+    /// person types while another process posts a click on Allow; this is
+    /// also the Return key that answers a question), an event that a process
+    /// made (posted input), or a gesture ticket. A ticket is no click: see
+    /// [`crate::check::check_frame`].
+    Click,
+}
+
+impl Gesture {
+    /// The gesture for its number in the C ABI (0 none, 1 key, 2 click);
+    /// None for any other number, which the host's frame is refused for.
+    pub fn from_abi(value: u8) -> Option<Gesture> {
+        match value {
+            0 => Some(Gesture::None),
+            1 => Some(Gesture::Key),
+            2 => Some(Gesture::Click),
+            _ => None,
+        }
+    }
+}
+
+/// Whether `method` is one of `policy.json` `click_only` (an answer to a
+/// permission prompt, a plan build, a preset approval): when a frame of it
+/// needs a gesture ([`needs_gesture`]), only a click gives it. A deny needs
+/// no gesture, so no click.
+pub fn is_click_only(method: &str) -> bool {
+    contains(&policy().click_only, method)
+}
+
+/// Whether a frame goes on the person's click only. `click_only`: its method
+/// is one of `policy.json` `click_only`; `ruled`: the method has a gesture
+/// rule; `needs_gesture`: what that rule says for this frame.
+///
+/// A click-only method with no gesture rule is a fault in `policy.json`
+/// (tests/click_only.rs refuses the file). It fails closed here: each frame
+/// of such a method needs a click, also the one that would be a deny.
+pub fn needs_click(click_only: bool, ruled: bool, needs_gesture: bool) -> bool {
+    click_only && (needs_gesture || !ruled)
 }
 
 /// The permission options the daemon sent, read only from their fixed places
@@ -150,6 +216,15 @@ impl PermissionOptions {
         questions.get(permission).cloned().flatten()
     }
 
+    /// True only when the pane saw `permission` offer `option` and not every
+    /// kind seen for it denies (Swift `isKnownAllow`): the host reserves a
+    /// permission answer's ticket only for such an option. An option the pane
+    /// never saw is no known allow (and no known deny).
+    pub fn is_known_allow(&self, permission: &str, option: &str) -> bool {
+        let denies = self.denies.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        denies.get(permission).and_then(|o| o.get(option)).copied() == Some(false)
+    }
+
     /// True only when `option` is a known deny of `permission`.
     pub fn is_deny(&self, permission: &str, option: &str) -> bool {
         let denies = self.denies.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -157,18 +232,41 @@ impl PermissionOptions {
     }
 }
 
-/// The item ids and prompts of `request.toolCall._meta.acpmux.question`,
-/// when it is an object.
+/// The keys a question request's `answers` may use (AgentPaneUserGestures
+/// .swift `questionKeys`): the item ids and prompts of
+/// `request.toolCall._meta.acpmux.question` when it is an object, else, for
+/// Claude Code's own AskUserQuestion (`toolCall._meta.claude.tool`, a shape
+/// older than the normalized envelope), the text of each
+/// `toolCall.rawInput.questions[].question`. None when the request is no
+/// question.
 fn question_keys(request: &Map<String, Value>) -> Option<BTreeSet<String>> {
-    let question = request.get("toolCall")?.get("_meta")?.get("acpmux")?.get("question")?;
-    let question = question.as_object()?;
-    let mut keys = BTreeSet::new();
-    for item in question.get("items").and_then(Value::as_array).into_iter().flatten() {
-        for key in ["id", "prompt"] {
-            if let Some(value) = item.get(key).and_then(Value::as_str) {
-                keys.insert(value.to_owned());
+    let tool = request.get("toolCall").and_then(Value::as_object);
+    let meta = tool.and_then(|t| t.get("_meta")).and_then(Value::as_object);
+    let normalized = meta
+        .and_then(|m| m.get("acpmux"))
+        .and_then(Value::as_object)
+        .and_then(|a| a.get("question"))
+        .and_then(Value::as_object);
+    if let Some(question) = normalized {
+        let mut keys = BTreeSet::new();
+        for item in question.get("items").and_then(Value::as_array).into_iter().flatten() {
+            for key in ["id", "prompt"] {
+                if let Some(value) = item.get(key).and_then(Value::as_str) {
+                    keys.insert(value.to_owned());
+                }
             }
         }
+        return Some(keys);
     }
-    Some(keys)
+    let claude_tool = meta.and_then(|m| m.get("claude")).and_then(|c| c.get("tool"));
+    if claude_tool.and_then(Value::as_str) != Some("AskUserQuestion") {
+        return None;
+    }
+    let questions = tool?.get("rawInput")?.get("questions")?.as_array()?;
+    Some(
+        questions
+            .iter()
+            .filter_map(|q| q.get("question").and_then(Value::as_str).map(str::to_owned))
+            .collect(),
+    )
 }

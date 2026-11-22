@@ -3,9 +3,11 @@
 # (rust-workspaces roots, the Rust SDK and its MSRV, the CEF shim C++ tests, web/), as fleet steps.
 # Stub cargo, rustup and bun record what runs; rust-workspaces.py is the real one on a scratch repo.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../cmux-next/tests/lib/git-fixture.sh"  # drops inherited GIT_DIR/GIT_CONFIG redirects; turns off background maintenance
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 SCRIPT="$ROOT/scripts/ci/feat-parity-check.sh"
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+TMP=$(mktemp -d); git_fixture_trap_exit 'rm -rf "$TMP"'
 fail() { echo "FAIL: $*"; exit 1; }
 python3 -c 'import tomllib' 2>/dev/null || { echo "SKIP: python3 has no tomllib"; exit 0; }
 mkdir -p "$TMP/bin"
@@ -53,7 +55,7 @@ printf '[package]\nname = "pinned"\nversion = "0.1.0"\n\n[workspace]\n' >"$W/cra
 printf '[toolchain]\nchannel = "1.90.0"\n' >"$W/crates/pinned/rust-toolchain.toml"
 printf '[toolchain]\nchannel = "1.95.0"\n' >"$W/cmux-tui/rust-toolchain.toml"
 printf '[package]\nname = "off"\nversion = "0.1.0"\n\n[workspace]\n' >"$W/crates/off/Cargo.toml"
-cat >"$W/.github/workflows/swift-packages-linux.yml" <<'YML'
+cat >"$W/.github/workflows/swift-linux-packages.yml" <<'YML'
 jobs:
   packages:
     strategy:
@@ -63,12 +65,21 @@ jobs:
             packages: >-
               Packages/Shared/Port
               Packages/Shared/NoTests
+          - group: one
+            packages: Packages/Shared/Single
+          - group: vendored
+            packages: vendor/sdk-prerelease
     steps:
       - run: echo Packages/Shared/Other
 YML
 touch "$W/Packages/Shared/Port/Tests/.keep" "$W/Packages/Shared/NoTests/Package.swift"
+mkdir -p "$W/Packages/Shared/Single" && touch "$W/Packages/Shared/Single/Package.swift"
+mkdir -p "$W/vendor/sdk-prerelease" && touch "$W/vendor/sdk-prerelease/Package.swift"
 for t in a b; do printf '#!/bin/bash\necho "cpp %s" >> "%s"\n[[ "%s" != "${CPP_RED:-}" ]]\n' "$t" "$TMP/calls" "$t" >"$W/scripts/cmux-next/test-$t-cpp.sh"; done
 printf '#!/bin/bash\necho "run-tests $*" >> "%s"\n' "$TMP/calls" >"$W/web/scripts/run-tests.sh"
+# The web step's bun is the one webviews/package.json pins (scripts/webviews_bun_version.py).
+mkdir -p "$W/webviews"
+printf '{"devEngines": {"packageManager": {"name": "bun", "version": "1.4.4"}}}\n' >"$W/webviews/package.json"
 chmod +x "$W"/scripts/cmux-next/*.sh "$W/web/scripts/run-tests.sh"
 git -C "$W" init -q && git -C "$W" add -A && git -C "$W" -c user.email=t@t -c user.name=t commit -qm fixture
 run() { (cd "$W" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" "$@" /bin/bash "$SCRIPT" "${ARGS[@]}") 2>&1; }
@@ -177,7 +188,7 @@ grep -q '^chromium-host-dispatch.test *FAIL (exit 1)' <<<"$out" || fail "the sum
 rm -rf "$W/scripts/cmux-next/tests"
 rm -f "$TMP/calls"
 
-# swift-portable PKG: swift-packages-linux.yml's build and test, only for a package its matrix lists.
+# swift-portable PKG: swift-linux-packages.yml's build and test, only for a package its matrix lists.
 ARGS=(swift-portable Packages/Shared/Port)
 run CMUX_CI_STEP_KEY=k >/dev/null || fail "swift-portable refused"
 [[ "$(calls)" == "$(printf '%s\n' 'swift 1 build --package-path Packages/Shared/Port --build-tests' 'swift 1 test --package-path Packages/Shared/Port --skip-build --parallel')" ]] || fail "swift-portable: $(calls)"
@@ -189,7 +200,12 @@ rm -f "$TMP/calls"
 ARGS=(swift-portable Packages/Shared/Port)
 rc=0; out=$(run CMUX_CI_STEP_KEY=k FAKE_OS=Darwin) || rc=$?
 [[ "$rc" == 78 ]] || fail "swift-portable on macOS exited $rc, want 78 (no Linux evidence): $out"
-for bad in Packages/Shared/Other Packages/Shared ../Packages/Shared/Port; do
+ARGS=(swift-portable Packages/Shared/Single)
+run CMUX_CI_STEP_KEY=k >/dev/null || fail "swift-portable refused a one-line packages: group"
+ARGS=(swift-portable vendor/sdk-prerelease)
+run CMUX_CI_STEP_KEY=k >/dev/null || fail "swift-portable refused a vendor/ package its matrix lists"
+rm -f "$TMP/calls"
+for bad in Packages/Shared/Other Packages/Shared ../Packages/Shared/Port vendor ../vendor/sdk-prerelease; do
   ARGS=(swift-portable "$bad")
   run CMUX_CI_STEP_KEY=k >/dev/null && fail "swift-portable accepted $bad"
 done
@@ -201,6 +217,45 @@ run CMUX_CI_STEP_KEY=k >/dev/null || fail "web refused"
 [[ "$(calls)" == "$(printf '%s\n' 'bun web install --frozen-lockfile' 'bun web tools/generate-managed-iroh-relay-catalog.ts --check' 'bun web run typecheck' 'bun web run lint:complexity' 'run-tests ')" ]] || fail "web: $(calls)"
 rm -f "$TMP/calls"
 
+# notices: cmux-next-guards.yml rust-notices-tree's "Generate the Rust notices from this tree (as the nightly does)", the
+# same command and environment (cargo writes the cargo trees) with cmux-tui's pinned cargo first on PATH, and its
+# cache and trees in the step's .build.
+cat >"$W/scripts/cmux-next/generate-third-party-notices.sh" <<STUB
+#!/bin/bash
+echo "notices \$(basename "\$PWD") allow=\${CMUX_NOTICES_ALLOW_CARGO:-unset} cache=\${CMUX_NOTICES_CACHE#\$PWD/} \${*//\$PWD\//}" >> "$TMP/calls"
+[[ -z "\${NOTICES_RED:-}" ]] || { echo "error: no license mapping for crate red-crate 1.0.0" >&2; exit 1; }
+STUB
+chmod +x "$W/scripts/cmux-next/generate-third-party-notices.sh"
+ARGS=(notices)
+out=$(run CMUX_CI_STEP_KEY=k) || fail "notices refused: $out"
+[[ "$(calls)" == "$(printf '%s\n' 'rustup cmux-tui component add clippy rustfmt' 'rustup cmux-tui which cargo' 'notices work allow=1 cache=.build/notices/cache --tui-source tree --cargo-trees .build/notices/cargo-trees --write-cargo-trees')" ]] || fail "notices: $(calls)"
+grep -q 'feat-parity-check: green' <<<"$out" || fail "no green summary for notices: $out"
+rm -f "$TMP/calls"
+out=$(run CMUX_CI_STEP_KEY=k NOTICES_RED=1) && fail "a red notices generation passed"
+grep -q '^notices from the tree *FAIL (exit 1)' <<<"$out" || fail "the summary does not name the red notices step: $out"
+grep -q 'error: no license mapping for crate red-crate' <<<"$out" || fail "the generator's error is not in the step log: $out"
+rm -f "$TMP/calls"
+ARGS=(notices extra)
+run CMUX_CI_STEP_KEY=k >/dev/null && fail "notices accepted an argument"
+[[ -z "$(calls)" ]] || fail "the generator ran for a refused request: $(calls)"
+
+# The pin comes from webviews/package.json, not a copy in the script: another pin is the
+# version the step asks bun for, and no bun pin stops it before any bun runs.
+# A bun at that pin already in the step's .build, so nothing downloads.
+ARGS=(web)
+printf '{"devEngines": {"packageManager": [{"name": "npm", "version": "10.9.2"}, {"name": "bun", "version": "1.4.5"}]}}\n' >"$W/webviews/package.json"
+mkdir -p "$W/.build/tools/bun-1.4.5/bin"
+printf '#!/bin/bash\n[[ "$1" != --version ]] || { echo 1.4.5; exit 0; }\necho "bun-1.4.5 $(basename "$PWD") $*" >> "%s"\n' "$TMP/calls" >"$W/.build/tools/bun-1.4.5/bin/bun"
+chmod +x "$W/.build/tools/bun-1.4.5/bin/bun"
+: >"$TMP/calls"
+out=$(run CMUX_CI_STEP_KEY=k) || fail "web with a 1.4.5 pin: $out"
+[[ "$out" == *"bun-1.4.5/bin/bun (1.4.5)"* && "$(calls)" == "bun-1.4.5 web install --frozen-lockfile"* ]] || fail "web must use the bun webviews/package.json pins (1.4.5): $out $(calls)"
+rm -rf "$W/.build"
+printf '{"devEngines": {"packageManager": {"name": "npm", "version": "10.9.2"}}}\n' >"$W/webviews/package.json"
+: >"$TMP/calls"
+status=0; out=$(run CMUX_CI_STEP_KEY=k 2>&1) || status=$?
+[[ "$status" != 0 && "$out" == *"no bun in devEngines.packageManager"* && ! -s "$TMP/calls" ]] || fail "web must refuse with no bun pin: $status $out"
+printf '{"devEngines": {"packageManager": {"name": "bun", "version": "1.4.4"}}}\n' >"$W/webviews/package.json"
 ARGS=(web extra)
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "web accepted an argument"
 ARGS=(deploy)

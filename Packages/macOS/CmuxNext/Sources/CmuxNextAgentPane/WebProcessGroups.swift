@@ -24,6 +24,9 @@ final class WebProcessGroups {
     private weak var anchor: WKWebView?
     /// Pages made in the current group, the anchor included.
     private var members = 0
+    /// The ends of these pages' processes, grouped by termination: one Reload reloads every chat
+    /// that ended with it (``AgentPageTerminations``).
+    let terminations = AgentPageTerminations()
 
     /// - Parameter pagesPerProcess: The most pages one process serves (at least 1).
     init(pagesPerProcess: Int = 8) {

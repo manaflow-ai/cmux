@@ -1,0 +1,206 @@
+{
+ "id": "spam-cmd-w",
+ "priority": "P0",
+ "title": "Cmd-W held stops before the pane's last tab; 6 presses in 0.3 s close 6 tabs",
+ "why": "Spamming Cmd-W must close exactly one tab per press, from what the person sees, and a held key never closes the pane (Lawrence 2026-10-28).",
+ "source": "shortcut spam (handoff/input-principles.md, hold-shortcuts-ux.md, repeat-runoff.md 1; Lawrence 2026-10-28)",
+ "budget_seconds": 180,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "jr-spam-w",
+   "as": "first"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "repeat": 7,
+   "gap": 0.2,
+   "mark": "tabs1"
+  },
+  {
+   "do": "expect",
+   "title": "7 more terminal tabs in the pane",
+   "since": "tabs1",
+   "timeout": 30,
+   "all": [
+    {
+     "daemon_pane_ready": {
+      "tabs": 8
+     }
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "spam_remember",
+   "as": "before-hold"
+  },
+  {
+   "do": "hold_key",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "seconds": 2,
+   "as": "held"
+  },
+  {
+   "do": "expect",
+   "title": "held Cmd-W closed the pane's tabs at the repeat rate and stopped before its last one",
+   "since": "held",
+   "timeout": 10,
+   "all": [
+    {
+     "spam_counts": {
+      "from": "before-hold",
+      "field": "pane_tabs",
+      "equals": 1
+     }
+    },
+    {
+     "spam_counts": {
+      "from": "before-hold",
+      "field": "panes",
+      "delta": 0
+     }
+    },
+    {
+     "spam_counts": {
+      "from": "before-hold",
+      "field": "workspaces",
+      "delta": 0
+     }
+    }
+   ]
+  },
+  {
+   "do": "expect",
+   "title": "nothing more closed after the key went up",
+   "since": "held",
+   "timeout": 5,
+   "settle": 1.5,
+   "all": [
+    {
+     "spam_unchanged": {
+      "since": "held_release"
+     }
+    }
+   ]
+  },
+  {
+   "do": "use",
+   "name": "first"
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "repeat": 6,
+   "gap": 0.2,
+   "mark": "tabs2"
+  },
+  {
+   "do": "expect",
+   "title": "6 more terminal tabs in the pane",
+   "since": "tabs2",
+   "timeout": 30,
+   "all": [
+    {
+     "daemon_pane_ready": {
+      "tabs": 7
+     }
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "spam_remember",
+   "as": "before-hammer"
+  },
+  {
+   "do": "hammer_key",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "presses": 6,
+   "within": 0.3,
+   "as": "hammered"
+  },
+  {
+   "do": "expect",
+   "title": "6 Cmd-W presses in 0.3 s closed exactly 6 tabs",
+   "since": "hammered",
+   "within": 1,
+   "timeout": 10,
+   "all": [
+    {
+     "spam_counts": {
+      "from": "before-hammer",
+      "field": "pane_tabs",
+      "delta": -6
+     }
+    },
+    {
+     "spam_runs": {
+      "of": "hammered",
+      "ran": 6
+     }
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "after"
+  },
+  {
+   "do": "focused_terminal",
+   "as": "after"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo after-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "typed"
+  },
+  {
+   "do": "expect",
+   "title": "after the spam a new terminal answers, in the daemon and on screen",
+   "since": "typed",
+   "within": 3,
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "after-${nonce}-42"
+    },
+    {
+     "frame_text": "after-${nonce}-42"
+    }
+   ]
+  }
+ ]
+}

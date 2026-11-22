@@ -5,6 +5,7 @@
 import React, { useId, useRef, useState, type KeyboardEvent } from "react";
 import { ChoiceGroup } from "../../../ui/ChoiceGroup";
 import { KeyboardScope } from "../../../ui/KeyboardScope";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 import { useT } from "../i18n";
 import { canPush, messageTooLong, sameNewFiles, type CommitScope, type NewFiles } from "./gitWrite";
 import type { GitWrite } from "./useGitWrite";
@@ -15,10 +16,12 @@ export function GitToolbarButtons({
   git,
   formOpen,
   onToggleForm,
+  disabled = false,
 }: {
   git: GitWrite;
   formOpen: boolean;
   onToggleForm: () => void;
+  disabled?: boolean;
 }) {
   const t = useT();
   if (!git.available) return null;
@@ -44,7 +47,7 @@ export function GitToolbarButtons({
         className="acpmux-git-tool"
         data-tool="commit"
         aria-expanded={formOpen}
-        disabled={busy}
+        disabled={busy || disabled}
         onClick={onToggleForm}
       >
         {t("git.commit.label")}
@@ -56,7 +59,7 @@ export function GitToolbarButtons({
         // tooltip-allow: why there is nothing to push
         title={pushTitle === pushLabel ? undefined : pushTitle}
         aria-label={pushTitle}
-        disabled={busy || !pushable}
+        disabled={busy || disabled || !pushable}
         onClick={() => void git.push()}
       >
         {t("git.push.label")}
@@ -77,6 +80,7 @@ export function GitWriteBar({
   onCloseForm,
   messageRef,
   reloadKey,
+  disabled = false,
 }: {
   git: GitWrite;
   formOpen: boolean;
@@ -84,12 +88,14 @@ export function GitWriteBar({
   messageRef?: React.Ref<HTMLTextAreaElement>;
   /// Changes when the view reloads its scope; the commit form then lists new files again.
   reloadKey?: unknown;
+  /// Create PR owns the repository write while it is busy.
+  disabled?: boolean;
 }) {
   if (!git.available) return null;
   return (
     <>
       {formOpen && <CommitForm git={git} onClose={onCloseForm} messageRef={messageRef} reloadKey={reloadKey} />}
-      <WriteStatusLine git={git} />
+      <WriteStatusLine git={git} disabled={disabled} />
     </>
   );
 }
@@ -229,27 +235,26 @@ function CommitForm({
             </label>
           ))}
         </ChoiceGroup>
-        {scope === "all" && (
-          <label className="acpmux-git-include-new">
-            <input
-              type="checkbox"
-              aria-labelledby={`${scopeName}-new`}
-              checked={includeNew}
-              disabled={busy}
-              onChange={(event) => toggleNew(event.target.checked)}
-            />
-            <span id={`${scopeName}-new`}>{t("git.commit.includeNew")}</span>
-          </label>
-        )}
-        <span className="acpmux-git-scope-hint">
-          {t(scope === "staged" ? "git.commit.stagedHint" : "git.commit.allHint")}
-        </span>
         <button type="button" className="acpmux-git-secondary" disabled={busy} onClick={onCloseForm}>
           {t("git.cancel")}
         </button>
         <button type="submit" className="acpmux-git-primary" disabled={!ready}>
           {t("git.commit.submit")}
         </button>
+      </div>
+      {/* Include new files sits below the scope and action buttons. Its space stays reserved under
+          Staged so switching scope never moves the rows below. */}
+      <div className="acpmux-git-form-row acpmux-git-scope-line">
+        <label className="acpmux-git-include-new" data-visible={scope === "all"}>
+          <input
+            type="checkbox"
+            aria-labelledby={`${scopeName}-new`}
+            checked={includeNew}
+            disabled={busy || scope !== "all"}
+            onChange={(event) => toggleNew(event.target.checked)}
+          />
+          <span id={`${scopeName}-new`}>{t("git.commit.includeNew")}</span>
+        </label>
       </div>
       {withNew && listChanged && (
         <span className="acpmux-git-form-note" role="alert">
@@ -266,6 +271,7 @@ type NewFilesLoad = { state: "loading" } | { state: "failed" } | { state: "loade
 /// The new files a commit with "Include new files" adds, as the Uncommitted diff lists them.
 function NewFileList({ files }: { files?: NewFilesLoad }) {
   const t = useT();
+  const listEdges = useScrollEdges();
   if (!files || files.state === "loading")
     return <span className="acpmux-git-form-note">{t("git.commit.newFilesLoading")}</span>;
   if (files.state === "failed") return <span className="acpmux-git-form-note">{t("git.commit.newFilesFailed")}</span>;
@@ -276,7 +282,7 @@ function NewFileList({ files }: { files?: NewFilesLoad }) {
         {paths.length ? t("git.commit.newFiles") : t("git.commit.newFilesNone")}
       </span>
       {paths.length > 0 && (
-        <ul aria-label={t("git.commit.newFiles")}>
+        <ul ref={listEdges} className="ui-scroll-edge-fade" aria-label={t("git.commit.newFiles")}>
           {paths.map((path) => (
             <li key={path}>{path}</li>
           ))}
@@ -291,7 +297,7 @@ function NewFileList({ files }: { files?: NewFilesLoad }) {
 /// A status read that failed shows here too, with Refresh. The `role=status` region stays
 /// mounted and only its text changes, so screen readers announce busy and done; a failure is
 /// its own alert.
-function WriteStatusLine({ git }: { git: GitWrite }) {
+function WriteStatusLine({ git, disabled = false }: { git: GitWrite; disabled?: boolean }) {
   const t = useT();
   const state = git.state;
   const failed = state?.phase === "failed" ? state : undefined;
@@ -320,7 +326,7 @@ function WriteStatusLine({ git }: { git: GitWrite }) {
         </button>
       )}
       {failed?.canRetry && (
-        <button type="button" className="acpmux-git-secondary" onClick={git.retry}>
+        <button type="button" className="acpmux-git-secondary" disabled={disabled} onClick={git.retry}>
           {t("git.retry")}
         </button>
       )}

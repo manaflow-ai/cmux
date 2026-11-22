@@ -50,14 +50,17 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # ios/ paths through its run-every-group fallback.
 TEST_ROOTS = (
     "Packages/**/Tests/",  # macOS, iOS and shared package tests
+    "Packages/iOS/CmuxMobileBilling/StoreKitTests/",  # BillingStoreKitTests (#46776), outside Tests/
     "ios/CmuxiOS/Tests/",
     "ios/cmuxUITests/",  # the cmuxUITests target of ios/cmux-ios.xcodeproj
     "cmux-next-ios/CmuxMobileKit/Tests/",
     "cmux-next-ios/UITests/",  # CmuxMobileAppUITests in cmux-next-ios/project.yml
+    "cmux-next-ios/verify/",  # verification rigs' UI tests (imsg-replies' GestureServerUITests)
     "cmux-tui/**/Tests/",  # TerminalBytesDemo and the cmux-mobile-ffi Swift tests
     "vendor/**/Tests/",  # vendored SDKs' tests, which carry cmux changes
     "Packages/Shared/CmuxMessagesLab/Harness/",  # copied into a gitignored test target at harness time
     "Prototypes/**/Tests/",  # prototype SwiftPM packages' tests (UiLayerHost)
+    "scripts/ci/pr-media-ocr-tests/Tests/",  # the text reader's tests (scripts/ci/pr_media_ocr.swift)
 )
 
 # Swift files that import a test framework but are not scanned, each with why.

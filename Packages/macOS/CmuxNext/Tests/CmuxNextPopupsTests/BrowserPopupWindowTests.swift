@@ -1,6 +1,8 @@
 import AppKit
-import CmuxNextBrowser
+@testable import CmuxNextBrowser
+import CmuxNextDesign
 @testable import CmuxNextPopups
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +11,7 @@ import Testing
 /// window with all three traffic lights and the page title, the browser
 /// tab's omnibar as its location bar, the requested page size, and no close on Escape or with
 /// the opener.
-@MainActor @Suite(.serialized) struct BrowserPopupWindowTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct BrowserPopupWindowTests {
     // MARK: Geometry (Blink `create_window.cc`, `WindowSizer`, `AdjustToFit`)
 
     private let screen = CGRect(x: 0, y: 0, width: 1440, height: 875)
@@ -78,7 +80,7 @@ import Testing
 
     private func open(_ url: String, request: BrowserPopupRequest = BrowserPopupRequest(size: CGSize(width: 480, height: 360)))
         -> (BrowserPopupWindows, MockBrowserTab, BrowserPopupWindow, NSWindow) {
-        let popups = BrowserPopupWindows()
+        let popups = BrowserPopupWindows(activeLook: nil)
         popups.ordersWindowsIn = false
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: url)))
         let opener = makeOpener()
@@ -108,6 +110,30 @@ import Testing
         window.contentView?.layoutSubtreeIfNeeded()
         let page = window.page.contentView
         #expect(page.frame.size == CGSize(width: 480, height: 360))
+    }
+
+    /// The popup's location row is the window's own, not a pane's toolbar: no tab strip sits above it and no pane outline
+    /// borders it, so the bar starts at the row's top (the window's `omnibarTopGap` under the title bar) with none of the
+    /// pane chrome's gaps, and fits the row. Default's Chrome omnibar row (6 pt above and below) with an outlined pane style
+    /// (Card Outlined) once pushed the 34 pt bar past the row, across the separator and into the page.
+    @Test func theLocationBarStartsAtItsRowsTopWithNoPaneGaps() {
+        let design = DesignSettings.shared
+        let saved = (design.densityTokens, design.chromeStyle)
+        defer { (design.densityTokens, design.chromeStyle) = saved }
+        design.densityTokens = DensityPreset.cozy.tokens
+        design.chromeStyle = .cardOutlined
+        let (popups, _, window, _) = open("https://example.com")
+        defer { popups.closeAll() }
+        window.contentView?.layoutSubtreeIfNeeded()
+        let row = window.locationBar
+        let bar = row.convert(window.addressBar.bounds, from: window.addressBar)
+        let above = row.isFlipped ? bar.minY : row.bounds.maxY - bar.maxY
+        let below = row.bounds.height - bar.height - above
+        #expect(bar.height == 34, "Default's bar is \(bar.height) pt")
+        #expect(above >= 0 && below >= 0, "the bar leaves its \(row.bounds.height) pt row: \(above) pt above, \(below) pt below")
+        #expect(above == 0, "the bar starts \(above) pt under its row's top")
+        // No tab strip sits above the popup's row, so the open suggestion card does not reach above the bar into the title bar.
+        #expect(OmnibarStyle.cardTopOutset(bar: window.addressBar) == 0, "the card reaches \(OmnibarStyle.cardTopOutset(bar: window.addressBar)) pt above the bar")
     }
 
     @Test func theTitleIsThePageTitleElseTheAddress() {
@@ -157,6 +183,14 @@ import Testing
         #expect(otherFields.isEmpty, "no second address field beside the omnibar: \(otherFields)")
     }
 
+    @Test func theLocationIconDragsThePageWithItsTitle() async throws {
+        let (popups, tab, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        tab.simulate(.titleChanged("Sign in - Example"))
+        try await waitUntil { tab.state.title == "Sign in - Example" }
+        #expect(window.addressBar.pageTitle?() == "Sign in - Example", "a dragged popup link is named after its page, as a tab's is")
+    }
+
     @Test func typingAnAddressInAPagePopupLoadsItInThePopup() async throws {
         let (popups, tab, window, _) = open("https://accounts.example.com/signin")
         defer { popups.closeAll() }
@@ -168,7 +202,7 @@ import Testing
 
     @Test func aSignInWindowsOmnibarIsReadOnly() async throws {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
-        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true)
+        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true, activeLook: nil)
         defer { window.close() }
         let bars = descendants(of: window.contentView).compactMap { $0 as? AddressBarView }
         #expect(bars.count == 1, "the same omnibar view, read-only")
@@ -205,7 +239,7 @@ import Testing
 
     @Test func aSignInWindowTakesCmdL() {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
-        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true)
+        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true, activeLook: nil)
         defer { window.close() }
         window.focusAddressBar()
         #expect(window.addressBar.isEditing, "the address can still be selected and copied")

@@ -5,6 +5,7 @@ import path from "node:path";
 import { mkdir } from "node:fs/promises";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { designTokenValue } from "./support/gridTokens";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("context-meter-geometry.test.ts", async () => {
@@ -79,7 +80,7 @@ await requireBrowserLane("context-meter-geometry.test.ts", async () => {
           })}`,
         );
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-        const selector = '[data-context-meter-fixture="five-equal-categories"] .acpmux-chat-inspector-context__bar';
+        const selector = '[data-context-meter-fixture="five-equal-categories"] .acpmux-session-info-context__bar';
         await page.waitForSelector(selector);
         if (shots) {
           const dir = path.join(shots, item.name);
@@ -106,7 +107,7 @@ await requireBrowserLane("context-meter-geometry.test.ts", async () => {
         console.log(`context-meter-geometry ${item.name} ${JSON.stringify(geometry)}`);
         if (baseline) {
           expect(geometry.spans).toHaveLength(5);
-          expect(geometry.gap).toBe("2px");
+          expect(geometry.gap).toBe(designTokenValue("--grid-half-step"));
           expect(geometry.usedEnd - geometry.expectedUsedEnd).toBeGreaterThan(7);
         } else {
           expect(geometry.spans).toHaveLength(5);
@@ -134,7 +135,7 @@ await requireBrowserLane("context-meter-geometry.test.ts", async () => {
           })}`,
         );
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-        const selector = '[data-context-meter-fixture="tiny-positive-category"] .acpmux-chat-inspector-context__bar';
+        const selector = '[data-context-meter-fixture="tiny-positive-category"] .acpmux-session-info-context__bar';
         await page.waitForSelector(selector);
         const geometry = await page.$eval(selector, (bar) => {
           const spans = [...bar.querySelectorAll<HTMLElement>(":scope > span")];

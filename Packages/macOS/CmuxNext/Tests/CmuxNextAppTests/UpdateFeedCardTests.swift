@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
-@testable import CmuxNextFeed
+import CmuxNextDaemon
+@testable import CmuxNextFeedClient
 @testable import CmuxNextUpdater
 import Foundation
 import Testing
@@ -9,21 +10,22 @@ import Testing
 @MainActor @Suite struct UpdateFeedCardTests {
     let at = Date(timeIntervalSince1970: 1_792_000_000)
 
-    @Test func oneCardPerInstalledVersionAndSubject() {
+    @Test func oneCardPerInstalledVersionAndSubject() throws {
         let app = UpdateFeedCard(subject: .app, from: "1.0.0-nightly.1", to: "1.0.0-nightly.3947430561301", changes: ["a"], at: at)
         let claude = UpdateFeedCard(subject: .harness(id: "claude", name: "Claude Code"), from: "2.1.303", to: "2.1.305",
                                     changes: ["a"], at: at)
         #expect(app.dedupeKey == "update:app:1.0.0-nightly.3947430561301")
         #expect(claude.dedupeKey == "update:harness:claude:2.1.305")
-        #expect(app.item.id == UpdateFeedCard(subject: .app, from: nil, to: app.to, changes: [], at: .now).item.id,
+        #expect(app.item["id"] == UpdateFeedCard(subject: .app, from: nil, to: app.to, changes: [], at: .now).item["id"],
                 "one version's card has two ids, so the Feed would show it twice")
-        #expect(app.item.id != claude.item.id)
-        #expect(app.item.id.hasPrefix("fi_") && app.item.id.count == 23)
-        #expect(app.item.home == .local(install: "updates"), "an update card would travel through the cloud session")
-        #expect(app.item.poster.kind == .app)
-        #expect(claude.item.poster.kind == .harness)
-        #expect(app.item.thread == "update:app")
-        #expect(claude.item.thread == "update:harness:claude")
+        #expect(app.item["id"] != claude.item["id"])
+        let id = try #require(app.item["id"]?.stringValue)
+        #expect(id.hasPrefix("fi_") && id.count == 23)
+        #expect(app.item["home"]?.stringValue == "local:updates", "an update card would travel through the cloud session")
+        #expect(app.item["poster"]?["kind"]?.stringValue == "app")
+        #expect(claude.item["poster"]?["kind"]?.stringValue == "harness")
+        #expect(app.item["thread"]?.stringValue == "update:app")
+        #expect(claude.item["thread"]?.stringValue == "update:harness:claude")
     }
 
     @Test func nightlyVersionsReadAsTheUpdateCardDoes() {
@@ -31,7 +33,7 @@ import Testing
         #expect(UpdateFeedCard.readable("2.1.305") == "2.1.305")
         #expect(UpdateFeedCard.readable("1.0.0-nightly.beta") == "1.0.0-nightly.beta")
         let card = UpdateFeedCard(subject: .app, from: nil, to: "1.0.0-nightly.3947430561301", changes: [], at: at)
-        #expect(card.item.title == "cmux updated to nightly 3947430")
+        #expect(card.item["title"]?.stringValue == "cmux updated to nightly 3947430")
     }
 
     @Test func theBodyListsTheTopChangesAndCountsTheRest() {
@@ -43,11 +45,11 @@ import Testing
         #expect(lines.filter { $0.hasPrefix("- ") } == (1...5).map { "- Change \($0)" })
         #expect(lines.last == "6 more changes", "the rest's count left out the listed changes or the unlisted ones")
         #expect(!card.body.contains("https://"), "the plain-text body shows the notes link as raw Markdown")
-        #expect(card.item.context.url?.absoluteString == "https://example.com/CHANGELOG.md")
+        #expect(card.item["context"]?["url"]?.stringValue == "https://example.com/CHANGELOG.md")
         // Same from and to: no "From" line. A non-https notes URL is never the item's link.
         let local = UpdateFeedCard(subject: .app, from: "1.0.0", to: "1.0.0", changes: ["x"], notes: URL(string: "file:///etc/passwd"), at: at)
         #expect(local.body == "- x")
-        #expect(local.item.context.url == nil)
+        #expect(local.item["context"]?["url"] == nil)
         #expect(UpdateFeedCard.oneLine("- nested\n  - line") == "nested")
         #expect(UpdateFeedCard.oneLine("**Bold** change") == "**Bold** change")
         #expect(UpdateFeedCard.oneLine("* - two markers") == "two markers")
@@ -92,6 +94,18 @@ import Testing
         #expect(UpdateFeedPosting.step(updated, posted: "1.0.0-nightly.200", at: at) == .done, "a version posted its card twice")
         #expect(UpdateFeedPosting.step(loading, posted: nil, at: at) == .wait, "the card posted before its notes loaded")
         #expect(UpdateFeedPosting.step(nil, posted: nil, at: at) == .wait)
+    }
+
+    /// Dogfood 2026-10-26 ("remove what's new?"): Show What's New After Updates off still posted
+    /// the update notice to the Feed. Off, the version is skipped and never posted.
+    @Test func whatsNewOffPostsNoFeedCard() {
+        let notes = ReleaseNotes.debugFake(version: "1.0.0-nightly.200", changes: 3)
+        let updated = UpdateHighlights(version: "1.0.0-nightly.200", build: "200", fromVersion: "1.0.0-nightly.100", fromBuild: "100",
+                                       notes: notes, appcast: nil)
+        #expect(UpdateFeedPosting.step(updated, posted: "1.0.0-nightly.100", enabled: false, at: at) == .skip(version: "1.0.0-nightly.200"))
+        #expect(UpdateFeedPosting.step(updated, posted: "1.0.0-nightly.200", enabled: false, at: at) == .done)
+        // Review of #25950: before the settings load, the default (on) must not post the card.
+        #expect(UpdateFeedPosting.step(updated, posted: "1.0.0-nightly.100", enabled: nil, at: at) == .wait)
     }
 
     /// Review of #22701: one change left over read "1 more changes".

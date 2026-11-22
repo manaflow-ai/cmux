@@ -1,9 +1,13 @@
 import AppKit
+import CmuxNextDesign
 
 /// The omnibar text field. It uses its own field editor
 /// (`OmnibarFieldEditor`) and is the only `OmnibarFieldSurface`: the effect
 /// applier writes it, nothing else does.
 final class AddressField: ChromeTextField, OmnibarFieldSurface {
+    /// The omnibar's own size, so the base field's density binding sets the same font as the address bar's.
+    override var densityFont: NSFont { OmnibarStyle.font }
+
     var onFocus: (() -> Void)?
     var onPasteAndGo: (() -> Void)?
     var pasteAndGoTitle: (() -> String?)?
@@ -31,6 +35,9 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         // main thread; with no console session (headless test hosts) that
         // call blocks for seconds to minutes.
         contentType = .URL
+        // The address fades at the field's end; AppKit's hover copy of the whole text drew over the toolbar
+        // (`AddressFieldCell.expansionFrame`).
+        allowsExpansionToolTips = false
     }
 
     @available(*, unavailable)
@@ -45,6 +52,12 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     // (a read-only sign-in bar): Cmd-L would do nothing there. The bar still
     // takes it, to select and copy the address.
     override var acceptsFirstResponder: Bool { super.acceptsFirstResponder || (isEnabled && isSelectable) }
+
+    override func textDidChange(_ notification: Notification) {
+        super.textDidChange(notification)
+        // The cell draws the placeholder under the editor: show or hide it with the text.
+        needsDisplay = true
+    }
 
     override func becomeFirstResponder() -> Bool {
         probe?("field.becomeFirstResponder")
@@ -95,6 +108,11 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     /// The I-beam over the text at rest and while editing (`OmnibarPointer`);
     /// while editing the field editor adds its own I-beam over its text.
     override func resetCursorRects() {
+        // In a layout screen the toolbar row's rule gives the I-beam from the screen's one area (`ArrowCursorView`).
+        if isServedByPanePointerArea {
+            installedCursor = OmnibarPointer.cursor(.text)
+            return
+        }
         if isFieldEditorActive {
             super.resetCursorRects()
         } else {
@@ -118,6 +136,21 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     /// its text and selection, the resting text is written again.
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        recolor()
+    }
+
+    /// A theme repaint reaches only the views under a scope's roots and windows. The browser
+    /// chrome is out of the window when a tab moves to another pane or window, or while an agent
+    /// drives it off screen; a theme change meanwhile that keeps light or dark brings no
+    /// appearance change on return, and the text kept the old theme's ink on the new theme's bar
+    /// (https://github.com/manaflow-ai/cmux/issues/42436). Recolor on entering a window, as the
+    /// pill does (`OmnibarPillView.viewDidMoveToWindow`).
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { recolor() }
+    }
+
+    private func recolor() {
         if let editor = currentEditor() as? NSTextView {
             performWithTheme {
                 let color = OmnibarStyle.textPrimary
@@ -149,9 +182,19 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
             return
         }
         if let storage = editor.textStorage {
+            storage.beginEditing()
             storage.addAttribute(.font, value: font, range: NSRange(location: 0, length: storage.length))
+            storage.endEditing()
         }
         editor.typingAttributes[.font] = font
+        // TextKit 2 keeps the laid-out glyphs at the old size until their layout is invalidated: the typed text kept the
+        // previous density's size after a density change while editing (Lucas 2026-11-16: "after switching densities it
+        // got smaller").
+        if let layout = editor.textLayoutManager {
+            layout.invalidateLayout(for: layout.documentRange)
+            layout.ensureLayout(for: layout.documentRange)
+        }
+        editor.needsDisplay = true
     }
 
     // theme-scoped: called only inside performWithTheme
@@ -161,6 +204,8 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
             let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: OmnibarStyle.textPrimary]
             editor.textStorage?.setAttributedString(NSAttributedString(string: text, attributes: attributes))
             editor.typingAttributes = attributes
+            // The cell draws the placeholder under an empty editor (`EditorAlignedTextFieldCell`).
+            needsDisplay = true
             return
         }
         lastStyle = style

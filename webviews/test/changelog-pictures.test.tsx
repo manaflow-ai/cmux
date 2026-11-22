@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import { releaseView } from "../src/pages/changelog/model";
 import type { ReleaseNotes } from "../src/pages/changelog/types";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -27,7 +28,7 @@ let dom: JSDOM;
 beforeAll(() => {
   // pretendToBeVisual: the lightbox is a Base UI dialog, whose open transition waits a frame.
   dom = new JSDOM("<!doctype html><div id=root></div>", {
-    url: "cmux-page://cmux.changelog/",
+    url: "cmux-page://cmux.changelog/#/?design=ledger",
     pretendToBeVisual: true,
   });
   Object.assign(scope, {
@@ -45,11 +46,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 const picture = "data:image/gif;base64,R0lGODlhAQABAAAAACw=";

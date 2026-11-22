@@ -38,11 +38,11 @@ public final class ConversationScheduledOpResult implements WireValue {
         Builder builder = builder();
         Object rawChange = Wire.optional(object, "change");
         if (!Wire.isMissing(rawChange)) {
-            builder.change(Wire.immutableJson(rawChange));
+            builder.change(Wire.immutableJson(ProtocolSupport.nonNull(rawChange, "ConversationScheduledOpResult.change")));
         }
         Object rawRemoved = Wire.optional(object, "removed");
         if (!Wire.isMissing(rawRemoved)) {
-            builder.removed(Wire.immutableJson(rawRemoved));
+            builder.removed(Wire.immutableJson(ProtocolSupport.nonNull(rawRemoved, "ConversationScheduledOpResult.removed")));
         }
         Object rawReplayed = Wire.optional(object, "replayed");
         if (!Wire.isMissing(rawReplayed)) {

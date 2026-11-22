@@ -1,11 +1,13 @@
 // l10n-allow-file: gallery fixtures (sample models), not shipped UI.
 // The compact model menu's density versions (Leo 2026-10-28: "AND I THINK IT'S ALL SO STUPIDLY
 // SPACED AND STYLED IT'S FUCKING TONKA TOYS"), each open on its list and on its Effort submenu.
-// `native` ships; `before` is the menu as it was.
+// `native` ships; `before` is the menu as it was. A menu with a harness rail opens the columns
+// (QuickModelColumns), so these run on a started chat's menu, the list menu with no rail.
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { DENSITY_CSS, MENU_DENSITIES, type MenuDensity } from "../../gallery/fixtures/modelMenuDensity";
 import type { ModelPickerProps } from "./modelPickerLayout";
+import { MODEL_PICKER } from "./composerSelectors";
 
 type Props = ModelPickerProps & { density: MenuDensity };
 
@@ -20,6 +22,7 @@ const props: ModelPickerProps = {
     { id: "gemini", name: "Gemini CLI", models: models(["Gemini 3 Pro"]) },
   ],
   harness: "claude",
+  harnessFixed: true,
   model: "opus-5.5",
   label: "Opus 5.5",
   efforts: [],
@@ -40,7 +43,7 @@ const props: ModelPickerProps = {
 };
 
 const openMenu: Play = async (ctx) => {
-  await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+  await ctx.click({ selector: MODEL_PICKER });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu") !== null);
 };
 const openEffort: Play = async (ctx) => {

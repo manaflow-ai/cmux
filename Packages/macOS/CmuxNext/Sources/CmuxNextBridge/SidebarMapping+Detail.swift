@@ -14,6 +14,11 @@ extension SidebarMapping {
         detail.activitySince = Self.activitySince(tabs: tabs, indicator: indicator, turns: turns)
         let chat = agentTab?.agentSession.flatMap(turns.detail(for:))
         detail.model = chat?.model
+        detail.contextTokens = chat?.contextTokens
+        detail.contextWindow = chat?.contextWindow
+        detail.costUsd24h = chat?.costUsd24h
+        detail.summary = chat?.summary
+        detail.nextAction = chat?.nextAction
         // The task: the chat's running prompt, else the terminal agent's last prompt (memory
         // only in the daemon), else what a working program says it does (OSC 7501 title, msg).
         detail.task = chat?.prompt ?? agentTab?.agent?.lastPrompt ?? tabs.lazy.filter { ProgramStatusRecord.strongest($0.programStatus)?.state == .working }
@@ -28,7 +33,35 @@ extension SidebarMapping {
             detail.command = process(front)
             detail.commandSince = Self.date(ms: since)
         }
+        // What every agent chat in the workspace runs below its turn, as acpmux counts it.
+        for chat in tabs.compactMap({ $0.agentSession.flatMap(turns.detail(for:)) }) {
+            detail.subagentsRunning += chat.subagentsRunning
+            detail.subagentNames += chat.subagentNames
+            detail.commandsRunning += chat.commandsRunning
+        }
         return detail
+    }
+
+    /// Who made the workspace, for its hover card: an agent's or a script's session, host and
+    /// purpose. Nil for the person, an unknown kind, or a creator with nothing to say (a bare
+    /// `{"kind":"script"}`), so the person's own workspaces show nothing new.
+    static func origin(_ creator: WorkspaceCreator?) -> SidebarWorkspaceOrigin? {
+        guard let creator else { return nil }
+        let kind: SidebarWorkspaceOrigin.Kind
+        switch creator.kind {
+        case .agent: kind = .agent
+        case .script: kind = .script
+        case .person, .other: return nil
+        }
+        return SidebarWorkspaceOrigin(kind: kind, sessionName: creator.sessionName, sessionID: creator.session,
+                                      host: creator.host, purpose: creator.purpose)
+    }
+
+    /// The running subagents and background commands of `tab`'s agent chat (acpmux's counts);
+    /// zero for any other tab.
+    static func running(_ tab: TabModel, turns: AgentTurnStateStore = .shared) -> (subagents: Int, commands: Int) {
+        guard let chat = tab.agentSession.flatMap(turns.detail(for:)) else { return (0, 0) }
+        return (chat.subagentsRunning, chat.commandsRunning)
     }
 
     /// When the row's state began: the earliest start among the tabs that report that state.

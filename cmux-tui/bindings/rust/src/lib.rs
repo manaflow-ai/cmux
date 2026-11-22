@@ -39,9 +39,11 @@
 //! use cmux::SidebarPlugin;
 //! ```
 
+mod chat_target;
 mod client;
 mod codec;
 mod convenience;
+pub mod conversation_rules;
 mod generated;
 #[cfg(any(windows, feature = "local-socket"))]
 pub mod local_socket;
@@ -62,5 +64,8 @@ use client::{CmuxClient, CmuxStream};
 use presence::{Nullable, Optional};
 use raw_support::{CommandMetadata, EventMetadata, ProfileMetadata, StreamMetadata};
 
+pub use chat_target::{
+    CHAT_CAPABILITY, ChatTarget, ChatTargetRefusal, catalog_machines, resolve_chat_target,
+};
 pub use client::{CmuxError as Error, Result};
 pub use resource::*;

@@ -7,7 +7,7 @@ import CmuxNextCompat
 /// (signpost events, category "stalls"). Marks come from any thread. The
 /// first connect starts in `main`, before the App installs its receiver, so
 /// marks are kept with their time until then.
-public final class DaemonLaunchTimings: @unchecked Sendable {
+public final class DaemonLaunchTimings: Sendable {
     public static let shared = DaemonLaunchTimings()
     private struct State {
         var sink: (@Sendable (String, Date) -> Void)?
@@ -16,6 +16,8 @@ public final class DaemonLaunchTimings: @unchecked Sendable {
 
     private let state = Mutex(State())
     private let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "stalls")
+    /// The first-interaction marks' progress (``inputSent()``, ``outputDecoded()``).
+    let inputStage = Atomic<UInt8>(0)
 
     /// Installs the receiver of marks (once, at launch) and hands it the
     /// marks made before.

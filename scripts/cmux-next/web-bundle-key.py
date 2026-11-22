@@ -10,13 +10,14 @@ version of bun on PATH. A changed input, an edited or deleted output or
 another bun therefore makes it differ. `--verify-stamp` prints the first two
 fields only: the Xcode verify phase runs with a PATH that may lack bun.
 
-`--inputs` prints the pathspecs the source key hashes, one per line.
+`--inputs` prints the pathspecs the source key hashes, one per line. `--routed` prints the
+pathspecs a change to which runs the web CI checks (routed_inputs below).
 
 The source key includes the pinned Bun and Node toolchain identity. Set CMUX_WEB_BUN_VERSION or
 CMUX_WEB_NODE_VERSION when a workflow computes the key so a toolchain change cannot reuse a
 published manifest for the same sources.
 
-Usage: web-bundle-key.py ROOT [--stamp | --verify-stamp | --source | --outputs | --inputs]
+Usage: web-bundle-key.py ROOT [--stamp | --verify-stamp | --source | --outputs | --inputs | --routed]
 """
 import hashlib
 import json
@@ -29,31 +30,37 @@ import sys
 # source imports (imported_inputs below finds those). webviews/ includes its scripts, lockfile and
 # xcstrings catalogs (not the strings tables: build output, ignored since #21946, made from those
 # catalogs and the settings schema); schemas/settings is imported by the settings page and read
-# by gen-strings.mjs; the xcstrings catalogs feed gen-strings.mjs; marked.min.js is inlined into the
-# webviews app's agent-session.html.
+# by gen-strings.mjs; the xcstrings catalogs feed gen-strings.mjs; the What's New highlights feed
+# gen-feature-tips.mjs (the agent pane's feature tips, build output gen-strings.mjs makes);
+# marked.min.js is inlined into the webviews app's agent-session.html.
 INPUTS = [
     "webviews",
     "schemas/settings",
+    ":(glob)release-notes/next/highlights/*.md",
     "Resources/markdown-viewer/marked.min.js",
     "scripts/build-webviews-app.sh",
     "scripts/check-webviews-bun-version.sh",
+    "scripts/webviews_bun_version.py",
     "scripts/cmux-next/build-agent-pane-web.sh",
     "scripts/cmux-next/build-agent-activity-web.sh",
     "scripts/cmux-next/build-pages-web.sh",
-    "scripts/cmux-next/build-palette-ranker.sh",
     "scripts/cmux-next/build-optchat-inspector-web.sh",
     "scripts/cmux-next/build-web-bundles.sh",
     "scripts/cmux-next/web-bundle-key.py",
     ":(glob)Packages/macOS/CmuxNext/Sources/**/*.xcstrings",
 ]
+# The key hashes every CmuxNext catalog (a superset is safe for a cache key); the web CI routing
+# narrows it to the catalogs gen-strings.mjs names (gen_strings_catalogs below).
+CATALOG_GLOB = ":(glob)Packages/macOS/CmuxNext/Sources/**/*.xcstrings"
+GEN_STRINGS = "webviews/scripts/pages/gen-strings.mjs"
+GEN_STRINGS_FILE = re.compile(r"""\bfile:\s*["'`]([^"'`]+\.xcstrings)["'`]""")
+GEN_STRINGS_CONST = re.compile(r"""^const (\w+) = ["']([^"'$]+)["'];""", re.M)
 
-# What the builders write (build-web-bundles.sh). The palette ranker is one file
-# in a resource directory that holds other files.
+# What the builders write (build-web-bundles.sh).
 OUTPUTS = [
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane",
     "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
     "Resources/markdown-viewer/webviews-app",
     "Native/OptChat/optchat-chief/inspector/index.html",
 ]
@@ -168,6 +175,68 @@ def source_inputs(root):
     return INPUTS + imported_inputs(root)
 
 
+def gen_strings_catalogs(root):
+    """The string catalogs outside webviews/ that gen-strings.mjs reads (`file:` entries, with its
+    `const NAME = "..."` prefixes substituted), or None when it is unreadable, names none, or names
+    one through a template it cannot resolve."""
+    try:
+        with open(os.path.join(root, GEN_STRINGS), encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return None
+    consts = dict(GEN_STRINGS_CONST.findall(text))
+    found = set()
+    for m in GEN_STRINGS_FILE.finditer(text):
+        path = re.sub(r"\$\{(\w+)\}", lambda g: consts.get(g.group(1), g.group(0)), m.group(1))
+        if "${" in path:
+            return None
+        if not (path == "webviews" or path.startswith("webviews/")):
+            found.add(path)
+    return sorted(found) or None
+
+
+def routed_inputs(root):
+    """Pathspecs whose change runs the web CI checks (scripts/ci/detect_ci_change_areas.py's web
+    area and scripts/ci/web_subareas.py's react-apps subarea): the source key's inputs, with the
+    catalog glob narrowed to the catalogs gen-strings.mjs reads, so a string edit in a Swift
+    catalog no web page shows does not wake the web checks. Unresolvable catalogs keep the glob."""
+    inputs = source_inputs(root)
+    catalogs = gen_strings_catalogs(root)
+    if catalogs is None:
+        return inputs
+    return [p for p in inputs if p != CATALOG_GLOB] + catalogs
+
+
+def _glob_regex(pattern):
+    out, i = "", 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out += "(?:.*/)?"; i += 3
+        elif pattern.startswith("**", i):
+            out += ".*"; i += 2
+        elif pattern[i] == "*":
+            out += "[^/]*"; i += 1
+        elif pattern[i] == "?":
+            out += "[^/]"; i += 1
+        else:
+            out += re.escape(pattern[i]); i += 1
+    return re.compile(out + r"\Z")
+
+
+def pathspec_matcher(pathspecs):
+    """A predicate for repository paths matching any of `pathspecs` (a file, a directory and
+    everything under it, or a `:(glob)` pattern), as git ls-files reads them."""
+    exact, globs = [], []
+    for spec in pathspecs:
+        if spec.startswith(":(glob)"):
+            globs.append(_glob_regex(spec[len(":(glob)"):]))
+        else:
+            exact.append(spec.rstrip("/"))
+    prefixes = tuple(p + "/" for p in exact)
+    exact = frozenset(exact)
+    return lambda path: path in exact or path.startswith(prefixes) or any(g.match(path) for g in globs)
+
+
 def file_digest(path):
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -177,14 +246,26 @@ def file_digest(path):
 
 
 def declared_bun_version(root):
-    with open(os.path.join(root, "webviews/package.json"), encoding="utf-8") as f:
-        package_manager = (json.load(f).get("devEngines") or {}).get("packageManager") or {}
-    return package_manager.get("version", "1.4.4") if package_manager.get("name") == "bun" else "1.4.4"
+    # scripts/webviews_bun_version.py is the one reader of the pin (the pre-commit hook and
+    # check-webviews-bun-version.sh use it too); it sits one folder up, here and in the
+    # installed hook copy. No pin it accepts stops the key: a guessed version would key
+    # bundles to a toolchain nobody declared.
+    import importlib.util
+
+    reader_path = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "webviews_bun_version.py")
+    spec = importlib.util.spec_from_file_location("webviews_bun_version", reader_path)
+    reader = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(reader)
+    try:
+        return reader.bun_version(os.path.join(root, "webviews/package.json"))
+    except ValueError as error:
+        sys.exit(f"web-bundle-key: {error}")
 
 
 def toolchain_identity(root):
     # Keep these defaults in one place: workflows export the same values before computing keys.
-    bun = normalize_toolchain_version(os.environ.get("CMUX_WEB_BUN_VERSION", declared_bun_version(root)))
+    # CMUX_WEB_BUN_VERSION, when set, is used without reading the pin.
+    bun = normalize_toolchain_version(os.environ.get("CMUX_WEB_BUN_VERSION") or declared_bun_version(root))
     node = normalize_toolchain_version(os.environ.get("CMUX_WEB_NODE_VERSION", "24.22.1"))
     return f"bun={bun}\nnode={node}\n"
 
@@ -250,6 +331,8 @@ def main(argv):
         print(source_key(root))
     elif mode == "--inputs":
         print("\n".join(source_inputs(root)))
+    elif mode == "--routed":
+        print("\n".join(routed_inputs(root)))
     elif mode == "--outputs":
         print(output_digest(root))
     elif mode == "--stamp":

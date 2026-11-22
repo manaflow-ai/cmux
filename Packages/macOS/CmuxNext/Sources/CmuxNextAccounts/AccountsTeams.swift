@@ -22,6 +22,8 @@ final class MockTeamSource: ActiveTeamSource {
     /// Member teams whose members may still invite and edit (the sign-in service's
     /// default member permissions): the server refuses rename and delete to any non-admin.
     var permissiveMemberTeams: Set<String> = []
+    /// Invitations addressed to the demo person (none unless a demo or test sets them).
+    var received: [CMUXReceivedTeamInvitation] = []
     @ObservationIgnored private var created = 0
 
     var resolvedTeamID: String? { selectedTeamID ?? availableTeams.first?.id }
@@ -90,6 +92,25 @@ final class MockTeamSource: ActiveTeamSource {
         guard !subscribedTeams.contains(id) else { throw CMUXTeamError.subscriptionActive }
         availableTeams.removeAll { $0.id == id }
         if selectedTeamID == id { selectedTeamID = availableTeams.first?.id }
+    }
+
+    /// Joins like the server: the person becomes a member and the team the selection. With a
+    /// switch ``failure`` set, the selection stays, as when the auth coordinator's switch fails.
+    func accept(_ id: String) throws -> CMUXTeamJoin {
+        if let managementFailure { throw managementFailure }
+        guard let invitation = received.first(where: { $0.id == id }) else { throw CMUXTeamError.invitationInvalid }
+        received.removeAll { $0.id == id }
+        if !availableTeams.contains(where: { $0.id == invitation.teamID }) {
+            availableTeams.append(CMUXAuthTeam(id: invitation.teamID, displayName: invitation.teamName))
+        }
+        if failure == nil { selectedTeamID = invitation.teamID }
+        return CMUXTeamJoin(teamID: invitation.teamID, role: invitation.role)
+    }
+
+    func decline(_ id: String) throws {
+        if let managementFailure { throw managementFailure }
+        guard received.contains(where: { $0.id == id }) else { throw CMUXTeamError.invitationInvalid }
+        received.removeAll { $0.id == id }
     }
 
     private static let adminPermissions = CMUXTeamPermissions(updateTeam: true, deleteTeam: true, inviteMembers: true, readMembers: true,

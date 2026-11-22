@@ -2,16 +2,12 @@
 // A Claude workflow's card in the transcript (Labs `workflowLabs`, WorkflowCard.tsx), drawn from a
 // workflow's events fed through the real subagent fold (workflowFixture.ts): its name, "Workflow ·
 // N agents · time" and a dot per agent, live while it runs. A click opens Session Info's
-// Background tasks (inspector/WorkflowTasks.tsx), whose gallery is agent-pane.chat-inspector.
+// Background tasks (session-info/WorkflowTasks.tsx), whose gallery is agent-pane.chat-inspector.
 import { componentEntry } from "../../../gallery/format";
 import { GALLERY_NOW } from "../../../gallery/clock";
 import { realWorkflowFixture } from "../realWorkflowFixture";
-import {
-  configureWorkflowCardOpen,
-  configureWorkflowCardSideTab,
-  WorkflowCard,
-  type WorkflowCardPresentation,
-} from "./WorkflowCard";
+import { WorkflowCard, type WorkflowCardPresentation } from "./WorkflowCard";
+import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./workflowCardModel";
 import { workflowFixture, type WorkflowFixtureStage } from "./workflowFixture";
 
 type Props = {
@@ -60,6 +56,10 @@ export default componentEntry<Props>({
     "phases-running": {
       note: "Gallery alternative B: the current phase remains in metadata and each phase gets a status strip. It makes the workflow topology visible at a glance; the selected treatment remains the shipped design.",
       props: { stage: "running", presentation: "phases" },
+    },
+    "selected-parallel": {
+      note: "Two phases at once, 25 minutes in (Leo's 2026-11-05 screenshot): the card names both running phases, counts 2 done · 5 running rather than a 2/7 that reads as the total while Latency plan and Swarm synthesis have not spawned, shows one clock, says what the most recently active agent does in words (named, so five running agents never read as one) rather than its shell command, and names both running phases and the workflow's model on its last row.",
+      props: { stage: "parallel", presentation: "selected" },
     },
     "selected-finished": {
       note: "Selected treatment after completion: 7/7, completed state, final elapsed time and total tokens remain visible; the progress bar is full and no done line repeats the card.",

@@ -41,6 +41,21 @@ pub(super) fn is_repository_marker(name: &str) -> bool {
     matches!(hfs_folded(name).as_str(), "head" | "commondir")
 }
 
+/// `relative` as a Mac's disk compares names (normalization, case and
+/// HFS-ignorable code points ignored, past ASCII too), for looking one path
+/// up under any spelling.
+pub(super) fn folded_path(relative: &str) -> String {
+    use unicode_normalization::UnicodeNormalization as _;
+    relative
+        .split('/')
+        .map(|name| {
+            let name: String = name.nfd().filter(|c| !is_hfs_ignorable(*c)).collect();
+            name.to_lowercase().nfd().collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// Whether `relative` is `folder` or below it, as a Mac's disk compares
 /// names (case and HFS-ignorable code points ignored).
 pub(super) fn folded_within(relative: &str, folder: &str) -> bool {
@@ -95,44 +110,5 @@ fn is_ntfs_dotgit(name: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_spelling_a_mac_or_windows_resolves_to_dotgit_is_refused() {
-        for name in [
-            ".git",
-            ".GIT",
-            ".Git",
-            ".gIt",
-            ".g\u{200c}it",
-            "\u{feff}.git",
-            ".git\u{200d}",
-            ".git.",
-            ".git ",
-            ".git. . ",
-            ".git::$INDEX_ALLOCATION",
-            "GIT~1",
-            "git~1",
-            "x\\.git",
-        ] {
-            assert!(is_dotgit(name), "{name:?} reads as .git");
-            assert!(!safe_relative(&format!("{name}/hooks/pre-commit")), "{name:?}");
-            assert!(!safe_relative(&format!("sub/{name}/config")), "{name:?}");
-        }
-        for name in [".gitignore", ".gitmodules", "git", ".github", "my.git", ".git2"] {
-            assert!(!is_dotgit(name), "{name:?} is a plain name");
-        }
-    }
-
-    #[test]
-    fn a_listed_name_is_one_plain_component() {
-        for name in ["", ".", "..", "x/../.git", "../evil", "a/b", "nul\0"] {
-            assert!(!plain_name(name), "{name:?}");
-        }
-        for relative in ["../evil", "x/../.git/hooks/pre-commit", "/etc/passwd", "a//b", "a/./b"] {
-            assert!(!safe_relative(relative), "{relative:?}");
-        }
-        assert!(safe_relative("src/a.txt"));
-    }
-}
+#[path = "names_tests.rs"]
+mod tests;

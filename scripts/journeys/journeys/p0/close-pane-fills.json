@@ -1,0 +1,42 @@
+{
+  "id": "close-pane-fills",
+  "priority": "P0",
+  "title": "Close a split pane with Cmd-W: the other pane fills the space and its PTY grows back",
+  "why": "After closing one of two panes the person keeps working in the other: it must take the whole space again (no blank half, no stale strip) and its PTY must grow back to the full grid, or programs keep wrapping at half width.",
+  "source": "window life: close a pane (holistic-quality.md 1)",
+  "budget_seconds": 60,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-close-pane"},
+    {"do": "neutral_prompt"},
+    {"do": "name_pane", "as": "left"},
+    {"do": "window_place", "title": "set-up: the window at 70% x 70% of the screen", "fraction": [0.05, 0.05, 0.7, 0.7]},
+    {"do": "expect", "title": "the terminal fits the placed window", "timeout": 10, "all": [{"grid_fits": {}}]},
+    {"do": "remember", "as": "full"},
+    {"do": "type", "text": "echo keep-${nonce}", "enter": true},
+    {"do": "key", "title": "Cmd-D", "key": "d", "modifiers": ["cmd"]},
+    {"do": "adopt_pane", "as": "right"},
+    {"do": "neutral_prompt"},
+    {"do": "expect", "title": "two panes, the left one at half width", "timeout": 10,
+     "all": [{"pane_frame": {"pane": "left", "vs": "full", "w": 0.5, "tol": 0.06}}, {"grid_fits": {"pane": "left", "vs": "full", "cols": "narrower"}}]},
+
+    {"do": "key", "title": "Cmd-W in the right pane", "key": "w", "modifiers": ["cmd"], "mark": "close"},
+    {"do": "expect", "title": "the right pane is gone; the left pane fills the window again, fitted, with the focus", "since": "close", "timeout": 10,
+     "all": [
+       {"pane_state": {"pane": "right", "gone": true}},
+       {"pane_frame": {"pane": "left", "vs": "full", "w": 1.0, "h": 1.0, "tol": 0.02}},
+       {"grid_fits": {"pane": "left", "vs": "full", "cols": "same", "rows": "same"}},
+       {"pane_state": {"pane": "left", "fields": {"focused": true}}}
+     ]},
+    {"do": "use_pane", "pane": "left"},
+    {"do": "type", "text": "echo after-${nonce} $(stty size)", "enter": true, "mark": "typed"},
+    {"do": "expect", "title": "keys go to the remaining pane; its PTY has the full grid again", "since": "typed", "timeout": 10,
+     "all": [
+       {"pty_size": {"tag": "after-${nonce}", "pane": "left"}},
+       {"daemon_line": "keep-${nonce}"},
+       {"app_text_line": "keep-${nonce}"},
+       {"app_prompt": true},
+       {"pane_frame_text": "after-${nonce}"}
+     ]}
+  ],
+  "finally": [{"do": "restore_window", "from": "before-place"}]
+}

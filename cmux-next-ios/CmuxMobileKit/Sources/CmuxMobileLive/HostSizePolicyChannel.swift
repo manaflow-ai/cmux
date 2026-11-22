@@ -55,7 +55,7 @@ extension LiveCoordinator: TerminalSizingService {
     private func hostPolicyChannel(_ macID: String) async throws -> (HostSizePolicyChannel, DaemonClient) {
         // A Mac with no link opens one; the page tries again when asked.
         touch(macID)
-        guard let owner = sessions[macID] else { throw LinkError(code: "no-link", message: "Not connected to this Mac yet.") }
+        guard let owner = sessions[macID] else { throw LinkError(code: "no-link", message: "Not connected to this Mac.") }
         let link = try await pairedLink(owner)
         let client = DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         await client.start()

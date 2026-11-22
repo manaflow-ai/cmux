@@ -8,10 +8,9 @@ public import CoreGraphics
 /// The versions differ only in how far the rows below travel and on which spring; Reduce Motion still moves
 /// nothing (`RowMotion.run`), and every version ends on the springs' own settling time.
 public nonisolated enum SidebarInsertMotion: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// The default: the rows below travel at most `nudgeDistance` (6 pt) and the new row grows by as much
-    /// while it fades in, on the short critically damped `.tabOpen` spring (no overshoot). The rows still
-    /// show that they make room, but no row slides a whole row height, so a top insert reads as one row
-    /// arriving, not a cascade.
+    /// The nudge variant: the rows below travel at most `nudgeDistance` (6 pt) and the new row grows by as much
+    /// while it fades in, on the short critically damped `.tabOpen` spring (no overshoot). It remains available
+    /// for comparison; the shipped default is `.snap`, which keeps existing rows in their slots.
     case nudge
     /// The rows below travel their whole distance on the short `.tabOpen` spring (critically damped, about
     /// 130 ms to rest) instead of `.move`; the new row opens its slot and fades in.
@@ -33,7 +32,7 @@ public nonisolated enum SidebarInsertMotion: String, Sendable, CaseIterable, Has
     public static let tunable = Tunable<SidebarInsertMotion>.choice(
         "sidebar.insertMotion", .sidebar, "New row motion",
         help: "How the rows below a new workspace make room. Nudge: they travel at most the nudge distance on a short spring. Quick: their whole distance on a short spring. Snap: no slide, the new row fades in. Full spring: the motion before.",
-        default: .nudge, code: "SidebarInsertMotion.tunable")
+        default: .snap, code: "SidebarInsertMotion.tunable")
 
     public static let nudgeDistance = Tunable<CGFloat>.number(
         "sidebar.insertMotion.nudge", .sidebar, "New row nudge distance",

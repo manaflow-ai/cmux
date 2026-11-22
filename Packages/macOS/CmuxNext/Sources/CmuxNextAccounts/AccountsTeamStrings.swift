@@ -79,6 +79,31 @@ extension AccountsStrings {
         String(format: text("accounts.teams.deletedActive", "Deleted “%1$@”. “%2$@” is now your active team."), name, active)
     }
 
+    static func teamsJoined(_ name: String) -> String {
+        String(format: text("accounts.teams.joined", "You joined “%@”. It is now your active team."), name)
+    }
+    /// The join when the joined team could not be made active; the previous team stays active.
+    static func teamsJoinedInactive(_ name: String) -> String {
+        String(format: text("accounts.teams.joinedInactive", "You joined “%@”."), name)
+    }
+    static func teamsDeclined(_ name: String) -> String {
+        String(format: text("accounts.teams.declined", "Declined the invitation to “%@”."), name)
+    }
+
+    // Invitations to the person
+    static var teamsReceivedTitle: String { text("accounts.teams.received.title", "Invitations to You") }
+    static var teamsReceivedAccept: String { text("accounts.teams.received.accept", "Join Team") }
+    static var teamsReceivedDecline: String { text("accounts.teams.received.decline", "Decline") }
+    /// "Invited by Sam as Member · sam@example.com" style detail of one invitation.
+    static func teamsReceivedDetail(invitedBy: String?, joining joinRole: CMUXTeamRole?, email: String) -> String {
+        let roleText = Self.role(joinRole)
+        guard let invitedBy, !invitedBy.isEmpty else {
+            return String(format: text("accounts.teams.received.detail", "As %1$@, sent to %2$@"), roleText, email)
+        }
+        return String(format: text("accounts.teams.received.detailBy", "%1$@ invited you as %2$@, sent to %3$@"),
+                      invitedBy, roleText, email)
+    }
+
     // Errors
     /// The number is ``CMUXTeamName/maximumLength``.
     static var teamsErrorName: String { text("accounts.teams.error.name", "Enter a team name of 1 to 64 characters.") }
@@ -88,6 +113,15 @@ extension AccountsStrings {
     }
     static var teamsErrorNotFound: String { text("accounts.teams.error.notFound", "This team no longer exists.") }
     static var teamsErrorUnavailable: String { text("accounts.teams.error.unavailable", "Could not reach cmux. Try again.") }
+    static var teamsErrorInvitation: String {
+        text("accounts.teams.error.invitation", "This invitation was already answered, withdrawn or has expired.")
+    }
+    static var teamsErrorEmailMismatch: String {
+        text("accounts.teams.error.emailMismatch", "This invitation was sent to an address you have not verified on this account.")
+    }
+    static var teamsErrorSeatLimit: String {
+        text("accounts.teams.error.seatLimit", "The team has no seat left. Ask a team admin to free one or upgrade the plan.")
+    }
     static var teamsErrorBusy: String { text("accounts.teams.error.busy", "Another team change is still running. Try again when it finishes.") }
 
     /// User-facing text for a team operation failure.
@@ -99,6 +133,9 @@ extension AccountsStrings {
         case .notFound?: teamsErrorNotFound
         case .signedOut?: errorNotSignedIn
         case .busy?: teamsErrorBusy
+        case .invitationInvalid?: teamsErrorInvitation
+        case .emailMismatch?: teamsErrorEmailMismatch
+        case .seatLimit?: teamsErrorSeatLimit
         case .unavailable?, nil: teamsErrorUnavailable
         }
     }

@@ -17,7 +17,7 @@ export const teamVmApiService = (tenant: string) => {
   const tombstones = new Set<string>()
   const control = { creationState: "missing" as "missing" | "pending" | "committed" | "cancelling" | "cancelled", loseNextDelete: false, loseNextCreate: false, forbidden: false, actor: "team-vm-service", key: "team-transport-test-key", creates: 0, fileReads: 0, breakNextFileRead: false, fileOffsets: [] as number[] }
   const bodyOf = (m: Machine) => ({ id: m.id, displayName: m.displayName, labels: m.labels, state: m.state,
-    resources: { vcpus: 4, memoryMib: 8192, diskMib: 32768 }, idleTimeoutSeconds: 300,
+    resources: { vcpus: 4, memoryMib: 8192, diskMib: 32768 }, idleTimeoutSeconds: -1,
     maxRunSeconds: null, autoDeleteSeconds: null, createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z" })
   const notFound = () => Response.json({ _tag: "NotFound", message: "VM not found" }, { status: 404 })
   const fetchFn: typeof fetch = async (input, init) => {
@@ -35,7 +35,7 @@ export const teamVmApiService = (tenant: string) => {
       if (r.method === "POST" && control.creationState === "pending") control.creationState = "committed"
       return Response.json({ state: control.creationState === "cancelling" ? "pending" : control.creationState === "cancelled" ? "deleted" : control.creationState,
         ...(control.creationState === "cancelling" ? { cancellation: "requested" } : control.creationState === "cancelled" ? { cancellation: "completed" } : {}), id: m.id, receipt: { id: m.id, displayName: m.displayName, labels: m.labels,
-        idleTimeoutSeconds: 300, bootImage: { ...m.image, displayName: "Team VM" }, initialNetwork: { publicEgress: true, httpsProxyHosts: [] } } })
+        idleTimeoutSeconds: -1, bootImage: { ...m.image, displayName: "Team VM" }, initialNetwork: { publicEgress: true, httpsProxyHosts: [] } } })
     }
     if (u.pathname === "/v1/vms" && r.method === "GET") {
       expect(u.searchParams.get("createdBy")).toBe("caller")
@@ -49,7 +49,8 @@ export const teamVmApiService = (tenant: string) => {
       if (prior && prior.body !== serialized) return Response.json({ _tag: "Conflict", message: "changed intent" }, { status: 409 })
       let m = prior ? vms.get(prior.id) : undefined
       if (!m) {
-        expect(body?.idleTimeoutSeconds).toBe(300)
+        // -1: never pause for idleness, unless CLOUD_IDLE_PAUSE is on (auto-pause.ts; Leo, 2026-10-30).
+        expect(body?.idleTimeoutSeconds).toBe(-1)
         expect(body?.initialNetwork).toEqual({ publicEgress: true })
         expect(body?.labels.role).toBe("team-vm")
         const id = `vm_${String(++control.creates).padStart(26, "0")}`

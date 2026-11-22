@@ -1,6 +1,8 @@
 // Colored additions, deletions and status text follow the active terminal palette. The native
 // AgentPaneTheme lifts ANSI slots to a readable floor over elevated glass; this test keeps that
 // contract visible on the PR card, edit summaries and tool rows without touching the diff viewer.
+// A merged pull request is the one exception: GitHub's purple in every theme, since a theme's ANSI
+// magenta can be pink or red (Leo 2026-11-02: "the merged colour should not be red").
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -41,6 +43,7 @@ await requireBrowserLane("agent-status-colors.test.ts", async () => {
       background: "#ffffff",
       text: "#1f1f1f",
       palette: { green: "#1a7f37", red: "#b42318", yellow: "#8a5a00", purple: "#8250df" },
+      merged: "#8250df",
     },
     {
       name: "dark terminal",
@@ -48,13 +51,16 @@ await requireBrowserLane("agent-status-colors.test.ts", async () => {
       background: "#1e1e1e",
       text: "#f2f2f2",
       palette: { green: "#56d364", red: "#ff7b72", yellow: "#e3b341", purple: "#d2a8ff" },
+      merged: "#a371f7",
     },
     {
       name: "colorful terminal",
       scheme: "dark",
       background: "#16121f",
       text: "#f7f0ff",
-      palette: { green: "#52ffa8", red: "#ff6b9d", yellow: "#ffe66d", purple: "#c792ea" },
+      // A magenta that reads as red, as some themes draw ANSI 13.
+      palette: { green: "#52ffa8", red: "#ff6b9d", yellow: "#ffe66d", purple: "#f92672" },
+      merged: "#a371f7",
     },
   ] as const;
 
@@ -115,7 +121,7 @@ await requireBrowserLane("agent-status-colors.test.ts", async () => {
       expect(actual.colors.remove).toBe(rgb(red));
       expect(actual.colors.editAdd).toBe(actual.colors.success);
       expect(actual.colors.editRemove).toBe(actual.colors.failure);
-      expect(actual.colors.merged).toBe(rgb(purple));
+      expect(actual.colors.merged).toBe(rgb(theme.merged));
       expect(actual.colors.merged).not.toBe(actual.colors.failure);
       for (const ratio of Object.values(actual.ratios)) expect(ratio).toBeGreaterThanOrEqual(4.5);
       await page.close();

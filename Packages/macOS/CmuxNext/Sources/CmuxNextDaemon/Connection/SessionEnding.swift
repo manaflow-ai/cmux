@@ -49,8 +49,9 @@ public struct EndSessionsFailure: Sendable, Equatable {
 /// stays, so the next owner starts with Home only. With `keepingLayout` (End
 /// Sessions, Keep Layout) on a daemon that serves
 /// `end-terminals-keep-layout-v1` and `tab-restart-kept-layout-v1`, placed
-/// terminals keep their tabs, dead, so the next launch restarts a shell in
-/// each in place (`relaunchKeptTabs`); other daemons remove the tabs. Both run on their own
+/// terminals keep their tabs, dead, so a shell starts in each in place: on
+/// its workspace's first show, or at the next launch for a terminal that ran
+/// an agent (`relaunchKeptTabs`); other daemons remove the tabs. Both run on their own
 /// socket.
 ///
 /// No step stops the others: a workspace that does not close is recorded

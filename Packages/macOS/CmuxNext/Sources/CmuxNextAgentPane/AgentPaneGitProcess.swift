@@ -64,7 +64,8 @@ nonisolated enum AgentPaneGitProcess {
         // and a timeout returns only once git has exited and removed index.lock.
         let request = ProcessRequest(URL(fileURLWithPath: executable), arguments, environment: environment,
                                      directory: directory.map { URL(fileURLWithPath: $0) }, input: input,
-                                     errorOutput: .merge, timeout: timeout, onCancel: .finish)
+                                     errorOutput: .merge, timeout: timeout, onCancel: .finish,
+                                     terminationScope: .processGroup)
         do {
             let outcome = try await AsyncProcess().run(request)
             return Outcome(status: outcome.status, text: outcome.text)
@@ -109,23 +110,23 @@ nonisolated enum AgentPaneGitProcess {
 
     /// git did not finish before the deadline.
     static var timedOutMessage: String {
-        String(localized: "agentPane.error.gitTimedOut", defaultValue: "Git didn't finish in time.", bundle: .module)
+        String(localized: "agentPane.error.gitTimedOut", defaultValue: "Git didn't finish in time.", bundle: .localizedModule)
     }
 
     /// git was stopped before it finished, for a reason other than its deadline.
     static var stoppedMessage: String {
-        String(localized: "agentPane.error.gitStopped", defaultValue: "Git was stopped before it finished.", bundle: .module)
+        String(localized: "agentPane.error.gitStopped", defaultValue: "Git was stopped before it finished.", bundle: .localizedModule)
     }
 
     /// The chat's repository holds the home folder.
     static var homeRepositoryMessage: String {
         String(localized: "agentPane.error.gitHomeRepository",
-               defaultValue: "This repository holds your home folder, so the Changes view won't change it.", bundle: .module)
+               defaultValue: "This repository holds your home folder, so the Changes view won't change it.", bundle: .localizedModule)
     }
 
     /// The chat's session runs on another machine.
     static var remoteMessage: String {
         String(localized: "agentPane.error.gitRemote", defaultValue: "Staging and commits work only for chats on this Mac.",
-               bundle: .module)
+               bundle: .localizedModule)
     }
 }

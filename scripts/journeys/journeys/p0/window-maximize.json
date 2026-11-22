@@ -1,0 +1,54 @@
+{
+  "id": "window-maximize",
+  "priority": "P0",
+  "title": "Window > Zoom fills the screen and back: the grid fits each size, the PTY follows",
+  "why": "Maximize (Window > Zoom, or Rectangle) is the window's largest jump in one frame: the terminal must refit to it and back, with the PTY's size following, no blank frame and the prompt in view.",
+  "source": "window life: maximize (holistic-quality.md 1)",
+  "budget_seconds": 60,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-maximize"},
+    {"do": "neutral_prompt"},
+    {"do": "name_pane", "as": "main"},
+    {"do": "window_place", "title": "set-up: the window at 55% x 50% of the screen", "fraction": [0.1, 0.1, 0.55, 0.5]},
+    {"do": "expect", "title": "the terminal fits the placed window", "timeout": 10, "all": [{"grid_fits": {}}]},
+    {"do": "remember", "as": "start"},
+    {"do": "type", "text": "seq 1 500; echo end-${nonce}", "enter": true, "mark": "filled"},
+    {"do": "expect", "title": "output, the prompt at the bottom", "since": "filled", "timeout": 15,
+     "all": [{"daemon_line": "end-${nonce}"}, {"app_prompt": true}]},
+
+    {"do": "action", "title": "Window > Zoom", "action": "zoomWindow", "mark": "zoom"},
+    {"do": "expect", "title": "the window fills the screen's visible frame; the grid fits it", "since": "zoom", "timeout": 10,
+     "all": [
+       {"window_frame": {"fills": "visible", "tol": 12}},
+       {"grid_fits": {"vs": "start", "cols": "wider", "rows": "taller"}},
+       {"app_prompt": true},
+       {"at_bottom": {}}
+     ]},
+    {"do": "type", "text": "echo max-${nonce} $(stty size)", "enter": true, "mark": "max"},
+    {"do": "expect", "title": "the PTY has the zoomed grid", "since": "max", "timeout": 10,
+     "all": [
+       {"pty_size": "max-${nonce}"},
+       {"daemon_prompt": true},
+       {"app_text_contains": "max-${nonce} "},
+       {"pane_frame_text": "max-${nonce}"}
+     ]},
+
+    {"do": "action", "title": "Window > Zoom again", "action": "zoomWindow", "mark": "unzoom"},
+    {"do": "expect", "title": "the window is back at its size; the grid is the first grid again", "since": "unzoom", "timeout": 10,
+     "all": [
+       {"window_frame": {"same_as": "start", "tol": 4}},
+       {"grid_fits": {"vs": "start", "cols": "same", "rows": "same"}},
+       {"app_prompt": true},
+       {"at_bottom": {}}
+     ]},
+    {"do": "type", "text": "echo back-${nonce} $(stty size)", "enter": true, "mark": "back"},
+    {"do": "expect", "title": "the PTY has the first grid again", "since": "back", "timeout": 10,
+     "all": [
+       {"pty_size": "back-${nonce}"},
+       {"daemon_prompt": true},
+       {"app_text_contains": "back-${nonce} "},
+       {"pane_frame_text": "back-${nonce}"}
+     ]}
+  ],
+  "finally": [{"do": "restore_window", "from": "before-place"}]
+}

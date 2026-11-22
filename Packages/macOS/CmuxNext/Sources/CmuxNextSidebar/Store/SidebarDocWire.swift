@@ -23,6 +23,16 @@ nonisolated enum SidebarDocWire {
     struct Batch: Decodable {
         var revision: Revision?
         var changes: [Lossy<Change>]
+
+        /// The idempotency key of the change a batch echoes, or nil.
+        static func key(of data: Data) -> String? {
+            (try? JSONDecoder().decode(Key.self, from: data))?.idempotencyKey
+        }
+
+        private struct Key: Decodable {
+            var idempotencyKey: String?
+            enum CodingKeys: String, CodingKey { case idempotencyKey = "idempotency_key" }
+        }
     }
 
     struct Change: Decodable {
@@ -157,11 +167,16 @@ nonisolated enum SidebarDocWire {
             case "ref": .ref(kind: self.body.string("kind") ?? "", value: self.body.string("value") ?? "")
             default: .other(self.body.tag)
             }
+            // The reducer keeps an item's label, icon, pin, archive, sort and space in `extra` (the mirror's `project` reply).
+            let extra = self.extra?.value as? [String: Any]
             return SidebarDocItem(id: id, section: section, parent: parent, body: body, showsLabel: showsLabel ?? true, span: span,
-                                  label: label ?? self.body.string("label"), iconURL: self.body.string("icon_url") ?? (extra?.value as? [String: Any])?["icon_url"] as? String,
-                                  pinnedInGroup: (extra?.value as? [String: Any])?["pinned"] as? Bool == true,
-                                  archived: (extra?.value as? [String: Any])?["archived"] as? Bool == true,
-                                  autoArchive: SidebarDocAutoArchiveRule(wire: (extra?.value as? [String: Any])?["auto_archive"]))
+                                  label: label ?? self.body.string("label") ?? extra?["label"] as? String,
+                                  iconURL: self.body.string("icon_url") ?? extra?["icon_url"] as? String,
+                                  pinnedInGroup: extra?["pinned"] as? Bool == true,
+                                  archived: extra?["archived"] as? Bool == true,
+                                  autoArchive: SidebarDocAutoArchiveRule(wire: extra?["auto_archive"]),
+                                  sort: SidebarGroupSort(wire: extra?["sort"]),
+                                  room: self.body.tag == "group" ? self.body.string("profile") : extra?["room"] as? String)
         }
     }
 

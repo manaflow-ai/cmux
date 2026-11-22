@@ -57,8 +57,8 @@ below do not:
 - Input never takes the user's focus. The app shows your input with the cmux
   agent cursor; it does not move the user's pointer.
 
-For native macOS apps (not web pages) the tool is cmux Computer Use (the
-`cmux-cua` skill), for a task that needs an app on the Mac; never `osascript`.
+For desktop apps (not web pages) the tool is cmux Computer Use (the
+`cmux-cua` skill), for a task that needs an app on the computer; never `osascript`.
 
 ## Read the CLI contract first
 
@@ -73,12 +73,16 @@ There are two kinds of browser in cmux, with different ids:
 
 | Id | Owner | Commands |
 | --- | --- | --- |
-| `tab_…` (or `page` for the focused tab) | the cmux app shows the page | `cmux browser tab_… navigate URL`, `snapshot`, `click`, `fill`, `eval`, … |
+| `tab_…` (or `page` for the browser nearest you) | the cmux app shows the page | `cmux browser tab_… navigate URL`, `snapshot`, `click`, `fill`, `eval`, … |
 | `browser_…` | the cmux-tui daemon | `cmux browser browser_… navigate --url URL`, `key`, `text`, `show`, `close` |
 
 In the app, use the `tab_…` form. Page commands accept a tab id or any unique
-prefix of one. `page` means the focused browser tab; use it only when the user
-asked about the tab they are looking at.
+prefix of one. `page` means the browser nearest you: one in your own workspace,
+then one in your sidebar group, then one in your window, never the person's
+focused tab in another window, and never one in another session. With none near
+you it fails (`page new-tab URL` opens your first one instead); list every tab
+with `cmux browser page tabs --all` and name one. `cmux --json identify` reports it
+as `browser`.
 
 ## Open a browser tab
 
@@ -86,9 +90,12 @@ asked about the tab they are looking at.
 cmux --json tab create browser --url https://example.com
 ```
 
-The result carries the new tab's `tab_…` id. Add `--workspace S --screen S
---pane S` to place it in a pane other than the caller's, and `--name N` to name
-it. The app also has UI actions that open a browser in the focused place:
+The result carries the new tab's `tab_…` id. With no place named, the tab opens
+beside you: in the column right of your chat, which cmux makes when there is
+none. Add `--workspace S` to show a page in another workspace: it opens right
+of that workspace's agent chat, the same way. Add `--screen S --pane S` only
+for a pane the person asked for, and never name a chat's own pane: a chat keeps
+its pane to itself. `--name N` names the tab. The app also has UI actions that open a browser in the focused place:
 `cmux tab new-browser`, `cmux browser split-right`, `cmux browser split-down`.
 Check their arguments with `cmux action describe "tab new-browser"` before use.
 
@@ -153,6 +160,52 @@ masks every browser pane in gray, its toolbar included, and refuses a browser ta
 ([cmux skill](../cmux/SKILL.md)): only the REPL's `page.screenshot()` hides
 the secrets a page shows.
 
+## Prove a local preview
+
+When a web UI change runs on a Cloud machine, use the built-in proof helper so
+the user receives the rendered page and the browser's errors in the same tool
+result:
+
+```js
+await previewProof(5173, { path: "/" });
+```
+
+`previewProof(port, options)` opens `http://127.0.0.1:<port><path>` in the
+machine/workspace browser in its own background tab, waits for the page load, collects `console.error`
+messages and uncaught page errors, and takes a screenshot. Its result includes
+the URL, both error lists, and a temporary PNG path. The transcript recognizes
+that path as an image attachment and renders it with the error report. Pass
+`screenshot: { fullPage: true }` when the whole page is needed; the default is
+the viewport. The helper closes its tab on success or failure, preserving the
+user's active tab and the REPL's current page. The screenshot is taken after
+load. For errors that appear later, pass `settleMs: 1000` to wait that many
+milliseconds after the screenshot before reading errors (default `0`).
+Pass `timeout: 5000` to bound navigation in milliseconds
+(default `30000`, `0` disables the navigation timeout). Both timing options
+must be finite nonnegative numbers.
+
+## Verify a flow before you say done
+
+Before you tell the person a UI change works, click through the flow you
+built and let the chat show the proof:
+
+```js
+await verifyFlow(5173, [
+  { open: "/settings", note: "Open Settings" },
+  { type: "#name", text: "Ada" },
+  { click: "text=Save" },
+  { expect: "Saved", note: "The save confirms" },
+]);
+```
+
+Each step gets a screenshot and one line; the first failure skips the rest.
+The chat draws the result as a pass/fail walkthrough under your final
+message, so say what passed rather than pasting the screenshots. A failed
+step means the change is not done: fix it and run the flow again. With no
+dev server on the port it fails with "No dev server answers at …"; start the
+server with `bg_start` first. Step shapes and limits:
+[references/repl-guide.md](references/repl-guide.md).
+
 ## What the per-tab CLI does not cover
 
 The per-tab commands have no saved state, console
@@ -161,7 +214,9 @@ device emulation is a tab verb (`cmux tab <tab_…> emulate`; see `cmux tab --he
 Network routing, geolocation and offline emulation and `identify` have no agent
 surface yet.
 
-Some have UI actions that act on the focused browser and return no data:
+Some have UI actions that act on the browser nearest you (the focused one
+when run outside cmux; they still need some browser to have focus) and return
+no data:
 `cmux browser screenshot-page`, `browser screenshot-section`,
 `browser toggle-developer-tools`, `browser show-javascript-console`,
 `browser delete-site-data`,

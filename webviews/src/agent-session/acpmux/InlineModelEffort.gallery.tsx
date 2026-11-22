@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import React, { useRef, useState } from "react";
 import { componentEntry } from "../../gallery/format";
-import type { QuickMenu } from "./QuickModelMenu";
+import type { QuickMenu } from "./quickModelMenuModel";
 
 type Props = { look?: QuickMenu["effortLook"]; chat?: boolean; placement?: QuickMenu["harnessPlacement"] };
 

@@ -58,6 +58,39 @@ fn notification_event_preserves_payload_without_invalidating_tree() {
     }));
 }
 
+/// W1-B: a daemon bell reaches a remote client twice over the wire: the raw
+/// `bell` event (a redraw) and the bell mark's `notification` event with
+/// `desktop: false`, which is the one the TUI passes on to its host.
+#[cfg(unix)]
+#[test]
+fn attention_a_daemon_bell_arrives_as_a_bannerless_terminal_notification() {
+    let (client, _server) = UnixStream::pair().unwrap();
+    let session = socket_test_session(client);
+    let events = session.subscribe();
+
+    session.handle_line(json!({"event": "bell", "surface": 7}));
+    session.handle_line(json!({
+        "event": "notification",
+        "notification": 43,
+        "title": "Bell",
+        "body": "",
+        "level": "info",
+        "surface": 7,
+        "source": "terminal",
+        "desktop": false,
+    }));
+
+    let received = events.try_iter().collect::<Vec<_>>();
+    assert!(received.iter().any(|event| matches!(event, MuxEvent::Bell(7))));
+    assert!(received.iter().any(|event| matches!(
+        event,
+        MuxEvent::Notification(notification)
+            if notification.title == "Bell"
+                && !notification.desktop
+                && notification.surface == Some(7)
+    )));
+}
+
 #[cfg(unix)]
 #[test]
 fn subscription_overflow_resubscribes_and_invalidates_authoritative_snapshots() {

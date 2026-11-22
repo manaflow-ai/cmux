@@ -68,12 +68,12 @@ import Testing
         #expect(targets.map(\.number) == [7, 21823])
         // Only plain github.com pull request URLs: nothing reaches the query unchecked.
         for bad in ["https://github.com/o\"){x}/r/pull/1", "https://evil.example/o/r/pull/1", "https://github.com/o/r/pull/1/files",
-                    "https://github.com/o/r/pull/01", "http://github.com/o/r/pull/1", "https://github.com/o/r/issues/1"] {
+                    "https://github.com/o/r/pull/01", "http://github.com/o/r/pull/1", "https://github.com/o/r/issues/1/files"] {
             #expect(Target(url: bad) == nil, "\(bad)")
         }
         let query = AgentChatPullRequestReader.query(targets)
-        #expect(query.contains("p0: repository(owner: \"o\", name: \"r\") { pullRequest(number: 7) { ...f } }"))
-        #expect(query.contains("p1: repository(owner: \"manaflow-ai\", name: \"cmux\") { pullRequest(number: 21823) { ...f } }"))
+        #expect(query.contains("p0: repository(owner: \"o\", name: \"r\") { issueOrPullRequest(number: 7) { __typename ...f ...i } }"))
+        #expect(query.contains("p1: repository(owner: \"manaflow-ai\", name: \"cmux\") { issueOrPullRequest(number: 21823) { __typename ...f ...i } }"))
         #expect(query.contains("additions deletions"))
         #expect(query.filter { $0 == "{" }.count == query.filter { $0 == "}" }.count)
     }
@@ -83,12 +83,12 @@ import Testing
             .compactMap(AgentChatPullRequestReader.Target.init(url:))
         let answer = """
             {"data":{
-             "p0":{"pullRequest":{"url":"https://github.com/o/r/pull/7","number":7,"title":"Stage hunks","state":"OPEN","isDraft":false,
+             "p0":{"issueOrPullRequest":{"url":"https://github.com/o/r/pull/7","number":7,"title":"Stage hunks","state":"OPEN","isDraft":false,
                "reviewDecision":null,"mergeable":"CONFLICTING","createdAt":"2026-10-01T09:30:00Z","mergedAt":null,"additions":120,"deletions":8,
                "commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
                  {"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":"https://github.com/o/r/actions/runs/1"},
                  {"__typename":"StatusContext","context":"ci/lint","state":"SUCCESS","targetUrl":"https://ci.example/2"}]}}}}]}}},
-             "p1":{"pullRequest":{"url":"https://github.com/o/r/pull/8","number":8,"title":"Docs","state":"MERGED","isDraft":false,
+             "p1":{"issueOrPullRequest":{"url":"https://github.com/o/r/pull/8","number":8,"title":"Docs","state":"MERGED","isDraft":false,
                "mergeable":"UNKNOWN","createdAt":"2026-10-02T00:00:00Z","mergedAt":"2026-10-03T00:00:00Z","additions":3,"deletions":1,
                "commits":{"nodes":[{"commit":{"statusCheckRollup":null}}]}}},
              "p2":null},
@@ -118,6 +118,51 @@ import Testing
         for failure in ["", "not json", #"{"message":"API rate limit exceeded"}"#, #"{"data":null,"errors":[{"message":"Bad credentials"}]}"#] {
             #expect(AgentChatPullRequestReader.pullRequests(fromGraphQL: Data(failure.utf8), targets).isEmpty, "\(failure)")
         }
+    }
+
+    /// An issue reads in the same batch as a pull request (Leo 2026-11-08: a private repo's issue
+    /// card showed only its link, since `pullRequest(number:)` answers null for an issue): its
+    /// title, state, author, labels and comments, marked `kind` `issue`, and a closed one that was
+    /// not planned keeps that state, in the full read and in the probe alike.
+    @Test func anIssueReadsWithItsTitleAndState() throws {
+        let targets = ["https://github.com/manaflow-ai/cmuxterm-hq/issues/7707", "https://github.com/o/r/issues/8"]
+            .compactMap(AgentChatPullRequestReader.Target.init(url:))
+        #expect(targets.count == 2)
+        let query = AgentChatPullRequestReader.query(targets)
+        #expect(query.contains("issueOrPullRequest(number: 7707) { __typename ...f ...i }"))
+        #expect(query.contains("fragment i on Issue { url number title state stateReason "))
+        #expect(query.filter { $0 == "{" }.count == query.filter { $0 == "}" }.count)
+        let answer = """
+            {"data":{
+             "p0":{"issueOrPullRequest":{"__typename":"Issue","url":"https://github.com/manaflow-ai/cmuxterm-hq/issues/7707","number":7707,
+               "title":"Hover cards flash","state":"OPEN","stateReason":null,"createdAt":"2026-11-07T00:00:00Z","updatedAt":"2026-11-08T00:00:00Z",
+               "author":{"login":"octocat","avatarUrl":"https://avatars.githubusercontent.com/u/1?s=48"},
+               "labels":{"nodes":[{"name":"bug","color":"d73a4a"}]},"comments":{"totalCount":4}}},
+             "p1":{"issueOrPullRequest":{"__typename":"Issue","url":"https://github.com/o/r/issues/8","number":8,"title":"Old",
+               "state":"CLOSED","stateReason":"NOT_PLANNED","labels":{"nodes":[]},"comments":{"totalCount":0}}}}}
+            """
+        let read = AgentChatPullRequestReader.pullRequests(fromGraphQL: Data(answer.utf8), targets)
+        let issue = try #require(read["https://github.com/manaflow-ai/cmuxterm-hq/issues/7707"] ?? nil)
+        #expect(issue.isIssue)
+        #expect((issue.title, issue.state, issue.author, issue.comments) == ("Hover cards flash", "open", "octocat", 4))
+        #expect(issue.labels == ["bug"])
+        let json = try #require(issue.json.foundationObject as? [String: Any])
+        #expect(json["kind"] as? String == "issue")
+        let closed = try #require(read["https://github.com/o/r/issues/8"] ?? nil)
+        #expect(closed.state == "not_planned")
+        // A pull request's JSON carries no kind.
+        let pull = try #require(AgentPanePullRequest(ghView: Data(#"{"url":"https://github.com/o/r/pull/1","number":1}"#.utf8)))
+        #expect(!pull.isIssue)
+        #expect((try #require(pull.json.foundationObject as? [String: Any]))["kind"] == nil)
+
+        let probe = """
+            {"data":{"p0":{"issueOrPullRequest":{"__typename":"Issue","updatedAt":"2026-11-08T00:00:00Z","state":"OPEN","stateReason":null}},
+             "p1":{"issueOrPullRequest":{"__typename":"Issue","updatedAt":"2026-11-01T00:00:00Z","state":"CLOSED","stateReason":"NOT_PLANNED"}}}}
+            """
+        let probes = AgentChatPullRequestReader.probes(fromGraphQL: Data(probe.utf8), targets)
+        #expect(probes["https://github.com/manaflow-ai/cmuxterm-hq/issues/7707"]??.state == "open")
+        #expect(probes["https://github.com/o/r/issues/8"]??.state == "not_planned")
+        #expect(probes["https://github.com/o/r/issues/8"]??.updatedAt == "2026-11-01T00:00:00Z")
     }
 
     @Test func pullRequestsOpenedTheSameMomentListByNumber() throws {
@@ -218,7 +263,7 @@ import Testing
     @Test func aMergedPullRequestIsReadOnce() async throws {
         let url = "https://github.com/o/r/pull/1"
         let gh = try Self.fakeGitHub(answer: """
-            {"data":{"p0":{"pullRequest":{"url":"\(url)","number":1,"title":"Done","state":"MERGED","isDraft":false,"mergeable":"UNKNOWN",
+            {"data":{"p0":{"issueOrPullRequest":{"url":"\(url)","number":1,"title":"Done","state":"MERGED","isDraft":false,"mergeable":"UNKNOWN",
              "createdAt":"2026-10-01T00:00:00Z","mergedAt":"2026-10-02T00:00:00Z","additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
             """, status: 0)
         let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh), freshness: .zero)
@@ -254,7 +299,7 @@ import Testing
     @Test func onlyAnOpenPullRequestKeepsTheRecheck() async throws {
         let folder = "/src/app", url = "https://github.com/o/r/pull/4"
         let gh = try Self.fakeGitHub(answer: """
-            {"data":{"p0":{"pullRequest":{"url":"\(url)","number":4,"title":"Going","state":"OPEN","isDraft":false,"mergeable":"MERGEABLE",
+            {"data":{"p0":{"issueOrPullRequest":{"url":"\(url)","number":4,"title":"Going","state":"OPEN","isDraft":false,"mergeable":"MERGEABLE",
              "createdAt":"2026-10-01T00:00:00Z","mergedAt":null,"additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
             """, status: 0)
         let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh), freshness: .seconds(300))
@@ -274,7 +319,7 @@ import Testing
     @Test func aClosedPullRequestIsAskedAgain() async throws {
         let url = "https://github.com/o/r/pull/3"
         let gh = try Self.fakeGitHub(answer: """
-            {"data":{"p0":{"pullRequest":{"url":"\(url)","number":3,"title":"Paused","state":"CLOSED","isDraft":false,"mergeable":"UNKNOWN",
+            {"data":{"p0":{"issueOrPullRequest":{"url":"\(url)","number":3,"title":"Paused","state":"CLOSED","isDraft":false,"mergeable":"UNKNOWN",
              "createdAt":"2026-10-01T00:00:00Z","mergedAt":null,"additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
             """, status: 0)
         let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh), freshness: .zero)
@@ -291,7 +336,7 @@ import Testing
             .compactMap(AgentChatPullRequestReader.Target.init(url:))
         let answer = """
             {"data":{"p0":null,"p1":null},
-             "errors":[{"type":"FORBIDDEN","path":["p0"],"message":"SAML enforcement"},{"type":"NOT_FOUND","path":["p1","pullRequest"]}]}
+             "errors":[{"type":"FORBIDDEN","path":["p0"],"message":"SAML enforcement"},{"type":"NOT_FOUND","path":["p1","issueOrPullRequest"]}]}
             """
         let read = AgentChatPullRequestReader.pullRequests(fromGraphQL: Data(answer.utf8), targets)
         #expect(!read.keys.contains("https://github.com/o/r/pull/7"))
@@ -303,7 +348,7 @@ import Testing
     @Test func anOpenPullRequestIsReadAgainOnItsOwn() async throws {
         let url = "https://github.com/o/r/pull/4"
         let gh = try Self.fakeGitHub(answer: """
-            {"data":{"p0":{"pullRequest":{"url":"\(url)","number":4,"title":"Running","state":"OPEN","isDraft":false,"mergeable":"MERGEABLE",
+            {"data":{"p0":{"issueOrPullRequest":{"url":"\(url)","number":4,"title":"Running","state":"OPEN","isDraft":false,"mergeable":"MERGEABLE",
              "createdAt":"2026-10-01T00:00:00Z","mergedAt":null,"additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
             """, status: 0)
         let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh), freshness: .milliseconds(100))
@@ -322,7 +367,7 @@ import Testing
     @Test func theRecheckReadsOnlyOpenPullRequests() async throws {
         let folder = "/src/no-pull-request", url = "https://github.com/o/r/pull/5"
         let gh = try Self.fakeGitHub(answer: """
-            {"data":{"p0":{"pullRequest":{"url":"\(url)","number":5,"title":"Running","state":"OPEN","isDraft":false,"mergeable":"MERGEABLE",
+            {"data":{"p0":{"issueOrPullRequest":{"url":"\(url)","number":5,"title":"Running","state":"OPEN","isDraft":false,"mergeable":"MERGEABLE",
              "createdAt":"2026-10-01T00:00:00Z","mergedAt":null,"additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
             """, status: 0)
         let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh), freshness: .milliseconds(100))
@@ -333,10 +378,5 @@ import Testing
         store.stop()
         #expect(Self.calls(gh, matching: "graphql") >= 5)
         #expect(Self.calls(gh) - Self.calls(gh, matching: "graphql") <= 2)
-    }
-
-    @Test func theCardIsADebugSettingOnByDefault() {
-        #expect(SidebarTunables.pullRequestCard.descriptor.key == "sidebar.pullRequestCard")
-        #expect(SidebarTunables.all.contains { $0.key == "sidebar.pullRequestCard" })
     }
 }

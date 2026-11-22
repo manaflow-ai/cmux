@@ -1,0 +1,44 @@
+{
+  "id": "quit-leaves-helpers",
+  "priority": "P1",
+  "title": "Cmd-Q with default settings: 10 s later only the processes that hold terminal sessions still run",
+  "why": "QA chrome-parity-v2-1 (bug 2, medium): after Cmd+Q the agent, chief and browser helper daemons (cmux-tui --headless for the cmux-chief session, acpmux daemon and router, optchat-chief, cmux-browser-host, 'cmux acp daemon run'; about 430 MB) kept running with no app process, one of them still alive after the relaunch. A person who quits an app expects it gone from Activity Monitor and from the battery list. The default quit keeps terminal sessions, so the terminal hosts and the app session's daemon that owns them may stay.",
+  "source": "independent QA bug (qa-chrome-parity-v2-1.json bugs[1]; evidence ps-before-quit.txt, ps-after-quit.txt)",
+  "budget_seconds": 150,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-quit-helpers", "as": "term"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo quit-${nonce}-$((6*7))", "enter": true, "mark": "typed"},
+    {"do": "expect", "title": "the terminal works", "since": "typed", "timeout": 10,
+     "all": [{"daemon_line": "quit-${nonce}-42"}, {"app_text_line": "quit-${nonce}-42"}]},
+    {"do": "key", "key": "d", "modifiers": ["cmd"]},
+    {"do": "focused_terminal", "as": "right"},
+    {"do": "key", "key": "l", "modifiers": ["cmd", "shift"], "mark": "browser"},
+    {"do": "expect", "title": "Cmd+Shift+L opens a browser tab in the right pane", "since": "browser", "timeout": 15,
+     "all": [{"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "addressBar"}}]},
+    {"do": "type", "text": "example.com", "enter": true, "mark": "loaded"},
+    {"do": "expect", "title": "before the quit: a terminal on the left, a loaded browser tab on the right", "since": "loaded", "timeout": 40,
+     "all": [
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "browserPage"}},
+       {"frame_text": "Example Domain"}
+     ]},
+
+    {"do": "relaunch", "how": "quit", "leftovers_after": 10, "mark": "reopened"},
+
+    {"do": "expect", "title": "10 s after the quit, nothing but the terminal-session holders ran", "timeout": 2,
+     "all": [
+       {"quit_leftovers": {"allow": [
+         {"match": "(^|/)cmux-tui __terminal-host ", "why": "holds a terminal's PTY and shell: the default quit keeps sessions"},
+         {"match": "/Contents/Resources/bin/cmux-tui --headless --session cmux-app-", "why": "the app session's daemon, the owner of those terminal hosts (their --owner)"}
+       ]}}
+     ]},
+
+    {"do": "use", "name": "term"},
+    {"do": "expect", "title": "after the reopen the kept terminal is back with its text", "since": "reopened", "timeout": 45,
+     "all": [
+       {"daemon_line": "quit-${nonce}-42"},
+       {"app_text_line": "quit-${nonce}-42"},
+       {"frame_text": "quit-${nonce}-42"}
+     ]}
+  ]
+}

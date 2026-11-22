@@ -44,11 +44,11 @@ public final class ConversationScheduledChangedEvent implements WireValue, Delta
         builder.participant(Wire.string(rawParticipant, "ConversationScheduledChangedEvent.participant"));
         Object rawRemoved = Wire.optional(object, "removed");
         if (!Wire.isMissing(rawRemoved)) {
-            builder.removed(Wire.immutableJson(rawRemoved));
+            builder.removed(Wire.immutableJson(ProtocolSupport.nonNull(rawRemoved, "ConversationScheduledChangedEvent.removed")));
         }
         Object rawScheduled = Wire.optional(object, "scheduled");
         if (!Wire.isMissing(rawScheduled)) {
-            builder.scheduled(Wire.immutableJson(rawScheduled));
+            builder.scheduled(Wire.immutableJson(ProtocolSupport.nonNull(rawScheduled, "ConversationScheduledChangedEvent.scheduled")));
         }
         return builder.build();
     }

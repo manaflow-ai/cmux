@@ -154,6 +154,10 @@ struct Inner {
     /// The session the host's history link serves (browser_host_history):
     /// each host start gets a fresh socketpair end as an inherited fd.
     history: Mutex<Option<Weak<crate::mux::Mux>>>,
+    /// Called after a host starts or stops, with the state lock released (the
+    /// owner's keepers watch, server/owner_keepers.rs). An observer must not
+    /// start a host: a start may be under way on the calling thread.
+    state_observers: Mutex<Vec<Box<dyn Fn() + Send + Sync>>>,
 }
 
 #[derive(Clone)]
@@ -228,6 +232,17 @@ impl BrowserHostSupervisor {
             State::Idle => None,
         }
     }
+
+    /// Whether a host runs now.
+    pub(crate) fn is_running(&self) -> bool {
+        matches!(&*lock(&self.inner.state), State::Running(_))
+    }
+
+    /// Calls `observer` after each host start and stop, with the state lock
+    /// released. It must not start a host (see `state_observers`).
+    pub(crate) fn add_state_observer(&self, observer: impl Fn() + Send + Sync + 'static) {
+        lock(&self.inner.state_observers).push(Box::new(observer));
+    }
 }
 
 impl Inner {
@@ -247,7 +262,15 @@ impl Inner {
         let credentials = running.credentials.clone();
         *lock(&this.state) = State::Running(running);
         *lock(&this.restart_due) = None;
+        this.state_changed();
         Ok(credentials)
+    }
+
+    /// Tells the state observers; called with the state lock released.
+    fn state_changed(&self) {
+        for observer in lock(&self.state_observers).iter() {
+            observer();
+        }
     }
 
     /// The host with `pid` stopped after running `ran`: forget it, and start
@@ -257,10 +280,14 @@ impl Inner {
         let delay = {
             let Some(inner) = this.upgrade() else { return };
             let mut state = lock(&inner.state);
-            if matches!(&*state, State::Running(running) if running.pid == pid) {
+            let stopped = matches!(&*state, State::Running(running) if running.pid == pid);
+            if stopped {
                 *state = State::Idle;
             }
             drop(state);
+            if stopped {
+                inner.state_changed();
+            }
             let mut backoff = lock(&inner.backoff);
             let backoff = backoff.get_or_insert_with(|| {
                 Backoff::new(Duration::from_millis(200), Duration::from_secs(30))
@@ -336,7 +363,10 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
 
     let socket = config.socket.as_path();
     let dir = socket.parent().ok_or("the browser host socket has no directory")?;
-    std::fs::create_dir_all(dir)
+    // 0700 for every folder made, the shared `cmux-tui-<uid>` parent too: `create_dir_all`
+    // left it at the umask's 755, and the cmux link refuses a socket folder open to others.
+    std::os::unix::fs::DirBuilderExt::mode(std::fs::DirBuilder::new().recursive(true), 0o700)
+        .create(dir)
         .and_then(|()| std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)))
         .map_err(|error| format!("cannot prepare {}: {error}", dir.display()))?;
     let secret = mint_secret()?;

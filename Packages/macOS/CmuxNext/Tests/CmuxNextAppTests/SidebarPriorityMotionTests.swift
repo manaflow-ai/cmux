@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The Priority view's rows move on the sidebar's motion, which is on by default: a chat whose rank
@@ -9,6 +10,7 @@ import Testing
 /// workspace rows, so with it off every reorder snapped and a leaving row vanished over a gap.
 /// With motion off (Reduce Motion, the master switch) every change lands in one frame.
 @MainActor
+@Suite(.closesItsWindows)
 struct SidebarPriorityMotionTests {
     /// The motion-off check only needs a screen. A test that sees a row move needs a display
     /// that draws frames (`GUIAnimationTestSupport`): a Blacksmith VM can have a screen whose
@@ -50,10 +52,15 @@ struct SidebarPriorityMotionTests {
         near(r.minX, s.minX) && near(r.minY, s.minY) && near(r.width, s.width) && near(r.height, s.height)
     }
 
-    /// Lets the display run frames until `done` holds (the spring settled), at most two seconds.
-    private static func runFrames(until done: () -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(2)
-        while !done(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(16)) }
+    /// Lets the display run frames until `done` holds (the spring settled), calling `sample` after each. The deadline
+    /// only bounds a failure: in the full parallel run other suites hold the main thread for seconds at a time, and
+    /// the frames that move the rows run there too, so a two-second window ended with the rows not moved yet.
+    private static func runFrames(until done: () -> Bool, sample: () -> Void = {}) async throws {
+        let deadline = ContinuousClock.now + .seconds(30)
+        while !done(), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(16))
+            sample()
+        }
     }
 
     /// Lets the display run frames for `duration`, calling `sample` after each.
@@ -90,7 +97,7 @@ struct SidebarPriorityMotionTests {
     })
     func aReorderSlidesTheRowsToTheirNewPlaces() async throws {
         let (view, window) = try Self.shown(["a", "b", "c"])
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let (a, c) = (try Self.row("a", in: view), try Self.row("c", in: view))
         let rowHeight = a.frame.height
         Self.withSidebarMotion { view.show(Self.panel(["c", "a", "b"])) }
@@ -107,7 +114,7 @@ struct SidebarPriorityMotionTests {
     })
     func aLeavingRowClosesItsSlotAndTheRowsBelowSlideUp() async throws {
         let (view, window) = try Self.shown(["a", "b", "c"])
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let (b, c) = (try Self.row("b", in: view), try Self.row("c", in: view))
         let slot = b.frame
         Self.withSidebarMotion { view.show(Self.panel(["a", "c"])) }
@@ -124,7 +131,7 @@ struct SidebarPriorityMotionTests {
     })
     func aNewRowOpensItsSlot() async throws {
         let (view, window) = try Self.shown(["a", "c"])
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let c = try Self.row("c", in: view)
         let slot = c.frame
         Self.withSidebarMotion { view.show(Self.panel(["a", "b", "c"])) }
@@ -141,7 +148,7 @@ struct SidebarPriorityMotionTests {
           arguments: [(true, true, false), (false, false, false), (false, true, true)])
     func withMotionOffEveryChangeLandsInOneFrame(reduceMotion: Bool, animationsEnabled: Bool, sidebarOff: Bool) throws {
         let (view, window) = try Self.shown(["a", "b", "c"])
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let (a, b, c) = (try Self.row("a", in: view), try Self.row("b", in: view), try Self.row("c", in: view))
         let rowHeight = a.frame.height
         Self.withSidebarMotion(reduceMotion: reduceMotion, animationsEnabled: animationsEnabled, sidebarOff: sidebarOff) {
@@ -167,7 +174,7 @@ struct SidebarPriorityMotionTests {
     })
     func aReorderDuringASlideEndsAtTheNewPlaces() async throws {
         let (view, window) = try Self.shown(["a", "b", "c"])
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let (a, b, c) = (try Self.row("a", in: view), try Self.row("b", in: view), try Self.row("c", in: view))
         let rowHeight = a.frame.height
         Self.withSidebarMotion { view.show(Self.panel(["c", "a", "b"])) }
@@ -188,7 +195,7 @@ struct SidebarPriorityMotionTests {
     })
     func aChangeWithMotionOffDuringASlideLandsAndStays() async throws {
         let (view, window) = try Self.shown(["a", "b", "c"])
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let (a, b, c) = (try Self.row("a", in: view), try Self.row("b", in: view), try Self.row("c", in: view))
         let rowHeight = a.frame.height
         Self.withSidebarMotion { view.show(Self.panel(["c", "a", "b"])) }
@@ -209,14 +216,15 @@ struct SidebarPriorityMotionTests {
     })
     func aRowRetargetedWhileItOpensClipsUntilWhole() async throws {
         let (view, window) = try Self.shown(["a", "c"])
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         Self.withSidebarMotion { view.show(Self.panel(["a", "b", "c"])) }
         let b = try Self.row("b", in: view)
         try await Self.runFrames(for: .milliseconds(100))
         Self.withSidebarMotion { view.show(Self.panel(["a", "b", "c"], previews: ["b"])) }
         let whole = SidebarPriorityRowView.height(hasPreview: true)
         var spilled: [CGFloat] = []
-        try await Self.runFrames(for: .milliseconds(900)) {
+        // Watched until b is whole, not for a fixed 900 ms, which a loaded main actor spent before b grew at all.
+        try await Self.runFrames(until: { Self.near(b.frame.height, whole) }) {
             if b.frame.height < whole - 0.5, !b.clipsToBounds { spilled.append(b.frame.height) }
         }
         #expect(spilled.isEmpty, "b drew unclipped while it opened, at heights \(spilled.prefix(3)) of \(whole)")
@@ -234,7 +242,7 @@ struct SidebarPriorityMotionTests {
     })
     func aClosingRowTakesNoClicks() throws {
         let (view, window) = try Self.shown(["a", "b", "c"])
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let b = try Self.row("b", in: view)
         Self.withSidebarMotion { view.show(Self.panel(["a", "c"])) }
         let document = try #require(b.superview)

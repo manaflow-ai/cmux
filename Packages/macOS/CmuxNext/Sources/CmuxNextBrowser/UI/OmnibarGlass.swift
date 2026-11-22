@@ -82,14 +82,27 @@ public nonisolated struct OmnibarGlassLook: Sendable, Hashable {
     }
 }
 
-/// The look cmux.json asks for, written by the App on every settings load
+/// The look and size cmux.json asks for, written by the App on every settings load
 /// (`BrowserOmnibarPreference`) and read by every omnibar
 /// (`OmnibarGlassLook.current`), which follows it live.
 @MainActor @Observable
 public final class OmnibarGlassAppearance {
     public static let shared = OmnibarGlassAppearance()
     public private(set) var look = OmnibarGlassLook.standard
-    private init() {}
+    /// `browser.omnibar.height` and `fontSize` in points; nil follows density (`OmnibarMetrics.current`).
+    public private(set) var height: Double?
+    public private(set) var fontSize: Double?
+    init() {}
+
+    /// The appearance chrome reads: a scoped one (tests that change the bar's size without
+    /// touching the app-wide `shared`), else `shared`.
+    public static var current: OmnibarGlassAppearance { scoped ?? shared }
+
+    /// Sets the bar's size overrides; nil follows density. Unchanged values notify nothing.
+    public func applySize(height: Double?, fontSize: Double?) {
+        if self.height != height { self.height = height }
+        if self.fontSize != fontSize { self.fontSize = fontSize }
+    }
 
     /// cmux.json's `browser.omnibar` look keys (`BrowserOmnibarSetting`):
     /// an unknown word keeps the default; `cornerRadius` nil is the theme's,
@@ -101,4 +114,10 @@ public final class OmnibarGlassAppearance {
                                     shadow: shadow, backgroundOpacity: backgroundOpacity)
         if look != next { look = next }
     }
+}
+
+nonisolated extension OmnibarGlassAppearance {
+    /// An appearance code inside `$scoped.withValue` reads instead of `shared` (task-local, so it
+    /// reaches only that scope and the tasks it starts, the omnibar's re-apply loops included).
+    @TaskLocal static var scoped: OmnibarGlassAppearance?
 }

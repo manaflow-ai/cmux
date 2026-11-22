@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 @testable import CmuxNextSidebar
 import Testing
@@ -10,7 +11,7 @@ import Testing
 /// rebuilt the list. Rule: once the card lands, every open group with members draws its rail, at its rows.
 /// The drop runs through the sidebar document's drag (`SidebarModel.docDrag`), the path the app uses; the second test
 /// sends it through a document store, so the list holds the drop's look until the model shows it, as in the app.
-@MainActor @Suite(.serialized) struct SidebarGroupDragRailTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarGroupDragRailTests {
     static let section = "sec_m_s1"
     static let work = GroupID("g-work"), infra = GroupID("g-infra"), empty = GroupID("g-empty")
 
@@ -30,11 +31,13 @@ import Testing
         return [SidebarSection(kind: .machine(machine), nodes: [.workspace(ws("scratch"))] + order.compactMap { groups[$0].map { .group($0) } })]
     }
 
-    static func list(_ drops: Drops, send: ((_ items: [String], _ target: SidebarDocTarget) -> Void)? = nil) -> (SidebarListView, NSWindow) {
+    /// `document`: the app's document store the drop goes to, when it has one.
+    static func list(_ drops: Drops, document: SidebarDocStore? = nil,
+                     send: ((_ items: [String], _ target: SidebarDocTarget) -> Void)? = nil) -> (SidebarListView, NSWindow) {
         _ = NSApplication.shared
         let model = SidebarModel(sections: sections([work, infra, empty]), activeWorkspaceID: WorkspaceID("scratch"))
         let members: Set<String> = ["docs", "web", "api", "deploy"]
-        model.docDrag = SidebarDocDrag(item: { key in
+        model.docDrag = SidebarDocDrag(document: document, item: { key in
             switch key {
             case let .workspace(id): "w_\(id.rawValue)"
             case let .group(group): "g_\(group.rawValue)"
@@ -160,14 +163,11 @@ import Testing
     /// model shows the move, and the card lands into the rows the model put there.
     @Test func theRailShowsAfterADocumentDropSettles() async throws {
         let store = SidebarDocStore(remote: Remote(document: Self.document))
-        let previous = SidebarDocStore.current
-        SidebarDocStore.current = store
-        defer { SidebarDocStore.current = previous }
         store.refresh()
         await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { store.isActive }
         try #require(store.isActive, "the store did not load the document")
         let drops = Drops()
-        let (list, window) = Self.list(drops) { items, target in store.move(items, to: target, title: "Move") }
+        let (list, window) = Self.list(drops, document: store) { items, target in store.move(items, to: target, title: "Move") }
         defer { window.close() }
         try Self.withNewWorkspaceMotionOff {
             try Self.dragInfraPastEmpty(list)
@@ -180,7 +180,7 @@ import Testing
     /// The home daemon's document for `sections([work, infra, empty])`; its moves never answer (the echo is the test's).
     static let document = Data("""
     {"revision": "1",
-     "sections": [{"id": "sec_m_s1", "kind": {"type": "machine", "session_id": "s1"}}],
+     "sections": [{"id": "sec_m_s1", "order": "V", "kind": {"type": "machine", "session_id": "s1"}}],
      "items": [
        {"id": "w_scratch", "section": "sec_m_s1", "order": "a", "body": {"type": "workspace", "ref": {"session_id": "s1", "workspace_id": "scratch"}}},
        {"id": "g_g-work", "section": "sec_m_s1", "order": "b", "body": {"type": "group", "name": "Work"}},

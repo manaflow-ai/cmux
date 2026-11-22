@@ -10,6 +10,7 @@ import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { settleReact } from "./support/domTeardown";
 setDefaultTimeout(120_000);
 
 // prettier-ignore
@@ -78,14 +79,16 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { setChatDisplay } = await import("../src/agent-session/acpmux/chatDisplay");
-const { REDRAW_MS, ChatMinimap } = await import("../src/agent-session/acpmux/chatMinimap/ChatMinimap");
+const { ChatMinimap } = await import("../src/agent-session/acpmux/chatMinimap/ChatMinimap");
+const { REDRAW_MS } = await import("../src/agent-session/acpmux/chatMinimap/chatMinimapModel");
 const { setBookmarkTransport } = await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
 const noBookmarks = async (sessionId: string) => ({ sessionId, bookmarks: [] });
 setBookmarkTransport({ get: noBookmarks, set: noBookmarks });
 
-afterAll(() => {
+afterAll(async () => {
   setChatDisplay({});
   setBookmarkTransport(undefined);
+  await settleReact();
   dom.window.close();
   for (const [key, had, value] of saved) if (had) scope[key] = value; else delete scope[key]; // prettier-ignore
   if (stringsBefore) strings.__cmuxPaneStrings = stringsBefore; else delete strings.__cmuxPaneStrings; // prettier-ignore
@@ -365,6 +368,47 @@ test("the scrollbar's value is the share scrolled of the real range, focused or 
     expect(value()).toBe("0");
     await key("ArrowDown");
     expect(value()).toBe(String(Math.round((100 * 40) / (page.height - VIEWPORT))));
+  } finally {
+    await pane.done();
+    setChatDisplay({});
+  }
+});
+
+test("absolute minimap keys clear a fractional origin while relative keys keep it", async () => {
+  setChatDisplay({ "agentPane.display.vscodeMinimap": true });
+  const pane = await mount();
+  const { layoutScrollTop, scrollOrigin, writeAnchorScrollTop } =
+    await import("../src/agent-session/acpmux/conversation/scrollCoordinates");
+  try {
+    await pane.render("Done.");
+    await act(async () => flushFrames());
+    const node = pane.scroller();
+    const page = content(node, 1000);
+    let physical = 200;
+    Object.defineProperty(node, "scrollTop", {
+      configurable: true,
+      get: () => Math.min(physical, page.height - VIEWPORT),
+      set: (value: number) => {
+        physical = Math.round(value);
+      },
+    });
+    const control = pane.host.querySelector<HTMLElement>(".acpmux-chat-minimap [role=scrollbar]")!;
+    const key = (name: string) =>
+      act(async () => {
+        control.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true }));
+      });
+    writeAnchorScrollTop(node, 200.25);
+    expect(scrollOrigin(node)).toBe(-0.25);
+    await key("ArrowDown");
+    expect(layoutScrollTop(node)).toBe(240.25);
+    expect(scrollOrigin(node)).toBe(-0.25);
+    await key("Home");
+    expect(layoutScrollTop(node)).toBe(0);
+    expect(scrollOrigin(node)).toBe(0);
+    writeAnchorScrollTop(node, 200.25);
+    await key("End");
+    expect(layoutScrollTop(node)).toBe(page.height - VIEWPORT);
+    expect(scrollOrigin(node)).toBe(0);
   } finally {
     await pane.done();
     setChatDisplay({});

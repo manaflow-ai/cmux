@@ -25,6 +25,36 @@ final class PageState {
     var answeringSearch: Int?
     var answersQuery: Bool { answeringSearch != nil }
     var tasks: [Task<Void, Never>] = []
+    /// How many of the provider reads in `tasks` have not ended. A list that reads again by itself
+    /// (`AsyncPaletteProvider.rereading`) can run for minutes: a hidden palette ends it (`PaletteModel.didHide`).
+    var liveReads = 0
+    /// The query the page's contributed answers last asked for (`PaletteContributedAnswers`).
+    var answeredQuery: String?
+    /// Each contributed answer's last rows, by section id, and the query they answer: `answeredQuery`'s, or an
+    /// older query's, shown only as a stand-in (never selectable, never final) until the new answer replaces it.
+    var answerSections: [String: PaletteResultSection] = [:]
+    var answerQueries: [String: String] = [:]
+    /// The answers that lead the page (its main content, `PaletteContributedAnswers.leads`).
+    var leadingAnswers = Set<String>()
+    /// The answers `answeredQuery` still waits for: each request ends with rows, with none, or when the query moves on.
+    var awaitedAnswers = Set<String>()
+    /// What the answers looked like at the last delivery (`PaletteModel.answerFingerprint`): a redelivery that
+    /// would show the same is skipped.
+    var deliveredAnswerFingerprint: [String]?
+    /// A redelivery is scheduled for this main-thread turn (`PaletteModel.scheduleRedelivery`).
+    var redeliveryScheduled = false
+    var answerTasks: [Task<Void, Never>] = []
+    /// The page's source-change subscriptions (`PalettePageSpec.onSourceChange`), held while it is open.
+    var sourceTokens: [AnyObject] = []
+    /// The providers' change follows (``PaletteProvider/followChanges(_:)``), made at each load and held while
+    /// the page is open: a change reads that provider's rows again.
+    var providerTokens: [AnyObject] = []
+    /// The ranked rows last delivered, before the answers join them, and that delivery's generation
+    /// and marks: an answer shows again with them only when they are the current query's.
+    var rankedSections: [PaletteResultSection]?
+    var rankedGeneration: Int?
+    var rankedProvisional = false
+    var rankedComplete = true
     /// Rows last shown on this page, restored instantly when the page comes
     /// back into view (popping) while a fresh search runs.
     var lastSections: [PaletteResultSection]?
@@ -78,6 +108,15 @@ final class PageState {
     }
 
     var sectionOrders: [Int] { sections.map(\.order) }
+
+    /// The names a search filter (`in:tabs`) reads, one list per section index: its title and
+    /// its id; then the contributed answers' sections (agent chats), which hold no ranked rows.
+    func filterSectionNames(_ page: PalettePageSpec) -> [[String]] {
+        let ranked = sections.map { [$0.title, $0.id] }
+        let known = Set(sections.map(\.id))
+        let answered = page.contributedAnswers.map(\.section).filter { !known.contains($0.id) }.map { [$0.title, $0.id] }
+        return ranked + answered
+    }
 
     /// Merges provider items in provider order, dropping duplicate IDs.
     func rebuild() {
@@ -144,7 +183,46 @@ final class PageState {
     }
 
     func cancel() {
+        cancelReads()
+        cancelAnswers()
+        sourceTokens = []
+        providerTokens = []
+    }
+
+    /// Ends the provider reads that still run; the rows they gave stay.
+    func cancelReads() {
         for task in tasks { task.cancel() }
         tasks = []
     }
+
+    /// Ends the contributed answers' streams and drops their rows (the page is left).
+    func cancelAnswers() {
+        cancelAnswerTasks()
+        answerSections = [:]
+        answerQueries = [:]
+    }
+
+    /// Ends the contributed answers' streams; their rows stay as stand-ins until the next answers replace them.
+    func cancelAnswerTasks() {
+        for task in answerTasks { task.cancel() }
+        answerTasks = []
+        awaitedAnswers = []
+    }
+
+    /// The answer sections for the current query, and the stand-ins (an older query's answers still on screen).
+    var currentAnswers: [PaletteResultSection] { answerSections.filter { answerQueries[$0.key] == query }.map(\.value) }
+    var standInAnswers: [PaletteResultSection] { answerSections.filter { answerQueries[$0.key] != query }.map(\.value) }
+    /// Each contributed page's more row for `query` (`PalettePageSpec.moreRow`), by answer section id.
+    func moreRows(forQuery query: String) -> [String: (_ notShown: Int) -> PaletteItem] {
+        guard case .list(let page) = kind else { return [:] }
+        var rows: [String: (_ notShown: Int) -> PaletteItem] = [:]
+        for answer in page.contributedAnswers {
+            guard let more = answer.moreRow else { continue }
+            rows[answer.section.id] = { more($0, query) }
+        }
+        return rows
+    }
+
+    /// Whether the current query waits for a leading answer (its main content).
+    var awaitsLead: Bool { !awaitedAnswers.isDisjoint(with: leadingAnswers) }
 }

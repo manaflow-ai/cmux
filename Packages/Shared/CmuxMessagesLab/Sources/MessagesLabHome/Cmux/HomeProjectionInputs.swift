@@ -15,21 +15,29 @@ struct HomeProjectionInputs: Equatable {
     var summary: ConversationSummary?
     var row: InboxRow?
     var typing: Set<ParticipantID>?
+    /// The running replies as drawn: their text when the view grows stream bubbles, else only their
+    /// shape (a whole-message view draws no reply text, so a talk token changes nothing it reads).
     var streams: [HomeStreamRow]
     var live: HomeLiveRun?
+    var shape: HomeRunShape?
     var confirmed: Bool
     var hasOlder: Bool
 
     /// Reads `conversation`'s inputs; every read is a constant-time lookup except the row (one pass over the inbox).
     @MainActor
-    init(_ store: HomeStore, _ conversation: ConversationID) {
+    init(_ store: HomeStore, _ conversation: ConversationID, replies: HomeReplyDisplay) {
         me = store.me?.id
         transcriptVersion = store.transcriptVersion[conversation, default: 0]
         summary = store.summary(conversation)
         row = store.rows.first { $0.summary.id == conversation }
         typing = store.typing.value(for: conversation)
-        streams = store.streams(in: conversation)
-        live = store.liveRun(in: conversation)
+        if replies == .streaming {
+            streams = store.streams(in: conversation)
+            live = store.liveRun(in: conversation)
+        } else {
+            streams = []
+            shape = store.runShape(in: conversation)
+        }
         confirmed = store.isConfirmed(conversation)
         hasOlder = store.hasOlderMessages(in: conversation)
     }

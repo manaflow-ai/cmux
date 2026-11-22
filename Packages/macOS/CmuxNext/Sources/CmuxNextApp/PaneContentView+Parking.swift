@@ -14,16 +14,16 @@ import CmuxNextTerminal
 @MainActor
 protocol PaneParkableContent: NSView {}
 
-extension BrowserChromeView: PaneParkableContent {}
+extension BrowserChromeView: PaneParkableContent, PaneCommitMotionPicture {} // a page's picture: its pane rides a move, its host holds it
 extension TerminalHostView: PaneParkableContent {}
 /// An agent page (a chat or New Tab page) too: putting a WKWebView back into a window waits
 /// synchronously for its web process (170-215 ms on Cmd-W back to a New Tab page, #20516).
-extension AgentPaneView: PaneParkableContent, PaneTabRowSharing {}
+extension AgentPaneView: PaneParkableContent, PaneTabRowSharing, PaneCommitMotionPicture {} // a page's picture too
 /// An internal page (Markdown, a file viewer, Settings) is a WKWebView too: taking it out of the window
 /// and back on every switch re-attached its web process the same way (tab-switch-fast). Its view
 /// lives as long as its tab (`InternalPageTabStore.close` removes it), so parking costs no memory. Its
-/// page's tools share the tab row (the docked Home's Chief tools, `HomeDockSwitchView+TabRow`).
-extension InternalPageView: PaneParkableContent, PaneTabRowForwarding { var tabRowSharer: PaneTabRowSharing? { content as? PaneTabRowSharing } }
+/// page's tools share the tab row (the docked Home's Chief tools, `HomeDockSwitchView+TabRow`). Each internal page is a page's picture too, Home with them: its pane rides a move, and its host holds it.
+extension InternalPageView: PaneParkableContent, PaneTabRowForwarding, PaneCommitMotionPicture { var tabRowSharer: PaneTabRowSharing? { content as? PaneTabRowSharing } }
 /// Its page's rows in the pane's more menu (the docked Home's Chief Actions, `ChiefPaneTools`).
 extension InternalPageView: PaneMoreMenuContributing {
     func paneMoreMenuItems() -> [NSMenuItem] { (content as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] }
@@ -42,29 +42,27 @@ struct ParkedContent {
 /// evicted each view 8 switches before its turn came back (pane-tab-switch-fast).
 extension PaneContentView {
 
-    /// Puts `view` on screen as the pane's content: unhides it when it is
-    /// parked here, else adds it (also from another pane, a moved tab).
-    /// `leaving`, retired right after, does not count as content above it.
+    /// Puts `view` on screen as the pane's content: unhides it when it is parked here, else adds it (also from another
+    /// pane, a moved tab). `leaving`, retired right after, does not count as content above it.
     func install(_ view: NSView, replacing leaving: NSView? = nil) {
+        if let agent = view as? AgentPaneView, AgentPageDrawnParking.install(agent, in: contentHost, at: parkedFrame(of: view) ?? contentHost.contentBounds(for: view), fills: parkedFrame(of: view) == nil, cover: self) { needsLayout = true; return refreshNativeToolOwner() } // waited drawn: shows its last frame as it is
         guard view.superview === contentHost else {
-            view.frame = contentHost.bounds
+            view.frame = contentHost.contentBounds(for: view)
             view.autoresizingMask = [.width, .height]
             contentHost.addSubview(view)
             refreshNativeToolOwner()
-            // Parked in the pane it came from.
-            if view is PaneParkableContent { view.isHidden = false }
+            if view is PaneParkableContent { view.isHidden = false } // parked in the pane it came from
             return
         }
         parked.removeAll { $0.view == nil || $0.view === view }
-        if let frame = parkedFrame(of: view), view.frame == frame, frame != contentHost.bounds {
-            // A chat parked at the size it shows at (`layoutParked`) keeps it: the pane's next layout
-            // moves the host under the tab row and puts the chat at its origin, at the same size.
-            // Sized to the host here first, its page drew a frame at the strip's height less and
-            // then grew back: the whole chat jumped as it showed.
+        if let frame = parkedFrame(of: view), frame != contentHost.bounds || contentHost.keepsOutOfTabRowInHold(view), view.frame == frame || contentHost.isHolding {
+            // A chat parked at the size it shows at (`layoutParked`) keeps it: the pane's next layout moves the host under the
+            // tab row and puts the chat at its origin, same size (sized to the host first, its page jumped as it showed). The Home shown inside a key hold (`keepsOutOfTabRowInHold`) goes this way also when its parked frame IS the host's (the tab before was a chat in the tab row): with the fill mask it was held at the whole pane's size with its row while the host went under the strip.
+            if view.frame != frame { view.frame = frame } // parked through a key hold (`layoutParked` waits for its end): one size, the one it shows at
             view.autoresizingMask = []
             needsLayout = true
         } else {
-            if view.frame != contentHost.bounds { view.frame = contentHost.bounds }
+            if view.frame != contentHost.contentBounds(for: view) { view.frame = contentHost.contentBounds(for: view) }
             view.autoresizingMask = [.width, .height]
         }
         // Above what still shows (a backdrop or a held page); hidden parked
@@ -82,6 +80,7 @@ extension PaneContentView {
     func retire(_ view: NSView) {
         guard view.superview === contentHost else { return }
         (view as? AgentPaneView)?.onNativeToolOwnerChange = nil
+        (view as? AgentPaneView)?.onNativeToolMenuRequested = nil
         guard view is PaneParkableContent else {
             view.removeFromSuperview()
             refreshNativeToolOwner()
@@ -90,11 +89,9 @@ extension PaneContentView {
         // The keyboard never stays in a view that does not show: the window
         // takes it, and the focus model re-applies its target (the content
         // shown now), as when a view leaves the window.
-        if let window, let responder = window.firstResponder as? NSView, responder.isDescendant(of: view) {
-            window.makeFirstResponder(nil)
-        }
+        view.handKeyboardToWindow()
         (view as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
-        view.isHidden = true
+        if !((view as? AgentPaneView).map(AgentPageDrawnParking.park) ?? false) { view.isHidden = true } // a Chromium chat waits drawn
         // A hidden agent or internal page stays sized with the pane, so showing it again needs no redraw at a new
         // size (`AgentPageRedraw.awaits`). Terminals and browsers do no work while hidden: `install`
         // sets their frame. A page that shares the tab row is sized by `layoutParked` instead.
@@ -106,17 +103,21 @@ extension PaneContentView {
 
     /// Drops parked views that are gone, moved to another pane, or not
     /// `live` (a closed tab, a replaced view).
-    func prunePark(live: ((NSView) -> Bool)? = nil) {
+    func prunePark(live: ((NSView) -> Bool)? = nil, keeps: ((NSView) -> Bool)? = nil) {
         parked.removeAll { entry in
             guard let view = entry.view else { return true }
             guard view.superview === contentHost else {
-                if view.superview == nil { (view as? AgentPaneView)?.onNativeToolOwnerChange = nil }
+                if view.superview == nil {
+                    (view as? AgentPaneView)?.onNativeToolOwnerChange = nil
+                    (view as? AgentPaneView)?.onNativeToolMenuRequested = nil
+                }
                 return true
             }
             guard view !== content else { return true }
             guard live?(view) ?? true else {
                 (view as? AgentPaneView)?.onNativeToolOwnerChange = nil
-                view.removeFromSuperview()
+                (view as? AgentPaneView)?.onNativeToolMenuRequested = nil
+                if keeps?(view) != true { view.removeFromSuperview() } // kept: its owner moved it inside the window
                 refreshNativeToolOwner()
                 return true
             }
@@ -132,9 +133,8 @@ extension PaneContentView {
     func parkedFrame(of view: NSView) -> NSRect? {
         guard view is PaneParkableContent, let row = view as? PaneTabRowSharing else { return nil }
         let strip = stripHeight
-        let room = bounds.width - toolbarWidth(shown: strip)
-        let shares = barPosition == .top && !hidesStrip && strip > 0 && row.fitsTabRow(room: room)
-            && row.tabRowWidth(room: room) > 0
+        let room = bounds.width - (strip > 0 ? toolbar?.view.paneWidthBesideChat(in: bounds.width) ?? 0 : 0)
+        let shares = barPosition == .top && !hidesStrip && strip > 0 && row.drawsInTabRow(room: room)
         let shown = shares ? bounds : NSRect(x: 0, y: barPosition == .top ? strip : 0, width: bounds.width,
                                              height: max(0, bounds.height - strip))
         return contentHost.convert(shown, from: self)
@@ -149,6 +149,14 @@ extension PaneContentView {
             view.autoresizingMask = []
             if view.frame != frame { view.frame = frame }
         }
+    }
+
+    /// Parked content whose tab closed, moved away or got a new view leaves the window. `liveContent`: the pane's tabs' content
+    /// now (every kind: a page tab that parks is never dropped as closed); a browser tab keeps the pane's one browser chrome.
+    func dropClosedParked(liveContent: () -> [TabContent]) {
+        guard !parked.isEmpty else { return }
+        let live = Set(liveContent().map { if case .browser = $0, let chrome = browserChrome.chrome { ObjectIdentifier(chrome) } else { ObjectIdentifier($0.view) } })
+        prunePark(live: { live.contains(ObjectIdentifier($0)) }, keeps: keepsClosedPage) // only a closed tab's page is kept
     }
 
     /// Takes every parked view out of the pane (the pane goes away).

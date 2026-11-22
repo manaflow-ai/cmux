@@ -25,8 +25,9 @@ use serde_json::{Value, json};
 
 use super::host_steps::StepState;
 
-/// The platform the join line comes from until joining is on elsewhere.
-pub const DEV_ORIGIN: &str = "https://cmux-platform-development.debussy.workers.dev";
+/// The platform the join line comes from when the status names none: the
+/// join's own default hub.
+pub const JOIN_ORIGIN: &str = super::cloud_join::DEFAULT_HUB;
 /// A heartbeat older than this means the machine has dropped off the mesh
 /// (the hub's own limit, cmux#27079).
 pub const HEARTBEAT_WITHIN_MS: u64 = 90_000;
@@ -42,19 +43,34 @@ pub struct JoinStep {
     pub state: StepState,
     pub detail: String,
     pub fix: Option<String>,
+    /// Structured readiness data for callers such as the app. Sensitive command output is
+    /// reduced to booleans before it reaches this field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
 }
 
 impl JoinStep {
     pub fn new(step: &'static str, state: StepState, detail: impl Into<String>) -> Self {
-        Self { step, state, detail: detail.into(), fix: None }
+        Self { step, state, detail: detail.into(), fix: None, data: None }
     }
 
     pub fn fail(step: &'static str, detail: impl Into<String>, fix: impl Into<String>) -> Self {
-        Self { step, state: StepState::Fail, detail: detail.into(), fix: Some(fix.into()) }
+        Self {
+            step,
+            state: StepState::Fail,
+            detail: detail.into(),
+            fix: Some(fix.into()),
+            data: None,
+        }
     }
 
     pub fn with_fix(mut self, fix: impl Into<String>) -> Self {
         self.fix = Some(fix.into());
+        self
+    }
+
+    pub fn with_data(mut self, data: Value) -> Self {
+        self.data = Some(data);
         self
     }
 
@@ -80,6 +96,9 @@ pub enum Service {
     Inactive { installed: bool },
     /// No systemd user session or launchctl here (a container).
     NoManager,
+    /// macOS with no one logged in at the screen: the LaunchAgent is installed and loads at the
+    /// next login there (no GUI domain to load it into now); the daemon runs in place until then.
+    AtNextLogin,
 }
 
 /// What `acpmux host join --status --json` said.
@@ -127,10 +146,10 @@ fn origin(facts: &Facts) -> String {
         Status::Json(v) => v["hubOrigin"]
             .as_str()
             .filter(bare)
-            .unwrap_or(DEV_ORIGIN)
+            .unwrap_or(JOIN_ORIGIN)
             .trim_end_matches('/')
             .to_owned(),
-        _ => DEV_ORIGIN.to_owned(),
+        _ => JOIN_ORIGIN.to_owned(),
     }
 }
 
@@ -171,12 +190,13 @@ pub fn steps(facts: &Facts, now_ms: u64) -> Vec<JoinStep> {
     steps.push(credential);
     let skip = |step: &'static str, why: &str| JoinStep::new(step, StepState::Skip, why);
     let Some(status) = status.filter(|_| joined) else {
-        for step in ["revoked", "hub", "heartbeat"] {
+        for step in ["team", "revoked", "hub", "heartbeat"] {
             steps.push(skip(step, "this machine has not joined"));
         }
         steps.push(consent_step(facts, status));
         return steps;
     };
+    steps.push(team_step(status));
     let revoked = status["revoked"].as_bool() == Some(true);
     steps.push(match status["revoked"].as_bool() {
         Some(true) => JoinStep::fail("revoked", "your team revoked this machine", NEW_LINE),
@@ -239,6 +259,21 @@ fn service_step(facts: &Facts) -> JoinStep {
         )
         .with_fix("loginctl enable-linger $USER"),
         Service::Active { .. } => JoinStep::new("service", StepState::Ok, format!("{what} runs")),
+        // The daemon answers, only not under the service: this join works now and stops at the
+        // next reboot, which is a warning (a headless user with no systemd user session, or a
+        // daemon someone started by hand), never a failed join.
+        Service::Inactive { installed: true } if facts.daemon_running => JoinStep::new(
+            "service",
+            StepState::Warn,
+            format!("{what} is installed but not running; the daemon runs without it"),
+        )
+        .with_fix(start),
+        Service::Inactive { installed: false } if facts.daemon_running => JoinStep::new(
+            "service",
+            StepState::Warn,
+            format!("{what} is not installed; the daemon runs without it"),
+        )
+        .with_fix(rejoin(facts)),
         Service::Inactive { installed: true } => {
             JoinStep::fail("service", format!("{what} is installed but not running"), start)
         }
@@ -249,6 +284,13 @@ fn service_step(facts: &Facts) -> JoinStep {
             "service",
             StepState::Warn,
             "no service manager here: the daemon runs only while something starts it",
+        ),
+        Service::AtNextLogin => JoinStep::new(
+            "service",
+            StepState::Warn,
+            format!(
+                "{what} is installed and loads at the next login at this Mac's screen (no one is logged in there now)"
+            ),
         ),
     }
 }
@@ -303,6 +345,70 @@ fn credential_step(facts: &Facts) -> JoinStep {
     }
 }
 
+/// The backend's id for `user`'s personal team (cmux-platform `personalTeamIdFor`:
+/// `team_` and the first 20 hex digits of SHA-256 of `personal:<user>`).
+pub fn personal_team_of(user: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let hex: String = Sha256::digest(format!("personal:{user}"))
+        .iter()
+        .take(10)
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    format!("team_{hex}")
+}
+
+/// Which team the join is in, and whether that is the person's personal team. The hub scopes
+/// both the hub carrier and the vault by the join's team: a person's machines joined in another
+/// team never get a relay ticket to this one (`machine.not_found`), and a machine joined in a
+/// shared team never receives its owner's vault (`vault.forbidden`), while its heartbeat, hub
+/// and credential all read healthy. So a join outside the personal team is a warning that says
+/// so, with how to move it.
+fn team_step(status: &Value) -> JoinStep {
+    let id =
+        |key: &str| status[key].as_str().filter(|v| !v.is_empty() && plain(v) && v.len() <= 128);
+    let Some(team) = id("teamId") else {
+        return JoinStep::new(
+            "team",
+            StepState::Skip,
+            "acpmux did not say which team this join is in",
+        );
+    };
+    let Some(user) = id("userId").filter(|user| user.starts_with("user_")) else {
+        return JoinStep::new(
+            "team",
+            StepState::Ok,
+            format!("joined in team {team}; the join names no account, so whether it is your personal team is unknown"),
+        )
+        .with_data(json!({"teamId": team, "userId": null, "personalTeam": null}));
+    };
+    let personal = personal_team_of(user);
+    let data = json!({"teamId": team, "userId": user, "personalTeam": personal});
+    if team == personal {
+        return JoinStep::new(
+            "team",
+            StepState::Ok,
+            format!("joined in your personal team {team} as {user}"),
+        )
+        .with_data(data);
+    }
+    JoinStep::new(
+        "team",
+        StepState::Warn,
+        format!(
+            "joined in team {team} as {user}, not in your personal team {personal}: your machines \
+             joined in {personal} get no hub route to this one (machine.not_found) and this one's \
+             vault pull is refused (vault.forbidden)"
+        ),
+    )
+    .with_fix(format!(
+        "If your other machines are in {personal}: select your personal team in the cmux app on \
+         this machine (a sign-in join follows the app's team), or run acpmux machine leave and join \
+         again with a line made in your personal team. If this team is the one you meant, join the \
+         other machines here too."
+    ))
+    .with_data(data)
+}
+
 fn heartbeat_step(value: &Value, now_ms: u64) -> JoinStep {
     let fix = "acpmux daemon restart; if it persists, acpmux config must name meshRelay";
     let Some(at) = epoch_ms(value) else {
@@ -347,7 +453,9 @@ fn consent_step(facts: &Facts, status: Option<&Value>) -> JoinStep {
         detail.push_str(&format!("; a {surface} request was last refused here"));
     }
     if !on("screen") || !on("control") {
-        detail.push_str("; to allow, run here: acpmux host consent grant --screen (or --control)");
+        detail.push_str(
+            "; to allow, turn it on in the cmux app here, or as this Mac's admin: sudo acpmux machine consent grant --control (or --screen)",
+        );
     }
     JoinStep::new("consent", StepState::Ok, detail)
 }
@@ -370,11 +478,57 @@ pub fn epoch_ms(value: &Value) -> Option<u64> {
             let n = n.as_u64()?;
             Some(if n < 100_000_000_000 { n.saturating_mul(1000) } else { n })
         }
+        // `host join --status` reports the stored heartbeat as epoch milliseconds in a string
+        // (`cloud_join::record_auth_result`); a number in text reads as the number does.
+        Value::String(text) if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) => {
+            epoch_ms(&Value::Number(text.parse::<u64>().ok()?.into()))
+        }
         Value::String(text) => {
             cmux_chat_index::time::parse_rfc3339_ms(text).and_then(|ms| u64::try_from(ms).ok())
         }
         _ => None,
     }
+}
+
+/// How many times `--here` asks again for a first heartbeat, a second apart: a join restarts
+/// the daemon with its mesh relay and the doctor runs seconds later, before that daemon's first
+/// heartbeat may have reached the hub (its relay waits for the daemon's startup first).
+pub const FIRST_HEARTBEAT_POLLS: u32 = 10;
+const FIRST_HEARTBEAT_PAUSE: Duration = Duration::from_secs(1);
+
+/// Whether a join that is otherwise sound has had no heartbeat yet: a running daemon, a
+/// credential that is not revoked, `lastHeartbeat` reported as `null`, and a mesh relay that is
+/// not reported as off. Only then is a first heartbeat worth waiting for; a stale one, a
+/// revoked machine or a stopped daemon is checked as it is.
+pub fn awaits_first_heartbeat(facts: &Facts) -> bool {
+    let Status::Json(v) = &facts.status else { return false };
+    facts.daemon_running
+        && v["credentialPresent"].as_bool() == Some(true)
+        && v["revoked"].as_bool() != Some(true)
+        && v.get("lastHeartbeat").is_some_and(Value::is_null)
+        && v["meshRelayConfigured"].as_bool() != Some(false)
+}
+
+/// `facts` once the first heartbeat is in, or as they stand after at most `polls` more asks
+/// (`ask`, each after a `pause`): a daemon that never heartbeats still fails its step.
+pub fn wait_first_heartbeat(
+    mut facts: Facts,
+    polls: u32,
+    mut ask: impl FnMut() -> Status,
+    mut pause: impl FnMut(),
+) -> Facts {
+    for _ in 0..polls {
+        if !awaits_first_heartbeat(&facts) {
+            break;
+        }
+        pause();
+        match ask() {
+            status @ Status::Json(_) => facts.status = status,
+            // A status that stopped answering is checked as the last one that did.
+            _ => break,
+        }
+    }
+    facts
 }
 
 /// How the checklist prints.
@@ -521,30 +675,53 @@ fn systemd_service(home: &Path) -> Service {
     let Some((_, state)) = output(Path::new("systemctl"), &["--user", "is-active", SERVICE]) else {
         return Service::NoManager;
     };
-    if state.trim() == "active" {
+    let installed = home.join(".config/systemd/user").join(SERVICE).is_file();
+    let service = systemd_state(&state, installed);
+    if service == (Service::Active { linger: None }) {
         let user = std::env::var("USER").unwrap_or_default();
         let linger =
             output(Path::new("loginctl"), &["show-user", &user, "--property=Linger", "--value"])
                 .map(|(_, v)| v.trim() == "yes");
         return Service::Active { linger };
     }
-    let installed = home.join(".config/systemd/user").join(SERVICE).is_file();
-    Service::Inactive { installed }
+    service
+}
+
+/// `systemctl --user is-active`'s stdout read as a service state. A user manager that answers
+/// prints a state word (`active`, `inactive`, `failed`, ...); with no systemd user session (a
+/// headless user without linger, a container) it prints nothing and fails on stderr ("Failed
+/// to connect to bus"): no manager here, not a stopped service.
+pub fn systemd_state(stdout: &str, installed: bool) -> Service {
+    match stdout.trim() {
+        "active" => Service::Active { linger: None },
+        "" => Service::NoManager,
+        _ => Service::Inactive { installed },
+    }
 }
 
 #[cfg(unix)]
 fn launchd_service(home: &Path) -> Service {
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
-    let job = format!("gui/{uid}/{LAUNCHD_LABEL}");
+    let domain = format!("gui/{uid}");
+    let job = format!("{domain}/{LAUNCHD_LABEL}");
+    let installed =
+        home.join("Library/LaunchAgents").join(format!("{LAUNCHD_LABEL}.plist")).is_file();
     match output(Path::new("launchctl"), &["print", &job]) {
         None => Service::NoManager,
         Some((0, _)) => Service::Active { linger: None },
         Some(_) => {
-            let plist = home.join("Library/LaunchAgents").join(format!("{LAUNCHD_LABEL}.plist"));
-            Service::Inactive { installed: plist.is_file() }
+            let gui_login =
+                matches!(output(Path::new("launchctl"), &["print", &domain]), Some((0, _)));
+            launchd_state(installed, gui_login)
         }
     }
+}
+
+/// A LaunchAgent that is not loaded: with no GUI domain (no one logged in at the screen) an
+/// installed one is waiting for the next login there, which nothing here can hasten.
+pub fn launchd_state(installed: bool, gui_login: bool) -> Service {
+    if installed && !gui_login { Service::AtNextLogin } else { Service::Inactive { installed } }
 }
 
 /// The local repairs for `facts`: reinstall a missing binary (the join script, no token),
@@ -620,12 +797,26 @@ pub fn run_here(fix: bool, print: Print, out: &mut dyn std::io::Write) -> i32 {
             .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
             .unwrap_or_default()
     };
-    let facts = probe();
+    let mut facts = probe();
+    if let Binary::Ok(binary) = facts.binary.clone() {
+        facts = wait_first_heartbeat(
+            facts,
+            FIRST_HEARTBEAT_POLLS,
+            || join_status(&binary),
+            || std::thread::sleep(FIRST_HEARTBEAT_PAUSE),
+        );
+    }
     let mut checked = steps(&facts, now());
     if fix && repair(&facts) {
         checked = mark_fixed(&checked, steps(&probe(), now()));
     }
     let name = crate::cli::hosts::short_name(&crate::hand::pair::hostname());
+    if let Some(step) = super::host_sandbox::local_step(fix) {
+        checked.push(step);
+    }
+    if let Some(step) = super::host_agents::local_step(&name) {
+        checked.push(step);
+    }
     let (text, ok) = render(&name, "this machine", &checked, print);
     let _ = out.write_all(text.as_bytes());
     let _ = out.flush();

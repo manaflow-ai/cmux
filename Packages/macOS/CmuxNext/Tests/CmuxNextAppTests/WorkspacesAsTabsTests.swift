@@ -53,6 +53,13 @@ import Testing
         #expect(Self.winner("cmd+shift+leftbracket", in: surface, tabs: false).command == "prevSurface")
     }
 
+    /// Compact workspace navigation leaves the focused pane's Ctrl-Tab bindings available.
+    @Test(arguments: ["terminal", "page", "agent"])
+    func paneTabKeysCoexistWithCompactWorkspaces(_ surface: String) {
+        #expect(Self.winner("ctrl+tab", in: surface, tabs: true).command == "nextSurface")
+        #expect(Self.winner("ctrl+shift+tab", in: surface, tabs: true).command == "prevSurface")
+    }
+
     /// Home (its top page and the docked Home) keeps whatever its Cmd-Shift-[ / ] run without the toggle.
     @Test(arguments: ["home", "home-dock"])
     func homeKeepsItsKeys(_ surface: String) {
@@ -152,5 +159,51 @@ import Testing
         #expect(content.badge == "#4821")
         #expect(content.activity == .waiting)
         #expect(SidebarLayoutMetrics.standard.height(for: content) == SidebarLayoutMetrics.standard.rowHeight)
+    }
+
+    @Test(arguments: [false, true])
+    func turningCompactOffRestoresTheConfiguredRow(_ expanded: Bool) {
+        var options = SidebarLayoutOptions()
+        options.expanded = expanded
+        options.workspaceRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: [.directory, .branch, .agentStatus]))
+        let original = options.rowContent(Self.busy(), machine: nil)
+        #expect(original.detail != nil)
+        options.workspacesAsTabs = true
+        #expect(options.rowContent(Self.busy(), machine: nil).detail == nil)
+        options.workspacesAsTabs = false
+        #expect(options.rowContent(Self.busy(), machine: nil) == original)
+    }
+
+    @Test func compactRowsKeepTheWorkingIndicator() {
+        var workspace = Self.busy()
+        workspace.activity = .working
+        workspace.agentWorking = true
+        var options = SidebarLayoutOptions()
+        options.workspacesAsTabs = true
+        let content = options.rowContent(workspace, machine: nil)
+        #expect(content.showsWorking)
+        #expect(content.activity == .working)
+        #expect(content.detail == nil)
+    }
+
+    /// Different activity states do not reorder the manually arranged workspace list.
+    @Test func compactPresentationPreservesManualOrder() {
+        var first = SidebarWorkspace(id: CmuxNextSidebar.WorkspaceID("manual-first"), title: "Zebra")
+        first.activity = .idle
+        let second = SidebarWorkspace(id: CmuxNextSidebar.WorkspaceID("manual-second"), title: "Alpha", activity: .waiting)
+        let third = SidebarWorkspace(id: CmuxNextSidebar.WorkspaceID("manual-third"), title: "Middle", agentWorking: true)
+        let group = SidebarGroup(id: GroupID("manual-group"), name: "Group", workspaces: [second])
+        let section = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
+                                                   nodes: [.workspace(first), .group(group), .workspace(third)])
+        var options = SidebarLayoutOptions()
+        let original = SidebarLayout.make(sections: [section], metrics: .standard, options: options).rows.map(\.key)
+        options.workspacesAsTabs = true
+        let compact = SidebarLayout.make(sections: [section], metrics: .standard, options: options).rows.map(\.key)
+        #expect(compact == original)
+        let workspaces = compact.compactMap { key -> CmuxNextSidebar.WorkspaceID? in
+            if case .workspace(let id) = key { return id }
+            return nil
+        }
+        #expect(workspaces == [first.id, second.id, third.id])
     }
 }

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,6 +10,7 @@ import Testing
 /// nothing, so its panes do no work for it (PL-script A2): selections and column changes while it
 /// is parked only mark the pane dirty. They make no page or surface and map no strip. Unparking
 /// shows the last state once: one strip map, one page for the selected tab.
+@Suite(.closesItsWindows)
 @MainActor struct ParkedWorkspacePaneWorkTests {
     final class Provider: InternalPageProvider {
         let page = InternalPageID(rawValue: "parked-work-test")

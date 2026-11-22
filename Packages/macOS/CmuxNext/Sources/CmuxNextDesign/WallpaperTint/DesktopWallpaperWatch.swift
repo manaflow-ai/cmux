@@ -10,8 +10,9 @@ import Foundation
 /// `NSWorkspace.desktopImageURL(for:)` when one could have: a write to the wallpaper store
 /// (`~/Library/Application Support/com.apple.wallpaper/Store`, which macOS rewrites when a
 /// picture is chosen or shuffles), macOS's own `com.apple.desktop` notice, a Space switch (each
-/// Space has its own picture), a screen change, waking, and another window becoming key or a
-/// window moving to another display (the main screen may now be a different one). A view
+/// Space has its own picture), a screen change, waking, and one of the app's windows becoming
+/// key, showing or moving to another display (``windowDidChange()``: the main screen may now be
+/// a different one). A view
 /// that sees the light or dark appearance flip asks too (``appearanceDidChange()``). The read is a
 /// synchronous WindowServer round trip, so it runs on the watch's own queue, never on the main
 /// thread (a busy WindowServer held a key-window change past the debug hang assertion, #26394);
@@ -95,6 +96,20 @@ public final class DesktopWallpaperWatch {
         }
     }
 
+    /// The Wallpaper or Pictorial group palette is chosen (`sidebar.groupPalette`): pictures are sampled for it even
+    /// with `appearance.wallpaperTint` off, and each color lands in `DesignSettings.groupWallpaperTint`, so the sidebar's
+    /// groups repaint when the desktop picture changes. The window's own tint still follows only `tintEnabled`.
+    public var samplesForGroups = false {
+        didSet {
+            guard samplesForGroups != oldValue else { return }
+            DesignSettings.shared.groupWallpaperTint = samplesForGroups ? tint : nil
+            if samplesForGroups { sampleIfNeeded() }
+        }
+    }
+
+    /// How many bands a sample takes, top to bottom (`WallpaperTint.bands`).
+    nonisolated static let bandCount = 16
+
     private let read: @MainActor () async -> Reading?
     private let sample: @Sendable (Reading) async -> WallpaperTint?
     private let defaults: UserDefaults?
@@ -115,6 +130,7 @@ public final class DesktopWallpaperWatch {
     private var observers: [MainActorObservation] = []
     private var storeSource: WallpaperStoreSource?
     private let views = NSHashTable<WindowMaterialView>.weakObjects()
+    private let followers = NSHashTable<AnyObject>.weakObjects()
 
     /// - Parameters:
     ///   - read: What the desktop shows now, read off the main thread; nil without a screen.
@@ -147,10 +163,6 @@ public final class DesktopWallpaperWatch {
             MainActorObservation(NSWorkspace.activeSpaceDidChangeNotification, center: workspace) { [weak self] in self?.refresh() },
             MainActorObservation(NSWorkspace.didWakeNotification, center: workspace) { [weak self] in self?.refresh() },
             MainActorObservation(NSApplication.didChangeScreenParametersNotification) { [weak self] in self?.refresh() },
-            // A window shown, unhidden or uncovered (a panel that never becomes key too).
-            MainActorObservation(NSWindow.didChangeOcclusionStateNotification) { [weak self] in self?.refresh() },
-            MainActorObservation(NSWindow.didBecomeKeyNotification) { [weak self] in self?.refresh() },
-            MainActorObservation(NSWindow.didChangeScreenNotification) { [weak self] in self?.refresh() },
         ]
         watchStore()
         refresh()
@@ -169,6 +181,15 @@ public final class DesktopWallpaperWatch {
     /// Reads the desktop again once a view sees the light or dark appearance flip (after
     /// ``start()``): a dynamic picture has a frame for each.
     func appearanceDidChange() {
+        guard !observers.isEmpty else { return }
+        refresh()
+    }
+
+    /// Reads the desktop again once one of the app's windows became key, was shown, unhidden or
+    /// uncovered (its occlusion changed) or moved to another display (after ``start()``). The
+    /// app's window owner calls it from its window delegate, for its own windows only: an
+    /// app-wide window observer woke on every menu, tooltip and panel too (#25308).
+    public func windowDidChange() {
         guard !observers.isEmpty else { return }
         refresh()
     }
@@ -229,7 +250,7 @@ public final class DesktopWallpaperWatch {
     /// true: the views re-applied), else one sample off the main actor, when none is under way.
     @discardableResult
     private func sampleIfNeeded() -> Bool {
-        guard tintEnabled, let reading = current, published != reading, !isHidden() else { return false }
+        guard tintEnabled || samplesForGroups, let reading = current, published != reading, !isHidden() else { return false }
         if let known = colors[reading] {
             publish(known, for: reading)
             return true
@@ -262,11 +283,18 @@ public final class DesktopWallpaperWatch {
     }
 
     private func publish(_ color: WallpaperTint?, for reading: Reading) {
+        let changed = tint != color
         tint = color
         published = reading
         if let color { defaults?.set([color.red, color.green, color.blue], forKey: Self.lastTintKey) }
+        if samplesForGroups { DesignSettings.shared.groupWallpaperTint = color }
         refreshViews()
+        if changed { for follower in followers.allObjects { (follower as? DesktopWallpaperColorFollower)?.desktopWallpaperColorDidChange() } }
     }
+
+    /// Tells `follower` each time ``tint`` (and its bands) changes; held weakly. The sidebar's group colors follow the
+    /// picture this way under a palette that follows it.
+    public func follow(_ follower: DesktopWallpaperColorFollower) { followers.add(follower) }
 
     /// The wallpaper store's folder: macOS rewrites its index there when a picture is chosen. A
     /// burst of writes settles before one reading, so the reading sees the new picture.
@@ -324,7 +352,16 @@ public final class DesktopWallpaperWatch {
         await Task.detached(priority: .utility) { () -> WallpaperTint? in
             guard let url = reading.picture.resolvedURL(dark: reading.dark),
                   let image = BackdropImageStore.decode(url, maxPixelSize: 64, dark: reading.dark) else { return nil }
-            return WallpaperTint.average(of: image)
+            var tint = WallpaperTint.average(of: image)
+            tint?.bands = WallpaperTint.bands(of: image, count: Self.bandCount)
+            return tint
         }.value
     }
+}
+
+/// Something that follows the desktop picture's color (``DesktopWallpaperWatch/follow(_:)``).
+@MainActor
+public protocol DesktopWallpaperColorFollower: AnyObject {
+    /// The picture's color (``DesktopWallpaperWatch/tint``) changed.
+    func desktopWallpaperColorDidChange()
 }

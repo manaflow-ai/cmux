@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 @testable import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import CmuxNextWakeupsTestSupport
@@ -10,13 +11,30 @@ import CmuxNextWakeupsTestSupport
 /// downloaded aerial loops muted behind the window, plays only while someone can see it and the
 /// Mac can afford it, and every window showing one file shares one decoder. Apple's files are
 /// read where macOS keeps them; a fake `Desktop Pictures` folder stands in for the Mac's.
-@MainActor @Suite(.serialized) struct VideoWallpaperTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct VideoWallpaperTests {
+    /// Clips already encoded in this test process, by frame count and extension.
+    private static var encoded: [String: URL] = [:]
+
+    /// A 64x36 clip of `frames` frames, encoded once per test process. Each test used to encode its
+    /// own (13 live H.264 encodes a run), and one crashed inside CoreVideo's pixel buffer pool
+    /// (run 41465146517); the tests need a playable file, not a fresh encode each.
+    static func encoded(frames: Int, pathExtension: String) async throws -> URL {
+        let key = "\(frames).\(pathExtension)"
+        if let url = encoded[key] { return url }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-video-wallpaper-source-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent("clip").appendingPathExtension(pathExtension)
+        try await HomeFixtureMedia.writeVideo(to: url, width: 64, height: 36, frames: frames)
+        encoded[key] = url
+        return url
+    }
+
     /// A two-second 64x36 clip in a fresh folder.
     static func clip(_ name: String = "Waves.mp4") async throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-video-wallpaper-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = folder.appendingPathComponent(name)
-        try await HomeFixtureMedia.writeVideo(to: url, width: 64, height: 36, frames: 60)
+        try FileManager.default.copyItem(at: try await encoded(frames: 60, pathExtension: url.pathExtension), to: url)
         return url
     }
 
@@ -268,10 +286,11 @@ import CmuxNextWakeupsTestSupport
         let moving = pictures.appendingPathComponent(".wallpapers/Sonoma", isDirectory: true)
         let aerial = aerials.appendingPathComponent("4KSDR240FPS", isDirectory: true)
         for folder in [moving, aerial] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        let movie = try await Self.encoded(frames: 10, pathExtension: "mov")
         for cut in ["Sonoma Graphic Light Landscape.mov", "Sonoma Graphic Dark Landscape.mov", "Sonoma Graphic Light Portrait.mov"] {
-            try await HomeFixtureMedia.writeVideo(to: moving.appendingPathComponent(cut), width: 64, height: 36, frames: 10)
+            try FileManager.default.copyItem(at: movie, to: moving.appendingPathComponent(cut))
         }
-        try await HomeFixtureMedia.writeVideo(to: aerial.appendingPathComponent("A1B2.mov"), width: 64, height: 36, frames: 10)
+        try FileManager.default.copyItem(at: movie, to: aerial.appendingPathComponent("A1B2.mov"))
         try Data(#"{"assets":[{"id":"A1B2","accessibilityLabel":"Tahoe Morning"}]}"#.utf8).write(to: aerials.appendingPathComponent("entries.json"))
         return (pictures, aerials)
     }

@@ -1,5 +1,5 @@
 //! Help examples for the work groups: `task`, `process`, `worktree`, `briefs`, `bead`, `inbox`,
-//! `forum`, `chats`, `hand`, `router` (see `help_examples/mod.rs`).
+//! `forum`, `watch`, `chats`, `hand`, `router` (see `help_examples/mod.rs`).
 
 use super::Example;
 
@@ -70,6 +70,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "process",
         &[
+            (
+                "Every process acpmux started here, who owns it now and whether it is in use",
+                "acpmux process",
+            ),
             ("List background processes agents started", "acpmux process list"),
             (
                 "Follow a Claude Code background process's output",
@@ -79,11 +83,30 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "gc",
+        &[
+            ("What acpmux would end as orphaned, and what it refuses and why", "acpmux gc"),
+            ("End the proven orphans and log each with its reason", "acpmux gc --apply"),
+        ],
+    ),
+    (
         "process list",
         &[
             ("List every background process agents started", "acpmux process list"),
             ("List only coord's processes", "acpmux process list --session coord"),
+            ("List only the ones still running", "acpmux process list --running"),
         ],
+    ),
+    (
+        "process owner",
+        &[(
+            "Which session owns pid 4242, and whether it may be ended",
+            "acpmux process owner 4242",
+        )],
+    ),
+    (
+        "process left-behind",
+        &[("What ended agent hosts left running on this machine", "acpmux process left-behind")],
     ),
     (
         "process show",
@@ -101,9 +124,19 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     (
         "process kill",
+        &[
+            (
+                "Stop a dev server a Claude Code or Codex agent left running",
+                "acpmux process kill coord/b7x2k1q",
+            ),
+            ("End a pid that is yours or left behind (logged)", "acpmux process kill --pid 4242"),
+        ],
+    ),
+    (
+        "process start",
         &[(
-            "Stop a dev server a Claude Code or Codex agent left running",
-            "acpmux process kill coord/b7x2k1q",
+            "From an agent chat's shell: run a dev server as a task that outlives hibernation",
+            "acpmux process start --description 'dev server' -- 'npm run dev'",
         )],
     ),
     (
@@ -117,6 +150,44 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "Move only the command one Claude Code tool call started",
                 "acpmux process background coord --tool-call toolu_01HqX9mZ",
             ),
+        ],
+    ),
+    (
+        "group",
+        &[
+            ("List sidebar groups, duplicates marked", "acpmux group ls"),
+            ("Put a session in the Leads group", "acpmux group move coord Leads"),
+            ("Merge same-named groups", "acpmux group tidy --apply"),
+        ],
+    ),
+    (
+        "race",
+        &[
+            (
+                "Race two models on a task and let a third review",
+                "acpmux race new -m claude -m codex --reviewer claude 'Fix the flaky test'",
+            ),
+            ("List this chat's races", "acpmux race ls"),
+        ],
+    ),
+    (
+        "race new",
+        &[(
+            "Race two models on a task in a file",
+            "acpmux race new -m claude -m codex --reviewer claude --prompt-file task.md",
+        )],
+    ),
+    ("race show", &[("Read a race and the reviewer's pick", "acpmux race show RACE_ID")]),
+    ("race stop", &[("Stop a race's agents, keeping its results", "acpmux race stop RACE_ID")]),
+    ("race ls", &[("List this chat's races", "acpmux race ls")]),
+    ("race stats", &[("Wins per model in this chat", "acpmux race stats")]),
+    ("group ls", &[("List sidebar groups as JSON", "acpmux group ls --json")]),
+    ("group move", &[("Put a session in the Leads group", "acpmux group move coord Leads")]),
+    (
+        "group tidy",
+        &[
+            ("See which groups a tidy would merge", "acpmux group tidy"),
+            ("Merge them", "acpmux group tidy --apply"),
         ],
     ),
     (
@@ -203,7 +274,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("Link a session to a tracker bead", "acpmux bead link fix-27310 cx-cus7j"),
             (
-                "Link a peer's session to two beads",
+                "Link another machine's session to two beads",
                 "acpmux bead link mini-3/review-27 cx-cus7j cx-ncc.112",
             ),
         ],
@@ -227,6 +298,66 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ("inbox list", &[("List the team messages the hub holds", "acpmux inbox list")]),
     ("inbox read", &[("Read one team message by id", "acpmux inbox read msg-8f2a")]),
     ("inbox ack", &[("Acknowledge a team message you handled", "acpmux inbox ack msg-8f2a")]),
+    (
+        "bridge",
+        &[
+            ("Connect Claude Desktop and Codex Desktop to cmux", "acpmux bridge connect"),
+            ("Message Codex Desktop", "acpmux bridge send codex-desktop \"Review PR 812 please\""),
+        ],
+    ),
+    (
+        "bridge connect",
+        &[
+            ("Connect both desktop apps; restart them after", "acpmux bridge connect"),
+            (
+                "See what connecting Codex Desktop would change",
+                "acpmux bridge connect codex --dry-run",
+            ),
+        ],
+    ),
+    (
+        "bridge send",
+        &[(
+            "Answer Claude Desktop from a cmux session",
+            "acpmux bridge send claude-desktop \"Done: the fix is on lane/x\"",
+        )],
+    ),
+    (
+        "bridge inbox",
+        &[("Read what was left for Codex Desktop", "acpmux bridge inbox codex-desktop --peek")],
+    ),
+    (
+        "desktop",
+        &[
+            ("Give every agent app here the cmux tools", "acpmux desktop link"),
+            ("See which apps have the cmux tools", "acpmux desktop status"),
+        ],
+    ),
+    (
+        "desktop link",
+        &[
+            (
+                "Give Claude, Codex, OpenCode, Gemini CLI, Qwen Code and pi the cmux tools",
+                "acpmux desktop link",
+            ),
+            ("See what linking Codex would change", "acpmux desktop link --app codex --dry-run"),
+            ("Give only OpenCode the cmux tools", "acpmux desktop link --app opencode"),
+        ],
+    ),
+    (
+        "desktop unlink",
+        &[
+            ("Take the cmux tools back from every app", "acpmux desktop unlink"),
+            ("Take them back from Claude desktop", "acpmux desktop unlink --app claude-desktop"),
+        ],
+    ),
+    (
+        "desktop status",
+        &[
+            ("See which apps are here and which have the cmux tools", "acpmux desktop status"),
+            ("The same as JSON for a script", "acpmux desktop status --json"),
+        ],
+    ),
     (
         "forum",
         &[
@@ -256,6 +387,34 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[("From the agent session that read it, mark a rule read", "acpmux forum ack post-3f9a")],
     ),
     (
+        "watch",
+        &[
+            (
+                "From a coordinator session, be woken when a worker is done or blocked",
+                "acpmux watch add review-27310 fix-27311",
+            ),
+            ("List watches and the wakes they owe", "acpmux watch ls"),
+        ],
+    ),
+    (
+        "watch add",
+        &[
+            (
+                "Wake coord once when a worker on any host reports a blocker",
+                "acpmux watch add review-27310 my-linux/fix-27311 --to coord --match BLOCKER",
+            ),
+            (
+                "Wake coord only when a worker asks for permission or closes",
+                "acpmux watch add fix-27311 --to coord --until permission,closed",
+            ),
+        ],
+    ),
+    ("watch ls", &[("List watches and the wakes they still owe", "acpmux watch ls --json")]),
+    (
+        "watch rm",
+        &[("Remove a watch; wakes it already owes still arrive", "acpmux watch rm 019a3f9c")],
+    ),
+    (
         "chats",
         &[
             ("List this device's chats, newest first", "acpmux chats list"),
@@ -271,6 +430,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux chats list --harness codex --folder ~/wt/cmux",
             ),
             ("Find chats about the resize lag", "acpmux chats list -q resize -n 10"),
+        ],
+    ),
+    (
+        "chats search",
+        &[
+            ("Find chats that talked about the resize lag", "acpmux chats search resize lag"),
+            (
+                "Search only Codex chats in one folder",
+                "acpmux chats search flaky test --harness codex --folder ~/wt/cmux -n 5",
+            ),
         ],
     ),
     (
@@ -314,6 +483,22 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     ("hand run", &[("Connect and serve Cloud requests in the foreground", "acpmux hand run")]),
     ("hand status", &[("Show this hand's id, API, profile and roots", "acpmux hand status")]),
+    (
+        "share-host",
+        &[
+            ("See whether this Mac's share host runs, and why not", "acpmux share-host status"),
+            ("Let viewers see this Mac's screen", "acpmux share-host on"),
+        ],
+    ),
+    (
+        "share-host status",
+        &[
+            ("Show the share host, its hub link and live shares", "acpmux share-host status"),
+            ("Read the share host's status as JSON", "acpmux share-host status --json"),
+        ],
+    ),
+    ("share-host on", &[("Turn sharing this Mac's screen on", "acpmux share-host on")]),
+    ("share-host off", &[("Turn sharing this Mac's screen off", "acpmux share-host off")]),
     ("router", &[("Start the local CodeRouter", "acpmux router serve")]),
     ("router serve", &[("Start the local router listeners", "acpmux router serve")]),
 ];

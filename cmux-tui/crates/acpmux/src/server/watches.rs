@@ -29,16 +29,16 @@ pub(super) async fn handle(
             let id = params["id"]
                 .as_str()
                 .ok_or_else(|| RpcError::invalid_params("watch id is required"))?;
-            if hub.watches.remove(id)? {
-                Ok(json!({"removed": id}))
-            } else {
-                Err(RpcError::not_found(format!("no watch {id:?}; call _acpmux/watch_ls")))
+            match hub.watches.remove(id)? {
+                Some(owed) => Ok(json!({"removed": id, "owed": owed})),
+                None => Err(RpcError::not_found(format!("no watch {id:?}; call _acpmux/watch_ls"))),
             }
         }
         _ => {
             hub.wait_logs().await;
             let mut a: Add = serde_json::from_value(params.clone())
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
+            crate::hub::validate_match(a.match_text.as_deref())?;
             if a.once == Some(false) {
                 return Err(RpcError::invalid_params("recurring watches are not supported yet"));
             }

@@ -1,0 +1,16 @@
+{
+  "source": "schemas/settings/source/appearance.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Appearance.generated.swift",
+  "type": "AppearanceSettingsSchema",
+  "lists": {
+    "iconTheme": ["iconTheme", null],
+    "appTheme": ["appTheme", null],
+    "windowBackground": ["windowBackground", null],
+    "tuning": ["tuning", null],
+    "look": ["look", null],
+    "chromeStyle": ["chromeStyle", null],
+    "lookMotion": ["lookMotion", null],
+    "panes": ["panes", null],
+    "focusRing": ["focusRing", null]
+  }
+}

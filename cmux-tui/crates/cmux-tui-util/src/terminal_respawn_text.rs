@@ -19,6 +19,11 @@ pub struct TerminalRespawnText {
     /// The marker of a respawned terminal that ran an agent session;
     /// `{command}` is the command that resumes it.
     pub restored_agent: &'static str,
+    /// The marker of a freed shell (`park-tabs`) whose last command is
+    /// known; `{command}` is its command line, `{code}` its exit status.
+    pub restored_last: &'static str,
+    /// [`Self::restored_last`] when the shell reported no exit status.
+    pub restored_last_no_code: &'static str,
     /// The line under a reopened tab's archived screen when its close
     /// stopped a running program; `{program}` is the program's name.
     pub stopped: &'static str,
@@ -32,6 +37,8 @@ pub const ENGLISH: TerminalRespawnText = TerminalRespawnText {
     restored: "\u{2014} session restored (previous process ended) \u{2014}",
     restored_command: "\u{2014} session restored (previous process ended; it ran {program}) \u{2014}",
     restored_agent: "\u{2014} session restored; resume with {command} \u{2014}",
+    restored_last: "\u{2014} session restored \u{b7} last: {command} \u{b7} exit {code} \u{2014}",
+    restored_last_no_code: "\u{2014} session restored \u{b7} last: {command} \u{2014}",
     recovered_workspace: "Recovered terminals",
     stopped: "\u{2014} {program} was stopped when this tab closed \u{2014}",
 };
@@ -58,6 +65,9 @@ pub enum Ran<'a> {
     Command(&'a str),
     /// An agent session; the command that resumes it.
     Agent(&'a str),
+    /// A shell freed at its prompt: the command it last finished, which does
+    /// not run again, and its exit status when the shell reported one.
+    Last { command: &'a str, exit_code: Option<i32> },
 }
 
 /// The marker line for a terminal that ran `ran`, else the plain one.
@@ -79,6 +89,13 @@ pub fn marker(ran: Option<Ran<'_>>) -> String {
         Some(Ran::Agent(command)) if !clean(command).is_empty() => {
             text.restored_agent.replace("{command}", &clean(command))
         }
+        Some(Ran::Last { command, exit_code }) if !clean(command).is_empty() => match exit_code {
+            Some(code) => text
+                .restored_last
+                .replace("{command}", &clean(command))
+                .replace("{code}", &code.to_string()),
+            None => text.restored_last_no_code.replace("{command}", &clean(command)),
+        },
         _ => text.restored.to_string(),
     }
 }
@@ -108,6 +125,22 @@ mod tests {
         );
         let long = marker(Some(Ran::Command(&"x".repeat(500))));
         assert!(long.contains(&format!("{}\u{2026}", "x".repeat(MARKER_COMMAND_CHARS - 1))));
+    }
+
+    #[test]
+    fn the_marker_names_a_freed_shells_last_command_and_exit() {
+        assert_eq!(
+            marker(Some(Ran::Last { command: "npm\u{1b} test", exit_code: Some(1) })),
+            "\u{2014} session restored \u{b7} last: npm test \u{b7} exit 1 \u{2014}"
+        );
+        assert_eq!(
+            marker(Some(Ran::Last { command: "make", exit_code: None })),
+            "\u{2014} session restored \u{b7} last: make \u{2014}"
+        );
+        assert_eq!(
+            marker(Some(Ran::Last { command: "\u{7}", exit_code: Some(0) })),
+            ENGLISH.restored
+        );
     }
 
     #[test]

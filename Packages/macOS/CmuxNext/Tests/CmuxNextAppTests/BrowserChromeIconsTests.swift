@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextIcons
 @testable import CmuxNextBrowser
+import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +11,7 @@ import Testing
 /// just use the same exact icons that Chrome uses"). Chromium's vector icons are vendored in
 /// design/icons/chromium and generated into the pack as `browser.toolbar.*`, `browser.omnibox.*`,
 /// `browser.find.*`, `browser.extensions.*`, `browser.tab.*` and `browser.menu.*`.
-@MainActor @Suite struct BrowserChromeIconsTests {
+@MainActor @Suite(.closesItsWindows) struct BrowserChromeIconsTests {
     /// The pack families generated from Chromium's icons.
     private static let chromiumFamilies = ["browser.toolbar.", "browser.omnibox.", "browser.find.", "browser.extensions.", "browser.tab.", "browser.menu."]
 
@@ -24,12 +26,21 @@ import Testing
 
     /// Every toolbar button Chrome also has draws Chrome's icon. Design mode and the theme
     /// button are cmux's own (Chrome has neither), so they keep cmux icons.
-    @Test(arguments: [BrowserToolbarButton.media, .zoom, .favorites, .downloads, .profile, .devTools, .overflow])
+    @Test(arguments: [BrowserToolbarButton.media, .zoom, .favorites, .downloads, .profile, .devTools])
     func toolbarButtonDrawsChromesIcon(_ button: BrowserToolbarButton) {
         let facts = BrowserToolbarFacts(engine: .cef, hostsDevTools: true, zoom: 1.25,
                                         media: BrowserToolbarMedia(sessions: 1))
         let icon = BrowserToolbarPolicy.state(button, facts).icon
         #expect(isChromiumIcon(icon), "\(button) draws \(icon.rawValue)")
+    }
+
+    /// More draws Chrome's ⋮, the pane's one (`OverflowButton.paneGlyph`), as the tab bar above it does (Lawrence msg
+    /// 19627: "the three vertical dots, there are 2 of them, and they are different sizes"; Lucas 2026-11-18: Helium's
+    /// and Chrome's 12 pt dots).
+    @Test func moreDrawsThePanesChromeEllipsis() {
+        let facts = BrowserToolbarFacts(engine: .cef, hostsDevTools: true, zoom: 1)
+        let icon = BrowserToolbarPolicy.state(.overflow, facts).icon
+        #expect(icon == OverflowButton.paneGlyph && isChromiumIcon(icon))
     }
 
     /// Zoom shows Chrome's plus magnifier when zoomed in and its minus one when zoomed out.
@@ -71,6 +82,7 @@ import Testing
         tab.showsExtensionToolbar = true
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.isReleasedWhenClosed = false
         let chrome = BrowserChromeView(tab: tab)
         chrome.frame = window.contentLayoutRect

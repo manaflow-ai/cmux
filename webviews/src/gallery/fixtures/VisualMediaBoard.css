@@ -1,14 +1,14 @@
 .cmux-gallery-media-board{display:flex;flex-direction:column;gap:12px;color:var(--page-text,var(--text-color,#e8e8e8));font:13px var(--font-ui)}
 .cmux-gallery-media-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-height:30px}
 .cmux-gallery-media-filter{display:inline-flex;align-items:center;gap:2px;padding:2px;border:1px solid color-mix(in srgb,currentColor 16%,transparent);border-radius:8px;background:color-mix(in srgb,currentColor 5%,transparent)}
-.cmux-gallery-media-filter button,.cmux-gallery-media-action{border:0;border-radius:6px;padding:5px 8px;background:transparent;color:color-mix(in srgb,currentColor 68%,transparent);font:inherit;font-size:12px;cursor:pointer}
+.cmux-gallery-media-filter button,.cmux-gallery-media-action{border:0;border-radius:6px;padding:5px 8px;background:transparent;color:color-mix(in srgb,currentColor 68%,transparent);font:inherit;font-size:12px;cursor:default}
 .cmux-gallery-media-filter button:hover,.cmux-gallery-media-filter button.is-active,.cmux-gallery-media-action:hover{background:color-mix(in srgb,currentColor 12%,transparent);color:currentColor}
 .cmux-gallery-media-action{border:1px solid color-mix(in srgb,currentColor 16%,transparent)}
 .cmux-gallery-media-count-label{margin-left:auto;color:color-mix(in srgb,currentColor 60%,transparent);font:12px/1 ui-monospace,SFMono-Regular,Menlo,monospace}
 .cmux-gallery-media-help{max-width:760px;margin:0;color:color-mix(in srgb,currentColor 67%,transparent);font-size:12px;line-height:1.5}
 .cmux-gallery-media-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
 .cmux-gallery-media-card{min-width:0;overflow:hidden;border:1px solid color-mix(in srgb,currentColor 13%,transparent);border-radius:12px;background:color-mix(in srgb,currentColor 5%,transparent)}
-.cmux-gallery-media-stage{position:relative;display:block;width:100%;aspect-ratio:16/10;padding:0;overflow:hidden;border:0;background:#10131d;color:#fff;cursor:pointer}
+.cmux-gallery-media-stage{position:relative;display:block;width:100%;aspect-ratio:16/10;padding:0;overflow:hidden;border:0;background:#10131d;color:#fff;cursor:default}
 .cmux-gallery-media-stage img{display:block;width:100%;height:100%;transition:opacity .18s ease-out}
 .cmux-gallery-media-stage:hover img{opacity:.88}
 .cmux-gallery-media-stage:focus-visible,.cmux-gallery-media-filter button:focus-visible,.cmux-gallery-media-action:focus-visible{outline:2px solid currentColor;outline-offset:2px}

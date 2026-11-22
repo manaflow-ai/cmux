@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 @testable import CmuxNextApp
+import CmuxNextTestSupport
 import Testing
 
 /// Cmd+Shift+V is Edit > Paste and Match Style (Lawrence 2026-10-20: "Command+Shift+V
@@ -9,7 +10,7 @@ import Testing
 /// `pasteAsPlainText(_:)` down the responder chain, so every text input (the Home
 /// message box, the agent chat's web composer, search fields) pastes plain text,
 /// and Cmd+V stays Paste.
-@MainActor @Suite struct PasteAndMatchStyleMenuTests {
+@MainActor @Suite(.closesItsWindows) struct PasteAndMatchStyleMenuTests {
     @MainActor private final class Probe: NSView {
         var runs: [String] = []
         @objc func pasteAsPlainText(_ sender: Any?) { runs.append("plain") }
@@ -36,7 +37,7 @@ import Testing
 
     private func editMenu() throws -> NSMenu {
         _ = NSApplication.shared
-        let bar = MainMenu.make(registry: ActionRegistry.standard(), blocking: .forProcess())
+        let bar = MainMenu.make(registry: ActionRegistry.standard())
         return try #require(bar.items.first { $0.title == Strings.menuEdit }?.submenu)
     }
 

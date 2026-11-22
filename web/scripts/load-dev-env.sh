@@ -20,6 +20,7 @@ cmux_existing_db_password_set="${CMUX_DB_PASSWORD+x}"
 cmux_existing_db_password="${CMUX_DB_PASSWORD-}"
 cmux_existing_db_name_set="${CMUX_DB_NAME+x}"
 cmux_existing_db_name="${CMUX_DB_NAME-}"
+cmux_existing_vm_freestyle_enabled="${CMUX_VM_FREESTYLE_ENABLED:-0}"
 
 cmux_extra_secret_file="${CMUXTERM_EXTRA_ENV_FILE:-${CMUX_WEB_EXTRA_ENV_FILE:-}}"
 if [[ -z "$cmux_extra_secret_file" && -f "$HOME/.secrets/cmux.env" ]]; then
@@ -141,9 +142,12 @@ if [[ "${CMUX_DEV_USE_EXTERNAL_VM_API_BASE_URL:-0}" != "1" ]]; then
   export CMUX_VM_API_BASE_URL="http://localhost:${CMUX_PORT}"
 fi
 
-# Local Cloud VM dogfood uses Freestyle (the public platform) by default. A
-# caller can still opt into another provider explicitly with
-# CMUX_VM_DEFAULT_PROVIDER.
+# Internal development does not provision classic Cloud machines by default.
+# For classic customer maintenance, set CMUX_VM_FREESTYLE_ENABLED=1 before
+# sourcing this file. Downloaded deployment secrets must not opt dev into it.
+export CMUX_VM_FREESTYLE_ENABLED="$cmux_existing_vm_freestyle_enabled"
+
+# Keep the provider selection for callers explicitly doing classic maintenance.
 export CMUX_VM_DEFAULT_PROVIDER="${CMUX_VM_DEFAULT_PROVIDER:-freestyle}"
 
 # Local dev should not require a checked-in or per-worktree .env.local just to pass

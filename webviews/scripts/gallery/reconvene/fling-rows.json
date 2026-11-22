@@ -1,0 +1,44 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "fling-rows-now",
+      "entry": "agent-pane.reconvene-fling-rows",
+      "variant": "now",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2,
+      "setup": "(() => { const s = document.querySelector('.acpmux-scroll'); if (!s) return; const step = () => { s.scrollTop = Math.max(0, s.scrollTop - s.clientHeight); if (s.scrollTop > 0) requestAnimationFrame(step); }; requestAnimationFrame(step); })()"
+    },
+    {
+      "name": "fling-rows-wide-overscan",
+      "entry": "agent-pane.reconvene-fling-rows",
+      "variant": "wide-overscan",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2,
+      "setup": "(() => { const s = document.querySelector('.acpmux-scroll'); if (!s) return; const step = () => { s.scrollTop = Math.max(0, s.scrollTop - s.clientHeight); if (s.scrollTop > 0) requestAnimationFrame(step); }; requestAnimationFrame(step); })()"
+    },
+    {
+      "name": "fling-rows-content-visibility",
+      "entry": "agent-pane.reconvene-fling-rows",
+      "variant": "content-visibility",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2,
+      "setup": "(() => { const s = document.querySelector('.acpmux-scroll'); if (!s) return; const step = () => { s.scrollTop = Math.max(0, s.scrollTop - s.clientHeight); if (s.scrollTop > 0) requestAnimationFrame(step); }; requestAnimationFrame(step); })()"
+    },
+    {
+      "name": "fling-rows-plain-while-flinging",
+      "entry": "agent-pane.reconvene-fling-rows",
+      "variant": "plain-while-flinging",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2,
+      "setup": "(() => { const s = document.querySelector('.acpmux-scroll'); if (!s) return; const step = () => { s.scrollTop = Math.max(0, s.scrollTop - s.clientHeight); if (s.scrollTop > 0) requestAnimationFrame(step); }; requestAnimationFrame(step); })()"
+    }
+  ]
+}

@@ -10,6 +10,11 @@ public enum IrxTunnelIPAddress: Hashable, Sendable {
     public init?(_ text: String) {
         var host = text
         if host.hasPrefix("["), host.hasSuffix("]") { host = String(host.dropFirst().dropLast()) }
+        // Darwin's inet_pton takes a `%zone` suffix and writes the interface index
+        // into a link-local address's bytes (`fe80::1%en0` becomes fe80:d::1), so a
+        // scoped literal would be judged and dialed as a different address. Refuse
+        // it, as glibc does; the policy then denies it as a non-name (see `evaluate`).
+        guard !host.utf8.contains(UInt8(ascii: "%")) else { return nil }
         var v4 = in_addr()
         if inet_pton(AF_INET, host, &v4) == 1 {
             self = .v4(withUnsafeBytes(of: &v4) { Array($0) })

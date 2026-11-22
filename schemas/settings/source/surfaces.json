@@ -1,0 +1,728 @@
+{
+  "$comment": "HAND-EDITED source of Appearance > Surfaces (plans/cmux-next/surface-backgrounds.md): a color and an opacity per SurfaceKind (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it; its docstring is the row format (tabs.json's $comment repeats it, plus choices_from and \"swift_case\": null). Lists: SettingsSchema.all concatenates them, so rows keep the export's order; schemas/settings/settings-schema.json must not change when rows move here.",
+  "lists": [
+    {
+      "name": "surfaces",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.surfaces",
+        "text": "Surfaces"
+      },
+      "note": "Both default to the window's: an unset surface shows the window's one backdrop.",
+      "rows": [
+        {
+          "key": "appearance.surfaces.sidebar.color",
+          "name": "sidebarColor",
+          "title": {
+            "key": "settings.appearance.surfaces.sidebar.color",
+            "text": "Sidebar Color"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsWindow",
+            "text": "Same as window"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "sidebar"
+          ],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.sidebar.opacity",
+          "name": "sidebarOpacity",
+          "title": {
+            "key": "settings.appearance.surfaces.sidebar.opacity",
+            "text": "Sidebar Opacity"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.windowOpacity",
+            "text": "Window opacity"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "sidebar"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.tabBar.color",
+          "name": "tabBarColor",
+          "title": {
+            "key": "settings.appearance.surfaces.tabBar.color",
+            "text": "Tab Bar Color"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsWindow",
+            "text": "Same as window"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "tabBar"
+          ],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.tabBar.opacity",
+          "name": "tabBarOpacity",
+          "title": {
+            "key": "settings.appearance.surfaces.tabBar.opacity",
+            "text": "Tab Bar Opacity"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.windowOpacity",
+            "text": "Window opacity"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "tabBar"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.terminal.color",
+          "name": "terminalColor",
+          "title": {
+            "key": "settings.appearance.surfaces.terminal.color",
+            "text": "Terminal Color"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsWindow",
+            "text": "Same as window"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "terminal"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.terminal.opacity",
+          "name": "terminalOpacity",
+          "title": {
+            "key": "settings.appearance.surfaces.terminal.opacity",
+            "text": "Terminal Opacity"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.windowOpacity",
+            "text": "Window opacity"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "terminal"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.agentPane.color",
+          "name": "agentPaneColor",
+          "title": {
+            "key": "settings.appearance.surfaces.agentPane.color",
+            "text": "Agent Chat Color"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsWindow",
+            "text": "Same as window"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "agentPane"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.agentPane.opacity",
+          "name": "agentPaneOpacity",
+          "title": {
+            "key": "settings.appearance.surfaces.agentPane.opacity",
+            "text": "Agent Chat Opacity"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.windowOpacity",
+            "text": "Window opacity"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "agentPane"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.settings.color",
+          "name": "settingsColor",
+          "title": {
+            "key": "settings.appearance.surfaces.settings.color",
+            "text": "Settings Color"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsWindow",
+            "text": "Same as window"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "settings"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.settings.opacity",
+          "name": "settingsOpacity",
+          "title": {
+            "key": "settings.appearance.surfaces.settings.opacity",
+            "text": "Settings Opacity"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.windowOpacity",
+            "text": "Window opacity"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "settings"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.newTabPage.color",
+          "name": "newTabPageColor",
+          "title": {
+            "key": "settings.appearance.surfaces.newTabPage.color",
+            "text": "New Tab Page Color"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsWindow",
+            "text": "Same as window"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "newTabPage"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.newTabPage.opacity",
+          "name": "newTabPageOpacity",
+          "title": {
+            "key": "settings.appearance.surfaces.newTabPage.opacity",
+            "text": "New Tab Page Opacity"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.windowOpacity",
+            "text": "Window opacity"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "newTabPage"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.home.color",
+          "name": "homeColor",
+          "title": {
+            "key": "settings.appearance.surfaces.home.color",
+            "text": "Home Color"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsWindow",
+            "text": "Same as window"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "home"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.home.opacity",
+          "name": "homeOpacity",
+          "title": {
+            "key": "settings.appearance.surfaces.home.opacity",
+            "text": "Home Opacity"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.windowOpacity",
+            "text": "Window opacity"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "home"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.browserChrome.color",
+          "name": "browserChromeColor",
+          "title": {
+            "key": "settings.appearance.surfaces.browserChrome.color",
+            "text": "Browser Toolbar Color"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsWindow",
+            "text": "Same as window"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "browserChrome"
+          ],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.browserChrome.opacity",
+          "name": "browserChromeOpacity",
+          "title": {
+            "key": "settings.appearance.surfaces.browserChrome.opacity",
+            "text": "Browser Toolbar Opacity"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.windowOpacity",
+            "text": "Window opacity"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "browserChrome"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.internalPage.color",
+          "name": "internalPageColor",
+          "title": {
+            "key": "settings.appearance.surfaces.internalPage.color",
+            "text": "Internal Pages Color"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsWindow",
+            "text": "Same as window"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "internalPage"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.internalPage.opacity",
+          "name": "internalPageOpacity",
+          "title": {
+            "key": "settings.appearance.surfaces.internalPage.opacity",
+            "text": "Internal Pages Opacity"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.windowOpacity",
+            "text": "Window opacity"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "internalPage"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.splitDivider.color",
+          "name": "splitDividerColor",
+          "title": {
+            "key": "settings.appearance.surfaces.splitDivider.color",
+            "text": "Split Divider Color"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsWindow",
+            "text": "Same as window"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "splitDivider"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.splitDivider.opacity",
+          "name": "splitDividerOpacity",
+          "title": {
+            "key": "settings.appearance.surfaces.splitDivider.opacity",
+            "text": "Split Divider Opacity"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.windowOpacity",
+            "text": "Window opacity"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "splitDivider"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.docks.color",
+          "name": "docksColor",
+          "title": {
+            "key": "settings.appearance.surfaces.docks.color",
+            "text": "Docked Columns Color"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsWindow",
+            "text": "Same as window"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "docks"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.docks.opacity",
+          "name": "docksOpacity",
+          "title": {
+            "key": "settings.appearance.surfaces.docks.opacity",
+            "text": "Docked Columns Opacity"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.windowOpacity",
+            "text": "Window opacity"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "docks"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.diff.color",
+          "name": "diffColor",
+          "title": {
+            "key": "settings.appearance.surfaces.diff.color",
+            "text": "Diff Viewer Color"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsWindow",
+            "text": "Same as window"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "diff"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.diff.opacity",
+          "name": "diffOpacity",
+          "title": {
+            "key": "settings.appearance.surfaces.diff.opacity",
+            "text": "Diff Viewer Opacity"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.windowOpacity",
+            "text": "Window opacity"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "diff"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.markdown.color",
+          "name": "markdownColor",
+          "title": {
+            "key": "settings.appearance.surfaces.markdown.color",
+            "text": "Markdown Editor Color"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsWindow",
+            "text": "Same as window"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "markdown"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.markdown.opacity",
+          "name": "markdownOpacity",
+          "title": {
+            "key": "settings.appearance.surfaces.markdown.opacity",
+            "text": "Markdown Editor Opacity"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.windowOpacity",
+            "text": "Window opacity"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "markdown"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.editor.color",
+          "name": "editorColor",
+          "title": {
+            "key": "settings.appearance.surfaces.editor.color",
+            "text": "Code Editor Color"
+          },
+          "kind": "color",
+          "default": null,
+          "default_label": {
+            "key": "settings.default.sameAsWindow",
+            "text": "Same as window"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "editor"
+          ]
+        },
+        {
+          "key": "appearance.surfaces.editor.opacity",
+          "name": "editorOpacity",
+          "title": {
+            "key": "settings.appearance.surfaces.editor.opacity",
+            "text": "Code Editor Opacity"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.windowOpacity",
+            "text": "Window opacity"
+          },
+          "keywords": [
+            "background",
+            "surface",
+            "color",
+            "transparency",
+            "opacity",
+            "editor"
+          ]
+        }
+      ]
+    }
+  ]
+}

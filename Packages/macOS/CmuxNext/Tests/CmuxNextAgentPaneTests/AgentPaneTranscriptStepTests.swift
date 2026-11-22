@@ -64,7 +64,7 @@ struct AgentPaneTranscriptStepTests {
 
     @Test(.timeLimit(.minutes(5))) func eachStepSendsItsPageCommand() async throws {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file), pageHost: true))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file), pageHost: true, testRoot: true))
         let page = try await Subscribed(view)
         defer { page.subscription.cancel() }
 
@@ -80,7 +80,7 @@ struct AgentPaneTranscriptStepTests {
 
     @Test(.timeLimit(.minutes(5))) func stopTurnSendsTheComposerStopCommand() async throws {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file), pageHost: true))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file), pageHost: true, testRoot: true))
         let page = try await Subscribed(view)
         defer { page.subscription.cancel() }
 

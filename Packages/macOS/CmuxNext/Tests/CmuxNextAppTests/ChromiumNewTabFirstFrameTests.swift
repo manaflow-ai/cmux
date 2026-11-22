@@ -76,7 +76,7 @@ import Testing
         #expect(cache.existingBrowser(standIn.id) == nil)
         #expect(cache.existingBrowser(daemonTab.id) === entry, "the same chrome")
         #expect(cache.browser(for: daemonTab) === entry)
-        #expect(entry.chrome.addressBar.tabKey == daemonTab.id)
+        #expect(entry.state.tabKey == daemonTab.id)
         #expect(!page.isClosed)
     }
 

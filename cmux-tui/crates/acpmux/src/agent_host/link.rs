@@ -18,10 +18,22 @@ pub struct HostLauncher {
 }
 
 impl HostLauncher {
-    /// This process's own binary, with the prefix it starts its daemon with.
+    /// This process's own binary, with the prefix it starts its daemon with
+    /// (`exe` without Linux's ` (deleted)`: [`SelfCommand::current`]).
+    ///
+    /// [`SelfCommand::current`]: crate::self_command::SelfCommand::current
     pub fn current() -> Result<Self> {
         let this = crate::self_command::SelfCommand::current()?;
         Ok(Self { exe: this.exe, prefix: this.prefix })
+    }
+
+    /// The program [`spawn`] execs; `exe` stays the host's argv0. For this
+    /// process's own binary on Linux, the open inode
+    /// ([`crate::self_command::program`]): once an update replaced the file,
+    /// every new chat failed with "start PATH (deleted): No such file or
+    /// directory" (the app's `agent_session.refused`).
+    fn program(&self) -> PathBuf {
+        crate::self_command::program(&self.exe)
     }
 }
 
@@ -32,13 +44,26 @@ impl HostLauncher {
 /// host's exit closes before it answers; or when the caller drops it, which
 /// ends the host (it is still this process's child). A busy Mac makes a host
 /// slow, never wrong, so time alone never ends it; a caller with a deadline
-/// of its own (`agent_start`, the pool's `START_BUDGET`) drops the start.
+/// of its own (for example a user-facing agent-start hazard) may drop the
+/// start; pooled starts themselves wait on liveness and report progress.
 #[cfg(unix)]
 pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostRecord> {
+    spawn_with_fds(launcher, spec, &[]).await
+}
+
+/// [`spawn`], the host inheriting `fds` as its descriptors 3, 4, ... (a replacement host of the
+/// agent holder, `custody::respawn`).
+#[cfg(unix)]
+pub async fn spawn_with_fds(
+    launcher: &HostLauncher,
+    spec: &SpawnSpec,
+    fds: &[std::os::fd::RawFd],
+) -> Result<HostRecord> {
     // The build-session kill switch: no host and no harness (cx-9ettq).
     crate::launch_policy::refuse_if_disabled()?;
-    let mut cmd = tokio::process::Command::new(&launcher.exe);
-    cmd.args(&launcher.prefix)
+    let mut cmd = tokio::process::Command::new(launcher.program());
+    cmd.arg0(&launcher.exe)
+        .args(&launcher.prefix)
         .arg(HOST_ARG)
         // The host itself is inspectable by its same-uid harness child on
         // some platforms. It needs only OS identity/locale; the complete
@@ -56,15 +81,46 @@ pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostReco
         cmd.env(super::host::HELLO_STALL_DIR_ENV, dir);
     }
     #[cfg(debug_assertions)]
+    if let Some(dir) = std::env::var_os(super::host::HELLO_EXIT_DIR_ENV) {
+        cmd.env(super::host::HELLO_EXIT_DIR_ENV, dir);
+    }
+    #[cfg(debug_assertions)]
     if let Some(ms) = std::env::var_os(super::host::POOLED_OWNER_WAIT_ENV) {
         cmd.env(super::host::POOLED_OWNER_WAIT_ENV, ms);
     }
-    // SAFETY: setsid is async-signal-safe and touches no Rust state. The host
+    // Debug builds only: the test process whose end ends the host (`daemon/owner_exit.rs`).
+    #[cfg(debug_assertions)]
+    if let Some(pid) = std::env::var_os(crate::owner_exit::TEST_OWNER_PID_ENV) {
+        cmd.env(crate::owner_exit::TEST_OWNER_PID_ENV, pid);
+    }
+    // Above every target number first, so no dup2 below overwrites a source not moved yet.
+    let high: Vec<std::os::fd::OwnedFd> = fds
+        .iter()
+        .map(|fd| {
+            // SAFETY: fcntl F_DUPFD_CLOEXEC on a descriptor the caller holds open.
+            let raw = unsafe { libc::fcntl(*fd, libc::F_DUPFD_CLOEXEC, 64) };
+            if raw < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            // SAFETY: a new descriptor owned here.
+            Ok(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(raw) })
+        })
+        .collect::<std::io::Result<_>>()
+        .context("dup the inherited descriptors")?;
+    let inherit: Vec<std::os::fd::RawFd> =
+        high.iter().map(std::os::fd::AsRawFd::as_raw_fd).collect();
+    // SAFETY: setsid and dup2 are async-signal-safe and touch no Rust state. The host
     // leads its own session so it outlives the controller and its group.
     unsafe {
-        cmd.pre_exec(|| {
+        cmd.pre_exec(move || {
             if libc::setsid() < 0 {
                 return Err(std::io::Error::last_os_error());
+            }
+            for (i, fd) in inherit.iter().enumerate() {
+                // dup2 leaves the copy open across exec.
+                if libc::dup2(*fd, 3 + i as libc::c_int) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
             }
             Ok(())
         });
@@ -72,6 +128,8 @@ pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostReco
     let child = cmd
         .spawn()
         .map_err(|e| crate::agent::spawn_error(&format!("start {}", launcher.exe.display()), e))?;
+    // The child has its copies.
+    drop(high);
     // Until it answers, the host is ended with this start: a caller that
     // stops waiting leaves no host behind.
     let mut host = Bootstrapping::new(child)?;
@@ -209,7 +267,8 @@ pub struct QueryReply {
 
 type Queries = Arc<std::sync::Mutex<std::collections::HashMap<u64, oneshot::Sender<QueryReply>>>>;
 
-/// The fences of the lines sent to a host (`ControllerFrame::Line`), with its incarnation,
+/// The fences of the lines sent to a host (`ControllerFrame::Line`), with its start nonce (a
+/// replacement host keeps its incarnation, `custody.rs`, but never its nonce),
 /// until its receipt (`WRITTEN_METHOD`, `settle_receipt`) or its end (`settle_receipts_of`)
 /// settles them. Shared by every connection this daemon makes, so a receipt a later connection
 /// to the same host gets settles its line (review 82 of #23322). A protocol-1 host gives no
@@ -270,14 +329,14 @@ fn hold_receipt(host: &HostRecord, receipt: u64, fence: &crate::agent::Fence) {
     let mut receipts = RECEIPTS.lock_or_recover();
     // Settled ones another way (an answered request) go.
     receipts.retain(|_, (_, f)| !f.is_settled());
-    receipts.insert(receipt, (host.incarnation.clone(), fence.clone()));
+    receipts.insert(receipt, (host.start_nonce.clone(), fence.clone()));
     drop(receipts);
     watch_end(host);
 }
 
 /// Watches `host`'s end once, from its first held line.
 fn watch_end(host: &HostRecord) {
-    if WATCHED.lock_or_recover().insert(host.incarnation.clone()) {
+    if WATCHED.lock_or_recover().insert(host.start_nonce.clone()) {
         // task-owner: ends with the host, or when its lock can not be watched.
         tokio::spawn(watch_host_end(host.clone()));
     }
@@ -301,7 +360,7 @@ pub fn adopt_receipt(host: &HostRecord, receipt: u64) -> crate::agent::Fence {
         at.and_then(|at| unclaimed.remove(at)).map(|(_, written)| written)
     };
     if came.is_none() {
-        receipts.insert(receipt, (host.incarnation.clone(), fence.clone()));
+        receipts.insert(receipt, (host.start_nonce.clone(), fence.clone()));
     }
     drop(receipts);
     match came {
@@ -324,7 +383,7 @@ pub fn adopt_untold(host: &HostRecord) -> crate::agent::Fence {
     fence
 }
 
-/// The host incarnations whose end is watched (`watch_host_end`), one watch each.
+/// The host processes (start nonces) whose end is watched (`watch_host_end`), one watch each.
 static WATCHED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
     std::sync::LazyLock::new(Default::default);
 
@@ -333,34 +392,41 @@ static WATCHED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<S
 /// host, or at once when its lock can not be watched, which leaves its lines to their answer,
 /// receipt or `Exit` (fail closed).
 async fn watch_host_end(record: HostRecord) {
+    let gone = host_ended(&record).await;
+    WATCHED.lock_or_recover().remove(&record.start_nonce);
+    if gone {
+        settle_receipts_of(&record.start_nonce);
+    }
+}
+
+/// Resolves once host `record` is proven gone (true: no lock directory holds its live lock) or
+/// its lock can not be watched (false: a lock that can not be read proves nothing). No deadline
+/// and no poll: it waits on the host's live lock, which its death frees.
+pub async fn host_ended(record: &HostRecord) -> bool {
     let (sid, nonce) = (&record.session_id, &record.start_nonce);
-    let gone = loop {
-        let dirs = live_lock_dirs(&record);
+    loop {
+        let dirs = live_lock_dirs(record);
         let states: Vec<_> = dirs.iter().map(|d| (d, liveness(d, sid, nonce))).collect();
         if states.iter().any(|(_, l)| *l == Liveness::Unknown) {
-            break false;
+            return false;
         }
         // Gone once no directory holds it live; a move from the pool wakes the watch, which
         // looks again.
         let Some((dir, _)) = states.into_iter().find(|(_, l)| *l == Liveness::Live) else {
-            break true;
+            return true;
         };
         if !dead(dir, sid, nonce).await {
-            break false;
+            return false;
         }
-    };
-    WATCHED.lock_or_recover().remove(&record.incarnation);
-    if gone {
-        settle_receipts_of(&record.incarnation);
     }
 }
 
-/// The host incarnation `incarnation` ended: what it had is never written now.
-pub fn settle_receipts_of(incarnation: &str) {
+/// The host process of start nonce `nonce` ended: what it had is never written now.
+pub fn settle_receipts_of(nonce: &str) {
     let ended: Vec<_> = {
         let mut receipts = RECEIPTS.lock_or_recover();
         let ids: Vec<u64> =
-            receipts.iter().filter(|(_, (i, _))| i == incarnation).map(|(r, _)| *r).collect();
+            receipts.iter().filter(|(_, (n, _))| n == nonce).map(|(r, _)| *r).collect();
         ids.into_iter().filter_map(|r| receipts.remove(&r)).collect()
     };
     for (_, fence) in ended {
@@ -382,16 +448,83 @@ pub struct Link {
     pub closed: Arc<std::sync::atomic::AtomicBool>,
     /// The last entry the host sent on this link (`replay_end_within`).
     highest: Arc<std::sync::atomic::AtomicU64>,
+    /// The ring offsets the host's entries carried (`HostFrame::Entry::o`, the agent holder),
+    /// by entry, until the reader logs them (`take_offset_through`).
+    offsets: Arc<std::sync::Mutex<std::collections::VecDeque<(u64, u64)>>>,
 }
 
 /// Connect as owner and resume after `resume_after` (the last entry already
 /// in this session's log).
 pub async fn connect(record: HostRecord, resume_after: u64) -> Result<Connect> {
-    // A wedged host must not hold up the daemon: the handshake is bounded.
-    const HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
-    tokio::time::timeout(HELLO_BUDGET, connect_inner(record, resume_after))
-        .await
-        .map_err(|_| anyhow!("agent host did not answer hello within {HELLO_BUDGET:?}"))?
+    match hello_budget() {
+        // Ordinary ownership and reattachment stay live for as long as the host's socket is
+        // open. A busy host is slower, never a failed wake; a closed socket still makes the
+        // handshake fail promptly through `connect_inner`.
+        None => connect_inner(record, resume_after).await,
+        // Adoption is deliberately scoped by the caller: daemon startup must not wait forever
+        // for one already-running host while the rest of the fleet is adopted. Its retry pass
+        // uses `ADOPT_HELLO_BUDGET`, a hazard bound for that startup fan-out rather than a wake
+        // deadline.
+        Some(budget) => {
+            // No time at all: missed before any byte is sent. A zero `tokio::time::timeout` is not
+            // a sure miss (its timer fires on the next millisecond tick, after a fast local hello).
+            if budget.is_zero() {
+                return Err(anyhow::Error::new(HelloUnanswered(budget)));
+            }
+            tokio::time::timeout(budget, connect_inner(record, resume_after))
+                .await
+                .map_err(|_| anyhow::Error::new(HelloUnanswered(budget)))?
+        }
+    }
+}
+
+/// The bound of a hello to a host that runs and was adopted before. Adoption at daemon startup is
+/// a fan-out operation, so it gets a hazard bound and a retry; a normal wake or reattachment does
+/// not use a wall-clock hello deadline. On a loaded Mac (load 118 on 15 cores, 85 hosts adopted at
+/// once, 2026-10-31) a live host answered later than 5 s; ending it then, or leaving it unowned
+/// with its whole agent and MCP servers, is worse than waiting.
+// timeout: adoption fan-out must yield to its retry pass; normal wake/reattach uses socket liveness.
+pub const ADOPT_HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The bound of each hello in the daemon start's first adoption pass (`adopt_agent_hosts`). That
+/// pass holds the start, and every new session waits for the start: a host that accepts the
+/// connection and never answers (a wedged event loop) held both forever. A host that misses it is
+/// retried with [`ADOPT_HELLO_BUDGET`] after the start, off its path.
+// timeout: the start must not wait on one host; the missed host is retried, not ended.
+pub const START_HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+
+tokio::task_local! {
+    static HELLO_BUDGET_SCOPE: Option<std::time::Duration>;
+}
+
+/// Runs `work` with every [`connect`] in it bounded by `budget`.
+pub async fn with_hello_budget<F: std::future::Future>(
+    budget: std::time::Duration,
+    work: F,
+) -> F::Output {
+    HELLO_BUDGET_SCOPE.scope(Some(budget), work).await
+}
+
+fn hello_budget() -> Option<std::time::Duration> {
+    HELLO_BUDGET_SCOPE.try_with(|b| *b).unwrap_or(None)
+}
+
+/// A host that did not answer `Hello` within the connect's budget: it may be wedged, or only
+/// slow on a loaded machine.
+#[derive(Debug, Clone, Copy)]
+pub struct HelloUnanswered(pub std::time::Duration);
+
+impl std::fmt::Display for HelloUnanswered {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "agent host did not answer hello within {:?}", self.0)
+    }
+}
+
+impl std::error::Error for HelloUnanswered {}
+
+/// Whether `error` is (or wraps) a [`HelloUnanswered`].
+pub fn missed_hello(error: &anyhow::Error) -> bool {
+    error.chain().any(|c| c.downcast_ref::<HelloUnanswered>().is_some())
 }
 
 /// [`connect`], speaking at most protocol `max`, as a daemon of an older build does. For tests.
@@ -402,6 +535,16 @@ pub async fn connect_with_max(record: HostRecord, resume_after: u64, max: u16) -
 
 #[cfg(unix)]
 async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect> {
+    // Debug builds only: `ACPMUX_TEST_CONTROLLER_PROTOCOL_MAX` makes this daemon speak at most that
+    // protocol, so a host it finds can refuse it (`0`: every host does), as a host of a build it
+    // cannot speak to does. Release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Some(max) = std::env::var("ACPMUX_TEST_CONTROLLER_PROTOCOL_MAX")
+        .ok()
+        .and_then(|v| v.parse::<u16>().ok())
+    {
+        return connect_inner_max(record, resume_after, max).await;
+    }
     connect_inner_max(record, resume_after, PROTOCOL_MAX).await
 }
 
@@ -422,7 +565,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             min: PROTOCOL_MIN,
             max,
             token: record.owner_token.clone(),
-            controller_build: crate::hub::BUILD.to_owned(),
+            controller_build: crate::build_info::build().to_owned(),
         },
     )
     .await?;
@@ -523,15 +666,20 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
         }
     });
     let highest = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let offsets: Arc<std::sync::Mutex<std::collections::VecDeque<(u64, u64)>>> = Arc::default();
     {
         let closed = closed.clone();
         let queries = queries.clone();
         let highest = highest.clone();
+        let offsets = offsets.clone();
         tokio::spawn(async move {
             let mut detach_tx = Some(detach_tx);
             loop {
                 match read_frame::<_, HostFrame>(&mut rd).await {
-                    Ok(Some(HostFrame::Entry { h, e })) => {
+                    Ok(Some(HostFrame::Entry { h, e, o })) => {
+                        if let Some(o) = o {
+                            offsets.lock_or_recover().push_back((h, o));
+                        }
                         #[cfg(debug_assertions)]
                         if late.is_some_and(|last_h| h > last_h) {
                             late = None;
@@ -591,6 +739,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             detach_ack: Mutex::new(Some(detach_rx)),
             closed,
             highest,
+            offsets,
         }),
         adopted,
     ))
@@ -686,6 +835,25 @@ impl Link {
         }
     }
 
+    /// A query with no deadline: the receiver gets the host's answer, or an error once this link's
+    /// reader ends (it drops every query still open). For a caller that stops waiting at its own
+    /// budget but still takes the answer when it comes (`ChildAgent::host_kind`).
+    pub async fn query_answer(&self) -> Result<oneshot::Receiver<QueryReply>> {
+        let id = self.next_query.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let (tx, rx) = oneshot::channel();
+        self.queries.lock_or_recover().insert(id, tx);
+        // A reader that already ended cleared the map before this insert and drops no more.
+        if self.is_closed() {
+            self.queries.lock_or_recover().remove(&id);
+            return Err(anyhow!("agent host connection closed"));
+        }
+        if let Err(e) = self.send(ControllerFrame::Query { id }).await {
+            self.queries.lock_or_recover().remove(&id);
+            return Err(e);
+        }
+        Ok(rx)
+    }
+
     /// The last entry the host numbered before it answers a query sent now. The host handles this
     /// link's frames in order, the `Resume` sent at connect before this query, and sends its own in
     /// order: every entry it numbered before it handled that `Resume` (its hello's `last_h`, and
@@ -698,5 +866,40 @@ impl Link {
 
     pub fn is_closed(&self) -> bool {
         self.closed.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// The last ring offset among the entries through `h` (they are in the log now), dropping
+    /// them: where a replacement host reads the harness's output again (`custody.rs`).
+    pub fn take_offset_through(&self, h: u64) -> Option<u64> {
+        let mut offsets = self.offsets.lock_or_recover();
+        let mut last = None;
+        while offsets.front().is_some_and(|(at, _)| *at <= h) {
+            last = offsets.pop_front().map(|(_, o)| o);
+        }
+        last
+    }
+}
+
+#[cfg(test)]
+mod launcher_tests {
+    use super::HostLauncher;
+    use std::path::PathBuf;
+
+    /// A daemon whose binary an update replaced still starts agent hosts: on
+    /// Linux its own binary is exec'd from the open inode, never `PATH
+    /// (deleted)`, and argv0 stays the path (a copy named `acpmux` runs as
+    /// acpmux by it). Another binary is exec'd as given.
+    #[test]
+    fn the_host_starts_from_the_open_inode_on_linux() {
+        let launcher = HostLauncher::current().expect("launcher");
+        let exe = std::env::current_exe().expect("current exe");
+        assert_eq!(launcher.exe, exe);
+        if cfg!(target_os = "linux") {
+            assert_eq!(launcher.program(), PathBuf::from("/proc/self/exe"));
+        } else {
+            assert_eq!(launcher.program(), exe);
+        }
+        let other = HostLauncher { exe: PathBuf::from("/opt/cmux/bin/acpmux"), prefix: Vec::new() };
+        assert_eq!(other.program(), PathBuf::from("/opt/cmux/bin/acpmux"));
     }
 }

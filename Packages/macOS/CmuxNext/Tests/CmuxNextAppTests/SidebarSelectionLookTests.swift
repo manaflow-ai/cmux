@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -11,7 +12,7 @@ import Testing
 /// reads as one selection in the theme's selection color, in the list and on the lifted card.
 /// With CMUX_SIDEBAR_SELECTION_GALLERY (a folder) the gallery test renders each theme, at rest and
 /// mid-drag, to sidebar-selection.png there.
-@MainActor @Suite(.serialized) struct SidebarSelectionLookTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarSelectionLookTests {
     static let repoRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

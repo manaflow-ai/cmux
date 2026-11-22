@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
 import { t, text } from "../strings";
 import { isHttpOrigin } from "../validate";
@@ -25,6 +26,15 @@ export function ChoiceOrUrlEditor({ row, value, disabled, labelId }: EditorProps
   const [addressPicked, setAddressPicked] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  // A new stored value (a Reset, a host update) ends the address being typed and the pick of the
+  // address field that went with the old one.
+  const [seen, setSeen] = useState(JSON.stringify(value ?? null));
+  if (seen !== JSON.stringify(value ?? null)) {
+    setSeen(JSON.stringify(value ?? null));
+    setAddressPicked(false);
+    setDraft(null);
+    setProblem(null);
+  }
   const showAddress = stored !== null || addressPicked;
   const commit = () => {
     if (draft === null) return;
@@ -37,6 +47,43 @@ export function ChoiceOrUrlEditor({ row, value, disabled, labelId }: EditorProps
   };
   return (
     <span className="choice-or-url">
+      {/* The address field opens left of the menu, so the menu the person just used stays in place. */}
+      {showAddress && (
+        // A form, so Return in the address field commits it (implicit submission), as a blur does.
+        <form
+          className="text-editor"
+          onSubmit={(event) => {
+            event.preventDefault();
+            commit();
+          }}
+        >
+          <Input
+            className="field text"
+            type="text"
+            spellCheck={false}
+            value={draft ?? stored ?? ""}
+            placeholder="http://mini.tail1234.ts.net:7320"
+            disabled={disabled}
+            aria-labelledby={labelId}
+            aria-invalid={problem !== null}
+            onChange={(event) => setDraft(event.currentTarget.value)}
+            onBlur={commit}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && (draft !== null || problem !== null)) {
+                // Cancels the edit: blur must not commit what was typed.
+                event.stopPropagation();
+                setDraft(null);
+                setProblem(null);
+              }
+            }}
+          />
+          {problem && (
+            <span className="field-error" role="alert">
+              {problem}
+            </span>
+          )}
+        </form>
+      )}
       <Select
         value={showAddress ? address : String(value ?? "")}
         disabled={disabled}
@@ -54,34 +101,6 @@ export function ChoiceOrUrlEditor({ row, value, disabled, labelId }: EditorProps
         ))}
         <option value={address}>{t("settingsPage.selfHostedServer")}</option>
       </Select>
-      {showAddress && (
-        // A form, so Return in the address field commits it (implicit submission), as a blur does.
-        <form
-          className="text-editor"
-          onSubmit={(event) => {
-            event.preventDefault();
-            commit();
-          }}
-        >
-          <input
-            className="field text"
-            type="text"
-            spellCheck={false}
-            value={draft ?? stored ?? ""}
-            placeholder="http://mini.tail1234.ts.net:7320"
-            disabled={disabled}
-            aria-labelledby={labelId}
-            aria-invalid={problem !== null}
-            onChange={(event) => setDraft(event.currentTarget.value)}
-            onBlur={commit}
-          />
-          {problem && (
-            <span className="field-error" role="alert">
-              {problem}
-            </span>
-          )}
-        </form>
-      )}
     </span>
   );
 }

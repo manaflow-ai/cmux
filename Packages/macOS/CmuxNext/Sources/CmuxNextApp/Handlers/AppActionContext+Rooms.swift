@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextWindowRules
 import Foundation
 
 /// Target resolution for room handlers. Rooms live on the local daemon.
@@ -31,23 +32,24 @@ extension AppActionContext {
         return try room(named: text)
     }
 
+    /// By id, else by name folded for case and diacritics (the folding is Foundation's; the lookup
+    /// is cmux-window-rules `targets::named`).
     private func room(named text: String) throws -> ProfileModel {
-        if let room = roomStore.profile(ProfileID(rawValue: text)) { return room }
-        let folded = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
-        if let room = roomStore.profiles.first(where: {
-            $0.name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) == folded
-        }) { return room }
-        throw ActionFailure.notFound(RoomStrings.noRoom(text))
+        let rooms = roomStore.profiles
+        let fold = { (name: String) in name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
+        let candidates = rooms.map { WindowRules.Named(id: $0.id.rawValue, folded: fold($0.name)) }
+        guard let index = WindowRules().named(text, folded: fold(text), among: candidates), rooms.indices.contains(index) else {
+            throw ActionFailure.notFound(RoomStrings.noRoom(text))
+        }
+        return rooms[index]
     }
 }
 
-/// `space.setDefaults` arguments: `cwd` (an absolute directory, `~` expanded) and
-/// `env` (a JSON object of strings). A named argument replaces its field and an
-/// empty one clears it; a field the run does not name keeps the space's value, so
-/// `--cwd X` alone keeps the environment. Both named and empty clears the
-/// defaults; a run that names neither sets nothing (the handler asks). A value
-/// that is not text, or a relative `cwd` (the socket makes a bare `--cwd` the
-/// string "true"), is refused rather than clearing or setting a bad directory.
+/// `space.setDefaults` arguments: `cwd` (an absolute directory; `~` and `~user` are expanded
+/// here) and `env` (a JSON object of strings). A named argument replaces its field and an empty
+/// one clears it; a field the run does not name keeps the space's value. The rule is Rust's
+/// (cmux-window-rules `workspaces::defaults_patch`), which also refuses a value that is not text
+/// or a relative `cwd`.
 enum RoomDefaultsArguments {
     /// Whether the run names `cwd` or `env`, even empty.
     static func names(_ invocation: ActionInvocation) -> Bool {
@@ -75,36 +77,20 @@ enum RoomDefaultsArguments {
 
     /// The run's named fields; throws on a value that is not text or a relative `cwd`.
     static func patch(_ invocation: ActionInvocation) throws -> Patch {
-        try Patch(cwd: invocation["cwd"].map(directory), env: invocation["env"].map(environment))
-    }
-
-    /// The space's defaults after this run: `current` with the named fields replaced.
-    static func merged(_ invocation: ActionInvocation, into current: ProfileDefaults?) throws -> ProfileDefaults {
-        try patch(invocation).applied(to: current)
-    }
-
-    private static func text(_ value: ActionValue) throws -> String {
-        guard let text = value.stringValue else { throw ActionFailure.invalidTarget(RoomStrings.defaultsMustBeText) }
-        return text.trimmingCharacters(in: .whitespaces)
-    }
-
-    /// The directory `value` names; nil when empty (clear it).
-    private static func directory(_ value: ActionValue) throws -> String? {
-        let text = try text(value)
-        guard !text.isEmpty else { return nil }
-        let path = (text as NSString).expandingTildeInPath
-        guard path.hasPrefix("/") else { throw ActionFailure.invalidTarget(RoomStrings.cwdMustBeAbsolute) }
-        return path
-    }
-
-    private static func environment(_ value: ActionValue) throws -> [String: String] {
-        let text = try text(value)
-        guard !text.isEmpty else { return [:] }
-        guard let data = text.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              object.values.allSatisfy({ $0 is String }) else {
-            throw ActionFailure.invalidTarget(RoomStrings.envMustBeObject)
+        let text = { (name: String) -> String?? in invocation[name].map { $0.stringValue } }
+        // Expanding `~` and `~user` is a lookup of the user's home: Foundation's, as before.
+        let cwd = text("cwd").map { $0.map { ($0.trimmingCharacters(in: .whitespaces) as NSString).expandingTildeInPath } }
+        switch WindowRules().spaceDefaults(cwd: cwd, env: text("env")) {
+        case .success(let patch)?:
+            let cwd: String?? = switch patch.cwd {
+            case nil: nil
+            case .clear?: .some(nil)
+            case .set(let path)?: .some(path)
+            }
+            return Patch(cwd: cwd, env: patch.env)
+        case .failure(.defaultsMustBeText)?, nil: throw ActionFailure.invalidTarget(RoomStrings.defaultsMustBeText)
+        case .failure(.cwdMustBeAbsolute)?: throw ActionFailure.invalidTarget(RoomStrings.cwdMustBeAbsolute)
+        case .failure(.envMustBeObject)?: throw ActionFailure.invalidTarget(RoomStrings.envMustBeObject)
         }
-        return object.compactMapValues { $0 as? String }
     }
 }

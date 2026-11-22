@@ -3,7 +3,7 @@ import CmuxNextCompat
 
 /// The sessions this pane started or shows (b, ad349): `_acpmux/kill`, `permission_respond` and
 /// `permission_group_respond` are allowed only for them. A session is the pane's when it came back
-/// from the pane's own `session/new`, `acp.session.fork`, `_acpmux/handoff_start` or `_acpmux/btw` (their replies
+/// from the pane's own `session/new`, `acp.session.fork`, `_acpmux/handoff_start`, `_acpmux/btw` or `_acpmux/side_chat` (their replies
 /// are read off the main thread), when the user opened it in this pane by a gesture (an attach made
 /// with one, a click in the session list), or when the host itself opened the tab on it (restore,
 /// a session link). An attach alone adds nothing; attach and watch stay open.
@@ -13,7 +13,8 @@ import CmuxNextCompat
 /// replies, and the handoffs a click let the pane take from a session outside its scope.
 public nonisolated final class AcpmuxPaneSessions: Sendable {
     /// The requests whose reply names a session the pane started.
-    public static let starting: Set<String> = ["session/new", "acp.session.fork", "_acpmux/handoff_start", "_acpmux/btw"]
+    public static let starting: Set<String> = ["session/new", "chat.fix_from_link", "acp.session.fork", "_acpmux/handoff_start", "_acpmux/btw",
+                                               "_acpmux/side_chat"]
 
     private struct State {
         var sessions: Set<String> = []
@@ -41,6 +42,13 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
     public func add(_ session: String) { state.withLock { _ = $0.sessions.insert(session) } }
 
     public func contains(_ session: String) -> Bool { state.withLock { $0.sessions.contains(session) } }
+
+    /// Whether `text` names a session of the pane, as a JSON string: a row change of the pane's own
+    /// chat is never left out (``AcpmuxPaneSocket/setAsleep(_:)``). A false match only keeps a frame.
+    func named(in text: String) -> Bool {
+        let sessions = state.withLock { $0.sessions }
+        return sessions.contains { !$0.isEmpty && text.utf8Contains("\"\($0)\"") }
+    }
 
     /// The pane has no session and is starting none: its chat has not begun (no prompt sent).
     public var isUnstarted: Bool { state.withLock { $0.sessions.isEmpty && $0.awaiting.isEmpty } }
@@ -140,7 +148,7 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
     /// A daemon frame: when it answers a starting request, its sessions are the pane's; when it
     /// answers a handoff request, the pane learns the handoff's source.
     public func observe(_ text: String) {
-        guard state.withLock({ !$0.awaiting.isEmpty || !$0.awaitingHandoff.isEmpty }), text.contains("\"result\""),
+        guard state.withLock({ !$0.awaiting.isEmpty || !$0.awaitingHandoff.isEmpty }), text.utf8Contains("\"result\""),
               let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return }
         observe(object)
     }

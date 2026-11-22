@@ -36,6 +36,23 @@ struct ChannelTrackTests {
         #expect(nightly.releaseURL?.absoluteString == "https://github.com/manaflow-ai/cmux/releases/tag/nightly-next")
     }
 
+    @Test func theDevTrackAlsoListsTheFeedsBuildsTheIndexLacksNewestFirst() throws {
+        // The published DEV app's tip feed has no notes index: its builds come from the feed alone.
+        let day = Date(timeIntervalSince1970: 1_793_558_519) // 2026-11-01 UTC
+        let tracks = ChannelTrack.tracks(index: Self.index, verdicts: [:], pulled: [PulledBuild(build: "250", reason: "bad")],
+                                         installedBuild: "400", keptBuilds: ["150"], followed: .dev,
+                                         feedItems: [AppcastItem(version: "400", displayVersion: "1.0.0-tip.400", date: day),
+                                                     AppcastItem(version: "300"), AppcastItem(version: "250"),
+                                                     AppcastItem(version: "150", displayVersion: "1.0.0-tip.150")])
+        let dev = try #require(tracks.first { $0.ring == .dev })
+        #expect(dev.builds.map(\.build) == ["400", "300", "200", "150", "100"])
+        #expect(dev.installed?.shortVersion == "1.0.0-tip.400")
+        #expect(dev.installed?.date == "2026-11-01")
+        #expect(dev.builds.first { $0.build == "150" }?.isKept == true)
+        // Nightly stays the index alone.
+        #expect(tracks.first { $0.ring == .nightly }?.builds.map(\.build) == ["300", "200", "100"])
+    }
+
     @Test func theRunningBuildOffTheRecentListMarksNothing() {
         #expect(Self.tracks(installed: "50").allSatisfy { $0.installed == nil })
         #expect(Self.tracks(limit: 2).first { $0.ring == .nightly }?.builds.map(\.build) == ["300", "200"])

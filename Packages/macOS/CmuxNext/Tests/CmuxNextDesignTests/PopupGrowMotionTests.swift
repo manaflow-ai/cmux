@@ -1,15 +1,15 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
-import CmuxNextDesignTokens
 
 /// Lawrence 2026-10-20 (screen recording of Home's "Chief" pill popover: "animation needs to be
 /// better"). At 120 fps the card appeared at full size in one frame and, on close, held for about
 /// 75 ms and then vanished: the open and close faded the window's alpha, which the glass card
 /// did not show, and grew it from 0.97 on a 0.135 s spring, too small and short to read as
-/// coming out of the pill. Shared popup owners keep their grow/fade entrance by default; menu
-/// hosts opt out explicitly with `entrance: false`, and every close fades and shrinks faster.
-@MainActor @Suite(.serialized) struct PopupGrowMotionTests {
+/// coming out of the pill. Native popup owners now open at once, with no opacity or transform
+/// entrance; every close may still fade and shrink toward its anchor.
+@MainActor @Suite(.serialized, .closesItsWindows) struct PopupGrowMotionTests {
     private static let pivot = CGPoint(x: 150, y: 200)
 
     /// A borderless window on screen, at alpha 0 as a popup owner leaves it before an open.
@@ -32,7 +32,7 @@ import CmuxNextDesignTokens
     }
 
     @Test(.enabled("needs an awake display that can advance animations") { await GUIAnimationTestSupport.animatesHere() })
-    func anOpenWithoutExplicitEntranceUsesTheSharedEntrance() throws {
+    func anOpenHasNoEntranceAnimation() throws {
         let design = DesignSettings.shared
         let oldSettings = (design.animationsEnabled, design.disabledAnimationCategories, design.animationSpeed)
         design.animationsEnabled = true
@@ -46,23 +46,25 @@ import CmuxNextDesignTokens
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let (window, layer) = try Self.popupWindow()
-        defer { window.resetPopupScale(); window.orderOut(nil) }
+        defer { window.resetPopupScale(); window.closeAfterTest() }
 
         window.openPopup(pivot: Self.pivot)
 
         #expect(window.alphaValue == 1)
-        #expect(layer.animation(forKey: "opacity") != nil, "the shared popup entrance fades in")
-        #expect(layer.animation(forKey: "sublayerTransform") != nil, "the shared popup entrance grows in")
+        #expect(layer.animation(forKey: "opacity") == nil, "the popup entrance fades in")
+        #expect(layer.animation(forKey: "sublayerTransform") == nil, "the popup entrance grows in")
+        #expect(layer.opacity == 1)
+        #expect(CATransform3DIsIdentity(layer.sublayerTransform))
     }
 
     @Test(.enabled("needs an awake display that can advance animations") { await GUIAnimationTestSupport.animatesHere() })
-    func anOpenWithEntranceFalseShowsTheCardAtOnce() throws {
+    func anOpenAlwaysShowsTheCardAtOnce() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let (window, layer) = try Self.popupWindow()
-        defer { window.resetPopupScale(); window.orderOut(nil) }
+        defer { window.resetPopupScale(); window.closeAfterTest() }
 
-        window.openPopup(pivot: Self.pivot, entrance: false)
+        window.openPopup(pivot: Self.pivot)
 
         #expect(window.alphaValue == 1)
         #expect(layer.animation(forKey: "opacity") == nil, "the menu fades in")
@@ -76,9 +78,8 @@ import CmuxNextDesignTokens
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let (window, layer) = try Self.popupWindow()
-        defer { window.orderOut(nil) }
-        window.openPopup(pivot: Self.pivot, entrance: true)
-        let openGrow = try #require(layer.animation(forKey: "sublayerTransform"))
+        defer { window.closeAfterTest() }
+        window.openPopup(pivot: Self.pivot)
 
         var ended = false
         window.closePopup(pivot: Self.pivot) { ended = true }
@@ -87,7 +88,6 @@ import CmuxNextDesignTokens
         let fade = try #require(layer.animation(forKey: "opacity"), "the card does not fade out")
         #expect(layer.opacity == 0)
         #expect(fade.duration > 0.1, "a close of \(fade.duration) s reads as a cut")
-        #expect(fade.duration < openGrow.duration, "the close is not faster than the open")
         let shrink = try #require(layer.animation(forKey: "sublayerTransform"))
         let to = try #require(Self.scale((shrink as? CABasicAnimation)?.toValue))
         #expect(to < 1 && to > 0.95, "shrinks to \(to)")
@@ -100,18 +100,18 @@ import CmuxNextDesignTokens
     }
 
     @Test(.enabled("needs an awake display that can advance animations") { await GUIAnimationTestSupport.animatesHere() })
-    func underReduceMotionThePopupOnlyCrossfadesAtItsSize() throws {
+    func underReduceMotionThePopupStillOpensAtOnce() throws {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let (window, layer) = try Self.popupWindow()
-        defer { window.resetPopupScale(); window.orderOut(nil) }
+        defer { window.resetPopupScale(); window.closeAfterTest() }
 
-        window.openPopup(pivot: Self.pivot, entrance: true)
+        window.openPopup(pivot: Self.pivot)
 
         #expect(window.alphaValue == 1)
         #expect(layer.animation(forKey: "sublayerTransform") == nil, "Reduce Motion: no grow")
+        #expect(layer.animation(forKey: "opacity") == nil, "Reduce Motion: no entrance fade")
         #expect(CATransform3DIsIdentity(layer.sublayerTransform))
-        let fade = layer.animation(forKey: "opacity")
-        #expect((fade?.duration ?? 0) <= MotionFade.crossfade.baseDuration, "Reduce Motion: at most a short crossfade")
+        #expect(layer.opacity == 1)
     }
 }

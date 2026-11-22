@@ -1,0 +1,179 @@
+{
+ "endedAt": "2026-10-26T07:33:35.000Z",
+ "failure": {
+  "code": "lease.not_observable",
+  "details": {
+   "ms": 1000,
+   "receiver_policy": {
+    "admission": [
+     "present"
+    ],
+    "journal_read": true,
+    "policy_read_ms": [
+     3,
+     4
+    ]
+   }
+  },
+  "message": "no lease at the CLI level: cmux-platform#915 GoldenPathProbe (91c6eb62) records stage `lease` value {machineId, connectionMachine, generation} from transport.resolveConnection",
+  "retryable": false,
+  "stage": "lease"
+ },
+ "machineId": "vm_q7x2m9k4p1z8w3n6r5t0",
+ "outcome": "failed",
+ "probeId": "start-matrix-golden-path",
+ "stages": [
+  {
+   "endedAt": "2026-10-26T07:33:22.000Z",
+   "ok": true,
+   "requestId": "start-matrix-golden-path:machine",
+   "stage": "machine",
+   "startedAt": "2026-10-26T07:33:21.000Z",
+   "value": {
+    "created": true,
+    "machineId": "vm_q7x2m9k4p1z8w3n6r5t0",
+    "ms": 1000,
+    "workspace": "start-matrix-golden-path"
+   }
+  },
+  {
+   "endedAt": "2026-10-26T07:33:24.000Z",
+   "ok": true,
+   "requestId": "start-matrix-golden-path:readiness",
+   "stage": "readiness",
+   "startedAt": "2026-10-26T07:33:23.000Z",
+   "value": {
+    "exec": {
+     "echoed": true,
+     "ms": 300,
+     "request_id": "start-matrix-golden-path:readiness"
+    },
+    "guest": {
+     "cmux_host": "active",
+     "compatibility": "full",
+     "daemon_commit": "a1b2c3d",
+     "daemon_machine_id": "vm_q7x2m9k4p1z8w3n6r5t0",
+     "daemon_version": "0.64.2",
+     "host_chars": 7,
+     "identified": true,
+     "image_stamp_chars": 17,
+     "ms": 900,
+     "protocol": 3,
+     "vm_kind_chars": 5
+    },
+    "ms": 1000,
+    "state": "running",
+    "tunnel": {
+     "connected": true,
+     "daemon": "connected",
+     "ms": 4200,
+     "stage": "ready"
+    }
+   }
+  },
+  {
+   "endedAt": "2026-10-26T07:33:26.000Z",
+   "failure": {
+    "code": "lease.not_observable",
+    "details": {
+     "ms": 1000,
+     "receiver_policy": {
+      "admission": [
+       "present"
+      ],
+      "journal_read": true,
+      "policy_read_ms": [
+       3,
+       4
+      ]
+     }
+    },
+    "message": "no lease at the CLI level: cmux-platform#915 GoldenPathProbe (91c6eb62) records stage `lease` value {machineId, connectionMachine, generation} from transport.resolveConnection",
+    "retryable": false
+   },
+   "ok": false,
+   "requestId": "start-matrix-golden-path:lease",
+   "stage": "lease",
+   "startedAt": "2026-10-26T07:33:25.000Z"
+  },
+  {
+   "endedAt": "2026-10-26T07:33:28.000Z",
+   "ok": true,
+   "requestId": "start-matrix-golden-path:folder",
+   "stage": "folder",
+   "startedAt": "2026-10-26T07:33:27.000Z",
+   "value": {
+    "codeword_read_back": true,
+    "files": 1,
+    "from_folder": true,
+    "ms": 1000,
+    "reply_ms": 2100
+   }
+  },
+  {
+   "endedAt": "2026-10-26T07:33:30.000Z",
+   "failure": {
+    "code": "auth.not_observable",
+    "details": {
+     "ms": 1000,
+     "ownership": {
+      "listed": true,
+      "signed_in": true,
+      "status": "running"
+     }
+    },
+    "message": "the account lists the machine, but the chat grant is not visible to the CLI: cmux-platform#915 GoldenPathProbe (91c6eb62) records stage `auth` value {allowed} from transport.checkAuth",
+    "retryable": false
+   },
+   "ok": false,
+   "requestId": "start-matrix-golden-path:auth",
+   "stage": "auth",
+   "startedAt": "2026-10-26T07:33:29.000Z"
+  },
+  {
+   "endedAt": "2026-10-26T07:33:32.000Z",
+   "ok": true,
+   "requestId": "start-matrix-golden-path:chat",
+   "stage": "chat",
+   "startedAt": "2026-10-26T07:33:31.000Z",
+   "value": {
+    "discovery_ms": 400,
+    "ms": 1000,
+    "reply_ms": 1800,
+    "session_discovered": true,
+    "session_id_chars": 10,
+    "session_id_sha256": "8296e2f4500e"
+   }
+  },
+  {
+   "endedAt": "2026-10-26T07:33:34.000Z",
+   "ok": true,
+   "requestId": "start-matrix-golden-path:reconnect",
+   "stage": "reconnect",
+   "startedAt": "2026-10-26T07:33:33.000Z",
+   "value": {
+    "link": {
+     "back": true,
+     "back_ms": 2500,
+     "dropped_while_paused": true
+    },
+    "ms": 1000,
+    "pause": {
+     "ms": 12000,
+     "state": "paused"
+    },
+    "reconnected": true,
+    "resume": {
+     "ms": 30000,
+     "state": "running"
+    },
+    "second_reply": {
+     "ms": 1700,
+     "ok": true
+    }
+   }
+  }
+ ],
+ "startedAt": "2026-10-26T07:33:20.000Z",
+ "version": 1
+}

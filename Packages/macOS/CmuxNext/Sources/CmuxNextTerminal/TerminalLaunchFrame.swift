@@ -16,7 +16,7 @@ public struct TerminalLaunchFrame {
     @discardableResult
     public func show(on session: TerminalSession) -> Bool {
         guard !session.surfaceHasContent, !session.frameHold.isHolding else { return false }
-        session.frameHold.begin(lastFrame: image, over: session.surfaceView, in: session.view)
+        session.frameHold.begin(lastFrame: .image(image), over: session.surfaceView, in: session.view)
         return true
     }
 }

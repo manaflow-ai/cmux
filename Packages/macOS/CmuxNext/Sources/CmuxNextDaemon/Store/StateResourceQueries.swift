@@ -15,6 +15,8 @@ public protocol StateResourceQueries: AnyObject {
     var appliedSequence: UInt64 { get }
     var connectionState: DaemonConnectionState { get }
     func workspace(key: WorkspaceKey) -> WorkspaceModel?
+    /// The workspace whose public id is `id` (`DaemonStore` reads its index).
+    func workspace(resourceID id: ResourceID) -> WorkspaceModel?
     /// Records a read-your-writes wait for `sequence` (``applied(through:)`` never waits on a script
     /// batch's stage: what it holds at or below `sequence` shows now, and it holds nothing the wait
     /// needs until ``endAppliedWait(_:)``).
@@ -47,11 +49,6 @@ extension StateResourceQueries {
     /// daemon takes `workspace.place` for it: one of its own live workspaces.
     public func personalStateID(session: String, key: WorkspaceKey) -> ResourceID? {
         session == registryID ? stateResourceID(workspace: key) : nil
-    }
-
-    /// The workspace whose public id is `id`.
-    public func workspace(resourceID id: ResourceID) -> WorkspaceModel? {
-        workspaces.first { $0.resourceID == id }
     }
 
     /// Returns once the tree reflects every event up to `sequence` (a

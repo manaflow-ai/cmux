@@ -1,6 +1,9 @@
 public import AppKit
 
 public extension CALayer {
+    /// The rounded content card below the top tab row, also read by Chromium's child-window clip.
+    static let cmuxCardClipName = "cmux.cardClip"
+
     /// The name of the layer mask the column strip puts on a pane that
     /// scrolled under a docked column or past the strip's edge
     /// (`PaneHostView.setStripClip`). A Chromium page is a child window that

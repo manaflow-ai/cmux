@@ -16,6 +16,10 @@ const githubApp = await generateKeyPair("RS256", { extractable: true })
 const pubsub = await generateKeyPair("RS256", { extractable: true })
 const pubsubPublic = { ...(await exportJWK(pubsub.publicKey)), kid: "google-test", alg: "RS256" }
 const pubsubPrivate = { ...(await exportJWK(pubsub.privateKey)), kid: "google-test" }
+// Test-only key that signs GitHub Actions OIDC tokens (replaces GitHub's JWKS when ENVIRONMENT=test).
+const githubActions = await generateKeyPair("RS256", { extractable: true })
+const githubActionsPublic = { ...(await exportJWK(githubActions.publicKey)), kid: "github-actions-test", alg: "RS256" }
+const githubActionsPrivate = { ...(await exportJWK(githubActions.privateKey)), kid: "github-actions-test" }
 // Test-only link-token signing keys (two kids, the second active); never a real key.
 const linkKeys: Record<string, unknown> = {}
 for (const kid of ["test-link-1", "test-link-2"]) {
@@ -30,6 +34,8 @@ const kek = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("ba
 
 export default defineConfig({
   test: {
+    // test-node/ runs under Node (vitest.node.config.ts): tests there spawn local programs, which workerd cannot.
+    include: ["test/**/*.test.ts"],
     // Loads the Worker once per test file before any test runs (test/setup/warm-worker.ts).
     setupFiles: ["./test/setup/warm-worker.ts"],
     // The full parallel run of every file (309 s on a 32 vCPU Freestyle VM, 2026-10-16) makes each case about 9x
@@ -37,6 +43,13 @@ export default defineConfig({
     // over 3x headroom over the slowest case without its own timeout. It hides nothing: the slow-tests reporter lists
     // every case over 2 s, and a case over 2 s alone has a slow part to fix (fixed waits, serial setup, big fixtures).
     testTimeout: 20_000,
+    // A Durable Object's background work (the owner outbox's delivery retries, a signup Chief's provision) can still
+    // run when vitest closes a finished file's worker. Its next console line or module resolve then rejects with
+    // vitest's own EnvironmentTeardownError ("Closing rpc while \"resolve\" was pending"), which vitest counted as an
+    // unhandled error and failed a run whose every test passed (backend jobs 134087878865, 134224548433,
+    // 134263123253 on 2026-11-17: 220/220 files passed, exit 1). It is raised by the pool's teardown, after the
+    // file's last test, so it can never be a test's result; every other unhandled error still fails the run.
+    onUnhandledError: (error) => error.name !== "EnvironmentTeardownError",
     // An explicit list drops the reporter vitest adds on GitHub Actions (failure annotations), so it is named here.
     reporters: ["default", "./test/setup/slow-tests-reporter.ts", ...(process.env.GITHUB_ACTIONS === "true" ? ["github-actions"] : [])]
   },
@@ -119,16 +132,12 @@ export default defineConfig({
           TEAM_VM_DRIVER: "fake",
           // The team VM bind runs against the fake guest (team-vm-fake-guest.ts).
           TEAM_VM_BIND_ENABLED: "1",
-          // Cloud machines use the in-object fake provider under the test prefix (cloud-driver.ts).
-          CLOUD_DRIVER: "fake",
           CLOUD_API_ORIGIN: "https://api.test",
           CLOUD_LINK_SIGNING_KEYS: JSON.stringify({ active: "test-link-2", keys: linkKeys, published_at: { "test-link-1": 0, "test-link-2": 0 } }),
           CLOUD_ADMIN_KEY: "test-cloud-admin-key-0123456789abcdef",
           // userIdFor(STACK_PROJECT_ID, "ops_person_1"): the only person the abandoned-clear route accepts in tests.
           CLOUD_ADMIN_USERS: "user_6412abe5b2830d00012b",
           CLOUD_NAME_PREFIX: "cmuxnp-test-cld-",
-          // PlatformMachines answers (test/platform-machines.test.ts); development only among the deployments.
-          PLATFORM_MACHINES: "on",
           PLATFORM_AGENT_GATEWAY: "on",
           // Only these teams get the stub plan and provider calls (P1-1); test/setup/cloud-teams.ts.
           CLOUD_ALLOWED_TEAMS: cloudAllowedTeams().join(","),
@@ -136,7 +145,9 @@ export default defineConfig({
           GOOGLE_PUBSUB_AUDIENCE: "https://api.test/v1/hooks/google/pubsub",
           GOOGLE_PUBSUB_SERVICE_ACCOUNT: "gmail-push-invoker@cmux-integrations-dev.iam.gserviceaccount.com",
           GOOGLE_PUBSUB_TEST_JWKS: JSON.stringify({ keys: [pubsubPublic] }),
-          GOOGLE_PUBSUB_TEST_PRIVATE_JWK: JSON.stringify(pubsubPrivate)
+          GOOGLE_PUBSUB_TEST_PRIVATE_JWK: JSON.stringify(pubsubPrivate),
+          GITHUB_ACTIONS_TEST_JWKS: JSON.stringify({ keys: [githubActionsPublic] }),
+          GITHUB_ACTIONS_TEST_PRIVATE_JWK: JSON.stringify(githubActionsPrivate)
         }
       }
     })

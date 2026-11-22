@@ -21,7 +21,11 @@ import struct
 import tempfile
 import unittest
 from pathlib import Path
+import sys
 from unittest import mock
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from nightly_workflow_text import expand as nightly_expand  # noqa: E402  (moved step scripts back inline)
+import workflow_jobs  # noqa: E402
 
 import yaml
 
@@ -32,7 +36,7 @@ SCRIPT = ROOT / "scripts" / "build-ghostty-cli-helper.sh"
 
 def cache_key_failures() -> list[str]:
     failures: list[str] = []
-    job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["build-nightly-ghostty-cli-helper"]
+    job = yaml.safe_load(nightly_expand(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["build-nightly-ghostty-cli-helper"]
     steps = job["steps"]
     names = [step.get("name", "") for step in steps]
     try:
@@ -179,18 +183,25 @@ class FindTests(unittest.TestCase):
 
 class WorkflowTests(unittest.TestCase):
     def test_helper_never_takes_a_hosted_mac_and_skips_compile_on_hit(self):
-        jobs = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())["jobs"]
+        jobs = yaml.safe_load(nightly_expand((ROOT / ".github/workflows/nightly.yml").read_text()))["jobs"]
         helper = jobs["build-nightly-ghostty-cli-helper"]
         self.assertIn("resolve-nightly-ghostty-cli-helper", helper["needs"])
-        runs_on = helper["runs-on"].split("!= 'manaflow-ai' && 'macos-26' ||", 1)[1]
-        self.assertNotIn("macos-15", helper["runs-on"])
-        self.assertNotIn("'macos-26'", runs_on)
+        cells = workflow_jobs.runs_on_cells(helper)
+        self.assertTrue(cells, "a runs-on matrix nothing resolves, or no runs-on")
+        for cell in cells:
+            runs_on = cell.split("!= 'manaflow-ai' && 'macos-26' ||", 1)[1]
+            self.assertNotIn("macos-15", cell)
+            self.assertNotIn("'macos-26'", runs_on)
         for name in ("Key the Ghostty CLI helper cache", "Cache the Ghostty CLI helper",
                      "Build Ghostty CLI helper", "Strip the Ghostty CLI helper", "Upload Ghostty CLI helper"):
             step = next(s for s in helper["steps"] if s.get("name") == name)
             self.assertIn("needs.resolve-nightly-ghostty-cli-helper.outputs.hit != 'true'", step["if"])
         lookup = jobs["resolve-nightly-ghostty-cli-helper"]
-        self.assertEqual(lookup["if"], helper["if"])
+        # The build adds only conjuncts to the lookup's gate: !cancelled() and its needs' success, so a timed-out
+        # continue-on-error pick-nightly-build-runner cannot skip it (2026-11-12).
+        self.assertTrue(helper["if"].endswith(f"&& {lookup['if']}"), helper["if"])
+        self.assertTrue(helper["if"].startswith("!cancelled() && "), helper["if"])
+        self.assertIn("needs.resolve-nightly-ghostty-cli-helper.result == 'success'", helper["if"])
         # Every step that can fail is a miss, and a hit needs this run's own artifact.
         for step in lookup["steps"]:
             if "Record" not in step["name"]:

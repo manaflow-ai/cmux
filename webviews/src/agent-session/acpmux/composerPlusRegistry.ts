@@ -1,7 +1,25 @@
 import { translate, type Translate } from "./i18n";
-import type { SlashCommand } from "./slashCommands";
+import { shownName, type SlashCommand } from "./slashCommands";
+import { PLUS_RECENT_COMMANDS } from "./recentCommands";
 
-export const COMPOSER_PLUS_SECTIONS = ["add", "tools", "apps", "sessions", "tabs", "files"] as const;
+/**
+ * The + menu's groups, top to bottom (Leo, 2026-10-31: "our + button is ass" / "inside chat and in
+ * the composer it's ass"; the reference is ChatGPT's + menu): attach first, then the composer's own
+ * actions (Plan, Goal, the project, @), then a few recent commands and the one "Commands and
+ * skills…" row, then the searches, then the host's catalog groups. Skills are never listed here
+ * whole (Leo, 2026-11-01: "our + button results are still really bad"): they live under / (the
+ * slash list), which "Commands and skills…" opens; at most PLUS_RECENT_COMMANDS recent ones show.
+ */
+export const COMPOSER_PLUS_SECTIONS = [
+  "attach",
+  "add",
+  "commands",
+  "files",
+  "tools",
+  "apps",
+  "sessions",
+  "tabs",
+] as const;
 export type ComposerPlusSection = (typeof COMPOSER_PLUS_SECTIONS)[number];
 
 export type ComposerPlusAction =
@@ -19,15 +37,19 @@ export type ComposerPlusEntry = {
 };
 
 export type ComposerPlusExtension = Omit<ComposerPlusEntry, "section"> & {
-  section: Exclude<ComposerPlusSection, "add">;
+  section: Exclude<ComposerPlusSection, "attach" | "add" | "commands">;
 };
 
 export type ComposerPlusRegistryOptions = {
   commands?: readonly SlashCommand[];
   translate?: Translate;
   canCapture?: boolean;
+  /// Record Screen…: the chat reads a recording kept on this Mac (a chat here).
+  canRecord?: boolean;
   canChooseProject?: boolean;
   planMode?: { id: string; name: string; description: string };
+  /** The commands picked last that this chat's agent advertises, most recent first (recentCommands.ts). */
+  recentCommands?: readonly SlashCommand[];
   extensions?: readonly ComposerPlusExtension[];
 };
 
@@ -35,6 +57,7 @@ const COMMANDS = {
   attachFiles: "composer.attachFiles",
   attachScreenshot: "composer.attachScreenshot",
   attachWindow: "composer.attachWindow",
+  recordScreen: "composer.recordScreen",
   chooseProject: "composer.chooseProject",
   planMode: "composer.planMode",
   mention: "composer.mention",
@@ -42,10 +65,21 @@ const COMMANDS = {
   searchFiles: "searchFiles",
 } as const;
 
+/// What the host's `composer.capture` takes (AgentPaneCapture.swift): a region, a window, or a
+/// recording from the system's Screenshot toolbar.
+export type CaptureMode = "screen" | "window" | "video";
+
+/// The + menu's capture rows, by command.
+export const CAPTURE_MODES: Readonly<Record<string, CaptureMode | undefined>> = {
+  [COMMANDS.attachScreenshot]: "screen",
+  [COMMANDS.attachWindow]: "window",
+  [COMMANDS.recordScreen]: "video",
+};
+
 const staticRows: readonly ComposerPlusEntry[] = [
   {
     id: "add.files",
-    section: "add",
+    section: "attach",
     // Named from the pane's table when the registry is built (`composer.attach`).
     name: "",
     description: "",
@@ -74,7 +108,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     rows.push(
       {
         id: "add.screenshot",
-        section: "add",
+        section: "attach",
         name: label("composer.attachScreenshot"),
         description: "",
         icon: "site.permission.camera",
@@ -83,7 +117,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       },
       {
         id: "add.window",
-        section: "add",
+        section: "attach",
         name: label("composer.attachWindow"),
         description: "",
         icon: "site.permission.windowmanagement",
@@ -92,16 +126,18 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       },
     );
   }
-
-  if (options.canChooseProject) {
+  // Leo, 2026-11-07: "could we also have a more native screenshot/screensharer (ergonomic
+  // one)/video recording of the app type thing/route?" A recording goes as a video link, so it does
+  // not wait on the model taking images.
+  if (options.canRecord) {
     rows.push({
-      id: "add.project",
-      section: "add",
-      name: label("project.choose"),
+      id: "add.recording",
+      section: "attach",
+      name: label("composer.recordScreen"),
       description: "",
-      icon: "folder",
-      keywords: ["project", "folder", "cwd", "workspace"],
-      action: { kind: "command", id: COMMANDS.chooseProject },
+      icon: "remote.display",
+      keywords: ["record", "recording", "video", "screen recording", "movie", "capture", "bug", "report"],
+      action: { kind: "command", id: COMMANDS.recordScreen },
     });
   }
 
@@ -130,41 +166,55 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     });
   }
 
-  for (const command of options.commands ?? []) {
-    if (command.source !== "skill" && command.source !== "prompt") continue;
-    const name = command.name.trim();
-    if (!name) continue;
+  if (options.canChooseProject) {
     rows.push({
-      id: `add.skill.${name.toLowerCase()}`,
+      id: "add.project",
       section: "add",
-      name: `/${name}`,
-      description: command.description || description("composer.slashSkill"),
-      icon: "terminal",
-      keywords: [name, command.description],
-      action: { kind: "slash", command },
+      name: label("composer.chooseFolder"),
+      description: "",
+      icon: "folder",
+      keywords: ["project", "folder", "cwd", "workspace"],
+      action: { kind: "command", id: COMMANDS.chooseProject },
     });
   }
 
-  rows.push(
-    {
-      id: "add.mention",
-      section: "add",
-      name: label("composer.mention"),
-      description: "",
-      icon: "composer.mention",
-      keywords: ["@", "mention", "file", "chat"],
-      action: { kind: "command", id: COMMANDS.mention },
-    },
-    {
-      id: "add.commands",
-      section: "add",
-      name: label("composer.commands"),
-      description: "",
+  rows.push({
+    id: "add.mention",
+    section: "add",
+    name: label("composer.mention"),
+    description: "",
+    icon: "composer.mention",
+    keywords: ["@", "mention", "file", "chat"],
+    action: { kind: "command", id: COMMANDS.mention },
+  });
+
+  // At most a few recent commands, then one "Commands and skills…" row that opens the searchable
+  // slash list; the rest of the agent's commands and skills are never rows here, however many it
+  // advertises.
+  const recent = new Set<string>();
+  for (const command of options.recentCommands ?? []) {
+    if (recent.size === PLUS_RECENT_COMMANDS) break;
+    if (recent.has(command.name) || command.name.toLowerCase() === "goal") continue;
+    recent.add(command.name);
+    rows.push({
+      id: `commands.recent.${command.name}`,
+      section: "commands",
+      name: `/${shownName(command)}`,
+      description: command.descriptionKey ? t(command.descriptionKey) : command.description,
       icon: "terminal",
-      keywords: ["/", "slash", "commands"],
-      action: { kind: "command", id: COMMANDS.commands },
-    },
-  );
+      keywords: [command.name, command.description],
+      action: { kind: "slash", command },
+    });
+  }
+  rows.push({
+    id: "add.commands",
+    section: "commands",
+    name: label("composer.plusCommands"),
+    description: "",
+    icon: "terminal",
+    keywords: ["/", "slash", "commands", "skills"],
+    action: { kind: "command", id: COMMANDS.commands },
+  });
 
   rows.push({
     id: "files.search",
@@ -230,6 +280,10 @@ export function composerPlusSections(
 
 export const COMPOSER_PLUS_MOTION = "none" as const;
 
+export function isComposerCommand(id: string): boolean {
+  return Object.values(COMMANDS).includes(id as (typeof COMMANDS)[keyof typeof COMMANDS]);
+}
+
 export function runComposerPlusAction(
   action: ComposerPlusAction,
   handlers: {
@@ -242,7 +296,7 @@ export function runComposerPlusAction(
     handlers.slash(action.command);
     return true;
   }
-  if (Object.values(COMMANDS).includes(action.id as (typeof COMMANDS)[keyof typeof COMMANDS])) {
+  if (isComposerCommand(action.id)) {
     handlers.command(action.id, action.modeId);
     return true;
   }

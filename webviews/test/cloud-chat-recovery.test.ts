@@ -72,6 +72,8 @@ describe("cloud chat recovery", () => {
           onResumeMachine: noop,
           onResume: noop,
           onClose: noop,
+          // The paused card waits RESUME_NOTE_DELAY_MS before it shows (afterDelay.ts); this reads the settled card.
+          noteDelayMs: 0,
         }),
       );
       expect(html).not.toContain('data-action="reconnect"');

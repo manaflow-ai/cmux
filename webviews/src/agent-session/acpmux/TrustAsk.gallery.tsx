@@ -44,6 +44,7 @@ function GalleryTrustAsk({ initialAsk }: Props) {
           onTrust={() => answer("trusted", current.cwd)}
           onTrustRepo={() => answer("trusted", answerFolder(current, "repo"))}
           onDistrust={() => answer("untrusted", answerFolder(current, "repo"))}
+          onContinueWithoutFolder={() => undefined}
           onUndo={() => setCurrent({ cwd: current.cwd, ...(current.repo ? { repo: current.repo } : {}), state: "ask" })}
         />
       </div>
@@ -96,6 +97,10 @@ export default componentEntry<Props>({
   styles: () => import("./styles.css"),
   load: async () => GalleryTrustAsk,
   variants: {
+    "grid-ask": {
+      note: "Grid measurement: unanswered folder trust bar.",
+      props: { initialAsk: ask("ask") },
+    },
     ask: { note: "A folder outside any repository.", props: { initialAsk: ask("ask") }, play: trustFolder },
     "ask-repo": {
       note: "A folder inside a repository: Trust repo (every worktree), Only this folder, Not now.",
@@ -113,15 +118,37 @@ export default componentEntry<Props>({
       play: notNow,
     },
     failed: { props: { initialAsk: ask("failed") } },
+    "failed-with-reason": {
+      note: "The host refused the save and said why: the reason shows under the question.",
+      props: {
+        initialAsk: {
+          cwd,
+          state: "failed",
+          reason: "cwd is outside the folders this machine serves (webRoots)",
+        },
+      },
+    },
     remote: { props: { initialAsk: ask("remote") } },
     trusted: { props: { initialAsk: ask("decided") }, play: undo },
     "trusted-via-repo": { props: { initialAsk: ask("decided", { ...worktree, via: repoRoot }) } },
+    "declined-folder": {
+      height: 240,
+      note: "Declined folder: text-only continuation leaves attachments in the original chat.",
+      props: { initialAsk: { cwd, state: "decided", level: "untrusted" } },
+    },
+    "declined-repo": {
+      height: 240,
+      note: "Declined repository: continuation does not load its project hooks or config.",
+      props: { initialAsk: { ...inRepo, via: repoRoot, state: "decided", level: "untrusted" } },
+    },
     untrusted: {
+      height: 240,
       note: "After Not now, the chat remains readable and Trust folder is the primary recovery action.",
       props: { initialAsk: { cwd, state: "decided", level: "untrusted" } },
       play: trustAfterNotNow,
     },
     "untrusted-repo": {
+      height: 240,
       note: "After Not now on a repository, Trust repo remains the primary recovery action.",
       props: { initialAsk: { ...inRepo, via: repoRoot, state: "decided", level: "untrusted" } },
       play: trustRepoAfterNotNow,

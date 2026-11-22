@@ -9,11 +9,16 @@ extension WorkspaceRowView {
         onClose = { [weak list] in list?.model.send(.close([id])) }
         onMore = list.contextMenuProvider == nil ? nil : { [weak list] in list.map { SidebarRowMenu(list: $0).show(for: id) } }
         onSelect = { [weak list] in list?.model.click(id) }
-        onToggleTabs = { [weak list] in list?.foldTabs(id) }
-        // Redraw now, like the tabs disclosure: left to the tree's observation, the fold would wait
+        // Redraw now: left to the tree's observation, the fold would wait
         // out the calm-movement hold until the pointer leaves the sidebar.
-        onToggleTree = { [weak list] in SidebarSessionTree.shared.toggle(id); list?.reload(animated: true) }
+        // The row's own chevron says which way it goes: a parent below the top level starts folded.
+        onToggleTree = { [weak list, weak self] in
+            SidebarSessionTree.shared.toggle(id, folded: self?.treeFold == .collapsed)
+            list?.reload(animated: true)
+        }
         onToggleAudio = { [weak list] in list?.model.send(.toggleWorkspaceAudio(id)) }
+        // The drive indicator's menu: Go to shows the agent's tab, Stop ends what it drives; each row a registered action.
+        driveIndicator.makeItem = { [weak list] command, title in list?.driveMenuItem?(id, command, title) }
         // An expanded row's hover pin (cx-13w3): nil while the App offers none.
         isPinned = { [weak list] in list?.model.workspacePin?.isPinned(id) }
         onPin = { [weak list] in list?.model.workspacePin?.toggle(id) }

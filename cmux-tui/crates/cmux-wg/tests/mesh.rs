@@ -3,9 +3,11 @@
 mod mesh_support;
 
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use cmux_wg::WgError;
 use mesh_support::*;
+use tokio::time::Instant;
 
 const MIB: usize = 1024 * 1024;
 
@@ -98,4 +100,39 @@ async fn a_peer_that_restarts_on_a_new_port_is_learned_again() {
     let (_echo_b2, _accepted_b2) = spawn_echo(within(b2.mesh.listen(LINK_PORT)).await.unwrap());
     let mut back = within(a.mesh.connect(SocketAddr::new(overlay(2), LINK_PORT))).await.unwrap();
     echo_round_trip(&mut back, 1024).await;
+}
+
+/// `cmux link`'s dial deadline for one handshake (link/dial.rs `DIAL_TIMEOUT`).
+const DIAL_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[tokio::test]
+async fn a_dial_connects_soon_after_its_first_initiation_was_dropped() {
+    // A just-created Cloud VM's receiver may not hold the caller's key yet
+    // when the first dial starts, and drops that initiation (prod 17:48:43,
+    // 2026-11-06: "no handshake with [fd7c:…]:4100 within 5 s (after a fresh
+    // connect_info, state running)"). boringtun retries only after 5 s plus
+    // jitter, so each 5 s dial sent one initiation and never saw an answer.
+    let a = node(&[overlay(1)]).await;
+    let b = node(&[overlay(2)]).await;
+    within(a.mesh.add_peer(peer_of(&b, &[overlay(2)], true))).await.unwrap();
+    let (_echo, mut accepted) = spawn_echo(within(b.mesh.listen(LINK_PORT)).await.unwrap());
+
+    let started = Instant::now();
+    let dial = tokio::time::timeout_at(
+        started + DIAL_TIMEOUT,
+        a.mesh.connect(SocketAddr::new(overlay(2), LINK_PORT)),
+    );
+    // B learns A's key only after A's first initiation reached it.
+    let learn = async {
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        within(b.mesh.add_peer(peer_of(&a, &[overlay(1)], false))).await.unwrap();
+    };
+    let (dialed, ()) = tokio::join!(dial, learn);
+    let mut stream = dialed
+        .unwrap_or_else(|_| panic!("no handshake within {} s", DIAL_TIMEOUT.as_secs()))
+        .unwrap();
+    let took = started.elapsed();
+    assert!(took < Duration::from_secs(3), "the dial took {took:?}");
+    assert_eq!(within(accepted.recv()).await.unwrap().0, a.public);
+    echo_round_trip(&mut stream, 1024).await;
 }

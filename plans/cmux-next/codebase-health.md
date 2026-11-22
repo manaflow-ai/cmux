@@ -449,8 +449,8 @@ They are the only App-size limits in force on a push. Skip one rule for one push
 `CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>"` (the other rules still refuse) and say so in your report.
 `guardrails.py --list` prints every rule. The guardrails also run the arch ratchet (`arch-ratchet.py`): the
 arch_counts rows of section 1 and the layer edges of section 4 may not rise over a push, and their totals in
-`plans/cmux-next/arch-ratchet.json` only go down; their one escape is a dated exception in that file (the skip
-variable does not skip them).
+`plans/cmux-next/arch-ratchet.json` only go down; their one escape is a dated exception, one per file in
+`plans/cmux-next/arch-exceptions/<id>.json` (the skip variable does not skip them).
 If the script itself fails, the hook prints a warning and lets the push through.
 It also warns (never refuses) when a push changes a `// perf-hot:` function (names the bench,
 `scripts/cmux-next/perf-hot-benches.json`) or an area in [OWNERS.md](OWNERS.md).

@@ -3,7 +3,7 @@ package import Foundation
 /// The body of `POST /api/billing/checkout` (web, native checkout): the plan,
 /// the team for a Team plan, and the app's callback scheme, so the success page's "Open cmux"
 /// returns to the app that started the checkout (cmux NEXT, a tagged build) instead of classic
-/// `cmux://`. Go stays a classic plan.
+/// `cmux://`. Plan ids are web billing's: `go` is cmux Plus ($15/mo), then pro, max and team.
 package nonisolated struct BillingCheckoutRequest: Sendable {
     package struct Invalid: Error, Sendable, CustomStringConvertible {
         package let description: String
@@ -19,7 +19,7 @@ package nonisolated struct BillingCheckoutRequest: Sendable {
     package let scheme: String?
 
     package init(plan: String, team: String?, scheme: String? = nil) throws {
-        guard ["pro", "max", "team"].contains(plan) else { throw Invalid(description: BillingStrings.badPlan) }
+        guard ["go", "pro", "max", "team"].contains(plan) else { throw Invalid(description: BillingStrings.badPlan) }
         let team = team?.trimmingCharacters(in: .whitespacesAndNewlines)
         if plan == "team", team?.isEmpty ?? true { throw Invalid(description: BillingStrings.teamRequired) }
         self.plan = plan

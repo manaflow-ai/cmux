@@ -70,6 +70,83 @@ import Testing
         #expect(log.summary.count == 0)
     }
 
+    /// Records each kernel read of the watchdog and the reads that ran on the main thread; a test awaits a count.
+    final class ProbeReads: Sendable {
+        private struct State {
+            var reads: [String] = []
+            var onMain: [String] = []
+            var waiter: (count: Int, done: CheckedContinuation<Void, Never>)?
+        }
+
+        // concurrency-allow: test recorder; the probe's reads append from the watchdog's threads, the test reads after them.
+        private let state = Mutex(State())
+
+        /// The real kernel reads, each recorded first.
+        var probe: BusyWatchdog.Probe {
+            BusyWatchdog.Probe(usage: { [self] pid in
+                note("usage(\(pid))")
+                return ProcessUsage.sample(pid)
+            }, threadCPUNanos: { [self] thread in
+                note("thread_info")
+                return BusyWatchdog.cpuNanos(of: thread)
+            })
+        }
+
+        func note(_ read: String) {
+            let onMain = pthread_main_np() != 0
+            let done = state.withLock { state -> CheckedContinuation<Void, Never>? in
+                state.reads.append(read)
+                if onMain { state.onMain.append(read) }
+                guard let waiter = state.waiter, state.reads.count >= waiter.count else { return nil }
+                state.waiter = nil
+                return waiter.done
+            }
+            done?.resume()
+        }
+
+        /// Returns once `count` reads have run (the suite's time limit ends a run that never gets them).
+        func reached(_ count: Int) async {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                let ready = state.withLock { state -> Bool in
+                    guard state.reads.count < count else { return true }
+                    state.waiter = (count, done)
+                    return false
+                }
+                if ready { done.resume() }
+            }
+        }
+
+        var all: [String] { state.withLock { $0.reads } }
+        var onMain: [String] { state.withLock { $0.onMain } }
+    }
+
+    /// The watchdog watches the main thread, so it must never block it. Every kernel read (each process's
+    /// `proc_pid_rusage` and `proc_pidinfo`, the helper list's `proc_listchildpids`, the main thread's
+    /// `thread_info`) runs off the main thread, also for the window that a main-thread wake opens.
+    /// The main thread only stamps that it woke. v229 (2026-10-30): one window end stalled the main thread
+    /// 1,261 ms in `proc_pidinfo`, and three window opens 111-381 ms in the helper list.
+    @MainActor @Test func kernelReadsNeverRunOnTheMainThread() async throws {
+        let reads = ProbeReads()
+        // Out-of-reach thresholds: this checks where the reads run, not what they find.
+        let watchdog = BusyWatchdog(configuration: .init(window: .milliseconds(50), mainThreadThreshold: 100, processThreshold: 100,
+                                                         helperThreshold: 100, logBusy: false),
+                                    log: HangLog(), ledger: WakeupLedger(), activity: ExpectedActivity(), clock: ContinuousClock(),
+                                    probe: reads.probe)
+        let me = getpid()
+        watchdog.watchCurrentThread()
+        watchdog.setHelperSource {
+            reads.note("helpers")
+            return [.init(pid: me, label: "cef-renderer")]
+        }
+        // As MainThreadWatchdog.heartbeat does when the main run loop wakes.
+        watchdog.noteAwake()
+        // The open (helpers, helper usage, app usage, thread_info) and the close (thread_info, app usage,
+        // helper usage) of the one window: no wake follows, so no second window opens.
+        await reads.reached(7)
+        #expect(reads.all.count == 7)
+        #expect(reads.onMain.isEmpty, "kernel reads on the main thread: \(reads.onMain)")
+    }
+
     @Test func cpuDuringInputIsExpected() async throws {
         let log = HangLog()
         let activity = ExpectedActivity()

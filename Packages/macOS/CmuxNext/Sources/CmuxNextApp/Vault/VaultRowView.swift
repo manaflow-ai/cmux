@@ -31,12 +31,13 @@ struct VaultRowView: View {
         }
         .padding(.vertical, 3)
         .padding(.horizontal, Metrics.panelInset)
-        .background(RoundedRectangle(cornerRadius: 5).fill(isSelected ? colors.selection : .clear))
+        .background(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius).fill(isSelected ? colors.selection : .clear))
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { actions.perform("vaultOpenSession", row.id) }
         .onTapGesture { actions.select(row.id) }
         .contextMenu { menu }
-        .themedHelp(row.session.cwd ?? row.title)
+        // No tooltip on a row that shows its title (a1315's cuts 2 and 3); VoiceOver hears where it runs.
+        .accessibilityHint(Text(verbatim: row.session.cwd ?? ""))
     }
 
     @ViewBuilder private var menu: some View {

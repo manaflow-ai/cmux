@@ -1,0 +1,39 @@
+{
+  "id": "bracketed-paste",
+  "priority": "P0",
+  "title": "A two-line paste into zsh (bracketed paste on) lands in the line editor without a dialog and runs only on Return",
+  "why": "zsh turns bracketed paste on, so a multi-line paste must reach its line editor as one paste: no line runs before the person presses Return, no paste markers show as text, and the app asks no 'Paste into the terminal?' question (it asks only when the program did not turn bracketed paste on). The app's mirror must track the mode the daemon's shell set.",
+  "source": "everyday terminal use (holistic-quality.md 1)",
+  "budget_seconds": 60,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-bracketed-paste"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo shell-${ZSH_VERSION:+zsh}-${nonce}", "enter": true, "mark": "shell"},
+    {"do": "expect", "title": "the shell is zsh (it turns bracketed paste on)", "since": "shell", "timeout": 10,
+     "all": [{"daemon_line": "shell-zsh-${nonce}"}, {"daemon_prompt": true}]},
+    {"do": "clipboard_set", "text": "echo bp1-${nonce}-$((6*7))\necho bp2-${nonce}-$((6*7))"},
+    {"do": "key", "key": "v", "modifiers": ["cmd"], "mark": "paste"},
+    {"do": "expect", "title": "both lines land in the line editor, nothing runs, no markers, no dialog", "since": "paste", "within": 1.5, "timeout": 5, "settle": 1.5,
+     "all": [
+       {"daemon_contains": "echo bp1-${nonce}-$((6*7))"},
+       {"daemon_contains": "echo bp2-${nonce}-$((6*7))"},
+       {"daemon_lacks": "bp1-${nonce}-42"},
+       {"daemon_lacks": "bp2-${nonce}-42"},
+       {"daemon_lacks": "200~"},
+       {"daemon_lacks": "201~"},
+       {"app_text_contains": "echo bp2-${nonce}-$((6*7))"},
+       {"app_text_lacks": "bp1-${nonce}-42"}
+     ]},
+    {"do": "key", "key": "return", "modifiers": [], "mark": "run"},
+    {"do": "expect", "title": "Return runs both lines, in order", "since": "run", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "bp1-${nonce}-42"},
+       {"daemon_line": "bp2-${nonce}-42"},
+       {"daemon_prompt": true},
+       {"app_text_line": "bp1-${nonce}-42"},
+       {"app_text_line": "bp2-${nonce}-42"},
+       {"app_prompt": true},
+       {"frame_screen": {"shows": ["bp1-${nonce}-42", "bp2-${nonce}-42"], "lacks": ["200~"]}}
+     ]}
+  ]
+}

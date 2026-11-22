@@ -1,3 +1,4 @@
+import CmuxNextFocus
 import Foundation
 import os
 

@@ -1,9 +1,13 @@
 // l10n-allow-file: public-safe child transcript fixtures, not shipped copy.
 import { expect, test } from "bun:test";
 import { SubagentFold } from "./subagentFold";
+import { isCompletedPlumbingTool } from "../hiddenTools";
 
 type Step = { update: Record<string, unknown>; acpmux: Record<string, unknown> };
-const own = (update: Record<string, unknown>, id = "parent"): Step => ({ update, acpmux: { subagent: id } });
+const own = (update: Record<string, unknown>, id = "parent"): Step => ({
+  update,
+  acpmux: { subagent: id },
+});
 const spawn = (id: string, parent: string | null): Step => ({
   update: { sessionUpdate: "subagent_spawned" },
   acpmux: { subagents: [{ id, parent, name: `Sample ${id}` }] },
@@ -20,7 +24,11 @@ const tool = (id: string, extra: Record<string, unknown> = {}) =>
   });
 const feed = (fold: SubagentFold, step: Step, at: number) =>
   fold.reduce(
-    { seq: at, at: at * 1_000, msg: { params: { update: step.update, _meta: { acpmux: step.acpmux } } } },
+    {
+      seq: at,
+      at: at * 1_000,
+      msg: { params: { update: step.update, _meta: { acpmux: step.acpmux } } },
+    },
     step.update,
   );
 
@@ -30,7 +38,13 @@ test("child views preserve call generations, match cold replay and keep old snap
     text("agent_message_chunk", "Read the samples."),
     text("agent_thought_chunk", "Inspect "),
     text("agent_thought_chunk", "every item."),
-    tool("hidden", { title: "ToolSearch", _meta: { claude: { tool: "ToolSearch" } } }),
+    // A real ToolSearch runs no command: one that did would be work (hiddenTools.ts).
+    tool("hidden", {
+      title: "ToolSearch",
+      kind: "other",
+      rawInput: { query: "select:Read" },
+      _meta: { claude: { tool: "ToolSearch" } },
+    }),
     own({ sessionUpdate: "tool_call_update", toolCallId: "hidden", status: "completed" }),
     tool("first", { status: "completed" }),
     tool("second", { status: "in_progress" }),
@@ -52,7 +66,11 @@ test("child views preserve call generations, match cold replay and keep old snap
     text("agent_thought_chunk", "Read another file."),
     tool("read", { kind: "read", locations: [{ path: "sample.ts" }], status: "completed" }),
     text("agent_message_chunk", "Begin another check."),
-    own({ sessionUpdate: "tool_call_update", toolCallId: "first", content: { type: "text", text: "late first" } }),
+    own({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "first",
+      content: { type: "text", text: "late first" },
+    }),
     tool("first", { rawInput: { command: "echo reused" }, status: "in_progress" }),
   ];
   const fold = new SubagentFold();
@@ -80,11 +98,16 @@ test("child views preserve call generations, match cold replay and keep old snap
     ["echo first", "late first"],
     ["echo reused", undefined],
   ]);
-  expect(activity.items?.some((item) => item.tool?.id === "hidden")).toBe(false);
+  expect(
+    activity.items?.filter((item) => item.tool?.id === "hidden").every((item) => isCompletedPlumbingTool(item.tool)),
+  ).toBe(true);
   expect(activity.items?.find((item) => item.tool?.id === "second")?.tool?.output).toBe("done");
   feed(
     fold,
-    { update: { sessionUpdate: "subagent_state_update" }, acpmux: { subagents: [{ id: "another", state: "failed" }] } },
+    {
+      update: { sessionUpdate: "subagent_state_update" },
+      acpmux: { subagents: [{ id: "another", state: "failed" }] },
+    },
     steps.length + 1,
   );
   const after = fold.views().parent!;
@@ -96,4 +119,53 @@ test("child views preserve call generations, match cold replay and keep old snap
     "failed",
   ]);
   expect(fold.views().parent).toBe(after);
+});
+
+test("a subagent's background shell that ended reads ended in its view, never running", async () => {
+  const { transcriptBackground } = await import("../summary/sessionSummary");
+  const fold = new SubagentFold();
+  const steps: Step[] = [
+    spawn("parent", null),
+    tool("watch", {
+      status: "in_progress",
+      rawInput: { command: "bun run dev", run_in_background: true },
+    }),
+    own({
+      sessionUpdate: "background_task_update",
+      toolCallId: "watch",
+      state: "running",
+      taskId: "b1",
+    }),
+    own({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "watch",
+      status: "completed",
+      content: { type: "text", text: "Command running in background with ID: b1" },
+    }),
+  ];
+  steps.forEach((step, index) => feed(fold, step, index + 1));
+  const running = (rows: Parameters<typeof transcriptBackground>[0]) =>
+    transcriptBackground(rows)
+      .tasks.filter((task) => task.state === "running")
+      .map((task) => task.id);
+  expect(running(fold.views().parent!)).toEqual(["watch"]);
+  // Stopped at its background time limit, as Claude Code reports it to the subagent's session.
+  feed(
+    fold,
+    own({
+      sessionUpdate: "background_task_update",
+      toolCallId: "watch",
+      state: "stopped",
+      taskId: "b1",
+      summary: "Background command was stopped after reaching its background time limit",
+    }),
+    steps.length + 1,
+  );
+  const view = fold.views().parent!;
+  expect(running(view)).toEqual([]);
+  const call = view.flatMap((row) => row.items ?? []).find((item) => item.tool?.id === "watch")?.tool;
+  expect(call?.background?.state).toBe("stopped");
+  // A late running update leaves it ended.
+  feed(fold, own({ sessionUpdate: "background_task_update", toolCallId: "watch", state: "running" }), steps.length + 2);
+  expect(running(fold.views().parent!)).toEqual([]);
 });

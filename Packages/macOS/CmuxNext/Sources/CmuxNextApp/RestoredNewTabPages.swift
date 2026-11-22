@@ -17,13 +17,14 @@ enum RestoredNewTabPages {
     static func shows(_ tab: TabModel, in tabs: AgentTabStore, workspace: WorkspaceHandle? = nil) -> Bool {
         let key = tabs.resolve(tab.id)
         // Observed per key: the strip and Home follow the pages this run opens and closes.
-        if tabs.pageTabs.contains(key) || tabs.newTabPages[key] != nil { return true }
+        let machine = tabs.daemonListing(tab)?.machineID
+        if tabs.pageTabs.contains(key, machine: machine) || tabs.newTabPages[AgentTabKey(machine: machine ?? "", key: key)] != nil { return true }
         // Cheap lookups first: a restored chat leaves here, before the host checks.
-        guard let record = tab.agentSession, tabs.views[key] == nil, tabs.tabStores[key] == nil,
-              (tabs.sessions[key] ?? record.session) == nil, tabs.seeds[key] == nil, !tabs.linkedSessions.contains(key),
-              tabs.unsentDrafts.seed(for: key, session: nil) == nil,
-              AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost,
-                                listedHere: tabs.daemonListing(tab)?.isLocal != false) != .remote else { return false }
+        let scoped = tabs.tabKey(key, machine: machine)
+        guard let record = tab.agentSession, tabs.views[scoped] == nil, tabs.tabStores[scoped] == nil,
+              (tabs.sessions[scoped] ?? record.session) == nil, tabs.seeds[scoped] == nil, !tabs.linkedSessions.contains(scoped),
+              !tabs.unsentDrafts.hasDraft(key, machine: machine),
+              tabs.hostKind(record, listedHere: tabs.daemonListing(tab)?.isLocal != false) != .remote else { return false }
         // The daemon whose tree lists this record, found by identity (no tab-list read).
         let daemon = tabs.daemonListing(tab)
         guard daemon?.isLocal != false else { return false }
@@ -35,14 +36,23 @@ enum RestoredNewTabPages {
         return tabs.firstChats[handle] == nil
     }
 
+    /// `tab` is in ``ids(in:tabs:)`` (`restored`: of this Mac's store); reads no tab list, for a sidebar row's own mapping.
+    static func shows(_ tab: TabModel, of workspace: WorkspaceModel, in tabs: AgentTabStore, restored: Bool) -> Bool {
+        tabs.pageTabs.contains(tab.id, machine: tabs.daemonListing(tab)?.machineID) || (restored && tab.agentSession != nil && shows(tab, in: tabs, workspace: workspace.handle))
+    }
+
     /// The tabs of `store` that show the New Tab page, with the pages this run opened.
+    /// `liveTabs` observes only the store's tab-list revision, so terminal status
+    /// updates do not re-arm this structural walk.
     static func ids(in store: DaemonStore?, tabs: AgentTabStore) -> Set<String> {
-        var ids = tabs.pageTabs.ids
+        let machine = store.flatMap { store in tabs.tabStores.entries.first { $0.value === store }?.key.machine }
+        var ids = machine.map { tabs.pageTabs.ids(machine: $0) } ?? tabs.pageTabs.ids
         guard let store else { return ids }
-        for tab in store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
+        for tab in store.liveTabs
         where tab.agentSession != nil && !ids.contains(tab.id) && shows(tab, in: tabs) {
             ids.insert(tab.id)
         }
         return ids
     }
 }
+import CmuxNextTabs

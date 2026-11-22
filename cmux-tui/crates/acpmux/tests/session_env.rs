@@ -213,3 +213,25 @@ async fn a_chief_turn_seal_reaches_its_session_and_is_never_shown() {
         assert_eq!(reason(&reply), "env.value_refused", "{bad}: {reply}");
     }
 }
+
+/// A stable Chief session's Chief (optchat-chief brain/chief_inbox.rs): the
+/// unix socket sets it for that session's `cmux chief acp`, and only a
+/// participant id passes.
+#[tokio::test]
+async fn a_stable_chief_session_names_its_chief_by_participant_id() {
+    let hub = hub();
+    let mut local = client(&hub, Origin::Local);
+    let env = json!({"env": {"CMUX_CHIEF_PARTICIPANT": "agent_codex-1"}});
+    let reply = local.call("session/new", new_params(env)).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    let id = reply["result"]["sessionId"].as_str().unwrap().to_owned();
+    assert_eq!(
+        local.env_of(&id, "CMUX_CHIEF_PARTICIPANT").await,
+        "CMUX_CHIEF_PARTICIPANT=agent_codex-1"
+    );
+    for bad in ["user_local", "agent_", "agent_a/b", "agent_a b"] {
+        let env = json!({"env": {"CMUX_CHIEF_PARTICIPANT": bad}});
+        let reply = local.call("session/new", new_params(env)).await;
+        assert_eq!(reason(&reply), "env.value_refused", "{bad}: {reply}");
+    }
+}

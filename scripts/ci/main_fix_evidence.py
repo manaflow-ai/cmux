@@ -32,7 +32,9 @@ TEST_STEPS = {
 ISSUE = re.compile(r"✘ Test (.+?) recorded an issue at ([^:]+\.swift):\d+:\d+: (.+)")
 SUMMARY = re.compile(r"✘ Test run with .* failed .* with (\d+) issues?\.")
 MARKERS = re.compile(r"^\+(?:<<<<<<<|>>>>>>>|=======$)", re.MULTILINE)
-MAX_OUTPUT = 32 * 1024 * 1024
+# A cmux-next swift test job log reached about 40 MB on 2026-11-01 (#28391), past the old 32 MiB cap, so
+# no such red could be compared with the base. Output goes to a temporary file, not memory, until read.
+MAX_OUTPUT = 256 * 1024 * 1024
 MAX_ANCESTOR_DEPTH = 100
 MAX_ANCESTOR_NODES = 500
 PATH_FILTERED_PREFIXES = ("docs/", "plans/", "design/")
@@ -55,7 +57,7 @@ class GitHub:
                 process.wait()
                 raise Refused("GitHub evidence request exceeded 90 seconds") from None
             if output.tell() > MAX_OUTPUT or errors.tell() > MAX_OUTPUT:
-                raise Refused("GitHub evidence exceeds the 32 MiB limit")
+                raise Refused(f"GitHub evidence exceeds the {MAX_OUTPUT // (1024 * 1024)} MiB limit")
             output.seek(0)
             errors.seek(0)
             if process.returncode:
@@ -77,8 +79,12 @@ class GitHub:
 
 
 def latest_checks(repo: str, sha: str, github: GitHub) -> dict:
+    """The newest check run of each name on SHA: its last real attempt. Every attempt is read (filter=all), since
+    GitHub's default lists only each check suite's newest attempt, and one that ended in startup_failure ran no
+    jobs, so a red before it vanished from that list (cmux#35906, 2026-11-05). Such an attempt is no result: the
+    newest check run of a name is the last attempt that ran it, red or green."""
     checks = {}
-    for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?per_page=100", paginate=True):
+    for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?filter=all&per_page=100", paginate=True):
         for check in page["check_runs"]:
             # A third-party app cannot provide compile or test evidence.
             if check.get("app", {}).get("slug") != "github-actions":
