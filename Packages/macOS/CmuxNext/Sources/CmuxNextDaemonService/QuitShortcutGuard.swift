@@ -148,7 +148,11 @@ public final class QuitShortcutGuard {
 
     private func watchRepeats() {
         guard monitor == nil else { return }
-        monitor = addMonitor { [weak self] event in self?.repeated(event) ?? event }
+        // Not `self?.repeated(event) ?? event`: that turns a consumed repeat (nil) back into the event.
+        monitor = addMonitor { [weak self] event in
+            guard let self else { return event }
+            return repeated(event)
+        }
     }
 
     /// A key-down while armed: the held shortcut's repeats are the guard's; every other key passes.
