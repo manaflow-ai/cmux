@@ -1,0 +1,14 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/claude-code-notification-levels",
+  "name": "claude-code-notification-levels",
+  "description": "Show banners for permission requests, badges for questions, and no task-complete alerts.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "cmuxProfile": 1,
+  "settings": {
+    "notifications.delivery.permissionRequest": "banner",
+    "notifications.delivery.question": "badge",
+    "notifications.delivery.taskComplete": "off"
+  }
+}
