@@ -4,7 +4,7 @@ members = ["crates/cmux-mobile-link", "crates/cmux-mobile-host", "crates/cmux-mo
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.91"
+rust-version = "1.95"
 license = "GPL-3.0-or-later"
 publish = false
 
@@ -14,9 +14,6 @@ unsafe_op_in_unsafe_fn = "deny"
 [workspace.lints.clippy]
 uninlined_format_args = "warn"
 semicolon_if_nothing_returned = "warn"
-# The build toolchain is Rust 1.100 while the iOS SDK keeps a 1.91 MSRV;
-# `try_update` is the intentional replacement for deprecated `fetch_update`.
-incompatible_msrv = "allow"
 redundant_clone = "warn"
 
 [workspace.dependencies]

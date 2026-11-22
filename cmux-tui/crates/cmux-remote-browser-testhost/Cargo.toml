@@ -2,7 +2,7 @@
 name = "cmux-remote-browser-testhost"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.91"
+rust-version = "1.95"
 license = "GPL-3.0-or-later"
 publish = false
 description = "Test-only remote browser tab host: synthetic H.264 frames over cmux.rd/1 (service rb/1) on loopback, so the Mac client is proven before the real host lands (never shipped)"

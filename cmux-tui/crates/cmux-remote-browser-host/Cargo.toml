@@ -2,7 +2,7 @@
 name = "cmux-remote-browser-host"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.91"
+rust-version = "1.95"
 license = "GPL-3.0-or-later"
 publish = false
 description = "cmux remote browser host: drives the CEF fork's remote presentation (cmux_rp_*) through a C++ shim and serves a remote tab over cmux.rd/1 (plans/cmux-next/remote-tab-r2.md)"

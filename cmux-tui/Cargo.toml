@@ -304,7 +304,7 @@ exclude = [
 # scripts/cmux-next/check-version-surfaces.sh.
 version = "1.0.0"
 edition = "2024"
-rust-version = "1.91"
+rust-version = "1.95"
 license = "GPL-3.0-or-later"
 publish = false
 
@@ -317,10 +317,6 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
 [workspace.lints.clippy]
 uninlined_format_args = "warn"
 semicolon_if_nothing_returned = "warn"
-# The build toolchain is Rust 1.100 while published crates retain a 1.91 MSRV;
-# `try_update` is stable since 1.95 and is the replacement for deprecated
-# `fetch_update`, so this compatibility lint is intentional across the workspace.
-incompatible_msrv = "allow"
 # Rust 1.100 promoted these style suggestions across existing protocol and
 # fixture code. Keep the compatibility migration focused on behavior/API
 # changes; these are intentionally allowed until their call sites are
@@ -538,7 +534,7 @@ arc-swap = "1.9"
 imbl = "7"
 wait-timeout = "0.2"
 # rusqlite 0.40's libsqlite3-sys build script requires Rust 1.95 without
-# declaring that MSRV. Keep the workspace's advertised Rust 1.91 support.
+# declaring that MSRV. Pinned here so the bump to 0.40 is its own change.
 rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled", "cache", "hooks", "limits"] }
 # Unicode normalization for history search folding (cmux-history). Already in
 # the graph through url -> idna -> idna_adapter at this version; compiled
