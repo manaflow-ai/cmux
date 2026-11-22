@@ -66,10 +66,16 @@ export function adHocSpinners(): string[] {
       found.push(`${rel(file)} writes cmux-spin`);
   }
   // agent-chat: only `.spinner` (its `Spinner`) turns, and only icons.tsx draws it.
-  for (const file of files(path.join(agentChat, "public"), (name) => name.endsWith(".css")))
-    found.push(
-      ...turningRules(file, /animation(-name)?\s*:[^;]*\bspinnerTurn\b/, (selector) => /^\.spinner$/.test(selector)),
-    );
+  for (const file of files(path.join(agentChat, "public"), (name) => name.endsWith(".css"))) {
+    // Any keyframes that make a full turn, whatever their name.
+    const text = stripComments(readFileSync(file, "utf8"));
+    const turning = [...text.matchAll(/@keyframes\s+([\w-]+)\s*\{([^{}]*\{[^{}]*\})*[^{}]*\}/g)]
+      .filter((match) => FULL_TURN.test(match[0]))
+      .map((match) => match[1]);
+    if (!turning.length) continue;
+    const turns = new RegExp(`animation(-name)?\\s*:[^;]*\\b(${turning.join("|")})\\b`);
+    found.push(...turningRules(file, turns, (selector) => /^\.spinner$/.test(selector)));
+  }
   for (const file of files(path.join(agentChat, "src"), (name) => /\.tsx?$/.test(name))) {
     if (rel(file) === "agent-chat/src/components/icons.tsx") continue;
     if (/className=["'`{][^>]*\bspinner\b|rotate\(\s*360deg|animate-spin/.test(readFileSync(file, "utf8")))
