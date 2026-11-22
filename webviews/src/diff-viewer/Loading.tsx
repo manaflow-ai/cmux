@@ -1,6 +1,6 @@
 // Owns the diff viewer's loading placeholders: the file list and diff skeletons and the
 // loading layer.
-import { Spinner } from "../agent-session/acpmux/conversation/icons";
+import { Spinner } from "../agent-session/acpmux/conversation/Spinner";
 import type { DiffViewerLabelResolver } from "../labels";
 import type { DiffViewerStatus } from "../status";
 

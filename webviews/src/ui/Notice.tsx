@@ -15,7 +15,7 @@
 // (toolCards) rather than drawing their own.
 import { Checkbox } from "@base-ui/react/checkbox";
 import { useId, useRef, type KeyboardEvent, type ReactNode } from "react";
-import { Spinner } from "../agent-session/acpmux/conversation/icons";
+import { Spinner } from "../agent-session/acpmux/conversation/Spinner";
 import { Button } from "./Button";
 import { cx } from "./cx";
 import { DismissButton } from "./DismissButton";

@@ -1,7 +1,7 @@
 // ONE SPINNER (Leo 2026-11-02: "WHY THE F*** IS THE SPINNER ON THE RUNNING SO F***ING FAST SLOW IT DOWN
 // AND WHY THE F*** ARE YOU GUYS POSSIBLY DIFFERING THE F***ING SPINNERS ACROSS THE SIDEBAR AND THE
 // F***ING RUNNING", and "JUST DO THE CHATGPT SPINNER"). Every spinner is one component: on the web `Spinner`
-// (agent-session/acpmux/conversation/icons.tsx, `cv-spinner`, turned by spinner.css), natively
+// (agent-session/acpmux/conversation/Spinner.tsx, `cv-spinner`, turned by spinner.css), natively
 // `StatusIndicatorView` / `StatusIndicatorLayer` (CmuxNextDesign/StatusIndicator), and both draw the same thin
 // 3/4 arc (StatusIndicatorPlan.workingGlyph; Leo 2026-11-03 on the original arc: "we can keep that"). The
 // agent-chat sidecar (agent-chat/src/components/icons.tsx `Spinner`) and cmux.com (web/app/components/spinner.tsx)
@@ -31,7 +31,7 @@ const site = path.join(repo, "web/app");
 const rel = (file: string) => path.relative(repo, file).split(path.sep).join("/");
 const stripComments = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, "");
 const FULL_TURN = /rotate\(\s*-?(?:360deg|1turn)\s*\)/;
-/** The arc every spinner draws (conversation/icons.tsx `Spinner`'s default look). */
+/** The arc every spinner draws (conversation/Spinner.tsx `Spinner`'s default look). */
 const ARC = "M8 2.75a5.25 5.25 0 1 1-4.55 2.63";
 
 /** CSS rules (comments out, selector flattened) whose block matches `turns` and whose selector `ours` refuses. */
@@ -104,7 +104,7 @@ test("every spinner is the shared component: zero ad-hoc spinners", () => {
 });
 
 test("the shared spinners draw one arc and no track", () => {
-  const pages = readFileSync(path.join(src, "agent-session/acpmux/conversation/icons.tsx"), "utf8");
+  const pages = readFileSync(path.join(src, "agent-session/acpmux/conversation/Spinner.tsx"), "utf8");
   expect(pages).toContain(`"${ARC}"`);
   expect(pages).toMatch(/look = "arc"/);
   for (const file of [path.join(agentChat, "src/components/icons.tsx"), path.join(site, "components/spinner.tsx")]) {
