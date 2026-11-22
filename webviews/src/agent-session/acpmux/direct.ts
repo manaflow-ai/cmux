@@ -118,10 +118,12 @@ import {
   SETTLED_ATTACH_CAPABILITY,
   USAGE_KIND,
   attachedDetail,
+  OPEN_PAGE_BYTES,
   forwardAttachRefused,
   plainAttach,
   settledAttachFailed,
 } from "./attachParams";
+import { initializeParams } from "./initializeParams";
 export { SETTLED_ATTACH_CAPABILITY, attachedDetail, settledAttachFailed } from "./attachParams";
 import { ChatSource } from "./rows/chatSource";
 import { holdAttach, holdReads } from "./rows/holdKinds";
@@ -342,19 +344,7 @@ export function newSessionHost(
   return cwd ? { cwd, peer } : noProject || peer ? { peer } : { ...host, peer };
 }
 
-/// The page's `initialize` params. The app's relay checks them against its params rule
-/// (AcpmuxPaneMethods+Params.swift `knownParams`), and `schemas/agent-pane/initialize-params.json`
-/// holds both sides to the same keys: a key the rule does not know refuses every connection.
-export function initializeParams() {
-  return {
-    protocolVersion: 1,
-    clientInfo: { name: "cmux-react-agent-pane", version: "1" },
-    clientCapabilities: {},
-    // A peer's list comes as one `_acpmux/peer_rows_changed`, read by the next follow
-    // (`SessionPager.peerRowsChanged`); an acpmux before it ignores the key and sends each row.
-    _meta: { acpmux: { peerRowBatches: true } },
-  };
-}
+export { initializeParams } from "./initializeParams";
 
 export function newSessionParams(
   host: Pick<AcpmuxHostConfig, "cwd" | "adopt"> & { peer?: string },
@@ -549,11 +539,11 @@ const startsTurn = (event: EventRecord) =>
 const sentByChief = (msg: { promptId?: unknown }) =>
   typeof msg.promptId === "string" && msg.promptId.startsWith("optchat-");
 
-/// Page size caps acpmux applies (maxBytes): opening a chat, then each older page as the reader scrolls up.
+/// Page size caps acpmux applies (maxBytes): opening a chat (`OPEN_PAGE_BYTES`, attachParams.ts), then each
+/// older page as the reader scrolls up.
 /// An older page was 400 records and 256 KiB: a page of a tool-heavy chat was a few turns, so a
 /// scroll up waited on a daemon round trip every few screens (Leo, 2026-11-10: "the infinite
 /// scrolling does kind of work, but it's too slow. It needs to do more. It needs to do a lot").
-const OPEN_PAGE_BYTES = 128 * 1024;
 const OLDER_PAGE_BYTES = 1024 * 1024;
 /// Records one older page asks for at most (`limit`), with OLDER_PAGE_BYTES.
 const OLDER_PAGE_RECORDS = 2000;
@@ -825,6 +815,9 @@ const READ_AHEAD_REFRESH_MS = 5_000;
 const READ_AHEAD_WAIT_MS = 150;
 /// The longest a connect keeps the pane's last snapshot on screen while it reads the chat.
 const OPEN_HOLD_MS = 1500;
+/// How old the draft the open asked with its attach may be when the composer's first read takes it
+/// (`earlyDraft`). That read follows the open within its first frames; one later asks acpmux again.
+const EARLY_DRAFT_FRESH_MS = 5_000;
 /// What a chat switch or open waits on: the chat list's watch, the attach and the detach before it,
 /// the visibility change and the transcript reads. Each answers in one daemon round trip, so one
 /// asked without a deadline of its own still counts as waiting after CHAT_OPEN_PROGRESS_MS, and the
@@ -3840,6 +3833,10 @@ export class AcpmuxDirectClient {
   private attachWatch?: AttachWatch;
   /// The attach `open` asked with the chat list, until the open takes it or drops it (`askEarly`).
   private earlyAttach?: EarlyAttach;
+  /// The chat's saved draft, asked with that attach (`askEarly`), until the composer's first read takes
+  /// it (`readDraft`). The page shows the chat only once the composer read its draft (draftSettleHold.ts),
+  /// and that read went out only after the attach answered: one more round trip on every relaunch.
+  private earlyDraft?: { sessionId: string; socket: WebSocket | undefined; read: Promise<unknown>; at: number };
   /// The `createdAt` of the session the rows drawn before the attach are of (`drawKeptTail`, from
   /// the tail's summary), undefined when they do not say.
   private drawnGeneration?: number;
@@ -7480,13 +7477,27 @@ export class AcpmuxDirectClient {
   /// The switch's hold of a chat on the store whose first window is not in yet.
   private storeHold = 0;
 
-  /// Reads the selected session's durable composer draft from acpmux.
+  /// Reads the selected session's durable composer draft from acpmux. The first read of the chat the
+  /// open attached takes the draft asked with its attach (`earlyDraft`), once, while it is of this
+  /// connection.
   readDraft(sessionId: string): Promise<unknown> {
+    const early = this.earlyDraft;
+    this.earlyDraft = undefined;
+    // Only while fresh: drafts are shared by every host, and another may have written one since.
+    if (
+      early &&
+      early.sessionId === sessionId &&
+      early.socket === this.socket &&
+      Date.now() - early.at <= EARLY_DRAFT_FRESH_MS
+    )
+      return early.read;
     return this.request("_acpmux/draft_get", { sessionId });
   }
 
   /// Persists or clears the selected session's composer draft in acpmux.
   writeDraft(sessionId: string, text: string): Promise<unknown> {
+    // A draft read before this write is older than it.
+    if (this.earlyDraft?.sessionId === sessionId) this.earlyDraft = undefined;
     return this.request("_acpmux/draft_set", { sessionId, text });
   }
 
@@ -8030,6 +8041,11 @@ export class AcpmuxDirectClient {
     // A dropped one is never awaited: its refusal (a peer chat's machine down) is not unhandled.
     early.sent.attaching.catch(() => undefined);
     this.earlyAttach = early;
+    // The composer's draft read rides this round trip too (`earlyDraft`); read-only, so one asked
+    // now answers what the composer would ask once the client is in.
+    const read = this.request("_acpmux/draft_get", { sessionId });
+    read.catch(() => undefined);
+    this.earlyDraft = { sessionId, socket: this.socket, read, at: Date.now() };
     return early;
   }
 

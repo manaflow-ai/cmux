@@ -1,8 +1,14 @@
 // The kinds a v1 attach asks for by name, and its plain params (direct.ts `sendAttach`). A chat whose
 // rows come from the store asks its hold instead (rows/holdKinds.ts).
 import type { AttachParams } from "./protocol/generated/types";
-import { BOOKMARKS_KIND } from "./threadMinimap/bookmarks";
 
+/// The mux record acpmux logs when a session's marks change (threadMinimap/bookmarks.ts); the pane
+/// attaches with it. Here, so the page's first classic script builds the attach with no React
+/// (chatSnapshot/earlyOpen.ts).
+export const BOOKMARKS_KIND = "bookmarks";
+/// The most bytes the attach that opens a chat reads (its `maxBytes`): a page of a remote session
+/// with large tool output stays small.
+export const OPEN_PAGE_BYTES = 128 * 1024;
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
 export const COMMANDS_KIND = "available_commands_update";
 /// How much of the context window the session has used; not transcript, so attach asks for it by kind.
@@ -74,6 +80,10 @@ export function plainAttach(
 /// written at every turn end, it answers `_acpmux/attach { settled: true }` first, with the records
 /// logged after it, its queue and its fork points, even before a restarted acpmux read the chat's log.
 export const SETTLED_ATTACH_CAPABILITY = "settled-attach-v1";
+
+/// The daemon's capability for the row store's hold (acpmux capabilities.rs `HOLD_ATTACH`): a chat
+/// that may draw from the store asks the app's switch before its attach (rows/chatSource.ts).
+export const HOLD_ATTACH_CAPABILITY = "attach-hold-v1";
 
 /// Whether an attach failed over its settled view (`settled: true`, `settled-attach-v1`): its error
 /// names `settled` (its message, code or reason). Any other failure (the session gone, the socket

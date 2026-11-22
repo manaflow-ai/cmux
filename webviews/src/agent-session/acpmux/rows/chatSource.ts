@@ -5,6 +5,7 @@
 //
 // A chat left keeps its last window here (`kept`), settled rows only, for its next select to draw
 // where v1's kept tail would be; the store's first window then replaces it in one step.
+import { HOLD_ATTACH_CAPABILITY } from "../attachParams";
 import { type AdaptedChat, ChatAdapter, type ChatRowsContext } from "./adapter";
 import { CHAT_ROWS_OFF, CHAT_ROWS_OTHER_SID, CHAT_ROWS_SLOW, ChatRowsHost, type ChatRowsPost } from "./host";
 import { addChatRowsHost, listenForChatRows, receiveChatRows, removeChatRowsHost } from "./receiver";
@@ -26,8 +27,8 @@ export function resetChatRowsState(): void {
   otherSids = 0;
 }
 
-/// The daemon's capability for the hold (acpmux capabilities.rs `HOLD_ATTACH`).
-export const HOLD_ATTACH_CAPABILITY = "attach-hold-v1";
+/// The daemon's capability for the hold (acpmux capabilities.rs `HOLD_ATTACH`; attachParams.ts).
+export { HOLD_ATTACH_CAPABILITY };
 /// Chats whose last window a page keeps, as v1 keeps its tails (tailCache.ts `KEPT_TAILS`).
 export const KEPT_WINDOWS = 20;
 /// The longest a chat on the store waits on its first window after its open's answer (decision
