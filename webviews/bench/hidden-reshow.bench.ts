@@ -1414,7 +1414,13 @@ try {
           );
           return { at, shift, syncMs: performance.now() - at };
         },
-        { session: PAPERCUT_CHAT, tail: keptTail, recordMs: RECORD_MS, folds: wakeFoldsKept ?? null },
+        {
+          session: PAPERCUT_CHAT,
+          tail: keptTail,
+          recordMs: RECORD_MS,
+          // CARRY_FOLDS=0: the adopt event leaves the folds out, as before the host carried them (the control).
+          folds: process.env.CARRY_FOLDS === "0" ? null : (wakeFoldsKept ?? null),
+        },
       );
       adoptSyncMs.push(start.syncMs);
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
