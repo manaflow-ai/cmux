@@ -904,7 +904,7 @@ fn probe_context(manifest: &Value, interface: &str) -> Value {
     json!({ "place": place, "size": size, "instance": "ext-dev-probe" })
 }
 /// The interface the load check mounts: a view that renders with no context.
-fn probe_interface(manifest: &Value) -> Option<String> {
+pub(super) fn probe_interface(manifest: &Value) -> Option<String> {
     let implements = manifest.get("implements")?.as_object()?;
     let has_export = |name: &str| implements.get(name).and_then(|e| e.get("export")).is_some();
     const PREFERRED: [&str; 5] = [
@@ -940,6 +940,10 @@ pub(super) struct Outcome {
     pub scene: Vec<String>,
     /// The design check of that scene (`design.rs`): warnings, never a failed load.
     pub design: Vec<super::design::Finding>,
+    /// That scene's ops as the probe drew them, and its name in a recorded file
+    /// (`cmux.widget/1 small` for a widget, the interface for the rest): what
+    /// `ext shot --record` writes to `preview/scenes.json`.
+    pub recorded: Option<(String, Value)>,
     pub logs: Vec<Value>,
     pub next: Option<String>,
     /// Ctrl-C ended the reload.
@@ -968,6 +972,7 @@ impl Outcome {
             probe: None,
             scene: Vec::new(),
             design: Vec::new(),
+            recorded: None,
             logs: Vec::new(),
             next: None,
             interrupted: false,
@@ -1256,9 +1261,14 @@ impl Session {
             outcome.probe = probe_interface(&pkg.manifest);
             if let Some(interface) = outcome.probe.clone().filter(|_| enabled) {
                 let base = probe_context(&pkg.manifest, &interface);
+                let name = match base.get("size").and_then(Value::as_str) {
+                    Some(size) => format!("{interface} {size}"),
+                    None => interface.clone(),
+                };
                 match self.probe(&pkg.id, &interface, base, !installed) {
                     Ok(Ok(ops)) => {
                         outcome.scene = super::scene::outline(&[&ops]);
+                        outcome.recorded = Some((name, ops.clone()));
                         let (system, problem) = super::design_system::System::load(&pkg.dir);
                         outcome.design = problem
                             .into_iter()
