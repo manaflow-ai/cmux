@@ -54,14 +54,16 @@ pub struct WindowLayout {
 /// Width of the line between the two panes, in points.
 pub const DIVIDER_WIDTH: f64 = 1.0;
 
-/// The layout of a window `width` by `height` points. A size that is not
-/// finite or not positive is a compact phone's of that width (zero when
-/// unknown), so a transient zero size during a scene change never shows two
-/// panes.
+/// The layout of a window `width` by `height` points. A size with either side
+/// not finite or not positive is unknown, laid out as a zero-sized compact
+/// window, so a transient zero size during a scene change never shows two
+/// panes or a wide overview.
 #[uniffi::export]
 pub fn window_layout(width: f64, height: f64) -> WindowLayout {
-    let width = sane(width);
-    let height = sane(height);
+    let (width, height) = match (sane(width), sane(height)) {
+        (w, h) if w > 0.0 && h > 0.0 => (w, h),
+        _ => (0.0, 0.0),
+    };
     let unfolded = width.min(height) >= UNFOLDED_SHORT_SIDE;
     let two_pane = unfolded && width >= TWO_PANE_MIN_WIDTH;
     let (list_width, detail_width) = if two_pane {
