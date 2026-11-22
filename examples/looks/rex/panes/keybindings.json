@@ -1,0 +1,97 @@
+[
+  {
+    "key": "cmd+d",
+    "command": "splitRight",
+    "when": "terminalFocused"
+  },
+  {
+    "key": "cmd+shift+right",
+    "command": "splitRight",
+    "when": "terminalFocused"
+  },
+  {
+    "key": "cmd+shift+d",
+    "command": "splitDown",
+    "when": "terminalFocused"
+  },
+  {
+    "key": "cmd+shift+down",
+    "command": "splitDown",
+    "when": "terminalFocused"
+  },
+  {
+    "key": "cmd+shift+left",
+    "command": "splitLeft",
+    "when": "terminalFocused"
+  },
+  {
+    "key": "cmd+shift+up",
+    "command": "splitUp",
+    "when": "terminalFocused"
+  },
+  {
+    "key": "cmd+opt+left",
+    "command": "focusLeft",
+    "when": "terminalFocused"
+  },
+  {
+    "key": "cmd+opt+right",
+    "command": "focusRight",
+    "when": "terminalFocused"
+  },
+  {
+    "key": "cmd+opt+up",
+    "command": "focusUp",
+    "when": "terminalFocused"
+  },
+  {
+    "key": "cmd+opt+down",
+    "command": "focusDown",
+    "when": "terminalFocused"
+  },
+  {
+    "key": "cmd+rightbracket",
+    "command": "focusNextPane",
+    "when": "terminalFocused"
+  },
+  {
+    "key": "cmd+leftbracket",
+    "command": "focusPreviousPane",
+    "when": "terminalFocused"
+  },
+  {
+    "key": "cmd+opt+shift+left",
+    "command": "swapPaneLeft",
+    "when": "terminalFocused"
+  },
+  {
+    "key": "cmd+opt+shift+right",
+    "command": "swapPaneRight",
+    "when": "terminalFocused"
+  },
+  {
+    "key": "cmd+opt+shift+up",
+    "command": "swapPaneUp",
+    "when": "terminalFocused"
+  },
+  {
+    "key": "cmd+opt+shift+down",
+    "command": "swapPaneDown",
+    "when": "terminalFocused"
+  },
+  {
+    "key": "cmd+shift+enter",
+    "command": "toggleSplitZoom",
+    "when": "terminalFocused"
+  },
+  {
+    "key": "cmd+opt+enter",
+    "command": "toggleFloatingPane",
+    "when": "terminalFocused"
+  },
+  {
+    "key": "ctrl+cmd+=",
+    "command": "equalizeSplits",
+    "when": "terminalFocused"
+  }
+]
