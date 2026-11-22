@@ -1309,6 +1309,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pull_request_caches_are_read_only.py
 
+      # Fails only on a poisoned cache this change introduces (a cache an untrusted job writes that a
+      # release job trusts), compared with the base; base findings and lower-severity ones only warn.
+      - name: Validate a change adds no cache an untrusted job writes and a release job trusts
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        env:
+          CMUX_RELEASE_CACHE_TRUST_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+        run: python3 tests/test_ci_release_caches_trusted_writers.py
+
       - name: Validate rust-cache keeps self-hosted runners' ~/.cargo/bin
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_rust_cache_keeps_runner_bin.py
@@ -1687,6 +1695,10 @@ jobs:
       - name: Validate superseded cmux-tui pushes skip their builds and daemon tests
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_superseded_push.py
+
+      - name: Validate a pull request head that changes no cmux-tui tree input builds no artifacts
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_branch_inputs.py
 
       - name: Validate the Team-signed tree signs only on nightly-next and holds no merge
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
