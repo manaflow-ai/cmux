@@ -503,5 +503,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
   rejected_on="$tip"
   echo "The push to $branch was refused (attempt $attempt of $attempts); reading the tip again."
 done
-echo "::error::$branch kept moving; the next run repairs it." >&2
-exit 1
+# Exit 75 (EX_TEMPFAIL): the branch kept moving. base-autofix-land.sh passes the run on it, since the
+# run each of those pushes started repairs it; any other exit is a real refusal.
+echo "::warning title=Base autofix::$branch kept moving; the next run repairs it." >&2
+exit 75
