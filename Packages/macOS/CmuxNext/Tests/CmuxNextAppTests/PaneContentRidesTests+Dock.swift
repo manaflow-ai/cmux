@@ -87,6 +87,80 @@ extension PaneContentRidesTests {
         #expect(host.content.frame.width < before.width - 1, "after the motion's end the dock's page is \(host.content.frame.size), no narrower than the \(before) before the act")
     }
 
+    /// Cmd-Shift-Return on the pane beside the docked Home: the zoomed pane shows whole, from the frame that shows the
+    /// zoom to the motion's end and after it. The dock's pane, which the zoom covers, stays shown under the moving pane
+    /// to the motion's end; it is stacked above the strip's panes, but a pane that leaves covers nothing. Before, the
+    /// pass that showed the zoom cut the zoomed pane's mask by the dock's frame, and nothing placed it again once the
+    /// dock's pane hid: the zoomed page showed only right of where the dock had been, its left part the window's
+    /// backdrop (Lawrence 2026-11-19: "i go to right side and do cmd shift enter, and it is buggy").
+    @Test func aZoomOfThePaneBesideADockShowsThatPaneWholeToTheEndAndAfter() throws {
+        let (harness, screen) = try Self.rested(at: Self.dockBesideAColumn)
+        defer { harness.window.closeAfterTest() }
+        let host = try #require(Motion.hosts(of: screen)[Commit.right], "SETUP: the pane beside the dock does not show")
+        let dock = try #require(Motion.hosts(of: screen)[Commit.left], "SETUP: the dock's pane does not show")
+        let order = screen.subviews
+        try #require((order.firstIndex { $0 === dock } ?? -1) > (order.firstIndex { $0 === host } ?? Int.max),
+                     "SETUP: the dock's pane is not stacked above the pane beside it")
+        #expect(host.layer?.mask == nil, "SETUP: the pane beside the dock has a mask at rest: \(String(describing: host.layer?.mask?.frame))")
+
+        harness.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(.leaf(Commit.right)), zoomed: true)])
+        harness.root.syncWithModel()
+        _ = harness.root.advanceFrame(Motion.dt)
+
+        try #require(host.frame.width > screen.bounds.width * 0.9, "SETUP: the zoomed pane is \(host.frame.width) wide on a screen of \(screen.bounds.width)")
+        var tick = 0
+        repeat {
+            let mask = host.layer?.mask?.frame
+            #expect(mask == nil || mask == host.bounds, "frame \(tick): the zoomed pane is cut to \(String(describing: mask)) of \(host.bounds)")
+            _ = harness.root.advanceFrame(Motion.dt)
+            tick += 1
+        } while Motion.inFlight(screen) && tick < Commit.frames
+        Commit.rest(harness)
+        #expect(dock.isHidden, "after the motion's end the dock's pane, which the zoom covers, still shows")
+        let mask = host.layer?.mask?.frame
+        #expect(mask == nil || mask == host.bounds, "after the motion's end the zoomed pane is cut to \(String(describing: mask)) of \(host.bounds)")
+    }
+
+    /// The frame that ends a zoom's move beside the docked Home: the dock's pane, which the zoom covers and which is
+    /// stacked above the zoomed pane, is hidden when its layer leaves its place under the zoomed pane, never after.
+    /// Before, the motion's end put the dock's layer back at its own `zPosition` in a transaction of its own, and hid the
+    /// pane after that transaction: the render server could show a frame with the dark Home over the zoomed page, about
+    /// 0.2 s after each zoom (Lawrence 2026-11-20, film CleanShot 1.55.27 PM, frames 69 and 105: "i u can see weird
+    /// flashes this is buggy").
+    @Test func theDocksPaneIsHiddenWhenItLeavesItsPlaceUnderTheZoomedPane() throws {
+        let (harness, screen) = try Self.rested(at: Self.dockBesideAColumn)
+        defer { harness.window.closeAfterTest() }
+        let dock = try #require(Motion.hosts(of: screen)[Commit.left], "SETUP: the dock's pane does not show")
+        let layer = try #require(dock.layer)
+
+        harness.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(.leaf(Commit.right)), zoomed: true)])
+        harness.root.syncWithModel()
+        _ = harness.root.advanceFrame(Motion.dt)
+
+        try #require(Motion.inFlight(screen), "SETUP: no pane moves: the zoom beside the dock shows in one frame")
+        try #require(!dock.isHidden && layer.zPosition == PaneCommitMotion.underZ,
+                     "SETUP: the dock's pane is not kept under the zoomed pane (hidden: \(dock.isHidden), z: \(layer.zPosition))")
+        let notes = ZNotes(dock)
+        // The layer's zPosition reports each set through KVO, in the set's own call on the main thread: the note reads
+        // the pane as it is then.
+        let observation = layer.observe(\.zPosition, options: [.new]) { _, _ in
+            MainActor.assumeIsolated { notes.note() }
+        }
+        defer { observation.invalidate() }
+        var tick = 0
+        while Motion.inFlight(screen), tick < Commit.frames {
+            _ = harness.root.advanceFrame(Motion.dt)
+            tick += 1
+        }
+        Commit.rest(harness)
+        let restores = notes.all.filter { $0.z != PaneCommitMotion.underZ }
+        try #require(!restores.isEmpty, "SETUP: the dock's layer never left its place under the zoomed pane: \(notes.all)")
+        for (index, restore) in restores.enumerated() {
+            #expect(restore.hidden, "restore \(index): the dock's layer went back to z \(restore.z) while its pane still shows, over the zoomed pane")
+        }
+        #expect(dock.isHidden, "after the motion's end the dock's pane, which the zoom covers, still shows")
+    }
+
     /// A split of the pane beside a dock changes no edge of the dock: the dock's pane has no move, and its page takes
     /// no size and is not held, from the act to the motion's end.
     @Test func aSplitOfThePaneBesideADockLeavesTheDocksPaneAndItsPageAsTheyAre() throws {
@@ -113,5 +187,20 @@ extension PaneContentRidesTests {
             _ = harness.root.advanceFrame(Motion.dt)
             tick += 1
         } while Motion.inFlight(screen) && tick < Commit.frames
+    }
+}
+
+/// The `zPosition`s a pane host's layer took, each with whether the pane was hidden then.
+@MainActor
+private final class ZNotes {
+    private weak var pane: NSView?
+    private(set) var all: [(z: CGFloat, hidden: Bool)] = []
+
+    init(_ pane: NSView) { self.pane = pane }
+
+    /// Notes the pane's layer's `zPosition` now, and whether the pane is hidden.
+    func note() {
+        guard let pane else { return }
+        all.append((z: pane.layer?.zPosition ?? 0, hidden: pane.isHidden))
     }
 }

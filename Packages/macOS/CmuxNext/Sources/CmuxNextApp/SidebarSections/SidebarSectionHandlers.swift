@@ -39,7 +39,7 @@ enum SidebarSectionHandlers {
         let sidebarDoc = services.sidebarDoc
         ChiefSidebar.shared.bind(into: registry, host: .init(conversation: { TopHomePageView.chief(services.home) }, chiefHost: { services.agentTabs.chiefHost },
             tab: { services.agentTabs.tab(showing: $0, host: $1) }, reveal: { services.revealTab($0) },
-            openWorkspace: { session, host in try services.chatsOpener.pending.work(services.registry) { try AgentSessionWorkspace.open(session: session, name: nil, cwd: nil, host: host, focus: true, services: services) } }, openRight: { services.agentTabs.openRight?($0, $1, $2) ?? false }, keeps: { [weak services] in await services?.agentTabs.chiefHomes?.keeps(session: $0, host: $1) ?? false }))
+            openWorkspace: { session, host in try services.chatsOpener.pending.work(services.registry) { try AgentSessionWorkspace.open(session: session, name: nil, cwd: nil, host: host, focus: true, services: services) } }, openRight: { services.agentTabs.openRight?($0, $1, $2) ?? false }, keeps: { [weak services] in await services?.agentTabs.chiefHomes?.keeps(session: $0, host: $1) ?? false }, openSidePanel: { [weak services] in services.map { $0.chiefSidePanel.open(host: $0) } ?? false }))
         // Agent chats on other machines are not sidebar rows (the top band holds what the person put there,
         // Lawrence 2026-10-26): `RemoteMachinesSidebar` is not bound, so it reads no peers and follows no lanes.
         SettingsAppFeatures.sidebarItems = storeItems(chief: SettingsAppFeatures.sidebarItems, document: { layout.document }, registry: registry)

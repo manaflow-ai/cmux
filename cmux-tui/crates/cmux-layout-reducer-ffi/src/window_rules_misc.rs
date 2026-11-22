@@ -1,11 +1,11 @@
 //! The smaller window handlers' ops (`window_notifications_*`,
 //! `window_history_*`, `window_remote_*`, `window_browser_*`,
 //! `window_files_*`, `window_appearance_*`, `window_launch_*`, `window_restore_*`,
-//! `window_editors_*`): their tables and refusals.
+//! `window_update_*`, `window_editors_*`): their tables and refusals.
 
 use cmux_window_rules::{
     appearance, browser, editors, files, history, launch, notifications, remote, restore,
-    screen_share,
+    screen_share, update_idle,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -159,6 +159,7 @@ const DOMAINS: [&[u8]; 9] = [
     b"window_appearance_",
     b"window_launch_",
     b"window_editors_",
+    b"window_update_",
 ];
 
 /// Whether `operation` is one of this module's.
@@ -291,6 +292,11 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
         b"window_launch_fresh_landing" => {
             let facts: launch::FreshFacts = read(request)?;
             value(launch::fresh_landing(&facts))?
+        }
+        // Update when idle (`updates.installWhenIdle`): whether a staged app update installs now, or why it waits.
+        b"window_update_idle_install" => {
+            let facts: update_idle::IdleFacts = read(request)?;
+            value(update_idle::decide(&facts))?
         }
         _ => return Err(ERR_INVALID),
     };

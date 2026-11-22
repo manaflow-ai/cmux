@@ -34,6 +34,8 @@
 //!   where the launch lands: the last workspace and tab, or Home.
 //! - [`editors`]: the code editors Open in Editor knows and which one opens
 //!   a folder (the person's `editor.default`, else the first installed).
+//! - [`update_idle`]: whether Update When Idle installs a staged app update
+//!   now, or why it waits (input, a running turn, an unsent draft).
 
 pub mod appearance;
 pub mod browser;
@@ -50,4 +52,5 @@ pub mod restore;
 pub mod screen_share;
 pub mod tabs;
 pub mod targets;
+pub mod update_idle;
 pub mod workspaces;
