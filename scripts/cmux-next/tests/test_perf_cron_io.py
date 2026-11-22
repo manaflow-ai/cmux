@@ -9,6 +9,7 @@ import unittest, zipfile
 from unittest import mock
 import importlib.util  # noqa: E402
 import os  # noqa: E402
+import http.server as _hs; _hs.HTTPServer.server_bind = lambda s: (_hs.socketserver.TCPServer.server_bind(s), setattr(s, "server_name", str(s.server_address[0])), setattr(s, "server_port", s.server_address[1])) and None  # no reverse DNS on bind (Local Network prompt): tests/test_python_http_server_no_lookup.py
 
 # tests/git_fixture_env.py turns off git's background maintenance in temp repos.
 _git_fixture_env = importlib.util.spec_from_file_location(

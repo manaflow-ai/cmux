@@ -22,6 +22,7 @@ $NX_APP, $NX_APP_SOCKET, $NX_APP_STOP). Launches the app without activation and 
 end. Writes window snapshots and verdict.json to --out. Exit 1 when a check fails.
 """
 import argparse, http.server, json, os, plistlib, socket, subprocess, sys, tempfile, threading, time
+import http.server as _hs; _hs.HTTPServer.server_bind = lambda s: (_hs.socketserver.TCPServer.server_bind(s), setattr(s, "server_name", str(s.server_address[0])), setattr(s, "server_port", s.server_address[1])) and None  # no reverse DNS on bind (Local Network prompt): tests/test_python_http_server_no_lookup.py
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", default=os.environ.get("NX_APP"))

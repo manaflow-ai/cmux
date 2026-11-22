@@ -14,6 +14,7 @@ that the remembered password signs in again without a sheet.
 Run it only on a fleet GUI host (it opens a window). Exit 1 on any failure.
 """
 import argparse, base64, glob, http.server, json, os, plistlib, secrets, socket, ssl, subprocess, sys, tempfile, threading, time
+import http.server as _hs; _hs.HTTPServer.server_bind = lambda s: (_hs.socketserver.TCPServer.server_bind(s), setattr(s, "server_name", str(s.server_address[0])), setattr(s, "server_port", s.server_address[1])) and None  # no reverse DNS on bind (Local Network prompt): tests/test_python_http_server_no_lookup.py
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
