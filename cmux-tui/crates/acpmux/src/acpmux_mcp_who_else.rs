@@ -157,7 +157,8 @@ pub(super) fn brief(answer: &Value) -> Value {
     let mut keep = rows.len().min(BRIEF_SESSIONS);
     let mut tier = 0usize;
     loop {
-        let (list, field) = BRIEF_TIERS[tier];
+        // `tier` stays below `BRIEF_TIERS.len()` (stepped below); the shortest is the fallback.
+        let (list, field) = BRIEF_TIERS.get(tier).copied().unwrap_or((0, 40));
         let mut cut = 0usize;
         let kept: Vec<Value> =
             rows.iter().take(keep).map(|r| brief_row(r, list, field, &mut cut)).collect();
