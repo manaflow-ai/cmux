@@ -87,6 +87,10 @@ public protocol MacLink: AnyObject, Sendable {
     /// nil when other frames from the Mac came first (the pong trails a busy
     /// queue: alive), a throw only when nothing came back at all.
     func probe(timeout: Duration) async throws -> UInt32?
+    /// How long a probe of this link may wait for its pong: `floor`, or
+    /// longer on a link whose measured round trip needs it (the Rust link:
+    /// three smoothed round trips, at most 5 s).
+    func probeTimeout(floor: Duration) -> Duration
     func close() async
     /// The path of a link that is already up when the dial returns (nil:
     /// unknown until its first `states` element). The controller then adopts
@@ -110,6 +114,7 @@ extension MacLink {
     public var connectedPath: LinkPathKind? { nil }
     public var receivedAgo: Duration? { nil }
     public var trafficAgo: Duration? { nil }
+    public func probeTimeout(floor: Duration) -> Duration { floor }
 
     /// A link that only pings: the pong or nothing.
     public func probe(timeout: Duration) async throws -> UInt32? {

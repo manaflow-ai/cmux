@@ -470,6 +470,14 @@ impl LinkHandle {
         Ok(rtt.map(|rtt| u32::try_from(rtt.as_millis()).unwrap_or(u32::MAX)))
     }
 
+    /// How long a probe may wait for its pong on this link: `floor_ms`, or
+    /// three smoothed round trips when longer (at most 5 s). The standby loop
+    /// uses it, so a 1 s round trip does not time out every probe.
+    pub fn probe_timeout_ms(&self, floor_ms: u32) -> u32 {
+        let timeout = self.link.probe_timeout(Duration::from_millis(u64::from(floor_ms)));
+        u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX)
+    }
+
     pub fn transport(&self) -> Transport {
         self.transport
     }

@@ -132,6 +132,17 @@ pub const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(45);
 /// burst; any inbound frame counts as the answer, so a busy link is never
 /// suspect for a slow pong.
 pub const SUSPECT_AFTER: Duration = Duration::from_secs(3);
+
+/// A probe waits this many smoothed round trips for its pong ([`Link::probe_timeout`]):
+/// room for one pong delayed by jitter and a loss repaired below.
+pub const PROBE_RTT_FACTOR: u32 = 3;
+/// The longest probe timeout an RTT can ask for.
+pub const PROBE_TIMEOUT_CAP: Duration = Duration::from_secs(5);
+
+fn probe_timeout(floor: Duration, srtt: Option<Duration>) -> Duration {
+    let scaled = srtt.map_or(Duration::ZERO, |srtt| (srtt * PROBE_RTT_FACTOR).min(PROBE_TIMEOUT_CAP));
+    floor.max(scaled)
+}
 /// While a link is suspect it pings this often, so the first ping after
 /// the network comes back is answered within about this long, and so the
 /// tunnel has a datagram to resume on. Only while suspect: an idle healthy
@@ -561,6 +572,8 @@ struct Inner {
     next_nonce: AtomicU64,
     pings: Mutex<HashMap<u64, oneshot::Sender<Instant>>>,
     rtt: watch::Sender<Option<Duration>>,
+    /// The smoothed round trip of answered pings ([`Link::probe_timeout`]).
+    srtt: Mutex<Option<Duration>>,
     /// Ping counts and round trips for the link's path report ([`Link::take_ping_stats`]).
     ping_stats: Mutex<PingStats>,
     closed: watch::Sender<Option<String>>,
@@ -746,6 +759,7 @@ impl Link {
             next_nonce: AtomicU64::new(1),
             pings: Mutex::new(HashMap::new()),
             rtt: watch::channel(None).0,
+            srtt: Mutex::new(None),
             ping_stats: Mutex::new(PingStats::default()),
             closed: watch::channel(None).0,
             incoming: tokio::sync::Mutex::new(incoming_rx),
@@ -990,7 +1004,20 @@ impl Link {
         let rtt = answered.saturating_duration_since(started);
         self.inner.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).sample(rtt);
         self.inner.rtt.send_replace(Some(rtt));
+        let mut srtt = self.inner.srtt.lock().unwrap_or_else(PoisonError::into_inner);
+        // RFC 6298's gain: one slow pong moves it an eighth of the way.
+        *srtt = Some(srtt.map_or(rtt, |srtt| (srtt * 7 + rtt) / 8));
         Ok(rtt)
+    }
+
+    /// How long a probe of this link may wait for its pong: `floor`, or
+    /// [`PROBE_RTT_FACTOR`] smoothed round trips when that is longer, at
+    /// most [`PROBE_TIMEOUT_CAP`]. A fixed 1 s timeout never fits a 1 s round
+    /// trip (lossy-10: every standby probe timed out and the standby was
+    /// never kept).
+    pub fn probe_timeout(&self, floor: Duration) -> Duration {
+        let srtt = *self.inner.srtt.lock().unwrap_or_else(PoisonError::into_inner);
+        probe_timeout(floor, srtt)
     }
 
     /// Whether the link is alive, within `timeout`: `Ok(Some(rtt))` on the
@@ -1582,6 +1609,19 @@ impl Channel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn probe_timeout_scales_with_the_round_trip() {
+        let floor = Duration::from_secs(1);
+        assert_eq!(probe_timeout(floor, None), floor, "no pong yet: the floor");
+        assert_eq!(probe_timeout(floor, Some(Duration::from_millis(80))), floor, "lte: the floor");
+        assert_eq!(
+            probe_timeout(floor, Some(Duration::from_secs(1))),
+            Duration::from_secs(3),
+            "lossy-10's 1 s round trip"
+        );
+        assert_eq!(probe_timeout(floor, Some(Duration::from_secs(4))), PROBE_TIMEOUT_CAP);
+    }
 
     fn pair() -> (Link, Link) {
         let (a, b) = tokio::io::duplex(64 * 1024);
