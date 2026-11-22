@@ -35,8 +35,9 @@ struct AgentLaunchPicturesTests {
         let images = AgentPaneLaunchImages(directory: directory)
         await images.save(["tab_a": try Self.image(), "tab_b": try Self.image()])
         #expect(Self.names(directory) == ["tab_a@2x.jpg", "tab_b@2x.jpg"])
-        async let first: Void = images.save(["tab_c": try Self.image()], keeping: ["tab_a"])
-        async let second: Void = images.save(["tab_c": try Self.image()], keeping: ["tab_a"])
+        let page = try Self.image()
+        async let first: Void = images.save(["tab_c": page], keeping: ["tab_a"])
+        async let second: Void = images.save(["tab_c": page], keeping: ["tab_a"])
         _ = await (first, second)
         #expect(Self.names(directory) == ["tab_a@2x.jpg", "tab_c@2x.jpg"])
         // A key with a new picture is never "kept" twice: its new file replaces the old.
