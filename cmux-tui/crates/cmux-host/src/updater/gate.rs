@@ -57,6 +57,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::Paths;
 
+pub mod machine;
+
 /// No flip or restart this long after the role starts (a boot, or a restart
 /// that is not the one an update's own flip queued: [`Gate::take_own_flip`]),
 /// a bind or a resume: a new or claimed machine's first link comes up then,
