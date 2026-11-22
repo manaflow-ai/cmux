@@ -259,6 +259,17 @@ impl Http for PosterHttp {
         self.via(url, |poster, url| poster.post_empty(url, bearer))
     }
 
+    fn send(
+        &self,
+        method: &str,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        headers: &[(&str, &str)],
+    ) -> Result<(u16, Value), String> {
+        self.via(url, |poster, url| poster.send_with_headers(method, url, body, bearer, headers))
+    }
+
     fn request_with_deadline(
         &self,
         url: &str,
@@ -957,7 +968,7 @@ impl Worker {
                 client.write_deadline = Some(self.epoch.elapsed().as_millis() as u64 + 1000);
                 continue;
             }
-            if let Some(ask) = agent_ask(&line) {
+            if let Some(ask) = agent_ask(&line, &self.paths) {
                 asks.push((i, ask));
                 continue;
             }
@@ -1088,7 +1099,9 @@ impl Worker {
         );
         drop(carrier_held);
         let Some(result) = result else {
-            log("bind: a restart of this service is pending; the restarted service binds");
+            log(
+                "bind: waits for the restart gate (a restart of this service is pending, or the gate failed)",
+            );
             self.bind_retry_at = Some(self.now() + 30_000);
             return;
         };
@@ -1479,7 +1492,7 @@ fn carrier_keyset_ask(line: &str) -> Option<Result<String, String>> {
 
 /// The ask of a `{"github_token": {...}}` or `{"handoff_report": {...}}`
 /// line (checked), or `None` for every other line (the session's).
-fn agent_ask(line: &str) -> Option<Ask> {
+fn agent_ask(line: &str, paths: &Paths) -> Option<Ask> {
     let msg: Value = serde_json::from_str(line).ok()?;
     if let Some(ask) = msg.get(github::REQUEST_KEY) {
         return Some(github::TokenAsk::from_json(ask).into());
@@ -1492,6 +1505,22 @@ fn agent_ask(line: &str) -> Option<Ask> {
     }
     if let Some(ask) = msg.get(super::carrier_ticket::REQUEST_KEY) {
         return Some(Ask::CarrierTicket(super::carrier_ticket::check_ask(ask)));
+    }
+    if let Some(ask) = msg.get(super::apps_call::CALL_KEY) {
+        return Some(Ask::AppsCall(Box::new(super::apps_call::check_call(ask))));
+    }
+    if let Some(ask) = msg.get(super::apps_call::LISTENER_KEY) {
+        // The machine's own `proc`, as the workload probe reads it (`workload.rs`).
+        let proc_root = paths.root().join("proc");
+        return Some(Ask::AppsListener(super::apps_call::check_listener(ask), proc_root));
+    }
+    use super::apps_spawn::{RUN_ROOT, RunPaths, SPAWN_KEY, STATUS_KEY, STOP_KEY, check_run};
+    for key in [SPAWN_KEY, STATUS_KEY, STOP_KEY] {
+        if let Some(ask) = msg.get(key) {
+            let run =
+                RunPaths { proc_root: paths.root().join("proc"), run_root: paths.at(RUN_ROOT) };
+            return Some(Ask::AppsRun(Box::new((check_run(key, ask), run))));
+        }
     }
     let report = msg.get(handoff::REQUEST_KEY)?;
     Some(HandoffReport::from_json(report).into())

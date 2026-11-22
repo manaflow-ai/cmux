@@ -54,6 +54,13 @@ public final class AppsClient {
     /// Apps whose log is followed (followed again after a reconnect).
     @ObservationIgnored var followed: Set<String> = []
     @ObservationIgnored let keyPrefix = UUID().uuidString.prefix(8).lowercased()
+    /// The extensions' status items (`cmux.status/1`), listed from the first read on: every titlebar
+    /// strip and the menu bar item's menu draw them; nothing shows unless an installed app contributes one.
+    @ObservationIgnored public private(set) lazy var statusItems: AppStatusItems = {
+        let items = AppStatusItems(client: self)
+        items.start()
+        return items
+    }()
     static let logLimit = 500
 
     public init(transport: any AppsTransport) {
@@ -78,6 +85,13 @@ public final class AppsClient {
     /// (the transport's one callback stays the client's).
     public func observeEvents(owner: AnyObject, _ listener: @escaping @MainActor (AppsTransportEvent) -> Void) {
         eventListeners.append((WeakOwner(object: owner), listener))
+    }
+
+    /// The daemon's chat widget for a tool call or a widget part (`apps.chat_widgets.route`).
+    public func chatWidgetRoute(_ args: AppJSON) async throws(AppsClientError) -> AppJSON {
+        if case .unavailable(let reason) = availability { throw .unavailable(reason) }
+        do throws(AppsTransportError) { return try await transport.chatWidgetRoute(args) }
+        catch { throw .refused(error) }
     }
 
     public func sessionInfoPanels() async throws(AppsClientError) -> [AppSessionInfoPanel] {

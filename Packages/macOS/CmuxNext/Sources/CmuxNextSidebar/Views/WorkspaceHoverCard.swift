@@ -164,16 +164,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         let openedByRequest = detailsRequested == id && !body.isDetailsExpanded
         if openedByRequest { body.expandDetails() }
         self.body = body
-        let machine = list.sections.values.lazy.compactMap(\.machine).first { $0.id == workspace.machineID }
-        let options = DesignSettings.shared.workspaceHoverCard
-        let wantsTimeline = options.layout != .classic
-        let timeline = wantsTimeline ? (timelineSource?(ws, Self.timelineReadLimit) ?? []) : []
-        // The workspace on screen needs no digest: the person is looking at it.
-        let looked = ws != list.model.activeWorkspaceID ? SidebarLookedStore.shared.stamps[ws] : nil
-        let content = WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date(), options: options, timeline: timeline,
-                                                     looked: looked, pullRequests: SidebarSessionTree.shared.pullRequests[ws])
-        body.configure(content)
-        body.configureTabs(title: ws.rawValue, tabs: workspace.tabs, machine: machine)
+        let content = fill(body, with: workspace, ws, in: list)
         body.onDetailsChanged = { [weak self] in self?.detailsChanged(id) }
         body.tabList.onSelect = { [weak self, weak list] tabID in
             guard let self else { return }
@@ -193,8 +184,46 @@ final class WorkspaceHoverCardController: HoverCardSource {
         if openedByRequest { startSampling(id) }
         body.setCustom(customContent(for: ws, id: id, card: content.cardFacts))
         updateTicker()
-        return HoverCardBody(view: body, placement: .besideRow, themeAnchor: list, interactive: true,
-                             cornerRadius: WorkspaceHoverCardView.cardCornerRadius) { [weak body] in body?.applyColors() }
+        return cardBody(body, in: list)
+    }
+
+    /// The card body for the first visible workspace row, made and configured as its card would be but not
+    /// shown (``HoverCardCoordinator/warm()``): no sampling, ticker, custom card or actions, which a real show sets.
+    /// The first hover then reuses it instead of building the card (about 50 ms of the first card's show).
+    func hoverCardWarmBody() -> HoverCardBody? {
+        guard body == nil, let list,
+              let ws = list.displayed.rows.lazy.compactMap({ row -> WorkspaceID? in
+                  if case .workspace(let id) = row.key { id } else { nil }
+              }).first,
+              let workspace = list.hoverCardRow(ws) else { return nil }
+        let body = WorkspaceHoverCardView()
+        body.widthCap = min(WorkspaceHoverCardView.maxCardWidth, list.bounds.width + WorkspaceHoverCardView.tokens.sidebarReach)
+        self.body = body
+        fill(body, with: workspace, ws, in: list)
+        body.setResources(resources.report)
+        return cardBody(body, in: list)
+    }
+
+    /// Configures `body` with workspace `ws`'s card content (its facts, history and tabs), and returns that content.
+    @discardableResult
+    private func fill(_ body: WorkspaceHoverCardView, with workspace: SidebarWorkspace, _ ws: WorkspaceID,
+                      in list: SidebarListView) -> WorkspaceHoverCardContent {
+        let machine = list.sections.values.lazy.compactMap(\.machine).first { $0.id == workspace.machineID }
+        let options = DesignSettings.shared.workspaceHoverCard
+        let wantsTimeline = options.layout != .classic
+        let timeline = wantsTimeline ? (timelineSource?(ws, Self.timelineReadLimit) ?? []) : []
+        // The workspace on screen needs no digest: the person is looking at it.
+        let looked = ws != list.model.activeWorkspaceID ? SidebarLookedStore.shared.stamps[ws] : nil
+        let content = WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date(), options: options, timeline: timeline,
+                                                     looked: looked, pullRequests: SidebarSessionTree.shared.pullRequests[ws])
+        body.configure(content)
+        body.configureTabs(title: ws.rawValue, tabs: workspace.tabs, machine: machine)
+        return content
+    }
+
+    private func cardBody(_ body: WorkspaceHoverCardView, in list: SidebarListView) -> HoverCardBody {
+        HoverCardBody(view: body, placement: .besideRow, themeAnchor: list, interactive: true,
+                      cornerRadius: WorkspaceHoverCardView.cardCornerRadius) { [weak body] in body?.applyColors() }
     }
 
     /// A group header's summary card (`GroupHoverCardSummary`): no sampling, no ticker.
