@@ -37,6 +37,37 @@ pub(crate) fn sleep(why: &str, pause: Duration) {
     time(&format!("sleep {why}"), || std::thread::sleep(pause));
 }
 
+/// The wait between two polls of a job: short first, doubling up to `ceiling`.
+///
+/// A fixed wait costs every short job the whole wait (a seed job of 150 ms cost 500 ms);
+/// this one costs a short job at most as long again as it ran, and a long job the same
+/// requests per second as the fixed wait once it reaches `ceiling`.
+pub(crate) struct PollWait {
+    next: Duration,
+    ceiling: Duration,
+}
+
+impl PollWait {
+    /// The first wait of every job.
+    const FIRST: Duration = Duration::from_millis(10);
+
+    pub(crate) fn up_to(ceiling: Duration) -> Self {
+        Self { next: Self::FIRST.min(ceiling), ceiling }
+    }
+
+    /// The wait to sleep now; the one after it is twice as long, up to the ceiling.
+    pub(crate) fn step(&mut self) -> Duration {
+        let now = self.next;
+        self.next = (now * 2).min(self.ceiling);
+        now
+    }
+
+    /// Sleeps this step, counted under `sleep <why>`.
+    pub(crate) fn sleep(&mut self, why: &str) {
+        sleep(why, self.step());
+    }
+}
+
 /// The name a git run with `args` is counted under: `git <subcommand>`.
 pub(crate) fn git_name<'a>(args: impl IntoIterator<Item = &'a OsStr>) -> String {
     format!("git {}", subcommand(args))
@@ -106,5 +137,16 @@ mod tests {
         assert_eq!(git_name(args.map(OsStr::new)), "git bundle");
         let bare = ["--git-dir", "/q", "cat-file", "-e"];
         assert_eq!(git_name(bare.map(OsStr::new)), "git cat-file");
+    }
+
+    #[test]
+    fn a_poll_wait_starts_short_and_stops_at_its_ceiling() {
+        let mut wait = PollWait::up_to(Duration::from_millis(500));
+        let steps: Vec<u64> = (0..8).map(|_| wait.step().as_millis() as u64).collect();
+        assert_eq!(steps, [10, 20, 40, 80, 160, 320, 500, 500]);
+        // A job that ends in 150 ms is seen after 150 ms of waits, not 500.
+        assert_eq!(steps[..4].iter().sum::<u64>(), 150);
+        // A ceiling under the first step is the whole wait.
+        assert_eq!(PollWait::up_to(Duration::from_millis(4)).step(), Duration::from_millis(4));
     }
 }
