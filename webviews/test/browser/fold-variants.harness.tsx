@@ -172,6 +172,9 @@ export type MatrixCell = {
   answer: "short" | "recap";
   /** The turn closes on acpmux's wrap-up call, its recap card coming in under the answer (Leo's "the recap"). */
   wrapUp?: "short" | "long";
+  /** How the turn ends (Leo, 2026-11-22: "tool calls at various times and turn ends at various"): `tool`, right
+   *  after its last call with no answer; `output`, its last call printing 12 lines before the answer. */
+  ending?: "answer" | "tool" | "output";
 };
 
 const COMMANDS = ["bun test test/net", "rg -n attempts src", "git status --short", "bun x tsc --noEmit -p ."];
@@ -201,11 +204,15 @@ function matrixTurn(cell: MatrixCell): SimScenario {
       });
     if (call === half && cell.steer) b.steer("also check the nightly while you're at it");
     const kind = call % 4 === 0 ? "read" : call % 4 === 1 ? "search" : undefined;
+    const lastOutput = cell.ending === "output" && call === cell.calls - 1;
     b.tool(
       kind === "read" ? `Read src/lane/part-${call}.ts` : `${COMMANDS[call % COMMANDS.length]} # ${call}`,
       {
         ...(kind ? { kind } : {}),
         ms: 400,
+        ...(lastOutput && {
+          output: Array.from({ length: 12 }, (_, line) => `ok ${line + 1} test/lane/part-${line}.test.ts`).join("\n"),
+        }),
       },
       200,
     );
@@ -214,7 +221,7 @@ function matrixTurn(cell: MatrixCell): SimScenario {
   }
   if (cell.viewport === "up") b.reader({ scrollBy: -400 });
   const answer = cell.answer === "recap" ? LONG_ANSWER : ANSWER;
-  b.say(answer, { chunks: cell.answer === "recap" ? 12 : 4, chunkMs: 90, after: 400 });
+  if (cell.ending !== "tool") b.say(answer, { chunks: cell.answer === "recap" ? 12 : 4, chunkMs: 90, after: 400 });
   if (cell.wrapUp)
     b.tool("mcp__acpmux__wrap_up", {
       kind: "other",
@@ -243,6 +250,9 @@ type Sample = {
   folding: boolean;
   view: number;
   rows: [key: string, top: number, height: number, ink: number, shownTop?: number, shownHeight?: number][];
+  /** Every mounted row, in view or not: its key, its top from the thread's top, its height and its kind
+   *  (the `acpmux-KIND` class), so a run can add up the turn's height frame by frame. */
+  all: [key: string, offset: number, height: number, kind: string][];
 };
 
 /// What an `inset()` clip hides of a box's top and bottom (px; the negative insets of an open edge hide nothing).
@@ -262,14 +272,21 @@ function sampleFrame(): Sample {
   const thread = document.querySelector<HTMLElement>(".acpmux-thread");
   const view = scroller?.getBoundingClientRect();
   const rows: Sample["rows"] = [];
+  const all: Sample["all"] = [];
+  const threadTop = thread?.getBoundingClientRect().top ?? 0;
   for (const element of thread?.querySelectorAll<HTMLElement>(":scope > .acpmux-row") ?? []) {
     const snapshotOf = element.getAttribute(TURN_END_SNAPSHOT_ATTR);
+    const opens = element.dataset.opensTurn === "true";
     let key = element.dataset.rowId ?? (snapshotOf ? `snap:${snapshotOf}` : keys.get(element));
     if (!key) {
       key = element.classList.contains(TURN_FOLD_GHOST) ? `ghost-${(ghosts += 1)}` : `row-${(ghosts += 1)}`;
       keys.set(element, key);
     }
     const box = element.getBoundingClientRect();
+    const kind = /\bacpmux-(user|assistant|tool|agent|[a-z]+-?[a-z]*)\b/.exec(
+      [...element.classList].filter((name) => name !== "acpmux-row" && !name.startsWith("acpmux-row--")).join(" "),
+    )?.[1];
+    all.push([key, box.top - threadTop, box.height, opens ? "opener" : (kind ?? "?")]);
     if (!view || box.bottom < view.top || box.top > view.bottom || box.height === 0) continue;
     // Ink is the opacity times the share of the box its clip leaves drawn (`wipe` and its kin replace
     // rows by clipping, not fading).
@@ -290,7 +307,7 @@ function sampleFrame(): Sample {
     const ink = Number(style.opacity) * Number(getComputedStyle(element.firstElementChild!).opacity);
     if (view) rows.push(["fold-card", top - view.top, Math.max(0, bottom - top), ink]);
   }
-  return { t: performance.now(), folding: !!thread?.hasAttribute(TURN_END_ATTR), view: view?.height ?? 0, rows };
+  return { t: performance.now(), folding: !!thread?.hasAttribute(TURN_END_ATTR), view: view?.height ?? 0, rows, all };
 }
 
 // fixed-wait: the steps' real clock is what this page records; a turn plays at the pace a live one does.
@@ -316,7 +333,8 @@ async function run(
   let lastEnd = scenario.steps.length - 1;
   while (lastEnd > 0 && !scenario.steps[lastEnd]!.label.startsWith("turn_result")) lastEnd -= 1;
   const fastUntil = end === undefined ? (virtual ? lastEnd - 60 : 0) : lastEnd - 40;
-  const sampleFrom = Math.max(0, lastEnd - 4);
+  // Sampled from the turn's last calls on, so a row that changes for the turn's end before the fold is seen.
+  const sampleFrom = Math.max(0, lastEnd - 16);
   const samples: Sample[] = [];
   let sampling = false;
   let marks: { step: number; t: number; label: string }[] = [];

@@ -204,7 +204,16 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  type Sample = { prompt: number; answer: number; gap: number; work: number; worked: boolean; folding: boolean };
+  /// `block`: the turn's calls as drawn, from under its prompt to the top of its answer.
+  type Sample = {
+    prompt: number;
+    answer: number;
+    block: number;
+    gap: number;
+    work: number;
+    worked: boolean;
+    folding: boolean;
+  };
   /// Runs the turn on a fresh page for `family`: what the running turn drew, then (the reader back
   /// at the bottom, the edits group opened first when `openGroup`) every painted frame of its end.
   async function playTurn(
@@ -304,6 +313,10 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
           samples.push({
             prompt: prompt ? Math.round(prompt.getBoundingClientRect().top - view.top) : NaN,
             answer: answer ? Math.round(view.bottom - answer.getBoundingClientRect().bottom) : NaN,
+            block:
+              prompt && answer
+                ? Math.round(answer.getBoundingClientRect().top - prompt.getBoundingClientRect().bottom)
+                : NaN,
             gap: Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop),
             // How much of the folded work is still drawn: the most opaque row showing its first call.
             work: Math.max(
@@ -346,7 +359,7 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       const after = samples.at(-1)!;
       const folding = samples.slice(from - 1);
       console.log(
-        `TURN_END_FOLD ${JSON.stringify(folding.map((sample) => [sample.prompt, sample.answer, sample.gap, sample.work]))}`,
+        `TURN_END_FOLD ${JSON.stringify(folding.map((sample) => [sample.prompt, sample.answer, sample.block, sample.gap, sample.work]))}`,
       );
       // The prompt comes down to the folded line over several frames, not in one step. The asides
       // between the runs stay outside the fold as the agent's own paragraphs (#42279, #42247) and
@@ -374,6 +387,15 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       const answerMove = after.answer - before.answer;
       const answerSteps = folding.slice(1).map((sample, index) => Math.abs(sample.answer - folding[index]!.answer));
       if (Math.abs(answerMove) > 8) expect(Math.max(...answerSteps)).toBeLessThan(Math.abs(answerMove) * 0.75);
+      // No false grow (Leo, 2026-11-22: "some sort of like... false grow then collapse with the tool calls on
+      // the end of turn folding you have"): from the turn's end on, the calls between the prompt and the
+      // answer, as drawn, never get taller on any frame before or while they fold.
+      const blocks = samples.map((sample) => sample.block).filter((block) => Number.isFinite(block));
+      console.log(
+        `TURN_END_BLOCK ${JSON.stringify(samples.map((sample) => [sample.block, sample.worked, sample.folding]))}`,
+      );
+      const grows = blocks.slice(1).map((block, index) => block - Math.min(...blocks.slice(0, index + 1)));
+      expect(Math.max(0, ...grows)).toBeLessThanOrEqual(1);
       // Closed: the folded turn's line.
       expect(await page.locator("button.cv-worked").first().getAttribute("aria-expanded")).toBe("false");
       await page.close();
