@@ -1597,7 +1597,10 @@
    it (sideways.ts MORE_RIGHT), so nothing reads as cut.
    Open and Copy belong to the table's box, not the column: they show on hover or keyboard focus
    with the transcript's shared hover fade, at the table's top-right corner wherever the table
-   ends (tableActions.experiment.ts arms: `corner` ships). */
+   ends (tableActions.experiment.ts arms: `corner` ships).
+   A table narrower than the column sits centered in it (Leo 2026-11-22, on a four-column table flush
+   left and narrower than the text: "i dont know why we dont simply center tables in our agent
+   chats"); one as wide as the column fills it, so the auto side margins only ever split leftover room. */
 .cv-table-block {
   --cv-table-tools-pad: 2px;
   --cv-table-tools-width: calc(
@@ -1606,11 +1609,13 @@
   position: relative;
   width: fit-content;
   max-width: 100%;
-  margin: var(--cv-table-before, 6.5px) 0 14px;
+  margin: var(--cv-table-before, 6.5px) auto 14px;
 }
-/* Beside: the pair sits just past the table's right edge, so the block leaves room for it. */
+/* Beside: the pair sits just past the table's right edge, so the block leaves room for it, and
+   stays at the column's start: centered, a table near the cap would push the pair past the edge. */
 .cv-table-block[data-actions="beside"] {
   max-width: calc(100% - var(--cv-table-tools-width) - var(--cv-action-gap, 4px));
+  margin-inline: 0;
 }
 .cv-table-tools {
   position: absolute;
