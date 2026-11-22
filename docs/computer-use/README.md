@@ -210,6 +210,31 @@ Grants, saved approvals and every acting call (recorded before it acts and again
 with its result) live in the worker's state dir, so a worker restart keeps them
 and a retried call never acts twice.
 
+## Displays and the doctor
+
+`list_displays` (a Discover call: no grant, no prompt, answered while the screen
+is locked) lists each display with `id`, `frame` (points), `scale` (pixels per
+point), `main`, and `builtin`/`virtual` where the OS says. The `id` is the
+string `screenshot`'s `display` argument takes: the decimal CGDirectDisplayID on
+macOS (`CGGetActiveDisplayList`; `builtin` from `CGDisplayIsBuiltin`, `virtual`
+never set, macOS has no public call for it), the RandR monitor name on X11 (or
+`root`, the whole screen, when RandR lists none; `virtual` on a headless X
+server), the output name on wlroots (`virtual` for headless outputs), and `0`
+on the in-memory test desktop. Windows and the portal desktop answer
+`unsupported` for now. From a shell: `cmux computer-use displays` and
+`cmux computer-use screenshot --display ID --out FILE`.
+
+`cmux computer-use doctor [--machine M] [--json]` reads, in order, the daemon's
+worker endpoint (skipped with `--machine`), the engine's `status` and
+`list_displays`, and prints one line per check (daemon, worker, helper, each
+grant, lock screen, mode, displays) with a fix line for each failure. It exits 0
+only when capture and input would work. It never shows an OS prompt (grants are
+the preflight reads `status` already does) and needs no app window. `helper`
+names the worker's executable (`status.worker.executable`); on macOS a
+`cmux-screen-sharing` outside the staging root
+(`~/Library/Application Support/cmux-next/screen-sharing/<bundle id>/computer-use/`)
+fails with the staging fix.
+
 ## Trust
 
 The policy keeps agents from using apps the person did not mean them to use
