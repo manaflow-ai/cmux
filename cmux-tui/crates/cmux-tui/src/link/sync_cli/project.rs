@@ -16,12 +16,15 @@
 //! cloned on the machine instead, by its own path, never this one. `cmux link project disable` (or
 //! `CMUX_PROJECTED_FOLDERS=0`) turns it off, and `enable` turns it back on.
 //!
-//! What the agent writes lands in the mount's upper layer on the machine. Bring Back (`cmux link
-//! sync pull`) takes it home like a copy's edits: the server keeps a base for it here as it
-//! projects ([`keep_base`]), each file named by its size and mtime ([`stand_in`]), so a pull reads
-//! and hashes only what the machine changed, and a file this Mac changed since is a conflict.
+//! What the agent writes lands in the mount's upper layer on the machine and stays there until
+//! Bring Back applies it here. `cmux link sync pull` takes it home like a copy's edits: the server
+//! keeps a base for it here as it projects ([`keep_base`]), each file named by its size and mtime
+//! ([`stand_in`]), so a pull reads and hashes only what the machine changed, and a file this Mac
+//! changed since is a conflict. `project back` plans the same from the upper layer and its
+//! whiteouts ([`super::project_back`]).
 //!
 //!     cmux link project serve --socket S --at REMOTE [--name N] FOLDER
+//!     cmux link project back --socket S --at REMOTE FOLDER
 //!     cmux link project enable | disable | status
 
 use std::collections::BTreeMap;
@@ -96,9 +99,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
             _ => Err(anyhow::anyhow!("usage: cmux link project moves on|off")),
         },
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
+        Some("back") => super::project_back::back_command(args.get(1..).unwrap_or_default()),
         _ => Err(anyhow::anyhow!(
             "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
-             REMOTE | enable | disable | status | moves on|off"
+             REMOTE | back --socket S --at REMOTE FOLDER | enable | disable | status | moves on|off"
         )),
     };
     match outcome {
@@ -302,7 +306,7 @@ fn servers_dir() -> anyhow::Result<PathBuf> {
 
 /// Ends the server [`start`] left running for the projection at `remote`, and forgets what it
 /// served. Whether there was one to end.
-fn stop_server(remote: &str) -> anyhow::Result<bool> {
+pub(crate) fn stop_server(remote: &str) -> anyhow::Result<bool> {
     let dir = servers_dir()?;
     let server = name_of(remote);
     let pid_file = dir.join(format!("{server}.pid"));
@@ -519,6 +523,10 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     }
     // Taken before the answer, so the pid [`start`] writes on it is never one without the lock.
     let _lock = hold_lock(&at);
+    // What Bring Back plans against (project_back.rs): the manifest this session starts from.
+    if let Err(error) = super::project_back::record(&name, &at, &folder, &encoded) {
+        eprintln!("cmux link project: cannot keep the manifest for Bring Back: {error:#}");
+    }
     let mut stdout = std::io::stdout();
     let _ = writeln!(stdout, "{answer}");
     let _ = stdout.flush();
