@@ -365,8 +365,10 @@ class PullRequestCompilesCmuxNextTests(unittest.TestCase):
         job = re.split(r"\n  [A-Za-z0-9_-]+:[^\n]*\n", text.split("\n  swift-test:\n", 1)[1], maxsplit=1)[0]
         condition = re.search(r"^    if: (.*)$", job, re.M).group(1)
         self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
-        self.assertIn("github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')",
-                      condition)
+        # A feat-cmux-next pull request runs it only with the full-ci label; other events (and other bases) run it.
+        self.assertRegex(condition, r"\(github\.event_name != 'pull_request' \|\| "
+                                    r"(github\.event\.pull_request\.base\.ref != 'feat-cmux-next' \|\| )?"
+                                    r"contains\(github\.event\.pull_request\.labels\.\*\.name, 'full-ci'\)\)")
 
     def test_the_tip_compile_keeps_cmuxnext(self) -> None:
         tip = (ROOT / ".github" / "workflows" / "cmux-next-tip-test-compile.yml").read_text()
