@@ -69,6 +69,11 @@ public final class LiveCoordinator {
     @ObservationIgnored var showingMacs: Set<String>? = []
     /// When each Mac was last on screen (or focused).
     @ObservationIgnored var lastShown: [String: ContinuousClock.Instant] = [:]
+    /// Terminal tabs of a Mac whose session closed (another team's list loaded, the
+    /// policy closed it) while their pages stay on screen: the Mac's next session
+    /// takes them back, so they reattach on its link and follow its state instead of
+    /// waiting on a session that is gone (one live state per Mac).
+    @ObservationIgnored var parkedTerminals: [String: [MacSession.WeakTerminal]] = [:]
     @ObservationIgnored var expiryTask: Task<Void, Never>?
     /// The transport settings every link dials with.
     @ObservationIgnored private var transport: CmuxMobileTransport.TransportKind
@@ -434,6 +439,9 @@ public final class LiveCoordinator {
         registeredTeamID = snapshot.teamID
         idleSession.link.prewarm(baseURL: api.baseURL, teamID: snapshot.teamID, deviceID: identity.link)
         retarget()
+        // Launch dials the focused Mac now, whatever the snapshot last heard from
+        // presence: a cached "offline" waits for a real dial to say so.
+        if let focusedMacID { sessions[focusedMacID]?.link.send(.open) }
         startedTeamID = snapshot.teamID
         feedTeamID = snapshot.teamID
         teamTask = Task { [weak self] in await self?.startTeam(snapshot.teamID, warm: true) }
@@ -662,6 +670,7 @@ public final class LiveCoordinator {
         let linked = sessions[id]?.link.target != nil
         // Its link closes first, and its phase change must not write data for it back.
         closeSession(id)
+        parkedTerminals[id] = nil
         // Its banner, pairing prompt and Chief go with it (retarget may focus another Mac).
         if focusedMacID == id { setFocus(nil) }
         lastShown[id] = nil
@@ -798,14 +807,22 @@ public final class LiveCoordinator {
         let session = MacSession(macID: mac.id, name: mac.name, link: controller, deviceID: identity.link,
                                  deviceName: deviceName, feedStore: feedStore)
         session.acpmux.transcriptCache = transcriptCache
+        let macID = mac.id
+        session.acpmux.onStall = { [weak self] in await self?.recoverAcpmuxChannel(macID: macID) }
         wire(session)
         sessions[mac.id] = session
+        if let parked = parkedTerminals.removeValue(forKey: mac.id) {
+            // Their state follows this session's link from its first phase change.
+            session.terminals = parked.filter { $0.session != nil }
+        }
         return session
     }
 
     /// Closes a Mac's link and forgets its session.
     private func closeSession(_ id: String) {
         guard let session = sessions.removeValue(forKey: id) else { return }
+        let kept = session.terminals.filter { $0.session != nil }
+        if !kept.isEmpty { parkedTerminals[id] = kept }
         session.pairingRetry?.cancel()
         for relay in session.cloudChats.values { relay.retire() }
         session.cloudChats.removeAll()

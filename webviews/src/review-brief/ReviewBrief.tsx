@@ -182,7 +182,7 @@ export function ReviewBriefStrip({ state, labels, open, onOpenChange, onOpenSpot
         <span className="review-brief-title">{labels.title}</span>
         <span className="review-brief-summary">{text}</span>
         {unsure > 0 ? (
-          <span className="review-brief-count" title={labels.unsure}>
+          <span className="review-brief-count" aria-description={labels.unsure}>
             <span className="review-brief-count-dot" aria-hidden="true" />
             {unsure}
           </span>
