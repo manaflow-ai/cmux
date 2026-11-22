@@ -48,7 +48,16 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
   const INSET = 40;
   const STRIP = 28;
 
-  const ITEMS = ["summary", "liveTree", "presence", "warning", "worktree", "pullRequest", "needsYou", "longTitle"] as const;
+  const ITEMS = [
+    "summary",
+    "liveTree",
+    "presence",
+    "warning",
+    "worktree",
+    "pullRequest",
+    "needsYou",
+    "longTitle",
+  ] as const;
   type Item = (typeof ITEMS)[number];
   const COMBOS: Item[][] = [[], ...ITEMS.map((item) => [item]), [...ITEMS]];
   const comboName = (items: readonly Item[]) =>
@@ -164,7 +173,11 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
             setTimeout(
               () =>
                 ws.send(
-                  JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { sessionIds: [id], dropped: 3 } }),
+                  JSON.stringify({
+                    jsonrpc: "2.0",
+                    method: "_acpmux/lagged",
+                    params: { sessionIds: [id], dropped: 3 },
+                  }),
                 ),
               200,
             );
@@ -258,9 +271,7 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
         // The page host's envelopes (`{t: "call", id, op: "cmux.agent.METHOD"}`) and the older bridge's requests.
         slot("cmuxPage", (message) => {
           const call = message as { t?: string; id?: unknown; op?: string };
-          return call?.t === "call"
-            ? { id: call.id, method: String(call.op ?? "").replace(/^cmux\.agent\./, "") }
-            : {};
+          return call?.t === "call" ? { id: call.id, method: String(call.op ?? "").replace(/^cmux\.agent\./, "") } : {};
         });
         slot("agentSession", (message) => ({ method: (message as { method?: string })?.method }));
         (window as unknown as { webkit: unknown }).webkit = { messageHandlers: handlers };
@@ -275,8 +286,18 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
       if (items.includes("warning"))
         await page.locator(".acpmux-status").first().waitFor({ state: "attached", timeout: 45_000 });
     } catch (error) {
-      console.log(`chat-header-slots ${comboName(items)}: posts ${await page.evaluate(() => (window as unknown as { __posts: string[] }).__posts.join(","))}`);
-      console.log((await page.locator(".acpmux-header").first().evaluate((node) => node.outerHTML).catch(() => "no header")).slice(0, 4000));
+      console.log(
+        `chat-header-slots ${comboName(items)}: posts ${await page.evaluate(() => (window as unknown as { __posts: string[] }).__posts.join(","))}`,
+      );
+      console.log(
+        (
+          await page
+            .locator(".acpmux-header")
+            .first()
+            .evaluate((node) => node.outerHTML)
+            .catch(() => "no header")
+        ).slice(0, 4000),
+      );
       throw error;
     }
     await page.waitForFunction(
@@ -306,7 +327,14 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
           });
         if (items.includes("needsYou"))
           bridge.applyAttentionTabs([
-            { kind: "tab", tabId: "t1", reason: "Approve the deploy", workspaceTitle: "uploader", tabTitle: "deploy", atMs: 1 },
+            {
+              kind: "tab",
+              tabId: "t1",
+              reason: "Approve the deploy",
+              workspaceTitle: "uploader",
+              tabTitle: "deploy",
+              atMs: 1,
+            },
           ]);
         const host = {
           need: 0,
@@ -340,7 +368,8 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
       { inset: INSET, strip: STRIP, tabRow, items: [...items] },
     );
     const ready = [
-      items.includes("summary") && "[data-chat-summary]",
+      // A warning takes the summary's place (ChatHeaderStatus): with both on, the warning shows.
+      items.includes("summary") && !items.includes("warning") && "[data-chat-summary]",
       items.includes("liveTree") && ".acpmux-header-live-tree",
       items.includes("presence") && ".cv-presence",
       items.includes("worktree") && ".acpmux-header-worktree",
@@ -353,8 +382,17 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
         .first()
         .waitFor({ state: "attached" })
         .catch(async (error: unknown) => {
-          console.log(`chat-header-slots ${comboName(items)}: no ${selector}; posts ${await page.evaluate(() => (window as unknown as { __posts: string[] }).__posts.join(","))}`);
-          console.log((await page.locator(".acpmux-header").first().evaluate((node) => node.outerHTML)).slice(0, 4000));
+          console.log(
+            `chat-header-slots ${comboName(items)}: no ${selector}; posts ${await page.evaluate(() => (window as unknown as { __posts: string[] }).__posts.join(","))}`,
+          );
+          console.log(
+            (
+              await page
+                .locator(".acpmux-header")
+                .first()
+                .evaluate((node) => node.outerHTML)
+            ).slice(0, 4000),
+          );
           throw error;
         });
     await settle(page);
@@ -392,13 +430,17 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
       const shared = host.offered && host.width > 0;
       const dy = shared || !host.tabRow ? 0 : host.strip;
       const box = (element: Element | null | undefined): Box | undefined => {
-        if (!element) return undefined;
+        // Drawn only: the title slot is under the tabs in the tab row, hidden (header.css).
+        if (!element || !element.checkVisibility({ visibilityProperty: true })) return undefined;
         const rect = element.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) return undefined;
         return { left: rect.left, top: rect.top + dy, right: rect.right, bottom: rect.bottom + dy };
       };
       const given = shared ? Math.min(host.width, host.room() / 2) : 0;
       const header = document.querySelector(".acpmux-header")!;
+      /// The first of `selector` that is drawn.
+      const drawn = (selector: string) =>
+        [...header.querySelectorAll(selector)].find((element) => element.checkVisibility({ visibilityProperty: true }));
       const named = (pairs: [string, Element | null | undefined][]) =>
         pairs.flatMap(([name, element]): [string, Box][] => {
           const value = box(element);
@@ -406,16 +448,17 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
         });
       const trailing = named([
         ["panel", header.querySelector(".acpmux-header-panel-toggle")],
-        ...[...header.querySelectorAll("[data-quick-action]")].map(
-          (element): [string, Element] => [`quick:${element.getAttribute("data-quick-action")}`, element],
-        ),
+        ...[...header.querySelectorAll("[data-quick-action]")].map((element): [string, Element] => [
+          `quick:${element.getAttribute("data-quick-action")}`,
+          element,
+        ]),
         ["more", header.querySelector(".acpmux-header-more")],
       ]);
       const items = named([
-        ["inbox", header.querySelector(".acpmux-needs-you-button")],
-        ["title", header.querySelector(".acpmux-thread-title")],
-        ["summary", header.querySelector("[data-chat-summary]")],
-        ["status", header.querySelector(".acpmux-status")],
+        ["inbox", drawn(".acpmux-needs-you-button")],
+        ["title", drawn(".acpmux-thread-title")],
+        ["summary", drawn("[data-chat-summary]")],
+        ["status", drawn(".acpmux-status")],
         ["liveTree", header.querySelector(".acpmux-header-live-tree")],
         ["presence", header.querySelector(".cv-presence")],
         ["worktree", header.querySelector(".acpmux-header-worktree")],
@@ -519,7 +562,9 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
           expect(base!.trailing.length).toBeGreaterThan(0);
           const place = (layout: Layout, panel: boolean) => ({
             shared: layout.shared,
-            tools: layout.trailing.filter(([name]) => panel || name !== "panel").map(([name, b]) => [name, ...round(b)]),
+            tools: layout.trailing
+              .filter(([name]) => panel || name !== "panel")
+              .map(([name, b]) => [name, ...round(b)]),
           });
           const moved: string[] = [];
           for (const [name, layout] of at) {
@@ -532,7 +577,9 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
             if (JSON.stringify(got) !== JSON.stringify(want))
               moved.push(`${name}: ${JSON.stringify(got)} vs ${JSON.stringify(want)}`);
           }
-          console.log(`chat-header-slots ${mode} ${split} ${width}px: ${moved.length} of ${at.size - 1} combinations moved the tools`);
+          console.log(
+            `chat-header-slots ${mode} ${split} ${width}px: ${moved.length} of ${at.size - 1} combinations moved the tools`,
+          );
           expect(moved).toEqual([]);
         });
     });
