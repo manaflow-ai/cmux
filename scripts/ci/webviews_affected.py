@@ -125,8 +125,24 @@ LITERAL = re.compile(r""""([^"\\\n]{2,})"|'([^'\\\n]{2,})'|`([^`$\\\n]{2,})`""")
 PAGE_SCRIPT = re.compile(r"""<(?:script|link)\b[^>]*\b(?:src|href)=["']([^"':?#]+)""")
 # A repo path a dev server reads outside webviews/ (`path.join(repoRoot, "Resources/ghostty/themes")`): its literal.
 REPO_LITERAL = re.compile(r"""["'`]([A-Z][\w.-]*(?:/[\w.@-]+)*|[a-z][\w-]*/[\w.@/-]+)["'`]""")
+BARE_LITERAL = re.compile(r"""["'`]([\w.-]+)["'`]""")
 GALLERY_FILE = re.compile(r"\.gallery\.(?:ts|tsx)$")
 GALLERY_FRAME = WEB + "src/gallery/frame.html"
+# Reviewed loads in a page's closure that the graph cannot follow and that load nothing a change outside the page's
+# inputs controls, pinned to their reviewed content (an edit puts the page back in doubt: its tests always run):
+#   - registry.ts globs every *.gallery file; galleryFrame's entryPath narrows the stage to the one file it names.
+#   - entryStore.ts and importHunks.ts only match the pattern in prose and in a regex for PHP/Ruby source.
+#   - liveErrors.ts imports Vite's own client; editor/main.tsx globs Monaco's message files (bun.lock decides them);
+#     editor/view.ts imports `cmux:pierre-filetypes`, a virtual module of a dev-server plugin (in every config's
+#     closure, so in each test's inputs).
+PAGE_LOADS = {
+    WEB + "src/gallery/registry.ts": "26564ec915a72c5f3eb1d00766c1c6d42354ae922bb0ee1b73ccb535e4744ff4",
+    WEB + "src/gallery/entryStore.ts": "c04482199aa91b40359f5b88c25d4c1e7e23cfecc26e8c1530aade0ff8777842",
+    WEB + "src/pages/editor/main.tsx": "fcf6a290b299f6c48b38fcedfbcc551c5c0186362ea671df603ab9b40d8982f3",
+    WEB + "src/gallery/frame/liveErrors.ts": "f553033653f2ca9e6a7a1277e9351452001f70bc55a91861d8c1bc16ea50b5bc",
+    WEB + "src/diff-viewer/importHunks.ts": "734e4b333f6d11f9c6cfbe52b890712ddb5a8527aa763fbe01d13a72066cee44",
+    WEB + "src/pages/editor/view.ts": "6c142785fe0b2f042a1739163e636962cdc6846700f06b56b15f5785ca8556f9",
+}
 
 # An import specifier that ends in a module's name, with or without its extension or a query.
 SPECIFIER = r"""["'`][^"'`\n]*/{}(?:\.[\w.]+)?(?:\?[^"'`\n]*)?["'`]"""
@@ -305,18 +321,20 @@ class PageMap:
     falls under a read root, or is any non-code or deleted file under webviews/ (`page_tests`).
     """
 
-    GALLERY_REGISTRY = WEB + "src/gallery/registry.ts"  # its glob; entryPath narrows the stage to one file
-
     def __init__(self, selector: "Selector", untracked: set[str]):
-        self.s, self.untracked = selector, untracked
+        self.s = selector
+        self.reviewed = {f for f, digest in PAGE_LOADS.items() if f in selector.text
+                         and hashlib.sha256((selector.root / f).read_bytes()).hexdigest() == digest}
+        self.untracked = untracked
         self.html = {f for f in selector.graph.known if f.startswith(WEB) and f.endswith(".html")}
         self.ids: dict[str, set[str]] = {}
         for f, text in selector.text.items():
             if GALLERY_FILE.search(f):
                 for i in GALLERY_ID.findall(text):
                     self.ids.setdefault(i, set()).add(f)
-        self.top = {p.split("/", 1)[0] for p in ft.tracked(selector.root, "")} - {"webviews"} \
-            if hasattr(ft, "tracked") else set()
+        listing = subprocess.run(["git", "-C", str(selector.root), "ls-tree", "--name-only", "HEAD"],
+                                 capture_output=True, text=True, check=True).stdout
+        self.top = set(listing.split()) - {"webviews"}
         self._configs: dict[str, tuple[set[str], set[str], str | None] | None] = {}
         self._pages: dict[str, set[str] | None] = {}
         self.why: dict[str, str] = {}
@@ -337,9 +355,13 @@ class PageMap:
         """Repo paths outside webviews/ that these modules quote."""
         out: set[str] = set()
         for f in files:
-            for lit in REPO_LITERAL.findall(self.s.text.get(f, "")):
+            text = self.s.text.get(f, "")
+            for lit in REPO_LITERAL.findall(text):
                 if lit.split("/", 1)[0] in self.top:
                     out.add(lit.rstrip("/"))
+            if f.startswith(WEB + "dev-server/") or "/" not in f.removeprefix(WEB):
+                # A dev server or config joins a top-level folder alone (`path.join(repoRoot, "first-party-apps")`).
+                out |= {lit for lit in BARE_LITERAL.findall(text) if lit in self.top}
         if any("schemas/gallery/fixtures.json" in self.s.text.get(f, "") for f in files):
             index = self.s.root / "schemas/gallery/fixtures.json"
             try:
@@ -402,7 +424,7 @@ class PageMap:
                 result = None
                 break
             closure = self.s.closure(hit)
-            if (closure & self.untracked) - {self.GALLERY_REGISTRY}:
+            if closure & self.untracked - self.reviewed:
                 result = None
                 break
             out |= closure
