@@ -1487,6 +1487,7 @@ mod tests {
                 video: None,
                 session_exposure: None,
                 route: None,
+                viewport: None,
             },
         );
         let mut deframer = StreamDeframer::default();

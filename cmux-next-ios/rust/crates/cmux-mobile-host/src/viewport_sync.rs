@@ -42,10 +42,9 @@ use cmux_wg::{Priority, WgDatagramSocket, WgNet};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
-/// The opt-in switch: `1` (or `true`) turns the datagram path on; anything else, or unset, is off.
-pub const ENV: &str = "CMUX_MOBILE_VIEWPORT_SYNC";
-/// The overlay UDP port (7420 link TCP, 7421 roam, 7422 media, 7423 failover relay).
-pub const PORT: u16 = 7424;
+/// The opt-in switch ([`enabled`]) and the overlay UDP port (7420 link TCP, 7421 roam, 7422
+/// media, 7423 failover relay, 7424 this): one definition, the link crate's, for both sides.
+pub use cmux_mobile_link::viewport::{ENV, PORT};
 
 /// Whether the datagram path is on in this process.
 pub fn enabled() -> bool {
@@ -78,7 +77,7 @@ pub struct Config {
     pub resend_unmeasured: Duration,
     /// How much the pacer may save up while idle, as time at its rate.
     pub burst: Duration,
-    /// On a jittery link (the round trip's variation at least an eighth of it), each new
+    /// On a jittery link (the round trips' middle half spans a quarter of their median), each new
     /// diff goes this many more times, `copy_spacing` apart, each copy drawing its own delay:
     /// the phone holds it at the fastest copy's arrival, and a lost fragment has a stand-in.
     /// A copy goes only while the diff is the newest and unacked, and only on the pacer's
@@ -232,6 +231,14 @@ impl Default for SelectorConfig {
     }
 }
 
+impl SelectorConfig {
+    /// The datagram path from the first poll on, and never back (tests, and measuring the
+    /// datagram path alone): a switch needs zero losses, the way back a hold that never ends.
+    pub fn datagram_first() -> Self {
+        Self { losses: 0, hold: Duration::MAX, ..Self::default() }
+    }
+}
+
 /// What the selector judges a link by, at one moment.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Evidence {
@@ -378,11 +385,12 @@ pub struct ViewportSync {
     /// The newest diff's copies still to go: its seq, its datagrams (unstamped), how many more,
     /// and when the next is due.
     copy: Option<Copies>,
+    jitter: bool,
     copies_sent: u64,
     copy_bytes: u64,
 }
 
-/// Below this much round-trip variation the copies would only spend bytes (good wifi's few ms).
+/// Below this much round-trip spread the copies would only spend bytes (good wifi's few ms).
 const COPY_JITTER: Duration = Duration::from_millis(10);
 
 struct Copies {
@@ -441,9 +449,26 @@ impl ViewportSync {
             captures: None,
             feeds: None,
             copy: None,
+            jitter: false,
             copies_sent: 0,
             copy_bytes: 0,
         }
+    }
+
+    /// The same host model (screen, scrollback, parser state) under a new epoch: a fresh
+    /// sender, pacer and round-trip state, no selector, the screen dirty. A phone that dropped
+    /// the old epoch's state takes the new one's first diff as a keyframe.
+    pub fn renewed(self, max_datagram: usize, now: Instant) -> ViewportSync {
+        let mut next = ViewportSync::new(1, 1, max_datagram, self.config, now);
+        next.term = self.term;
+        next.history = self.history;
+        next.batches = self.batches;
+        next
+    }
+
+    /// The epoch every datagram of this driver carries (the phone's acks echo it).
+    pub fn epoch(&self) -> u32 {
+        self.sender.epoch()
     }
 
     /// Choose the path per link ([`PathSelector`]): the stream until the link's round trip or
@@ -722,10 +747,10 @@ impl ViewportSync {
         datagrams
     }
 
-    /// The round trip varies by at least an eighth of itself, and by at least `COPY_JITTER`:
-    /// copies beat the jitter.
+    /// Set by the pacer's look at the round trips (at least `2 * MIN_RECENT` of them): copies
+    /// beat the jitter.
     fn jittery(&self) -> bool {
-        self.rttvar >= COPY_JITTER && self.srtt.is_some_and(|srtt| self.rttvar * 8 >= srtt)
+        self.jitter
     }
 
     /// The copy due now, if its diff is still the newest unacked and the pacer has budget.
@@ -895,6 +920,9 @@ impl ViewportSync {
         recent.sort_unstable();
         let floor = long[0];
         let spread = long[long.len() * 3 / 4].saturating_sub(long[long.len() / 4]);
+        // Jitter dominates when the round trips' middle half spans a quarter of their median:
+        // lossy-3 (about 180 of 370 ms), not lossy-10 (about 180 of 1300) or lte (none).
+        self.jitter = spread >= COPY_JITTER && spread * 4 >= long[long.len() / 2];
         let threshold = Duration::from_millis(25).max(floor / 4).max(spread / 2);
         let lifted = recent[0]
             .saturating_sub(floor)
@@ -971,6 +999,9 @@ pub enum StreamOut {
     History(Vec<u8>),
     /// The path changed; the batches after this go the new way.
     Switched(Path),
+    /// Right after a switch to the stream: the host's screen now, for the phone to repaint in
+    /// full before the stream's batches resume (the datagrams may have left it behind).
+    Repaint(ScreenState),
 }
 
 enum Sink {
@@ -1030,6 +1061,10 @@ async fn drive<I: DatagramIo>(
         }
         if let (Some(path), Sink::Selected(stream)) = (sync.take_switch(), &sink) {
             let _ = stream.send(StreamOut::Switched(path)).await;
+            if path == Path::Stream {
+                // Before any batch the stream path forwards: those follow this screen.
+                let _ = stream.send(StreamOut::Repaint(sync.capture())).await;
+            }
         }
         let done = sync.settled() || matches!(sink, Sink::Selected(_)) && sync.path() == Path::Stream;
         if let Some(closed) = closed_at
@@ -1340,8 +1375,7 @@ mod tests {
     fn viewport_sync_a_copy_never_outlives_its_diff() {
         let start = Instant::now();
         let mut sync = driver(start);
-        sync.srtt = Some(Duration::from_millis(300));
-        sync.rttvar = Duration::from_millis(100);
+        sync.jitter = true;
         sync.feed(b"one");
         assert!(!sync.poll(start).is_empty());
         let at = sync.next_wake(start).expect("a copy is due");
