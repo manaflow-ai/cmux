@@ -368,6 +368,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "web",
         &[
             ("Open the dashboard in the browser", "acpmux web"),
+            ("Open the NEXT agent pane in the browser", "acpmux web --app"),
             ("Only print the dashboard URL", "acpmux web --no-open"),
         ],
     ),
