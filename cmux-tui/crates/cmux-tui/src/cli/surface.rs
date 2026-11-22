@@ -133,6 +133,8 @@ Cloud VMs through the cmux VM API (vm.cmux.dev):
   creation  Recover a create whose answer was lost (list, get, cancel, reconcile)
   pool      The CI runner pool on Freestyle and GCP: up N, pause, watch,
             schedule (`cmux vm pool --help`; never deletes a machine)
+  runner    Your own Freestyle runner VM for one CI job: new, ls, park
+            (`cmux vm runner --help`; resumes a parked VM, never deletes)
 
 `cmux vm access new|exec --target vm:VM_ID` mints access through the
 cmux API instead, for the app's Cloud VMs. Use `cmux vm resize` to
