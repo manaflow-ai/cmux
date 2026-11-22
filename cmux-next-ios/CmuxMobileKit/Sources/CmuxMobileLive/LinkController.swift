@@ -321,6 +321,16 @@ public final class LinkController {
         }
     }
 
+    /// A channel on this link died or went silent while the link looked up
+    /// (a terminal's liveness check): prove the link now with the quick
+    /// probe, so a link that is really dead is redialed at once instead of
+    /// after its heartbeat (Leo, 2026-11-21: "intermittent 30s lag/disconnects").
+    /// A no-op while a probe runs or the link is not connected.
+    public func suspect() {
+        guard phase.isConnected else { return }
+        run(.quickProbe(generation: machine.generation))
+    }
+
     private func probe(generation: Int, timeout: Duration) {
         guard let link, phase.isConnected, generation == machine.generation, probeTask == nil else { return }
         let clock = clock
