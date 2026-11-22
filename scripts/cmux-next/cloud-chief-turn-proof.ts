@@ -11,7 +11,9 @@
  * It signs in as the staging agent test account (CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD), creates a machine named
  * `cmux-test-chief-<tag>`, copies the bundle (an optchat-chief built from this checkout and its measure/ driver) to it
  * through fs/write, and runs measure/chief_driver.py there twice, one turn each ("Reply with exactly one word: OK").
- * Both runs use the machine's own cmux-tui and its own acpmux (the daemon a Cloud chat runs on), and both hosts have
+ * Both runs use the machine's own cmux-tui and an acpmux daemon of the machine's acpmux binary that the host starts (the
+ * machine's running daemon is not dumpable, so optchat-chief's peer check, acpmux_peer.rs, refuses a host that did not
+ * start it: run 45011412959), and both hosts have
  * CLAUDE_CODE_OAUTH_TOKEN in their environment (a 0600 file the driver deletes). The machine has no Claude sign-in.
  *   control: without the opt-in; expected: the "not signed in" answer.
  *   proof:   with OPTCHAT_CHIEF_TURN_CREDENTIALS=1; expected: a model reply.
@@ -131,7 +133,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         `for s in "$ACPMUX_SOCKET" "$HOME/.cmux/acpmux/acpmux.sock" "$HOME/.acpmux/acpmux.sock"; do [ -n "$s" ] && [ -S "$s" ] && { echo "acpmux_socket=$s"; break; }; done; ` +
         `echo "acpmux=$(command -v acpmux || true)"; echo "claude=$(command -v claude || ls $HOME/.local/bin/claude 2>/dev/null || true)"; ` +
         `ls $HOME/.claude/.credentials.json 2>/dev/null && echo has_claude_login || echo no_claude_login; ` +
-        `getent hosts coderouter.cmux.internal >/dev/null && echo coderouter_resolves || echo coderouter_unresolved; uname -m; ldd --version 2>&1 | head -1`);
+        `getent hosts coderouter.cmux.internal >/dev/null && echo coderouter_resolves || echo coderouter_unresolved; uname -m; ldd --version 2>&1 | head -1; echo "cmux_bin=$(ls $HOME/.cmux/bin 2>/dev/null | tr '\\n' ' ')"`);
       const kv = Object.fromEntries(r.stdout.split("\n").filter((l) => l.includes("=")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
       if (!kv["cmux-tui"]) throw new Error(`no cmux-tui on the machine: ${r.stdout.slice(0, 400)}`);
       if (!kv.acpmux_socket) throw new Error(`no acpmux socket on the machine: ${r.stdout.slice(0, 400)}`);
@@ -154,7 +156,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       let done = false;
       try {
         const d = await run(`timeout -k 5 265 python3 ${DIR}/measure/chief_driver.py --scenario smoke --only s03 --out ${out} --bins ${DIR}/bin ` +
-          `--login-env ${login} --delete-login-env --turn-timeout 200 --max-settle 0 --env ACPMUX_SOCKET=${shq(facts.acpmux_socket)} ${optIn} ` +
+          `--login-env ${login} --delete-login-env --turn-timeout 200 --max-settle 0 ${optIn} ` +
           `> ${DIR}/${label}.log 2>&1 < /dev/null; echo "driver_exit=$?"`, 290_000);
         done = /driver_exit=0\b/.test(d.stdout);
         say(`${label}: ${d.stdout.trim().split("\n").pop()}`);
@@ -166,14 +168,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
       const r = await run(`tail -c 3000 ${DIR}/${label}.log; echo; echo ==RAW==; cat ${out}/raw.json 2>/dev/null || echo '{}'; echo; echo ==CONV==; ` +
         `python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps([" ".join(p.get("text","") for p in m.get("parts",[]) if p.get("type")=="text")[:1500] for m in d.get("messages",[]) if m.get("author")=="agent_mux"]))' ${out}/conversation.json 2>/dev/null; ` +
-        `echo ==HOST==; grep -iE "credential|not signed|not logged|turn.end|error" ${out}/host.log 2>/dev/null | tail -20`);
+        `echo ==HOST==; grep -iE "credential|not signed|not logged|turn.end|error|refused" ${out}/host.log 2>/dev/null | tail -20; echo ==TAIL==; tail -n 25 ${out}/host.log 2>/dev/null`);
       const raw = (() => { try { return JSON.parse(r.stdout.split("==RAW==")[1].split("==CONV==")[0]); } catch { return {}; } })();
       const res0 = raw?.results?.[0];
       let replies: string[] = (res0?.msgs ?? []).map((m: any) => String(m.text));
       if (!replies.length) { try { replies = JSON.parse(r.stdout.split("==CONV==")[1].split("==HOST==")[0].trim() || "[]"); } catch { /* none */ } }
       writeFileSync(path.join(outDir, `${label}.log`), r.stdout);
       await run(`rm -f ${login}`);
-      return { label, exit: done ? "exit 0" : "nonzero or timed out", replies, timeout: res0?.timeout ?? null, why: r.stdout.split("==HOST==")[1]?.trim().slice(-600) ?? "" };
+      return { label, exit: done ? "exit 0" : "nonzero or timed out", replies, timeout: res0?.timeout ?? null, why: r.stdout.split("==HOST==")[1]?.split("==TAIL==")[0]?.trim().slice(-600) ?? "" };
     };
     const control = await oneRun("control");
     (report.runs as RunResult[]).push(control);
