@@ -2688,6 +2688,7 @@ dependencies = [
  "cmux-vm",
  "cmux-vm-pool",
  "cmux-vnc",
+ "cmux-web-pieces",
  "cmux-wg",
  "core-foundation 0.10.1",
  "crossbeam-channel",
@@ -3061,6 +3062,17 @@ dependencies = [
  "flate2",
  "getrandom 0.3.4",
  "num-bigint",
+]
+
+[[package]]
+name = "cmux-web-pieces"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-signed-envelope",
+ "ring",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
