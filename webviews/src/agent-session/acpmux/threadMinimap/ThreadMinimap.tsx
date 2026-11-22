@@ -194,6 +194,7 @@ class TurnReader {
         sessionId?: string;
         earlier: PromptHeads;
         promptCount?: number;
+        later: PromptHeads;
         read: MinimapTurns;
       }
     | undefined;
@@ -204,6 +205,7 @@ class TurnReader {
     session: string | undefined,
     earlier: PromptHeads,
     count: number | undefined,
+    later: PromptHeads = PromptHeads.EMPTY,
   ): MinimapTurns {
     const cached = this.last;
     if (
@@ -212,7 +214,8 @@ class TurnReader {
       cached.change === change &&
       cached.sessionId === session &&
       cached.earlier === earlier &&
-      cached.promptCount === count
+      cached.promptCount === count &&
+      cached.later === later
     )
       return cached.read;
     const committed = this.committed;
@@ -221,8 +224,8 @@ class TurnReader {
       chain && committed && chain.turns === committed.turns && chain.loadedTurns === committed.loadedTurns
         ? chain
         : committed;
-    const read = minimapTurns(rows, session, previous, change, earlier, count);
-    this.last = { rows, change, sessionId: session, earlier, promptCount: count, read };
+    const read = minimapTurns(rows, session, previous, change, earlier, count, later);
+    this.last = { rows, change, sessionId: session, earlier, promptCount: count, later, read };
     return read;
   }
 
@@ -320,6 +323,7 @@ export function ThreadMinimap({
 function ThreadMinimapView({
   source,
   earlier = PromptHeads.EMPTY,
+  later = PromptHeads.EMPTY,
   promptCount,
   loadThrough,
   loadPromptIndex,
@@ -339,6 +343,9 @@ function ThreadMinimapView({
   version: number;
   /// The chat's prompts older than `rows` (VirtualTranscript `earlier`): ticks from the first frame.
   earlier?: PromptHeads;
+  /// The chat's prompts newer than `rows` (the snapshot's `laterPrompts`, a window the reader scrolled far up
+  /// holds): ticks after the loaded ones, each a jump to its page by seq (`loadThrough`).
+  later?: PromptHeads;
   /// The chat's prompt count while `rows` and `earlier` do not hold every prompt yet (the snapshot's
   /// `promptCount`): the prompts neither holds draw as pending resting ticks above the held ones
   /// (model.ts pendingCount), so the rail's first frame has its final length and tick rows. It
@@ -399,8 +406,8 @@ function ThreadMinimapView({
   // Every streamed token is a new `rows`: `turns` then changes with the live reply (the card reads
   // it), while `ticks` stays as long as the prompts do, so the tick list below renders nothing.
   const read = useMemo(
-    () => turnReader.read(rows, change, sessionId, earlier, promptCount),
-    [turnReader, rows, sessionId, change, earlier, promptCount],
+    () => turnReader.read(rows, change, sessionId, earlier, promptCount, later),
+    [turnReader, rows, sessionId, change, earlier, promptCount, later],
   );
   useLayoutEffect(() => {
     turnReader.commit(read);
@@ -423,16 +430,18 @@ function ThreadMinimapView({
   // the person's prompts: `keepsIndexed` says which choices keep them.
   const named = useMemo(() => {
     const indexed = read.earlier ?? PromptHeads.EMPTY;
+    const newer = read.later ?? PromptHeads.EMPTY;
     // The full-height map draws every loaded turn and finds its jump in these lists: it never filters.
     const kept = show === "prompts" || full ? undefined : railEntries(read.turns, read.ticks, 0, show);
     const keptIndexed = keepsIndexed(show) ? indexed : PromptHeads.EMPTY;
-    if (kept && (kept.ticks.length || keptIndexed.length)) {
+    const keptNewer = keepsIndexed(show) ? newer : PromptHeads.EMPTY;
+    if (kept && (kept.ticks.length || keptIndexed.length || keptNewer.length)) {
       const turns = sameEntries(lastEntries.current?.turns, kept.turns);
       const ticks = sameEntries(lastEntries.current?.ticks, kept.ticks);
-      return { turns, ticks, earlier: keptIndexed, filtered: true };
+      return { turns, ticks, earlier: keptIndexed, later: keptNewer, filtered: true };
     }
     const folded = incomingLook.fold ? foldIncoming(read.turns, read.ticks, 0) : read;
-    return { turns: folded.turns, ticks: folded.ticks, earlier: indexed, filtered: false };
+    return { turns: folded.turns, ticks: folded.ticks, earlier: indexed, later: newer, filtered: false };
   }, [show, full, incomingLook.fold, read]);
   useLayoutEffect(() => {
     lastEntries.current = named.filtered ? named : undefined;
@@ -441,12 +450,12 @@ function ThreadMinimapView({
   const pendingCount = named.filtered ? 0 : (read.pendingCount ?? 0);
   const loadedStart = pendingCount + named.earlier.length;
   const turns = useMemo(
-    () => turnRows(named.turns, pendingCount, sessionId, named.earlier),
-    [named.turns, pendingCount, sessionId, named.earlier],
+    () => turnRows(named.turns, pendingCount, sessionId, named.earlier, named.later),
+    [named.turns, pendingCount, sessionId, named.earlier, named.later],
   );
   const ticks = useMemo(
-    () => tickRows(named.ticks, pendingCount, sessionId, named.earlier),
-    [named.ticks, pendingCount, sessionId, named.earlier],
+    () => tickRows(named.ticks, pendingCount, sessionId, named.earlier, named.later),
+    [named.ticks, pendingCount, sessionId, named.earlier, named.later],
   );
   /// The row under the pointer, or the one a scrub is on.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
