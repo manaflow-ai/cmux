@@ -4306,3 +4306,558 @@ The cmux-next workflow does not run on a change that touches only the phone app,
 kit-tests job runs the same check over the whole tree (no `--base`: every unlisted offender and every stale row
 fails; a new row is caught by the cmux-next run that any change to the list triggers). The legacy `ios/` app is not
 read: no workflow that runs the check covers it.
+
+## note-465
+
+Above `- webviews/**` in `.github/workflows/cmux-next.yml`.
+
+acpmux embeds the production pane: its binaries' tree key holds all of webviews/
+and private-bun.sh (scripts/cmux-next/cmux-tui-tree-inputs.txt).
+
+## note-466
+
+Above `- scripts/ci/base_red_checks.py` in `.github/workflows/cmux-next.yml`.
+
+The push-only base-red classifier in the checks job (push only, never a
+pull request; the parity guard lists it in PUSH_ONLY_PATTERNS).
+
+## note-467
+
+Above `- webviews/**` in `.github/workflows/cmux-next.yml`.
+
+acpmux embeds the production pane: its binaries' tree key holds all of webviews/
+and private-bun.sh (scripts/cmux-next/cmux-tui-tree-inputs.txt).
+
+## note-468
+
+Above `BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.` in `.github/workflows/cmux-next.yml`.
+
+Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+
+## note-469
+
+Above `- uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2` in `.github/workflows/cmux-next.yml`.
+
+Blobless and narrow: the router reads the CI scripts, the test registry, the Swift sources of the
+CmuxNext targets, the Package.swift files, cmux-tui's crates and the two other Cargo workspaces its
+crate graph follows, and the Xcode project; it reads names and trees from git for the rest. A full
+depth-2 checkout of the whole tree took 50-57 s of this job's p50 102 s (2026-11-21). A blob outside
+these paths reads as NeedsFullTree and routes every tier (fail-open), never fewer.
+
+## note-470
+
+Above `- name: Fetch the base copies of the changed files` in `.github/workflows/cmux-next.yml`.
+
+The crate graph also reads the base's copy of each changed file, which a blobless checkout lacks.
+One batched fetch of just those blobs (git diff prefetches both sides) replaces one round trip each.
+
+## note-471
+
+Above `route="$(awk -F= '$1 == "runner" { value=substr($0, index($0, "=") + 1) } END { ` in `.github/workflows/cmux-next.yml`.
+
+The trusted checkout may still be on a base branch that predates
+the route output. Keep the same owned-pool fallback for that
+transition and for an API read that fails closed.
+
+## note-472
+
+Above `set +e` in `.github/workflows/cmux-next.yml`.
+
+The switch is read at the base branch tip: a PR's base.sha is fixed when it opens or syncs, so a
+flip would otherwise reach only PRs updated after it. A failed fetch falls back to the base.sha copy.
+
+## note-473
+
+Above `- name: Previous checked tip` in `.github/workflows/cmux-next.yml`.
+
+A base tier run checks every commit since the previous base tier run's tip, as a push checked its own
+(docs/ci/cmux-next-workflow-notes.md#note-26). Unreadable: no previous tip, as on a push with no before.
+
+## note-474
+
+Above `[script-tests]` in `.github/workflows/cmux-next.yml`.
+
+The longest commands first (the prepush gate suite, then the two pin waits), so a pool as narrow as
+the job's share (CMUX_CI_CPU_BUDGET on a mini) does not start them last.
+
+## note-475
+
+Above `python3 scripts/cmux-next/tests/test_hot_apply.py` in `.github/workflows/cmux-next.yml`.
+
+hot-apply.py's plan, apply and rollback (about four minutes, so it starts early). It ran nowhere
+before and broke unseen (#43815).
+
+## note-476
+
+Above `python3 -I tests/test_payload_advisories.py` in `.github/workflows/cmux-next.yml`.
+
+The payload advisory guard (cmux-next-payload-advisories.yml) fails a pin inside a published upstream advisory, and every fetched third-party release is watched.
+
+## note-477
+
+Above `python3 scripts/cmux-next/tests/run-script-tests.py` in `.github/workflows/cmux-next.yml`.
+
+Every scripts/cmux-next test_*.py no other line runs, found by glob (a new one runs with no edit here); each passes on Linux or skips naming the Mac it needs.
+
+## note-478
+
+Above `no_verdict() {  # reason` in `.github/workflows/cmux-next.yml`.
+
+No verdict is never a pass: the job fails and says why, and release-compile (a Mac)
+takes over only where path_route's mac_release sends it.
+
+## note-479
+
+Above `ref_re='"ref": *"([^"]*)"(.*)'` in `.github/workflows/cmux-next.yml`.
+
+judge N PACKAGE: print the step's log, then its verdict from its exit and the
+controller's record of the step, which must name REF as the commit it tested.
+
+## note-480
+
+Above `placed_attempt: ${{ github.run_attempt }}` in `.github/workflows/cmux-next.yml`.
+
+The attempt this reading is from: a re-run of failed jobs carries it, and the fast tier then
+reads none of its labels (docs/ci/cmux-next-workflow-notes.md#note-19).
+
+## note-481
+
+Above `- name: Fail on stale generated files` in `.github/workflows/cmux-next.yml`.
+
+Stale files the PR autofix regenerates from this pull request's own changes and pushes as a commit pass as
+"autofixed" (scripts/cmux-next/generated-autofixable.sh); that commit's run checks them strictly, and an
+autofixed run records no pass.
+
+## note-482
+
+Above `if [[ -z "$GATEWAY" ]]; then` in `.github/workflows/cmux-next.yml`.
+
+No idle gateway: read the fleet's compile of this push, fail closed (only this sha, repo,
+recipe 2, release-onone). Pass and fail are verdicts; else the Mac fallback runs.
+
+## note-483
+
+Above `concurrency:` in `.github/workflows/cmux-next.yml`.
+
+A started push compile has a per-run group and is never cancelled by a
+newer push. Superseded pushes are skipped by the job condition above.
+
+## note-484
+
+Above `derived_data="${CMUX_NEXT_RELEASE_DERIVED_DATA:-$(scripts/cmux-next/release-deri` in `.github/workflows/cmux-next.yml`.
+
+The compile's DerivedData: the canonical root's on a fleet-cache build (until another
+compile takes the root), else this runner's.
+
+## note-485
+
+Above `echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"` in `.github/workflows/cmux-next.yml`.
+
+This step runs early in the job (before the lookup's waits): the capture step's fallback
+for the job's start when its own jobs read fails (a rate limit that outlasts this lookup).
+
+## note-486
+
+Above `printf 'key=%s\ncapture=true\ncompile=true\n' "$key" >> "$GITHUB_OUTPUT"` in `.github/workflows/cmux-next.yml`.
+
+Unknown: capture, and compile so there is a build to capture (a lookup that fails for
+10 minutes is rare; a lost capture costs the fleet build its REF).
+
+## note-487
+
+Above `if [[ -d "$derived_data" ]] && (( $(du -sg "$derived_data" | cut -f1) > 12 )); t` in `.github/workflows/cmux-next.yml`.
+
+Nothing on the mini reclaims this cache (glaeda-disk keeps it), so cap
+it: a cold build leaves about 5 GiB; past 12 GiB start over.
+
+## note-488
+
+Above `- Packages/Shared/**` in `.github/workflows/cmux-next.yml`.
+
+Local packages CmuxNext depends on and files its tests read
+(ci-target-graph.json `packages` and `reads`).
+
+## note-489
+
+Above `- webviews/src/**` in `.github/workflows/cmux-next.yml`.
+
+The web bundles' sources (build output since cx-vn5; the package tests
+read the built pages; cmux_next_route.py BUNDLE_INPUTS).
+
+## note-490
+
+Above `- CLI/**` in `.github/workflows/cmux-next.yml`.
+
+No tracked file is here: these start the run whose check-no-swift-cli.sh
+step fails when a main sync brings the Swift CLI back.
+
+## note-491
+
+Above `- scripts/cmux-next/state-roots-baseline.tsv` in `.github/workflows/cmux-next.yml`.
+
+Pull-request inputs that pushes must watch too (the parity guard,
+tests/test_ci_workflow_path_filter_parity.py).
+
+## note-492
+
+Above `- scripts/ghosttykit-checksums.txt` in `.github/workflows/cmux-next.yml`.
+
+The rest of NATIVE_SCRIPT_INPUTS: files the app build or its packaging reads, which the pull request
+paths above already name.
+
+## note-493
+
+Above `- Packages/macOS/**` in `.github/workflows/cmux-next.yml`.
+
+Base pushes still run the full side workflow for every package input;
+only pull requests use the focused package routing below.
+
+## note-494
+
+Above `- Packages/Shared/**` in `.github/workflows/cmux-next.yml`.
+
+Local packages CmuxNext depends on and files its tests read
+(ci-target-graph.json `packages` and `reads`).
+
+## note-495
+
+Above `- webviews/src/**` in `.github/workflows/cmux-next.yml`.
+
+The web bundles' sources (build output since cx-vn5; the package tests
+read the built pages; cmux_next_route.py BUNDLE_INPUTS).
+
+## note-496
+
+Above `- CLI/**` in `.github/workflows/cmux-next.yml`.
+
+No tracked file is here: these start the run whose check-no-swift-cli.sh
+step fails when a main sync brings the Swift CLI back.
+
+## note-497
+
+Above `CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmu` in `.github/workflows/cmux-next.yml`.
+
+HQ's public cache edge serves read-only restores from every runner; writes
+use the controller-owned R2 credentials in the seed steps below.
+
+## note-498
+
+Above `- name: Companion workflows` in `.github/workflows/cmux-next.yml`.
+
+The companion workflows' structure: generated-files catch-up and the
+next-batch landing queue.
+
+## note-499
+
+Above `if [[ -x "$acpmux_bin" && ( -z "${CMUX_TUI_TREE_KEY:-}" ||` in `.github/workflows/cmux-next.yml`.
+
+A pull request on a fallback tree (CMUX_TUI_TREE_KEY, an older
+published tree) compiles this checkout's acpmux instead.
+
+## note-500
+
+Above `scripts/cmux-next/check-app-personalities.sh "$(find "$derived_data/Build/Produc` in `.github/workflows/cmux-next.yml`.
+
+The app links C++, iroh-ffi and CCmuxAppFFI; compact unwind holds
+three personality routines (decision 2026-10-05).
+
+## note-501
+
+Above `archive="$RUNNER_TEMP/cmux-next-dev-daily-unsigned-${DEV_DAILY_SHA}.app.zip"` in `.github/workflows/cmux-next.yml`.
+
+The lookup checked these bytes against their record; the run that compiled them ran the
+checks below on them.
+
+## note-502
+
+Above `fast_tier_cargo: ${{ steps.route.outputs.fast_tier_cargo }}` in `.github/workflows/cmux-next.yml`.
+
+Whether a pull request reaches fast-tier-cargo (scripts/ci/fast_tier_cargo_route.py); empty otherwise.
+
+## note-503
+
+Above `command -v node >/dev/null || scripts/ci/ensure-setup-node.sh 24.22.1 \` in `.github/workflows/cmux-next.yml`.
+
+node: a mini has none; the web jobs' pinned one, from the tool cache or nodejs.org (checksummed).
+
+## note-504
+
+Above `PATH="$(awk '{ line[NR] = $0 } END { for (i = NR; i > 0; i--) printf "%s:", line` in `.github/workflows/cmux-next.yml`.
+
+Preflight, on the PATH the next steps get: name each missing tool and stop here, not 10 minutes in.
+
+## note-505
+
+Above `JOB_TIMEOUT_MINUTES: ${{ github.repository_owner == 'manaflow-ai' && needs.porta` in `.github/workflows/cmux-next.yml`.
+
+The job's own cap (the same expression as its timeout-minutes; tests/test_run_checks_concurrently.py).
+
+## note-506
+
+Above `python3 -I scripts/cmux-next/check-main-actor-work.py --root "$GITHUB_WORKSPACE"` in `.github/workflows/cmux-next.yml`.
+
+Heavy and blocking work on the main actor, ratcheted (plans/cmux-next/main-thread-guarantee-DESIGN.md).
+
+## note-507
+
+Above `python3 -I scripts/cmux-next/tests/test_hot_verify_ci.py` in `.github/workflows/cmux-next.yml`.
+
+The hot-verify workflow's plan verdict, step packing, out.tar staging and PR comment (hot-verify-ci.py).
+
+## note-508
+
+Above `python3 -I tests/test_git_history.py` in `.github/workflows/cmux-next.yml`.
+
+Parallel history tests share one fetch under a lock; a git lock is a retry (tests/git_history.py).
+
+## note-509
+
+Above `- name: Buttons round as tabs` in `.github/workflows/cmux-next.yml`.
+
+Every button rounds as a tab (Lawrence 2026-11-12): Metrics.buttonCornerRadius, var(--ds-radius-control).
+
+## note-510
+
+Above `word=none` in `.github/workflows/cmux-next.yml`.
+
+One compile per head: the tip check's verdict for this exact head, when it has one; "none" compiles here.
+
+## note-511
+
+Above `word=none` in `.github/workflows/cmux-next.yml`.
+
+One compile per head: the tip check's verdict for this exact head, when it has one; "none" compiles here.
+
+## note-512
+
+Above `- name: Mint the glaeda read token` in `.github/workflows/cmux-next.yml`.
+
+Blacksmith's health (the pool snapshot's declared outages and dead labels), as macos-placement reads it.
+
+## note-513
+
+Above `FIXIT_COMPILE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}` in `.github/workflows/cmux-next.yml`.
+
+fixit-compile (scripts/ci/oops/fixit_compile.py, ci-oops 0a) wraps the cargo build: the head its patch is for.
+
+## note-514
+
+Above `AUTOFIXED_OK: ${{ github.event_name == 'pull_request' && github.event.pull_reque` in `.github/workflows/cmux-next.yml`.
+
+Stale files the PR autofix regenerates and pushes are "autofixed", not red (generated-autofixable.sh).
+
+## note-515
+
+Above `AUTOFIXED_OK: ${{ github.event_name == 'pull_request' && github.event.pull_reque` in `.github/workflows/cmux-next.yml`.
+
+Stale files the PR autofix regenerates and pushes are "autofixed", not red (generated-autofixable.sh).
+
+## note-516
+
+Above `- name: Pack the exports for the PR autofix` in `.github/workflows/cmux-next.yml`.
+
+The PR autofix's Mac exports on this build of the same merge commit (base_autofix_pushed_exports.py pr-lookup).
+
+## note-517
+
+Above `end=$(( deadline < ok_at + ${BAD_BOUND:-300} ? deadline : ok_at + ${BAD_BOUND:-3` in `.github/workflows/cmux-next.yml`.
+
+The shared deadline: each read gets only what is left of the wait and of the bound for a usable answer.
+
+## note-518
+
+Above `word=none` in `.github/workflows/cmux-next.yml`.
+
+One compile per head: the tip check's verdict for this exact head, when it has one; "none" compiles here.
+
+## note-519
+
+Above `state: ${{ steps.wait.outputs.state }}` in `.github/workflows/cmux-next.yml`.
+
+What the wait read (pass, fail, unavailable, ...; none: no result in the wait). release-compile-fast reads it.
+
+## note-520
+
+Above `end=$(( deadline < ok_at + ${BAD_BOUND:-300} ? deadline : ok_at + ${BAD_BOUND:-3` in `.github/workflows/cmux-next.yml`.
+
+The shared deadline: each read gets only what is left of the wait and of the bound for a usable answer.
+
+## note-521
+
+Above `[[ -z "$down" && -n "$last" ]] && down="$last for $((SECONDS - ok_at)) s"` in `.github/workflows/cmux-next.yml`.
+
+No usable answer when the wait or the bound ran out (a stalled read, a 530, no connection): the service down.
+
+## note-522
+
+Above `[[ -z "$post_said" ]] || echo "::error title=Compile check::NO_VERDICT: GitHub r` in `.github/workflows/cmux-next.yml`.
+
+NO_VERDICT: a verdict GitHub never took leaves the status as last posted (pending); say so and how to fix.
+
+## note-523
+
+Above `- THIRD_PARTY_LICENSES.md` in `.github/workflows/cmux-next.yml`.
+
+An app resource the Xcode project copies (cmux_next_route.py NATIVE_SCRIPT_INPUTS).
+
+## note-524
+
+Above `- scripts/ci/check-screen-share-identity.sh` in `.github/workflows/cmux-next.yml`.
+
+sign-cmux-bundle.sh and ensure-cef.sh read these (cmux_next_route.py NATIVE_SCRIPT_INPUTS).
+
+## note-525
+
+Above `- scripts/cmux-next/generated-autofixable.sh` in `.github/workflows/cmux-next.yml`.
+
+The daemon-test generated-files verdict reads these when the PR autofix may repair a stale export.
+
+## note-526
+
+Above `- scripts/cmux-next/generated-autofixable.sh` in `.github/workflows/cmux-next.yml`.
+
+The daemon-test generated-files verdict reads these when the PR autofix may repair a stale export.
+
+## note-527
+
+Above `- THIRD_PARTY_LICENSES.md` in `.github/workflows/cmux-next.yml`.
+
+An app resource the Xcode project copies (cmux_next_route.py NATIVE_SCRIPT_INPUTS).
+
+## note-528
+
+Above `- scripts/ci/check-screen-share-identity.sh` in `.github/workflows/cmux-next.yml`.
+
+sign-cmux-bundle.sh and ensure-cef.sh read these (cmux_next_route.py NATIVE_SCRIPT_INPUTS).
+
+## note-529
+
+Above `actions: read` in `.github/workflows/cmux-next.yml`.
+
+The queue janitor's pool snapshot, Blacksmith's queued jobs (next_macos_cascade.py).
+
+## note-530
+
+Above `- name: Check out the trusted placement` in `.github/workflows/cmux-next.yml`.
+
+The placement code from the base branch, as ci-macos.yml's admission-placement uses it.
+
+## note-531
+
+Above `if [ -z "$route" ] && [[ "$SIDE_LABEL" == glaeda-side-* ]] && [ "$GITHUB_RUN_ATT` in `.github/workflows/cmux-next.yml`.
+
+The rescue's re-run writes no owned route (side_lane_placement.rerun_main()).
+
+## note-532
+
+Above `if [ ! -f scripts/ci/portable_job_placement.py ]; then` in `.github/workflows/cmux-next.yml`.
+
+A base branch that predates the script places nothing: every job keeps its Blacksmith route.
+
+## note-533
+
+Above `if ! command -v timeout >/dev/null; then` in `.github/workflows/cmux-next.yml`.
+
+timeout: GNU timeout, else Homebrew's gtimeout, else scripts/ci/timeout.sh's perl watchdog.
+
+## note-534
+
+Above `printf '#!%s\nPATH="${PATH:+$PATH:}%s" exec %q %q "$@"\n' "$(command -v bash)" "` in `.github/workflows/cmux-next.yml`.
+
+Absolute bash, perl's folder on PATH: a test may run it under a PATH of a few symlinks.
+
+## note-535
+
+Above `python3 tests/test_cmux_next_prepush_main_twin.py` in `.github/workflows/cmux-next.yml`.
+
+A production journey workflow change needs its main twin (#43870); it ran nowhere before.
+
+## note-536
+
+Above `python3 -I tests/test_known_red.py` in `.github/workflows/cmux-next.yml`.
+
+A skip against an issue fails from its checked-in date on (tests/known_red.py).
+
+## note-537
+
+Above `FAST_TIER_STATUS="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID` in `.github/workflows/cmux-next.yml`.
+
+The fast tier's status in this attempt: `completed` when its earlier result is carried.
+
+## note-538
+
+Above `finish() {` in `.github/workflows/cmux-next.yml`.
+
+finish VERDICT: the job's output, its summary and its exit. Only pass exits 0.
+
+## note-539
+
+Above `step=queued; why="$2: step $id still queued after the client's queue wait (clien` in `.github/workflows/cmux-next.yml`.
+
+The client stopped waiting for the queue; the step keeps its place and runs later.
+
+## note-540
+
+Above `CMUX_FAST_CACHE_WORKSPACE: ${{ steps.spm-root.outputs.root || github.workspace }` in `.github/workflows/cmux-next.yml`.
+
+The seed's key holds the path it was built at: the seed root on an owned mini.
+
+## note-541
+
+Above `verdict=` in `.github/workflows/cmux-next.yml`.
+
+The build failed or the checks never ran: no verdict, which generated-verdict fails.
+
+## note-542
+
+Above `verdict=` in `.github/workflows/cmux-next.yml`.
+
+The build failed or the checks never ran: no verdict, which generated-verdict fails.
+
+## note-543
+
+Above `SEED_KEY_WORKSPACE: ${{ steps.spm-root.outputs.root || github.workspace }}` in `.github/workflows/cmux-next.yml`.
+
+The seed's key holds the path it was built at: the seed root on an owned mini.
+
+## note-544
+
+Above `base="$RUNNER_TEMP/pr-autofix-base"` in `.github/workflows/cmux-next.yml`.
+
+The base's scripts, as the PR autofix's Mac job runs them; HEAD^1 is the base, HEAD^2 the head.
+
+## note-545
+
+Above `[[ "$CMUX_NEXT_RUNNER" == glaeda-* || "${CMUX_NEXT_DEV_VM_CACHE:-}" == 1 ]] || e` in `.github/workflows/cmux-next.yml`.
+
+A mini keeps the cache between jobs; a Blacksmith VM got it from actions/cache above.
+
+## note-546
+
+Above `- name: Save the DEV compile cache (Blacksmith)` in `.github/workflows/cmux-next.yml`.
+
+The compile already pruned it to its bound (or dropped it past 6 GiB: lib/compilation-cache.sh).
+
+## note-547
+
+Above `post_end=$((SECONDS + ${POST_END_SECONDS:-3240}))` in `.github/workflows/cmux-next.yml`.
+
+post()'s rate-limit waits end here: the step's 56 min less a last try, inside the token's hour.
+
+## note-548
+
+Above `post_end=$((SECONDS + ${POST_END_SECONDS:-3240}))` in `.github/workflows/cmux-next.yml`.
+
+post()'s rate-limit waits end here: the step's 56 min less a last try, inside the token's hour.
+
+## note-549
+
+Above `case "$FAST/$MAC" in` in `.github/workflows/cmux-next.yml`.
+
+The fast check's own verdict (a gateway's fleet compile) first, else the Mac Release compile.
+
+## note-550
+
+Above `[[ "$state" != error ]] || { echo "::error::no verdict: cmux-next/compile for $S` in `.github/workflows/cmux-next.yml`.
+
+The needs_verdict rule's words: a fallback's red is a red, nothing ran is no verdict (exit 3).
