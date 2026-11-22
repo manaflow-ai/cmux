@@ -23,7 +23,9 @@ extension MadeAheadOpenPanel: WebFileInputAnswering {
             completion(response == .OK ? panel.urls : nil)
         }
         if let window {
-            panel.beginSheetModal(for: window, completionHandler: finish)
+            // A page's window can close under its chooser (a popup): the sheet ends with it, and a panel AppKit still
+            // holds in that sheet is never handed out again.
+            panel.beginSheet(endingWith: window, completionHandler: finish) { [weak self] in self?.discard(panel) }
         } else {
             panel.begin(completionHandler: finish)
         }
