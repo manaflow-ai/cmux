@@ -1626,7 +1626,7 @@ async fn mux_control_delivers_a_large_snapshot_before_the_output_after_it() {
 /// with `metadata`; returns the client's stream and the serving tasks.
 #[cfg(unix)]
 async fn mux_control_writing(
-    directory: &std::path::Path,
+    directory: &Path,
     line: Vec<u8>,
     metadata: BTreeMap<String, String>,
 ) -> (Arc<ServiceMultiplexer>, ServiceStream, Vec<tokio::task::JoinHandle<()>>) {
