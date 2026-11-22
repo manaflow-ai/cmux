@@ -9,6 +9,7 @@ import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { AcpmuxRow } from "../model";
 import { ActivityLine } from "./ActivityLine";
+import type { LiveWait } from "./liveWait";
 import { Thinking } from "./Thinking";
 import { type WaitingOn, WaitingOnContext } from "./waitingOn";
 
@@ -20,6 +21,17 @@ const line: AcpmuxRow = { id: "activityLine-p", version: 1, at: 0, kind: "activi
 
 const wait = (waiting: WaitingOn, node: ReactNode) => <WaitingOnContext value={waiting}>{node}</WaitingOnContext>;
 
+// What a silent line waits on (liveWait.ts): never a bare "Waiting" (Leo, 2026-11-22: "everything
+// that goes in there write more detailed things than just waiting").
+const WAITS: [string, LiveWait | undefined][] = [
+  ["Waiting: after a step", { kind: "step", step: "Ran bun test" }],
+  ["Waiting: first reply", { kind: "prompt" }],
+  ["Waiting: a message", { kind: "message", from: "picker" }],
+  ["Waiting: queued", { kind: "queued" }],
+  ["Waiting: next step", { kind: "next" }],
+  ["Waiting: unknown", undefined],
+];
+
 const STATUSES: [string, ReactNode][] = [
   ["Thinking", <Thinking since={0} now={now} />],
   ["Step", <Thinking since={0} now={now} doing="Read App.tsx" doingAt={40_000} turnTotal />],
@@ -28,7 +40,36 @@ const STATUSES: [string, ReactNode][] = [
   ["Sending", <Thinking since={0} now={now} doing="SendMessage" sendTo="Prioritize visible cmux" doingAt={60_000} />],
   ["Writing", <Thinking since={0} now={now} liveState="writing" quietKey="r:1" quietAt={NOW} turnTotal />],
   ["Subagents", <Thinking since={0} now={now} liveState="subagents" liveAgents={2} turnTotal />],
-  ["Waiting", <Thinking since={0} now={now} phaseAt={0} heardAt={20_000} heardKey="k" turnTotal />],
+  [
+    "Subagent, named",
+    <Thinking
+      since={0}
+      now={now}
+      liveState="subagents"
+      liveAgents={1}
+      liveAgentNames={["Explore auth flow"]}
+      turnTotal
+    />,
+  ],
+  [
+    "Subagents, named",
+    <Thinking since={0} now={now} liveState="subagents" liveAgents={2} liveAgentNames={["lint", "tests"]} turnTotal />,
+  ],
+  [
+    "Subagents, more",
+    <Thinking
+      since={0}
+      now={now}
+      liveState="subagents"
+      liveAgents={4}
+      liveAgentNames={["lint", "tests", "docs"]}
+      turnTotal
+    />,
+  ],
+  ...WAITS.map(([name, liveWait]): [string, ReactNode] => [
+    name,
+    <Thinking since={0} now={now} phaseAt={0} heardAt={20_000} heardKey="k" liveWait={liveWait} turnTotal />,
+  ]),
   ["Compacting", <Thinking since={0} now={now} liveState="compacting" doingAt={50_000} turnTotal />],
   ["Retrying", <Thinking since={0} now={now} retry={{ attempt: 3, maxRetries: 10, errorStatus: 503 }} />],
   ["Needs you", wait("permission", <Thinking since={0} now={now} />)],
@@ -72,7 +113,7 @@ export default componentEntry<Props>({
   title: "Live spot: every status under one shimmer",
   area: "Agent pane",
   pane: true,
-  height: 760,
+  height: 1040,
   widths: { narrow: 420, normal: 640 },
   styles: () =>
     Promise.all([import("../styles.css"), import("./conversation.css"), import("../../../ui/glass/glass.css")]),

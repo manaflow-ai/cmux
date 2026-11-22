@@ -31,6 +31,7 @@ import { formatDuration } from "./turns";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { StatusVerb } from "./StatusVerb";
+import { LiveShimmer } from "./LiveShimmer";
 import { workingParts, WorkingCountsContext } from "./workingForModel";
 export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
   const t = useT();
@@ -69,8 +70,12 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
         </span>
       )}
       {waiting ? (
-        <output className="cv-worked__label cv-waiting" data-waiting={waiting}>
-          {t(WAITING_LABEL[waiting])}
+        // The live spot's one shimmer, never plain or white words (Leo, 2026-11-22: "if it's in the
+        // thinking spot with the timer, it needs to have the glimmer and teh same looking fucking text").
+        <output className="cv-worked__label cv-waiting cv-thinking is-shimmer" data-waiting={waiting}>
+          <span className="cv-shimmer__row">
+            <LiveShimmer label={t(WAITING_LABEL[waiting])} />
+          </span>
         </output>
       ) : doing || row.thinkingNow ? (
         <>

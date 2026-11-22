@@ -265,7 +265,8 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
     // The turn goes on: the agent writes, then starts another batch.
     push(reply("Both reviews started; now a lint pass."));
     push(spawned("a3", "Linter"));
-    await page.getByText("Linter").waitFor({ timeout: 5_000 });
+    // The live line names it too ("Waiting on subagents Tester and Linter"): the group's own name.
+    await page.locator(".cv-subagent__name", { hasText: "Linter" }).waitFor({ timeout: 5_000 });
     await expectGroups(page, { open: ["false", "true"], lines: 1 });
     await page.close();
   });
@@ -292,7 +293,7 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
     await select(page, DONE);
     await page.getByText("Both reviews are in.").waitFor({ timeout: 10_000 });
     await select(page, LIVE);
-    await page.getByText("Waiting on 2 subagents").first().waitFor({ timeout: 10_000 });
+    await page.getByText("Waiting on subagents Reviewer and Tester").first().waitFor({ timeout: 10_000 });
     await expectGroups(page, { open: ["false"], lines: 0 });
     await page.close();
   });
