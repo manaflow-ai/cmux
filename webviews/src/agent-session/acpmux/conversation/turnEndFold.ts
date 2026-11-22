@@ -287,9 +287,11 @@ export function captureTurnEnd(
   // anchor keeps the view (Leo, 2026-11-22: "i scroll down, some bullshit ABOVE folds...? and plays an
   // animation!?"). A held Worked for (`held`) has no running line: its work in view is what folds.
   const view = scroller.getBoundingClientRect();
+  // Edges count: an empty slot (a turn of words alone keeps its running line's row at no height) at
+  // the view's bottom edge is where the reader is looking.
   const seen = (node: HTMLElement) => {
     const box = node.getBoundingClientRect();
-    return box.bottom > view.top && box.top < view.bottom && box.height > 0;
+    return box.bottom >= view.top && box.top <= view.bottom;
   };
   const goes = (node: HTMLElement) => {
     const id = node.dataset.rowId!;
