@@ -44,3 +44,15 @@ export const LOADING_SHOWN_MS = 1_000;
 export function useLoadingShown(active: boolean): boolean {
   return useLasting(active, defaultGrace <= 0 ? 0 : LOADING_SHOWN_MS);
 }
+
+/// How long a connection state the person can do nothing about (reconnecting, retrying, restoring, offline,
+/// disconnected) stays out of sight: the copy of schemas/notice-timing/notice-timing.json `connectionQuietMs`, checked
+/// against it by scripts/cmux-next/check-connection-notices.py, which also fails a new connection state drawn with no
+/// action and no bound. A state the person can act on (one button that fixes it) may show at once.
+export const CONNECTION_QUIET_MS = 10_000;
+
+/// `useLasting` for a connection state: true once `down` has held for `CONNECTION_QUIET_MS`. The gallery's zero
+/// grace (`setLastingGrace(0)`) shows it at once, as it does every lasting state.
+export function useConnectionQuiet(down: boolean): boolean {
+  return useLasting(down, defaultGrace <= 0 ? 0 : CONNECTION_QUIET_MS);
+}
