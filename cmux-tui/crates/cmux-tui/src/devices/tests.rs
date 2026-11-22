@@ -567,7 +567,7 @@ fn a_joined_machine_is_a_computer_that_runs_agents_and_its_remove_revokes_it() {
 #[test]
 fn no_joined_source_adds_no_rows() {
     let mut sources = sources();
-    sources.joined = serde_json::Value::Null;
+    sources.joined = Value::Null;
     let listing = model::merge(&sources, tailscale_up(), &nodes());
     assert!(listing.devices.iter().all(|d| !d.id.starts_with("joined:")));
 }
@@ -841,7 +841,7 @@ fn a_hub_only_machine_reads_its_screen_from_the_device_hub() {
         }
         row
     };
-    let src = model::Sources {
+    let src = Sources {
         peers: json!({"peers": [
             hub_row("lane-desk", json!({"listed": true, "platform": "linux", "screenShared": true})),
             hub_row("lane-off", json!({"listed": true, "platform": "linux", "screenShared": false})),
@@ -849,7 +849,7 @@ fn a_hub_only_machine_reads_its_screen_from_the_device_hub() {
             hub_row("hub-mac", json!({"listed": true, "platform": "macos", "screenShared": false})),
             hub_row("lane-unread", Value::Null),
         ]}),
-        ..model::Sources::default()
+        ..Sources::default()
     };
     let listing = model::merge(&src, tailscale_up(), &[]);
     let view = |route| Some(Screen::View { route });
@@ -870,7 +870,7 @@ fn a_hub_only_machine_reads_its_screen_from_the_device_hub() {
     assert_eq!(wire("peer:lane-desk"), json!({"action": "view", "route": "hub"}));
     assert_eq!(wire("peer:lane-bare"), json!({"action": "none", "reason": "no-screen-host"}));
     // A hub-only machine that is down says so first.
-    let mut down = src.clone();
+    let mut down = src;
     down.peers["peers"][2]["connected"] = json!(false);
     let listing = model::merge(&down, tailscale_up(), &[]);
     assert_eq!(device(&listing, "peer:lane-bare").screen, none(NoScreen::Offline));
