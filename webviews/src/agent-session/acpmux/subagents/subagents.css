@@ -2655,7 +2655,6 @@ button.cv-subagent > :last-child {
   left: calc(var(--hat-face-index) * var(--hat-face-step));
   display: inline-flex;
   line-height: 0;
-  cursor: pointer;
   border-radius: 999px;
   /* A thin ring of the hat's own glass between overlapping icons, so each reads as its own. */
   box-shadow: 0 0 0 1.5px var(--acpmux-hat-face-ring, color-mix(in srgb, var(--agent-bg, Canvas) 85%, transparent));
@@ -2666,12 +2665,14 @@ button.cv-subagent > :last-child {
 .acpmux-hat-face svg {
   display: block;
 }
-/* What ended reads quieter than what runs; the tooltip says which state. */
+/* What ended reads quieter than what runs; the tooltip says which state. 80% keeps an icon's 3:1: a tone
+   or muted ink fit at 4.5:1 reads 3.1-3.3:1 at 80%, and read 2.2-2.7:1 at 55% (control-contrast-2: Light's
+   cyan tone 2.16:1, Dark's purple 2.73:1, Rose Pine Dawn's muted ink 2.31:1). */
 .acpmux-hat-face:is([data-state="done"], [data-state="stopped"]) {
-  opacity: 0.55;
+  opacity: 0.8;
 }
 .acpmux-hat-face[data-state="failed"] {
-  opacity: 0.7;
+  opacity: 0.8;
   color: var(--agent-status-failure);
 }
 /* The icon under the pointer lifts a little, so the eye follows the name the tooltip shows. */
@@ -2704,5 +2705,6 @@ button.cv-subagent > :last-child {
   inset: calc(-1 * var(--ds-space-1)) auto calc(-1 * var(--ds-space-1)) calc(-1 * var(--ds-space-1));
   width: calc(var(--hat-face-open-width) + 2 * var(--ds-space-1));
   border-radius: 999px;
+  /* chat-surface-allow: the fan's backing is the page colour, so the faces read over the transcript */
   background: var(--acpmux-hat-face-ring, color-mix(in srgb, var(--agent-bg, Canvas) 92%, transparent));
 }
