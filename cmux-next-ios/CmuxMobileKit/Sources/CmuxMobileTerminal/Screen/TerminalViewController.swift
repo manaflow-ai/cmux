@@ -2473,6 +2473,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         holdAwaitsReset = true
         zoomHoldCell = cell
         let held = ObjectIdentifier(still)
+        // The font changed but the cells did not (a step that rounds to the
+        // same cell): no layout releases the hold, so it ends here rather
+        // than at the cap.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.zoomSameCellWait) { [weak self] in
+            guard let self, let view = self.freezeView, ObjectIdentifier(view) == held,
+                  let heldCell = self.zoomHoldCell, heldCell == self.cell else { return }
+            self.zoomHoldCell = nil
+            self.zoomGridMeasured(columns: self.gridColumns, rows: self.tuiRows)
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.freezeCap) { [weak self] in
             guard let self, let view = self.freezeView, ObjectIdentifier(view) == held else { return }
             self.zoomHoldCell = nil
@@ -2484,6 +2493,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             }
         }
     }
+
+    /// How long a zoom waits for Ghostty's new cell size before it treats
+    /// the step as one that kept the cells.
+    static let zoomSameCellWait: TimeInterval = 0.4
 
     /// Ghostty measured the zoomed cells: no new grid for the Mac (its
     /// columns are kept, or the phone's did not change) means no reset is
