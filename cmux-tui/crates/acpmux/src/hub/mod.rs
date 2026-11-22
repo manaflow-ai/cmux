@@ -180,6 +180,7 @@ pub(crate) use log_load::test_hold;
 #[cfg(test)]
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
 mod cold_archive;
+pub(crate) mod inactive_archive;
 pub(crate) use cold_archive::COLD_CHANGED;
 mod machine_info;
 mod repo_sync;
@@ -440,6 +441,7 @@ mod translator_queue_tests;
 mod trust_wait;
 mod turn_attestation;
 mod turn_git;
+pub(crate) mod turn_shots;
 mod turn_usage;
 mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
