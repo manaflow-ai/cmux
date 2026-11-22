@@ -95,7 +95,7 @@ hardStop.unref();
 {
   const { writeStrings } = await import("./pages/gen-strings.mjs");
   writeStrings({ ifStale: true, bestEffort: true, log: () => {} });
-  writeStrings({ only: ["agentPane"], bestEffort: true, log: () => {} });
+  writeStrings({ only: ["agentPane"] as never[], bestEffort: true, log: () => {} });
 }
 
 const { chromium } = await import("playwright");

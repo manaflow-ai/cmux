@@ -200,6 +200,7 @@ export type WatchResult = {
   violations: number;
 };
 
+// fixed-wait: watch plays the scenario on real time for a person or a video; the wait is the playback.
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** Plays a scenario on scaled real time with the pane's motion as the page has it, drawing each step
@@ -244,6 +245,7 @@ async function watch(options: WatchOptions): Promise<WatchResult> {
       break;
     }
     const step = scenario.steps[index]!;
+    // fixed-wait: the step's own (scaled) time since the step before: the playback's clock.
     await sleep(Math.min(maxGap, Math.max(minGap, (step.at - lastAt) / speed)));
     lastAt = step.at;
     virtualAt = step.at;
@@ -264,12 +266,13 @@ async function watch(options: WatchOptions): Promise<WatchResult> {
     const shot = { step: index, label: step.label, turn: state.turn };
     if (opened) await shoot({ ...shot, why: "turn-start" });
     else if (state.turnEnded && !wasEnded) {
-      // Let the turn's fold play out before the picture.
+      // fixed-wait: let the turn's fold animation play out before the picture.
       await sleep(Math.min(1200, maxGap));
       await shoot({ ...shot, why: "turn-end" });
     } else if (options.shotEvery && index % options.shotEvery === 0 && index < scenario.steps.length - 1)
       await shoot({ ...shot, why: "every" });
   }
+  // fixed-wait: let the last fold animation play out before the last picture.
   await sleep(Math.min(1200, maxGap));
   await shoot({ step: played - 1, label: "end", turn, why: "end" });
   Date.now = realNow;
