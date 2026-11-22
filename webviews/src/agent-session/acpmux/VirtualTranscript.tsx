@@ -4629,7 +4629,14 @@ function TranscriptView({
             : undefined,
         });
     olderRoom.current = reserved.state;
-    const layout = placedWithOrigin(placed, reserved.reserve);
+    // A first page shorter than the view, with older history still to load, sits at the view's foot
+    // from its first paint, where the view pinned to the end puts it once the older room arrives:
+    // drawn from the top, every visible row dropped by the slack when the room came (22 px in
+    // chat-open-breakpoint-harness; Leo, 2026-11-12: nothing visible moves after the first paint).
+    // A chat with nothing older (a new chat) keeps its rows at the top.
+    const rowsHeight = placed.totalHeight - placedOrigin;
+    const footFill = canLoadOlder && height > 0 ? Math.max(0, height - rowsHeight) : 0;
+    const layout = placedWithOrigin(placed, Math.max(reserved.reserve, footFill));
     lastPlaced.current = {
       rows,
       drawn,
@@ -4658,6 +4665,7 @@ function TranscriptView({
     attachmentView,
     scaledRowWidth,
     canLoadOlder,
+    height,
     earlier,
     promptCount,
     roomGone,
