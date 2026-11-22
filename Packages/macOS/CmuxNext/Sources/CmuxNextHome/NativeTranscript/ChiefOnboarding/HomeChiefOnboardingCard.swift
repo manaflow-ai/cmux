@@ -21,8 +21,8 @@ final class HomeChiefOnboardingCard: NSView {
     let body = ChromeLabel(wrappingLabelWithString: "")
     let back = HomeChiefOnboardingButton(style: .quiet, title: HomeChiefOnboardingStrings.back)
     let primary = HomeChiefOnboardingButton(style: .primary, title: HomeChiefOnboardingStrings.next)
-    /// The access step's note under the modes: Chief always asks before money, deletions and sign-ins.
-    let note = ChromeLabel(wrappingLabelWithString: HomeChiefOnboardingStrings.alwaysAsks)
+    /// The access step's note under the modes: Chief's rule to ask before money, deletions and sign-ins (not a lock).
+    let note = ChromeLabel(wrappingLabelWithString: HomeChiefOnboardingStrings.toldToAsk)
     /// Where to change it later, or that an administrator sets it, or that the last pick did not save.
     let status = ChromeLabel(wrappingLabelWithString: "")
     let openSettings = HomeChiefOnboardingButton(style: .quiet, title: HomeChiefOnboardingStrings.openSettings)

@@ -19,9 +19,12 @@
 # your own account only: the person who joined this machine can view its
 # screen from their other devices with nothing to do here, and other
 # accounts can't reach it (the device hub pairs only one account's own
-# devices). The acpmux daemon sets that up itself at its start, through
-# cmux-rd (~/.local/bin/cmux-rd, the path its screen host unit runs); this
-# script does not install cmux-rd yet: no channel publishes it.
+# devices). The acpmux daemon sets that up itself, through cmux-rd
+# (~/.local/bin/cmux-rd, the path its screen host unit runs): once joined,
+# this script installs cmux-rd from the same channel as acpmux (checked
+# against the channel's sha256), and the daemon finds it within a minute.
+# A cmux-rd that does not install never fails the join: one line says why,
+# and so does `acpmux share-host status`.
 #
 # Once joined: Claude Code (its official installer) and Codex (acpmux's
 # pinned, checked runtime) are installed when missing; the person's vault (env
@@ -37,7 +40,8 @@
 # CMUX_JOIN_HARNESSES (default claude,codex; none installs and offers
 # nothing), CMUX_JOIN_INTERACTIVE=0 (never ask on the terminal),
 # CMUX_JOIN_STEP=signin (only the sign-in step, on a joined machine: what
-# `cmux machine add USER@HOST` runs over `ssh -t`).
+# `cmux machine add USER@HOST` runs over `ssh -t`), CMUX_JOIN_STEP=cmux-rd
+# (only the cmux-rd install, on a joined Linux machine).
 #
 # Source: cmux-tui/scripts/machine-join.sh in manaflow-ai/cmux; the
 # platform serves a copy with its own origin written in.
@@ -110,11 +114,11 @@ bin_dir="$HOME/.local/bin"
 acpmux="$bin_dir/acpmux"
 step="${CMUX_JOIN_STEP:-}"
 case "$step" in
-  '' | signin) ;;
-  *) die 2 "unknown CMUX_JOIN_STEP $step (signin, or leave it unset)" ;;
+  '' | signin | cmux-rd) ;;
+  *) die 2 "unknown CMUX_JOIN_STEP $step (signin, cmux-rd, or leave it unset)" ;;
 esac
-if [ "$step" = signin ] && [ -n "$t" ]; then
-  die 2 "the sign-in step takes no token; run the line without one"
+if [ -n "$step" ] && [ -n "$t" ]; then
+  die 2 "the $step step takes no token; run the line without one"
 fi
 
 # The harnesses to install and sign in: CMUX_JOIN_HARNESSES, a comma list.
@@ -280,6 +284,112 @@ if fetch "$files/channels/$channel.json" "$tmp/channel.json"; then
     die 1 "the $channel channel has no acpmux build for $target"
   fi
 fi
+
+# cmux-rd, the screen host's program, installed once joined on Linux (step
+# 7): from the channel acpmux came from, checked against the channel's
+# sha256 and moved into place in one step. The daemon notices it within a minute and sets up
+# the screen host. cmux-rd links glibc: its builds are the gnu targets. A
+# failure never fails the join: one line, and the reason in the share
+# host's folder, where `acpmux share-host status` reads it. A cmux-rd that
+# is a symlink to a file was put there on purpose (a test build, say) and is
+# kept; a symlink to nothing or to a directory is replaced. The channel's
+# bytes without the execute bit (which the daemon refuses) are made executable.
+rd="$bin_dir/cmux-rd"
+rd_state="${ACPMUX_HOME:-$HOME/.acpmux}/share-host/cmux-rd-install"
+case "$cli_target" in
+  *-linux-gnu) rd_target="$cli_target" ;;
+  *) rd_target="" ;;
+esac
+rd_failed() {
+  say "warning: cmux-rd did not install ($1), so this machine's screen is not shared yet; run the line again without a token to retry"
+  { mkdir -p "${rd_state%/*}" && printf '%s\n' "$1" >"$rd_state"; } 2>/dev/null || true
+}
+install_cmux_rd() {
+  if [ -L "$rd" ] && [ -f "$rd" ]; then
+    say "keeping $rd (a symlink someone put there)"
+    rm -f "$rd_state"
+    return 0
+  fi
+  if [ ! -L "$rd" ] && [ -e "$rd" ] && [ ! -f "$rd" ]; then
+    rd_failed "$rd is not a file: remove it, then run the line again"
+    return 0
+  fi
+  [ -n "$want" ] || {
+    rd_failed "the $channel channel could not be read"
+    return 0
+  }
+  rd_want="$(json_hex "cmux-tui-rd-$rd_target" "$tmp/channel.json")"
+  [ "${#rd_want}" -eq 64 ] || {
+    rd_failed "the $channel channel has no cmux-rd build for $rd_target"
+    return 0
+  }
+  if [ ! -f "$rd" ] || [ "$(sha256 "$rd")" != "$rd_want" ]; then
+    fetch "$files/tree/$key/cmux-tui-rd-$rd_target" "$tmp/cmux-rd" || {
+      rd_failed "cannot download cmux-rd for $rd_target"
+      return 0
+    }
+    got="$(sha256 "$tmp/cmux-rd")"
+    [ "$got" = "$rd_want" ] || {
+      rd_failed "checksum verification failed for cmux-rd ($got, the channel says $rd_want)"
+      return 0
+    }
+    # Each step checked: under `set -e` a read-only or full ~/.local would end the join here.
+    # A symlink to a directory would take the new file inside it, so it goes first.
+    if ! { mkdir -p "$bin_dir" &&
+      install -m 755 "$tmp/cmux-rd" "$bin_dir/.cmux-rd.new"; } 2>/dev/null; then
+      rm -f "$bin_dir/.cmux-rd.new" 2>/dev/null || true
+      rd_failed "cannot write it to $bin_dir"
+      return 0
+    fi
+    # The file that is moved into place is the one checked: the copy in bin, not only the
+    # download (another writer of bin, a short write).
+    got="$(sha256 "$bin_dir/.cmux-rd.new" 2>/dev/null || true)"
+    [ "$got" = "$rd_want" ] || {
+      rm -f "$bin_dir/.cmux-rd.new" 2>/dev/null || true
+      rd_failed "checksum verification failed for the copy in $bin_dir ($got, the channel says $rd_want)"
+      return 0
+    }
+    # Only a file (or nothing) is replaced: mv onto a directory moves the file inside it.
+    # A directory that appeared since the first look is named, never filled.
+    if [ ! -L "$rd" ] && [ -e "$rd" ] && [ ! -f "$rd" ]; then
+      rm -f "$bin_dir/.cmux-rd.new" 2>/dev/null || true
+      rd_failed "$rd is not a file: remove it, then run the line again"
+      return 0
+    fi
+    if ! { { [ ! -L "$rd" ] || rm -f "$rd"; } &&
+      mv -f "$bin_dir/.cmux-rd.new" "$rd"; } 2>/dev/null; then
+      rm -f "$bin_dir/.cmux-rd.new" 2>/dev/null || true
+      rd_failed "cannot write it to $bin_dir"
+      return 0
+    fi
+    # What is at $rd now is what the daemon runs: a regular executable file, or nothing
+    # installed (a directory that appeared between the look and the mv took the file).
+    if [ -L "$rd" ] || [ ! -f "$rd" ] || [ ! -x "$rd" ]; then
+      [ ! -d "$rd" ] || [ -L "$rd" ] || rm -f "$rd/.cmux-rd.new" 2>/dev/null || true
+      rd_failed "$rd is not a file: remove it, then run the line again"
+      return 0
+    fi
+    say "installed cmux-rd to $rd"
+  elif [ ! -x "$rd" ]; then
+    chmod 755 "$rd" || {
+      rd_failed "cannot make $rd executable"
+      return 0
+    }
+  fi
+  rm -f "$rd_state"
+  # Cisco's OpenH264, downloaded from Cisco on this machine: the screen
+  # host's encoder, never bundled. The host's enable fetches it too.
+  "$rd" openh264-install </dev/null >/dev/null 2>&1 ||
+    say "warning: Cisco's OpenH264 did not download yet; the screen host fetches it when it starts, or run: $rd openh264-install"
+}
+
+# CMUX_JOIN_STEP=cmux-rd: only that, on a joined machine (what a test of
+# the install path runs after its own join).
+if [ "$step" = cmux-rd ]; then
+  [ "$os" != Linux ] || [ -z "$rd_target" ] || install_cmux_rd
+  exit 0
+fi
+
 replaced=0
 restart_pending=0
 if [ -z "$want" ]; then
@@ -551,7 +661,8 @@ if [ "$restart_pending" = 1 ] && ! restart_daemon; then
   die 1 "the acpmux daemon is not running: $unit_next_step"
 fi
 
-# 7. Once joined: the missing harnesses, then the vault.
+# 7. Once joined: cmux-rd on Linux (above), the missing harnesses, then
+# the vault.
 install_harnesses() {
   if wants claude && [ -z "$(find_claude || true)" ]; then
     # Claude Code's own native installer (https://claude.ai/install.sh).
@@ -565,14 +676,14 @@ install_harnesses() {
     fi
   fi
   if wants codex && [ -z "$(find_codex || true)" ]; then
-    if [ "$os" = Darwin ] && "$acpmux" harness codex-runtime --help >/dev/null 2>&1; then
+    if "$acpmux" harness codex-runtime --help >/dev/null 2>&1; then
       if "$acpmux" harness codex-runtime install </dev/null >/dev/null 2>&1; then
         say "installed Codex (acpmux's pinned, checked runtime)"
       else
         say "warning: Codex did not install; later: $acpmux harness codex-runtime install"
       fi
     else
-      say "Codex is not installed: npm install -g @openai/codex (acpmux installs it on macOS only)"
+      say "Codex is not installed: update acpmux, then run $acpmux harness codex-runtime install"
     fi
   fi
 }
@@ -612,6 +723,9 @@ pull_vault() {
 }
 
 if [ "$is_joined" = 1 ]; then
+  if [ "$os" = Linux ] && [ -n "$rd_target" ]; then
+    install_cmux_rd
+  fi
   install_harnesses
   pull_vault
 fi
@@ -619,7 +733,7 @@ fi
 # 8. Where this machine stands.
 rc=0
 if "$acpmux" host doctor --help 2>/dev/null | grep -q -- '--here'; then
-  "$acpmux" host doctor --here || rc=$?
+  "$acpmux" host doctor --here --fix || rc=$?
 elif has_capability "$acpmux"; then
   "$acpmux" host join --status || rc=$?
 fi
@@ -628,15 +742,25 @@ if [ "$os" != Linux ]; then
 elif [ "$is_joined" != 1 ]; then
   # Only a join's daemon sets cmux-rd's host up (acpmux share_host/linux.rs).
   printf '%s\n' "This machine is not joined, so its screen is not shared."
-elif [ -x "$bin_dir/cmux-rd" ]; then
-  # The daemon runs cmux-rd's enable at its start (acpmux share_host/linux.rs).
+elif [ -f "$rd" ] && [ -x "$rd" ]; then
+  # A regular executable file (a directory is executable too, and runs nothing).
+  # The daemon runs cmux-rd's enable at its start, and within a minute of
+  # cmux-rd arriving or changing (acpmux share_host/linux.rs).
   printf '%s\n' "Your own account can view this machine's screen from your other devices, with nothing to do here. Other accounts can't reach it."
 else
-  printf '%s\n' "This machine's screen is not shared: cmux-rd is not installed at $bin_dir/cmux-rd. Once it is there, run $acpmux daemon restart and your own account can view this screen from your other devices, with nothing to do here. Other accounts can't reach it."
+  why=""
+  [ ! -f "$rd_state" ] || why=" ($(head -n 1 "$rd_state"))"
+  printf '%s\n' "This machine's screen is not shared: cmux-rd is not installed at $rd$why. Run the line again without a token to retry; once cmux-rd is there, your own account can view this screen from your other devices within a minute, with nothing to do here. Other accounts can't reach it."
 fi
 
 # 9. Last: the agents' own sign-in, on this machine.
+# FUTURE_HOOK: cmux-share-prepare-json
+# The share-host-helper-process lane will replace this named no-op with one
+# best-effort `cmux share prepare --json` call once that verb lands. Keep it
+# after sign-in so it runs once at the end of a join.
+prepare_share_hook() { :; }
 if [ "$is_joined" = 1 ]; then
   signin_step
+  prepare_share_hook
 fi
 exit "$rc"
