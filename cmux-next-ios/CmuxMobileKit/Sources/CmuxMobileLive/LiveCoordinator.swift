@@ -122,6 +122,8 @@ public final class LiveCoordinator {
     @ObservationIgnored let instants: ClockInstants
     @ObservationIgnored private var presence: PresenceListener?
     @ObservationIgnored private var isBackgrounded = false
+    /// When the scene last went to the background (ContinuousClock counts the suspension).
+    @ObservationIgnored private var backgroundedAt: ContinuousClock.Instant?
     /// Major connectivity incidents of a cmux team account, for the team's Slack (PROTOCOL.md
     /// "Connectivity incidents"); idle for everyone else.
     @ObservationIgnored let incidents: ConnectivityIncidentReporter
@@ -1065,6 +1067,7 @@ public final class LiveCoordinator {
     /// Keep background work usable, but do not trust these links after suspension.
     public func background() {
         isBackgrounded = true
+        backgroundedAt = ContinuousClock.now
         incidents.appActive(false)
         for session in sessions.values { session.link.send(.background) }
         discovery.pause()
@@ -1095,7 +1098,10 @@ public final class LiveCoordinator {
         presence?.backgrounded = false
         presence?.kick()
         discovery.resume()
-        for session in sessions.values { session.link.send(.resume) }
+        // How long iOS kept the app away decides whether the links are kept (LinkMachine.shortSuspend).
+        let away = backgroundedAt.map { ContinuousClock.now - $0 }
+        backgroundedAt = nil
+        for session in sessions.values { session.link.send(away.map { .resumed(after: $0) } ?? .resume) }
     }
 
 }

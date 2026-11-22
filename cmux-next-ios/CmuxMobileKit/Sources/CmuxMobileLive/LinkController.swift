@@ -223,7 +223,7 @@ public final class LinkController {
         default:
             break
         }
-        quickProbe = (event == .foreground || event == .resume) && effects.contains { if case .probe = $0 { true } else { false } }
+        quickProbe = (event == .foreground || event == .resume || { if case .resumed = event { true } else { false } }()) && effects.contains { if case .probe = $0 { true } else { false } }
         if phase != machine.phase {
             log.info("link \(String(describing: self.machine.phase), privacy: .public)")
             phase = machine.phase

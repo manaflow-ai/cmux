@@ -102,6 +102,23 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         #expect(dialer.first.probeCount == 1, "No probe of the stale link before redial")
     }
 
+    @Test func shortResumeKeepsTheLiveLinkAndOnlyProbesIt() async throws {
+        let dialer = RecoveryDialer()
+        let clock = LinkTestClock()
+        let controller = controller(dialer, clock: clock)
+        defer { controller.send(.target(nil)); clock.stop() }
+        try await eventually { dialer.first.probeCount == 1 }
+        let generation = controller.dialGeneration
+        controller.send(.background)
+        controller.send(.resumed(after: .seconds(1)))
+        #expect(controller.phase.isConnected, "An app switch of a second shows no reconnect")
+        try await eventually { dialer.first.probeCount == 2 }
+        #expect(dialer.dials == 1, "No redial after a 1 s background")
+        #expect(!dialer.first.isClosed)
+        #expect(controller.dialGeneration == generation)
+        #expect(controller.link != nil)
+    }
+
     @Test func backgroundBacksOffHeartbeatAndCloseStopsIt() async throws {
         let dialer = RecoveryDialer()
         let clock = LinkTestClock()
@@ -175,6 +192,54 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         #expect(machine.handle(.resume) == [.close, .dial(generation: 2, macID: "m", transport: .wireGuard)])
         #expect(machine.handle(.dialSucceeded(generation: 1, path: .direct)) == [])
         #expect(machine.phase == .connecting(.wireGuard, attempt: 1))
+    }
+
+    private func connected() -> LinkMachine {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(.init(macID: "m", name: "Mac", isOnline: true)))
+        _ = machine.handle(.dialSucceeded(generation: machine.generation, path: .direct))
+        return machine
+    }
+
+    @Test func resumeUnderShortSuspendKeepsTheLinkAndProbes() {
+        for away: Duration in [.milliseconds(200), .seconds(1), .seconds(5), .seconds(29)] {
+            var machine = connected()
+            let generation = machine.generation
+            _ = machine.handle(.background)
+            #expect(machine.handle(.resumed(after: away)) == [.quickProbe(generation: generation)])
+            #expect(machine.phase == .connected(.wireGuard, .direct, rttMillis: nil))
+            #expect(!machine.isBackgrounded)
+        }
+    }
+
+    @Test func shortResumeWithADeadLinkKeepsItBesideTheRedial() {
+        var machine = connected()
+        let kept = machine.generation
+        _ = machine.handle(.background)
+        _ = machine.handle(.resumed(after: .seconds(1)))
+        let effects = machine.handle(.probeFailed(generation: kept, reason: "timeout"))
+        #expect(effects == [.keepStandby, .dial(generation: kept + 1, macID: "m", transport: .wireGuard)])
+        #expect(machine.standby == kept)
+    }
+
+    @Test func longResumeDialsAtOnceButKeepsTheLinkBeside() {
+        for away: Duration in [.seconds(30), .seconds(300)] {
+            var machine = connected()
+            let kept = machine.generation
+            _ = machine.handle(.background)
+            #expect(machine.handle(.resumed(after: away))
+                == [.keepStandby, .dial(generation: kept + 1, macID: "m", transport: .wireGuard)])
+            #expect(machine.standby == kept)
+            #expect(!machine.handle(.standbyAlive(generation: kept, path: .direct, rttMillis: 9)).isEmpty)
+            #expect(machine.phase.isConnected)
+        }
+    }
+
+    @Test func resumedDuringADialStartsItAgain() {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(.init(macID: "m", name: "Mac", isOnline: true)))
+        _ = machine.handle(.background)
+        #expect(machine.handle(.resumed(after: .seconds(1))) == [.close, .dial(generation: 2, macID: "m", transport: .wireGuard)])
     }
 
     @Test func inactiveForegroundOnlyProbesAndIdleResumeDoesNotDial() {
