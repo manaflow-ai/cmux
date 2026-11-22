@@ -36,10 +36,12 @@ const snapshot = chat([
   ...turns,
 ]);
 
-// The picture is the gallery's busy one through the variant's `background` (format.ts), so the window is see-through as
-// in the app: the theme's tint over the picture and the pane's inks fit for it. The stage once painted a wallpaper of
-// its own with neither, which no window draws: Rose Pine Dawn's header tools and "Worked for" read 1.1-2.9:1 on its
-// bare pinks and blues (control-contrast-2).
+// The picture comes through the variant's `background` (format.ts), so the window is see-through as in the app: the
+// theme's tint over the picture and the pane's inks fit for it. The stage once painted a wallpaper of its own with
+// neither, which no window draws: Rose Pine Dawn's header tools and "Worked for" read 1.1-2.9:1 on its bare pinks and
+// blues (control-contrast-2). The busy picture behind a dark theme, the light one behind a light theme, as the audit
+// pairs them: over the busy picture Rose Pine Dawn's own text read 3.06:1 under its tint.
+const OVER_PICTURE = { dark: "busy", light: "light" } as const;
 
 /// Scrolled up `scrolledUp` px from the latest message, once the pinned line is up.
 const scrolled =
@@ -65,13 +67,13 @@ export default agentPaneEntry({
     "at-latest": {
       note: "At the latest message: the line and its Dismiss sit on the wallpaper with no band behind them.",
       snapshot,
-      background: "busy",
+      background: OVER_PICTURE,
       play: scrolled(0),
     },
     "scrolled-under": {
       note: 'Scrolled up a little: the turns pass behind the line and stay in sight ("Worked for" is not cut off); only the cards hide them.',
       snapshot,
-      background: "busy",
+      background: OVER_PICTURE,
       play: scrolled(120),
     },
   },

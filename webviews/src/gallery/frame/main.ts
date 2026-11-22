@@ -126,9 +126,10 @@ const pair =
 const tokens = themeTokens(theme, accent);
 // The background axis: over a picture the page is see-through, as over the user's in the app.
 // In the app, see-through follows the app's own window (its page background is clear over a backdrop).
-// A variant that only means something over a picture (a pinned line over a wallpaper) names one; the env's own
-// picture wins when the controls set one.
-const variantBackground = entry.variants[variantName]!.background;
+// A variant that only means something over a picture (a pinned line over a wallpaper) names one, or one per scheme;
+// the env's own picture wins when the controls set one.
+const asked = entry.variants[variantName]!.background;
+const variantBackground = typeof asked === "object" ? asked[scheme] : asked;
 const stageEnv = variantBackground && !overPicture(env) ? { ...env, background: variantBackground } : env;
 const seeThrough = appHosted ? appHostSeeThrough() : overPicture(stageEnv);
 
