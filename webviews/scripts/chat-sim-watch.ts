@@ -90,6 +90,14 @@ const hardStop = setTimeout(() => {
 }, hardStopS * 1000);
 hardStop.unref();
 
+// The pane's strings tables are build output; write any that are stale, as the test preload does, so
+// rows show their words and not their keys.
+{
+  const { writeStrings } = await import("./pages/gen-strings.mjs");
+  writeStrings({ ifStale: true, bestEffort: true, log: () => {} });
+  writeStrings({ only: ["agentPane"], bestEffort: true, log: () => {} });
+}
+
 const { chromium } = await import("playwright");
 useSystemChrome(chromium);
 const { vite, base } = await startChatSimServer();

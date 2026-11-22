@@ -222,6 +222,12 @@ async function watch(options: WatchOptions): Promise<WatchResult> {
     await shotHook(shot);
   };
   const sim = createSimulation(scenario, { rowsInTraceUpTo: 0 });
+  // The page's clock runs on the scenario's virtual time, so "Working for" and the elapsed counters read
+  // the simulated time, not the hours since the scenario's recorded start.
+  const realNow = Date.now.bind(Date);
+  let virtualAt = scenario.steps[0]?.at ?? realNow();
+  let realAt = performance.now();
+  Date.now = () => Math.round(virtualAt + (performance.now() - realAt) * speed);
   let sends = 0;
   let turn = 0;
   let played = 0;
@@ -235,6 +241,8 @@ async function watch(options: WatchOptions): Promise<WatchResult> {
     const step = scenario.steps[index]!;
     await sleep(Math.min(maxGap, Math.max(minGap, (step.at - lastAt) / speed)));
     lastAt = step.at;
+    virtualAt = step.at;
+    realAt = performance.now();
     const wasEnded = sim.state().turnEnded;
     const rows = sim.advance(index);
     played += 1;
@@ -258,6 +266,7 @@ async function watch(options: WatchOptions): Promise<WatchResult> {
   }
   await sleep(Math.min(1200, maxGap));
   await shoot({ step: played - 1, label: "end", turn, why: "end" });
+  Date.now = realNow;
   const result = sim.result();
   return {
     scenario: scenario.name,
