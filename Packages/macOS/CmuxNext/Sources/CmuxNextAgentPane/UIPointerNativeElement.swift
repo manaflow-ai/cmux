@@ -57,7 +57,7 @@ public struct UIPointerNativeElement: Equatable {
             _ = descendant(of: content) { view in
                 guard isTabList(view, identifier: view.accessibilityIdentifier()), !view.isHiddenOrHasHiddenAncestor else { return false }
                 child = (view.accessibilityChildren() ?? []).lazy.compactMap { $0 as? NSAccessibilityElement }
-                    .first { wanted.contains($0.accessibilityIdentifier()) }
+                    .first { $0.accessibilityIdentifier().map(wanted.contains) ?? false }
                 return child != nil
             }
             return child.map { tab($0, window: window) }
@@ -123,9 +123,10 @@ public struct UIPointerNativeElement: Equatable {
     }
 
     private static func tab(_ element: NSAccessibilityElement, window: NSWindow) -> Self {
-        let identifier = element.accessibilityIdentifier()
+        // NSAccessibilityElement's identifier is optional (NSView's is not).
+        let identifier = element.accessibilityIdentifier().flatMap { $0.isEmpty ? nil : $0 }
         let title = element.accessibilityLabel() ?? element.accessibilityTitle() ?? Kind.tab.rawValue
-        let isTab = identifier.hasPrefix(Self.tabID) || identifier.hasPrefix(Self.verticalTabID)
+        let isTab = identifier.map { $0.hasPrefix(Self.tabID) || $0.hasPrefix(Self.verticalTabID) } ?? false
         return Self(kind: isTab ? .tab : .control, title: title, identifier: identifier,
                     frame: window.convertFromScreen(element.accessibilityFrame()),
                     role: element.accessibilityRole()?.rawValue, viewType: String(describing: type(of: element)))
