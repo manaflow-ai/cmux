@@ -13,8 +13,8 @@ final class AgentPaneSavePanel {
         defer { isSaving = false }
         let panel = NSSavePanel()
         panel.title = save.kind == .log
-            ? String(localized: "agentPane.inspector.saveLog", defaultValue: "Save ACP Log", bundle: .module)
-            : String(localized: "agentPane.saveDocument", defaultValue: "Save Document", bundle: .module)
+            ? String(localized: "agentPane.inspector.saveLog", defaultValue: "Save ACP Log", bundle: .localizedModule)
+            : String(localized: "agentPane.saveDocument", defaultValue: "Save Document", bundle: .localizedModule)
         panel.nameFieldStringValue = save.suggestedName
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
