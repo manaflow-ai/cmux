@@ -109,6 +109,7 @@ export default componentEntry<Props>({
   ],
   styles: () =>
     Promise.all([
+      import("../../ui/ghost.css"),
       import("./styles.css"),
       import("./composerLocation.css"),
       import("./autoWhere.css"),
