@@ -60,6 +60,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
+ "cmux-session-cloud",
  "cmux-signed-bundle",
  "cmux-source-scan",
  "cmux-stack-auth",

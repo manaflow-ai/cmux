@@ -1,8 +1,9 @@
 //! The opt-in. With no config file nothing is offloaded and nothing leaves the machine.
 //!
-//! `~/.config/cmux/session-cloud.json` (or `$CMUX_SESSION_CLOUD_CONFIG`):
+//! `<state>/session-cloud.json`, where `<state>` is the caller's own state folder (acpmux: its home, so a
+//! tagged dev build never shares a NIGHTLY's config or key):
 //! `{"store": "https://ORIGIN" | "fs:/path", "credentialFile": "...", "keyFile": "..."}`.
-//! `$CMUX_SESSION_CLOUD_TOKEN` overrides the credential file.
+//! `$CMUX_SESSION_CLOUD_TOKEN` overrides the credential file. The key defaults to `<state>/session-cloud/key`.
 
 use crate::seal::Key;
 use crate::store::{BlobStore, FsStore, HttpStore};
@@ -10,42 +11,37 @@ use anyhow::{Context, bail};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
+pub const CONFIG_FILE: &str = "session-cloud.json";
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
     pub store: String,
     pub credential_file: Option<PathBuf>,
     pub key_file: Option<PathBuf>,
-}
-
-pub fn home() -> PathBuf {
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"))
-}
-
-pub fn config_path() -> PathBuf {
-    std::env::var_os("CMUX_SESSION_CLOUD_CONFIG")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home().join(".config/cmux/session-cloud.json"))
+    /// The state folder the config was read from.
+    #[serde(skip)]
+    pub state: PathBuf,
 }
 
 impl Config {
-    /// The config, or None when the person has not turned cloud history on.
-    pub fn load() -> anyhow::Result<Option<Self>> {
-        Self::load_from(&config_path())
-    }
-
-    pub fn load_from(path: &Path) -> anyhow::Result<Option<Self>> {
-        match std::fs::read(path) {
-            Ok(bytes) => Ok(Some(
-                serde_json::from_slice(&bytes).with_context(|| format!("{}", path.display()))?,
-            )),
+    /// The config in `state`, or None when the person has not turned cloud history on.
+    pub fn load_in(state: &Path) -> anyhow::Result<Option<Self>> {
+        let path = state.join(CONFIG_FILE);
+        match std::fs::read(&path) {
+            Ok(bytes) => {
+                let mut config: Self = serde_json::from_slice(&bytes)
+                    .with_context(|| format!("{}", path.display()))?;
+                config.state = state.to_path_buf();
+                Ok(Some(config))
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error.into()),
         }
     }
 
     pub fn key_path(&self) -> PathBuf {
-        self.key_file.clone().unwrap_or_else(|| home().join(".config/cmux/session-cloud/key"))
+        self.key_file.clone().unwrap_or_else(|| self.state.join("session-cloud").join("key"))
     }
 
     pub fn key(&self) -> anyhow::Result<Key> {

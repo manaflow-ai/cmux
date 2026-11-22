@@ -672,3 +672,75 @@ mod lost_home_windows {
         );
     }
 }
+
+/// Cloud history (`cmux-session-cloud`, opt-in): an archived chat's archive goes to the store and a
+/// stub stays; listing, search and the first read work from the stub, and the log comes back byte
+/// for byte. One test, since the store is the process's one `Cloud`.
+#[test]
+fn an_offloaded_chat_comes_back_from_cloud_history() {
+    use cmux_session_cloud::{Cloud, seal::Key, store::FsStore};
+    let (home, store) = Home::new();
+    // Off: no config and no override, so nothing is offloaded.
+    closed(&store, "off");
+    chat(&store, "off", 3);
+    archive(&store, "off");
+    assert_eq!(Store::offload_cold(&store, "off").unwrap(), None);
+    assert!(store.cold_path("off").exists());
+
+    let blobs = home.0.join("cloud-store");
+    Cloud::set(Some(std::sync::Arc::new(Cloud {
+        store: Box::new(FsStore::new(&blobs).unwrap()),
+        key: Key::generate().unwrap(),
+    })));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        closed(&store, "c");
+        let records = chat(&store, "c", 20);
+        let before = hashes(&store, "c");
+        // A hot chat is not offloaded.
+        assert_eq!(Store::offload_cold(&store, "c").unwrap(), None);
+        let stats = archive(&store, "c");
+        let freed = Store::offload_cold(&store, "c").unwrap().expect("offloaded");
+        assert_eq!(freed, stats.bytes_after);
+        let dir = store.dir("c");
+        assert!(!dir.join(COLD_FILE).exists());
+        assert!(dir.join(CLOUD_STUB).exists());
+        assert!(store.is_cold("c"));
+        assert_eq!(Store::list(&store).unwrap().iter().filter(|m| m.id == "c").count(), 1);
+        assert!(Store::load_startup(&store, "c").unwrap().is_some());
+
+        // Search fetches the archive and leaves the chat cold.
+        let query =
+            crate::session_search::Query::from_params(&json!({"query": "flaky test"})).unwrap();
+        let hits = crate::session_search::search_messages(
+            &store,
+            "c",
+            &query,
+            crate::session_search::TextView::Conversation,
+        )
+        .unwrap();
+        assert!(hits.hits.len() >= 3);
+        assert!(store.is_cold("c"));
+        // Offloading again removes the fetched copy.
+        assert!(Store::offload_cold(&store, "c").unwrap().is_some());
+        assert!(!dir.join(COLD_FILE).exists());
+
+        // The first read fetches and thaws it, byte for byte; the stub goes.
+        assert_eq!(Store::events(&store, "c", 0, usize::MAX).unwrap(), records);
+        assert_eq!(hashes(&store, "c"), before);
+        assert!(!dir.join(COLD_FILE).exists());
+        assert!(!dir.join(CLOUD_STUB).exists());
+        assert!(!store.is_cold("c"));
+
+        // Offloaded again, a store that lost the blob fails the read and keeps the stub.
+        archive(&store, "c");
+        Store::offload_cold(&store, "c").unwrap().expect("offloaded");
+        std::fs::remove_dir_all(&blobs).unwrap();
+        assert!(Store::events(&store, "c", 0, 10).is_err());
+        assert!(dir.join(CLOUD_STUB).exists());
+        assert!(store.is_cold("c"));
+    }));
+    Cloud::set(None);
+    if let Err(panic) = result {
+        std::panic::resume_unwind(panic);
+    }
+}

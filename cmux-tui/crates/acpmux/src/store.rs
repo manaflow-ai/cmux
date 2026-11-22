@@ -1592,6 +1592,12 @@ pub trait Store: Send + Sync {
     fn is_cold(&self, _id: &str) -> bool {
         false
     }
+    /// Moves a cold-archived chat's archive to the person's cloud history store (opt-in,
+    /// `cmux-session-cloud`), leaving a stub; its next read fetches it back. The bytes freed, or
+    /// None when the chat is not archived here, cloud history is off, or the archive changed.
+    fn offload_cold(&self, _id: &str) -> Result<Option<u64>> {
+        Ok(None)
+    }
     /// Called with a chat's id each time its log comes back from its cold archive, on any path
     /// (a read, an append, a fork's history): the hub drops the chat's preview
     /// (`hub/cold_archive.rs`). Called inside the store's own locks: it must take none of its
@@ -2643,6 +2649,11 @@ impl Store for LocalStore {
 
     fn is_cold(&self, id: &str) -> bool {
         LocalStore::is_cold(self, id)
+    }
+
+    fn offload_cold(&self, id: &str) -> Result<Option<u64>> {
+        let _open = self.writable()?;
+        LocalStore::offload_cold(self, id)
     }
 
     fn on_rehydrate(&self, hook: RehydrateHook) {

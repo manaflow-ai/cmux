@@ -52,7 +52,9 @@ impl BlobStore for FsStore {
         if path.exists() {
             return Ok(());
         }
-        std::fs::create_dir_all(path.parent().unwrap())?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         crate::write_durable(&path, bytes)?;
         Ok(())
     }

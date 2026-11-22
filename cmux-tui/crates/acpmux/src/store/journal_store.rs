@@ -1057,6 +1057,9 @@ impl Store for JournalStore {
     fn is_cold(&self, id: &str) -> bool {
         Store::is_cold(&self.inner.local, id)
     }
+    fn offload_cold(&self, id: &str) -> Result<Option<u64>> {
+        self.inner.fenced(|| Store::offload_cold(&self.inner.local, id))
+    }
     fn on_rehydrate(&self, hook: RehydrateHook) {
         Store::on_rehydrate(&self.inner.local, hook)
     }

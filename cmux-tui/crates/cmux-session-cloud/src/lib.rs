@@ -9,7 +9,7 @@
 //! stub (`cold.zst.cloud`, [`stub::Stub`]) replaces it ([`offload::commit`]). The first read of the chat
 //! fetches the archive back ([`fetch::fetch_file`]) and acpmux thaws it as before.
 //!
-//! Opt-in: with no config file ([`config::Config`]) [`Cloud::get`] answers None, nothing is offloaded and
+//! Opt-in: with no config file ([`config::Config`]) [`Cloud::get_in`] answers None, nothing is offloaded and
 //! nothing leaves the machine.
 
 pub mod config;
@@ -31,13 +31,13 @@ pub struct Cloud {
 static OVERRIDE: Mutex<Option<Arc<Cloud>>> = Mutex::new(None);
 
 impl Cloud {
-    /// The cloud this process uses: one set with [`Cloud::set`] (tests, benches), else the person's config,
-    /// else None (cloud history is off).
-    pub fn get() -> anyhow::Result<Option<Arc<Cloud>>> {
+    /// The cloud this process uses: one set with [`Cloud::set`] (tests, benches), else the config in the
+    /// caller's state folder, else None (cloud history is off).
+    pub fn get_in(state: &std::path::Path) -> anyhow::Result<Option<Arc<Cloud>>> {
         if let Some(cloud) = OVERRIDE.lock().unwrap_or_else(|e| e.into_inner()).clone() {
             return Ok(Some(cloud));
         }
-        let Some(config) = config::Config::load()? else { return Ok(None) };
+        let Some(config) = config::Config::load_in(state)? else { return Ok(None) };
         Ok(Some(Arc::new(Cloud { store: config.open_store()?, key: config.key()? })))
     }
 
