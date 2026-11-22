@@ -7700,5 +7700,13 @@
         ]
       }
     }
+  },
+  "settings.remote.screenSharingProfile.ultra": {
+    "source": "Ultra",
+    "identityLocales": {
+      "de": "Ultra is the profile's product name, spelled the same in this locale (the Ultra Connection Mode row's own name keeps it too); a translated entry is still required.",
+      "fr": "Ultra is the profile's product name, spelled the same in this locale (the Ultra Connection Mode row's own name keeps it too); a translated entry is still required.",
+      "es": "Ultra is the profile's product name, spelled the same in this locale (the Ultra Connection Mode row's own name keeps it too); a translated entry is still required."
+    }
   }
 }
