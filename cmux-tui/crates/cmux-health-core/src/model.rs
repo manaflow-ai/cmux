@@ -857,7 +857,16 @@ impl Health {
                 let id = part.id.clone();
                 let (action, kind) = (RepairAction::Ping, Kind::Liveness);
                 let label = part.label.clone();
-                let ping = Action { id, kind, action, attempt: 0, token: 0, hung_ms: None, label, cause: String::new() };
+                let ping = Action {
+                    id,
+                    kind,
+                    action,
+                    attempt: 0,
+                    token: 0,
+                    hung_ms: None,
+                    label,
+                    cause: String::new(),
+                };
                 out.push(ping);
                 cond = evaluate(part, slot, siblings, now);
             } else {
@@ -905,7 +914,16 @@ impl Health {
                         }
                         let (action, attempt, token) = (r.action, r.attempt, r.sent);
                         let id = part.id.clone();
-                        out.push(Action { id, kind, action, attempt, token, hung_ms, label, cause });
+                        out.push(Action {
+                            id,
+                            kind,
+                            action,
+                            attempt,
+                            token,
+                            hung_ms,
+                            label,
+                            cause,
+                        });
                         let words =
                             detail::receipt_started(kind, action, attempt, policy::MAX_REPAIRS);
                         receipts.push((action, Outcome::Started, words));
@@ -925,7 +943,16 @@ impl Health {
                         r.sent += 1;
                         let (id, token, attempt) = (part.id.clone(), r.sent, r.attempt);
                         let action = r.action;
-                        out.push(Action { id, kind, action, attempt, token, hung_ms: None, label, cause });
+                        out.push(Action {
+                            id,
+                            kind,
+                            action,
+                            attempt,
+                            token,
+                            hung_ms: None,
+                            label,
+                            cause,
+                        });
                         let words = detail::receipt_started(kind, r.action, r.attempt, 0);
                         receipts.push((r.action, Outcome::Started, words));
                     } else {
@@ -951,7 +978,16 @@ impl Health {
                     r.sent += 1;
                     restarts.push_back(now);
                     let (id, token) = (part.id.clone(), r.sent);
-                    out.push(Action { id, kind, action: restart, attempt, token, hung_ms: None, label, cause });
+                    out.push(Action {
+                        id,
+                        kind,
+                        action: restart,
+                        attempt,
+                        token,
+                        hung_ms: None,
+                        label,
+                        cause,
+                    });
                     let words =
                         detail::receipt_started(kind, restart, attempt, policy::MAX_REPAIRS);
                     receipts.push((restart, Outcome::Started, words));
