@@ -372,7 +372,7 @@ class WorkflowShape(unittest.TestCase):
     def test_receipt_job_runs_only_the_base_verifier_and_only_when_named(self):
         doc = workflow()
         receipt = job(doc, "receipt")
-        self.assertEqual(receipt["needs"], ["resolve", "portable-placement"])
+        self.assertEqual(receipt["needs"], ["resolve", "portable-placement", "fast-check-route"])
         # No runner and no API call unless a same-repository pull request names a receipt in its body.
         for fragment in ("github.event_name == 'pull_request'",
                          "github.event.pull_request.head.repo.full_name == github.repository",
