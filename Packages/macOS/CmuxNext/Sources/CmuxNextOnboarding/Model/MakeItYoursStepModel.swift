@@ -8,10 +8,16 @@ public enum WorkStyle: String, CaseIterable, Sendable {
     case gui, terminal
 }
 
-/// The first run's density choice: the three of the five `appearance.density` levels a new person can
-/// tell apart at a glance (ultra-compact and spacious stay in Settings).
-public enum DensityChoice: String, CaseIterable, Sendable {
-    case compact, standard, comfortable
+/// One density the step offers: a built-in `appearance.density` preset id and its name as Settings
+/// shows it (cmux#49636: every density Settings has, not three of them).
+public struct FirstRunDensity: Sendable, Equatable, Identifiable {
+    public var id: String
+    public var name: String
+
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
 }
 
 /// One background a new person can pick: none, or one of the built-in art (`id` is the background
@@ -28,20 +34,36 @@ public struct FirstRunBackground: Sendable, Equatable, Identifiable {
     }
 }
 
+/// The window's material under a background (`appearance.backgroundBlur`), as Settings offers it.
+public enum FirstRunMaterial: String, CaseIterable, Sendable {
+    case none, frosted, glass
+    case glassClear = "glass-clear"
+}
+
 /// The choices of the Make cmux Yours step.
 public struct FirstRunChoices: Sendable, Equatable {
     public var workStyle: WorkStyle
-    public var density: DensityChoice
+    /// The `appearance.density` preset id (`cozy` is Settings' Default).
+    public var density: String
     /// The background's id (`appearance.background`); nil: none.
     public var background: String?
+    /// `appearance.backgroundOpacity`, 0...1; nil: unset (the theme's).
+    public var opacity: Double?
+    /// `appearance.backgroundBlur`; nil: unset (the theme's).
+    public var material: FirstRunMaterial?
 
-    /// GUI-first, standard density, no background: what a person gets who skips.
-    public static let recommended = FirstRunChoices(workStyle: .gui, density: .standard, background: nil)
+    /// GUI-first, Default density, no background, the theme's opacity and material: what a person
+    /// gets who skips on a new Mac.
+    public static let recommended = FirstRunChoices(workStyle: .gui, density: defaultDensity, background: nil)
+    /// Settings' Default density.
+    public static let defaultDensity = "cozy"
 
-    public init(workStyle: WorkStyle, density: DensityChoice, background: String?) {
+    public init(workStyle: WorkStyle, density: String, background: String?, opacity: Double? = nil, material: FirstRunMaterial? = nil) {
         self.workStyle = workStyle
         self.density = density
         self.background = background
+        self.opacity = opacity.map { min(max($0, 0), 1) }
+        self.material = material
     }
 }
 
@@ -50,22 +72,37 @@ public struct FirstRunChoices: Sendable, Equatable {
 public protocol FirstRunChoicesSource: AnyObject {
     /// The settings now, as the step's choices.
     func currentChoices() -> FirstRunChoices
+    /// Every density offered, in Settings' order.
+    func densities() -> [FirstRunDensity]
     /// The built-in backgrounds offered, in order (the step adds None first).
     func backgrounds() async -> [FirstRunBackground]
+    /// The window opacity the app shows now, where an unset Opacity slider rests (Settings' own
+    /// reading: over a picture, the tint the window lays over it). Read while the page's state is
+    /// built, so an observable reading re-sends the state when it changes.
+    func shownOpacity() -> Double?
     /// Writes what changed from `old` to `new` now, so the app behind the window shows it at once.
     func apply(_ new: FirstRunChoices, from old: FirstRunChoices)
 }
 
+public extension FirstRunChoicesSource {
+    func shownOpacity() -> Double? { nil }
+}
+
 /// The first run's one setup screen (cmux#48416): how the person wants to work, the density, and a
-/// background. No theme row: windows follow macOS's light or dark mode, and cmux has no setting of its own for it. Short on purpose: three rows, each already on the recommended answer, so Continue alone is a
-/// good setup. Every pick is written at once (the window behind shows it); Skip keeps what is set.
+/// background with its opacity and material. No theme row: windows follow macOS's light or dark mode,
+/// and cmux has no setting of its own for it. Every row is already on the recommended answer, so
+/// Continue alone is a good setup. Every pick is written at once (the window behind shows it);
+/// Continue keeps them, Skip puts back what was set when the window opened (cmux#49636).
 @MainActor
 @Observable
 public final class MakeItYoursStepModel {
     public private(set) var choices: FirstRunChoices = .recommended
+    public private(set) var densities: [FirstRunDensity] = []
     public private(set) var backgrounds: [FirstRunBackground] = []
     /// The first read answered.
     public private(set) var loaded = false
+    /// What was set when the step opened: Skip writes it back.
+    public private(set) var opened: FirstRunChoices?
 
     @ObservationIgnored public let source: (any FirstRunChoicesSource)?
     @ObservationIgnored private var read: Task<Void, Never>?
@@ -81,6 +118,8 @@ public final class MakeItYoursStepModel {
             return
         }
         choices = source.currentChoices()
+        opened = choices
+        densities = source.densities()
         read?.cancel()
         // task-owner: one read of the built-in backgrounds' previews; stop() cancels it.
         read = Task { [weak self] in
@@ -96,8 +135,18 @@ public final class MakeItYoursStepModel {
         read = nil
     }
 
+    /// The Opacity slider's value: the one set, else what the window shows.
+    public var shownOpacity: Double? { choices.opacity ?? source?.shownOpacity() }
+
     public func setWorkStyle(_ value: WorkStyle) { update { $0.workStyle = value } }
-    public func setDensity(_ value: DensityChoice) { update { $0.density = value } }
+
+    /// An id the step does not offer is refused.
+    @discardableResult
+    public func setDensity(_ id: String) -> Bool {
+        guard densities.contains(where: { $0.id == id }) else { return false }
+        update { $0.density = id }
+        return true
+    }
 
     /// `id` nil: no background. An id the step does not offer is refused.
     @discardableResult
@@ -105,6 +154,24 @@ public final class MakeItYoursStepModel {
         guard id == nil || backgrounds.contains(where: { $0.id == id }) else { return false }
         update { $0.background = id }
         return true
+    }
+
+    /// The window's Opacity, 0...1 (a slider step); outside it is refused.
+    @discardableResult
+    public func setOpacity(_ value: Double) -> Bool {
+        guard value.isFinite, (0...1).contains(value) else { return false }
+        // The slider steps by 5%: a value the page rounded differently is still the same step.
+        let stepped = (value * 100).rounded() / 100
+        update { $0.opacity = stepped }
+        return true
+    }
+
+    public func setMaterial(_ value: FirstRunMaterial) { update { $0.material = value } }
+
+    /// Skip: writes back what was set when the step opened, so the person keeps their settings.
+    public func revert() {
+        guard let opened else { return }
+        update { $0 = opened }
     }
 
     private func update(_ change: (inout FirstRunChoices) -> Void) {

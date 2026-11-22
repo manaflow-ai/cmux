@@ -49,22 +49,34 @@ describe("make cmux yours", () => {
       "onboarding.makeItYours.work.gui",
       "onboarding.makeItYours.work.terminal",
       "onboarding.makeItYours.recommended",
-      "onboarding.makeItYours.density.standard",
       "onboarding.makeItYours.background.none",
       "onboarding.makeItYours.background.shuffle",
     ])
       expect(words).toContain(strings.t(key));
+    // Every density Settings has, by Settings' names (cmux#49636).
+    for (const name of ["Ultra-compact", "Compact", "Default", "Comfortable", "Spacious"]) expect(words).toContain(name);
+    // Settings' two rows for a background: Opacity and Material, with every material.
+    for (const key of [
+      "onboarding.makeItYours.opacity",
+      "onboarding.makeItYours.material",
+      "onboarding.makeItYours.material.none",
+      "onboarding.makeItYours.material.frosted",
+      "onboarding.makeItYours.material.glass",
+      "onboarding.makeItYours.material.glass-clear",
+    ])
+      expect(words).toContain(strings.t(key));
     expect(words).toContain("Continue");
     expect(words).not.toContain("lassic");
-    // One checked radio per group: GUI-first, Standard, no background.
-    expect(await checked(makeItYoursState("fresh"))).toEqual({ workStyle: "gui", density: "standard", background: "" });
+    // One checked radio per group: GUI-first, Default, no background; no material set.
+    expect(await checked(makeItYoursState("fresh"))).toEqual({ workStyle: "gui", density: "cozy", background: "" });
   });
 
   test("the settings a person already has are what is checked", async () => {
     expect(await checked(makeItYoursState("picked"))).toEqual({
       workStyle: "gui",
       density: "compact",
-      background: "friedrich-forest-moonlight",
+      background: "dahl-dresden-moonlight",
+      material: "frosted",
     });
     expect((await checked(makeItYoursState("terminal"))).workStyle).toBe("terminal");
   });
@@ -72,7 +84,8 @@ describe("make cmux yours", () => {
   test("both looks draw every choice; only cards name the background tiles", () => {
     const cards = render(makeItYoursState("fresh"), "cards");
     const rows = render(makeItYoursState("fresh"), "rows");
-    for (const html of [cards, rows]) expect(html.match(/type="radio"/g)?.length).toBe(2 + 3 + 6);
+    // Two ways to work, five densities, None and eleven backgrounds, four materials.
+    for (const html of [cards, rows]) expect(html.match(/type="radio"/g)?.length).toBe(2 + 5 + 12 + 4);
     expect(cards).toContain("onb-make-tile-name");
     expect(rows).not.toContain("onb-make-tile-name");
   });
@@ -100,11 +113,55 @@ describe("make cmux yours", () => {
       root.querySelector<HTMLInputElement>(`input[name="${name}"][value="${value}"]`)!;
     await act(async () => radio("workStyle", "terminal").click());
     await act(async () => radio("density", "comfortable").click());
+    await act(async () => radio("density", "ultraCompact").click());
+    await act(async () => radio("density", "spacious").click());
     await act(async () => radio("background", "").click());
+    await act(async () => radio("background", "hokusai-great-wave").click());
+    await act(async () => radio("material", "glass-clear").click());
     expect(calls).toEqual([
       { op: OPS.workStyle, params: { value: "terminal" } },
       { op: OPS.density, params: { value: "comfortable" } },
+      { op: OPS.density, params: { value: "ultraCompact" } },
+      { op: OPS.density, params: { value: "spacious" } },
       { op: OPS.background, params: { id: null } },
+      { op: OPS.background, params: { id: "hokusai-great-wave" } },
+      { op: OPS.material, params: { value: "glass-clear" } },
     ]);
+  });
+
+  test("Opacity: a key step is written at once; a drag is written once, on release", async () => {
+    const calls: { op: string; params: unknown }[] = [];
+    const client = {
+      call: async (op: string, params: unknown) => {
+        calls.push({ op, params });
+        return {} as never;
+      },
+      subscribe: async () => () => {},
+      handle: () => () => {},
+    };
+    const store = new OnboardingStore(client, makeItYoursState("picked"));
+    const root = document.createElement("div");
+    document.body.append(root);
+    await act(async () => createRoot(root).render(<OnboardingPage store={store} strings={strings} />));
+    calls.length = 0;
+    const slider = root.querySelector<HTMLInputElement>('input[type="range"]')!;
+    expect(slider.value).toBe("0.6");
+    expect(root.textContent).toContain("60%");
+    const setValue = (value: string) => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(slider, value);
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    // A key: no pointer down first.
+    await act(async () => setValue("0.65"));
+    expect(calls).toEqual([{ op: OPS.opacity, params: { value: 0.65 } }]);
+    calls.length = 0;
+    // A drag: the slider follows, and one write lands when the pointer is let go.
+    await act(async () => slider.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    await act(async () => setValue("0.3"));
+    await act(async () => setValue("0.2"));
+    expect(calls).toEqual([]);
+    expect(root.textContent).toContain("20%");
+    await act(async () => slider.dispatchEvent(new Event("pointerup", { bubbles: true })));
+    expect(calls).toEqual([{ op: OPS.opacity, params: { value: 0.2 } }]);
   });
 });

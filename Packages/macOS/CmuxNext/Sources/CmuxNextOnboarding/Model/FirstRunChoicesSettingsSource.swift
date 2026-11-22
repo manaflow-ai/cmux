@@ -10,16 +10,23 @@ import UniformTypeIdentifiers
 /// - how they work: `tabs.newTabTemplate` `terminal` for terminal-first (a person's Cmd-T then opens a
 ///   terminal, cmux-window-rules `tabs::new_tab_kind`), removed for GUI-first (the New Tab page);
 /// - density: through the App's `appearance.density.set` (`setDensity`), which also applies the tokens;
-/// - background: `appearance.background`, removed for none.
+/// - background: `appearance.background`, removed for none;
+/// - its Opacity and Material: `appearance.backgroundOpacity` and `appearance.backgroundBlur`, the
+///   rows Settings > Appearance draws under its background picker, removed when put back unset.
 @MainActor
 public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
-    /// The built-in backgrounds the step offers after None: Shuffle Paintings, then a few calm works
-    /// from the bundled art (Settings > Personalization has the rest).
-    nonisolated static let offered = [shuffleID, "friedrich-forest-moonlight", "hogai-nio", "klee-fish-magic", "rembrandt-storm-galilee"]
+    /// The built-in backgrounds the step offers after None (cmux#49636): Shuffle Paintings, then
+    /// well-known, calm works that read well behind text, the ones that ship in the app first (they
+    /// show at once, offline); the others download on their first pick. Settings > Appearance has the rest.
+    nonisolated static let offered = [
+        shuffleID,
+        "van-gogh-starry-night", "hokusai-great-wave", "friedrich-wanderer", "dahl-dresden-moonlight", "monet-water-lilies-setting-sun",
+        "hiroshige-kanbara-snow", "van-gogh-almond-blossom", "bruegel-hunters-snow", "roerich-himalayas", "vermeer-pearl-earring",
+    ]
     /// Shuffle Paintings' `appearance.background` value: a new painting each day.
     nonisolated static let shuffleID = "daily"
     /// The work Shuffle Paintings' tile shows.
-    nonisolated static let shufflePreview = "munch-scream"
+    nonisolated static let shufflePreview = "monet-impression-sunrise"
 
     /// The way to work the person picked on the step, if they changed it: read before its settings write lands,
     /// so the first chat (none for terminal-first) does not race a Return pressed right after the pick.
@@ -27,13 +34,20 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
 
     private let settings: @MainActor () -> SettingsController?
     private let setDensity: @MainActor (String) -> Void
+    private let windowOpacity: @MainActor () -> Double?
     private let log = Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
+    /// The writes not yet sent, oldest first, one per setting: a slider's steps coalesce into its last.
+    private var pending: [(path: [String], value: JSONValue?)] = []
+    private var writer: Task<Void, Never>?
 
     /// `settings` is the app's settings owner (nil before it started); `setDensity` runs the density
-    /// action with a preset id (`compact`, `cozy`, `comfortable`).
-    public init(settings: @escaping @MainActor () -> SettingsController?, setDensity: @escaping @MainActor (String) -> Void) {
+    /// action with a preset id (`compact`, `cozy`, `comfortable`); `windowOpacity` reads the opacity
+    /// the window shows now (Settings' unset slider's reading).
+    public init(settings: @escaping @MainActor () -> SettingsController?, setDensity: @escaping @MainActor (String) -> Void,
+                windowOpacity: @escaping @MainActor () -> Double? = { nil }) {
         self.settings = settings
         self.setDensity = setDensity
+        self.windowOpacity = windowOpacity
     }
 
     public func currentChoices() -> FirstRunChoices {
@@ -42,26 +56,24 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
         let background = snapshot.root.value(at: ["appearance", "background"])?.stringValue
         return FirstRunChoices(workStyle: template == "terminal" ? .terminal : .gui,
                                density: Self.density(snapshot.density),
-                               background: background == "none" ? nil : background)
+                               background: background == "none" ? nil : background,
+                               opacity: snapshot.windowBackground.opacity,
+                               material: snapshot.windowBackground.material.flatMap { FirstRunMaterial(rawValue: $0.rawValue) })
     }
 
-    /// A density setting as the step's three choices: the smaller and larger extremes go to their neighbor.
-    nonisolated static func density(_ value: String?) -> DensityChoice {
-        switch value {
-        case "ultraCompact", "compact": .compact
-        case "comfortable", "spacious": .comfortable
-        default: .standard
-        }
+    /// The density setting as a preset id: unset is Settings' Default.
+    nonisolated static func density(_ value: String?) -> String {
+        value.flatMap(DensityPreset.init(rawValue:))?.rawValue ?? value ?? FirstRunChoices.defaultDensity
     }
 
-    /// The density preset a choice writes.
-    nonisolated static func preset(_ choice: DensityChoice) -> String {
-        switch choice {
-        case .compact: "compact"
-        case .standard: "cozy"
-        case .comfortable: "comfortable"
-        }
+    /// Every built-in density, in Settings' order and by Settings' names.
+    public func densities() -> [FirstRunDensity] { Self.densities }
+
+    nonisolated static var densities: [FirstRunDensity] {
+        DensityPreset.allCases.map { FirstRunDensity(id: $0.rawValue, name: DensityNames().name($0.tokens)) }
     }
+
+    public func shownOpacity() -> Double? { windowOpacity() }
 
     public func backgrounds() async -> [FirstRunBackground] {
         // Shuffle Paintings is a mode, not a work: no name (the page says it in its language), a painting's preview.
@@ -76,21 +88,38 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
 
     public func apply(_ new: FirstRunChoices, from old: FirstRunChoices) {
         if new.workStyle != old.workStyle { pickedWorkStyle = new.workStyle }
-        if new.density != old.density { setDensity(Self.preset(new.density)) }
-        guard let settings = settings() else { return }
+        if new.density != old.density { setDensity(new.density) }
         var writes: [([String], JSONValue?)] = []
         if new.workStyle != old.workStyle { writes.append((["tabs", "newTabTemplate"], new.workStyle == .terminal ? .string("terminal") : nil)) }
         if new.background != old.background { writes.append((["appearance", "background"], new.background.map(JSONValue.string))) }
-        guard !writes.isEmpty else { return }
-        // task-owner: one settings write per pick; the settings owner serializes them.
-        Task { [log, writes] in
-            for (path, value) in writes {
+        if new.opacity != old.opacity { writes.append((WindowBackgroundSetting.opacityPath, new.opacity.map(JSONValue.number))) }
+        if new.material != old.material { writes.append((WindowBackgroundSetting.materialPath, new.material.map { .string($0.rawValue) })) }
+        for (path, value) in writes {
+            if let index = pending.firstIndex(where: { $0.path == path }) { pending.remove(at: index) }
+            pending.append((path, value))
+        }
+        drain()
+    }
+
+    /// Sends the pending writes one at a time, in the order they were picked: two picks in a row
+    /// (or a dragged slider) never land out of order.
+    private func drain() {
+        guard writer == nil, !pending.isEmpty else { return }
+        // task-owner: the one writer of the step's picks; it ends when nothing is pending.
+        writer = Task { [weak self] in
+            while let self, !pending.isEmpty {
+                let (path, value) = pending.removeFirst()
+                guard let settings = settings() else {
+                    log.error("first-run choice \(path.joined(separator: "."), privacy: .public) not saved: settings are not started")
+                    continue
+                }
                 do {
                     try await settings.setSetting(at: path, to: value, by: .user)
                 } catch {
                     log.error("first-run choice \(path.joined(separator: "."), privacy: .public) refused: \(String(describing: error), privacy: .public)")
                 }
             }
+            self?.writer = nil
         }
     }
 
