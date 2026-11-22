@@ -387,6 +387,41 @@ function Columns({
     sizeHold.current = observer;
   }, []);
   const modelsList = useRef<HTMLDivElement | null>(null);
+  // A search or a tab removes rows: the rows that stay would jump up to their new slots in one frame.
+  // Each keeps its old place for the frame it lands and glides to the new one on one clock (a CSS
+  // keyframe, see quickModelColumns.css), so a keystroke is one continuous move, not a jump.
+  const flipSlots = useRef<Map<string, number>>(new Map());
+  useLayoutEffect(() => {
+    const list = modelsList.current;
+    if (!list) {
+      flipSlots.current = new Map();
+      return;
+    }
+    const top = list.getBoundingClientRect().top - list.scrollTop;
+    const slots = new Map<string, number>();
+    const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const rows = [...list.querySelectorAll<HTMLElement>("[data-flip]")];
+    // Read every row's slot first, then write: one layout, not one per row.
+    const places = rows.map((row) => row.getBoundingClientRect().top - top);
+    const moved: [HTMLElement, number][] = [];
+    rows.forEach((row, at) => {
+      const key = row.dataset.flip ?? "";
+      const slot = places[at]!;
+      slots.set(key, slot);
+      const was = flipSlots.current.get(key);
+      if (was !== undefined && !reduced && Math.abs(was - slot) >= 0.5) moved.push([row, was - slot]);
+    });
+    for (const [row, dy] of moved) {
+      row.style.setProperty("--flip-dy", `${dy}px`);
+      row.removeAttribute("data-flipping");
+    }
+    if (moved.length > 0) void list.offsetWidth;
+    for (const [row] of moved) {
+      row.setAttribute("data-flipping", "");
+      row.addEventListener("animationend", () => row.removeAttribute("data-flipping"), { once: true });
+    }
+    flipSlots.current = slots;
+  });
   // The list as state too: the popup draws it after `open` turns true, so an effect keyed on `open`
   // alone ran before it existed and never watched its width (the star sat on the check in a narrowed
   // menu, Lucas 2026-11-11).
@@ -1099,10 +1134,10 @@ function Columns({
     : undefined;
   const signedOut = (!!owner?.note && !!owner.logIn) || (onChatTab && !!auth && canSessionLogin(auth.verdict));
   const authNote = auth ? authText(auth.verdict, t) : undefined;
-  // No harness (an empty Starred tab) or one this Mac does not have: no account, so a blank person
-  // ring with no badge and no card.
+  // No harness (an empty Starred tab) or one this Mac does not have: no account, so the corner draws
+  // nothing (first-run cuts, 2026-11-21: an empty person ring there was decoration). The rail's fill
+  // still runs up through it, so nothing moves when a tab with an account brings the avatar back.
   const avatarShown = !!owner && !owner.setUp;
-  const avatarBlank = !avatarShown;
   const routeFace: Face | undefined = routes.length > 1 && owner ? { id: owner.id, name: owner.name } : undefined;
   const face: Face | undefined = signedOut
     ? undefined
@@ -1287,6 +1322,7 @@ function Columns({
     return (
       <DrivenRow
         key={`${model.family}\u0000${model.id}`}
+        data-flip={`${model.family}\u0000${model.id}`}
         id={`acpmux-cols-model-${index}`}
         kind="option"
         aria-selected={running}
@@ -1348,7 +1384,7 @@ function Columns({
         before += group.rows.length;
         return (
           <Fragment key={group.id}>
-            <div className="acpmux-cols-group">
+            <div className="acpmux-cols-group" data-flip={`group\u0000${group.id}`}>
               <AgentMark agent={list.find((family) => family.id === group.rows[0]?.family)?.mark} size={12} />
               {group.name}
               {group.note && <span className="acpmux-cols-group-note">{group.note}</span>}
@@ -1536,11 +1572,6 @@ function Columns({
                   >
                     <Avatar face={face} size={24} {...(badge ? { badge } : {})} />
                   </button>
-                )}
-                {avatarBlank && (
-                  <span className="acpmux-cols-profile" data-blank="" aria-hidden="true">
-                    <Avatar size={24} />
-                  </span>
                 )}
                 {card}
               </span>

@@ -30,6 +30,17 @@ import Testing
                 "the \"\(title)\" pill is \(header.pill.frame.width) pt wide; its title and chevron take \(content) pt")
     }
 
+    /// a1285 (2026-11-20): the pill took Messages' measured width, about 8 pt under what the button
+    /// itself needs for its bold title, its chevron and its glass padding, so a long name such as
+    /// "workspace-1005" was cut. The pill is at least as wide as AppKit sizes that button.
+    @Test(arguments: titles)
+    func thePillIsAsWideAsItsButtonNeeds(title: String) {
+        let header = header(title)
+        let needs = header.pill.intrinsicContentSize.width
+        #expect(header.pill.frame.width >= needs - 0.5,
+                "the \"\(title)\" pill is \(header.pill.frame.width) pt wide; its button needs \(needs) pt")
+    }
+
     @Test(arguments: titles)
     func theFacesStartClearAfterThePill(title: String) {
         let header = header(title)

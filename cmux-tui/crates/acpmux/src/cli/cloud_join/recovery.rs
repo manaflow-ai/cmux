@@ -36,6 +36,10 @@ struct Pending {
     /// pasted join line's, and on an older build's: that record names no account.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     owner: Option<String>,
+    /// The person named this machine (`machine join --name`): the record it completes is
+    /// `named` (`MachineCredential::named`). False on an older build's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    named: bool,
 }
 
 /// What began a join made by signing in: its `joined_by`, and the account that minted its token.
@@ -357,6 +361,7 @@ async fn probe(p: &Pending) -> Result<Probe> {
         joined_by: None,
         capabilities: None,
         cloned_on: None,
+        named: p.named,
     })))
 }
 
@@ -459,6 +464,7 @@ async fn replacement_proof(mut old: MachineCredential) -> Result<Option<MachineC
 fn new_pending(
     hub: String,
     name: String,
+    named: bool,
     prior: Option<MachineCredential>,
     overwrite: bool,
     joined_by: Option<String>,
@@ -478,7 +484,7 @@ fn new_pending(
         ),
         hub,
         name,
-        hostname: crate::pairing::machine_name(),
+        hostname: crate::pairing::host_label(),
         platform: this_platform().to_owned(),
         wg_public_key: leave::node_key_for_join_at(&state_dir())
             .map_err(|_| store_error())?
@@ -488,6 +494,7 @@ fn new_pending(
         joined_by,
         capabilities: Some(machine_capabilities()),
         owner,
+        named,
     };
     let bytes = Zeroizing::new(serde_json::to_vec(&p).map_err(|_| store_error())?);
     write_durable(&state_dir().join(FILE), &bytes, overwrite).map_err(|_| store_error())?;
@@ -531,7 +538,7 @@ pub(super) async fn join(
                 // Definitive revocation makes the proposal unusable. Only an
                 // explicit replacement with fresh stdin may replace this proof.
                 // If this was a replacement, its old final is already retired.
-                new_pending(p.hub, p.name, None, true, p.joined_by, p.owner)?
+                new_pending(p.hub, p.name, p.named, None, true, p.joined_by, p.owner)?
             }
             Probe::Revoked => return Err(error(3, "revoked: run machine add again")),
             Probe::Unknown => p,
@@ -548,6 +555,8 @@ pub(super) async fn join(
             return Err(error(2, "join token must be provided on stdin"));
         }
         let hub = origin(hub).map_err(|_| error(2, "hub origin is malformed"))?;
+        // Named by the person (`--name`), not a sign-in's own name for it (`enroll_name`).
+        let named = name.is_some() && began.is_none();
         let name = local_name(name);
         if !valid_name(&name) {
             return Err(error(2, "machine name is malformed"));
@@ -572,6 +581,7 @@ pub(super) async fn join(
         new_pending(
             hub,
             name,
+            named,
             prior,
             false,
             began.as_ref().map(|began| began.joined_by.to_owned()),
@@ -639,6 +649,7 @@ mod tests {
             joined_by: joined_by.map(str::to_owned),
             capabilities,
             owner: joined_by.map(|_| "user_me".to_owned()),
+            named: false,
         }
     }
 

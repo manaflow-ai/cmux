@@ -15,6 +15,7 @@ import { Avatar, ChannelMark } from "./Avatar";
 import { HomeIcon } from "./icons";
 import { activityAt, chiefState, conversationName, isUnread, listOrder, type ChiefState } from "./model";
 import { chiefBackendChip, type HomeChief, type HomeConversation, type HomeParticipant } from "./types";
+import { intl } from "../../ui/intl";
 
 /** Where the list shows New Cloud Machine: a labeled row under the search field (`row`, the page's),
  * an icon in the header beside New Message and New Chief (`header`), or a labeled row at the foot of
@@ -195,9 +196,9 @@ export function ConversationList({
 /** Short times on one grid: "14:02" today, "Mon" this week, "Oct 3" before. */
 export function useStamp(language: string): (at: number) => string {
   return useMemo(() => {
-    const clock = new Intl.DateTimeFormat(language, { hour: "numeric", minute: "2-digit" });
-    const weekday = new Intl.DateTimeFormat(language, { weekday: "short" });
-    const date = new Intl.DateTimeFormat(language, { month: "short", day: "numeric" });
+    const clock = intl.DateTimeFormat(language, { hour: "numeric", minute: "2-digit" });
+    const weekday = intl.DateTimeFormat(language, { weekday: "short" });
+    const date = intl.DateTimeFormat(language, { month: "short", day: "numeric" });
     return (at: number) => {
       if (!at) return "";
       const now = new Date();

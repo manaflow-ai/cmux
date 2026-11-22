@@ -189,7 +189,7 @@ enum SidebarCardFeed {
                                open: SidebarNoticeCard.Action(id: UpdaterService.starOpenAction, title: StarPromptCenter.openTitle),
                                dismissLabel: UpdaterService.cardDismissLabel, shownAction: UpdaterService.tipShownAction)
         }
-        guard let tip = updater.tip else { return nil }
+        guard let tip = updater.shownTip else { return nil }
         return SidebarNoticeCard(id: tipPrefix + tip.id, eyebrow: UpdaterService.tipEyebrow, title: tip.title, detail: tip.benefit,
                                  actions: [SidebarNoticeCard.Action(id: tryActionID, title: UpdaterService.announcementActionTitle)],
                                  shortcut: registry?.shortcutDisplay(for: ActionID(rawValue: tip.action)), dismissLabel: UpdaterService.tipMenuLabel,

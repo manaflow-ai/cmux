@@ -117,7 +117,8 @@ public final class MenuBarExtra: NSObject, NSMenuDelegate {
     public func menuNeedsUpdate(_ menu: NSMenu) {
         let state = state()
         MenuBarMenuBuilder(registry: registry).fill(menu, state: state, avatar: host?.menuBarAvatar, commands: commands,
-                                                    chatImage: { [weak host] in host?.menuBarChatImage($0) })
+                                                    chatImage: { [weak host] in host?.menuBarChatImage($0) },
+                                                    extensionRows: host?.menuBarExtensionRows() ?? [])
     }
 
     public func menuWillOpen(_ menu: NSMenu) { openMenu = menu }

@@ -82,6 +82,9 @@ public final class ActionRegistry {
     @ObservationIgnored public var paletteStateDidChange: (@MainActor () -> Void)?
     /// Customize Menu…: opens Settings > Menus on that menu. The App installs it; nil shows no row.
     @ObservationIgnored public var customizeMenu: (@MainActor (ActionMenuContext) -> Void)?
+    /// The rows apps add to a whole right-click menu on `target` (`contributes.menus`): drawn
+    /// after the built-in rows, before Customize Menu…, and read again at each open. The App installs it.
+    @ObservationIgnored public var contributedMenuItems: (@MainActor (ActionMenuContext, ActionTargetRef) -> [NSMenuItem])?
 
     /// Whether a menu item's key equivalent may run `id` now. The App
     /// installs its `KeyRouter` here so menus follow the same tier rules as
@@ -134,10 +137,10 @@ public final class ActionRegistry {
     /// Whether free text is a valid value of a suggested argument (a theme
     /// Ghostty accepts); nil accepts any non-empty text.
     @ObservationIgnored public var argumentValidation: (@MainActor (String, String) -> Bool)?
-    /// The current value of a choices submenu's argument for a target, shown
-    /// with a checkmark.
+    /// The current value of a choices submenu's argument for a target, shown with a checkmark.
     @ObservationIgnored public var choiceState: (@MainActor (ActionID, ActionTargetRef?) -> String?)?
     @ObservationIgnored public var targetChoices: (@MainActor (_ action: ActionID, _ kind: ActionTargetKind, _ target: ActionTargetRef?) -> ActionTargetChoices?)?
+    @ObservationIgnored public let rowSubmenus = ActionRowSubmenus() // Screen Sharing ▸ (ActionRowSubmenus.swift)
 
     /// Old IDs folded into canonical IDs on register and lookup.
     @ObservationIgnored public private(set) var aliases: [ActionID: ActionID] = [:]

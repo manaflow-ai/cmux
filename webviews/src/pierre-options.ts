@@ -12,6 +12,7 @@ import {
 } from "./appearance";
 import { pageSyntaxVariable, syntaxTokenRules, type SyntaxRoleName } from "./syntax-theme";
 import { MOTION_MS } from "./motion/scale.generated";
+import { DIFF_FILE_HEADER_HEIGHT } from "./diff-viewer/density";
 
 export type DiffViewerOptions = {
   collapsed: boolean;
@@ -58,23 +59,20 @@ export const EXPANSION_LINE_COUNT = 20;
 /** The options a diff is drawn with: `auto` resolved to the layout the viewer width allows. */
 export type DrawnDiffOptions = Omit<DiffViewerOptions, "layout"> & { layout: "split" | "unified" };
 
-/** Height of a file header row; also the virtualizer's header metric. */
-export const DIFF_FILE_HEADER_HEIGHT = 38;
-
 /**
  * `lineHeight` is the drawn code line (diff-viewer/fontZoom.ts): the virtualizer estimates a file's height from it,
- * so it must be the line the CSS draws, at every zoom.
+ * so it must be the line the CSS draws, at every zoom. `headerHeight` is the file header bar at the app density
+ * (diff-viewer/density.ts), the `--cmux-diff-file-header-height` the App writes for the CSS.
  */
 export function codeViewOptions(
   options: DrawnDiffOptions,
   appearance: DiffViewerAppearance,
   lineHeight?: number,
+  headerHeight: number = DIFF_FILE_HEADER_HEIGHT,
 ): CodeViewOptions<any> {
   return {
     layout: { paddingTop: 0, gap: 1, paddingBottom: 0 },
-    itemMetrics: lineHeight
-      ? { diffHeaderHeight: DIFF_FILE_HEADER_HEIGHT, lineHeight }
-      : { diffHeaderHeight: DIFF_FILE_HEADER_HEIGHT },
+    itemMetrics: lineHeight ? { diffHeaderHeight: headerHeight, lineHeight } : { diffHeaderHeight: headerHeight },
     diffStyle: options.layout,
     diffIndicators: options.diffIndicators,
     overflow: options.wordWrap ? "wrap" : "scroll",

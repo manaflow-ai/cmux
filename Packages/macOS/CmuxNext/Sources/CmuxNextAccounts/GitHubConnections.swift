@@ -25,6 +25,10 @@ public final class GitHubConnections {
     @ObservationIgnored public var completionLink: String?
     /// The live model's watch of ``CloudGitHubChanges`` (a finished install re-reads the connections).
     @ObservationIgnored public var changes: Task<Void, Never>? { didSet { oldValue?.cancel() } }
+    /// The words for the last completion the API refused (an expired link, a non-owner's request), shown where Connect
+    /// GitHub is until the next Connect starts over or a connection takes. The live model sets it from
+    /// ``CloudGitHubChanges/refusal`` (``refusalWords(reason:)``); nil when nothing was refused.
+    public var linkRefusal: String?
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var connectKeys: [Scope: String] = [:]
     private var loadedScope: Scope?
@@ -90,6 +94,7 @@ public final class GitHubConnections {
         do {
             switch action {
             case "githubConnect":
+                linkRefusal = nil // a new Connect starts over
                 // A pending flow from another launch has no resumable URL or key here.
                 // Keep it pending until refresh or disconnect resolves that flow.
                 guard ready, !connected, !pending || resumable(bound) else { return }

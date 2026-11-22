@@ -6,6 +6,7 @@ guard_step_inputs.py or run_ci_guards.py --affected: python3 tests/test_guard_st
 """
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import guard_step_inputs as g  # noqa: E402
+
+
+def _load_git_fixture_env():
+    """tests/git_fixture_env.py by path, so `python3 -I` (no script folder on sys.path) runs this file too."""
+    spec = importlib.util.spec_from_file_location("git_fixture_env", Path(__file__).resolve().parent / "git_fixture_env.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # importing it disables git auto maintenance
+    return module
+
+
+git_fixture_env = _load_git_fixture_env()
 
 FILES = {
     # A test that imports a tool through sys.path, reads a config file and walks a named folder.
@@ -157,9 +169,11 @@ class GuardStepInputs(unittest.TestCase):
         for path, body in FILES.items():
             (root / path).parent.mkdir(parents=True, exist_ok=True)
             (root / path).write_text(textwrap.dedent(body).lstrip())
-        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-        subprocess.run(["git", "add", "-A"], cwd=root, check=True)
-        subprocess.run(["git", "update-index", "--add", "--cacheinfo", f"160000,{'1' * 40},vendor/sub"], cwd=root, check=True)
+        git_fixture_env.init_repo(root)
+        env = git_fixture_env.fixture_env()
+        subprocess.run(["git", "add", "-A"], cwd=root, check=True, env=env)
+        subprocess.run(["git", "update-index", "--add", "--cacheinfo", f"160000,{'1' * 40},vendor/sub"], cwd=root, check=True,
+                       env=env)
         cls.tree = g.Tree(root)
 
     @classmethod
