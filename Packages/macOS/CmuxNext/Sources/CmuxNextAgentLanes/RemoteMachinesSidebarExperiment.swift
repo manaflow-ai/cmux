@@ -1,5 +1,6 @@
 import CmuxNextAgentActivity
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextSidebar
 import Foundation
 import Observation
@@ -8,7 +9,7 @@ import Observation
 /// The app supplies only transport and navigation closures; the feed observer and lifetime stay
 /// in the agent-lanes target so closing a window cannot leak a listener or a peer read.
 @MainActor
-public final class RemoteMachinesSidebarExperiment {
+package final class RemoteMachinesSidebarExperiment {
     private let sidebar: RemoteMachinesSidebar
     private let feed: AgentTurnStateFeed?
     private let enabled: @MainActor @Sendable () -> Bool
@@ -18,7 +19,7 @@ public final class RemoteMachinesSidebarExperiment {
     private var observation: Task<Void, Never>?
     private var observerID: UUID?
 
-    public init(sidebar: RemoteMachinesSidebar,
+    package init(sidebar: RemoteMachinesSidebar,
                 feed: AgentTurnStateFeed? = AgentTurnStateFeed.shared,
                 enabled: @escaping @MainActor @Sendable () -> Bool,
                 socketPath: @escaping @MainActor @Sendable () -> String?,
@@ -32,7 +33,7 @@ public final class RemoteMachinesSidebarExperiment {
         self.open = open
     }
 
-    public func start() {
+    package func start() {
         stop()
         if let feed {
             observerID = feed.addPeerStateObserver { [weak sidebar] peer, state in
@@ -56,7 +57,7 @@ public final class RemoteMachinesSidebarExperiment {
         }
     }
 
-    public func stop() {
+    package func stop() {
         observation?.cancel()
         observation = nil
         if let observerID, let feed { feed.removePeerStateObserver(observerID) }

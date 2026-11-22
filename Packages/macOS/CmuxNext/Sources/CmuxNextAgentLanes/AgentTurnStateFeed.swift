@@ -99,13 +99,13 @@ public final class AgentTurnStateFeed {
     /// closing one window cannot overwrite another listener or the legacy device-directory hook.
     private var peerStateObservers: [UUID: @MainActor (_ peer: String?, _ state: String?) -> Void] = [:]
 
-    public func addPeerStateObserver(_ observer: @escaping @MainActor (_ peer: String?, _ state: String?) -> Void) -> UUID {
+    package func addPeerStateObserver(_ observer: @escaping @MainActor (_ peer: String?, _ state: String?) -> Void) -> UUID {
         let id = UUID()
         peerStateObservers[id] = observer
         return id
     }
 
-    public func removePeerStateObserver(_ id: UUID) {
+    package func removePeerStateObserver(_ id: UUID) {
         peerStateObservers.removeValue(forKey: id)
     }
 
