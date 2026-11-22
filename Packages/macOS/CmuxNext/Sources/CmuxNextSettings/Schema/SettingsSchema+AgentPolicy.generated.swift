@@ -34,8 +34,8 @@ extension SettingsSchema {
         "window.titlebarButtons", "tabs.plusButton", "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",
         "browser.toolbarPosition", "navigation.historyScope", "navigation.history.scope", "sidebar.minimalMode",
         "sidebar.minimal", "sidebar.density", "sidebar.textSize", "sidebar.detailedStatusIcons",
-        "sidebar.showTimestamps", "sidebar.settleFinished", "sidebar.showColors", "sidebar.showLocalMachine",
-        "workspaceColors.indicatorStyle",
+        "sidebar.showTimestamps", "sidebar.settleFinished", "sidebar.showAutomaticSessions", "sidebar.showColors",
+        "sidebar.showLocalMachine", "workspaceColors.indicatorStyle",
         // Sidebar control visibility (looks only)
         "sidebar.controlsOnHover", "sidebar.floatOnHover",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background",
@@ -54,7 +54,7 @@ extension SettingsSchema {
         "app.showMenuBarIcon",
         // The language cmux's own text is in; ends no work.
         "app.language",
-        "tabs.overflow",
+        "tabs.overflow", "tabs.shellIconTheme",
         // How tabs are listed (looks only)
         "tabs.verticalTabs", "tabs.verticalTabsExpandOnHover",
         // Whether a lone chat's tab draws (looks only)
@@ -158,6 +158,8 @@ extension SettingsSchema {
         "agentPane.needsYou.enabled",
         // Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31); a new chat's composer can still change it for that chat.
         "agentPane.newChatsIn", "agentPane.sessionWorktrees",
+        // The composer's look and where an empty chat's composer sits: layout choices a profile or the person's agent may set, like the chat's other looks.
+        "agentPane.composerLook", "agentPane.emptyChatComposerPosition",
         // The default `cmux chat` target (`cmux config set on cloud`): where the CLI starts a chat when neither --on nor CMUX_ON names one; the person may ask an agent to set it.
         "chat.on",
         "updates.notify", "updates.showWhatsNew",
@@ -243,11 +245,12 @@ extension SettingsSchema {
         "agentPane.display.font.faces", "agentPane.display.font.size", "agentPane.display.font.lineHeight",
         "agentPane.display.code.family", "agentPane.display.code.scale", "agentPane.display.sessionInfo.placement",
         "agentPane.display.environment.placement", "agentPane.display.minimap", "agentPane.display.transcriptView",
-        "agentPane.display.presentation", "agentPane.display.promptCoach", "agentPane.display.statusVerbs.mode",
-        "agentPane.display.statusVerbs.custom", "agentPane.display.thinking.shimmer",
-        "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand",
-        "agentPane.display.thinking.jumpButton", "agentPane.display.harnessPlacement", "agentPane.display.rail.side",
-        "agentPane.display.rail.show", "agentPane.display.rail.control", "agentPane.display.commandLabels",
+        "agentPane.display.presentation", "agentPane.display.transcriptLook", "agentPane.display.transcriptTokens",
+        "agentPane.display.promptCoach", "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
+        "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod",
+        "agentPane.display.thinking.shimmerBand", "agentPane.display.thinking.jumpButton",
+        "agentPane.display.harnessPlacement", "agentPane.display.rail.side", "agentPane.display.rail.show",
+        "agentPane.display.rail.control", "agentPane.display.commandLabels",
         // The code editor's looks and editing behavior (diff-host S7); editor.importFrom is the person's.
         "editor.fontFamily", "editor.fontSize", "editor.fontWeight", "editor.fontLigatures", "editor.lineHeight",
         "editor.letterSpacing", "editor.tabSize", "editor.insertSpaces", "editor.detectIndentation", "editor.wordWrap",
