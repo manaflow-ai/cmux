@@ -509,7 +509,7 @@ function AttachmentChipPreview({
             /* tooltip-allow: the mark is a glyph; the tooltip says what is still uploading and why */
             title={`${t(ATTACHMENT_LABELS.stillUploadingOriginal, { name })}\n${originalFailed}`}
           >
-            <Spinner loading size={10} />
+            <Spinner loading size={12} />
           </span>
         )}
         {remove}

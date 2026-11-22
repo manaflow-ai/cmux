@@ -156,13 +156,17 @@ export function useAutoRetry(
   { busy = false, shown = true, ...options }: AutoRetryOptions & { busy?: boolean; shown?: boolean } = {},
 ): AutoRetryState {
   const retryRef = useRef(retry);
-  retryRef.current = retry;
+  useEffect(() => {
+    retryRef.current = retry;
+  });
   const loopRef = useRef<AutoRetryLoop | undefined>(undefined);
   const [stretch, setStretch] = useState(false);
+  // The options are read once per mount: a page's backoff does not change while it is open.
+  const [mountOptions] = useState(options);
   const failing = !!failed;
 
   useEffect(() => {
-    const loop = new AutoRetryLoop(() => retryRef.current(), options);
+    const loop = new AutoRetryLoop(() => retryRef.current(), mountOptions);
     loopRef.current = loop;
     const onVisibility = () => loop.wake();
     document.addEventListener("visibilitychange", onVisibility);
@@ -171,9 +175,7 @@ export function useAutoRetry(
       loop.dispose();
       loopRef.current = undefined;
     };
-    // The options are read once per mount: a page's backoff does not change while it is open.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [mountOptions]);
 
   useEffect(() => {
     loopRef.current?.setShown(shown);

@@ -6,10 +6,11 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { setLastingGrace, LASTING_MS } from "../../../ui/lasting";
 import { settleReact } from "../../../../test/support/domTeardown";
-import { PermissionPanel } from "./Panel";
 import type { PermissionClientState } from "./protocol";
+import { importWithDom } from "../../../../test/support/importWithDom";
+const { setLastingGrace, LASTING_MS } = await importWithDom(() => import("../../../ui/lasting"));
+const { PermissionPanel } = await importWithDom(() => import("./Panel"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

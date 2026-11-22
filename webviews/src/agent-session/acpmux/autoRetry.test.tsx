@@ -2,9 +2,10 @@ import { afterEach, expect, jest, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { AUTO_RETRY_MAX_MS, AutoRetryLoop, useAutoRetry } from "./autoRetry";
-import { LASTING_MS } from "../../ui/lasting";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+const { AUTO_RETRY_MAX_MS, AutoRetryLoop, useAutoRetry } = await importWithDom(() => import("./autoRetry"));
+const { LASTING_MS } = await importWithDom(() => import("../../ui/lasting"));
 
 // `random` 1 makes jitteredDelay return the full step: 1 s, 2 s, 4 s, ...
 const full = () => 1;
