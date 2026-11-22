@@ -6,17 +6,7 @@
 // behind it".
 import { agentPaneEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
-import wallpaper from "../../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { assistant, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
-import {
-  css,
-  luminance,
-  rgb,
-  wallpaperTintOpacity,
-  withAlpha,
-  type ThemeRGB,
-  type ThemeTokens,
-} from "../../../gallery/theme/tokens";
 
 const ASK =
   "GitHub-hosted runners were ruled out on 10-27.\n\n[taste] Should I allow GitHub-hosted ubuntu-24.04 for Linux CI until the fleet pool is back?";
@@ -46,42 +36,15 @@ const snapshot = chat([
   ...turns,
 ]);
 
-/// A WebTheme `rgba(r, g, b, a)` variable as a color, or null.
-const cssColor = (text: string): ThemeRGB | null => {
-  const parts = text
-    .match(/rgba?\(([^)]+)\)/)?.[1]
-    ?.split(",")
-    .map((part) => Number.parseFloat(part));
-  if (!parts || parts.length < 3 || parts.some((part) => Number.isNaN(part))) return null;
-  return rgb(parts[0]! / 255, parts[1]! / 255, parts[2]! / 255, parts[3] ?? 1);
-};
+// The picture is the gallery's busy one through the variant's `background` (format.ts), so the window is see-through as
+// in the app: the theme's tint over the picture and the pane's inks fit for it. The stage once painted a wallpaper of
+// its own with neither, which no window draws: Rose Pine Dawn's header tools and "Worked for" read 1.1-2.9:1 on its
+// bare pinks and blues (control-contrast-2).
 
-/// The window's tint over the wallpaper, as WindowBackdrop lays it: the theme's window color at its wallpaper tint
-/// opacity (ThemeTokens.wallpaperTintOpacity). The stage once painted the bare picture, which no window draws: Rose
-/// Pine Dawn's header tools and Model read 1.1-2.9:1 on its raw pinks and blues (control-contrast-2).
-const windowTint = (root: HTMLElement): string | null => {
-  const style = getComputedStyle(root);
-  const window = cssColor(style.getPropertyValue("--cmux-window-tint"));
-  const text = cssColor(style.getPropertyValue("--cmux-text"));
-  if (!window || !text) return null;
-  const isDark = luminance(window) < luminance(text);
-  const tokens = { isDark, windowBackground: withAlpha(window, 1), textPrimary: text } as ThemeTokens;
-  return css(withAlpha(window, wallpaperTintOpacity(tokens)));
-};
-
-/// The wallpaper behind a see-through pane, as cmux's own wallpaper draws it: the picture, the window's tint over it.
-const overWallpaper =
+/// Scrolled up `scrolledUp` px from the latest message, once the pinned line is up.
+const scrolled =
   (scrolledUp: number): Play =>
   async (ctx) => {
-    const root = ctx.document.documentElement;
-    const tint = windowTint(root);
-    const picture = `url("${wallpaper}") 0 0 / 100vw 100vh no-repeat fixed`;
-    root.style.setProperty(
-      "background",
-      tint ? `linear-gradient(${tint}, ${tint}) fixed, ${picture}` : picture,
-      "important",
-    );
-    root.style.setProperty("--agent-page-bg", "transparent");
     await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pending-ask__head"));
     const scroller = ctx.document.querySelector<HTMLElement>(".acpmux-scroll");
     if (scroller && scrolledUp > 0)
@@ -102,12 +65,14 @@ export default agentPaneEntry({
     "at-latest": {
       note: "At the latest message: the line and its Dismiss sit on the wallpaper with no band behind them.",
       snapshot,
-      play: overWallpaper(0),
+      background: "busy",
+      play: scrolled(0),
     },
     "scrolled-under": {
       note: 'Scrolled up a little: the turns pass behind the line and stay in sight ("Worked for" is not cut off); only the cards hide them.',
       snapshot,
-      play: overWallpaper(120),
+      background: "busy",
+      play: scrolled(120),
     },
   },
 });

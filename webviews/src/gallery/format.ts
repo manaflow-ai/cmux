@@ -202,6 +202,10 @@ type VariantBase = {
   /** The title area tone the variant is drawn under, over the env's (env.ts TITLE_AREA_TONES): for
    * a variant that only means something under one tone (a folder tab's join under Subtle Tone). */
   titleAreaTone?: import("./env").TitleAreaToneName;
+  /** The picture the variant is drawn over when the env sets none (env.ts BACKGROUNDS): the window turns
+   * see-through as over the user's picture in the app (the theme's tint over it, the pane's inks fit for it), for a
+   * variant that only means something over a picture. A stage that painted its own picture got neither. */
+  background?: import("./env").GalleryBackground;
   /** A whole look the variant is drawn under (golden/look.ts): its theme file for the env's scheme
    * over the env's theme, and, in the agent pane, its settings, stylesheet and composer look. */
   look?: import("./golden/look").GoldenLook;
