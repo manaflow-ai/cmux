@@ -4816,9 +4816,12 @@ The build failed or the checks never ran: no verdict, which generated-verdict fa
 
 ## note-543
 
-Above `SEED_KEY_WORKSPACE: ${{ steps.spm-root.outputs.root || github.workspace }}` in `.github/workflows/cmux-next.yml`.
+Above `CMUX_FAST_CACHE_WORKSPACE: ${{ steps.spm-root.outputs.root || github.workspace }}` in `.github/workflows/cmux-next.yml`.
 
-The seed's key holds the path it was built at: the seed root on an owned mini.
+The seed's key holds the path it was built at: the seed root on an owned mini. The script hashes
+CMUX_FAST_CACHE_WORKSPACE (else GITHUB_WORKSPACE), never its ROOT argument, so a name of our own
+keyed the runner's checkout path and no restore ever matched (0 of 2026-11-22's generated-files
+runs on the minis restored the seed: every build cold).
 
 ## note-544
 

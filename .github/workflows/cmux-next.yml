@@ -1728,6 +1728,7 @@ jobs:
             bash scripts/ci/tests/cmux-tui-base-red.test.sh
             bash scripts/ci/tests/package-test-lane-suite-args.test.sh
             bash scripts/ci/tests/package-test-lane-sdkroot.test.sh
+            bash scripts/ci/tests/package-test-lane-unverified-build.test.sh
             bash scripts/ci/tests/swiftpm-resolve-seeds-artifacts.test.sh
             bash scripts/ci/tests/ios-sim-fetch-commit.test.sh
             bash scripts/ci/tests/first-turn-cost-count-fallback.test.sh
@@ -4978,8 +4979,8 @@ jobs:
         continue-on-error: true
         env:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-543
-          SEED_KEY_WORKSPACE: ${{ steps.spm-root.outputs.root || github.workspace }}
-        run: scripts/cmux-next/fast-tier-cache-key.sh "$SEED_KEY_WORKSPACE" >> "$GITHUB_OUTPUT"
+          CMUX_FAST_CACHE_WORKSPACE: ${{ steps.spm-root.outputs.root || github.workspace }}
+        run: scripts/cmux-next/fast-tier-cache-key.sh "$CMUX_FAST_CACHE_WORKSPACE" >> "$GITHUB_OUTPUT"
 
       - name: Restore the CmuxNext build the base seeded
         id: seed-restore

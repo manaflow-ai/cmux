@@ -3611,6 +3611,11 @@ pre.cv-math-source {
   min-height: 0;
   padding-bottom: var(--cv-tool-run-bottom-gap);
 }
+/* A later part of a running turn's long run (runParts.ts) keeps the room the run's flex gap gave
+   its entry (`.cv-tools` gap above), so the parts draw as the one row did; model.ts counts it. */
+.acpmux-row.acpmux-row--run-part {
+  padding-top: var(--grid-base);
+}
 /* Gallery versions for the transcript spacing review. The selected default is the root rhythm
    above; these are capture-only comparisons. */
 :root[data-transcript-tool-spacing="tight"] {
@@ -6063,6 +6068,12 @@ a.cv-sha:focus-visible {
 .cv-turn-retry > .cv-iconbtn:disabled {
   opacity: 0.5;
   pointer-events: none;
+}
+/* A message its agent cannot fork from (MessageActions.tsx ForkButton `unavailable`): dimmed, and
+   still hovered so its tooltip says why. */
+.cv-iconbtn.cv-fork-button[data-fork-state="unavailable"] {
+  opacity: 0.5;
+  cursor: default;
 }
 /* Recovery actions are the one footer content allowed to wrap on narrow panes. The shared rail
    stays centered for glyph controls without clipping sign-in or credential-transfer copy. */
