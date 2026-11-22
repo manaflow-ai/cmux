@@ -1453,6 +1453,7 @@ function HeadKind({ t, part, chatHarness }: { t: Translate; part: TrayHeadPart; 
       className="acpmux-running-tray__kind"
       data-kind={part.key}
       data-tone={part.tone}
+      // tooltip-allow: the head draws the agents' marks only; the tooltip names them.
       title={names}
       onPointerEnter={() => {
         if (names !== undefined) return;
