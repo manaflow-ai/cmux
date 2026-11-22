@@ -58,6 +58,7 @@ impl Terminal {
             });
         let mut grapheme_buf = Vec::new();
         let mut cells = Vec::with_capacity(usize::from(cols));
+        let mut links = Vec::with_capacity(usize::from(cols));
         for x in 0..cols {
             let grid_ref = if whole_row {
                 sys::GhosttyGridRef { x, ..first }
@@ -67,9 +68,20 @@ impl Terminal {
             cells.push(
                 crate::render::read_grid_ref_cell(&grid_ref, &palette, &mut grapheme_buf).ok()?,
             );
+            let mut raw = sys::GhosttyCell::default();
+            check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut raw) }).ok()?;
+            let mut link = false;
+            let read = unsafe {
+                sys::ghostty_cell_get(
+                    raw,
+                    sys::GHOSTTY_CELL_DATA_HAS_HYPERLINK,
+                    (&mut link as *mut bool).cast(),
+                )
+            };
+            links.push(read == sys::GHOSTTY_SUCCESS && link);
         }
         let wraps = self.row_flag(tag, row, sys::GHOSTTY_ROW_DATA_WRAP) == Some(true);
-        Some((cells, wraps))
+        Some((cells, links, wraps))
     }
 
     /// Plain text of the rectangle spanned by two absolute screen points
