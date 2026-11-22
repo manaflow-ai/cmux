@@ -188,6 +188,9 @@ await requireBrowserLane("transcript-thumb-look.test.ts", async () => {
           // scroll stops while the pointer stays on its bar; then out as the pointer leaves.
           await phase(`near-${round}`);
           await page.mouse.move(view.x + view.width - 4, middle.y, { steps: 6 });
+          // The screencast can make the move outlast the linger; a step of scroll back down (the view is at the top by now) with the pointer
+          // on the bar shows the thumb again, and the pointer there holds it.
+          await page.mouse.wheel(0, 60);
           await settled(true);
           await phase(`leave-${round}`);
           await page.mouse.move(middle.x, middle.y, { steps: 6 });
