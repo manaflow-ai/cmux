@@ -213,7 +213,7 @@ impl Supervisor {
                 .packages
                 .values()
                 .filter(|package| package.id != APP_STORE)
-                .filter(|package| Shelf::of(package.source) == Shelf::Store)
+                .filter(|package| Shelf::of(package) == Shelf::Store)
                 .cloned()
                 .collect();
             (packages, inner.mirror.revision)
