@@ -560,6 +560,7 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
         encoded_ms,
         encoded.len(),
         elapsed_ms(started),
+        answer.pointer("/data/mount_ms").and_then(Value::as_u64),
     );
     // The start's gate, split, in the server's log (`start` makes it `projections/<server>.log`): the
     // start-chat answer does not reach `cloud start-chat --from-folder`'s caller, and the log does
@@ -639,14 +640,16 @@ fn pair_of(name: &str) -> String {
     format!("listing.{clean}").chars().take(128).collect()
 }
 
-/// What the start waited for, by step: the listing, the manifest's encoding (both from the
-/// server's start) and the machine's mount answer (`ready_ms`, the whole gate).
+/// What the start waited for, by step: the listing, the manifest's encoding and the machine's
+/// answer (`ready_ms`, the whole gate), each from the server's start, and the machine's own
+/// decode and mount (`mount_ms`, its answer's); `ready_ms - encoded_ms - mount_ms` is the send.
 fn ready_timing(
     entries: usize,
     listed_ms: u64,
     encoded_ms: u64,
     manifest_bytes: usize,
     ready_ms: u64,
+    mount_ms: Option<u64>,
 ) -> Value {
     json!({
         "entries": entries,
@@ -654,6 +657,7 @@ fn ready_timing(
         "encoded_ms": encoded_ms,
         "manifest_bytes": manifest_bytes,
         "ready_ms": ready_ms,
+        "mount_ms": mount_ms,
     })
 }
 
