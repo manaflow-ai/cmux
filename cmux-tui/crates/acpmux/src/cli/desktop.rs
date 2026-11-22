@@ -66,18 +66,29 @@ pub fn run(cmd: DesktopCmd, json_out: bool) -> Result<()> {
     }
     // A link or unlink that could not write is a failure the caller sees, with that app's own
     // reason (not another app's "not on this machine"). A foreign entry is left alone on purpose.
-    let failed = |r: &&Row| {
-        !r.note.as_deref().is_some_and(|n| n.starts_with("would "))
-            && match verb {
-                "link" => matches!(r.state, State::NotLinked | State::Stale),
-                "unlink" => matches!(r.state, State::Linked | State::Stale),
-                _ => false,
-            }
-    };
+    let failed = |r: &&Row| failed(verb, r);
     if let Some(row) = rows.iter().find(failed) {
         anyhow::bail!("{}: {}", row.app.label(), row.note.as_deref().unwrap_or("not linked"));
     }
     Ok(())
+}
+
+/// Whether `row` is a failure of `verb`. An unlink of a config `status` could not read or parse leaves the row
+/// `NotLinked` with that reason as its note (a successful unlink's note starts "unlinked;"), and fails: the entry
+/// may still be there.
+fn failed(verb: &str, row: &Row) -> bool {
+    if row.note.as_deref().is_some_and(|n| n.starts_with("would ")) {
+        return false;
+    }
+    match verb {
+        "link" => matches!(row.state, State::NotLinked | State::Stale),
+        "unlink" => {
+            matches!(row.state, State::Linked | State::Stale)
+                || (row.state == State::NotLinked
+                    && row.note.as_deref().is_some_and(|n| !n.starts_with("unlinked;")))
+        }
+        _ => false,
+    }
 }
 
 /// One app's line: `Claude desktop  linked  (note)`.
@@ -86,5 +97,31 @@ fn line(row: &Row) -> String {
     match &row.note {
         Some(note) => format!("{:<22} {state:<14} {note}", row.app.label()),
         None => format!("{:<22} {state:<14} {}", row.app.label(), row.config.display()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(state: State, note: Option<&str>) -> Row {
+        Row {
+            app: desktop_link::App::ALL[0],
+            state,
+            config: std::path::PathBuf::from("/x/config.json"),
+            note: note.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn an_unlink_of_an_unreadable_config_fails_but_a_clean_one_does_not() {
+        let unreadable = row(State::NotLinked, Some("parsing /x/config.json: expected value"));
+        assert!(failed("unlink", &unreadable));
+        assert!(!failed("unlink", &row(State::NotLinked, None)));
+        assert!(!failed("unlink", &row(State::NotLinked, Some("unlinked; restart the app"))));
+        assert!(!failed("unlink", &row(State::NotInstalled, None)));
+        assert!(!failed("unlink", &row(State::Foreign, Some("left alone"))));
+        assert!(!failed("unlink", &row(State::Linked, Some("would unlink"))));
+        assert!(failed("unlink", &row(State::Linked, Some("write failed"))));
     }
 }
