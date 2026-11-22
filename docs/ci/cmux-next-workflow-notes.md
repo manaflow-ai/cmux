@@ -260,10 +260,19 @@ Above `compile-status` in `.github/workflows/cmux-next.yml`.
 The pull request's Release compile gate: the commit status cmux-next/compile on the exact
 head. The build fleet's controller compiles every feat-cmux-next head and same-repository PR
 head (SwiftPM Release at -Onone); this job reads that one result and publishes it.
-The controller holds no GitHub key and posts nothing: the status comes only from here, with
-a cmux-bot token (statuses: write) minted from the repository secret. Any other route that
-compiles the head (a Blacksmith job of this repository) posts the same context with the
-same mapping.
+This job posts with a cmux-bot token (statuses: write) minted from the repository secret.
+Any other route that compiles the head (a Blacksmith job of this repository) posts the same
+context with the same mapping.
+
+The controller posts it too, on the same-repository pull request heads it compiles, as the
+manaflow-checks App (the statuses: write App the pool's required checks already post from;
+cmuxterm-hq `build-fleet/cmd/controller/compile_status_poster.go`), with the same mapping at
+each receipt transition. Its receipt then says `"status_poster": "controller"`, and this job
+ends as soon as it reads that on a queued or running receipt, instead of holding a runner
+through the compile (about 85 runner-hours a day on the pull request leg, 2026-11-22). Until a
+receipt rules it out, each read waits at most 60 s. A receipt without it (a push head, or a
+controller that does not post) is waited for and relayed as before. The landing gates trust
+both posters (`scripts/ci/base_red_excuse.py` `COMPILE_STATUS_POSTERS`).
 
 Mapping, fail closed: pass is success; fail is failure with the compile log as its link;
 unavailable, no result by the deadline, a result for another sha, repo, configuration or
