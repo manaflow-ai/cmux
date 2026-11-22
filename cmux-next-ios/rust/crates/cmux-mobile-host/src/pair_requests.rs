@@ -25,6 +25,7 @@
 //! Requests (the channel's open args, one answer then the channel closes):
 //! - `{"action":"list"}` → `{"requests":[{"deviceId","name","kind","fingerprint","waitingMs"}]}`
 //! - `{"action":"answer","deviceId":ID,"fingerprint":F,"allow":true|false}` → `{"ok":true}`
+//!   (`allow` may also be the text `"true"` or `"false"`: the phone's channel args are strings)
 
 use std::sync::Mutex;
 use std::time::Instant;
@@ -264,15 +265,11 @@ mod tests {
         let _held = pairing.waiting.hold(request("probe"));
         let fingerprint = request("probe").fingerprint();
         for (text, allow) in [("true", true), ("false", false)] {
-            let args =
-                json!({"action": "answer", "deviceId": "probe", "fingerprint": fingerprint, "allow": text});
+            let args = json!({"action": "answer", "deviceId": "probe", "fingerprint": fingerprint, "allow": text});
             assert_eq!(handle(Some(&pairing), &PAIRED_PHONE, &args).unwrap(), json!({"ok": true}));
-            assert!(
-                matches!(events.lock().unwrap().last(), Some(Event::PairAnswer { allow: a, .. }) if *a == allow)
-            );
+            assert!(matches!(events.lock().unwrap().last(), Some(Event::PairAnswer { allow: a, .. }) if *a == allow));
         }
-        let args =
-            json!({"action": "answer", "deviceId": "probe", "fingerprint": fingerprint, "allow": "yes"});
+        let args = json!({"action": "answer", "deviceId": "probe", "fingerprint": fingerprint, "allow": "yes"});
         assert_eq!(handle(Some(&pairing), &PAIRED_PHONE, &args).unwrap_err().0, "bad_request");
     }
 
