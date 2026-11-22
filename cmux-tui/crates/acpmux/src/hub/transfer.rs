@@ -82,6 +82,8 @@ impl Hub {
             return Err(e);
         }
         out.flush()?;
+        // The draft's attachments go with its text (`draft_attachments.rs`).
+        self.export_draft_attachments(session, &dir)?;
         let native = crate::native::locate(&meta);
         let harness = self.export_harness_state(&meta, &dir)?;
         let mut manifest = json!({
@@ -278,6 +280,8 @@ impl Hub {
             self.drop_failed_import(&meta);
             return Err(RpcError::invalid_params(format!("import durable journal: {e}")));
         }
+        // The draft's attachments, with the draft's text in `session.json`.
+        self.import_draft_attachments(bundle, &meta.id);
         let restored = match guarded {
             None => crate::native::restore(bundle, &meta).unwrap_or_default(),
             // A guarded chat keeps its agent session only with its file: a failed restore fails

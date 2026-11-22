@@ -356,11 +356,13 @@ export type DownCause = ("localNetwork" | "hubDown" | "peerDown" | "auth");
 
 export interface DraftGetParams {
   _meta?: RequestMeta;
+  attachments?: unknown;
   sessionId?: unknown;
 }
 
 export interface DraftSetParams {
   _meta?: RequestMeta;
+  attachments?: unknown;
   sessionId?: unknown;
   text?: unknown;
 }

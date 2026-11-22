@@ -423,6 +423,7 @@ mod subsession_send;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub use subsession_send::Delivery;
+pub(crate) mod draft_attachments;
 mod drafts;
 pub(crate) mod history_search;
 pub(crate) mod open_delivery;
