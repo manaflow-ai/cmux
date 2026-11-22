@@ -274,7 +274,7 @@ export function ExportButtons({ rows, chartVisible = true }: { rows: Row[]; char
       <button
         type="button"
         disabled={!chartVisible || !rows.length}
-        title={!chartVisible ? "Show the chart to export SVG" : undefined}
+        aria-description={!chartVisible ? "Show the chart to export SVG" : undefined}
         onClick={exportChart}
       >
         Export SVG
