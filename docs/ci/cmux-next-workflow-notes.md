@@ -462,10 +462,16 @@ attempt 1 until 2026-11-18, when GitHub-hosted runners left it queued for hours 
 
 Above `checks: needs` in `.github/workflows/cmux-next.yml`.
 
-feat-cmux-next pushes run it again (Leo, 2026-10-19; cx-g34i had dropped it): a direct push's
-red shows on that push, and a pull request's red has a base run to be compared with.
-Not in a base tier run: the push of its commit already ran it.
-!cancelled(): a skipped or failed portable-placement (a fork, a re-run) leaves the Blacksmith route.
+On feat-cmux-next it runs in the base tier run on the tip (cmux_next_base_tier.py), at most once every 15
+minutes, not on each push. Leo, 2026-11-21: "whatever we need to cut, we cut", and "maintaining a partial
+semblance of checks. and we can infrequenrly have fuller checks". It ran on all 80 pushes in 21-24Z on
+11-21: 739 runner-minutes, 9.2 a push. A pull request into feat-cmux-next skips it (unless labelled
+full-ci), so the base tier run is still the base run a pull request's red is compared with. A red names
+its commit range: the previous base tier run's tip to this one ("Previous checked tip" below), the range
+"Pushed commits add no violations" sweeps and base_red_checks.py compares against.
+vars.CMUX_NEXT_BASE_TIER_COALESCE = '0' puts it back on every push, with the base tier.
+Earlier (Leo, 2026-10-19; cx-g34i had dropped it) each push ran it so a direct push's red showed on that push.
+!cancelled(): a skipped or failed portable-placement (a fork, a re-run, a base tier run) leaves the Blacksmith route.
 
 ## note-27
 
