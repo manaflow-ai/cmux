@@ -336,6 +336,11 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
       *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, duress=SPEC, video and profile, got '$sel'" >&2; exit 2 ;;
     esac
   done
+  # Bench branch only (lane/ios-duress-sim-bench, never merged): specs from a file until the
+  # controller takes duress= (cmuxterm-hq#18176).
+  if [[ ${#duress_specs[@]} -eq 0 && -f "$root/scripts/ci/duress-bench-specs" ]]; then
+    while read -r spec; do [[ -n $spec ]] && duress_specs+=("$spec"); done <"$root/scripts/ci/duress-bench-specs"
+  fi
   if [[ $ui_profile -eq 1 && $((${#ui_suites[@]} + ${#ui_cold[@]})) -eq 0 ]]; then
     echo "cmux-next-ios-sim.sh: profile records the UI test run; give it ui=SUITE,..." >&2; exit 2
   fi
