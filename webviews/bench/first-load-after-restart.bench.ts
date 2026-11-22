@@ -66,6 +66,8 @@
 // prints `RESTART_SETTLED_JSON {...}` (bench/restartSettled.ts): first content, settled (the live chat showing the
 // newest answer with nothing in view moving after), shifts after first content and how far they moved, and the
 // bytes the daemon sent. scripts/measure/restart-settled-linux.sh runs it per link beside the terminal's reattach.
+// FIXTURE=work gives every turn its work (thoughts, tool calls, notices), which a finished turn folds: the
+// settled line then also counts rows that showed and are gone by the last frame (goneRows, goneFrames).
 // NO_TAIL=1 serves no kept tail; WIRE_TRACE=1 prints each daemon request as it arrives (ms from the round's start).
 // PANE_SOURCE_REF=<sha> loads that immutable App/direct/hostRetry revision under this same harness for a baseline.
 /// <reference types="bun" />
@@ -91,6 +93,7 @@ import { perfRow } from "./perfRow";
 import { newestPage } from "./daemonPage";
 import { connectDelay, LinkPipe, linkProfile } from "./linkModel";
 import { restartSettled } from "./restartSettled";
+import { longRun } from "../src/agent-session/acpmux/sim/scenarios";
 
 const MODES_ALL = ["down", "slow-init", "native-ready", "native-ready-tail"] as const;
 const REOPEN_MODES = ["reopen", "reopen-no-copy", "reopen-spare"] as const;
@@ -174,7 +177,13 @@ const RELAUNCH_VIEWPORT = { width: VIEWPORT.width, height: VIEWPORT.height - HEI
 /// workspace's chats (1, the default, is the recorded page alone).
 const PAGES = Number(process.env.PAGES ?? 1);
 if (!Number.isInteger(PAGES) || PAGES < 1) throw new Error("PAGES must be a whole number of at least 1");
-const LATEST = `Answer ${TURNS}:`;
+/// FIXTURE=work: each finished turn works first, as an agent's does (the chat simulator's long run,
+/// src/agent-session/acpmux/sim/scenarios.ts `longRun`): thoughts, 2-6 tool calls, a progress message,
+/// background shells, notices from another lane and a compaction now and then, then a one-line reply. Every
+/// finished turn folds under its "Worked for" line. plain (the default) is papercutChat's one-reply turns.
+const FIXTURE = process.env.FIXTURE ?? "plain";
+if (FIXTURE !== "plain" && FIXTURE !== "work") throw new Error("FIXTURE must be plain or work");
+const LATEST = FIXTURE === "work" ? `Turn ${TURNS} done.` : `Answer ${TURNS}:`;
 const webviews = path.resolve(import.meta.dir, "..");
 const chatSnapshotSource = path.join(webviews, "src/agent-session/acpmux/chatSnapshot");
 
@@ -234,12 +243,25 @@ const REPORTED = {
     },
   ],
 };
-const { events, session } = papercutEvents({
+const plain = papercutEvents({
   turns: TURNS,
   running: RUNNING,
   session: REPORTED,
   ...(CONTENT === "rich" ? { answer: richAnswer } : {}),
 });
+if (FIXTURE === "work" && (RUNNING || CONTENT !== "plain")) throw new Error("FIXTURE=work takes no RUNNING or CONTENT");
+const worked = FIXTURE === "work" ? longRun(TURNS).events.map((event) => ({ ...event, sessionId: PAPERCUT_CHAT })) : [];
+const events = FIXTURE === "work" ? worked : plain.events;
+const session =
+  FIXTURE === "work"
+    ? {
+        ...plain.session,
+        status: "ready",
+        turnCount: TURNS,
+        updatedAt: worked.at(-1)?.at ?? plain.session.updatedAt,
+        lastSeq: worked.length,
+      }
+    : plain.session;
 /// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
 /// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
 const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown) =>
@@ -1431,6 +1453,11 @@ try {
       attachMs: split.attach,
       shifts: median(settled.map((one) => one.shifts)),
       shiftPxMax: max(settled.map((one) => one.shiftPxMax)),
+      fixture: FIXTURE,
+      cpu: CPU,
+      goneRows: median(settled.map((one) => one.goneRows)),
+      goneFrames: median(settled.map((one) => one.goneFrames)),
+      goneRowsMax: max(settled.map((one) => one.goneRows)),
       bytesDown: median(rounds.map((r) => r.bytesDown)),
       settledEach: settled.map((one) => one.settledMs),
     };
@@ -1459,7 +1486,9 @@ try {
         console.log(`trace of the worst ${mode} round (ms from navigation; B blank after content, S shift):`);
         const shifts = new Map(worst.metrics.shiftAt.map(({ index, why }) => [index, why]));
         const blanks = new Set(worst.metrics.blankAt);
+        const final = new Set((worst.frames.at(-1)?.rows ?? []).map((row) => row.id));
         worst.frames.forEach((frame, at) => {
+          const gone = frame.rows.filter((row) => !final.has(row.id));
           const bottom = frame.rows.at(-1);
           const layer = frame.copyShown ? "copy" : frame.rootHidden ? "hid " : "live";
           const marks = `${blanks.has(at) ? "B" : " "}${shifts.has(at) ? "S" : " "}`;
@@ -1472,6 +1501,7 @@ try {
               `bottom ${bottom ? `${bottom.id}@${bottom.top.toFixed(1)}` : "-"} "${frame.bottomText}"`,
               `composer ${composer}`,
               `scrollTop ${frame.scrollTop === null ? "-" : frame.scrollTop.toFixed(0)}`,
+              ...(gone.length ? [`gone later ${gone.length}: ${gone.map((row) => row.id).slice(0, 6).join(" ")}`] : []),
               ...(shifts.has(at) ? [shifts.get(at)!] : []),
             ].join(" | "),
           );
