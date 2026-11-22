@@ -199,6 +199,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `cu-driver-eval` | Computer-use driver eval: every input route and driver build on test apps. | HQ#7146 G3a/G3b | 2026-11-13 | active |
 | `cu-driver-eval.sh` | Fleet entry for cu-driver-eval (input-ab suite). | HQ#7146 G3a | 2026-11-08 | active |
 | `cmux-cua-patch-tests.sh` | The legacy Computer Use helper's Rust unit tests (cmux-cua-core, cmux-cua-platform-macos) with cmux's patches from any ref applied, on a fleet Mac. | ask-3cf710da4e | 2026-11-18 | active |
+| `cu-duress-suite.sh` | cmux NEXT Computer Use under duress (CPU load, a typing person window): frontmost never changes, no input leaks, the agent cursor is drawn, every result names the driver build, classic cmux never starts. On a display Mac. | Leo 2026-11-22 "WHERE IS THE FUCKING CURSOR" | 2026-11-22 | active |
 | `cua-takeover.sh` | False takeovers and latency of the computer-use takeover detector. | - | 2026-11-04 | active |
 
 ## Browser and CEF
