@@ -98,6 +98,18 @@ import Testing
         #expect(!glass.isShown, "a second press on More left its menu open")
     }
 
+    /// The menu buttons open on the press; Downloads' popup does not follow a held press, so it opens
+    /// on the release as before; the toggles never open on the press.
+    @Test func menuButtonsOpenOnThePressAndDownloadsOnTheRelease() throws {
+        for button in BrowserToolbarButton.allCases {
+            let expected = [.media, .profile, .theme, .overflow].contains(button)
+            #expect(button.followsPress == expected, "\(button) followsPress")
+        }
+        let fixture = Fixture()
+        defer { fixture.window.close() }
+        #expect(try #require(fixture.more).opensOnPress)
+    }
+
     private final class RowTarget: NSObject {
         var ran: [String] = []
         @objc func run(_ sender: NSMenuItem) { ran.append(sender.title) }

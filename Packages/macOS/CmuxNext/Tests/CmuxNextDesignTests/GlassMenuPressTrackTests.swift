@@ -23,7 +23,7 @@ import Testing
 
         /// The screen centre of row `index` of the root menu, or of its open submenu.
         func center(of index: Int, inSubmenu: Bool = false) throws -> CGPoint {
-            let menu = try #require(inSubmenu ? glass.shownSubmenu : glass)
+            let menu = try #require(inSubmenu ? glass.child : glass)
             let view = try #require(menu.list.view(at: index))
             let window = try #require(view.window)
             let rect = window.convertToScreen(view.convert(view.bounds, to: nil))
@@ -97,7 +97,7 @@ import Testing
         let fixture = try Self.fixture()
         defer { fixture.close() }
         try fixture.press(.leftMouseDragged, at: try fixture.center(of: 3))
-        #expect(fixture.glass.shownSubmenu != nil, "dragging over Developers did not open its submenu")
+        #expect(fixture.glass.child != nil, "dragging over Developers did not open its submenu")
         let inspect = try fixture.center(of: 0, inSubmenu: true)
         try fixture.press(.leftMouseDragged, at: inspect)
         try fixture.press(.leftMouseUp, at: inspect)
