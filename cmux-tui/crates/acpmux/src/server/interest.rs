@@ -201,20 +201,23 @@ impl Router {
         let mut routes = lock(&self.routes);
         routes.sends += 1;
         let send = routes.sends;
+        let mut targets: Vec<&Arc<Inbox>> = Vec::new();
         if let Some(attached) = routes.by_session.get(&ev.session_id) {
-            for inbox in attached {
-                inbox.push(send, &ev);
-            }
+            targets.extend(attached);
         }
         if !routes.watchers.is_empty() && watch_hears(&ev) {
-            for inbox in &routes.watchers {
-                inbox.push(send, &ev);
-            }
+            targets.extend(&routes.watchers);
         }
         if !routes.activity.is_empty() && activity_hears(&ev) {
-            for inbox in &routes.activity {
-                inbox.push(send, &ev);
-            }
+            targets.extend(&routes.activity);
+        }
+        // The fan-out clock (`gauges.fanout`) waits for each connection the event wakes, armed
+        // before any of them can take it; one connection named twice takes it once.
+        targets.sort_unstable_by_key(|inbox| inbox.id);
+        targets.dedup_by_key(|inbox| inbox.id);
+        ev.row.fanout.arm(targets.len());
+        for inbox in targets {
+            inbox.push(send, &ev);
         }
         broadcast(ev)
     }

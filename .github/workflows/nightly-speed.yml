@@ -23,6 +23,10 @@ concurrency:
   group: nightly-speed
   cancel-in-progress: false
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   speed:
     if: github.repository == 'manaflow-ai/cmux'
@@ -76,9 +80,23 @@ jobs:
       - name: Check the newest against the budget
         run: |
           python3 -I scripts/ci/nightly_speed.py check --state "$RUNNER_TEMP/speed-state.json" \
-            --json "$RUNNER_TEMP/speed-check.json" --md "$RUNNER_TEMP/speed-check.md"
+            --json "$RUNNER_TEMP/speed-check.json" --md "$RUNNER_TEMP/speed-check.md" \
+            --pr-json "$RUNNER_TEMP/nightly-pr-attribution.json"
           # This repository is public: the summary gets the verdict and the budget line; hosts and diffs go to the issue.
           head -n 3 "$RUNNER_TEMP/speed-check.md" >> "$GITHUB_STEP_SUMMARY"
+
+      # The per-PR merge-to-NIGHTLY rows outlive the runner here: the issue keeps only their summary. The file is
+      # pr_stream's PR-only document (PR, merge sha and time, first feed head and time, minutes, reason, the observed
+      # window); this repository is public, so speed-check.json (hosts, runners, diffs) is never uploaded.
+      - name: Upload the per-PR attribution
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-pr-attribution
+          path: ${{ runner.temp }}/nightly-pr-attribution.json
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Update the speed issue in cmuxterm-hq
         if: steps.hq-token.outputs.token != ''
