@@ -136,6 +136,7 @@ pub(super) async fn catch_up(
                         update_line: Default::default(),
                         row: Default::default(),
                         list_seq: 0,
+                        peer_batch: false,
                     },
                 );
             }
