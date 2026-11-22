@@ -27,6 +27,8 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.history"),
             GroupSpec(group: "settings.group.workspaceHibernation"),
             GroupSpec(group: "settings.group.autoArchive"),
+            // Machine cleanup: agent worktrees and build caches on this Mac (acpmux hub/worktree_care.rs).
+            GroupSpec(group: "settings.group.storage"),
             GroupSpec(group: "settings.group.picker"),
             GroupSpec(group: "settings.group.tasks"),
             GroupSpec(group: "settings.group.announcements"),
@@ -79,7 +81,7 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.sidebar"),
             // The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf) is claimed here so the Sidebar card stays under it too.
             GroupSpec(keys: ["sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient", "sidebar.floatOnHover"], title: SettingsText.keyed("settings.pageGroup.sidebarLayout", "Sidebar Layout")),
-            GroupSpec(keys: ["workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree", "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.settleFinished", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"], title: SettingsText.keyed("settings.pageGroup.sidebarWorkspaces", "Sidebar Workspaces")),
+            GroupSpec(keys: ["workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree", "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.settleFinished", "sidebar.showAutomaticSessions", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"], title: SettingsText.keyed("settings.pageGroup.sidebarWorkspaces", "Sidebar Workspaces")),
             GroupSpec(group: "settings.group.workspaceRows"),
             GroupSpec(keys: ["sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps", "home.channelsEnabled"], title: SettingsText.keyed("settings.pageGroup.sidebarExtras", "Sidebar Buttons and Spaces")),
             GroupSpec(keys: ["sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting", "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.hoverCards.maxRows"], title: SettingsText.keyed("settings.pageGroup.workspaceCards", "Workspace Hover Cards")),
