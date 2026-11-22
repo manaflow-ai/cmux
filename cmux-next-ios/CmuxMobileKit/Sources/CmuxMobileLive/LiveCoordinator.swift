@@ -330,10 +330,20 @@ public final class LiveCoordinator {
                 }
                 guard let owner else { return UnboundAgentSource(summary: unbound, start: nil) }
                 let named = unbound
-                return UnboundAgentSource(summary: unbound, start: { [weak self, weak owner] in
+                // Typed apart: inline, this closure and the ternary below stalled the type checker.
+                let start: @MainActor () async throws -> any AgentSessionSource = { [weak self, weak owner] in
                     guard let self, let owner else { throw WorkspaceCreationError("Not connected") }
-                    return try await self.firstSendSource(owner, summary: named, key: key, claim: true)
-                }, nameAgent: unbound.harness == "agent" ? { [weak owner] in await owner?.creation.readDefaultAgent() } : nil)
+                    let source: AcpmuxSessionSource = try await self.firstSendSource(owner, summary: named, key: key, claim: true)
+                    return source
+                }
+                var nameAgent: (@MainActor () async -> AgentHarnessChoice?)?
+                if unbound.harness == "agent" {
+                    nameAgent = { [weak owner] () async -> AgentHarnessChoice? in
+                        guard let owner else { return nil }
+                        return await owner.creation.readDefaultAgent()
+                    }
+                }
+                return UnboundAgentSource(summary: unbound, start: start, nameAgent: nameAgent)
             }
             return self.agentSource(owner, session: session, summary: scoped)
         }
