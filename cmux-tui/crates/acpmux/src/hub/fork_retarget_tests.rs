@@ -498,6 +498,18 @@ async fn a_transcript_fork_and_its_fork_run_the_chats_model() {
         let before = replies(&hub, &fork).len();
         let ask = vec![json!({"type":"text", "text": "picked-model"})];
         hub.prompt(&fork, ask, "test", false).await.unwrap();
+        eprintln!(
+            "FHDIAG {step} fork sid {:?} parent sid {:?} calls {}",
+            fork.meta().agent_session_id,
+            chat.meta().agent_session_id,
+            std::fs::read_to_string(&calls).unwrap_or_default()
+        );
+        for e in hub.events(&fork.id, 0, 10_000).unwrap().iter() {
+            if e.kind != "agent_message_chunk" {
+                let m = e.msg.to_string();
+                eprintln!("FHDIAG {step} ev {} {}", e.kind, &m[..m.len().min(300)]);
+            }
+        }
         assert_eq!(&replies(&hub, &fork)[before..], "claude-opus-5-5", "{step}");
         chat = fork;
     }
@@ -556,11 +568,19 @@ async fn a_switch_keeps_the_chats_permission_mode() {
         .unwrap();
     assert_eq!(fork.meta().harness, "lister");
     let mode = crate::web_modes::mode_of(&fork.meta());
-    eprintln!(
-        "FHDIAG fork mode {mode:?}; full access allowed {}; a new chat's mode {:?}",
-        hub.full_access_allowed(),
-        Box::pin(hub.start_mode(&fork)).await
-    );
     assert_ne!(mode.as_deref(), Some("bypassPermissions"), "a fork of an asking chat");
+    // Nor did its start try that mode (a refused try is only recorded on the fork).
+    let tried: Vec<Value> = hub
+        .events(&fork.id, 0, 10_000)
+        .unwrap()
+        .iter()
+        .filter(|e| e.kind == "mode" || e.kind == "start_default_skipped")
+        .map(|e| e.msg.clone())
+        .collect();
+    eprintln!("FHDIAG fork mode {mode:?}; mode events {tried:?}");
+    assert!(
+        !tried.iter().any(|m| m["modeId"] == "bypassPermissions"),
+        "a fork of an asking chat tried full access: {tried:?}"
+    );
     hub.shutdown_all().await;
 }
