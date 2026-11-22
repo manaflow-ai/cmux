@@ -768,6 +768,7 @@ test("a surface over the composer keeps only the page's glass: the App draws non
   let asked = 0;
   const paint = window.requestAnimationFrame;
   window.requestAnimationFrame = (callback) => ((asked += 1), paint(callback));
+  // fixed-wait: proves an absence (no frame is asked for), so no event marks the end; 100 ms spans several frames.
   await new Promise((resolve) => setTimeout(resolve, 100));
   expect(asked).toBe(0);
   window.requestAnimationFrame = paint;
