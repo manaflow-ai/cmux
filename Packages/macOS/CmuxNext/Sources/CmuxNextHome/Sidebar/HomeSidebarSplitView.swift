@@ -75,7 +75,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     public required init?(coder: NSCoder) { nil }
 
     /// Whether the conversation list shows beside the chat (the Chats button): kept on this Mac
-    /// (``HomeSidebarWidth/listShown``); off by default, so the Chief's chat fills the page.
+    /// (``HomeSidebarWidth/listShown``); on by default, beside the Chief's chat (#48467).
     public var showsList: Bool {
         get { widths.listShown }
         set {

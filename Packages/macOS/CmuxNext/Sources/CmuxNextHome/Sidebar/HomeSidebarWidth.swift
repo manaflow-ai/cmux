@@ -53,11 +53,13 @@ public struct HomeSidebarWidth: Sendable {
     /// the Chief replaces Home (the person, 2026-11-20), so its chat fills the page by default. One choice on this Mac,
     /// not per window, so a new window opens the way the person last left it.
     public var listShown: Bool {
-        get { defaults.bool(forKey: Self.listShownKey) }
+        get { defaults.object(forKey: Self.listShownKey) as? Bool ?? true }
         nonmutating set { defaults.set(newValue, forKey: Self.listShownKey) }
     }
 
-    static let listShownKey = "cmux.home.chatListShown"
+    /// Shown unless set (#48467: the conversation list beside the Chief's chat, as before f061b0e72c). A
+    /// new key, so a list folded with the old Chats button, which is gone now, shows again.
+    static let listShownKey = "cmux.home.chatListShown.2"
 
     private static func key(_ window: String) -> String { "cmux.home.sidebarWidth.\(window)" }
 }

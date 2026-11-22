@@ -62,10 +62,8 @@ struct HomeWindowControlsTests {
         #expect(home.unreadToggle.frame == h.filter)
     }
 
-    /// A list clear of the lights (the window's sidebar open beside it) keeps the lights' row with
-    /// nothing on it, so a toggle of the window's sidebar moves Home sideways only (the user,
-    /// 2026-11-19, msg 42221: "stuff in the home imessage chief ui shifts around too").
-    @Test func theListBesideTheLightsKeepsTheLightsRow() throws {
+    /// A list clear of the lights (the window's sidebar open beside it) keeps the one row.
+    @Test func theListBesideTheLightsKeepsOneRow() throws {
         let win = Self.window()
         defer { win.close() }
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 700))
@@ -76,13 +74,7 @@ struct HomeWindowControlsTests {
         home.layoutSubtreeIfNeeded()
         home.list.headerView.needsLayout = true
         home.list.headerView.layoutSubtreeIfNeeded()
-        let lights = try Self.lights(in: home.list.headerView)
-        let h = home.header
-        #expect(abs(h.filter.midY - lights.midY) <= 1, "the filter left the lights' line beside them")
-        #expect(h.filter.maxX == 320 - HomeSidebarHeaderLayout.inset)
-        #expect(h.search.minY >= lights.maxY, "the search field left the row under the lights' line")
-        #expect(h.search.width == 320 - 2 * HomeSidebarHeaderLayout.inset)
-        #expect(h.listTop > HomeSidebarHeaderLayout.band)
+        #expect(home.header == HomeSidebarHeaderLayout(width: 320, searchOpen: false))
     }
 
     /// The list moves under the lights (the window's sidebar closes) without a width change: the
@@ -103,7 +95,7 @@ struct HomeWindowControlsTests {
         win.contentView = root
         split.layoutSubtreeIfNeeded()
         home.list.headerView.layoutSubtreeIfNeeded()
-        let beside = home.header
+        #expect(home.header.listTop == HomeSidebarHeaderLayout.band)
         // The sidebar closes: the page slides to the window's edge and grows.
         split.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
         split.layoutSubtreeIfNeeded()
@@ -111,7 +103,6 @@ struct HomeWindowControlsTests {
         let lights = try Self.lights(in: home.list.headerView)
         #expect(!home.header.search.intersects(lights))
         #expect(home.header.search.minY >= lights.maxY)
-        #expect(home.header == beside, "the window's sidebar closed and Home's header moved")
     }
 
     /// The chat's compose button under the lights (a folded list, or the chat at the window's

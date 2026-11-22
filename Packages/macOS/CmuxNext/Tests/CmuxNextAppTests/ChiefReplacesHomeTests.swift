@@ -59,10 +59,10 @@ struct ChiefReplacesHomeTests {
         #expect(placed == ["itm_home"] + rows.map(\.item.id.rawValue) + ["itm_app_store"], "placed: \(placed)")
     }
 
-    /// Opening the Chief shows its chat at the full width: with several conversations, the list is folded until
-    /// the person shows it, and the chat takes the whole page.
+    /// The Chief's chat opens with the conversation list beside it at its width, as before the Chats button
+    /// (#48467: the user asked for Messages' two columns back), in light and dark.
     @Test(arguments: [false, true])
-    func theChiefChatFillsThePage(dark: Bool) throws {
+    func theChiefChatHasTheListBesideIt(dark: Bool) throws {
         _ = NSApplication.shared
         let suite = "cmux.tests.chiefReplacesHome.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(testSuiteName: suite))
@@ -78,41 +78,32 @@ struct ChiefReplacesHomeTests {
         defer { window.close() }
         window.contentView = split
         split.layoutSubtreeIfNeeded()
-        #expect(split.sidebarWidth == 0, "a \(split.sidebarWidth) pt conversation list sits beside the Chief by default")
-        #expect(abs(split.transcriptWidth - 1100) < 1, "the Chief's chat is \(split.transcriptWidth) pt of a 1100 pt page")
+        #expect(split.showsList)
+        #expect(abs(split.sidebarWidth - HomeSidebarWidth.standard) < 1, "the list beside the Chief is \(split.sidebarWidth) pt")
     }
 
-    /// Chats shows the list at its width beside the Chief and folds it again; the choice is kept on this Mac, so
-    /// a new page opens the way the person left it, and the button is lit while the list shows.
-    @Test func chatsShowsAndFoldsTheList() throws {
+    /// The chat's top-left has compose alone, where Messages draws it: no Chats button, and a list folded with
+    /// the old button (its old key) shows again.
+    @Test func composeAloneAtTheChatTopLeft() throws {
         _ = NSApplication.shared
-        let suite = "cmux.tests.chiefReplacesHome.chats.\(UUID().uuidString)"
+        let suite = "cmux.tests.chiefReplacesHome.compose.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        func page() -> (HomeSidebarSplitView, NSWindow) {
-            let list = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
-            list.update(HomeLoneChiefRailTests.model(chiefs: 3))
-            let split = HomeSidebarSplitView(sidebar: list, content: NSView(), widths: HomeSidebarWidth(defaults: defaults))
-            split.windowKey = { "chats" }
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 600), styleMask: [.borderless],
-                                  backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            window.contentView = split
-            split.layoutSubtreeIfNeeded()
-            return (split, window)
-        }
-        let (split, window) = page()
+        defaults.set(false, forKey: "cmux.home.chatListShown")
+        let list = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
+        list.update(HomeLoneChiefRailTests.model(chiefs: 3))
+        let split = HomeSidebarSplitView(sidebar: list, content: NSView(), widths: HomeSidebarWidth(defaults: defaults))
+        split.windowKey = { "compose" }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         defer { window.close() }
-        #expect(!split.showsList && !split.chatColumn.chats.isOn)
-        split.chatColumn.chats.performClick(nil)
-        #expect(split.showsList && split.chatColumn.chats.isOn, "Chats did not show the list")
-        #expect(abs(split.sidebarWidth - HomeSidebarWidth.standard) < 1, "the shown list is \(split.sidebarWidth) pt")
-        let (again, other) = page()
-        defer { other.close() }
-        #expect(again.showsList && abs(again.sidebarWidth - HomeSidebarWidth.standard) < 1, "a new page forgot the shown list")
-        split.chatColumn.chats.performClick(nil)
-        #expect(!split.showsList && split.sidebarWidth == 0, "Chats did not fold the list (\(split.sidebarWidth) pt)")
-        #expect(abs(split.transcriptWidth - 1100) < 1)
+        window.contentView = split
+        split.chatColumn.showsCompose = true
+        split.layoutSubtreeIfNeeded()
+        #expect(split.showsList, "a list folded with the old Chats button stayed folded")
+        #expect(split.chatColumn.chats.isHidden, "the Chats button still shows")
+        #expect(split.chatColumn.compose.frame.minX == HomeChatColumnView.composeInset, "compose left its top-left inset")
     }
 
     /// A click on the top row (the Home item, app or built-in) opens the Chief's chat, as the Chief item does, and
