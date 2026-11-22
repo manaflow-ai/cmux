@@ -6,7 +6,7 @@ import Testing
 #if os(iOS)
 import CmuxMobileAgentChat
 
-/// Leo, 2026-11-21: "i lost connection with cosmic gray or some shit refreshed or the connection fucking
+/// Leo, 2026-11-21: "i lost connection with cosmic gray or some s*** refreshed or the connection f***ing
 /// lagged and then it brought me out of the terminal tab and into a browser tab". A disconnect, a resync
 /// that publishes the workspace without the tab on screen, and a reconnect leave the person on their tab.
 @MainActor @Suite(.serialized) struct StickyTabSelectionTests {

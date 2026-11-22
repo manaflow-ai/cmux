@@ -2330,15 +2330,15 @@ def census_runners(document: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 
 
 def runner_state(repository: str, *, raw: str | None = None,
-                 now: dt.datetime | None = None) -> Mapping[str, Any] | None:
+                 now: dt.datetime | None = None,
+                 max_age_seconds: float = RUNNER_STATE_MAX_AGE_SECONDS) -> Mapping[str, Any] | None:
     """A complete, fresh registration census, or None to retain the live API path.
 
     The variable contains gzip/base64 JSON. Never accept desired manifest labels,
     arbitrary scopes, partial pages or a timestamp refreshed after a source error.
     A workflow's input is not a document source: callers use repository context.
     """
-    return _runner_state_document(repository, raw=raw, now=now,
-                                  max_age_seconds=RUNNER_STATE_MAX_AGE_SECONDS)
+    return _runner_state_document(repository, raw=raw, now=now, max_age_seconds=max_age_seconds)
 
 
 def _runner_state_document(repository: str, *, max_age_seconds: float,
