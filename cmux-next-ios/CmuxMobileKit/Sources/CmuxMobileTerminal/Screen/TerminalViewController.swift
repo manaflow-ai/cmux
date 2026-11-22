@@ -437,6 +437,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let base = theme.backgroundColor
         view.backgroundColor = base
         overrideUserInterfaceStyle = theme.interfaceStyle
+        composerHost?.overrideUserInterfaceStyle = theme.interfaceStyle
         bottomBacking.backgroundColor = base
         tuiBelowCover.backgroundColor = base
         bottomFade.gradient.colors = [base.withAlphaComponent(0).cgColor, base.cgColor]
@@ -521,7 +522,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // composer (in light mode inside a workspace they drew light glass
         // over the black grid).
         keyBar.overrideUserInterfaceStyle = .dark
-        composer.overrideUserInterfaceStyle = .dark
+        // The composer fills with the terminal theme's background (Leo,
+        // 2026-11-22: "dont draw unnecessary attention by making it light"),
+        // so its text and hairline take the theme's look, light or dark.
+        composer.overrideUserInterfaceStyle = terminalInterfaceStyle
         jumpRow.overrideUserInterfaceStyle = .dark
         composer.sizingOptions = [.intrinsicContentSize]
         jumpRow.sizingOptions = [.intrinsicContentSize]
@@ -2262,7 +2266,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         case .scrollbar(let total, let offset, let visible):
             measured("scrollbar") { scrollbarReported(total: total, offset: offset, visible: visible) }
         case .cellSize:
-            view.setNeedsLayout()
+            // Ghostty reports its cell size on every font grid it builds: the
+            // zoom's `set_font_size` and again for the theme update queued
+            // after it (`applyFontSize`), at the same size. Only a new size
+            // lays out, and at once: the surface's frame takes the new rows in
+            // the same turn as Ghostty's new cells, not on a later pass after
+            // a frame drawn at the old frame. The first size (the surface is
+            // created, maybe inside a layout) waits for the next pass.
+            if surface.cellSize != cell {
+                view.setNeedsLayout()
+                if cell.height > 0 { view.layoutIfNeeded() }
+            }
             if model.isTUI { finder.rowsReplaced() }
         case .bell:
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -2507,7 +2521,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         #endif
         let measured = surface.cellSize
-        if measured.height > 0 { cell = measured }
+        if measured.height > 0, measured != cell {
+            let previous = cell
+            cell = measured
+            if previous.height > 0 { cellSizeChanged(from: previous) }
+        }
         let cellHeight = cell.height > 0 ? cell.height : 16
         // The screen plus a margin above and below the visible rows
         // (TerminalMirrorRows). The rows depend on the screen, not on this
@@ -2607,6 +2625,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             }
         }
         applyHostGridNote()
+    }
+
+    /// The font size changed (the key row's zoom keys, Settings): in this
+    /// layout pass, before the scroll target is read, the document takes the
+    /// new row height and a reader keeps the first row they see. Left to the
+    /// next scrollbar report, the page's bottom was the old row height's for
+    /// a frame or more (the last rows under the composer after a zoom in,
+    /// a gap above it after a zoom out), then jumped.
+    private func cellSizeChanged(from previous: CGSize) {
+        guard !model.isTUI, previous.height != cell.height else { return }
+        scroll.rowHeightChanged(from: previous.height, to: cell.height, topInset: scrollView.contentInset.top)
+        if let document { setContentHeight(document.contentHeight(cellHeight: cell.height)) }
+        // Ghostty rewraps at the new columns: the next update measures the rows again.
+        outputSinceProbe = true
     }
 
     private var maxOffsetY: CGFloat {
@@ -4231,7 +4263,9 @@ public enum TerminalChrome: Sendable {
 /// rows differ. The phone's claim stays its own grid (`measuredGrid`).
 extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
     var hostLayout: TerminalHostGridLayout {
-        let remoteColumns = appliedHostColumns ?? model.session.remoteColumns
+        let remoteColumns = TerminalHostGridLayout.followedHostColumns(
+            remoteColumns: appliedHostColumns ?? model.session.remoteColumns,
+            gridIsPhonesOwn: hostGridIsPhonesOwn, alternateScreen: model.isTUI)
         return TerminalHostGridLayout(viewportWidth: view.bounds.width - 2 * Self.sidePadding, cell: cell,
                                       scale: view.window?.screen.scale ?? surface.renderScale, hostColumns: remoteColumns,
                                       hostRows: remoteColumns == nil ? nil : appliedHostRows ?? model.session.remoteRows,
