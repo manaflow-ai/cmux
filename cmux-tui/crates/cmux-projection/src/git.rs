@@ -674,7 +674,11 @@ impl Worktree {
         write_if_changed(&admin.join("commondir"), b"../..\n")?;
         let gitdir = format!("{}\n", at.join(".git").display());
         write_if_changed(&admin.join("gitdir"), gitdir.as_bytes())?;
-        write_if_changed(&admin.join("HEAD"), format!("{commit}\n").as_bytes())?;
+        // A worktree registered on a branch at `commit` (`git worktree add -b`, as `wt new` does)
+        // keeps its branch; any other HEAD becomes `commit`, detached.
+        if !branch_at(git_dir, &admin.join("HEAD"), commit) {
+            write_if_changed(&admin.join("HEAD"), format!("{commit}\n").as_bytes())?;
+        }
         write_if_changed(&admin.join("locked"), b"a cmux-projection mount\n")?;
         let exclude = admin.join("projection-exclude");
         let mut text = String::new();
@@ -716,6 +720,15 @@ impl Worktree {
     pub fn gitfile(admin: &Path) -> String {
         format!("gitdir: {}\n", admin.display())
     }
+}
+
+/// Whether the `HEAD` file `head` names a branch whose tip is `commit`.
+fn branch_at(git_dir: &Path, head: &Path, commit: &str) -> bool {
+    let Ok(text) = std::fs::read_to_string(head) else { return false };
+    let Some(branch) = text.trim().strip_prefix("ref: ") else { return false };
+    let mut command = git(git_dir);
+    command.args(["rev-parse", "--verify", "--quiet"]).arg(format!("{branch}^{{commit}}"));
+    output(command).is_ok_and(|out| out.trim_ascii() == commit.as_bytes())
 }
 
 /// Writes `bytes` to `file` (through a temporary file) unless it already holds them, so its mtime
