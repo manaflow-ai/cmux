@@ -515,6 +515,9 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::MoveTargetsParams>("_acpmux/move_targets", Request),
         untyped("_acpmux/place_chat", Request),
         untyped("_acpmux/place_chat_event", Request),
+        untyped("_acpmux/place_chat_settled", Request),
+        // Auto chat placement asks the app to run a move (`hub/chat_place_bus.rs`).
+        untyped("chatPlace/move", Notification),
         untyped("_acpmux/peer_add", Request),
         untyped("_acpmux/peer_lease", Request),
         keyed::<params::PeerReconnectParams>("_acpmux/peer_reconnect", Request),
