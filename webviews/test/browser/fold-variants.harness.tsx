@@ -23,6 +23,7 @@ import {
 import { TURN_FOLD_GHOST } from "../../src/agent-session/acpmux/conversation/turnFold";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import { fuzzScenario } from "./fold-fuzz.scenario";
+import { defineTranscriptMotion, TRANSCRIPT_MOTION } from "../support/transcriptMotion";
 import { runSimulationAsync } from "../../src/agent-session/acpmux/sim/run";
 import { parseRecords } from "../../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, sim, type SimScenario, SIM_START } from "../../src/agent-session/acpmux/sim/script";
@@ -373,6 +374,7 @@ async function run(
       }
       if (index === sampleFrom && !sampling) {
         sampling = true;
+        window.__transcriptMotion!.start();
         requestAnimationFrame(tick);
       }
       flushSync(() => show({ rows, working: state.working, sends, look, ...options }));
@@ -388,7 +390,11 @@ async function run(
                 ? 0
                 : scroller.scrollHeight;
       }
-      if (sampling) marks.push({ step: index, t: performance.now(), label: step.label });
+      if (sampling) {
+        marks.push({ step: index, t: performance.now(), label: step.label });
+        // The reader's scroll is input: the detector takes it out of the rows' moves.
+        window.__transcriptMotion!.mark(step.type === "reader" ? `input:${step.label}` : step.label);
+      }
       if (index < fastUntil) {
         // fixed-wait: a yield to the event loop while fast-forwarding, so the page stays responsive.
         if (index % 50 === 0) await sleep(0);
@@ -405,11 +411,21 @@ async function run(
   // fixed-wait: the frames after the turn's end are the fold being recorded, for a set time.
   await sleep(tailMs);
   sampling = false;
+  const motion = window.__transcriptMotion!.stop();
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
   const view = scroller?.clientHeight ?? 0;
   // The scroll-anchoring arm in force: the browser's own (`overflow-anchor`) or the transcript's alone.
   const overflowAnchor = scroller ? getComputedStyle(scroller).overflowAnchor : "";
-  const result = { look, samples, marks, startedAt: performance.timeOrigin, view, overflowAnchor, foldAt: lastEnd };
+  const result = {
+    look,
+    samples,
+    marks,
+    startedAt: performance.timeOrigin,
+    view,
+    overflowAnchor,
+    foldAt: lastEnd,
+    motion,
+  };
   marks = [];
   return result;
 }
@@ -424,6 +440,7 @@ Object.assign(root.style, {
   flexDirection: "column",
 });
 createRoot(root).render(<Pane />);
+defineTranscriptMotion(TRANSCRIPT_MOTION);
 /// Resizes the pane in place (the fold fuzzer reuses one page across seeds and split sizes).
 function size(width: number, height: number) {
   Object.assign(root.style, { width: `${width}px`, height: `${height}px` });

@@ -4,6 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { fuzzScenario, fuzzSpec, rng, SPLITS } from "./browser/fold-fuzz.scenario";
 import { analyze, driftThreshold, type FuzzRun } from "../scripts/fold-fuzz";
+import { onHouseCurve, stepClass, transcriptMoves, type Box, type MotionRecord } from "./support/transcriptMotion";
 
 describe("fold fuzz generator", () => {
   test("a seed always draws the same chat", () => {
@@ -49,13 +50,129 @@ describe("fold fuzz generator", () => {
       const steers = scenario.steps.filter(
         (step) => step.label.startsWith("steer:") || step.label.startsWith("prompt: steer"),
       );
-      expect(steers.length).toBe(spec.steers.length);
-      const late = spec.steers.filter((at) => at !== "early").length;
+      // hq#18554's multi-line steer is one more.
+      const sentSteer = spec.axes.send?.at === "steer" ? 1 : 0;
+      expect(steers.length).toBe(spec.steers.length + sentSteer);
+      const late = spec.steers.filter((at) => at !== "early").length + sentSteer;
       const inWindow = scenario.steps
         .slice(windowFrom)
         .filter((step) => step.label.startsWith("steer:") || step.label.startsWith("prompt: steer")).length;
       expect(inWindow).toBeGreaterThanOrEqual(late);
     }
+  });
+});
+
+describe("hq#18554 axes", () => {
+  const specs = Array.from({ length: 500 }, (_, i) => fuzzSpec(i + 1));
+  test("500 seeds cover every send size with and without images, every tail, notice, load and width", () => {
+    for (const lines of [1, 5, 30, 300])
+      for (const attach of [true, false])
+        for (const at of ["next", "steer"])
+          expect(
+            specs.some((s) => s.axes.send?.lines === lines && s.axes.send.attach === attach && s.axes.send.at === at),
+          ).toBe(true);
+    for (const tail of ["plain", "compaction", "queued"]) expect(specs.some((s) => s.axes.tail === tail)).toBe(true);
+    for (const notice of ["none", "notice-turn", "land-send"])
+      expect(specs.some((s) => s.axes.notice === notice)).toBe(true);
+    expect(specs.some((s) => s.axes.tailTools > 0) && specs.some((s) => s.axes.background)).toBe(true);
+    expect(specs.some((s) => s.axes.load > 1) && specs.some((s) => s.axes.load === 1)).toBe(true);
+    expect(specs.some((s) => s.split === "wide") && specs.some((s) => s.split === "third")).toBe(true);
+  });
+
+  test("each axis lands in the chat where it says", () => {
+    for (let seed = 1; seed <= 200; seed += 1) {
+      const { scenario, foldAt, spec } = fuzzScenario(seed);
+      const labels = scenario.steps.map((step) => step.label);
+      const after = labels.slice(foldAt + 1);
+      if (spec.axes.notice === "land-send")
+        expect(after.some((l) => l.startsWith("tool start: acpmux send"))).toBe(true);
+      if (spec.axes.notice !== "none") expect(after.some((l) => l.startsWith("incoming notice"))).toBe(true);
+      if (spec.axes.tail === "queued") expect(after.some((l) => l.startsWith("prompt: queued"))).toBe(true);
+      if (spec.axes.tail === "compaction")
+        expect(labels.slice(0, foldAt).some((l) => l.startsWith("compaction"))).toBe(true);
+      if (spec.axes.send?.at === "next") expect(after.some((l) => l.startsWith("prompt: line 1 of"))).toBe(true);
+      const tail = labels.slice(0, foldAt).filter((l) => l.includes("# tail")).length;
+      expect(tail).toBe(spec.axes.tailTools);
+    }
+  });
+});
+
+describe("the transcript motion detector", () => {
+  const frame = (
+    t: number,
+    els: MotionRecord["frames"][number]["els"],
+    extra: Partial<MotionRecord["frames"][number]> = {},
+  ): MotionRecord["frames"][number] => ({
+    t,
+    scrollTop: 0,
+    scrollHeight: 1000,
+    clientHeight: 600,
+    els,
+    touched: [],
+    animated: [],
+    marks: [],
+    ...extra,
+  });
+  const row = (y: number, h = 40): [Box, string] => [[0, y, 600, h], "row"];
+
+  test("an untouched row that jumps is a move; one under a touched row that grew names it as the cause", () => {
+    const record: MotionRecord = {
+      frames: [
+        frame(0, { "row:a": row(100), "row:b": row(140) }),
+        frame(16, { "row:a": row(100, 70), "row:b": row(170) }, { touched: ["row:a"], marks: ["tool start: x"] }),
+      ],
+      animations: [],
+      inputs: [],
+    };
+    const flags = transcriptMoves(record);
+    expect(flags.map((f) => [f.kind, f.key, f.px])).toEqual([["move", "row:b", 30]]);
+    expect(flags[0]!.cause).toEqual(["row:a +30"]);
+    expect(stepClass(flags[0]!)).toBe("tool");
+  });
+
+  test("1 px is rounding; a touched row may change; an animated row is judged by its curve", () => {
+    const record: MotionRecord = {
+      frames: [
+        frame(0, { "row:a": row(100), "row:b": row(140), "row:c": row(200) }),
+        frame(
+          16,
+          { "row:a": row(101), "row:b": row(140, 90), "row:c": row(150) },
+          { touched: ["row:b"], animated: ["row:c"] },
+        ),
+      ],
+      animations: [
+        {
+          target: "row:c",
+          properties: ["translate"],
+          duration: 180,
+          easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+          frame: 1,
+        },
+        { target: "div.acpmux-thread", properties: ["height"], duration: 400, easing: "linear", frame: 1 },
+      ],
+      inputs: [],
+    };
+    const flags = transcriptMoves(record);
+    expect(flags.map((f) => [f.kind, f.key])).toEqual([["off-curve", "div.acpmux-thread"]]);
+    expect(onHouseCurve({ easing: "ease-out", duration: 120 })).toBe(true);
+    expect(onHouseCurve({ easing: "cubic-bezier(0.16,1,0.3,1)", duration: 480 })).toBe(false);
+  });
+
+  test("the reader's own scroll moves the rows and nothing is flagged; the dock moving with it is", () => {
+    const record: MotionRecord = {
+      frames: [
+        frame(0, { "row:a": row(300), dock: [[0, 560, 600, 80], "dock"] }, { scrollTop: 400 }),
+        frame(16, { "row:a": row(400), dock: [[0, 540, 600, 100], "dock"] }, { scrollTop: 300 }),
+      ],
+      animations: [],
+      inputs: [10],
+    };
+    expect(transcriptMoves(record).map((f) => [f.kind, f.key])).toEqual([
+      ["move", "dock"],
+      ["resize", "dock"],
+    ]);
+    // The same scroll with no input is the page's: every row it moved is a move.
+    expect(transcriptMoves({ ...record, inputs: [] }).filter((f) => f.key === "row:a").length).toBe(1);
   });
 });
 
