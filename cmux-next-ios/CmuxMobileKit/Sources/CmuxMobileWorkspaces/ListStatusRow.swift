@@ -19,6 +19,7 @@ public struct ListStatusRow: View {
     }
 
     let state: State
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(_ state: State) { self.state = state }
 
@@ -47,7 +48,7 @@ public struct ListStatusRow: View {
         .frame(maxWidth: .infinity)
         .listRowBackground(Color.clear)
         .accessibilityElement(children: .combine)
-        .animation(.easeInOut(duration: 0.2), value: state)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: state)
     }
 }
 public extension ListStatusRow.State {
