@@ -223,10 +223,13 @@ def build_packages(root, entries, dry_run, timing):
              for step in ((["swift", "build", "--build-tests", "--package-path", package], ".", package),
                           (["swift", "test", "--skip-build", "--list-tests", "--package-path", package], ".",
                            f"{package} test plan"))]
-    cargo = []
-    for path in dict.fromkeys(e["path"] for e in entries if e["kind"] == "cargo"):
-        packages = [arg for e in entries if e["kind"] == "cargo" and e["path"] == path for arg in ("-p", e["package"])]
-        cargo.append((["cargo", "test", "--locked", "--no-run", *packages], path, path))
+    # One build per cargo package, the same `-p` its entry runs with: one build of
+    # `-p cmux-tui-core -p cmux-layout-reducer` unifies the two packages' dependency
+    # features, so the reducer entry's own `cargo test -p cmux-layout-reducer`
+    # rebuilt libc, serde_json and proptest inside its 60 s cap (57.6 s of build,
+    # then a timeout: job 137088937648 on cmux-runner-pool).
+    cargo = [(["cargo", "test", "--locked", "--no-run", "-p", package], path, f"{path} {package}")
+             for path, package in dict.fromkeys((e["path"], e["package"]) for e in entries if e["kind"] == "cargo")]
     builds = swift + cargo
     if dry_run:
         for argv, cwd, what in builds:
