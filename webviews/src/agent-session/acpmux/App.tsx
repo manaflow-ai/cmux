@@ -378,6 +378,7 @@ import {
   showSubagent as showSubagentIn,
   revealedSubagent,
   subagentTabTitle,
+  paneHeading,
   useAutoOpenSubagents,
   useOpenNewSubagents,
   subagentRowMark,
@@ -5787,6 +5788,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     : undefined;
   const shownSubagentTitle =
     ownSubagentPane && subagentView && shownAgent ? subagentTabTitle(shownAgent, t("tray.kind.subagent")) : undefined;
+  // A subagent's own pane heads with the subagent, not its chat's title and summary (paneHeading).
+  const heading = paneHeading(
+    ownSubagentPane && subagentView ? (shownSubagentTitle ?? t("tray.kind.subagent")) : undefined,
+    { title: chatName, summary: snapshot.summary?.rollingSummary },
+  );
   const shownFacts = useMemo(
     () => (shownAgent ? shownSubagentFacts(shownAgent, snapshot.clockOffsetMs ?? 0) : undefined),
     [shownAgent, snapshot.clockOffsetMs],
@@ -14335,9 +14341,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   <ChatHeaderStatus status={header.status} detail={header.detail}>
                     {!inTabRow && !showNewTab && snapshot.sessionId && (
                       <span className="acpmux-header-status-content">
-                        <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
+                        <ThreadTitle
+                          key={snapshot.sessionId}
+                          title={heading.title}
+                          onRename={heading.renamable ? renameFromTitle : undefined}
+                        />
                         {/* Where the chat stands and its next action (header/ChatSummaryLine.tsx). */}
-                        <ChatSummaryLine summary={snapshot.summary?.rollingSummary} />
+                        <ChatSummaryLine summary={heading.summary} />
                       </span>
                     )}
                   </ChatHeaderStatus>
@@ -14366,7 +14376,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     {inTabRow && (
                       <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
                         {!showNewTab && snapshot.sessionId ? (
-                          <ChatSummaryLine summary={snapshot.summary?.rollingSummary} inline />
+                          <ChatSummaryLine summary={heading.summary} inline />
                         ) : undefined}
                       </ChatHeaderInlineStatus>
                     )}

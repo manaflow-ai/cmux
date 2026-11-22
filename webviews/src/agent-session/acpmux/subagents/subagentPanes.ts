@@ -80,6 +80,18 @@ export function subagentTabTitle(agent: Pick<Subagent, "id" | "name" | "task"> |
   return task || fallback;
 }
 
+/// What a pane's header names: in a subagent's own pane, that subagent (its tab title, no rename and
+/// no summary), never the chat it came from; else the chat, renamable, with its rolling summary.
+/// Leo, 2026-11-22: "i notice there's differing layouts among it and normal chats. like the metadata
+/// about provenance or whatever like subagent of something. we shouldn't have those."
+export function paneHeading(
+  subagentTitle: string | undefined,
+  chat: { title: string; summary?: string },
+): { title: string; summary?: string; renamable: boolean } {
+  if (subagentTitle !== undefined) return { title: subagentTitle, renamable: false };
+  return { title: chat.title, summary: chat.summary, renamable: true };
+}
+
 /// The harness whose mark subagent `agent`'s row draws (SubagentDoneLine.tsx, the tray: AgentIdentity
 /// with `foreignHarness`), or undefined for the subagent mark (`task.ai`). Its pane's tab draws the
 /// same (`chat.subagentPane` / `chat.subagentShown` `mark`; SubagentTabTitles.swift `icon(ofTab:)`).
