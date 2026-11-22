@@ -102,33 +102,31 @@ def main():
                 print(f"review detail: fill {sorted(fill)}")
                 do("PATCH", f"/v1/appStoreReviewDetails/{rd['id']}", {"data": {"type": "appStoreReviewDetails", "id": rd["id"], "attributes": fill}})
 
-    # G. availability mirrored from the public record
+    # G. availability mirrored from the public record (every territory listed, CHN etc. as unavailable)
     if not (get(f"/v1/apps/{APP}/appAvailabilityV2") or {}).get("data"):
         ta = get_all(f"/v2/appAvailabilities/{REF}/territoryAvailabilities?limit=200&include=territory")
-        # territory ids come from the relationship
-        terr = []
+        flags = {}
         for x in ta:
-            if x["attributes"].get("available"):
-                t = ((x.get("relationships") or {}).get("territory") or {}).get("data")
-                if not t:
-                    t = (get(f"/v1/territoryAvailabilities/{x['id']}/territory") or {}).get("data")
-                if t:
-                    terr.append(t["id"])
-        missing = [((x.get("relationships") or {}).get("territory") or {}).get("data", {}).get("id") for x in ta if not x["attributes"].get("available")]
-        print(f"availability: {len(terr)} territories available (public record excludes {missing})")
-        if terr:
+            t = ((x.get("relationships") or {}).get("territory") or {}).get("data")
+            if not t:
+                t = (get(f"/v1/territoryAvailabilities/{x['id']}/territory") or {}).get("data")
+            if t:
+                flags[t["id"]] = bool(x["attributes"].get("available"))
+        print(f"availability: {sum(flags.values())} of {len(flags)} available (public record excludes {[k for k, v in flags.items() if not v]})")
+        if flags:
             linkage, included = [], []
-            for tid in sorted(terr):
+            for tid in sorted(flags):
                 lid = f"${{local-{tid.lower()}}}"
                 linkage.append({"type": "territoryAvailabilities", "id": lid})
-                included.append({"type": "territoryAvailabilities", "id": lid, "attributes": {"available": True, "preOrderEnabled": False},
+                included.append({"type": "territoryAvailabilities", "id": lid, "attributes": {"available": flags[tid], "preOrderEnabled": False},
                                  "relationships": {"territory": {"data": {"type": "territories", "id": tid}}}})
             do("POST", "/v2/appAvailabilities", {"data": {"type": "appAvailabilities", "attributes": {"availableInNewTerritories": True},
                "relationships": {"app": {"data": {"type": "apps", "id": APP}}, "territoryAvailabilities": {"data": linkage}}}, "included": included})
 
     # H. price schedule mirrored (only a free base price)
-    st, _ = req("GET", f"/v1/apps/{APP}/appPriceSchedule")
-    if st == 404:
+    st, cur = req("GET", f"/v1/apps/{APP}/appPriceSchedule")
+    print(f"INTERNAL price schedule read: HTTP {st} data={bool((cur or {}).get('data'))}")
+    if st == 404 or not (cur or {}).get("data"):
         sched = get(f"/v1/apps/{REF}/appPriceSchedule")
         mp = get(f"/v1/appPriceSchedules/{sched['data']['id']}/manualPrices?include=appPricePoint,territory&limit=50") if sched else None
         prices = sorted({i["attributes"].get("customerPrice") for i in (mp or {}).get("included", []) if i["type"] == "appPricePoints"})
@@ -149,6 +147,7 @@ def main():
             print("public record price is not free; price not set")
 
     # I. public record en-US screenshots -> artifact dir for review
+    names = {}
     out = os.environ.get("SHOTS_DIR")
     if out:
         os.makedirs(out, exist_ok=True)
@@ -165,7 +164,45 @@ def main():
                         path = f"{out}/{dt}-{n + 1}-{asset.get('width')}x{asset.get('height')}.png"
                         with urllib.request.urlopen(url, timeout=60) as r, open(path, "wb") as f:
                             f.write(r.read())
+                        names[os.path.basename(path)] = a.get("fileName") or os.path.basename(path)
                         print(f"saved {path} ({a.get('fileName')})")
+
+
+    # J. copy the public record's en-US iPhone 6.9" screenshots (same app, cmux-next-ios; iPhone-only so no iPad set)
+    import hashlib
+    shots_dir = os.environ.get("SHOTS_DIR")
+    loc_id = next(l["id"] for l in get_all(f"/v1/appStoreVersions/{v['id']}/appStoreVersionLocalizations?limit=50") if l["attributes"]["locale"] == "en-US")
+    sets = get_all(f"/v1/appStoreVersionLocalizations/{loc_id}/appScreenshotSets?limit=50")
+    mine = [x for x in sets if x["attributes"]["screenshotDisplayType"] == "APP_IPHONE_67"]
+    if shots_dir and not (mine and get_all(f"/v1/appScreenshotSets/{mine[0]['id']}/appScreenshots?limit=50")):
+        files = sorted(f for f in os.listdir(shots_dir) if f.startswith("APP_IPHONE_67-"))
+        if mine:
+            set_id = mine[0]["id"]
+        else:
+            out = do("POST", "/v1/appScreenshotSets", {"data": {"type": "appScreenshotSets", "attributes": {"screenshotDisplayType": "APP_IPHONE_67"},
+                     "relationships": {"appStoreVersionLocalization": {"data": {"type": "appStoreVersionLocalizations", "id": loc_id}}}}})
+            set_id = out["data"]["id"] if out else None
+        for f in files if set_id else []:
+            data = open(os.path.join(shots_dir, f), "rb").read()
+            name = names.get(f, f)
+            out = do("POST", "/v1/appScreenshots", {"data": {"type": "appScreenshots", "attributes": {"fileName": name, "fileSize": len(data)},
+                     "relationships": {"appScreenshotSet": {"data": {"type": "appScreenshotSets", "id": set_id}}}}})
+            if not out:
+                continue
+            sid = out["data"]["id"]
+            for op in out["data"]["attributes"].get("uploadOperations") or []:
+                chunk = data[op["offset"]:op["offset"] + op["length"]]
+                r = urllib.request.Request(op["url"], data=chunk, method=op["method"])
+                for hdr in op.get("requestHeaders") or []:
+                    r.add_header(hdr["name"], hdr["value"])
+                with urllib.request.urlopen(r, timeout=120) as resp:
+                    resp.read()
+            do("PATCH", f"/v1/appScreenshots/{sid}", {"data": {"type": "appScreenshots", "id": sid,
+               "attributes": {"uploaded": True, "sourceFileChecksum": hashlib.md5(data).hexdigest()}}})
+        import time
+        time.sleep(20)
+        for x in get_all(f"/v1/appScreenshotSets/{set_id}/appScreenshots?limit=50") if set_id else []:
+            print(f"  shot {x['attributes'].get('fileName')}: {(x['attributes'].get('assetDeliveryState') or {}).get('state')}")
 
 
 if __name__ == "__main__":
