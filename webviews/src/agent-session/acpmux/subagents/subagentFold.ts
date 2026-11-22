@@ -97,6 +97,9 @@ export type Subagent = {
   /// Environment for the subagent reads them (session-info/subagentScope.ts).
   isolated?: boolean;
   cwd?: string;
+  /// The model its spawning call asked for (Claude's Agent `model`, never `inherit`): what it runs
+  /// on, fixed at its start. None: it runs on its definition's model or the chat's.
+  spawnModel?: string;
   worktree?: { path: string; branch?: string };
   /// An acpmux child session explicitly recorded for a shell call: the protocol supplies its
   /// harness, model and effort. Command text and stdout never establish session identity.
@@ -1283,6 +1286,13 @@ export class SubagentFold {
       const cwd = text(input.cwd);
       if (cwd?.startsWith("/") && agent.cwd !== cwd) {
         agent.cwd = cwd;
+        changed = true;
+      }
+      // The model the call asked for (Claude's Agent `model`: an alias or a release); none, or
+      // `inherit`, runs on the chat's (SubagentForkChips.tsx).
+      const spawnModel = text(input.model);
+      if (spawnModel && spawnModel !== "inherit" && agent.spawnModel !== spawnModel) {
+        agent.spawnModel = spawnModel;
         changed = true;
       }
     }
