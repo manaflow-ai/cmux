@@ -81,7 +81,9 @@ impl Request {
             return Ok(ObservedMachine::Deleted(Capability { vm }));
         }
         // The exact record was validated above, including subject and revision.
-        let record = match serde_json::from_value::<CloudMachine>(value["machine"].clone()) {
+        let record = match serde_json::from_value::<CloudMachine>(
+            value.get("machine").cloned().unwrap_or(Value::Null),
+        ) {
             Ok(record) => record,
             Err(error) => return Err((self, ApiError::unreadable(error))),
         };
