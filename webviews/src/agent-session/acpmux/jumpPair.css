@@ -3,7 +3,7 @@
    control: the same glass (.acpmux-jump-latest) and look, size, rim, hover, focus and fade, with the
    arrow turned up. It stands one control and one gap above Jump to latest's place, whether that
    place shows the disc or the Needs you pill (both --ds-control-primary tall), so the pair reads as
-   one column wherever jumpPlace.css stands it (the composer card's end edge by default) and neither
+   one column wherever jumpPlace.css stands it (the composer's center line by default) and neither
    ever moves for the other.
    Token only (scripts/check-design-tokens.ts TOKEN_ONLY_FILES). */
 .acpmux-jump-latest.acpmux-jump-up {

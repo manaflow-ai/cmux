@@ -78,6 +78,18 @@ export function ComposerHatStage({
           <button type="button" data-stage="ten" onClick={() => set(12)}>
             Twelve run
           </button>
+          <button type="button" data-stage="fewer" onClick={() => set(Math.max(0, running - 1))}>
+            One fewer
+          </button>
+          <button type="button" data-stage="ninety-nine" onClick={() => set(99)}>
+            99 run
+          </button>
+          <button type="button" data-stage="nine-ninety-nine" onClick={() => set(999)}>
+            999 run
+          </button>
+          <button type="button" data-stage="many" onClick={() => set(1_234)}>
+            1,234 run
+          </button>
           <button type="button" data-stage="waiting" onClick={() => set(running, 1)}>
             One waits on you
           </button>
