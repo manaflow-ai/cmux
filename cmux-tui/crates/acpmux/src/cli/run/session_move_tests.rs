@@ -457,3 +457,18 @@ async fn move_from_reads_placement_from_the_initiating_daemon() {
     // Client owns a background reader; stop the fixture rather than wait for that task to close.
     remote_server.abort();
 }
+
+#[test]
+fn the_run_error_names_each_chat_that_did_not_move_and_why() {
+    let moved = Outcome::new("a1");
+    let mut refused = Outcome::new("claude-13");
+    refused.error = Some("a turn is running; the move takes it along".into());
+    let mut lost = Outcome::new("s-2");
+    lost.name = "optchat".into();
+    lost.error = Some("transfer.busy: the running turn did not stop".into());
+    assert_eq!(not_moved(&[moved]), None, "every chat moved");
+    let why = not_moved(&[Outcome::new("a1"), refused, lost]).unwrap();
+    assert!(why.starts_with("2 of 3 chats did not move: "), "{why}");
+    assert!(why.contains("claude-13 (claude-13): a turn is running"), "{why}");
+    assert!(why.contains("optchat (s-2): transfer.busy: the running turn did not stop"), "{why}");
+}
