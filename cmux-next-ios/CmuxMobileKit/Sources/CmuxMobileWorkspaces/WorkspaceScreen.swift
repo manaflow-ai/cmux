@@ -91,7 +91,7 @@ public struct WorkspaceScreen: View {
                 source.openedTab = nil
                 if showsGrid { showsGrid = false }
             }
-            .background(CmuxMobileBackdrop().ignoresSafeArea())
+            .background(theme.colors.bg.color.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .background(InteractivePopEnabler())
             // Search Agent Chats, Screens, Panes and a tab group's pages, and Fork Conversation…'s destinations.
