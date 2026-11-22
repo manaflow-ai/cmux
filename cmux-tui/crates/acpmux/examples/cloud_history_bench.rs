@@ -76,7 +76,7 @@ fn main() {
     ) {
         (Ok(origin), Ok(token)) => (
             Box::new(
-                cmux_session_cloud::store::HttpStore::new(&origin, token).expect("http store"),
+                cmux_session_cloud::store::HttpStore::new(&origin, &token).expect("http store"),
             ),
             "sync".into(),
         ),

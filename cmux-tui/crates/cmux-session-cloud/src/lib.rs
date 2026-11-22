@@ -58,7 +58,12 @@ pub fn write_durable(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let tmp = path.with_file_name(format!("{name}.tmp-{}", std::process::id()));
     {
-        let mut file = std::fs::File::create(&tmp)?;
+        // Owner-only, like every file in an agent's home (acpmux refuses a group-writable one).
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let mut file = options.open(&tmp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
     }

@@ -25,6 +25,12 @@ fn a_file_goes_to_the_store_and_comes_back_byte_for_byte() {
 
     assert_eq!(fetch::fetch_file(&stub_path, &cloud).unwrap(), bytes.len() as u64);
     assert_eq!(std::fs::read(&file).unwrap(), bytes);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "a fetched file is owner-only");
+    }
 }
 
 #[test]

@@ -1968,12 +1968,14 @@ impl LocalStore {
     /// chat's log however little of it stays. Every session the hub creates logs `created`
     /// right after its first save, so a record without a log is a purged session's that a
     /// late save wrote back.
-    /// A cold archive (`store/cold.rs`) is a log too, and is not opened.
+    /// A cold archive (`store/cold.rs`) is a log too, and is not opened; so is its cloud stub
+    /// (an archive offloaded to cloud history).
     fn has_records(&self, id: &str) -> Result<bool> {
         // A home that is no longer the held one is an error, never "no record" (#41721
         // review F1): a closed chat with no record reads as purged.
         if crate::home_fs::try_exists_nofollow(self.marker(id))?
             || crate::home_fs::try_exists_nofollow(self.cold_path(id))?
+            || crate::home_fs::try_exists_nofollow(self.cloud_stub_path(id))?
         {
             return Ok(true);
         }
