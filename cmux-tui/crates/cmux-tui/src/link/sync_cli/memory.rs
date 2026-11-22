@@ -952,9 +952,13 @@ fn run_inner(args: &[String]) -> anyhow::Result<serde_json::Value> {
         .context("no home folder")?;
     // SAFETY: geteuid has no preconditions.
     let root = unsafe { libc::geteuid() } == 0;
-    let record = flags.get("--record").map(PathBuf::from).unwrap_or_else(|| {
-        if root { PathBuf::from(ROOT_RECORD) } else { home.join(".cmux").join("agent-home") }
-    });
+    let record = match flags.get("--record") {
+        Some(record) => PathBuf::from(record),
+        None if root => PathBuf::from(ROOT_RECORD),
+        None => cmux_tui_core::platform::workspace_state_dir()
+            .context("no state folder; pass --record DIR")?
+            .join("agent-home"),
+    };
     if root && user.is_none() && flags.get("--user").is_none() && record == Path::new(ROOT_RECORD) {
         bail!("usage: as root, name the agent user with --user");
     }
