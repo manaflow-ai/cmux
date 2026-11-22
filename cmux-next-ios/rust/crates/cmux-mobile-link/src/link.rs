@@ -472,6 +472,30 @@ impl Inbox {
     }
 }
 
+/// A link's pings for its path report: counts since the link opened, round trips since the
+/// last [`Link::take_ping_stats`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PingStats {
+    /// Pings sent since the link opened.
+    pub sent: u64,
+    /// Pongs to them received since the link opened (late ones too).
+    pub answered: u64,
+    /// Pings still waiting for their pong when taken.
+    pub waiting: u64,
+    /// Round trips (ms) since the last take, at most [`Self::MAX_SAMPLES`].
+    pub samples: Vec<u32>,
+}
+
+impl PingStats {
+    pub const MAX_SAMPLES: usize = 256;
+
+    fn sample(&mut self, rtt: Duration) {
+        if self.samples.len() < Self::MAX_SAMPLES {
+            self.samples.push(u32::try_from(rtt.as_millis()).unwrap_or(u32::MAX));
+        }
+    }
+}
+
 struct Inner {
     role: Role,
     /// Per stream: [`MAIN`] and [`INPUT`].
@@ -490,6 +514,8 @@ struct Inner {
     next_nonce: AtomicU64,
     pings: Mutex<HashMap<u64, oneshot::Sender<Instant>>>,
     rtt: watch::Sender<Option<Duration>>,
+    /// Ping counts and round trips for the link's path report ([`Link::take_ping_stats`]).
+    ping_stats: Mutex<PingStats>,
     closed: watch::Sender<Option<String>>,
     incoming: tokio::sync::Mutex<mpsc::Receiver<IncomingChannel>>,
     /// A sender for the input lane's reader; dropped when the link closes so
@@ -619,6 +645,7 @@ impl Link {
             next_nonce: AtomicU64::new(1),
             pings: Mutex::new(HashMap::new()),
             rtt: watch::channel(None).0,
+            ping_stats: Mutex::new(PingStats::default()),
             closed: watch::channel(None).0,
             incoming: tokio::sync::Mutex::new(incoming_rx),
             incoming_tx: Mutex::new(Some(incoming_tx.clone())),
@@ -850,10 +877,12 @@ impl Link {
         let _pending = Pending(&self.inner, nonce);
         let started = Instant::now();
         self.inner.send_control(Frame::new(0, FrameType::Ping, nonce.to_be_bytes().to_vec()))?;
+        self.inner.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).sent += 1;
         let answered = rx
             .await
             .map_err(|_| LinkError::Closed(self.inner.closed_reason().unwrap_or_else(|| "closed".into())))?;
         let rtt = answered.saturating_duration_since(started);
+        self.inner.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).sample(rtt);
         self.inner.rtt.send_replace(Some(rtt));
         Ok(rtt)
     }
@@ -889,6 +918,20 @@ impl Link {
                     }
                 }
             }
+        }
+    }
+
+    /// This link's pings since it opened (sent, answered, waiting) and the round trips measured
+    /// since the last call (at most [`PingStats::MAX_SAMPLES`]), which it takes: one reader, the
+    /// path report ([`crate::link_stat`]).
+    pub fn take_ping_stats(&self) -> PingStats {
+        let waiting = self.inner.pings.lock().unwrap_or_else(PoisonError::into_inner).len() as u64;
+        let mut stats = self.inner.ping_stats.lock().unwrap_or_else(PoisonError::into_inner);
+        PingStats {
+            sent: stats.sent,
+            answered: stats.answered,
+            waiting,
+            samples: std::mem::take(&mut stats.samples),
         }
     }
 
@@ -1050,6 +1093,11 @@ async fn read_loop<R>(
                 if let Ok(bytes) = <[u8; 8]>::try_from(&frame.payload[..]) {
                     let nonce = u64::from_be_bytes(bytes);
                     let waiter = inner.pings.lock().unwrap_or_else(PoisonError::into_inner).remove(&nonce);
+                    // A pong to a ping of ours counts as answered even when its caller stopped
+                    // waiting (a probe that saw other traffic first): it was not lost.
+                    if nonce < inner.next_nonce.load(Ordering::Relaxed) {
+                        inner.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).answered += 1;
+                    }
                     if let Some(waiter) = waiter {
                         let _ = waiter.send(Instant::now());
                     }
