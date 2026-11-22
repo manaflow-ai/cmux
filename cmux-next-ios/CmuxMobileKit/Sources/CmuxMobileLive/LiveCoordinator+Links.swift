@@ -8,6 +8,7 @@ import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileModel
 import CmuxMobileNotifications
+import CmuxMobileTerminal
 import CmuxMobileTransport
 import Foundation
 import Observation
