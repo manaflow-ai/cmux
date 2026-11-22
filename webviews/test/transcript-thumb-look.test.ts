@@ -203,7 +203,11 @@ await requireBrowserLane("transcript-thumb-look.test.ts", async () => {
               attributeFilter: ["data-cmux-scrolling", "data-cmux-scroller-near"],
             });
           });
-          await page.mouse.wheel(0, 60);
+          // The wheel over the bar lane does not reach the scroller here (the marks stayed empty), so
+          // the scroll is a script step of the same size: the scroll event marks it as a wheel would.
+          await page.evaluate(() => {
+            document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollBy(0, 60);
+          });
           // A move on the bar while the scroll shows reads the pointer against the shown thumb.
           await page.mouse.move(view.x + view.width - 4, middle.y + 1, { steps: 2 });
           await settled(true).catch(async (error) => {
