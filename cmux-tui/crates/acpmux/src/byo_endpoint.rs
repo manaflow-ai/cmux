@@ -420,10 +420,19 @@ fn toml_string(s: &str) -> String {
 /// The profile file text.
 pub fn profile_text(e: &Endpoint<'_>) -> String {
     let key = e.kind.secret_key();
+    // cmux models store no key: each request is signed with the person's cmux token.
+    let key_note = if e.cmux_helper.is_some() {
+        "# Signed with your cmux sign-in for each request; no key is stored anywhere.\n".to_owned()
+    } else {
+        format!(
+            "# A key is only ever in the Keychain item named below, never in this file. A new key:\n\
+             #   add it again with --key --force (or from Settings > Agents), id {}, key {key}\n",
+            e.id
+        )
+    };
     let head = format!(
         "# cmux harness profile: your own {} endpoint. Guide: docs/add-your-harness.md\n\
-         # A key is only ever in the Keychain item named below, never in this file. A new key:\n\
-         #   add it again with --key --force (or from Settings > Agents), id {id}, key {key}\n\
+         {key_note}\
          # Check it (one real hello turn) with: cmux harness doctor {id}\n\
          schema = 1\nid = {}\nname = {}\n",
         match e.kind {
