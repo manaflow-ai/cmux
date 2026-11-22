@@ -7802,6 +7802,17 @@ function TranscriptView({
     if (scroll) jumpToLatest(focused);
     if (needsYou && asks > 0) needsYou.next(scroll);
   });
+  // The running turn's live line is mounted (conversation.css `data-live-line`): read from the mounted rows here,
+  // not by a `:has()` on the scroller, which Chromium checked again for every node a streamed chunk inserted.
+  let liveLineMounted = false;
+  for (const { first, last } of mountedRanges) {
+    for (let index = first; index < last && index < rows.length; index += 1)
+      if (rows[index]!.id === LIVE_THINKING) {
+        liveLineMounted = true;
+        break;
+      }
+    if (liveLineMounted) break;
+  }
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <ReadOnlyBoundary readOnly={readOnly}>
@@ -7842,6 +7853,7 @@ function TranscriptView({
             // A subagent's view keeps its "Subagent of" pill pinned over the top (pinnedPill below): rows
             // pass out of sight under it.
             data-pinned-top={pinnedPill ? "" : undefined}
+            data-live-line={liveLineMounted ? "" : undefined}
             // How deep each soft edge draws (threadMinimap/model.ts transcriptFadeReach): none at that end
             // of the chat, deeper the farther the view is from it. Non-inherited (conversation.css), so a
             // scroll restyles the scroller alone.
