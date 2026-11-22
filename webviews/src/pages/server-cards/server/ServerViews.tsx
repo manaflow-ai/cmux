@@ -18,6 +18,7 @@ import type {
   ServerSnapshot,
   ServerStatus,
 } from "./types";
+import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
 
 export type PanelLayout = "compact" | "dashboard" | "list";
 export type PairingLayout = "code" | "qr" | "words";
@@ -144,18 +145,22 @@ function Pill({
   data?: Record<`data-${string}`, string>;
 }) {
   return (
-    <button
-      type="button"
-      className="sv-pill"
-      data-prominent={prominent ? "" : undefined}
-      aria-description={help}
-      disabled={disabled}
-      onClick={onClick}
-      {...data}
-    >
-      {icon && <ServerIcon name={icon} size={12} />}
-      {title}
-    </button>
+    <WithFacts facts={[{ value: help ?? "" }]}>
+      {(facts) => (
+        <button
+          {...facts}
+          type="button"
+          className="sv-pill"
+          data-prominent={prominent ? "" : undefined}
+          disabled={disabled}
+          onClick={onClick}
+          {...data}
+        >
+          {icon && <ServerIcon name={icon} size={12} />}
+          {title}
+        </button>
+      )}
+    </WithFacts>
   );
 }
 

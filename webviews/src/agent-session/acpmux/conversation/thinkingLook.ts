@@ -9,9 +9,9 @@
 //   - `agentPane.display.thinking.shimmer: "continuous"`: the band crosses the words pass after pass,
 //     eased in and out, one pass every `shimmerPeriod` ms (600 to 4000);
 //   - `agentPane.display.thinking.shimmerBand`: the band's lit width in px (0 keeps half the line);
-//   - `agentPane.display.thinking.jumpButton: "dots"`: while the agent works, Jump to latest draws three
-//     dots in the theme accent that trade size between the middle and the ends (
-//     JumpDots.css), the arrow back on hover and once the agent stops.
+//   - `agentPane.display.thinking.jumpButton: "dots"`: while the agent works, Jump to latest and the live
+//     line draw three dots in the theme accent that change shape in three stages (a big middle, big spread
+//     ends, even dots; JumpDots.css), the button's arrow back on hover and once the agent stops.
 // The host's `display` push carries them (chatDisplay.ts `setChatDisplay`), so a look install or a
 // `cmux settings set` swaps them live: they land on the document root as attributes and variables, and
 // the shimmer cadence (shimmerCadence.ts) and the Jump to latest button read them there. The settings
