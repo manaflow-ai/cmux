@@ -208,7 +208,7 @@ CG.CGMainDisplayID.restype = ctypes.c_uint32
 CG.CGDisplayBounds.restype = CGRect
 CG.CGDisplayBounds.argtypes = [ctypes.c_uint32]
 CF.CFRelease.argtypes = [ctypes.c_void_p]
-KEYCODES = {"a": 0, "b": 11, "c": 8, "escape": 53}
+KEYCODES = {"a": 0, "b": 11, "c": 8, "escape": 53, "return": 36}
 
 
 def post(event):
@@ -818,18 +818,107 @@ def check_devtools():
     # Opening DevTools can make its window key by itself: the click proves something only when it was not key before.
     key_before = bool(devtools_key())
     point = rect_center(entry["devtools_frame"])
-    key = None
-    for _ in (1, 2):  # the first click may only activate
+    gate_before = (rpc("debug.focus") or {}).get("in_tree")
+    # One click: the app is active (the page click above, and every input row before it), so the FIRST click into the
+    # tools must give them the keys, as in Chrome. A second click is tried only to report whether it would have.
+    hid_click(point)
+    key = wait(devtools_key, 2)
+    focus_after = rpc("debug.focus") or {}
+    second = None
+    if not key:
         hid_click(point)
-        key = wait(devtools_key, 2)
-        if key:
-            break
+        second = bool(wait(devtools_key, 2))
     final = key or devtools_entry() or {}
     row("devtools.click", bool(key) and not key_before,
-        {"at": [round(v) for v in point], "key_before_click": key_before, "child_windows": (final.get("child_windows") or [])[:4],
-         "appkit": [(w.get("appkit") or {}) for w in ((rpc("debug.focus") or {}).get("windows") or []) if isinstance(w, dict)][:2],
+        {"at": [round(v) for v in point], "key_before_click": key_before, "second_click_gave_keys": second,
+         "child_windows": (final.get("child_windows") or [])[:4],
+         "gate_before": gate_before, "gate_after_first": focus_after.get("in_tree"),
+         "appkit_after_first": [(w.get("appkit") or {}) for w in (focus_after.get("windows") or []) if isinstance(w, dict)][:2],
          "note": "DevTools was key before the click (the page click did not take the key)" if key_before else None})
     action("devtools.close")
+
+
+def check_prompt_keys():
+    """prompt.keys: a page's prompt() takes typed keys the moment it shows, with no click on its field (Chrome's prompt
+    does). Real keys (cua press_key to the frontmost app, which the clicks before activated); in tree the dialog is
+    cmux's (debug.dialog), off it is Chromium's own window."""
+    if opts.input != "cua":
+        return
+    page("window.__p = undefined; document.getElementById('t').focus(); setTimeout(() => { window.__p = prompt('type here', '') }, 50); true")
+    time.sleep(1.5)  # test harness: the prompt shows
+    dialog_before = rpc("debug.dialog") or {}
+    focus_before = rpc("debug.focus") or {}
+    windows_before = [{k: w.get(k) for k in ("kind", "class", "key", "visible", "title")} for w in
+                      ((rpc("debug.window_list") or {}).get("windows") or []) if w.get("visible")]
+    for key in "abc":
+        hid_key(key)
+    time.sleep(0.4)  # test harness: the keys land
+    dialog_typed = rpc("debug.dialog") or {}
+    hid_key("return")
+    answered = wait(lambda: (lambda v: v if v is not None else None)(page("window.__p === undefined ? null : String(window.__p)")), 4)
+    field = page("document.getElementById('t').value")
+    shown = [d for d in dialog_typed.get("dialogs") or [] if d.get("visible")]
+    row("prompt.keys", answered == "abc",
+        {"prompt_returned": answered, "page_field": field, "dialog_values": [d.get("values") for d in shown][:2],
+         "first_responder_before": [(w.get("appkit") or {}).get("first_responder") for w in focus_before.get("windows") or []
+                                    if isinstance(w, dict)][:2],
+         "dialogs_before": [d.get("title") for d in dialog_before.get("dialogs") or [] if d.get("visible")],
+         "visible_windows": windows_before[:6]})
+    if answered is None:
+        hid_key("escape")
+        time.sleep(0.5)  # test harness: the prompt closes
+    page("document.getElementById('t').value = ''; true")
+
+
+def elem_screen_point(element):
+    """The center of the page element with id ELEMENT in global top-left display points (debug.layers host rect)."""
+    main = CG.CGDisplayBounds(CG.CGMainDisplayID())
+    rect = page(f"JSON.stringify((r => [r.x + r.width / 2, r.y + r.height / 2])(document.getElementById('{element}').getBoundingClientRect()))")
+    host = page_rect()
+    if not rect or not host:
+        return None
+    cx, cy = json.loads(rect)
+    hx, hy, hw, hh = host
+    return hx + cx, main.size.y - (hy + hh) + cy, cx, cy
+
+
+def check_fullscreen():
+    """fullscreen.*: after toggleFullScreen the page still takes clicks and keys. `fullscreen.input` real input (cua: a
+    click on the page's field, then keys to the frontmost app); `fullscreen.input_debug` the app's own path
+    (debug.mouse target page, then debug.key). Compared in mode intree and off."""
+    frame_before = ((rpc("debug.layers") or {}).get("windows") or [{}])[0].get("frame")
+    action("toggleFullScreen")
+    full = wait(lambda: (lambda f: f if f and f != frame_before else None)(((rpc("debug.layers") or {}).get("windows") or [{}])[0].get("frame")), 10, 0.5)
+    time.sleep(1.5)  # test harness: the Space transition ends
+    state = {"frame_before": frame_before, "frame_full": full, "app_active": (rpc("debug.focus") or {}).get("app_active")}
+    if not full:
+        row("fullscreen.enter", False, state)
+        return
+    shot = os.path.join(opts.out, f"verify-{opts.mode}-fullscreen.png")
+    rpc("debug.window_snapshot", {"path": shot, "webviews": False}, timeout=60)
+    point = elem_screen_point("t")
+    if opts.input == "cua" and point:
+        page("document.getElementById('t').value = ''; document.activeElement && document.activeElement.blur(); true")
+        hid_click(point[:2])
+        time.sleep(0.3)  # test harness: the click focuses the field
+        for key in "abc":
+            hid_key(key)
+        value = wait(lambda: page("document.getElementById('t').value"), 3)
+        row("fullscreen.input", value == "abc", dict(state, value=value, at=[round(v) for v in point[:2]],
+                                                    active=page("document.activeElement && document.activeElement.id")))
+    if point:
+        page("document.getElementById('t').value = ''; document.activeElement && document.activeElement.blur(); true")
+        click = rpc("debug.mouse", {"target": "page", "x": point[2], "y": point[3]})
+        time.sleep(0.3)  # test harness: the click focuses the field
+        for key in "xyz":
+            rpc("debug.key", {"key": key})
+        value = wait(lambda: page("document.getElementById('t').value"), 3)
+        row("fullscreen.input_debug", value == "xyz", dict(state, value=value, click=click))
+    else:
+        row("fullscreen.input_debug", False, dict(state, error="no field rect"))
+    action("toggleFullScreen")
+    wait(lambda: (lambda f: f if f == frame_before else None)(((rpc("debug.layers") or {}).get("windows") or [{}])[0].get("frame")), 10, 0.5)
+    time.sleep(1.5)  # test harness: the Space transition back ends
 
 
 def main():
@@ -993,6 +1082,7 @@ def main():
         bars_row("bars.after_popup")
         check_devtools()
         bars_row("bars.after_devtools")
+        check_prompt_keys()
 
         # The page gets shorter: its red bar must stay at the top edge while Chromium catches up and after.
         action("splitDown")
@@ -1008,6 +1098,7 @@ def main():
         row("resize.top", at_top(moving) and at_top(settled),
             {name: ({"red_rows": [min(b[0]), max(b[0])] if b[0] else None, "rows": b[2]} if b else None)
              for name, b in (("moving", moving), ("settled", settled))} | {"census": page_census()})
+        check_fullscreen()
     finally:
         if not opts.keep:
             rpc("action.run", {"action": "quitEndSessions"}, timeout=10)

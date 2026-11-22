@@ -17,6 +17,14 @@ terminal beside a Chromium page and checks:
              and a page click plus keys in each reach that page alone; two-pages*.png are the window's snapshots
   prompts    (C16) alert, confirm, prompt, an <input type=file> click and a download each show something (a dialog, a
              panel, a window, a popup or a download record) instead of being cancelled in silence
+  prompt_keys
+             with the page's field focused, the page calls prompt(): keys typed at once (debug.key into the window's
+             first responder, as the person's keys go) must land in the prompt's field with no click on it, and Return
+             must answer the page with them (in tree: cmux's dialog; off: Chromium's own dialog, INFO only, since a
+             no-activate app has no key window for its keys)
+  fullscreen after toggleFullScreen: a page click (debug.mouse target page) on the field and keys (debug.key) reach the
+             page; `fullscreen.real` (INFO) posts a real click and keys to the app's pid through CuaDriver, with the
+             app inactive and its full-screen window on its own Space (CMUX_NEXT_NO_ACTIVATE), and says what landed
   file_after_popup
              (also with prompts) a window.open popup's <input type=file> shows its sheet on the popup window, the popup
              closes while that sheet is up, and then the opener's chooser must still work: a sheet shows, a new request
@@ -35,7 +43,7 @@ parser.add_argument("--out", default=tempfile.mkdtemp(prefix="in-tree-live-"))
 parser.add_argument("--json")
 parser.add_argument("--in-tree", dest="in_tree", choices=["on", "off"], default="on")
 parser.add_argument("--idle", type=float, default=8.0)
-parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,file_after_popup,two_pages")
+parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,prompt_keys,file_after_popup,fullscreen,two_pages")
 parser.add_argument("--close-popup", dest="close_popup", choices=["script", "window"], default="script",
                     help="file_after_popup: the popup closes itself (window.close() from its opener) or its window closes")
 opts = parser.parse_args()
@@ -568,6 +576,99 @@ try:
             rpc("debug.key", {"key": "escape"})
             time.sleep(0.5)  # test harness: the prompt closes
         RAW["prompt_results"] = page_eval("JSON.stringify(window.__results)", page_tab)
+    if "prompt_keys" in CHECKS:
+        record("prompt_keys")
+        action("tab.focus", target=f"tab:{page_tab}")
+        page_eval("window.__keys = []; delete window.__results.prompt_keys; document.getElementById('field').value = '';"
+                  " document.getElementById('field').focus(); true", page_tab)
+        time.sleep(0.3)  # test harness: focus lands in the page's field
+        windows0 = {w.get("id") for w in ((rpc("debug.window_list") or {}).get("windows") or []) if w.get("visible")}
+        page_eval("window.later('prompt_keys', () => prompt('in-tree prompt keys', ''))", page_tab)
+        shown = wait(lambda: [d for d in (rpc("debug.dialog") or {}).get("dialogs") or [] if d.get("visible")], 5)
+        new_windows = [{k: w.get(k) for k in ("kind", "class", "title", "key", "parent")} for w in
+                       ((rpc("debug.window_list") or {}).get("windows") or []) if w.get("visible") and w.get("id") not in windows0]
+        focus = rpc("debug.focus") or {}
+        RAW["prompt_keys_focus"] = focus
+        responders = [((w.get("appkit") or {}).get("first_responder")) for w in focus.get("windows") or [] if isinstance(w, dict)]
+        typed = [rpc("debug.key", {"key": ch}) for ch in "abc"]
+        time.sleep(0.4)  # test harness: the keys land
+        dialogs = [d for d in (rpc("debug.dialog") or {}).get("dialogs") or [] if d.get("visible")]
+        value = (dialogs[0].get("values") or {}).get("text") if dialogs else None
+        page_keys = page_eval("JSON.stringify(window.__keys)", page_tab).get("value")
+        detail = {"dialog_shown": bool(shown), "first_responder_at_show": responders, "dialog_text": value,
+                  "page_keys": page_keys, "new_windows": new_windows,
+                  "key_replies": [{k: (r or {}).get(k) for k in ("handled_by", "window_kind")} for r in typed]}
+        if dialogs:
+            rpc("debug.key", {"key": "return"})
+            answered = wait(lambda: (page_eval("JSON.stringify(window.__results.prompt_keys)", page_tab) or {}).get("value") not in (None, "undefined") and
+                            page_eval("window.__results.prompt_keys", page_tab).get("value"), 4)
+            detail["page_got"] = answered
+            ok = bool(shown) and value == "abc" and answered == "abc"
+        else:
+            detail["page_got"] = None
+            ok = False
+        if opts.in_tree == "on":
+            row(ok, "prompts.prompt_keys", detail)
+        else:
+            row("INFO", "prompts.prompt_keys", detail)
+        rpc("debug.key", {"key": "escape"})
+        time.sleep(0.5)  # test harness: a prompt left open closes
+    if "fullscreen" in CHECKS:
+        record("fullscreen")
+        action("tab.focus", target=f"tab:{page_tab}")
+        def main_frame():
+            return next((w.get("frame") for w in windows()), None)
+        before = main_frame()
+        RAW["fullscreen_toggle"] = action("toggleFullScreen")
+        full = wait(lambda: (lambda f: f if f and f != before else None)(main_frame()), 10, 0.5)
+        time.sleep(1.5)  # test harness: the Space transition ends
+        focus = rpc("debug.focus") or {}
+        state = {"frame_before": before, "frame_full": full, "app_active": focus.get("app_active"), "key_window": focus.get("key_window"),
+                 "window_list_kinds": sorted({str(w.get("kind")) for w in ((rpc("debug.window_list") or {}).get("windows") or [])})}
+        rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "fullscreen.png")})
+        if not full:
+            row(False, "fullscreen.enter", state)
+        else:
+            rect = page_eval("JSON.stringify((r => [r.x + r.width / 2, r.y + r.height / 2])("
+                             "document.getElementById('field').getBoundingClientRect()))", page_tab)
+            page_eval("window.__keys = []; document.getElementById('field').value = ''; document.activeElement && document.activeElement.blur(); true", page_tab)
+            try:
+                x, y = json.loads(rect.get("value"))
+                click = rpc("debug.mouse", {"target": "page", "x": x, "y": y})
+            except Exception as error:
+                x = y = None
+                click = {"error": repr(error)}
+            time.sleep(0.3)  # test harness: the click focuses the field
+            for ch in "full":
+                rpc("debug.key", {"key": ch})
+            value = wait(lambda: (lambda v: v if v == "full" else None)(page_eval("document.getElementById('field').value", page_tab).get("value")), 3)
+            row(value == "full", "fullscreen.input", dict(state, click=click, value=value or page_eval("document.getElementById('field').value", page_tab).get("value")))
+            # Real input as the verifier posted it: to the app's pid, the app never active, its window on its own Space.
+            pid = RAW.get("pid")
+            real = {"cua": bool(CUA_DRIVER)}
+            if CUA_DRIVER and pid and x is not None:
+                page_eval("window.__keys = []; document.getElementById('field').value = ''; document.activeElement && document.activeElement.blur(); true", page_tab)
+                wins = cua("list_windows", {"pid": pid})
+                real["windows"] = json.dumps(wins)[:300]
+                win_id = next((int(w["id"]) for w in ((rpc("debug.window_list") or {}).get("windows") or [])
+                               if w.get("kind") == "main" and w.get("visible")), None)
+                # The field's point in the window (top-left points): the page's origin in the window plus the field.
+                layer = next((w for w in ((rpc("debug.layers") or {}).get("windows") or [])), {})
+                host = next((b.get("host_screen_rect") for b in layer.get("browsers") or [] if b.get("host_screen_rect")), None)
+                wf = layer.get("frame")
+                if host and wf:
+                    wx, wy = host[0] - wf[0] + x, (wf[1] + wf[3]) - (host[1] + host[3]) + y
+                    real["click"] = cua("click", {"pid": pid, "window_id": win_id, "x": wx, "y": wy})
+                    time.sleep(0.3)  # test harness: the click lands
+                    real["type"] = cua("type_text", {"pid": pid, "window_id": win_id, "text": "real"})
+                    time.sleep(0.5)  # test harness: the keys land
+                real["value"] = page_eval("document.getElementById('field').value", page_tab).get("value")
+                real["page_active_element"] = page_eval("document.activeElement && document.activeElement.id", page_tab).get("value")
+                real["app_active"] = (rpc("debug.focus") or {}).get("app_active")
+            row("INFO", "fullscreen.real", {k: (json.dumps(v)[:300] if isinstance(v, (dict, list)) else v) for k, v in real.items()})
+        action("toggleFullScreen")
+        wait(lambda: (lambda f: f if f == before else None)(main_frame()), 10, 0.5)
+        time.sleep(1.5)  # test harness: the Space transition back ends
     if "file_after_popup" in CHECKS:
         file_after_popup(page_tab)
     if "two_pages" in CHECKS:
