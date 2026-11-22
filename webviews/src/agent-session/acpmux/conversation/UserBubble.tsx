@@ -236,13 +236,14 @@ export function UserBubble({
             {hasInterleaved ? (
               <InlinePromptContent
                 rowId={row.id}
+                messageAt={row.at}
                 parts={shownParts!}
                 show={show}
                 renderImage={renderImage}
                 renderFile={renderFile}
               />
             ) : (
-              <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+              <PromptText rowId={row.id} messageAt={row.at} text={text} pasted={row.pasted} show={show} />
             )}
           </div>
         ) : null}
