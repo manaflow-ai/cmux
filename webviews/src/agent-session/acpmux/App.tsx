@@ -723,6 +723,7 @@ import {
   type HostRestoring,
   hostErrorShows,
   hostIsReconnecting,
+  hostPlannedRestart,
   hostRefusedTooLarge,
   nextRetryDelay,
   offersAcpmuxRestart,
@@ -7460,14 +7461,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// old daemon again while it stops, hostRetry.ts).
   const [restartingAcpmux, setRestartingAcpmux] = useState(false);
   const [restartGate] = useState(() => new AcpmuxRestartGate());
-  /// When the handshake in flight began (`Date.now()` time), while it waits for acpmux; undefined
-  /// when none waits. A long wait shows only the quiet "Reconnecting…" chip (HostRecoveringLine):
-  /// nothing the person can do speeds it up, so no line, clock or Restart is drawn for it (Leo,
-  /// 2026-11-22, on "Waiting for the agent service (0:46)  Restart agent service": "this is unactionable").
-  const [waitingSince, setWaitingSince] = useState<number | undefined>();
-  /// When this pane's connection to acpmux was lost (its client's `onLost`), until a handshake
-  /// connects again: the quiet "Reconnecting…" line counts from it (HostRecoveringLine).
-  const [relinkingSince, setRelinkingSince] = useState<number | undefined>();
+  /// The transport said the link to acpmux is down for real: an attempt to connect failed with a
+  /// refusal that is not a planned restart (hostRetry.ts `hostPlannedRestart`), or the host refused
+  /// it while acpmux restores. Cleared by the next connect. The quiet chip (HostRecoveringLine)
+  /// follows it, never a clock (Leo, 2026-11-22: "surely we can think of better fixes than random
+  /// timing which can shift"). A dropped socket or a handshake that waits for acpmux sets nothing.
+  const [linkDown, setLinkDown] = useState(false);
   /// The host says acpmux is restoring its chats after a start (its `acpmux-host-status` event, or
   /// a refused handshake's `details.restoring`): the line says "Restoring sessions… m:ss" instead.
   const [hostRestoring, setHostRestoring] = useState<HostRestoring | undefined>();
@@ -8630,7 +8629,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         acpmuxPerf.markAgent("handshakeStart");
         acpmuxPerf.markLaunch("handshakeStart");
         acpWire.lifecycle("handshake", { reconnect });
-        setWaitingSince(Date.now());
         const answered = await callNative<{
           protocolVersion: number;
           transport?: string;
@@ -8952,10 +8950,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             notifyDraftActionsChanged();
             // Until a client connects again, an open handed this page would wait for that connect.
             if (!mock) void postNative("pane.clientReady", { ready: false }).catch(() => undefined);
-            // Quiet while it comes back: one quiet "Reconnecting…" line (HostRecoveringLine) until
-            // the handshakes fail past the deadline, then the waiting line or the failure.
+            // A drop alone says nothing: its reconnect usually lands. Only a failed attempt marks
+            // the link down (`linkDown`, the quiet chip).
             failingSince = Date.now();
-            setRelinkingSince(failingSince);
             // A client lost soon after it connected keeps the backoff growing: a daemon that drops
             // the pane right after every connect is not asked again every 250 ms. Jittered so the
             // tabs that lost one daemon together do not ask it again in lockstep.
@@ -9045,7 +9042,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         setHostError(undefined);
         setHostErrorShown(false);
         failingSince = undefined;
-        setRelinkingSince(undefined);
+        setLinkDown(false);
         setHostRestoring(undefined);
         setAcpmuxRestartOffered(false);
         catalogClientId.current += 1;
@@ -10435,7 +10432,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // hostLine.ts words the line: only the pane's own text stands on it, the rest is Details.
           setHostError(tooLarge ? translate("host.tooLarge") : errorMessage(error) || String(error));
           setHostFailure(error);
-          setHostRestoring(readHostRestoring((error as { details?: unknown } | null)?.details, Date.now()));
+          const restoring = readHostRestoring((error as { details?: unknown } | null)?.details, Date.now());
+          setHostRestoring(restoring);
+          // The transport's word that the link is down: any failed attempt but a planned restart's
+          // (an update's handoff, a start under way), which ends when the restarted daemon answers.
+          if (restoring || !hostPlannedRestart(error)) setLinkDown(true);
           failingSince ??= Date.now();
           const recovering = hostIsReconnecting(error);
           // A sleeping Cloud machine is never "Can't reach"; an SSH peer of the same name still is.
@@ -10464,7 +10465,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         }
       } finally {
         connecting = false;
-        setWaitingSince(undefined);
         // The Retry this attempt ran for (`retryNow`) has its answer.
         setRetryQueued(false);
         if (retryPending) {
@@ -13779,10 +13779,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       />
     </Notice>
   );
-  // A handshake or a request that waits for acpmux is the quiet chip's, never a line of its own.
-  const hostWaitingSince = waitingSince ?? clientSnapshot.daemonWaitingSince;
   // While the pane gets its chat back on its own, one quiet line says so: "Restoring sessions…"
-  // while the host says acpmux restores, "Reconnecting…" for a lost connection before the deadline.
+  // while the host says acpmux restores, "Reconnecting…" while the link is down for real (`linkDown`).
   // A Restart acpmux in flight keeps its own line.
   // It is drawn out of flow, in a slot that is always there (HostLineSlot): no state of it moves a row.
   const hostLine = (
@@ -13791,10 +13789,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         hostErrorCard
       ) : (
         <HostRecoveringLine
-          relinkingSince={relinkingSince}
+          linkDown={linkDown}
           restoring={hostRestoring}
           failureShown={hostErrorSaid}
-          waitingSince={hostWaitingSince}
           otherwise={hostErrorCard}
         />
       )}

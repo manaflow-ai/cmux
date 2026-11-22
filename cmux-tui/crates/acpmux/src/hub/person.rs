@@ -38,10 +38,11 @@
 //!   id), where transport is `unix` or `app` as the client knows it
 //!   ([`person_proof`]), compared in constant time. A match makes the
 //!   connection the person for its whole life (from that request on: one
-//!   handled before it was not the person's). A prove on a run that holds no
-//!   key yet waits for the app's enroll, at most [`PROVE_HOLD`]
-//!   ([`PersonGate::proves_once_keyed`]), so the order of the app's enroll and
-//!   a pane's first connection does not matter. The proof is bound to the
+//!   handled before it was not the person's). A prove this run's key does not
+//!   answer yet (none enrolled, or the one the app is replacing) stays pending
+//!   until a key it answers is enrolled or the connection closes
+//!   ([`PersonGate::proves_when_keyed`]), so the order of the app's enroll and
+//!   a pane's first connection does not matter and no clock decides it. The proof is bound to the
 //!   nonce and the connection id, so a proof captured anywhere else (a
 //!   squatter that relayed the challenge, another connection) proves
 //!   nothing. A `personKey` field is stripped and never read. Web and Peer
@@ -357,15 +358,9 @@ pub const HOLDS_LIMIT: &str = "person.holds_limit";
 /// answers count only in their own HMAC domain.
 pub const HOLDS_PER_CONNECTION: u32 = 8;
 /// `_acpmux/person_prove` calls per connection. Not a security bound (the proof is a 256-bit
-/// HMAC bound to the connection's own nonce and id): it keeps a client from parking a held
-/// prove ([`PROVE_HOLD`]) per request.
+/// HMAC bound to the connection's own nonce and id): it keeps a client from parking a pending
+/// prove ([`PersonGate::proves_when_keyed`]) per request.
 pub const PROVES_PER_CONNECTION: u32 = 8;
-/// How long a `_acpmux/person_prove` on a run with no key yet waits for the app's enroll
-/// ([`PersonGate::proves_once_keyed`]). The app enrolls a daemon it finds right after its status
-/// answers, so a pane that raced it waits milliseconds; the bound only ends the wait on a daemon
-/// no app ever keys.
-// timeout: the hold of a proof that came before its key; past it the proof proves nothing.
-pub const PROVE_HOLD: std::time::Duration = std::time::Duration::from_secs(5);
 /// `personChallenge.reprove`: this daemon takes `_acpmux/person_prove` at any point of a
 /// challenged connection's life, so a client that proved nothing (its key reached the daemon
 /// late) proves again on the same connection instead of reconnecting.
@@ -432,7 +427,7 @@ pub enum PersonVerdict {
 pub struct PersonGate {
     key: StdMutex<Option<String>>,
     /// Woken at each key this run takes, so a proof that came before it is checked again
-    /// ([`PersonGate::proves_once_keyed`]).
+    /// ([`PersonGate::proves_when_keyed`]).
     keyed: tokio::sync::Notify,
     /// Set by `--person-key-fd`: a running unsigned daemon takes no other.
     from_spawn: AtomicBool,
@@ -797,36 +792,30 @@ impl PersonGate {
             .is_some_and(|expected| cmux_local_auth::tokens_match(proof, &expected))
     }
 
-    /// [`PersonGate::proves`], held while this run has no key yet, at most `hold`: a daemon that
-    /// just restarted (an update's take-over, `acpmux daemon restart`) takes the app's key by
-    /// `_acpmux/person_enroll` only after it is up, and the app's pane may connect and prove in
-    /// between. The proof is checked again at each key this run takes until `hold` ends; then it
-    /// proves nothing. A run that holds a key refuses a wrong proof at once (no wait for a key
-    /// that may never come).
-    pub async fn proves_once_keyed(
+    /// [`PersonGate::proves`], ordered by the key and not by a clock: a daemon that just
+    /// restarted (an update's take-over, `acpmux daemon restart`) takes the app's key by
+    /// `_acpmux/person_enroll` only after it is up, and a pane may connect and prove in between,
+    /// or prove a key the app is about to enroll in place of the one this run holds. The proof is
+    /// checked now and again at each key this run takes, and resolves true on the key it answers.
+    /// It never resolves false on its own: its caller ends the wait when the connection closes
+    /// ([`Conn::settle_prove`](crate::server)), so the bound is the connection's life (Leo,
+    /// 2026-11-22: "surely we can think of better fixes than random timing").
+    pub async fn proves_when_keyed(
         &self,
         transport: &str,
         nonce: &str,
         connection: &str,
         proof: &str,
-        hold: std::time::Duration,
-    ) -> bool {
-        let deadline = tokio::time::Instant::now() + hold;
+    ) {
         loop {
             let keyed = self.keyed.notified();
             tokio::pin!(keyed);
             // Registered before the check, so a key taken between the check and the wait wakes it.
             keyed.as_mut().enable();
             if self.proves(transport, nonce, connection, proof) {
-                return true;
+                return;
             }
-            if self.has_key() {
-                return false;
-            }
-            // timeout: PROVE_HOLD, the bound on a proof that came before its key (person.rs).
-            if tokio::time::timeout_at(deadline, keyed).await.is_err() {
-                return self.proves(transport, nonce, connection, proof);
-            }
+            keyed.await;
         }
     }
 

@@ -1,8 +1,11 @@
 # Agent pane host line
 
-What the pane shows above the composer when the agent service (acpmux) is slow or unreachable. A
-recovery shows nothing for its first 10 s (`RECONNECT_LINE_AFTER_MS`), then only the quiet
-"Reconnecting…" chip, drawn out of flow in `HostLineSlot`. A line of words shows only for a refusal
+What the pane shows above the composer when the agent service (acpmux) is slow or unreachable. The
+quiet "Reconnecting…" chip, drawn out of flow in `HostLineSlot`, follows the connection's state and
+never a clock (Leo, 2026-11-22: "surely we can think of better fixes than random timing which can
+shift"). A dropped socket, a handshake that waits for acpmux and a planned restart (`details.handoff`)
+show nothing for as long as they last. Only a failed attempt marks the link down (App.tsx `linkDown`),
+and the next connect clears it (hostRetry.ts `hostRecoveryLine`). A line of words shows only for a refusal
 the host can't clear by itself, and it always comes with the one step that clears it (hostRetry.ts
 `hostErrorShows`).
 

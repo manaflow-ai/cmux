@@ -128,8 +128,8 @@ export function HostUnavailableLine({
 /// not a sentence. stop layout shifting"; and "where did I say this is only iOS?": the rule is the
 /// desktop's and the web's too. So the chip is drawn out of flow: HostLineSlot is a zero-height box in
 /// the dock, and the chip floats over the transcript's last pixels above the composer, so it appears
-/// and goes without moving one row (noLayoutShift.ts is the test). It shows only past the shared
-/// bound (hostRetry.ts `RECONNECT_LINE_AFTER_MS`, 10 s: `hostRecoveryLine`).
+/// and goes without moving one row (noLayoutShift.ts is the test). It shows only while the
+/// connection is down for real, as the transport says (hostRetry.ts `hostRecoveryLine`), never after a clock.
 ///
 /// `variant` is for the gallery: `chip` (shipped) is a dot and one word beside the composer's top edge,
 /// `dot` only the dot (its words are the tooltip and the label), `corner` the chip in the pane's top
@@ -186,31 +186,28 @@ function ReconnectingLine({ variant }: { variant?: ConnectionChipVariant }) {
 /// waits on the person. Otherwise
 /// (`otherwise`) the host's other line, if any.
 export function HostRecoveringLine({
-  relinkingSince,
+  linkDown,
   restoring,
   failureShown,
-  waitingSince,
   otherwise = null,
   now: fixedNow,
   variant,
 }: {
   /// The chip's look, for the gallery; the pane passes none.
   variant?: ConnectionChipVariant;
-  relinkingSince?: number;
+  /// An attempt to connect failed for real and none connected since (App.tsx `linkDown`).
+  linkDown?: boolean;
   restoring?: HostRestoring;
   /// The pane already says a failure (`hostErrorSaid`): "Reconnecting…" leaves the line to it.
   failureShown?: boolean;
-  /// When the handshake in flight began waiting for acpmux: a long wait is the same quiet chip.
-  waitingSince?: number;
   otherwise?: ReactNode;
-  /// A fixed clock for the gallery and tests; the pane passes none and the line counts each second.
+  /// A fixed clock for the gallery and tests; the pane passes none and the restore's time counts each second.
   now?: number;
 }) {
   const t = useT();
-  const ticking = useNow(
-    fixedNow === undefined && (relinkingSince !== undefined || waitingSince !== undefined || restoring !== undefined),
-  );
-  const line = hostRecoveryLine({ relinkingSince, restoring, failureShown, waitingSince, now: fixedNow ?? ticking });
+  // Only the restore's m:ss needs the clock; "Reconnecting…" is state, not time.
+  const ticking = useNow(fixedNow === undefined && linkDown === true && restoring !== undefined);
+  const line = hostRecoveryLine({ linkDown, restoring, failureShown, now: fixedNow ?? ticking });
   if (!line) return otherwise;
   return line.kind === "restoring" ? (
     <ConnectionChip

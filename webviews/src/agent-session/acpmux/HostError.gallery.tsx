@@ -106,7 +106,7 @@ function GalleryHostError({
       <MockDock slotted={slotted}>
         {chip ? (
           <HostRecoveringLine
-            relinkingSince={0}
+            linkDown
             restoring={chip === "restoring" ? { waitedMs: 12_000, at: 0 } : undefined}
             now={12_000}
             variant={chip === "restoring" ? undefined : chip}

@@ -630,19 +630,11 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         }
     }
 
-    /// The bound on a just-launched daemon binding its socket before the app enrolls its key.
-    static let launchEnrollWithin: Duration = .seconds(15)
-
-    /// `_acpmux/status` of a daemon that just started, or won the start: waits up to `within` (3 s by default) while
+    /// `_acpmux/status` of a daemon that just started, or won the start: waits up to 3 s while
     /// its socket is still being bound, as ``verifiedEndpoint(_:)`` does, then for its answer
     /// however long it takes. Nil when none answers.
-    /// - Parameter within: how long the started daemon may take to bind its socket. The launch path
-    ///   gives it ``launchEnrollWithin``: it enrolls this launch's person key before any pane
-    ///   connects, so a daemon slow to bind after an update (a take-over successor runs clamped)
-    ///   still gets the key instead of a pane proving to a keyless daemon (Leo, 2026-11-22).
-    private static func startedStatus(_ environment: AcpmuxEnvironment,
-                                      within: Duration = .seconds(3)) async -> AcpmuxStatus? {
-        let deadline = ContinuousClock.now + within
+    private static func startedStatus(_ environment: AcpmuxEnvironment) async -> AcpmuxStatus? {
+        let deadline = ContinuousClock.now + .seconds(3)
         var delay: Duration = .milliseconds(100)
         // wakeup-allow: bounded retry while the started daemon binds its Unix socket; this exits at the deadline or on any other failure.
         while true {
@@ -784,8 +776,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             let launched = try await AcpmuxDaemonLauncher.launchReporting(environment, adoption: adoption)
             Self.markLookup("spawn_ready", owned: owned)
             // A signed daemon ignores the spawn key: it takes the key by this app's signature.
-            if let status = await Self.startedStatus(environment, within: Self.launchEnrollWithin),
-               status.serves(home: environment.home) {
+            if let status = await Self.startedStatus(environment), status.serves(home: environment.home) {
                 _ = await AcpmuxPersonKey.enroll(status, environment: environment,
                                                  mayHandOff: Self.mayHandOff(after: launched))
                 approver?.register(environment)

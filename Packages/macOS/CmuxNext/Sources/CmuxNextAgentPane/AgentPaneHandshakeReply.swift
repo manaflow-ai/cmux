@@ -128,6 +128,9 @@ enum AgentPaneHandshakeReply {
             // The web pane shows nothing while a daemon starts or restarts and its retries can
             // outlast it (``AgentPaneHostError/isTransient``); a refusal they cannot is said at once.
             if (error as? AgentPaneHostError)?.isTransient == true { details["reconnecting"] = true }
+            // A restart the host carries out (an update's handoff, a start under way): the page's
+            // link is not down, so it shows no chip (webviews hostRetry.ts `hostPlannedRestart`).
+            if (error as? AgentPaneHostError)?.isPlannedRestart == true { details["handoff"] = true }
             // A refused chat of another machine still names that machine on its chip (cx-k21v).
             if let machine = (error as? any AgentPaneHostRefusal)?.machineName { details["machineName"] = machine }
             // A daemon another binary runs holds this app's socket: the page offers Restart acpmux

@@ -557,7 +557,7 @@ impl Conn {
     /// `PROVES_PER_CONNECTION`) makes it the person when the proof matches its own nonce and
     /// id. Nothing else ever does. A proof checked here, in order, makes the person before the
     /// next request is bound; one that came before this run's key is checked again by its
-    /// handler once the key comes (`requests.rs`, `PersonGate::proves_once_keyed`).
+    /// handler once the key comes (`requests.rs`, `PersonGate::proves_when_keyed`).
     fn bind_person(&self, hub: &Hub, m: &str, params: &mut Option<Value>) {
         let _ = params.as_mut().and_then(crate::hub::person::take_key);
         // Stripped from every request; read from a first unix `initialize` only (person.rs (a)).
@@ -603,8 +603,10 @@ impl Conn {
     }
 
     /// `_acpmux/person_prove`'s answer: whether this connection is the person now. A proof that
-    /// `bind_person` could not check because this run holds no key yet waits for the app's
-    /// enroll, at most `PROVE_HOLD`; a match makes the connection the person from here on.
+    /// `bind_person` could not check (this run holds no key yet, or one the app is replacing)
+    /// stays pending until a key it answers is enrolled, then makes the connection the person;
+    /// it ends unproven only when the connection closes. Requests run concurrently, so a pending
+    /// prove holds nothing else on the connection.
     pub(super) async fn settle_prove(&self, hub: &Hub, params: &Value) -> bool {
         if self.is_person() {
             return true;
@@ -613,23 +615,15 @@ impl Conn {
         if !self.challenged.load(Ordering::SeqCst)
             || tried == 0
             || tried > crate::hub::person::PROVES_PER_CONNECTION
-            || hub.person.has_key()
         {
             return false;
         }
         let Some(proof) = params.get("proof").and_then(Value::as_str) else { return false };
-        let proven = hub
-            .person
-            .proves_once_keyed(
-                self.person_transport(),
-                &self.nonce,
-                &self.id,
-                proof,
-                crate::hub::person::PROVE_HOLD,
-            )
-            .await;
-        if proven {
-            self.person.store(true, Ordering::SeqCst);
+        let keyed =
+            hub.person.proves_when_keyed(self.person_transport(), &self.nonce, &self.id, proof);
+        tokio::select! {
+            () = keyed => self.person.store(true, Ordering::SeqCst),
+            () = self.closed() => {}
         }
         self.is_person()
     }

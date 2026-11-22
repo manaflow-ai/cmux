@@ -1,7 +1,7 @@
-//! `_acpmux/person_prove` at any point of a challenged connection's life, and held while the
-//! daemon has no key yet (`hub/person.rs`): after an update the app's pane may connect to the
+//! `_acpmux/person_prove` at any point of a challenged connection's life, pending until a key it
+//! answers is enrolled (`hub/person.rs`): after an update the app's pane may connect to the
 //! restarted daemon before the app's `_acpmux/person_enroll` reaches it, and it must become the
-//! person once the key lands, on the same connection, with no reconnect.
+//! person once the key lands, on the same connection, with no reconnect, no refusal and no clock.
 
 use super::*;
 use crate::config::{Config, StoreMode};
@@ -107,8 +107,8 @@ async fn a_proof_before_the_enroll_proves_once_the_key_lands() {
     let hub = hub();
     let mut rpc = Rpc::connect(&hub).await;
     let id = rpc.send(method::MUX_PERSON_PROVE, json!({"proof": rpc.proof(KEY)})).await;
-    // The prove is held: let it reach its wait, then the app's enroll lands.
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    // The prove is pending: it answers nothing until the app's enroll lands.
+    assert!(!answers_within(&mut rpc, id, Duration::from_millis(100)).await);
     assert!(!hub.person.has_key());
     hub.person.enroll(KEY, true).unwrap();
     let reply = rpc.reply(id).await;
@@ -127,69 +127,89 @@ async fn a_proof_after_the_enroll_proves_at_once() {
     assert!(started.elapsed() < Duration::from_secs(2));
 }
 
-/// A connection that proved nothing (the daemon held an earlier launch's key) proves on the same
-/// connection after the new key's enroll, later in its life: no reconnect.
+/// Whether a reply to `id` comes within `wait` (a short test-only look, never a bound the daemon
+/// keeps): a pending prove answers nothing.
+async fn answers_within(rpc: &mut Rpc, id: i64, wait: Duration) -> bool {
+    // timeout: test-only look at whether a pending prove answered.
+    tokio::time::timeout(wait, rpc.reply(id)).await.is_ok()
+}
+
+/// The daemon survived the update and holds the earlier launch's key: the pane's proof under the
+/// new key waits for the app's enroll of it, on the same connection, and then proves.
 #[tokio::test]
-async fn a_later_proof_on_the_same_connection_proves() {
+async fn a_proof_under_the_key_being_replaced_proves_once_the_new_key_lands() {
     let hub = hub();
     hub.person.enroll(OTHER, true).unwrap();
     let mut rpc = Rpc::connect(&hub).await;
-    let started = std::time::Instant::now();
-    let refused = rpc.prove(rpc.proof(KEY)).await;
-    assert_eq!(refused["error"]["data"]["reason"], PROOF_REFUSED, "{refused}");
-    // A daemon with a key refuses a wrong proof at once: no hold.
-    assert!(started.elapsed() < Duration::from_secs(2));
+    let id = rpc.send(method::MUX_PERSON_PROVE, json!({"proof": rpc.proof(KEY)})).await;
+    assert!(!answers_within(&mut rpc, id, Duration::from_millis(100)).await);
     assert!(!rpc.passes_person_gate().await);
     hub.person.enroll(KEY, true).unwrap();
-    let reply = rpc.prove(rpc.proof(KEY)).await;
+    let reply = rpc.reply(id).await;
     assert!(proven(&reply), "{reply}");
     assert!(rpc.passes_person_gate().await);
 }
 
-/// The hold never weakens the binding: another connection's proof, or one under another key,
-/// proves nothing once the key lands.
+/// A pending prove never weakens the binding: another connection's proof, or one under another
+/// key, stays unproven once the key lands, and holds no other request on the connection.
 #[tokio::test]
-async fn a_held_proof_still_binds_its_connection_and_key() {
+async fn a_pending_proof_still_binds_its_connection_and_key() {
     let hub = hub();
     let mut rpc = Rpc::connect(&hub).await;
     let other = Rpc::connect(&hub).await;
     let wrong_connection =
         rpc.send(method::MUX_PERSON_PROVE, json!({"proof": other.proof(KEY)})).await;
     let wrong_key = rpc.send(method::MUX_PERSON_PROVE, json!({"proof": rpc.proof(OTHER)})).await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
     hub.person.enroll(KEY, true).unwrap();
+    assert!(!rpc.passes_person_gate().await);
     for id in [wrong_connection, wrong_key] {
-        let reply = rpc.reply(id).await;
-        assert_eq!(reply["error"]["data"]["reason"], PROOF_REFUSED, "{reply}");
+        assert!(!answers_within(&mut rpc, id, Duration::from_millis(100)).await);
     }
     assert!(!rpc.passes_person_gate().await);
 }
 
-/// No app ever keys the daemon: the held prove ends at its bound and proves nothing.
-#[tokio::test(start_paused = true)]
-async fn a_held_proof_ends_at_its_bound() {
+/// No app ever keys the daemon: the pending prove ends with its connection, which closes.
+#[tokio::test]
+async fn a_pending_proof_ends_with_its_connection() {
     let hub = hub();
-    let mut rpc = Rpc::connect(&hub).await;
-    let reply = rpc.prove(rpc.proof(KEY)).await;
-    assert_eq!(reply["error"]["data"]["reason"], PROOF_REFUSED, "{reply}");
-    assert!(!rpc.passes_person_gate().await);
+    let (input, incoming) = mpsc::channel(64);
+    let (output, outgoing) = mpsc::channel(64);
+    let served = tokio::spawn(serve_connection_with(hub.clone(), incoming, output, Origin::Local));
+    let mut rpc = Rpc {
+        input,
+        output: outgoing,
+        next: 0,
+        nonce: String::new(),
+        connection: String::new(),
+        reprove: false,
+    };
+    let id =
+        rpc.send(method::INITIALIZE, json!({"protocolVersion": 1, "clientCapabilities": {}})).await;
+    let reply = rpc.reply(id).await;
+    let challenge = &reply["result"]["_meta"]["acpmux"]["personChallenge"];
+    rpc.nonce = challenge["nonce"].as_str().unwrap().to_owned();
+    rpc.connection = challenge["connection"].as_str().unwrap().to_owned();
+    rpc.send(method::MUX_PERSON_PROVE, json!({"proof": rpc.proof(KEY)})).await;
+    drop(rpc);
+    // timeout: test-only bound; a pending prove that outlived its connection fails the test.
+    tokio::time::timeout(Duration::from_secs(30), served).await.expect("connection ended").ok();
+    assert!(!hub.person.has_key());
 }
 
-/// A connection gets a bounded number of tries: past them even the right proof proves nothing.
+/// A connection gets a bounded number of tries: past them even the right proof proves nothing,
+/// and says so at once.
 #[tokio::test]
 async fn proofs_per_connection_are_bounded() {
     let hub = hub();
     hub.person.enroll(KEY, true).unwrap();
     let mut rpc = Rpc::connect(&hub).await;
     for _ in 0..PROVES_PER_CONNECTION {
-        let reply = rpc.prove(rpc.proof(OTHER)).await;
-        assert_eq!(reply["error"]["data"]["reason"], PROOF_REFUSED, "{reply}");
+        rpc.send(method::MUX_PERSON_PROVE, json!({"proof": rpc.proof(OTHER)})).await;
     }
     let reply = rpc.prove(rpc.proof(KEY)).await;
     assert_eq!(reply["error"]["data"]["reason"], PROOF_REFUSED, "{reply}");
     assert!(!rpc.passes_person_gate().await);
 }
-
 /// The first request is never a proof: a connection must take its challenge first.
 #[tokio::test]
 async fn a_proof_without_a_challenge_proves_nothing() {
@@ -208,4 +228,39 @@ async fn a_proof_without_a_challenge_proves_nothing() {
     };
     let reply = rpc.prove("00".repeat(32)).await;
     assert_eq!(reply["error"]["data"]["reason"], PROOF_REFUSED, "{reply}");
+}
+
+/// An update's relaunch against a daemon that just restarted, under load: every core is busy and
+/// the app's enroll reaches the daemon only after the pane's connection proved. The pane's one
+/// connection and its one prove become the person: no refusal, no second try, no reconnect, so
+/// nothing in the pane has anything to show.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_relaunch_against_a_just_restarted_daemon_under_load_proves_on_its_first_try() {
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let cores = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
+    let hogs: Vec<_> = (0..cores * 2)
+        .map(|_| {
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                let mut n = 0u64;
+                while !stop.load(Ordering::Relaxed) {
+                    n = std::hint::black_box(n.wrapping_mul(6364136223846793005).wrapping_add(1));
+                }
+            })
+        })
+        .collect();
+    let hub = hub();
+    let mut rpc = Rpc::connect(&hub).await;
+    let id = rpc.send(method::MUX_PERSON_PROVE, json!({"proof": rpc.proof(KEY)})).await;
+    // The app's enroll, ordered after the prove by the prove being sent, from another task the
+    // loaded runtime runs when it can.
+    let enroller = hub.clone();
+    tokio::spawn(async move { enroller.person.enroll(KEY, true).unwrap() });
+    let reply = rpc.reply(id).await;
+    stop.store(true, Ordering::Relaxed);
+    for hog in hogs {
+        hog.join().unwrap();
+    }
+    assert!(proven(&reply), "{reply}");
+    assert!(rpc.passes_person_gate().await);
 }

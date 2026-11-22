@@ -269,42 +269,70 @@ extension AgentPaneTransport {
 
     /// The person proof (acpmux `hub/person.rs`, cx-fcaq), sent right after the page's first frame
     /// and before any other: the HMAC of the daemon's challenge from the `initialize` reply under
-    /// the key this app gave the daemon on ``socketPath``. The key itself never crosses the
-    /// socket. No challenge (a remote wire, an older daemon): no proof, nothing to report.
+    /// this launch's key for ``socketPath``. The key itself never crosses the socket. No challenge
+    /// (a remote wire, an older daemon): no proof, nothing to report.
     ///
-    /// No key, or a proof the daemon refused, leaves the pane unproven: the daemon records each
-    /// prompt typed here as an unverified sender's, and the agent reads it as not the person's
-    /// (Leo, 2026-11-10: "Oh, it's turned me into an unverified sender."). That is never silent: the
-    /// pane says so (``onPersonProof``) and gets the key to the daemon again (``recoverPersonProof``).
+    /// Ordered by events, never by a clock (Leo, 2026-11-22: "surely we can think of better fixes
+    /// than random timing which can shift"). A daemon that says `reprove` holds a proof its key does
+    /// not answer yet until the app enrolls that key, so after an update the pane proves at once
+    /// under ``AcpmuxPersonKey/paneKey(for:)``:
+    /// - the key not delivered to this daemon yet: the host's lookup is asked to enroll it
+    ///   (``recoverPersonProof``), and its enroll resolves the pending proof;
+    /// - a daemon that took another key meanwhile (``AcpmuxPersonKey/whenDelivered(socketPath:_:)``):
+    ///   the pane proves that key on the same connection.
+    /// Nothing reconnects and nothing is shown. An older daemon without `reprove` refuses an early
+    /// proof: then the key is enrolled and the pane reconnects once (``personProofSettled``).
     func provePerson(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async {
         guard let socketPath else { return }
         guard let challenge = await socket.personChallenge() else { return }
         guard self.socket === socket else { return }
         let connection = current
-        guard let proof = AcpmuxPersonKey.proof(socketPath: socketPath, transport: .app, nonce: challenge.nonce,
-                                                connection: challenge.connection) else {
-            Self.logger.error("agent pane transport: no person key for this daemon; reconnecting identity")
-            personProofSettled(false, connection: connection)
-            return
+        var key = AcpmuxPersonKey.paneKey(for: socketPath)
+        if challenge.reprove, AcpmuxPersonKey.deliveredKey(for: socketPath) != key, let recover = recoverPersonProof {
+            // task-owner: one enroll request per unkeyed connection; it ends with the host's lookup
+            // main-hop-allow: one host lookup, not frame work
+            Task { @MainActor in _ = await recover() }
         }
-        let id = ids.hostID()
-        personProofID = id
-        let frame: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": "_acpmux/person_prove",
-                                    "params": ["proof": proof]]
-        guard let data = try? JSONSerialization.data(withJSONObject: frame), let text = String(data: data, encoding: .utf8) else { return }
-        let proven = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            ids.whenResult(id) { continuation.resume(returning: $0) }
-            if let error = socket.send(text) {
-                ids.cancel(id)
-                continuation.resume(returning: false)
-                Self.logger.error("agent pane transport: person proof not sent: \(error.rawValue, privacy: .public)")
+        // Each re-key proves once more on this connection, up to the proofs acpmux takes on one
+        // (`server/mod.rs` `PROVES_PER_CONNECTION`); a daemon keyed more often than that is refused.
+        for _ in 0..<Self.provesPerConnection {
+            guard let proof = AcpmuxPersonKey.proof(key: key, transport: .app, nonce: challenge.nonce,
+                                                    connection: challenge.connection) else { return }
+            let id = ids.hostID()
+            personProofID = id
+            let frame: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": "_acpmux/person_prove",
+                                        "params": ["proof": proof]]
+            guard let data = try? JSONSerialization.data(withJSONObject: frame),
+                  let text = String(data: data, encoding: .utf8) else { return }
+            let answer = await AcpmuxProveRace.first(
+                proved: key, socketPath: challenge.reprove ? socketPath : nil,
+                send: { done in
+                    ids.whenResult(id) { done($0) }
+                    if let error = socket.send(text) {
+                        ids.cancel(id)
+                        done(false)
+                        Self.logger.error("agent pane transport: person proof not sent: \(error.rawValue, privacy: .public)")
+                    }
+                },
+                closed: { [weak socket] in await socket?.untilClosed() })
+            guard self.socket === socket, !socket.isClosed, connection == current else { return }
+            switch answer {
+            case let .rekeyed(next):
+                Self.logger.info("agent pane transport: this daemon took a new person key; proving it on this connection")
+                key = next
+                continue
+            case let .answered(proven):
+                if personProofID == id { personProofID = nil }
+                if !proven { Self.logger.error("agent pane transport: acpmux refused the person proof") }
+                personProofSettled(proven, connection: connection, reprove: challenge.reprove)
+                return
             }
         }
-        if self.socket === socket, personProofID == id { personProofID = nil }
-        guard self.socket === socket, !socket.isClosed else { return }
-        if !proven { Self.logger.error("agent pane transport: acpmux refused the person proof; reconnecting identity") }
-        personProofSettled(proven, connection: connection)
+        personProofSettled(false, connection: connection, reprove: challenge.reprove)
     }
+
+    /// acpmux's `PROVES_PER_CONNECTION`: the proofs one connection may send.
+    static let provesPerConnection = 8
 
     /// The most frames one off-main pass takes (so a long line still yields between passes).
     static let framesPerPass = 256
