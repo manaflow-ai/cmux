@@ -142,8 +142,8 @@ class DaemonTestsGateTests(unittest.TestCase):
         self.assertNotIn(SHADOW, WORKFLOW.read_text(encoding="utf-8").split("\njobs:\n", 1)[1].replace(
             "cmux-next-daemon-macos-shadow.yml", ""))
         doc = shadow_workflow()
-        self.assertEqual(set(doc["on"]), {"push", "workflow_dispatch"})
-        self.assertEqual(doc["on"]["push"]["branches"], ["feat-cmux-next"])
+        # workflow_dispatch only since #48520: nothing waits for it, so no push run queues a Mac.
+        self.assertEqual(set(doc["on"]), {"workflow_dispatch"})
         self.assertEqual(doc["permissions"], {})
         self.assertEqual(doc["concurrency"]["cancel-in-progress"], "false")
         shadow = doc["jobs"][SHADOW]

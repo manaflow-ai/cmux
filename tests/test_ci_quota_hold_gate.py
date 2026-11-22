@@ -76,7 +76,6 @@ STEP_GATE_RUN = '[ "$HOLD" != 1 ] || continue'
 # missing on the head dispatches the gates rather than passing.
 DRAFT_SKIPPED: dict[str, tuple[str, ...]] = {
     "cmux-next-fast-gates.yml": (),
-    "gallery-advisory.yml": (),
     "cmux-next-hot-verify.yml": ("plan",),
     # Its job runs split-plan on a draft (it always did) and its pick step drops the other steps; a draft's
     # edit starts no runner. The rest run on ready_for_review.
