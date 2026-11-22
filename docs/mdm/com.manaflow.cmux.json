@@ -6175,6 +6175,16 @@
       "title" : "+ Button Visibility",
       "type" : "string"
     },
+    "tabs.shellIconTheme" : {
+      "default" : "default",
+      "description" : "Machines shows each shell tab with the icon of the machine it runs on.",
+      "enum" : [
+        "default",
+        "machine"
+      ],
+      "title" : "Shell Tab Icons",
+      "type" : "string"
+    },
     "tabs.swapCmdTAndCmdN" : {
       "default" : false,
       "description" : "Cmd-T opens a workspace and Cmd-N opens a tab.",
