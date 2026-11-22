@@ -34,7 +34,12 @@ await requireBrowserLane("new-tab-density-scaling.test.ts", async () => {
 
   for (const [engine] of engines) {
     test(`${engine}: the whole composer area scales from Default, including searchable create rows`, async () => {
-      const page = await browsers.get(engine)!.newPage({ viewport: { width: 1600, height: 1000 } });
+      // At 2x, as the app draws on a Retina Mac: at 1x, Linux Chromium lays text out on whole-pixel glyph
+      // advances, so a label's width at zoom 0.8 missed its scaled width by up to 3.6px while every CSS
+      // size scaled exactly (the fleet run on #51009: "Full access" 96.00 vs 99.20).
+      const page = await browsers
+        .get(engine)!
+        .newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 2 });
       const port = (vite.httpServer!.address() as { port: number }).port;
       try {
         const results: {
