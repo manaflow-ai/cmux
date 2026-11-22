@@ -10,7 +10,7 @@ use sha2::{Digest as _, Sha256};
 use super::copy::{self, Action as CopyAction};
 use super::live::{self, Daemon, Phases, Store};
 use super::resolve::{self, Spec, Unresolved};
-use super::{Command, Live, Plan, choose, parse, try_live, undo_live};
+use super::{ChannelApply, Command, Live, Plan, apply_channel, choose, parse, try_live, undo_live};
 
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 const APP_COMMIT: &str = "89abcde";
@@ -69,6 +69,34 @@ struct Fixture {
     app: PathBuf,
     base: String,
     store: Store,
+}
+
+impl Fixture {
+    /// Exercise the command's shared channel/apply boundary with signed fixture
+    /// bytes and a fake daemon, including the forward-only state write.
+    fn run_channel_once(
+        &self,
+        channel_body: &[u8],
+        live_body: &[u8],
+        keys: &[(String, [u8; 32])],
+        daemon: &dyn Daemon,
+        now: u64,
+    ) -> Result<bool, String> {
+        let channel = live::verify_channel(channel_body, keys, now)?;
+        match apply_channel(&self.app, &self.store, &channel, false, |app_commit| {
+            let payload = live::verify(live_body, keys, &channel.commit)?;
+            let plan =
+                choose(&channel.commit, Some(app_commit), &Live::Found(payload), None, &self.base);
+            let Plan::Live { files } = plan else {
+                return Err("the signed channel has no live payload this app can take".to_owned());
+            };
+            let applied = try_live(&self.app, &files, &self.store, daemon, &mut Phases::default())?;
+            Ok(applied.changed)
+        })? {
+            ChannelApply::SkippedOlder => Ok(false),
+            ChannelApply::Applied { changed } => Ok(changed),
+        }
+    }
 }
 
 const OLD_CMUX: &[u8] = b"old cmux";
@@ -179,12 +207,102 @@ fn app_try_parse_reads_try_undo_status_and_dry_run() {
     assert_eq!(parse(&words(&["undo"])).unwrap(), Command::Undo { dry_run: false });
     assert_eq!(parse(&words(&["undo", "--dry-run"])).unwrap(), Command::Undo { dry_run: true });
     assert_eq!(parse(&words(&["status"])).unwrap(), Command::Status);
+    assert_eq!(
+        parse(&words(&["channel"])).unwrap(),
+        Command::Channel { dry_run: false, app: None }
+    );
+    assert_eq!(
+        parse(&words(&["channel", "--dry-run", "--app", "/A.app"])).unwrap(),
+        Command::Channel { dry_run: true, app: Some("/A.app".into()) }
+    );
     assert_eq!(parse(&words(&["--help"])).unwrap(), Command::Help);
     assert!(parse(&words(&[])).is_err());
     assert!(parse(&words(&["a", "b"])).is_err());
     assert!(parse(&words(&["--bogus", "abc1234"])).is_err());
     assert!(parse(&words(&["a..b"])).is_err());
     assert!(parse(&words(&["status", "--dry-run"])).is_err());
+}
+
+#[test]
+fn nightly_live_channel_checks_signature_binding_expiry_and_forward_only_order() {
+    let signed = envelope(&payload(live::PURPOSE, COMMIT, good_targets()));
+    let channel = live::verify_channel(&signed, &keys(), 1_200).unwrap();
+    assert_eq!(channel.commit, COMMIT);
+    assert!(live::channel_is_newer(None, channel.committed_at));
+    assert!(!live::channel_is_newer(Some(channel.committed_at), channel.committed_at));
+    assert!(!live::channel_is_newer(Some(channel.committed_at + 1), channel.committed_at));
+
+    let wrong_purpose = envelope(&payload("cmux-cloud-machine-update", COMMIT, good_targets()));
+    let error = live::verify_channel(&wrong_purpose, &keys(), 1_200).unwrap_err();
+    assert!(error.contains("not the nightly-live Mac channel"), "{error}");
+
+    let mut expired = payload(live::PURPOSE, COMMIT, good_targets());
+    expired["expires_at"] = json!(1_200);
+    let error = live::verify_channel(&envelope(&expired), &keys(), 1_200).unwrap_err();
+    assert!(error.contains("expired"), "{error}");
+
+    let mut unbound = payload(live::PURPOSE, COMMIT, good_targets());
+    unbound["live_from"] = json!(["89abcdef0123456789abcdef0123456789abcdef", COMMIT]);
+    let error = live::verify_channel(&envelope(&unbound), &keys(), 1_200).unwrap_err();
+    assert!(error.contains("live_from does not start"), "{error}");
+
+    let fixture = fixture();
+    assert_eq!(fixture.store.channel_last().unwrap(), None);
+    fixture.store.record_channel(1_100, COMMIT).unwrap();
+    assert_eq!(fixture.store.channel_last().unwrap(), Some(1_100));
+    fs::write(fixture.store.root.join("channel.json"), b"not json").unwrap();
+    let error = fixture.store.channel_last().unwrap_err();
+    assert!(error.contains("invalid channel state"), "{error}");
+}
+
+#[test]
+fn nightly_live_channel_command_fixture_applies_readback_and_refuses_older_or_bad_updates() {
+    let fixture = fixture();
+    let channel_body = envelope(&payload(live::PURPOSE, COMMIT, good_targets()));
+    let live_body = envelope(&payload(live::PURPOSE, COMMIT, good_targets()));
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+
+    assert!(fixture.run_channel_once(&channel_body, &live_body, &keys(), &daemon, 1_200).unwrap());
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(NEW_CMUX));
+    assert_eq!(fixture.store.channel_last().unwrap(), Some(1_000));
+    // The same pointer is forward-only and does not re-run the daemon handoff.
+    assert!(!fixture.run_channel_once(&channel_body, &live_body, &keys(), &daemon, 1_200).unwrap());
+    assert_eq!(daemon.terminated.get(), 1);
+
+    // A newer pointer whose files are already current still advances the
+    // watermark, so a later older pointer cannot move it back.
+    let mut current = payload(live::PURPOSE, COMMIT, good_targets());
+    current["committed_at"] = json!(1_200);
+    assert!(
+        !fixture
+            .run_channel_once(&envelope(&current), &live_body, &keys(), &daemon, 1_200)
+            .unwrap()
+    );
+    assert_eq!(fixture.store.channel_last().unwrap(), Some(1_200));
+    let mut older = payload(live::PURPOSE, COMMIT, good_targets());
+    older["committed_at"] = json!(1_100);
+    assert!(
+        !fixture.run_channel_once(&envelope(&older), &live_body, &keys(), &daemon, 1_200).unwrap()
+    );
+    assert_eq!(fixture.store.channel_last().unwrap(), Some(1_200));
+    assert_eq!(daemon.terminated.get(), 1);
+
+    // A newer pointer whose per-commit bytes fail verification leaves the
+    // already-applied files and channel receipt intact.
+    let mut newer = payload(live::PURPOSE, COMMIT, good_targets());
+    newer["committed_at"] = json!(1_300);
+    let mut bad_targets = good_targets();
+    bad_targets["cmux-tui-app-host"]["sha256"] = json!(sha(b"wrong"));
+    let bad_live = envelope(&payload(live::PURPOSE, COMMIT, bad_targets));
+    let error = fixture
+        .run_channel_once(&envelope(&newer), &bad_live, &keys(), &daemon, 1_200)
+        .unwrap_err();
+    assert!(
+        error.contains("live payload") || error.contains("sha256") || error.contains("hashes to"),
+        "{error}"
+    );
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(NEW_CMUX));
+    assert_eq!(fixture.store.channel_last().unwrap(), Some(1_200));
 }
 
 fn copy_of(tree: &str, from: Option<&str>, action: CopyAction, dry_run: bool) -> Command {
