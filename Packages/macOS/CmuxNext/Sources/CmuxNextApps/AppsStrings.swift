@@ -38,6 +38,9 @@ nonisolated enum AppsStrings {
     static var reloadFailed: String { t("apps.mount.reloadFailed", "Not reloaded") }
     /// The second line of an app's toast detail (`cmux.toast`): the app that showed it.
     static func toastSource(_ app: String) -> String { String(format: t("apps.toast.source", "From %@"), app) }
+    /// `app.menu.run` on a row no visible app has now, or with no workspace or tab to act on.
+    static var menuUnknownRow: String { t("apps.menu.unknownRow", "No installed app has this menu item.") }
+    static var menuNoTarget: String { t("apps.menu.noTarget", "Choose a workspace or tab for this menu item.") }
     static var discover: String { t("store.tab.discover", "Discover") }
     static var installed: String { t("store.tab.installed", "Installed") }
     static var features: String { t("store.tab.features", "Features") }

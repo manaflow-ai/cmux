@@ -56,14 +56,44 @@ fn showing_work_to_the_user_finds_its_guide() {
 #[test]
 fn chief_prompt_guide_is_found_by_setup_words() {
     let topic = "Set up cmux with Chief: copyable setup prompts";
-    for query in ["setup", "chief setup prompts", "set up a remote machine", "pair a tailnet mac"] {
+    for query in
+        ["setup", "chief setup prompts", "set up a remote machine", "pair a tailnet mac"]
+    {
         assert!(guides(query).iter().any(|guide| guide.topic == topic), "{query}");
     }
     let guide = GUIDES.iter().find(|guide| guide.topic == topic).unwrap();
-    for words in ["`cmux setup list`", "`prompt`", "docs/chief-setup-prompts.md", "--prompts-md"] {
+    for words in
+        ["`cmux setup list`", "`prompt`", "docs/chief-setup-prompts.md", "--prompts-md"]
+    {
         assert!(guide.text.contains(words), "{words}");
     }
     assert_eq!(guides("status").len(), 1);
+}
+
+/// An agent or developer asking how to build on cmux finds the primitives
+/// guide, and it names only operations that exist.
+#[test]
+fn building_on_cmux_finds_the_primitives_guide() {
+    let topic = "Build on cmux: which primitive to use";
+    for query in ["primitives", "which api do I use", "automate on an event", "sdk"] {
+        assert!(guides(query).iter().any(|guide| guide.topic == topic), "{query}");
+    }
+    let guide = GUIDES.iter().find(|guide| guide.topic == topic).unwrap();
+    let operations = catalog()["operations"].as_object().unwrap();
+    for op in [
+        "workspace.create",
+        "workspace.list",
+        "workspace.run",
+        "tab.create_terminal",
+        "tab.create_browser",
+        "tab.update",
+    ] {
+        assert!(operations.contains_key(op), "{op}");
+        assert!(guide.text.contains(&op.replace('.', "_")), "{op}");
+    }
+    for tool in ["agents_events", "automation_create", "automation_test", "cmux_exec"] {
+        assert!(guide.text.contains(tool), "{tool}");
+    }
 }
 
 #[test]
