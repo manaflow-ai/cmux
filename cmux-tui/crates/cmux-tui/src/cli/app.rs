@@ -340,8 +340,10 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             call(REMOTE_VIEWS_METHOD, Value::Object(params))
         }
         // The Mac Screen tabs (`mac_screen.state`, every build): per device tab its
-        // phase, whether a picture is up, time to first frame, fps, round trip and
-        // dropped frames; read-only, never a credential or a pixel of the screen.
+        // state (requesting, waiting_for_approval, connecting, viewing, failed, ...),
+        // the card's error text, whether a picture is up, frame size, time to first
+        // frame, fps, round trip and dropped frames; `--tab` takes the tab's id or its
+        // page key. Read-only, never a credential or a pixel of the screen.
         ("app", Some("mac-screens")) => {
             let options = Options::parse(rest.get(1..).unwrap_or_default(), &["tab"], &[])?;
             let mut params = Map::new();
@@ -881,7 +883,11 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     match &command {
         AppCommand::Version => return Ran::Done(version::run(global)),
         AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, command)),
-        AppCommand::Live(command) => return Ran::Done(live::run(command)),
+        AppCommand::Live(command) => {
+            let command =
+                live::routed(command, global.socket.as_deref(), global.session.as_deref());
+            return Ran::Done(live::run(&command));
+        }
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, command)),
         AppCommand::Published(parsed) => return Ran::Done(published::run(global, parsed)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, command)),
@@ -1026,7 +1032,11 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Version => return Ran::Done(version::run(global)),
         AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, &command)),
-        AppCommand::Live(command) => return Ran::Done(live::run(&command)),
+        AppCommand::Live(command) => {
+            let command =
+                live::routed(&command, global.socket.as_deref(), global.session.as_deref());
+            return Ran::Done(live::run(&command));
+        }
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, &command)),
         AppCommand::Published(parsed) => return Ran::Done(published::run(global, &parsed)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, &command)),
