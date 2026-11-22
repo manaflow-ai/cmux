@@ -1681,7 +1681,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     permissions:
-      actions: read # this run's artifacts
+      actions: read # this run's artifacts and its legs' conclusions
       contents: read # a branch push's current head (BRANCH_BUILD_SUPERSEDED)
     outputs:
       target_set: ${{ steps.plan.outputs.target_set }}
@@ -1696,6 +1696,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
           BUILD_RESULT: ${{ needs.build.result }}
           FIRST_ON_MAC: ${{ needs.tree-preflight.outputs.darwin_mac_runner != '' }}
           # BRANCH_BUILD_SUPERSEDED (build): on a branch push a cancelled build may be one a newer
@@ -1717,13 +1718,29 @@ jobs:
           # A target is built when all three of its artifacts are there. The Linux
           # ones are build's (fat); build-linux's are named machine-channel-*.
           have() { for kind in cmux-tui cmux-relay chatmux-relay; do grep -qx "$kind-$1" <<<"$names" || return 1; done; }
+          # LOST_LEG_IS_NOT_A_FAILURE: a missing Linux target refuses the fallback only when its leg
+          # failed in a step. Run 44942698705's x86_64 musl leg was cancelled 60 s in when its runner
+          # was preempted, and the refusal cost the run its macOS artifacts. A leg that ended
+          # cancelled, or failure with no failed step (a lost runner), is no build failure: the
+          # fallback still builds the macOS targets, and "Re-run failed jobs" rebuilds the Linux leg.
+          # A jobs read that fails or finds no such leg refuses, as before.
+          legs=""; legs_read=""
           for linux in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
-            if ! have "$linux"; then
-              echo "::error title=no macOS fallback::the $linux build failed too; only a macOS cross-link failure falls back to a Mac"
-              echo "target_set=" >> "$GITHUB_OUTPUT"
-              echo "recovered=false" >> "$GITHUB_OUTPUT"
-              exit 0
+            have "$linux" && continue
+            if [[ -z "$legs_read" ]]; then
+              legs_read=1
+              legs="$(gh api --paginate "repos/$REPOSITORY/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs?per_page=100" \
+                --jq '.jobs[] | "\(.name)\t\(.conclusion // "")\t\([.steps[]? | select(.conclusion == "failure")] | length)"' 2>/dev/null || true)"
             fi
+            ended="$(awk -F '\t' -v name="build / build $linux" '$1 == name { print $2 "/" $3; exit }' <<<"$legs")"
+            if [[ "$ended" == cancelled/* || "$ended" == failure/0 ]]; then
+              echo "::warning title=Linux leg lost::the $linux leg ended ${ended%%/*} with no failed step (a lost or preempted runner, not a build failure); the macOS fallback still runs, and \"Re-run failed jobs\" rebuilds $linux"
+              continue
+            fi
+            echo "::error title=no macOS fallback::the $linux build failed too; only a macOS cross-link failure falls back to a Mac"
+            echo "target_set=" >> "$GITHUB_OUTPUT"
+            echo "recovered=false" >> "$GITHUB_OUTPUT"
+            exit 0
           done
           arm=missing; intel=missing
           have aarch64-apple-darwin && arm=present
@@ -4630,11 +4647,14 @@ jobs:
   # NIGHTLY, cmuxterm-hq#11364): cmux-tui-team-signed.yml signs it with the NEXT nightly's identity,
   # which only ref nightly-next can hold, so this asks for a run there. It holds nothing: no job
   # needs it, it never fails the run, and a missing workflow on nightly-next (before a promotion
-  # carries it) is a warning.
+  # carries it) is a warning. A feat-cmux-next dispatch asks too: the windowed tree build
+  # (request-nightly-next.sh, publish-bot-head-tree.sh) is a dispatch, and the pushes of its key
+  # deferred before it published, so a push-only request left that tree unsigned for good and its
+  # daemon never hot-applied into a NIGHTLY (05817a1d2d3a, run 44978301534, 2026-11-22).
   request-team-signed-tree:
     name: request the Team-signed tree
     needs: [tree-preflight, publish-tree-tested]
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     continue-on-error: true

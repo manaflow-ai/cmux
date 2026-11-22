@@ -102,8 +102,9 @@
 //! (an `inbox_noticed` record). The next notice goes no sooner than that, and behind a steer only
 //! once the agent took it at its tool step (its answer). One that does not go in (a
 //! steer refused or withdrawn, a turn of its own stopped or failed before its prompt was written)
-//! leaves its messages new, so none is lost; it is tried again no sooner than
-//! [`REFUSED_RETRY_MS`], or when a turn starts or ends. A notice that went in logs its answer (an
+//! leaves its messages new, so none is lost (a steer logged but never written leaves
+//! `steer_withdrawn`, so neither the chat nor the log shows it went in); it is tried again no
+//! sooner than [`REFUSED_RETRY_MS`], or when a turn starts or ends. A notice that went in logs its answer (an
 //! `inbox_answered` record, an error too): a resend of one of its messages, before or after a
 //! restart, and after [`trim`] let go of it ([`Inbox::trimmed`]), answers with it; a resend of
 //! one withdrawn before any notice carried it answers withdrawn ([`Inbox::removed`]). A withdraw
@@ -160,7 +161,7 @@ const NEWEST_BYTES: usize = 8 * 1024;
 /// threads past it draw their preview and read the rest, as before.
 const NEWEST_TOTAL_BYTES: usize = 32 * 1024;
 /// Messages a chat keeps in memory; the oldest read ones go first (the log keeps them all).
-const KEEP: usize = 500;
+pub(super) const KEEP: usize = 500;
 /// The client a notice goes under.
 const CLIENT: &str = "acpmux";
 
@@ -194,6 +195,9 @@ pub(super) struct Item {
     /// A tool's notice it is (`prompt_provenance::notice`): its `{sender, host?, severity, title,
     /// links?}`, so a notice of it and its thread still draw it as one.
     pub(super) tool_notice: Option<Value>,
+    /// A fire notice that wakes the chat and never waits as an FYI: only with the surge preview
+    /// on (`surge_inbox_on`); with it off a notice is its class alone, as before the surge inbox.
+    pub(super) fire: bool,
     /// A notice told the agent of it (or carries it now).
     pub(super) noticed: bool,
     /// The agent read it (`inbox_thread` with `markRead`).
@@ -227,6 +231,7 @@ impl Item {
             text: text.to_owned(),
             details: None,
             tool_notice: None,
+            fire: false,
             noticed: true,
             read: false,
             answer: None,
@@ -916,8 +921,7 @@ fn body(text: &str) -> &str {
 
 /// Whether `item` may wake the idle chat of `meta`.
 fn wakes(meta: &SessionMeta, item: &Item) -> bool {
-    fire_notice(item.tool_notice.as_ref())
-        || wakes_as(meta, item.class, item.report, item.from_session.as_deref())
+    item.fire || wakes_as(meta, item.class, item.report, item.from_session.as_deref())
 }
 
 fn fire_notice(notice: Option<&Value>) -> bool {
@@ -925,7 +929,7 @@ fn fire_notice(notice: Option<&Value>) -> bool {
 }
 
 fn ordinary_fyi(item: &Item) -> bool {
-    item.class == PromptClass::Fyi && !fire_notice(item.tool_notice.as_ref())
+    item.class == PromptClass::Fyi && !item.fire
 }
 
 /// [`wakes`] for a message of `class` from session `from` (a report or not) not in the inbox yet.
@@ -1261,7 +1265,8 @@ impl Hub {
         let sender_session = sender_session(provenance);
         // Read before the inbox's lock, as `inbox_review` reads them.
         let meta_now = session.meta();
-        let wakes_now = fire_notice(provenance.and_then(|p| p.get("notice")))
+        let surge_on = self.surge_inbox_on();
+        let wakes_now = (surge_on && fire_notice(provenance.and_then(|p| p.get("notice"))))
             || wakes_as(&meta_now, class, is_report(provenance), sender_session.as_deref());
         let continuing = self.continuation_pending(session);
         // It would sit in an idle chat's inbox until a flush: said in its acceptance, and a
@@ -1359,6 +1364,7 @@ impl Hub {
                             at: now_ms(),
                             text: text.clone(),
                             details: provenance.and_then(|p| p.get("details")).cloned(),
+                            fire: surge_on && fire_notice(tool_notice.as_ref()),
                             tool_notice,
                             noticed: false,
                             read: false,
@@ -1483,6 +1489,7 @@ impl Hub {
                     text: text.to_owned(),
                     details: provenance.get("details").cloned(),
                     tool_notice: None,
+                    fire: false,
                     noticed: true,
                     read: true,
                     answer: None,
@@ -2096,6 +2103,7 @@ impl Hub {
     /// The inbox from the session's log (`restore_queue`): every message, read and noticed as
     /// the log says. Run again, it adds only what it does not hold.
     pub(super) fn restore_inbox(&self, session: &Session) {
+        let surge_on = self.surge_inbox_on();
         let mut counts = surge::Counts::default();
         let mut recent_held = std::collections::VecDeque::new();
         let mut items: Vec<Item> = Vec::new();
@@ -2149,6 +2157,8 @@ impl Hub {
                         at: e.at,
                         text: field("text").to_owned(),
                         details: provenance.as_ref().and_then(|p| p.get("details").cloned()),
+                        fire: surge_on
+                            && fire_notice(provenance.as_ref().and_then(|p| p.get("notice"))),
                         tool_notice: tool_notice_of(provenance.as_ref()),
                         noticed: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
                         read: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),

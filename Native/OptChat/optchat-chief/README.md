@@ -402,8 +402,9 @@ the conversation, the memory, the schedules and the approvals; the brain runs
 one turn at a time from a home the Chief owns (`optchat/brains/<family>`,
 `HERMES_HOME`/`OPENCLAW_HOME` through acpmux's built-in
 `optchat-chief-<brain>-<home id>` preset), never the person's own, with its
-models through the team gateway (`--brain-base-url`, default the team
-subrouter) and its own cron, memory and logins off. OpenClaw runs only in
+models through the gateway the person sets (`chief engine set
+--brain-base-url URL` or `OPTCHAT_BRAIN_BASE_URL`; no built-in default: without
+one the brain is unavailable and the default harness answers) and its own cron, memory and logins off. OpenClaw runs only in
 sandbox mode `all` (Docker or Podman needed), with no skills, and gets cmux's
 MCP servers in its own config (its ACP bridge takes none per session); the
 host runs its Gateway on loopback. A brain that cannot run a turn (not
