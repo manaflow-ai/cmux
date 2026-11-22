@@ -855,7 +855,7 @@
             "step": 1,
             "unit": "count"
           },
-          "default": 8,
+          "default": 6,
           "keywords": [
             "suggestions",
             "rows",

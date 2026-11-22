@@ -54,31 +54,6 @@
       "key": "uitest.failed|ipad|AppReviewGateUITests/testSizeClassChangesKeepStateAndLayout()",
       "finding": "AppReviewGateUITests.swift:627: XCTAssertTrue failed - size-chief-0: tab is outside the window (2.0, 664.0, 145.5, 88.0) vs (498.0, 0.0, 476.0, 1032.0); AppReviewGateUITests.swift:627: XCTAssertTrue f",
       "fix": "iPad layout lane"
-    },
-    {
-      "key": "uitest.failed|iphone|AppReviewGateUITests/testChiefOpensAndAMessageSendsWithAReply()",
-      "finding": "AppReviewGateUITests.swift:201: XCTAssertEqual failed: (\"XCTWaiterResult(rawValue: 2)\") is not equal to (\"XCTWaiterResult(rawValue: 1)\") - the sent message must show",
-      "fix": "Chief/Delete Account lane"
-    },
-    {
-      "key": "uitest.failed|iphone|AppReviewGateUITests/testDeleteAccountAsksAndIsNotTappedThrough()",
-      "finding": "AppReviewGateUITests.swift:276: XCTAssertTrue failed - the deletion dialog must close on Cancel",
-      "fix": "Chief/Delete Account lane"
-    },
-    {
-      "key": "uitest.failed|iphone|AppReviewGateUITests/testOnboardingHasAWayForwardWithoutAMac()",
-      "finding": "AppReviewGateUITests.swift:120: XCTAssertTrue failed - onboarding must end on Home without a Mac (pages seen: [\"team\", \"team\", \"team\", \"team\", \"team\", \"team\", \"team\", \"team\"])",
-      "fix": "onboarding/settings/sign-in dead controls lane"
-    },
-    {
-      "key": "uitest.failed|iphone|AppReviewGateUITests/testOnboardingHasNoDeadControls()",
-      "finding": "AppReviewGateUITests.swift:137: XCTAssertTrue failed - dead controls in onboarding: onboarding: setup.teams.personal; onboarding: 9:Manaflow; onboarding: 9:Build Fleet",
-      "fix": "onboarding/settings/sign-in dead controls lane"
-    },
-    {
-      "key": "uitest.failed|iphone|AppReviewGateUITests/testSettingsHaveNoDeadControls()",
-      "finding": "AppReviewGateUITests.swift:251: XCTAssertTrue failed - dead controls in Settings: settings: settings.compactWorkspaceList; settings-bottom: 9:Demo at next launch, None",
-      "fix": "onboarding/settings/sign-in dead controls lane"
     }
   ]
 }

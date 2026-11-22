@@ -489,7 +489,10 @@ let timer = Timer(timeInterval: 0.001, repeats: true) { _ in
         if movesBeforeQuit { moveThenQuit(pid) } else { quitSent = now(); kill(pid, SIGTERM) }
     }
     if window == nil, quitSent == nil, t - requested > 30_000 { failure = "no window in 30 s"; quitSent = t; kill(pid, SIGTERM) }
-    if quitSent == nil, windowSeenAt != nil, app.isTerminated { quitSent = t }
+    // An app quit from outside (dev-loop-ceiling startup_loop SIGTERMs it, as reload.sh does): isTerminated alone can
+    // stay false after the process is gone, as launch-premain.swift and background-ready.swift already pair it with
+    // kill(pid, 0). 2026-11-21 step 4b9c45ea3d756d968ad03448: "launch-ready floor1 did not end 90 s after its app quit".
+    if quitSent == nil, app.isTerminated || kill(pid, 0) != 0 { quitSent = t }
     if let sent = quitSent {
         if app.isTerminated || kill(pid, 0) != 0 { done = true }
         else if t - sent > 30_000 { kill(pid, SIGKILL); done = true }
@@ -506,11 +509,28 @@ let keep = ["stub_main", "main_start", "main.warmup_started", "main.environment"
             "launch_snapshot_shown", "first_window_flushed", "did_finish_launching_end", "first_window_frame_committed", "home.first_page", "reveal.home",
             "deferred_windows_restored",
             // The bare launch's marks (piece 8): Home's composer takes keys; a terminal's shell printed its first output.
-            "window_usable", "first_shell_live",
+            "window_usable", "first_shell_live", "first_key_down",
             // A relaunch's restored terminal: its first frame, and with `type` the key typed at the first window frame,
             // when it left the app for the PTY, and its echo back (LaunchTypeProbe, LaunchInputMarks).
             "first_terminal_content_applied", "first_terminal_frame", "launch.visible_terminals_drawn",
             "terminal.probe_key_typed", "terminal_input_accepted", "terminal_echo"]
+// The launch's startup stages (startup-tti), each ms from process start to the earliest of its marks that came: the
+// table the app's launch-times.jsonl rows use (LaunchStages, LaunchTimesFile.swift) and scripts/ci/launch_stages.py;
+// tests/test_launch_stages.py keeps the three equal.
+let launchStages: [(stage: String, marks: [String])] = [
+    ("premain", ["main_start"]),
+    ("did_finish_launching", ["did_finish_launching_start"]),
+    ("daemon_connected", ["daemon_connected"]),
+    ("first_window_shown", ["launch_snapshot_shown", "first_window_flushed", "dfl.windows"]),
+    ("first_frame", ["first_window_frame_committed"]),
+    ("webview_ready", ["cef.ready"]),
+    ("first_chat_paint", ["agent_pane.painted", "agent_pane.newtab_painted", "home.saved_page_shown", "home.first_page"]),
+    ("first_interaction", ["terminal_echo", "agent_pane.input_echoed", "window_usable"]),
+]
+var stages: [String: Double] = [:]
+for (stage, names) in launchStages {
+    if let first = names.compactMap({ marks[$0] }).filter({ $0.isFinite && $0 >= 0 }).min() { stages[stage] = first.rounded(toPlaces: 1) }
+}
 var row: [String: Any] = [
     "label": label, "pid": app?.processIdentifier ?? 0, "start_epoch_ms": start ?? NSNull(),
     "request_to_start": start.map { ($0 - requested).rounded(toPlaces: 1) } ?? NSNull(),
@@ -526,14 +546,25 @@ var row: [String: Any] = [
     // its window still waited on the CLI (2026-11-17: 635 ms on a fresh home's prime launch, and no relaunch row).
     "marks": marks.filter { mark in
         label == "prime" || keep.contains(mark.key)
-            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot", "terminal."].contains { mark.key.hasPrefix($0) }
+            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot", "layout.", "web.layout.", "terminal.", "window.", "frame."].contains { mark.key.hasPrefix($0) }
     },
     "all_marks": marks.count,
+    "stages": stages,
     "shell_requested": rel(shellRequested),
     // The region the window showed first (home, pane, ...): the region a person saw, whichever it is.
     "first_reveal": marks.filter { $0.key.hasPrefix("reveal.") }.min { $0.value < $1.value }.map { String($0.key.dropFirst("reveal.".count)) } ?? NSNull(),
 ]
 if let frontAtQuit { row["front"] = frontAtQuit }
+// The settle (the app's layout.* marks, LaunchLayoutSettle), in ms after main_start like the summary's: the first frame
+// the watch read, the last change after it, and their difference, so a receipt can count pairs moving the same way.
+// Row key `settle`: `layout` is the probe's own layout=1 sampling below.
+if let first = marks["layout.first_frame"], let last = marks["layout.settle"] {
+    func afterMain(_ ms: Double) -> Any { marks["main_start"].map { (ms - $0).rounded(toPlaces: 1) } ?? NSNull() }
+    row["settle"] = ["first_frame_ms": afterMain(first), "settle_ms": afterMain(last),
+                     "settle_minus_first_frame_ms": (last - first).rounded(toPlaces: 1), "max_move_pt": marks["layout.max_move"] ?? 0]
+} else {
+    row["settle"] = "none"
+}
 if typesKeys {
     // first_key_ms: when the earliest sent key the sent message holds went out (step i: the window plus 100 i ms), ms
     // from process start as every time here; null when it holds none, or nothing was read back.

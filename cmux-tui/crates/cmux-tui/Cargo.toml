@@ -71,6 +71,7 @@ tempfile = "3"
 cmux-json.workspace = true
 cmux-build-space.workspace = true
 cmux-cloud-client.workspace = true
+cmux-apps.workspace = true
 cmux-cloud-environment.workspace = true
 cmux-cloud-machine.workspace = true
 cmux-cloud-wire.workspace = true
@@ -108,7 +109,7 @@ cmux-app-manifest.workspace = true
 notify.workspace = true
 # `cmux agent hooks` and the hook paths the Claude wrapper reads.
 cmux-tui-hooks.workspace = true
-# `cmux agent-config`: Claude Code's and Codex's own MCP servers.
+# `cmux agent-config`: Claude Code's and Codex's own MCP servers, skills and slash commands.
 cmux-agent-customize.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-tui-machine-agent-protocol.workspace = true
@@ -201,6 +202,9 @@ flate2.workspace = true
 tar.workspace = true
 # `cmux host …`, the machine supervisor and process roles (server.md 5.1).
 cmux-host.workspace = true
+# `cmux app try`: the Screen Sharing helper a live try swaps in is checked against the installed
+# helper's designated requirement, as the share host's staging checks it (cli/app/try_cmd/helper.rs).
+cmux-signed-bundle.workspace = true
 # Reads the enclosing app bundle's Info.plist (app_identity.rs).
 plist = "1.10"
 # The build identity (daemon skew, SSH re-bootstrap). Only this crate reads
@@ -253,9 +257,13 @@ cmux-relay = { path = "../cmux-relay" }
 # Paused-clock tests of the Cloud dial's handshake wait.
 tokio = { workspace = true, features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
+# tests/terminal_restart_settled.rs: restores a GHOSTSNP READY the way the Mac surface does.
+ghostty-vt-sys = { workspace = true }
 # `read_timeout_or_ended`: a read timeout for a test socket whose peer can have closed first.
 cmux-tui-platform = { workspace = true, features = ["test-support"] }
 rusqlite.workspace = true
+# tests/mobile_link_conditions.rs: the phone's link profiles and shaper.
+cmux-fault.workspace = true
 # cli/apps_store.rs: what opening a pane cmux draws itself runs (the sidebar and `app.open` share it).
 cmux-layout-reducer.workspace = true
 # cli/catalog_request_tests.rs: a palette request row sends what its CLI verb sends.
