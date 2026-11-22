@@ -197,7 +197,7 @@ nonisolated struct NightlyInstallCheckNotice: Equatable {
     }
 }
 
-extension UpdaterStrings {
+nonisolated extension UpdaterStrings {
     // Install check (NightlyInstallCheck)
     static func installCheckRolledBackTitle(_ target: String) -> String {
         format("updater.installCheck.rolledBack.title", "cmux rolled back to build %@", target)
