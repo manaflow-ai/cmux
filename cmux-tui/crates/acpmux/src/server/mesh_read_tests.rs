@@ -418,6 +418,7 @@ async fn a_prompt_to_a_listed_hub_chat_runs_there_through_the_hub() {
         harness: "fake".into(),
         state: "idle".into(),
         last_seen_at: 1,
+        ..Default::default()
     };
     a.set_mesh_book(hosts, vec![row]);
 
@@ -697,6 +698,7 @@ fn daemon_a(url: &str, own: Arc<DaemonIdentity>) -> Arc<Hub> {
         harness: "fake".into(),
         state: "idle".into(),
         last_seen_at: 1,
+        ..Default::default()
     };
     a.set_mesh_book(hosts, vec![row]);
     a

@@ -70,7 +70,8 @@ export default defineConfig({
     ...cmuxDevServer(),
     // React Compiler: Babel by default, Oxc with CMUX_REACT_COMPILER=oxc (reactCompiler.mjs).
     ...reactWithCompiler(),
-    tailwindcss(),
+    // CMUX_GALLERY_STAGE_CSS=dev: the gallery scans' build keeps the dev server's CSS (vite.config.gallery.ts).
+    tailwindcss(process.env.CMUX_GALLERY_STAGE_CSS === "dev" ? { optimize: false } : undefined),
     // Shiki's grammars and themes stored deflated, inflated on import (CMUX-570, app size).
     packedShikiData(),
     {

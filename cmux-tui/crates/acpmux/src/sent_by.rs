@@ -152,7 +152,7 @@ pub fn stamp_blocks(prompt: &mut Value, line: &str) -> bool {
 }
 
 /// The [`Sender`] the daemon knows for session `id`: None when no session here has that id.
-pub(crate) fn of_session(hub: &crate::hub::Hub, id: &str) -> Option<Sender> {
+pub fn of_session(hub: &crate::hub::Hub, id: &str) -> Option<Sender> {
     let session = hub.resolve(id).ok().filter(|s| s.id == id)?;
     let (name, harness, model) = session.read_meta(|m| {
         let harness = m

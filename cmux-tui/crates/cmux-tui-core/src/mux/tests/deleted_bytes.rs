@@ -155,7 +155,7 @@ fn a_deleted_terminal_command_leaves_no_bytes() {
         let done =
             mux.workspace_registry.lock().unwrap().checkpoint_terminal_command_deletes().unwrap();
         if !done {
-            std::thread::sleep(std::time::Duration::from_millis(20));
+            std::thread::sleep(Duration::from_millis(20));
         }
         done
     });
