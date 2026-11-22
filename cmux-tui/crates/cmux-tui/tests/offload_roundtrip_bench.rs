@@ -182,6 +182,7 @@ struct Sample {
     back_ms: u128,
     back_usable_ms: u128,
     roundtrip_ms: u128,
+    push: Value,
     out: Value,
     back: Value,
 }
@@ -208,6 +209,51 @@ fn phase_stats(samples: &[Sample], pick: impl Fn(&Sample) -> &Value) -> Value {
         }
     }
     Value::Object(by_phase.into_iter().map(|(k, v)| (k, stats(&v))).collect::<Map<_, _>>())
+}
+
+/// One sync's sub-phases (`cmux link`'s `link::spans`: `{"spans": {name: {"ms","n"}}, "remote":
+/// [{"op", "timings": {"job_ms", "phases", "git"}}]}`) as name -> (ms, runs); a machine job's
+/// as `<op> job`, `<op> phase <name>` and `<op> git <name>`.
+fn flat_spans(sync: &Value) -> BTreeMap<String, (u128, u128)> {
+    let mut flat: BTreeMap<String, (u128, u128)> = BTreeMap::new();
+    let mut add = |name: String, ms: &Value, n: u128| {
+        let entry = flat.entry(name).or_default();
+        entry.0 += u128::from(ms.as_u64().unwrap_or(0));
+        entry.1 += n;
+    };
+    for (name, span) in sync["spans"].as_object().into_iter().flatten() {
+        add(name.clone(), &span["ms"], span["n"].as_u64().unwrap_or(0).into());
+    }
+    for job in sync["remote"].as_array().into_iter().flatten() {
+        let op = job["op"].as_str().unwrap_or("?");
+        let timings = &job["timings"];
+        add(format!("{op} job"), &timings["job_ms"], 1);
+        for (name, ms) in timings["phases"].as_object().into_iter().flatten() {
+            add(format!("{op} phase {name}"), ms, 1);
+        }
+        for (name, run) in timings["git"].as_object().into_iter().flatten() {
+            add(format!("{op} {name}"), &run["ms"], run["n"].as_u64().unwrap_or(0).into());
+        }
+    }
+    flat
+}
+
+/// Per-sub-phase ms stats (and the median run count `n`) over every sample's sync `pick`.
+fn span_stats(samples: &[Sample], pick: impl Fn(&Sample) -> &Value) -> Value {
+    let mut by_name: BTreeMap<String, (Vec<u128>, Vec<u128>)> = BTreeMap::new();
+    for sample in samples {
+        for (name, (ms, n)) in flat_spans(pick(sample)) {
+            let entry = by_name.entry(name).or_default();
+            entry.0.push(ms);
+            entry.1.push(n);
+        }
+    }
+    let stats = by_name.into_iter().map(|(name, (ms, n))| {
+        let mut row = stats(&ms);
+        row["n"] = stats(&n)["p50"].clone();
+        (name, row)
+    });
+    Value::Object(stats.collect::<Map<_, _>>())
 }
 
 #[test]
@@ -250,7 +296,7 @@ fn offload_roundtrip_bench_moves_a_running_chat_to_a_cloud_vm_and_back() {
 
         // Out: Move to Cloud.
         let t0 = Instant::now();
-        let (_, seed_push_ms) = timed(
+        let (push, seed_push_ms) = timed(
             Command::new(bin())
                 .env("CMUX_TUI_STATE_DIR", &mac_state)
                 .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -345,6 +391,7 @@ fn offload_roundtrip_bench_moves_a_running_chat_to_a_cloud_vm_and_back() {
             back_ms,
             back_usable_ms,
             roundtrip_ms,
+            push,
             out,
             back,
         });
@@ -371,12 +418,15 @@ fn offload_roundtrip_bench_moves_a_running_chat_to_a_cloud_vm_and_back() {
         "out_bytes": stats(&field(|s| &s.out, "bytes")),
         "out_pages": stats(&field(|s| &s.out, "pages")),
         "out_phases": phase_stats(&samples, |s| &s.out),
+        "out_seed_push_spans": span_stats(&samples, |s| &s.push["sync_phases"]),
+        "out_frozen_sync_spans": span_stats(&samples, |s| &s.out["frozen_sync_phases"]),
         "back_ms": stats(&col(|s| s.back_ms)),
         "back_usable_ms": stats(&col(|s| s.back_usable_ms)),
         "back_frozen_ms": stats(&field(|s| &s.back, "frozen_ms")),
         "back_bytes": stats(&field(|s| &s.back, "bytes")),
         "back_pages": stats(&field(|s| &s.back, "pages")),
         "back_phases": phase_stats(&samples, |s| &s.back),
+        "back_frozen_sync_spans": span_stats(&samples, |s| &s.back["frozen_sync_phases"]),
     });
     println!("OFFLOAD_BENCH {report}");
     if let Ok(path) = std::env::var("OFFLOAD_BENCH_OUT")

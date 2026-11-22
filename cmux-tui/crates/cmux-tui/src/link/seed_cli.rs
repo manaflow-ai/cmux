@@ -339,7 +339,13 @@ pub(super) fn run(args: &[String]) -> i32 {
             } else {
                 push(&socket, &local, &remote, head_first.as_deref())
             };
-            pushed.map(|pushed| pushed.json()).map_err(|error| SeedError::of(&error).line())
+            pushed
+                .map(|pushed| {
+                    let mut line = pushed.json();
+                    line.set("sync_phases", super::spans::take());
+                    line
+                })
+                .map_err(|error| SeedError::of(&error).line())
         }
         Command::Clone { socket, repo, git_ref, remote } => {
             clone(&socket, &repo, git_ref.as_deref(), &remote).map_err(|error| error.line())
@@ -753,13 +759,15 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
     };
     let bundle = LocalBundle::new()?;
     let previous = PreviousSeed { head, index, work, stash: record.stash };
-    let planned = plan::plan_since(&local, &bundle.file, &previous).map_err(|fallback| {
-        let code = match fallback.code {
-            FallbackCode::NoPrevious => "seed.no_previous".to_string(),
-            code => format!("seed.{}", code.as_str()),
-        };
-        SeedError::new(code, fallback.why)
-    })?;
+    let planned =
+        super::spans::time("seed.plan_since", || plan::plan_since(&local, &bundle.file, &previous))
+            .map_err(|fallback| {
+                let code = match fallback.code {
+                    FallbackCode::NoPrevious => "seed.no_previous".to_string(),
+                    code => format!("seed.{}", code.as_str()),
+                };
+                SeedError::new(code, fallback.why)
+            })?;
     if planned.unchanged {
         return Ok(seeded("delta", &planned, &Ended::Done(Value::Null)));
     }
@@ -792,7 +800,8 @@ fn seed_full(
         return Err(Attempt::Fallback(Machine::outdated()));
     }
     let bundle = LocalBundle::new().map_err(Attempt::Failed)?;
-    let mut planned = plan::plan(local, &bundle.file).map_err(from_plan)?;
+    let mut planned =
+        super::spans::time("seed.plan", || plan::plan(local, &bundle.file)).map_err(from_plan)?;
     let existed = sync_cli::remote_kind(machine.socket, remote)
         .map_err(|error| Attempt::Failed(SeedError::of(&error)))?
         .is_some();
@@ -960,9 +969,11 @@ fn run_seed(
     let total = planned.bundle_bytes;
     let mut report = throttled();
     report(json!({"phase": "upload", "bytes_done": 0, "bytes_total": total}), true);
+    let mut laps = super::spans::Laps::new("seed");
     let uploaded = sync_cli::upload(socket, &bundle.file, &target, &mut |done| {
         report(json!({"phase": "upload", "bytes_done": done, "bytes_total": total}), done >= total);
     });
+    laps.mark("upload");
     let result = uploaded.map_err(|error| SeedError::of(&error)).and_then(|()| {
         let mut start = serde_json::to_value(&planned.params)
             .map_err(|error| SeedError::new("seed.bad_request", error.to_string()))?;
@@ -977,9 +988,11 @@ fn run_seed(
         }
         start_and_wait(socket, start, head_first.is_some())
     });
+    laps.mark("job");
     // The machine copied it when the job started; gone already after a seed.
     let _ = sync_cli::delete_remote(socket, &target);
     let _ = sync_cli::delete_remote(socket, &part);
+    laps.mark("cleanup");
     result
 }
 
@@ -1048,7 +1061,7 @@ fn machine_calls(socket: &Path) -> impl FnMut(&str, Value) -> Result<Value, Seed
 }
 
 fn pause() {
-    std::thread::sleep(STATUS_EVERY);
+    super::spans::sleep("seed.status poll", STATUS_EVERY);
 }
 
 fn deadline() -> Instant {
@@ -1139,7 +1152,10 @@ fn wait_job(
     loop {
         let status = call("git.seed.status", json!({"job": job}))?;
         match status.get("state").and_then(Value::as_str) {
-            Some("done") => return Ok(Ended::Done(status)),
+            Some("done") => {
+                super::spans::remote("git.seed.start", &status);
+                return Ok(Ended::Done(status));
+            }
             Some("failed") => {
                 return Err(SeedError {
                     install_url: status
