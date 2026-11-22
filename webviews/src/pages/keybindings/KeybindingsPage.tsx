@@ -5,6 +5,7 @@ import { useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } fr
 import { Popover, type UiAnchor, type UiVirtualAnchor } from "../../ui/Popover";
 import type { Strings } from "../shared/i18n";
 import { useLasting } from "../../ui/lasting";
+import { keycapLegend } from "../../ui/keycapLegend";
 import {
   canEditWhen,
   displayStrokes,
@@ -75,7 +76,7 @@ function Keycaps({ display }: { display: string }) {
       {displayStrokes(display).map((stroke, index) => (
         // oxlint-disable-next-line react/no-array-index-key
         <kbd key={index} className="keys-cap">
-          {stroke}
+          {keycapLegend(stroke)}
         </kbd>
       ))}
     </span>
@@ -457,7 +458,7 @@ function Recorder({
             <span key={index} className={`keys-recorder-stroke${group.held ? " held" : ""}`}>
               {group.caps.map((cap) => (
                 <kbd key={cap} className="keys-recorder-cap">
-                  {cap}
+                  {keycapLegend(cap)}
                 </kbd>
               ))}
             </span>
@@ -499,7 +500,7 @@ function Recorder({
               onMouseDown={keepFocus}
               onClick={() => void store.resolveConflict("close")}
             >
-              {withKeys(t("keybindings.page.recorder.closeOnly"), ["Esc"])}
+              {withKeys(t("keybindings.page.recorder.closeOnly"), [keycapLegend("Esc")])}
             </button>
             <button
               type="button"
@@ -508,7 +509,7 @@ function Recorder({
               onMouseDown={keepFocus}
               onClick={() => void store.resolveConflict("overwrite")}
             >
-              {withKeys(t("keybindings.page.recorder.overwrite"), ["↩"])}
+              {withKeys(t("keybindings.page.recorder.overwrite"), [keycapLegend("↩")])}
             </button>
           </span>
         ) : (
@@ -519,7 +520,7 @@ function Recorder({
             onMouseDown={keepFocus}
             onClick={() => store.closeRecording()}
           >
-            {withKeys(t("keybindings.page.recorder.close"), ["Esc", "↩"])}
+            {withKeys(t("keybindings.page.recorder.close"), [keycapLegend("Esc"), keycapLegend("↩")])}
           </button>
         )}
       </div>

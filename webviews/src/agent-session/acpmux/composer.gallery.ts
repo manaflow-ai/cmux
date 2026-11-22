@@ -1953,7 +1953,7 @@ export default agentPaneEntry({
     },
     // Leo 2026-11-03: mid-turn the empty prompt keeps Claude desktop's placeholder; Send names the keys.
     "working-hint-steer": {
-      note: "A turn running for an agent that steers: the empty prompt says Type / for commands; Send's tooltip names ↵ steer and ⌘↵ queue.",
+      note: "A turn running for an agent that steers: the empty prompt says Type / for commands; Send's tooltip names ↩ steer and ⌘↩ queue.",
       snapshot: steering(true),
     },
     "working-hint-queue": {
@@ -1998,7 +1998,7 @@ export default agentPaneEntry({
           const sends = ctx.document.querySelectorAll(".acpmux-composer-actions :is(.acpmux-send, .acpmux-cancel)");
           const send = sends[0];
           const mic = ctx.document.querySelector(".acpmux-composer-actions .acpmux-fit-mic");
-          if (sends.length !== 1 || !send || !mic || send.getAttribute("title") !== "↵ steer · ⌘↵ queue") return false;
+          if (sends.length !== 1 || !send || !mic || send.getAttribute("title") !== "↩ steer · ⌘↩ queue") return false;
           const sendBox = send.getBoundingClientRect();
           const micBox = mic.getBoundingClientRect();
           return ctx.document.querySelector('[data-composer-look="codex"]')
