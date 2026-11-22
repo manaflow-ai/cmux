@@ -80,7 +80,7 @@ export default agentPaneEntry({
     },
     "tool-only-codex": {
       note: "The same turn in a Codex chat, folded under Worked for: its row stays under the closed line.",
-      snapshot: chat(toolOnlyTurn(), { harness: "codex", family: "codex" }),
+      snapshot: chat(toolOnlyTurn(), { harness: "codex" }),
       play: copyAtRest,
     },
     "api-error": {
