@@ -268,7 +268,7 @@ function TileBody({ tile, label }: { tile: WidgetTileMount; label: string }) {
         <SceneRenderer store={store} dispatch={tile.mount.dispatch} resolveAsset={tile.mount.resolveAsset} />
       )}
       {stale && !failed && (
-        <output className="nt-widget-stale" title={health.reason}>
+        <output className="nt-widget-stale" aria-description={health.reason}>
           {nt("widgets.updating")}
         </output>
       )}

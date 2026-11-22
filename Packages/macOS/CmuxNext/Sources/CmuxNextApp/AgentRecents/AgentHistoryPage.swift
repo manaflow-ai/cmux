@@ -28,5 +28,5 @@ enum AgentHistoryPage {
 }
 
 extension Strings {
-    static var agentHistory: String { String(localized: "tab.agentHistory", defaultValue: "History", bundle: .module) }
+    static var agentHistory: String { String(localized: "tab.agentHistory", defaultValue: "History", bundle: .module.inAppLanguage) }
 }
