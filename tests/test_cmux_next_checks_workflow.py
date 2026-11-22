@@ -1855,10 +1855,16 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertNotIn("vars.", route_without_pools, "an ephemeral Linux VM, never a reused mini")
         # The same gate, except that the Mac half follows the Mac route (MacFastTierFollowsTheRoute) and a pull
         # request runs the cargo half only when its change reaches a cargo or script entry (FastTierCargoRoute).
+        # The cargo route goes before the label guard, which stays last
+        # (tests/test_ci_label_events_skip_full_ci.py).
+        label_guard = (" && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == "
+                       "'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') "
+                       "&& github.event.label.name != 'full-ci') }}")
+        self.assertTrue(mac["if"].endswith(label_guard), mac["if"])
         self.assertEqual(cargo["if"], mac["if"].replace(
             " && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false'", "")
-            .replace(" }}", " && (github.event_name != 'pull_request' || "
-                     "needs.path_route.outputs.fast_tier_cargo != 'false') }}"))
+            .replace(label_guard, " && (github.event_name != 'pull_request' || "
+                     "needs.path_route.outputs.fast_tier_cargo != 'false')" + label_guard))
         self.assertNotEqual(cargo["if"], mac["if"])
         self.assertEqual(cargo["needs"], ["push-head-preflight", "path_route"])
         self.assertEqual(jobs["path_route"]["outputs"]["fast_tier_cargo"],
