@@ -131,6 +131,11 @@ final class SuggestionRowView: NSView {
         }
     }
 
+    /// Each row's dimmed text, for the list as a whole.
+    static func shownDetails(_ suggestions: [BrowserSuggestion]) -> [String] {
+        suggestions.map(shownDetail)
+    }
+
     /// Rows that name a known web page show its site icon: history,
     /// bookmarks and open tabs. The typed address keeps its globe (Chrome
     /// too), so a half-typed host is never fetched; searches, answers and
