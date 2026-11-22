@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'f0ccc7311833d34252a5c43e73374e4c39f713d2077b5b8b22e03504dee71b6c'
+IR_SHA256 = 'd4620ae5ef2f31fb3496ff3e335215bbdb2dbdc0d8773a665782acba1faf17ba'
 
 
 @dataclass(frozen=True)
@@ -107,6 +107,8 @@ COMMANDS = {
             'output_coalesce_ms': CommandFieldMetadata(None, 'attach-output-coalesce-v1'),
             'replay_history_rows': CommandFieldMetadata(None, 'attach-replay-history-rows-v1'),
             'replay_history_start': CommandFieldMetadata(None, 'attach-replay-history-window-v1'),
+            'resume_generation': CommandFieldMetadata(None, 'terminal-resume-v1'),
+            'resume_offset': CommandFieldMetadata(None, 'terminal-resume-v1'),
             'rows': CommandFieldMetadata(None, 'attach-initial-size'),
             'snapshot': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
             'snapshot_images': CommandFieldMetadata(None, 'terminal-snapshot-images-v1'),
