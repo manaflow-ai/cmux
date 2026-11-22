@@ -215,8 +215,9 @@ pub(super) mod tests {
 
     /// Wakes per connection name, each split by the chat (`session_id`) of the event it woke for.
     type BySession = std::collections::HashMap<String, u64>;
-    static WAKES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, BySession>>> =
-        std::sync::LazyLock::new(Default::default);
+    static WAKES: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<String, BySession>>,
+    > = std::sync::LazyLock::new(Default::default);
 
     pub(super) fn count_wake(conn: &super::Conn, session: &str) {
         let name = conn.name.lock().unwrap_or_else(|e| e.into_inner()).clone();
