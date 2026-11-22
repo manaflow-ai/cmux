@@ -27,6 +27,9 @@ extension UpdatesSettings {
     /// `updates.web`: Web UI updates between app updates (plans/cmux-next/web-ota.md): NIGHTLY builds follow the signed channel; Release and RC builds ship their own web UI.
     public nonisolated static let webPath = ["updates", "web"]
     public nonisolated static let webDefault: UpdatesWebSetting = .everyMerge
+    /// `updates.daemon`: Live daemon updates between app updates (Leo 2026-11-22: "i wonder how many we can actually just ship and not even need the user to restart to update, tbh."): NIGHTLY and tip builds only; every 120 s while cmux is idle (the Update When Idle rule, cmux-window-rules update_idle) the app runs the bundled `cmux --json app try channel`, which checks the signed mac-live channel, swaps Contents/Resources/bin and hands the terminal daemon over. Off by default.
+    public nonisolated static let daemonPath = ["updates", "daemon"]
+    public nonisolated static let daemonDefault: UpdatesDaemonSetting = .off
     /// `updates.liveWebReload`: Your own web edits, live in this app (docs/cmux-next/hot-reload.md): pages and agent panes load from the server or overlay ~/.config/cmux/web-dev.json names, in WebKit and Chromium, in every build. On by default (Leo 2026-11-05: "we probably want to have this feature like toggleable on by default"); a missing web-dev.json changes nothing.
     public nonisolated static let liveWebReloadPath = ["updates", "liveWebReload"]
     public nonisolated static let liveWebReloadDefault = true
@@ -168,6 +171,19 @@ nonisolated enum UpdateSettingsSchema {
                 ]),
                 default: .string(UpdatesSettings.webDefault.rawValue),
                 keywords: ["update", "web", "ota", "hot reload", "bundle", "nightly", "merge"]
+            ),
+            SettingDescriptor(
+                UpdatesSettings.daemonPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.daemon", "Live Background Updates"),
+                help: SettingsText.keyed("settings.updates.daemon.help", "Every merge's background services (terminals, agents' daemon) update in place, with no restart. NIGHTLY only."),
+                kind: .choice([
+                    SettingChoice(UpdatesDaemonSetting.off.rawValue, SettingsText.keyed("settings.choice.updatesDaemonOff", "Off")),
+                    SettingChoice(UpdatesDaemonSetting.everyMerge.rawValue, SettingsText.keyed("settings.choice.updatesDaemonEveryMerge", "Every Merge")),
+                ]),
+                default: .string(UpdatesSettings.daemonDefault.rawValue),
+                keywords: ["update", "daemon", "terminal", "live", "background", "no restart", "nightly", "merge"]
             ),
             SettingDescriptor(
                 UpdatesSettings.liveWebReloadPath,
