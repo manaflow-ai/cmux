@@ -1,4 +1,12 @@
-# cmux Remote: one host for Computer Use and Screen Sharing
+# cmux Remote: one host for Computer Use and Screen Sharing (retired)
+
+**No build embeds cmux Remote any more.** Every Release, NIGHTLY and DEV build carries one permission
+app, its Screen Sharing helper (`<app> Screen Sharing.app`, `<app id>.screen-sharing`,
+plans/cmux-next/screen-sharing-helper.md), and Computer Use runs inside it
+(`cmux-screen-sharing __computer-use-worker`, cmux-tui-core `computer_use_host/macos.rs`).
+`scripts/ci/check-screen-share-identity.sh` fails a signed build with any other app in
+`Contents/Library`. The supervisor below never starts (it finds no bundle); its code and the rest of
+this page go with the cmux Remote name.
 
 cmux Remote supervises the workers that need macOS grants, while the NEXT app
 serves an attached Mac Screen session. Computer Use always runs in the cmux
@@ -22,24 +30,9 @@ cmux.app (the person's app; serves attached cmux.rd/1 + WebRTC sessions,
                                      identity/push relay, or standalone stream)
 ```
 
-- **Identity.** One signed bundle, `cmux Remote.app` (`com.cmuxterm.remote`;
-  DEV builds, and a NIGHTLY build that is asked to embed it, currently use the
-  pinned `cmux Remote (dev).app`, `com.cmuxterm.remote.dev`), with the cmux
-  icon on a remote-screen badge. Its designated requirement (bundle id + team)
-  stays the same across builds, so a grant survives every update. A Release
-  build embeds the pinned asset from
-  `scripts/cmux-next/cmux-remote-dev.pin.json` only with
-  `CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1` (decision of 2026-11-16). No build
-  sets the variable, so a NIGHTLY build has no cmux Remote: the third-party
-  notices and the load-command check of a published build do not cover the
-  embedded bundle yet. Without the variable a Release build prints one note
-  line and embeds nothing; with `CMUX_NEXT_REQUIRE_CMUX_REMOTE=1` and not the
-  variable it fails. With the variable a Release build fails without the
-  asset, and a mismatched asset fails each build that embeds. Only with
-  `CMUX_NEXT_ALLOW_NO_CMUX_REMOTE=1` added, a Release build on a Mac with no
-  source for the asset prints one `NOT EMBEDDED` warning line and has no cmux
-  Remote. A DEV build warns in the build log and fails only when
-  `CMUX_NEXT_REQUIRE_CMUX_REMOTE=1`.
+- **Identity.** Was one signed bundle, `cmux Remote.app` (`com.cmuxterm.remote`; DEV
+  `cmux Remote (dev).app`, `com.cmuxterm.remote.dev`), embedded from a pinned asset. Its pin,
+  build, signing and embed scripts are deleted; no build carries it.
 - **Responsibility.** The daemon starts the Remote host with
   `responsibility_spawnattrs_setdisclaim`, so the host is its own responsible
   process. Workers are the host's ordinary children: macOS attributes their

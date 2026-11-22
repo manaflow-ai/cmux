@@ -158,7 +158,6 @@ members = [
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
     "crates/cmux-computer-use",
-    "crates/cmux-computer-use-ffi",
     "crates/acpmux-hot",
     "crates/cmux-command-class",
     "crates/cmux-source-scan",
@@ -288,7 +287,6 @@ default-members = [
     "crates/cmux-embed",
     "crates/cmux-embed-macros",
     "crates/cmux-computer-use",
-    "crates/cmux-computer-use-ffi",
 ]
 exclude = [
     "vendor/crossterm",

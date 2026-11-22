@@ -1647,14 +1647,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-computer-use-ffi"
-version = "1.0.0"
-dependencies = [
- "cmux-computer-use",
- "serde_json",
-]
-
-[[package]]
 name = "cmux-conductor-import"
 version = "0.1.0"
 dependencies = [

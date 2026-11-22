@@ -25,8 +25,7 @@ Computer Use worker  (one per machine, child of the cmux Remote host)
 | --- | --- | --- |
 | Engine | `cmux-tui/crates/cmux-computer-use` (`engine.rs`, `tools.rs`, `policy.rs`, `session.rs`, `frame.rs`, `cursor.rs`, `keys.rs`) | One tool catalog, one policy decision function, sessions and saved approvals, frame redaction, downscale, change detection and PNG encoding. Platform-agnostic. |
 | Desktops | `cmux-computer-use/src/desktop.rs` (the `Desktop` trait) and `src/platform/{macos,windows,linux}` | The platform seam. Every input is window-scoped and background-first; a route that cannot prove its target refuses. |
-| C ABI | `cmux-tui/crates/cmux-computer-use-ffi` (`include/cmux_computer_use.h`) | The engine and the agent socket server for the Swift worker on macOS (`cmux_cu_*`). |
-| Worker | macOS: `cmux-remote worker computer-use` in the signed cmux Remote.app. Linux and Windows: the `cmux-tui` binary's hidden `computer-use-worker` mode, supervised by the daemon. | Hosts the engine. One long-lived process per machine, so the OS grants (macOS Accessibility and Screen Recording) belong to one identity. |
+| Worker | macOS: `cmux-screen-sharing __computer-use-worker` in the build's one helper app, `<app> Screen Sharing.app` (`<app id>.screen-sharing`; cmux-tui-core `computer_use_host/macos.rs`). Linux and Windows: the `cmux-tui` binary's hidden `computer-use-worker` mode, supervised by the daemon. | Hosts the engine. One long-lived process per machine, so the OS grants (macOS Accessibility and Screen Recording) belong to one identity. |
 | Agent socket | `cmux_computer_use::server` (Rust on every platform) | Speaks `cmux_computer_use::wire` (`cmux-computer-use-v1`). Admission: same uid (`getpeereid` or the pipe owner), then the per-launch secret. |
 | Bridge | acpmux | Attaches the MCP server `cmux-computer-use` (and the `cu_*` tools in the folded `cmux` server) to every agent session cmux starts. Finds the worker by asking the cmux-tui daemon (`computer-use-endpoint`); it never reads endpoint files. Reconnects and retries a call with the same `call_id`. |
 | Settings | `computerUse.*` in cmux.json, Settings → Computer Use, the palette, `cmux settings`, MCP `settings_*` | Mode, deny list, own machines, pause on takeover, foreground input, cursor. Agents are refused every `computerUse.*` key. |
@@ -350,7 +349,7 @@ not guarded: it raises the window because it was asked to.
 
 ## Licensing
 
-- `cmux-computer-use` and `cmux-computer-use-ffi` are MIT (Copyright (c) 2026
+- `cmux-computer-use` is MIT (Copyright (c) 2026
   Manaflow, Inc.). On macOS and Linux the engine starts its child processes
   through the workspace's `cmux-process` crate (`GPL-3.0-or-later`; every child
   has an owner, cmuxterm-hq#9096), so a build of the engine on those platforms

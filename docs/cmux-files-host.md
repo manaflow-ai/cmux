@@ -106,7 +106,7 @@ Store. Two independent gates, with no override:
 
 | Gate | Where | Rule |
 | --- | --- | --- |
-| Build | `embed-files-host-dev.sh` (the "Embed cmux Remote (dev)" phase) | embeds only when `CONFIGURATION` is `Debug` **and** `PRODUCT_BUNDLE_IDENTIFIER` is `com.cmuxterm.app.debug[.<tag>]`; otherwise it embeds nothing and removes a stale copy |
+| Build | `embed-files-host-dev.sh` (the "Embed cmux Files (dev)" phase) | embeds only when `CONFIGURATION` is `Debug` **and** `PRODUCT_BUNDLE_IDENTIFIER` is `com.cmuxterm.app.debug[.<tag>]`; otherwise it embeds nothing and removes a stale copy |
 | App | `FilesHost` (CmuxNextCompat) | `isDebugBuild` is `#if DEBUG`, checked first, so a Release compile returns nil before it reads the disk; the bundle id must be `com.cmuxterm.app.debug[.<tag>]` |
 
 Staging (`com.cmuxterm.app.staging`) does not count as dev: it is a shipping channel (the classic
@@ -161,7 +161,7 @@ names the home's standard folders (Desktop, Documents, Downloads, ...) from the 
 | Build (release `cmux-files-host`, bundle, unsigned zip) on a fleet Mac | `cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --os macos --arg files-host --artifact .build/artifacts/cmux-files-host-dev-unsigned.zip` |
 | Sign with an Apple Development or Developer ID identity of team 7WLXT3NR37 and write the pin | `scripts/cmux-next/sign-files-host-dev.sh UNSIGNED.zip` |
 | Publish for builds | `cmux-ci artifact-put` (fleet store) and, with R2 write credentials, `scripts/cmux-next/publish-signed-pinned-asset.sh --prefix files-host-dev` |
-| Embed in DEV builds (Xcode "Embed cmux Remote (dev)" phase) | `scripts/cmux-next/embed-files-host-dev.sh` |
+| Embed in DEV builds (Xcode "Embed cmux Files (dev)" phase) | `scripts/cmux-next/embed-files-host-dev.sh` |
 
 Without the pin file or the asset a DEV build embeds nothing and prints one note line; it then
 works as before.

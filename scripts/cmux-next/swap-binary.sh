@@ -58,7 +58,7 @@ check_paths() {
       # Compiled into helpers by their own phases (bundle-server-helper.sh, build-cef-shim.sh, the helper builds).
       Packages/macOS/CmuxNext/Sources/CmuxNextServerHelper*|Packages/macOS/CmuxNext/Sources/CmuxNextCompat/Mutex.swift) echo "$path" ;;
       Packages/macOS/CmuxNext/CEFShim/*|Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/*) echo "$path" ;;
-      Packages/macOS/CmuxComputerUseHelper/*|Packages/macOS/CmuxRemote/*) echo "$path" ;;
+      Packages/macOS/CmuxComputerUseHelper/*) echo "$path" ;;
       Packages/*) ;;      # carried: the packages the executable links, their resources, the FFI pin
       App/*) ;;           # carried: main.swift
       .agents/*|.claude/*|.codex/*|.cmux/*|.github/*|.greptile/*|docs/*|plans/*|skills/*|design/*|tests/*|tests_v2/*) ;;

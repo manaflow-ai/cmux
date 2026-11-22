@@ -111,7 +111,7 @@ class SwapBinaryTests(unittest.TestCase):
                  "Packages/macOS/CmuxNext/Sources/CmuxNextServerHelper/Server.swift",
                  "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/Mutex.swift", "Packages/macOS/CmuxNext/CEFShim/shim.cc",
                  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h",
-                 "Packages/macOS/CmuxComputerUseHelper/Sources/main.swift", "Packages/macOS/CmuxRemote/Package.swift"]
+                 "Packages/macOS/CmuxComputerUseHelper/Sources/main.swift"]
         r = self.run_tool("check-paths", stdin="\n".join(paths) + "\n")
         self.assertEqual(r.stdout.split(), paths[10:])
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Fetches, verifies and caches one pinned signed asset (cmux-remote-dev.pin.json,
-# the Apple Development signed cmux Remote (dev).app written by
-# sign-cmux-remote-dev.sh and published by publish-signed-pinned-asset.sh) and
+# Fetches, verifies and caches one pinned signed asset (files-host-dev.pin.json,
+# the Apple Development signed cmux Files (dev).app written by
+# sign-files-host-dev.sh and published by publish-signed-pinned-asset.sh) and
 # prints its cached path on stdout.
 #
 #   ensure-signed-pinned-asset.sh PIN.json [--optional | --allow-no-source]
