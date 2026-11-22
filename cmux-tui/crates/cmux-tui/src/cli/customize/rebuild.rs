@@ -221,12 +221,13 @@ pub(super) enum Look {
 }
 
 /// The waiter's next move over the open rebuilds. A run CI says it built
-/// waits for its pointer (refresh reads the pointer); one past [`WAIT_MS`]
-/// gets one last refresh, which turns it off.
+/// also gets a refresh even when its exact pointer did not read yet
+/// (refresh reads `latest.json` too); one past [`WAIT_MS`] gets one last
+/// refresh, which turns it off.
 pub(super) fn look(open: &[Seen], now_ms: u64) -> Look {
     let finished = |seen: &Seen| {
         seen.found
-            || matches!(seen.run, Some(Run::Failed(_)))
+            || matches!(seen.run, Some(Run::Built | Run::Failed(_)))
             || now_ms.saturating_sub(seen.asked_ms) > WAIT_MS
     };
     if open.iter().any(finished) {

@@ -139,8 +139,8 @@ fn the_waiter_runs_refresh_only_when_something_finished() {
     assert_eq!(look(&[], NOW), Look::Done);
     assert_eq!(look(&[open(false, None)], NOW), Look::Sleep);
     assert_eq!(look(&[open(false, Some(Run::Building))], NOW), Look::Sleep);
-    // CI built it: the pointer is what refresh reads, so wait for it.
-    assert_eq!(look(&[open(false, Some(Run::Built))], NOW), Look::Sleep);
+    // CI built it: refresh reads its pointer through latest.json too.
+    assert_eq!(look(&[open(false, Some(Run::Built))], NOW), Look::Refresh);
     assert_eq!(look(&[open(false, None), open(true, None)], NOW), Look::Refresh);
     assert_eq!(look(&[open(false, Some(Run::Failed("x".to_owned())))], NOW), Look::Refresh);
     // Past the deadline: one last refresh says so.
