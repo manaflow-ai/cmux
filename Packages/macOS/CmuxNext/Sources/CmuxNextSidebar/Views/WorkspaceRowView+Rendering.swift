@@ -319,11 +319,19 @@ extension WorkspaceRowView {
         startMarqueeAfterLayout()
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
+        // The hovered controls replace every trailing mark, in every case (Leo 2026-11-22: "in all cases, the hovered
+        // buttons should just replace the other ones"): while the ✕, the ⋮ or the pin shows, the dot, the spinner, the
+        // status stack, the counts and the time hide in place (no layout shift). Only what a person points at keeps
+        // its place: the usage warning (its tooltip, left of the controls), the audio button, and the Cloud mark,
+        // which belongs to the name.
+        let controlsShow = !shownControls.isEmpty
         for mark in ([activity, rowBadge, agentMark, mutedMark, cloudMark, usageWarningMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
             let status = mark === activity || (mark === agentMark && markReplacesStatus)
+            let keepsPlace = mark === usageWarningMark || mark === cloudMark || mark === audioSlot.made
+                || (mark === agentMark && agentMarkVariant == .besideTitle)
             let covered = mark === usageWarningMark ? false : mark === columnMark?.view ? markGivesWay
-                : (status && coverStart != nil) || coverStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
+                : (controlsShow && !keepsPlace) || (status && coverStart != nil) || coverStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
             // The usage warning never gives way (the layout keeps it left of the controls).
             let underControl = mark !== usageWarningMark && Self.covers(shownControls, mark)
             fadeOpacity(mark, to: covered || underControl ? 0 : 1, fades: fades)
