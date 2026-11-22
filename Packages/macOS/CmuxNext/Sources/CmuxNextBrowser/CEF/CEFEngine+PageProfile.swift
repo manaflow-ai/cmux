@@ -104,10 +104,16 @@ extension CEFEngine {
     /// Profiles the live page `browserID` with DevTools: the heap after GC and the page's counters, and over `seconds`
     /// (0: none) a CPU profile at 1 ms sampling. Read on request only; the caller checks that the page is cmux's own.
     public func pageProfile(browserID: Int32, seconds: Int) async throws -> CEFPageProfile {
-        func call(_ method: String, _ arguments: [String: any Sendable] = [:]) async throws -> [String: Any] {
+        func raw(_ method: String, _ arguments: [String: any Sendable] = [:]) async throws -> String {
             guard let reply = try await devTools(browserID: browserID, method: method, params: arguments) else {
                 throw CEFPageProfileError.pageGone(browserID)
             }
+            return reply
+        }
+        func call(_ method: String, _ arguments: [String: any Sendable] = [:]) async throws -> [String: Any] {
+            let reply = try await raw(method, arguments)
+            // main-actor-ok: a small DevTools reply (an empty ack, two heap numbers or the page's ~50 counters);
+            // the CPU profile, megabytes, parses off the main actor (cpuProfile(fromStopReply:)).
             return (try? JSONSerialization.jsonObject(with: Data(reply.utf8))) as? [String: Any] ?? [:]
         }
         var profile = CEFPageProfile()
@@ -132,12 +138,20 @@ extension CEFEngine {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             window.schedule(after: .seconds(seconds)) { done.resume() }
         }
-        let stopped = try await call("Profiler.stop")
+        let stopped = try await raw("Profiler.stop")
         _ = try await call("Profiler.disable")
-        let cpu = stopped["profile"] as? [String: Any] ?? [:]
-        profile.cpuProfile = (try? JSONSerialization.data(withJSONObject: cpu)).flatMap { String(data: $0, encoding: .utf8) }
-        profile.topSelf = Self.topSelf(cpu)
+        (profile.cpuProfile, profile.topSelf) = await Self.cpuProfile(fromStopReply: stopped)
         return profile
+    }
+
+    /// A `Profiler.stop` reply's CPU profile as JSON and its top self-time functions, read off the main actor:
+    /// a few seconds at 1 ms sampling is megabytes of JSON.
+    @concurrent nonisolated static func cpuProfile(fromStopReply reply: String) async
+        -> (json: String?, topSelf: [(name: String, ms: Double)]) {
+        let stopped = (try? JSONSerialization.jsonObject(with: Data(reply.utf8))) as? [String: Any] ?? [:]
+        let cpu = stopped["profile"] as? [String: Any] ?? [:]
+        let json = (try? JSONSerialization.data(withJSONObject: cpu)).flatMap { String(data: $0, encoding: .utf8) }
+        return (json, topSelf(cpu))
     }
 
     /// The 15 functions with the most self time in a V8 CPU profile, idle and program left out.

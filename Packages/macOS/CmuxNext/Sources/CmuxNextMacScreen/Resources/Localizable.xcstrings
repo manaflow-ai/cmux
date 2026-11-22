@@ -34201,6 +34201,18 @@
             "value": "شغّل وكيل مشاركة جهاز Mac هذا."
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent je uključio Dijeli ovaj Mac računar."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En agent slog Del denne Mac til."
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -34225,16 +34237,76 @@
             "value": "Un agent a activé « Partager ce Mac »."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un agente ha attivato Condividi questo Mac."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "エージェントが「このMacを共有」をオンにしました。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារមួយបានបើក ចែករំលែក Mac នេះ។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "에이전트가 이 Mac 공유를 켰습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En agent slo på Del denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent włączył Udostępnij tego Maca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um agente ativou Compartilhar Este Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агент включил «Открыть общий доступ к этому Mac»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์เปิด แชร์ Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir ajan Bu Mac’i Paylaş’ı açtı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агент увімкнув «Надати спільний доступ до цього Mac»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một tác tử đã bật Chia sẻ máy Mac này."
           }
         },
         "zh-Hans": {
@@ -34258,6 +34330,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "شغّلت واجهة أوامر cmux مشاركة جهاز Mac هذا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux CLI je uključio Dijeli ovaj Mac računar."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-CLI’en slog Del denne Mac til."
           }
         },
         "de": {
@@ -34284,16 +34368,76 @@
             "value": "La CLI cmux a activé « Partager ce Mac »."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La CLI di cmux ha attivato Condividi questo Mac."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "cmux CLIが「このMacを共有」をオンにしました。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux CLI បានបើក ចែករំលែក Mac នេះ។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "cmux CLI가 이 Mac 공유를 켰습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-CLI-en slo på Del denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CLI cmux włączyło Udostępnij tego Maca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A CLI do cmux ativou Compartilhar Este Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CLI cmux включил «Открыть общий доступ к этому Mac»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux CLI เปิด แชร์ Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux CLI, Bu Mac’i Paylaş’ı açtı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CLI cmux увімкнув «Надати спільний доступ до цього Mac»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux CLI đã bật Chia sẻ máy Mac này."
           }
         },
         "zh-Hans": {
@@ -34317,6 +34461,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "شغّل أحد أجهزتك مشاركة جهاز Mac هذا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jedan od vaših uređaja je uključio Dijeli ovaj Mac računar."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En af dine enheder slog Del denne Mac til."
           }
         },
         "de": {
@@ -34343,16 +34499,76 @@
             "value": "Un de vos appareils a activé « Partager ce Mac »."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uno dei tuoi dispositivi ha attivato Condividi questo Mac."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "お使いのデバイスの1台が「このMacを共有」をオンにしました。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឧបករណ៍មួយរបស់អ្នកបានបើក ចែករំលែក Mac នេះ។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "내 기기 중 하나가 이 Mac 공유를 켰습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En av enhetene dine slo på Del denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jedno z twoich urządzeń włączyło Udostępnij tego Maca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um dos seus dispositivos ativou Compartilhar Este Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Одно из ваших устройств включило «Открыть общий доступ к этому Mac»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อุปกรณ์เครื่องหนึ่งของคุณเปิด แชร์ Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cihazlarınızdan biri Bu Mac’i Paylaş’ı açtı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Один із ваших пристроїв увімкнув «Надати спільний доступ до цього Mac»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một thiết bị của bạn đã bật Chia sẻ máy Mac này."
           }
         },
         "zh-Hans": {
@@ -34376,6 +34592,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "شغّل أمر في طرفية مشاركة جهاز Mac هذا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Naredba u terminalu je uključila Dijeli ovaj Mac računar."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En kommando i en terminal slog Del denne Mac til."
           }
         },
         "de": {
@@ -34402,16 +34630,76 @@
             "value": "Une commande dans un terminal a activé « Partager ce Mac »."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un comando in un terminale ha attivato Condividi questo Mac."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "ターミナルのコマンドが「このMacを共有」をオンにしました。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យបញ្ជាមួយក្នុងទែមីណាល់បានបើក ចែករំលែក Mac នេះ។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "터미널의 명령이 이 Mac 공유를 켰습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En kommando i en terminal slo på Del denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Polecenie w terminalu włączyło Udostępnij tego Maca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um comando em um terminal ativou Compartilhar Este Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Команда в терминале включила «Открыть общий доступ к этому Mac»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำสั่งในเทอร์มินัลเปิด แชร์ Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir terminaldeki komut Bu Mac’i Paylaş’ı açtı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Команда в терміналі увімкнула «Надати спільний доступ до цього Mac»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một lệnh trong terminal đã bật Chia sẻ máy Mac này."
           }
         },
         "zh-Hans": {

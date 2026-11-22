@@ -64,6 +64,7 @@ extension AppControl {
                 .value(services.map { DebugHomeSidebarFixture.handle(call.params, services: $0) } ?? .null)
             },
             // Fixture Chief subagents under the sidebar's top Chief row (captures of their rows and task counts).
+            // main-actor-ok: a debug call's params, a handful of fixture subagents.
             .mainActor("debug.chief.subagent_fixture") { call in .value(.number(Double((try? AgentLaneStore.chief.applyDebugChiefSubagents(json: JSONEncoder().encode(call.params))) ?? -1))) },
             .mainActor("debug.tab_drag") { [weak services] _ in .value(services.map { DebugTabDrag.report(services: $0) } ?? .null) },
         ])
