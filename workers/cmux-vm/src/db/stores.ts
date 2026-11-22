@@ -71,12 +71,6 @@ export interface AgentKeyRecord {
 }
 
 /** A deleted VM's lifetime, as a spend estimate reads it. */
-export interface DeletedVmSpan {
-  readonly cmuxId: string;
-  readonly createdAt: Date;
-  readonly deletedAt: Date;
-}
-
 export interface OwnershipStoreService {
   readonly findCreation: (tenantId: TenantId, key: string) => Effect.Effect<{ readonly receipt: VmCreationReceipt; readonly labels: Readonly<Record<string, string>>; readonly createdBy: string; readonly deleted: boolean; readonly committed: boolean } | null, StoreError>;
   /**
@@ -96,10 +90,11 @@ export interface OwnershipStoreService {
   /** How many live committed resources of this kind the tenant has; an uncommitted VM's slot is its creation's reservation. */
   readonly countLive: (tenantId: TenantId, kind: ResourceKind) => Effect.Effect<number, StoreError>;
   /**
-   * The tenant's VMs carrying every one of `labels` that were deleted after `since`, newest delete first, with when
-   * each was created and deleted: a capped key's spend estimate counts their time in the window (RFD 0016).
+   * The summed lifetime after `since`, in seconds, of the tenant's VMs carrying every one of `labels` that were
+   * deleted after `since` (each from its create, or `since` if later, to its delete), summed in the database so no
+   * count of deletes is too many: a capped key's spend estimate prices it (RFD 0016).
    */
-  readonly deletedVmsSince: (tenantId: TenantId, labels: Readonly<Record<string, string>>, since: Date, limit: number) => Effect.Effect<ReadonlyArray<DeletedVmSpan>, StoreError>;
+  readonly deletedVmSecondsSince: (tenantId: TenantId, labels: Readonly<Record<string, string>>, since: Date) => Effect.Effect<number, StoreError>;
   /** Marks the tenant's resource deleted; later reads do not find it. */
   readonly markDeleted: (tenantId: TenantId, kind: ResourceKind, cmuxId: string, at: Date) => Effect.Effect<void, StoreError>;
   /** The tenant's own resource of this kind that was marked deleted, or none (an idempotent delete's tombstone). */
@@ -147,11 +142,7 @@ const ResourceRow = Schema.Struct({
 
 const CountRow = Schema.Struct({ live: Schema.Union(Schema.Number, Schema.NumberFromString) });
 
-const DeletedSpanRow = Schema.Struct({
-  cmux_id: Schema.String,
-  created_at: Schema.Union(Schema.DateFromSelf, Schema.Date),
-  deleted_at: Schema.Union(Schema.DateFromSelf, Schema.Date),
-});
+const DeletedSecondsRow = Schema.Struct({ seconds: Schema.Union(Schema.Number, Schema.NumberFromString) });
 
 const RESOURCE_COLUMNS = "tenant_id, kind, cmux_id, upstream_id, created_by, created_at, display_name, labels::text AS labels, committed";
 
@@ -298,21 +289,19 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
             Effect.flatMap(decodeRows(CountRow, "ownership.count")),
             Effect.map((rows) => rows[0]?.live ?? 0),
           ),
-      deletedVmsSince: (tenantId, labels, since, limit) =>
+      deletedVmSecondsSince: (tenantId, labels, since) =>
         sql
           .query(
-            "ownership.deletedSince",
-            `SELECT cmux_id, created_at, deleted_at
+            "ownership.deletedSecondsSince",
+            `SELECT COALESCE(SUM(GREATEST(0, EXTRACT(EPOCH FROM deleted_at - GREATEST(created_at, $2::timestamptz)))), 0)::float8 AS seconds
                FROM cmux_vm.resources
               WHERE tenant_id = $1 AND kind = 'vm' AND deleted_at > $2::timestamptz
-                AND labels @> $3::text::jsonb
-              ORDER BY deleted_at DESC, cmux_id DESC
-              LIMIT $4`,
-            [tenantId, since.toISOString(), JSON.stringify(labels), limit],
+                AND labels @> $3::text::jsonb`,
+            [tenantId, since.toISOString(), JSON.stringify(labels)],
           )
           .pipe(
-            Effect.flatMap(decodeRows(DeletedSpanRow, "ownership.deletedSince")),
-            Effect.map((rows) => rows.map((row): DeletedVmSpan => ({ cmuxId: row.cmux_id, createdAt: row.created_at, deletedAt: row.deleted_at }))),
+            Effect.flatMap(decodeRows(DeletedSecondsRow, "ownership.deletedSecondsSince")),
+            Effect.map((rows) => rows[0]?.seconds ?? 0),
           ),
       markDeleted: (tenantId, kind, cmuxId, at) =>
         sql

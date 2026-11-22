@@ -205,17 +205,16 @@ export async function makeHarness(options: HarnessOptions = {}) {
           .slice(0, page.limit),
       ),
     countLive: (tenantId, kind) => Effect.sync(() => resources.filter((row) => row.tenantId === tenantId && row.kind === kind && live(row) && row.committed !== false).length),
-    deletedVmsSince: (tenantId, labels, since, limit) =>
+    deletedVmSecondsSince: (tenantId, labels, since) =>
       Effect.sync(() =>
         resources
           .filter((row) => row.tenantId === tenantId && row.kind === "vm" && deleted.has(row.cmuxId))
           .filter((row) => Object.entries(labels).every(([key, value]) => row.labels[key] === value))
-          .flatMap((row) => {
+          .reduce((sum, row) => {
             const at = deletedAt.get(row.cmuxId);
-            return at !== undefined && at.getTime() > since.getTime() ? [{ cmuxId: row.cmuxId, createdAt: row.createdAt, deletedAt: at }] : [];
-          })
-          .sort((a, b) => b.deletedAt.getTime() - a.deletedAt.getTime())
-          .slice(0, limit),
+            if (at === undefined || at.getTime() <= since.getTime()) return sum;
+            return sum + Math.max(0, at.getTime() - Math.max(row.createdAt.getTime(), since.getTime())) / 1000;
+          }, 0),
       ),
     markDeleted: (tenantId, kind, cmuxId, at) =>
       Effect.sync(() => {

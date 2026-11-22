@@ -94,7 +94,7 @@ describe("ownership store", () => {
     expect(Option.isNone(await run(store.find(row.tenantId, "vm", row.cmuxId)))).toBe(true);
   });
 
-  it("answers a tenant's VMs deleted since a time, matching its labels, newest delete first", async () => {
+  it("sums the life since a time of a tenant's VMs deleted after it, matching its labels", async () => {
     const store = await run(OwnershipStore);
     const tenant = TenantId.make("team_a");
     const vm = (labels: Record<string, string>, tenantId = tenant): OwnedResource => ({ tenantId, kind: "vm", cmuxId: newVmId(), upstreamId: UpstreamId.make(`up-${crypto.randomUUID()}`), createdBy: "service:tk-lanes", createdAt: new Date("2026-11-01T00:00:00Z"), displayName: null, labels });
@@ -107,14 +107,12 @@ describe("ownership store", () => {
     await run(store.markDeleted(tenant, "vm", other!.cmuxId, new Date("2026-11-03T00:00:00Z")));
     await run(store.markDeleted(TenantId.make("team_b"), "vm", otherTeam!.cmuxId, new Date("2026-11-03T00:00:00Z")));
     const since = new Date("2026-11-01T00:00:00Z");
-    const spans = await run(store.deletedVmsSince(tenant, lanes, since, 10));
-    expect(spans.map((span) => [span.cmuxId, span.deletedAt.toISOString()])).toEqual([
-      [late!.cmuxId, "2026-11-03T00:00:00.000Z"],
-      [early!.cmuxId, "2026-11-02T00:00:00.000Z"],
-    ]);
-    expect(spans[0]!.createdAt.toISOString()).toBe("2026-11-01T00:00:00.000Z");
-    expect(await run(store.deletedVmsSince(tenant, lanes, since, 1))).toHaveLength(1);
-    expect(await run(store.deletedVmsSince(tenant, {}, since, 10))).toHaveLength(3);
+    // A day and two days of life since `since`; the VM deleted before it and the other team's are not counted.
+    expect(await run(store.deletedVmSecondsSince(tenant, lanes, since))).toBe(3 * 86_400);
+    // A later `since` clips each VM's life to it, and drops the one deleted before it.
+    expect(await run(store.deletedVmSecondsSince(tenant, lanes, new Date("2026-11-02T12:00:00Z")))).toBe(43_200);
+    // No labels: every one of the tenant's VMs.
+    expect(await run(store.deletedVmSecondsSince(tenant, {}, since))).toBe(5 * 86_400);
   });
 
   it("finds a resource only for its own tenant", async () => {

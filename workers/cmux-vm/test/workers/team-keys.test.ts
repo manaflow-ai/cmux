@@ -11,6 +11,7 @@ import { generateApiKey, hashApiKey } from "../../src/auth/credentials.ts";
 import { parseTeamKeys } from "../../src/auth/team-keys.ts";
 import { estimatedSpendUsd, spendWindows } from "../../src/domain/agents.ts";
 import { teamKeysOf, type ServiceKey } from "../../src/auth/service-keys.ts";
+import { newVmId, TenantId, UpstreamId } from "../../src/lib/ids.ts";
 import { bearer } from "../support/endpoints.ts";
 import { makeHarness, type HarnessOptions } from "../support/harness.ts";
 
@@ -233,6 +234,30 @@ describe("a team key's running and spend caps", () => {
     const over = await refusal(await create(t, secrets[0]!));
     expect(over.budget).toBe("agent_usd_per_month");
     expect(over.message).toContain("this month (UTC), at its maxUsdPerMonth cap of 0.000001 USD");
+  });
+
+  /** An ownership row of the key's for provider VM `upstreamId`, created `ago` ms back (as if made before a cap change). */
+  const ownedRow = (t: Harness, upstreamId: string, ago: number) => {
+    const cmuxId = newVmId();
+    t.resources.push({ tenantId: TenantId.make(TEAM), kind: "vm", cmuxId, upstreamId: UpstreamId.make(upstreamId), createdBy: "service:tk-lanes", createdAt: new Date(Date.now() - ago), displayName: null, labels: LABELS });
+    return cmuxId;
+  };
+
+  it("prices a VM gone at the provider from its create to now, so its spend does not vanish", async () => {
+    const { t, secrets } = await harness({ maxVms: 5, maxUsdPerDay: 0.000001 });
+    ownedRow(t, "vm-gone-at-provider", 60_000);
+    expect((await refusal(await create(t, secrets[0]!))).budget).toBe("agent_usd_per_day");
+  });
+
+  it("counts every live VM on a start, not only the newest maxVms + 1", async () => {
+    // maxVms lowered to 1 after the key made three: the oldest runs, the two newest are paused.
+    const { t, secrets } = await harness({ maxVms: 1, maxRunningVms: 1 });
+    ownedRow(t, t.upstream.addVm("running").id, 3_600_000);
+    ownedRow(t, t.upstream.addVm("paused").id, 120_000);
+    const newest = ownedRow(t, t.upstream.addVm("paused").id, 60_000);
+    const over = await refusal(await t.request(`/v1/vms/${newest}/start`, bearer(secrets[0]!), { method: "POST" }));
+    expect(over.budget).toBe("agent_running_vms");
+    expect(over.message).toContain("has 1 running VMs, at its maxRunningVms cap of 1");
   });
 
   it("leaves a key with none of these caps as it was: start and resume read nothing extra", async () => {

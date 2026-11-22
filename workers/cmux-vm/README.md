@@ -44,8 +44,10 @@ estimate, every live VM counted), is 429 naming the cap. Three optional caps
 (RFD 0016; unset, no limit) also hold on every create, start and resume:
 `maxRunningVms` (running or booting VMs; paused and stopped ones do not count),
 and `maxUsdPerDay` / `maxUsdPerMonth` (estimated list-price spend this UTC day
-or month: each live VM from its create, ending at its pause when paused, and
-each VM deleted this month at the default size; it errs high). A refusal is 429
+or month: each live VM from its create, ending at its pause when paused; a VM
+gone at the provider and each VM deleted in the window at the default size,
+summed in SQL; it errs high). A start or resume counts every live VM of the key,
+up to 5000 (past that it refuses). A refusal is 429
 with `budget` `agent_running_vms`, `agent_usd_per_day` or `agent_usd_per_month`,
 naming the cap and its current value. These checks read then act, so two
 concurrent starts can pass together at the cap. It cannot resize, fork
