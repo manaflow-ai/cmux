@@ -123,6 +123,23 @@ struct WorkstreamToolJSONLimiterTests {
         #expect((try decodedObject(shortened)["content"] as? String)?.hasSuffix("中...") == true)
     }
 
+    // The limit counts Unicode scalars, not characters: each "e" plus
+    // combining accent is one character and two scalars.
+    @Test func combiningMarksCountAsScalars() throws {
+        let content = String(repeating: "e\u{0301}", count: 5_000)
+        let shortened = try #require(limiter.shortened(
+            #"{"content":""# + content + #"","file_path":"/tmp/project/notes.md"}"#
+        ))
+
+        #expect(shortened.unicodeScalars.count <= 8_000)
+        #expect(shortened.unicodeScalars.count > 7_900)
+        let object = try decodedObject(shortened)
+        #expect(object["file_path"] as? String == "/tmp/project/notes.md")
+        let listedContent = try #require(object["content"] as? String)
+        #expect(listedContent.hasSuffix("..."))
+        #expect(content.unicodeScalars.starts(with: listedContent.unicodeScalars.dropLast(3)))
+    }
+
     @Test func rawAndEscapedUnicodeAreNotSplit() throws {
         let json = #"{"content":""# + String(repeating: "é😀", count: 3_000)
             + #"","escaped":""# + String(repeating: #"\ud83d\ude00\u00e9"#, count: 2_000)
