@@ -309,6 +309,7 @@ impl HubWriter {
         self.admit_origin(id)?;
         self.persist_origin(&record)?;
         let wire = Origin { id: id.into(), state, since, extra: None };
+        self.hold_history(current.seq(), record.seq);
         self.publish_folder_origin(current.apply_origin(record.seq, record.clone()), wire.clone());
         self.record_history(ListItem::Origin { seq: record.seq, origin: wire.clone() });
         self.publish_origin(record.seq, wire);

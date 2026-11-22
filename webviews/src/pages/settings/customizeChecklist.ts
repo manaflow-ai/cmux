@@ -11,6 +11,7 @@
 import type { LibraryEntry, LibraryListing } from "./ops";
 import type { SchemaRow } from "./schema";
 import { text } from "./strings";
+import { intl } from "../../ui/intl";
 
 /** The checklist's groups, in the order they draw. */
 export const CHECKLIST_GROUPS = ["experiments", "labs", "library", "looks", "all"] as const;
@@ -25,8 +26,12 @@ export type ChecklistItem = {
   id: string;
   group: ChecklistGroupId;
   title: string;
-  /** One line under the title (the row's summary, else the first sentence of its help). */
+  /** The one short line under the title (a row's summary; a look's or entry's words when they fit
+   * SHORT_LINE), else empty: a setting row says what it is in one short line, or nothing (Leo,
+   * 2026-10-11, rowSummary.test.tsx). */
   help: string;
+  /** The longer words (a row's help, a look's tagline), shown on hover and matched by the search. */
+  detail: string;
   /** Extra words the search matches (the setting key, a look's folder). */
   terms: string;
   on: boolean;
@@ -65,11 +70,25 @@ export function settingGroup(key: string): "experiments" | "labs" | "all" {
   return "all";
 }
 
-/** The one line under a row's title: its summary, else its help's first sentence. */
-export function helpLine(row: SchemaRow): string {
-  const summary = text(row.summary);
-  if (summary) return summary;
-  return firstSentence(text(row.help));
+/** The longest line drawn under a title, in characters as a reader counts them (rowSummary.test.tsx). */
+export const SHORT_LINE = 60;
+
+const graphemes = intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/** `words` when they fit one short line, else their first sentence when that fits, else the part
+ * before its first colon, semicolon or dash when that fits ("A quiet, near-black agent-editor look"
+ * of a look's tagline), else empty. The whole words show on hover. */
+export function shortLine(words: string): string {
+  const trimmed = words.trim();
+  if (fits(trimmed)) return trimmed;
+  const sentence = firstSentence(trimmed);
+  if (fits(sentence)) return sentence;
+  const clause = /^(.+?)\s*(?:[:;]|\s[—–-]\s)/u.exec(sentence)?.[1]?.trim() ?? "";
+  return clause && fits(clause) ? clause : "";
+}
+
+function fits(words: string): boolean {
+  return [...graphemes.segment(words)].length <= SHORT_LINE;
 }
 
 export function firstSentence(words: string): string {
@@ -92,7 +111,10 @@ export type VerifiedLook = {
 /** The library entry `cmux setup install` makes for a setup id (cmux-customize setup.rs
  * `profile_name`): `setup-` and the id, lower case, every other character a dash, at most 64. */
 export function setupEntryName(id: string): string {
-  const name = `setup-${id}`.replace(/[^A-Za-z0-9]/g, "-").toLowerCase().slice(0, 64);
+  const name = `setup-${id}`
+    .replace(/[^A-Za-z0-9]/g, "-")
+    .toLowerCase()
+    .slice(0, 64);
   return name.replace(/-+$/, "");
 }
 
@@ -113,7 +135,9 @@ export function checklistGroups(input: ChecklistInput): ChecklistGroup[] {
     id: row.key,
     group,
     title: text(row.title),
-    help: helpLine(row),
+    // The row's summary, else its help's first sentence (one line, cut with an ellipsis; all of it on hover).
+    help: shortLine(text(row.summary) || text(row.help)),
+    detail: text(row.help),
     terms: row.key,
     on: input.value(row.key) === true,
     locked: input.locked(row.key),
@@ -130,7 +154,8 @@ export function checklistGroups(input: ChecklistInput): ChecklistGroup[] {
       id: `look:${look.id}`,
       group: "looks",
       title: look.name,
-      help: look.tagline,
+      help: shortLine(look.tagline),
+      detail: look.tagline,
       terms: `${look.folder} ${look.id}`,
       on: entry?.on === true,
       locked: entry ? input.libraryLocked : null,
@@ -148,11 +173,13 @@ export function checklistGroups(input: ChecklistInput): ChecklistGroup[] {
 }
 
 function libraryItem(entry: LibraryEntry, locked: string | null): ChecklistItem {
+  const words = entry.words[0] || entry.description || "";
   return {
     id: `library:${entry.name}`,
     group: "library",
     title: entry.name,
-    help: entry.words[0] || entry.description || "",
+    help: shortLine(words),
+    detail: words,
     terms: [...entry.settings, ...entry.files].join(" "),
     on: entry.on,
     locked,
@@ -163,11 +190,11 @@ function counted(id: ChecklistGroupId, items: ChecklistItem[]): ChecklistGroup {
   return { id, items, on: items.filter((item) => item.on).length, total: items.length };
 }
 
-/** The search: every word must be in the title, the help line or the terms (any case). */
+/** The search: every word must be in the title, the line, the detail or the terms (any case). */
 export function matches(item: ChecklistItem, query: string): boolean {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0) return true;
-  const haystack = `${item.title} ${item.help} ${item.terms}`.toLowerCase();
+  const haystack = `${item.title} ${item.help} ${item.detail} ${item.terms}`.toLowerCase();
   return words.every((word) => haystack.includes(word));
 }
 
@@ -189,8 +216,10 @@ export function totals(groups: readonly ChecklistGroup[]): { on: number; total: 
   });
 }
 
-// The verified looks: the gallery index's `look` entries under looks/ that need no unmerged change,
-// each named by its own cmux-setup.json (JSONC). Read at build time; no request.
+// The verified looks: every examples/looks/NAME and examples/recipes/NAME folder that has a
+// cmux-setup.json, each named by that file (JSONC), so a look or recipe added there shows with no
+// edit. The gallery index gives the repository and ref `cmux setup install` takes, and a look it
+// marks `needs` (an unmerged change) is left out. Read at build time; no request.
 type GalleryIndex = {
   repository: string;
   ref: string;
@@ -198,7 +227,10 @@ type GalleryIndex = {
   entries: Array<{ kind: string; path: string; needs?: string }>;
 };
 
-/** Strips `//` and `/* */` comments outside strings (cmux-setup.json is JSONC). */
+/** The folders the looks group reads, under the examples root. */
+export const LOOK_FOLDERS = ["looks/", "recipes/"] as const;
+
+/** Strips line and block comments outside strings, and trailing commas (cmux-setup.json is JSONC). */
 export function stripJsonComments(source: string): string {
   let out = "";
   let inString = false;
@@ -224,23 +256,28 @@ export function stripJsonComments(source: string): string {
   return out.replace(/,(\s*[}\]])/g, "$1");
 }
 
-/** The verified looks from the index and each look folder's cmux-setup.json text (by folder path
- * under the index root, `looks/ember`). A look whose setup does not parse is left out. */
+/** The verified looks from each setup's text (by folder under the examples root, `looks/ember`),
+ * in folder order. A setup that does not parse, or that the index marks `needs`, is left out. */
 export function verifiedLooks(index: GalleryIndex, setups: ReadonlyMap<string, string>): VerifiedLook[] {
-  return index.entries.flatMap((entry) => {
-    if (entry.kind !== "look" || entry.needs || !entry.path.startsWith("looks/")) return [];
-    const source = setups.get(entry.path);
-    if (!source) return [];
+  const waiting = new Set(index.entries.filter((entry) => entry.needs).map((entry) => entry.path));
+  const folders = [...setups.keys()]
+    .filter((folder) => LOOK_FOLDERS.some((root) => folder.startsWith(root)) && !waiting.has(folder))
+    .sort();
+  return folders.flatMap((folder) => {
     try {
-      const setup = JSON.parse(stripJsonComments(source)) as { id?: string; name?: string; tagline?: string };
+      const setup = JSON.parse(stripJsonComments(setups.get(folder)!)) as {
+        id?: string;
+        name?: string;
+        tagline?: string;
+      };
       if (!setup.id || !setup.name) return [];
       return [
         {
           id: setup.id,
           name: setup.name,
           tagline: setup.tagline ?? "",
-          reference: `${index.repository}/${index.root}/${entry.path}@${index.ref}`,
-          folder: entry.path,
+          reference: `${index.repository}/${index.root}/${folder}@${index.ref}`,
+          folder,
         },
       ];
     } catch {
