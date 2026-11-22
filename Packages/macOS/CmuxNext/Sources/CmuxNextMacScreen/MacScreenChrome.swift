@@ -102,6 +102,13 @@ final class MacScreenChromeHost {
     }
 
     var showsCard: Bool { model.card != nil && !(model.viewerLook.style.outageKeepsPicture && model.outageOverPicture) }
+
+    /// The button the keyboard lands on while a state shows: under look B's strip the strip's (the card is hidden there),
+    /// else the shown card's; nil while live.
+    var keyButton: MacScreenButton? {
+        if model.viewerLook.style.statusStrip { return model.card == nil ? nil : statusStrip?.bar.keyButton }
+        return showsCard ? card.keyButton : nil
+    }
 }
 
 extension MacScreenPaneModel {
