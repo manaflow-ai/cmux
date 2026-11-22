@@ -8,7 +8,7 @@ import { menuHandler, mount, mountExists, nodeRecord, sendPendingOps, setSceneSi
 import { act, palette, paletteCancel, paletteDetail, paletteOpen, setPaletteScopes } from "./palette.ts"
 import { batch, computed, effect, flush, onCleanup, signal, untrack, type Write } from "./reactive.ts"
 import * as views from "./view.ts"
-import { watch } from "./watch.ts"
+import { deliverWatch, watch } from "./watch.ts"
 
 const g = globalThis as Record<string, unknown>
 /** Each widget mount's now() clock, set by `__cmuxAppTick`. */
@@ -93,12 +93,15 @@ function install() {
           ctx.now = now
         }
         state.context = ctx
+        state.mount = mountId
         mount(mountId, () => render(ctx), ctx)
         state.context = null
+        state.mount = null
       })
       return ""
     } catch (e) {
       state.context = null
+      state.mount = null
       widgetClocks.delete(mountId)
       unmount(mountId)
       const message = describe(e)
@@ -129,11 +132,13 @@ function install() {
       // The host attests user events with a gesture token; it is ambient only while the handler runs synchronously.
       state.gesture = typeof payload.gesture === "string" ? payload.gesture : null
       state.context = record.mount.context
+      state.mount = mountId
       try {
         dispatchEvent(record, event, payload)
       } finally {
         state.gesture = null
         state.context = null
+        state.mount = null
       }
     }, undefined)
 
@@ -210,6 +215,7 @@ function install() {
 
   g.__cmuxAppResolve = (cbId: number, ok: boolean, json: string) => entry("resolve", () => resolveCall(cbId, ok, json), undefined)
   g.__cmuxAppEvent = (subId: number, json: string) => entry("event", () => deliverEvent(subId, json), undefined)
+  g.__cmuxAppWatch = (watchId: number, json: string) => entry("watch", () => deliverWatch(watchId, json), undefined)
   g.__cmuxAppTimer = (timerId: number) => entry("timer", () => fireTimer(timerId), undefined)
   /** Hosts call this after draining the microtask queue when they want pending effects flushed now. */
   g.__cmuxAppFlush = () => entry("flush", flush, undefined)

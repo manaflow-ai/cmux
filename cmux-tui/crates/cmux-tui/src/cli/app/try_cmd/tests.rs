@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
 use super::copy::{self, Action as CopyAction};
+use super::helper::{self, Signing};
 use super::live::{self, Daemon, Phases, Store};
 use super::resolve::{self, Spec, Unresolved};
 use super::{
@@ -88,12 +89,25 @@ impl Fixture {
         let channel = live::verify_channel(channel_body, keys, now)?;
         match apply_channel(&self.app, &self.store, &channel, false, |app_commit| {
             let payload = live::verify(live_body, keys, &channel.commit)?;
-            let plan =
-                choose(&channel.commit, Some(app_commit), &Live::Found(payload), None, &self.base);
-            let Plan::Live { files, .. } = plan else {
+            let plan = choose(
+                &channel.commit,
+                Some(app_commit),
+                &Live::Found(Box::new(payload)),
+                None,
+                &self.base,
+            );
+            let Plan::Live { files, helper, .. } = plan else {
                 return Err("the signed channel has no live payload this app can take".to_owned());
             };
-            let applied = try_live(&self.app, &files, &self.store, daemon, &mut Phases::default())?;
+            let applied = try_live(
+                &self.app,
+                &files,
+                helper.as_ref(),
+                &self.store,
+                daemon,
+                &NoSigning,
+                &mut Phases::default(),
+            )?;
             Ok(applied.changed)
         })? {
             ChannelApply::SkippedOlder => Ok(false),
@@ -141,9 +155,9 @@ fn good_targets() -> Value {
 }
 
 fn found(targets: Value) -> Live {
-    Live::Found(
+    Live::Found(Box::new(
         live::verify(&envelope(&payload(live::PURPOSE, COMMIT, targets)), &keys(), COMMIT).unwrap(),
-    )
+    ))
 }
 
 /// `server status` of an app's daemon: it runs `exe`; SIGTERM makes the app start the next
@@ -192,7 +206,7 @@ fn read(app: &Path, file: &str) -> Option<Vec<u8>> {
 
 fn live_files(fixture: &Fixture, live: &Live) -> Vec<live::Wanted> {
     match choose(COMMIT, Some(APP_COMMIT), live, None, &fixture.base) {
-        Plan::Live { files, scope: Scope::Whole } => files,
+        Plan::Live { files, scope: Scope::Whole, .. } => files,
         other => panic!("expected the live path, got {other:?}"),
     }
 }
@@ -317,7 +331,8 @@ fn nightly_live_channel_takes_daemon_from_past_the_whole_app_floor() {
     daemon_only["live_from"] = json!([COMMIT]);
     daemon_only.as_object_mut().unwrap().remove("native_from");
     daemon_only["daemon_from"] = json!([COMMIT, APP_FULL_COMMIT]);
-    let live = Live::Found(live::verify(&envelope(&daemon_only), &keys(), COMMIT).unwrap());
+    let live =
+        Live::Found(Box::new(live::verify(&envelope(&daemon_only), &keys(), COMMIT).unwrap()));
     let first = fixture();
     let plan = choose(COMMIT, Some(APP_COMMIT), &live, None, &first.base);
     let Plan::Live { scope: Scope::Daemon(left), .. } = &plan else {
@@ -620,7 +635,7 @@ fn app_try_native_proof_is_required_for_the_whole_app_and_the_daemon_goes_alone_
         if let Some(proof) = proof {
             body["native_from"] = proof;
         }
-        let live = Live::Found(live::verify(&envelope(&body), &keys(), COMMIT).unwrap());
+        let live = Live::Found(Box::new(live::verify(&envelope(&body), &keys(), COMMIT).unwrap()));
         // Without native proof the whole app is not live: a build of the commit in the feed wins.
         let plan = choose(COMMIT, Some(APP_COMMIT), &live, Some(Ok(&listing)), &fixture.base);
         let Plan::Full { build, .. } = plan else { panic!("expected full, got {plan:?}") };
@@ -650,7 +665,7 @@ fn app_try_native_proof_keeps_compatible_live_swaps_and_same_commit_legacy_manif
     ));
     let mut legacy = payload(live::PURPOSE, COMMIT, good_targets());
     legacy.as_object_mut().unwrap().remove("native_from");
-    let live = Live::Found(live::verify(&envelope(&legacy), &keys(), COMMIT).unwrap());
+    let live = Live::Found(Box::new(live::verify(&envelope(&legacy), &keys(), COMMIT).unwrap()));
     assert!(matches!(
         choose(COMMIT, Some(&COMMIT[..10]), &live, None, &fixture.base),
         Plan::Live { .. }
@@ -663,7 +678,7 @@ fn app_try_native_proof_must_name_the_same_full_commit_as_daemon_compatibility()
     let mut body = payload(live::PURPOSE, COMMIT, good_targets());
     // Sharing the installed app's short prefix is not proof about the resolved full commit.
     body["native_from"] = json!([format!("{APP_COMMIT}{}", "0".repeat(33))]);
-    let live = Live::Found(live::verify(&envelope(&body), &keys(), COMMIT).unwrap());
+    let live = Live::Found(Box::new(live::verify(&envelope(&body), &keys(), COMMIT).unwrap()));
     assert!(matches!(
         choose(COMMIT, Some(APP_COMMIT), &live, None, &fixture.base),
         Plan::Live { scope: Scope::Daemon(_), .. }
@@ -671,7 +686,7 @@ fn app_try_native_proof_must_name_the_same_full_commit_as_daemon_compatibility()
     // Native equality also cannot replace daemon compatibility (no daemon_from: live_from is the list).
     body["native_from"] = json!([APP_FULL_COMMIT]);
     body["live_from"] = json!([COMMIT]);
-    let live = Live::Found(live::verify(&envelope(&body), &keys(), COMMIT).unwrap());
+    let live = Live::Found(Box::new(live::verify(&envelope(&body), &keys(), COMMIT).unwrap()));
     assert!(matches!(
         choose(COMMIT, Some(APP_COMMIT), &live, None, &fixture.base),
         Plan::None { .. }
@@ -735,8 +750,16 @@ fn app_try_sha256_mismatch_refuses_and_changes_nothing() {
     targets["cmux-tui-app-host"]["size"] = json!(NEW_HOST.len());
     let files = live_files(&fixture, &found(targets));
     let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
-    let error = try_live(&fixture.app, &files, &fixture.store, &daemon, &mut Phases::default())
-        .unwrap_err();
+    let error = try_live(
+        &fixture.app,
+        &files,
+        None,
+        &fixture.store,
+        &daemon,
+        &NoSigning,
+        &mut Phases::default(),
+    )
+    .unwrap_err();
     assert!(error.contains("hashes to"), "{error}");
     assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
     assert_eq!(read(&fixture.app, "cmux-app-host").as_deref(), Some(OLD_HOST));
@@ -751,7 +774,9 @@ fn app_try_live_swaps_hands_off_and_undo_restores_the_bytes() {
     let files = live_files(&fixture, &found(good_targets()));
     let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
     let mut phases = Phases::default();
-    let applied = try_live(&fixture.app, &files, &fixture.store, &daemon, &mut phases).unwrap();
+    let applied =
+        try_live(&fixture.app, &files, None, &fixture.store, &daemon, &NoSigning, &mut phases)
+            .unwrap();
     assert!(applied.changed);
     assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(NEW_CMUX));
     assert_eq!(read(&fixture.app, "cmux-tui").as_deref(), Some(NEW_CMUX), "the link follows");
@@ -774,8 +799,16 @@ fn app_try_live_swaps_hands_off_and_undo_restores_the_bytes() {
         .unwrap();
 
     // The same try again changes nothing and leaves the daemon alone.
-    let again =
-        try_live(&fixture.app, &files, &fixture.store, &daemon, &mut Phases::default()).unwrap();
+    let again = try_live(
+        &fixture.app,
+        &files,
+        None,
+        &fixture.store,
+        &daemon,
+        &NoSigning,
+        &mut Phases::default(),
+    )
+    .unwrap();
     assert!(!again.changed);
     assert_eq!(daemon.terminated.get(), 1);
 
@@ -792,8 +825,16 @@ fn app_try_undo_refuses_after_an_update_replaced_the_files() {
     let fixture = fixture();
     let files = live_files(&fixture, &found(good_targets()));
     let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
-    let applied =
-        try_live(&fixture.app, &files, &fixture.store, &daemon, &mut Phases::default()).unwrap();
+    let applied = try_live(
+        &fixture.app,
+        &files,
+        None,
+        &fixture.store,
+        &daemon,
+        &NoSigning,
+        &mut Phases::default(),
+    )
+    .unwrap();
     fixture
         .store
         .record(&json!({"action": "try", "ok": true, "app": fixture.app.to_string_lossy(), "app_commit": APP_COMMIT,
@@ -813,8 +854,16 @@ fn app_try_failed_handoff_puts_every_file_back() {
     let files = live_files(&fixture, &found(good_targets()));
     // SIGTERM and no new owner answers.
     let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), false);
-    let error = try_live(&fixture.app, &files, &fixture.store, &daemon, &mut Phases::default())
-        .unwrap_err();
+    let error = try_live(
+        &fixture.app,
+        &files,
+        None,
+        &fixture.store,
+        &daemon,
+        &NoSigning,
+        &mut Phases::default(),
+    )
+    .unwrap_err();
     assert!(error.contains("every file is back"), "{error}");
     assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
     assert_eq!(read(&fixture.app, "cmux-app-host").as_deref(), Some(OLD_HOST));
@@ -829,8 +878,16 @@ fn app_try_refuses_a_daemon_that_is_not_this_apps() {
     fs::create_dir_all(&fixture.store.root).unwrap();
     fs::write(&elsewhere, b"x").unwrap();
     let daemon = FakeDaemon::new(elsewhere, true);
-    let error = try_live(&fixture.app, &files, &fixture.store, &daemon, &mut Phases::default())
-        .unwrap_err();
+    let error = try_live(
+        &fixture.app,
+        &files,
+        None,
+        &fixture.store,
+        &daemon,
+        &NoSigning,
+        &mut Phases::default(),
+    )
+    .unwrap_err();
     assert!(error.contains("not this app's"), "{error}");
     assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
     assert_eq!(daemon.terminated.get(), 0);
@@ -861,8 +918,16 @@ fn app_try_refuses_to_swap_under_a_daemon_it_cannot_name() {
     let files = live_files(&fixture, &found(good_targets()));
     let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
     daemon.probe_fails.set(true);
-    let error = try_live(&fixture.app, &files, &fixture.store, &daemon, &mut Phases::default())
-        .unwrap_err();
+    let error = try_live(
+        &fixture.app,
+        &files,
+        None,
+        &fixture.store,
+        &daemon,
+        &NoSigning,
+        &mut Phases::default(),
+    )
+    .unwrap_err();
     assert!(error.contains("the daemon is unknown; nothing changed"), "{error}");
     assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
     assert_eq!(read(&fixture.app, "cmux-app-host").as_deref(), Some(OLD_HOST));
@@ -875,8 +940,16 @@ fn app_try_undo_refuses_into_another_build_with_the_same_rust_bytes() {
     let fixture = fixture();
     let files = live_files(&fixture, &found(good_targets()));
     let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
-    let applied =
-        try_live(&fixture.app, &files, &fixture.store, &daemon, &mut Phases::default()).unwrap();
+    let applied = try_live(
+        &fixture.app,
+        &files,
+        None,
+        &fixture.store,
+        &daemon,
+        &NoSigning,
+        &mut Phases::default(),
+    )
+    .unwrap();
     fixture
         .store
         .record(&json!({"action": "try", "ok": true, "app": fixture.app.to_string_lossy(), "app_commit": APP_COMMIT,
@@ -892,13 +965,559 @@ fn app_try_undo_refuses_into_another_build_with_the_same_rust_bytes() {
     assert_eq!(read(&fixture.app, "cmux-holder"), None);
 }
 
+// ------------------------------------------------------------------ the Screen Sharing helper
+
+/// The tools no helper-less try may run.
+struct NoSigning;
+
+impl Signing for NoSigning {
+    fn unpack(&self, _: &Path, _: &Path) -> Result<(), String> {
+        panic!("a try without a helper unpacks nothing")
+    }
+    fn requirement(&self, _: &Path) -> Result<String, String> {
+        panic!("a try without a helper reads no requirement")
+    }
+    fn verify(&self, _: &Path, _: &str) -> Result<(), String> {
+        panic!("a try without a helper checks no signature")
+    }
+}
+
+const HELPER_ID: &str = "com.cmuxterm.app.nightly.screen-sharing";
+const HELPER_NAME: &str = "cmux NIGHTLY Screen Sharing.app";
+/// What `codesign -d -r-` prints for the NIGHTLY's helper, byte for byte (ss-host-helper's ask (a)).
+const REQUIREMENT: &str = "identifier \"com.cmuxterm.app.nightly.screen-sharing\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"7WLXT3NR37\"";
+/// The requirement form without the Developer ID clauses (cmux_signed_bundle::team_requirement).
+const SHORT_REQUIREMENT: &str = "identifier \"com.cmuxterm.app.nightly.screen-sharing\" and anchor apple generic and certificate leaf[subject.OU] = \"7WLXT3NR37\"";
+const OLD_HELPER: &[u8] = b"old cmux-rd host";
+const NEW_HELPER: &[u8] = b"new cmux-rd host, from the try";
+const HELPER_ZIP: &[u8] = b"the signed helper's zip";
+
+/// A helper bundle at `bundle`: Info.plist with `id`, the executable, a seal.
+fn write_helper(bundle: &Path, id: &str, executable: &[u8]) {
+    fs::create_dir_all(bundle.join("Contents/MacOS")).unwrap();
+    fs::create_dir_all(bundle.join("Contents/_CodeSignature")).unwrap();
+    fs::write(
+        bundle.join("Contents/Info.plist"),
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict>\
+             <key>CFBundleIdentifier</key><string>{id}</string></dict></plist>\n"
+        ),
+    )
+    .unwrap();
+    fs::write(bundle.join("Contents/MacOS").join(helper::EXECUTABLE), executable).unwrap();
+    fs::write(
+        bundle.join("Contents/_CodeSignature/CodeResources"),
+        [b"seal of ", executable].concat(),
+    )
+    .unwrap();
+}
+
+fn installed_helper(app: &Path) -> PathBuf {
+    app.join(helper::LIBRARY).join(HELPER_NAME)
+}
+
+fn helper_bytes(app: &Path) -> Option<Vec<u8>> {
+    fs::read(installed_helper(app).join("Contents/MacOS").join(helper::EXECUTABLE)).ok()
+}
+
+/// The fixture with the NIGHTLY's helper installed and the commit's helper zip published; the
+/// returned folder holds what the zip unpacks to.
+fn helper_fixture() -> (Fixture, PathBuf) {
+    let fixture = fixture();
+    write_helper(&installed_helper(&fixture.app), HELPER_ID, OLD_HELPER);
+    let root = fixture.app.parent().unwrap().to_path_buf();
+    fs::write(root.join("files").join(COMMIT).join(helper::ZIP), HELPER_ZIP).unwrap();
+    let unpacked = root.join("zip-contents");
+    write_helper(&unpacked.join(HELPER_NAME), HELPER_ID, NEW_HELPER);
+    (fixture, unpacked)
+}
+
+fn helper_key() -> Value {
+    json!({
+        "url": format!("https://files.cmux.com/cmux-tui/{COMMIT}/{}", helper::ZIP),
+        "sha256": sha(HELPER_ZIP), "size": HELPER_ZIP.len(),
+        "bundle_id": HELPER_ID, "team": "7WLXT3NR37", "designated_requirement": REQUIREMENT,
+    })
+}
+
+/// A payload with the helper key (the new CI's shape).
+fn payload_with_helper(helper: Value) -> Value {
+    let mut value = payload(live::PURPOSE, COMMIT, good_targets());
+    value[helper::KEY] = helper;
+    value
+}
+
+fn found_value(value: &Value) -> Live {
+    Live::Found(Box::new(live::verify(&envelope(value), &keys(), COMMIT).unwrap()))
+}
+
+/// The real tools stood in for: the zip unpacks to `from`; the installed helper's requirement
+/// is REQUIREMENT, and a bundle meets it only when `accepts`.
+struct FakeSigning {
+    from: PathBuf,
+    accepts: bool,
+    verified: Cell<u32>,
+    /// The installed helper's own requirement.
+    installed: &'static str,
+}
+
+fn signing(from: PathBuf, accepts: bool) -> FakeSigning {
+    FakeSigning { from, accepts, verified: Cell::new(0), installed: REQUIREMENT }
+}
+
+impl Signing for FakeSigning {
+    fn unpack(&self, zip: &Path, into: &Path) -> Result<(), String> {
+        assert_eq!(fs::read(zip).unwrap(), HELPER_ZIP, "only the checked zip is unpacked");
+        for entry in fs::read_dir(&self.from).unwrap() {
+            let entry = entry.unwrap();
+            helper::copy_tree(&entry.path(), &into.join(entry.file_name()))?;
+        }
+        Ok(())
+    }
+    fn requirement(&self, bundle: &Path) -> Result<String, String> {
+        assert!(bundle.ends_with(HELPER_NAME), "the INSTALLED helper's requirement: {bundle:?}");
+        Ok(self.installed.to_owned())
+    }
+    fn verify(&self, bundle: &Path, requirement: &str) -> Result<(), String> {
+        self.verified.set(self.verified.get() + 1);
+        assert_eq!(requirement, REQUIREMENT);
+        assert!(!bundle.starts_with(installed_helper(bundle).parent().unwrap().join(HELPER_NAME)));
+        if self.accepts {
+            Ok(())
+        } else {
+            Err("code failed to satisfy specified code requirement(s)".into())
+        }
+    }
+}
+
+fn live_plan(fixture: &Fixture, live: &Live) -> (Vec<live::Wanted>, Option<helper::WantedHelper>) {
+    match choose(COMMIT, Some(APP_COMMIT), live, None, &fixture.base) {
+        Plan::Live { files, helper, .. } => (files, helper),
+        other => panic!("expected the live path, got {other:?}"),
+    }
+}
+
+/// `LivePayload` as every CLI before the helper key parses it: its fields, no others denied.
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct OldCliPayload {
+    schema: u64,
+    purpose: String,
+    commit: String,
+    #[serde(default)]
+    live_from: Vec<String>,
+    targets: std::collections::BTreeMap<
+        String,
+        std::collections::BTreeMap<String, cmux_host::updater::channel::Binary>,
+    >,
+}
+
+/// The same cases on the old-CLI path and the new one: a payload without the key and one with
+/// it parse on both; the old CLI takes the same `bin/` files from each and never reads the key.
+#[test]
+fn app_try_helper_key_parses_on_the_old_and_the_new_cli() {
+    let without = payload(live::PURPOSE, COMMIT, good_targets());
+    let with = payload_with_helper(helper_key());
+    for (name, value, has) in [("without the key", &without, false), ("with the key", &with, true)]
+    {
+        let bytes = serde_json::to_vec(value).unwrap();
+        // Old CLI: parses, and its `targets` (all it places) are the same either way.
+        let old: OldCliPayload = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(old.targets["aarch64-apple-darwin"].len(), 2, "{name}");
+        // New CLI: the same verify; the key is there exactly when CI wrote it.
+        let new = live::verify(&envelope(value), &keys(), COMMIT).unwrap();
+        assert_eq!(new.screen_sharing_helper.is_some(), has, "{name}");
+        assert_eq!(live::wanted(&new, "file:///x/").unwrap().len(), live::FILES.len(), "{name}");
+    }
+}
+
+/// No key (old-CLI shape on the new CLI): the try goes live, and the app's helper stays as it
+/// was, with no removal and no refusal.
+#[test]
+fn app_try_without_the_helper_key_leaves_the_helper_untouched() {
+    let (fixture, _) = helper_fixture();
+    let (files, helper) = live_plan(&fixture, &found(good_targets()));
+    assert!(helper.is_none());
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let applied = try_live(
+        &fixture.app,
+        &files,
+        helper.as_ref(),
+        &fixture.store,
+        &daemon,
+        &NoSigning,
+        &mut Phases::default(),
+    )
+    .unwrap();
+    assert!(applied.changed);
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(NEW_CMUX));
+    assert_eq!(helper_bytes(&fixture.app).as_deref(), Some(OLD_HELPER));
+    assert_eq!(applied.helper_step.as_ref().unwrap()["did"], "untouched");
+    assert!(applied.helper_undo.is_none());
+}
+
+/// With the key: the bundle is checked against the installed helper's requirement, swapped
+/// whole by rename, and `undo` puts the one from before back.
+#[test]
+fn app_try_with_the_helper_key_swaps_the_bundle_and_undo_restores_it() {
+    let (fixture, unpacked) = helper_fixture();
+    let (files, helper) = live_plan(&fixture, &found_value(&payload_with_helper(helper_key())));
+    let wanted = helper.expect("the plan carries the helper");
+    assert_eq!(
+        wanted.fetch_url,
+        format!("{}{COMMIT}/{}", fixture.base, helper::ZIP),
+        "fetched from the commit's own publication"
+    );
+    let signing = signing(unpacked, true);
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let applied = try_live(
+        &fixture.app,
+        &files,
+        Some(&wanted),
+        &fixture.store,
+        &daemon,
+        &signing,
+        &mut Phases::default(),
+    )
+    .unwrap();
+    assert_eq!(signing.verified.get(), 1);
+    assert_eq!(helper_bytes(&fixture.app).as_deref(), Some(NEW_HELPER));
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(NEW_CMUX));
+    let step = applied.helper_step.clone().unwrap();
+    assert_eq!(step["did"], "swapped");
+    // Only the one helper sits in Contents/Library: no staging folder is left.
+    let names: Vec<_> = fs::read_dir(fixture.app.join(helper::LIBRARY))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, [HELPER_NAME]);
+    fixture
+        .store
+        .record(&json!({"action": "try", "ok": true, "app": fixture.app.to_string_lossy(), "app_commit": APP_COMMIT,
+                        "steps": applied.steps, "undo": {"files": applied.prior, "screen_sharing_helper": applied.helper_undo}}))
+        .unwrap();
+    let undone = undo_live(&fixture.store, &daemon).unwrap();
+    assert!(undone.changed);
+    assert_eq!(helper_bytes(&fixture.app).as_deref(), Some(OLD_HELPER));
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+}
+
+/// A bundle that fails the installed helper's requirement is refused before anything changes.
+#[test]
+fn app_try_refuses_a_helper_failing_the_requirement_and_swaps_nothing() {
+    let (fixture, unpacked) = helper_fixture();
+    let (files, helper) = live_plan(&fixture, &found_value(&payload_with_helper(helper_key())));
+    let signing = signing(unpacked, false);
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let error = try_live(
+        &fixture.app,
+        &files,
+        helper.as_ref(),
+        &fixture.store,
+        &daemon,
+        &signing,
+        &mut Phases::default(),
+    )
+    .unwrap_err();
+    assert!(error.contains("does not meet the installed helper's requirement"), "{error}");
+    assert_eq!(helper_bytes(&fixture.app).as_deref(), Some(OLD_HELPER));
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+    assert_eq!(read(&fixture.app, "cmux-holder").as_deref(), Some(OLD_HOLDER));
+    assert_eq!(daemon.terminated.get(), 0, "the daemon is never touched");
+    let names: Vec<_> = fs::read_dir(fixture.app.join(helper::LIBRARY)).unwrap().collect();
+    assert_eq!(names.len(), 1, "no staging folder is left");
+}
+
+/// A helper of another bundle id, or an app with none, is left as it is: never removed, never added.
+#[test]
+fn app_try_leaves_a_helper_it_cannot_match_untouched() {
+    let (fixture, unpacked) = helper_fixture();
+    let signing = signing(unpacked, true);
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let mut other = helper_key();
+    let other_id = "com.cmuxterm.app.nightly.cmux-next-stable.screen-sharing";
+    other["bundle_id"] = json!(other_id);
+    other["designated_requirement"] =
+        json!(helper::developer_id_requirement(other_id, "7WLXT3NR37"));
+    let (files, helper) = live_plan(&fixture, &found_value(&payload_with_helper(other)));
+    let applied = try_live(
+        &fixture.app,
+        &files,
+        helper.as_ref(),
+        &fixture.store,
+        &daemon,
+        &signing,
+        &mut Phases::default(),
+    )
+    .unwrap();
+    assert_eq!(applied.helper_step.unwrap()["did"], "untouched");
+    assert_eq!(helper_bytes(&fixture.app).as_deref(), Some(OLD_HELPER));
+
+    fs::remove_dir_all(installed_helper(&fixture.app)).unwrap();
+    let (files, helper) = live_plan(&fixture, &found_value(&payload_with_helper(helper_key())));
+    let applied = try_live(
+        &fixture.app,
+        &files,
+        helper.as_ref(),
+        &fixture.store,
+        &daemon,
+        &signing,
+        &mut Phases::default(),
+    )
+    .unwrap();
+    assert_eq!(applied.helper_step.unwrap()["did"], "untouched");
+    assert!(!installed_helper(&fixture.app).exists(), "no helper is added to an app without one");
+    assert_eq!(signing.verified.get(), 0);
+}
+
+/// A hand-off that fails after the helper swapped puts the helper back with the files.
+#[test]
+fn app_try_failed_handoff_puts_the_helper_back_too() {
+    let (fixture, unpacked) = helper_fixture();
+    let (files, helper) = live_plan(&fixture, &found_value(&payload_with_helper(helper_key())));
+    let signing = signing(unpacked, true);
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), false);
+    let error = try_live(
+        &fixture.app,
+        &files,
+        helper.as_ref(),
+        &fixture.store,
+        &daemon,
+        &signing,
+        &mut Phases::default(),
+    )
+    .unwrap_err();
+    assert!(error.contains("the Screen Sharing helper is back as it was"), "{error}");
+    assert_eq!(helper_bytes(&fixture.app).as_deref(), Some(OLD_HELPER));
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+}
+
+/// A prior helper the store cannot keep refuses the swap before it starts, so `undo` never
+/// meets a try whose old helper is gone (review finding F1 on #47936).
+#[test]
+fn app_try_refuses_the_swap_when_the_prior_helper_cannot_be_kept() {
+    let (fixture, unpacked) = helper_fixture();
+    let (files, helper) = live_plan(&fixture, &found_value(&payload_with_helper(helper_key())));
+    // A file where the store keeps helpers: create_dir_all under it fails.
+    fs::create_dir_all(&fixture.store.root).unwrap();
+    fs::write(fixture.store.root.join("helpers"), b"not a folder").unwrap();
+    let signing = signing(unpacked, true);
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let error = try_live(
+        &fixture.app,
+        &files,
+        helper.as_ref(),
+        &fixture.store,
+        &daemon,
+        &signing,
+        &mut Phases::default(),
+    )
+    .unwrap_err();
+    assert!(error.contains("the Screen Sharing helper"), "{error}");
+    assert_eq!(helper_bytes(&fixture.app).as_deref(), Some(OLD_HELPER));
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+    assert_eq!(daemon.terminated.get(), 0, "the daemon is never touched");
+    let names: Vec<_> = fs::read_dir(fixture.app.join(helper::LIBRARY)).unwrap().collect();
+    assert_eq!(names.len(), 1, "no staging folder is left");
+}
+
+/// The key is checked as the binaries are: the commit's own url, a sha256, a size in range, a
+/// helper's bundle id; and a zip entry that would leave its folder is refused.
+#[test]
+fn app_try_checks_the_helper_key_like_the_binaries() {
+    let fixture = fixture();
+    let refused = |mutate: &dyn Fn(&mut Value)| {
+        let mut key = helper_key();
+        mutate(&mut key);
+        matches!(
+            choose(
+                COMMIT,
+                Some(APP_COMMIT),
+                &found_value(&payload_with_helper(key)),
+                None,
+                &fixture.base
+            ),
+            Plan::None { .. }
+        )
+    };
+    assert!(!refused(&|_| {}));
+    assert!(refused(
+        &|key| key["url"] = json!(format!("https://files.cmux.com/cmux-tui/other/{}", helper::ZIP))
+    ));
+    assert!(refused(&|key| key["sha256"] = json!("not a sha")));
+    assert!(refused(&|key| key["size"] = json!(0)));
+    assert!(refused(&|key| key["bundle_id"] = json!("com.cmuxterm.app.nightly")));
+    assert!(refused(&|key| key["bundle_id"] = json!("../x.screen-sharing")));
+    assert!(
+        helper::safe_entries(["cmux NIGHTLY Screen Sharing.app/Contents/Info.plist"].into_iter())
+            .is_ok()
+    );
+    assert!(helper::safe_entries(["../evil"].into_iter()).is_err());
+    assert!(helper::safe_entries(["/etc/evil"].into_iter()).is_err());
+}
+
+/// ss-host-helper's ask (a): the key's requirement is the Developer ID form, byte for byte, with
+/// the intermediate and leaf clauses NIGHTLY's helper carries; a shorter one refuses the plan.
+#[test]
+fn app_try_helper_key_names_the_full_developer_id_requirement() {
+    assert_eq!(helper::developer_id_requirement(HELPER_ID, "7WLXT3NR37"), REQUIREMENT);
+    let fixture = fixture();
+    for (name, mutate) in [
+        ("short requirement", json!({"designated_requirement": SHORT_REQUIREMENT})),
+        ("no requirement", json!({"designated_requirement": null})),
+        ("another team", json!({"team": "ABCDEFGHIJ"})),
+        ("no team", json!({"team": null})),
+        ("cdhash", json!({"designated_requirement": "cdhash H\"00\""})),
+    ] {
+        let mut key = helper_key();
+        for (field, value) in mutate.as_object().unwrap() {
+            key[field] = value.clone();
+        }
+        let plan = choose(
+            COMMIT,
+            Some(APP_COMMIT),
+            &found_value(&payload_with_helper(key)),
+            None,
+            &fixture.base,
+        );
+        assert!(matches!(plan, Plan::None { .. }), "{name}: {plan:?}");
+    }
+}
+
+/// Ask (a) on the installed side: an installed helper whose requirement lacks the Developer ID
+/// clauses is not the build's identity, so the try is refused and nothing is swapped.
+#[test]
+fn app_try_refuses_an_installed_helper_of_another_requirement() {
+    let (fixture, unpacked) = helper_fixture();
+    let (files, helper) = live_plan(&fixture, &found_value(&payload_with_helper(helper_key())));
+    let mut signing = signing(unpacked, true);
+    signing.installed = SHORT_REQUIREMENT;
+    let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+    let error = try_live(
+        &fixture.app,
+        &files,
+        helper.as_ref(),
+        &fixture.store,
+        &daemon,
+        &signing,
+        &mut Phases::default(),
+    )
+    .unwrap_err();
+    assert!(error.contains("is not the build's"), "{error}");
+    assert_eq!(signing.verified.get(), 0);
+    assert_eq!(helper_bytes(&fixture.app).as_deref(), Some(OLD_HELPER));
+    assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX));
+    assert_eq!(daemon.terminated.get(), 0);
+}
+
+/// ss-host-helper's ask (b), on both payload shapes: an app holding two Screen Sharing helpers, or
+/// cmux Computer Use.app beside one, refuses a try that carries a helper (nothing swapped, no
+/// helper picked); a try without the key leaves the helpers alone and still goes live.
+#[test]
+fn app_try_refuses_two_helpers_or_computer_use_and_swaps_nothing() {
+    for extra in ["cmux Screen Sharing.app", live::COMPUTER_USE_APP] {
+        // With the key (new CI): refused before anything changes.
+        let (fixture, unpacked) = helper_fixture();
+        write_helper(&fixture.app.join(helper::LIBRARY).join(extra), HELPER_ID, OLD_HELPER);
+        let (files, helper) = live_plan(&fixture, &found_value(&payload_with_helper(helper_key())));
+        let signing = signing(unpacked, true);
+        let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
+        let error = try_live(
+            &fixture.app,
+            &files,
+            helper.as_ref(),
+            &fixture.store,
+            &daemon,
+            &signing,
+            &mut Phases::default(),
+        )
+        .unwrap_err();
+        let want = if extra == live::COMPUTER_USE_APP {
+            "Computer Use"
+        } else {
+            "2 Screen Sharing helpers"
+        };
+        assert!(error.contains(want), "{extra}: {error}");
+        assert_eq!(signing.verified.get(), 0, "{extra}");
+        assert_eq!(helper_bytes(&fixture.app).as_deref(), Some(OLD_HELPER), "{extra}");
+        assert!(fixture.app.join(helper::LIBRARY).join(extra).is_dir(), "{extra}: nothing removed");
+        assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(OLD_CMUX), "{extra}");
+        assert_eq!(daemon.terminated.get(), 0, "{extra}");
+
+        // Without the key (the old CI's shape): no refusal, the helpers stay, bin/ goes live.
+        let (files, helper) = live_plan(&fixture, &found(good_targets()));
+        assert!(helper.is_none());
+        let applied = try_live(
+            &fixture.app,
+            &files,
+            None,
+            &fixture.store,
+            &daemon,
+            &NoSigning,
+            &mut Phases::default(),
+        )
+        .unwrap();
+        assert_eq!(applied.helper_step.unwrap()["did"], "untouched", "{extra}");
+        assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(NEW_CMUX), "{extra}");
+        assert_eq!(helper_bytes(&fixture.app).as_deref(), Some(OLD_HELPER), "{extra}");
+        assert!(fixture.app.join(helper::LIBRARY).join(extra).is_dir(), "{extra}");
+    }
+}
+
+/// The helper apps the app bundles, read from the bundling scripts (every
+/// `scripts/cmux-next/bundle-*.sh` that places a `Contents/Library/<name>.app`): `cmux app try`
+/// carries each one live, so a try never leaves a bundled helper on the installed build's code.
+#[test]
+fn app_try_live_set_covers_every_helper_app_the_app_bundles() {
+    let scripts = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../scripts/cmux-next");
+    let mut helpers = Vec::new();
+    for entry in fs::read_dir(&scripts).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        if !(name.starts_with("bundle-") && name.ends_with(".sh")) {
+            continue;
+        }
+        let text = fs::read_to_string(&path).unwrap();
+        // The script's own shell variables (`SUFFIX=" Screen Sharing"`), to read its destination.
+        let vars: Vec<(String, String)> = text
+            .lines()
+            .filter_map(|line| {
+                let (var, value) = line.trim().split_once('=')?;
+                let plain =
+                    !var.is_empty() && var.bytes().all(|b| b.is_ascii_uppercase() || b == b'_');
+                plain.then(|| (var.to_owned(), value.trim_matches('"').to_owned()))
+            })
+            .collect();
+        for line in text.lines() {
+            let line = line.trim();
+            let Some(rest) = line.strip_prefix("dest=\"$app/Contents/Library/") else { continue };
+            let Some(bundle) = rest.strip_suffix(".app\"") else { continue };
+            let mut resolved = bundle.to_owned();
+            for (var, value) in &vars {
+                resolved = resolved.replace(&format!("${var}"), value);
+            }
+            helpers.push((name.clone(), format!("{resolved}.app")));
+        }
+    }
+    assert!(
+        helpers.iter().any(|(script, _)| script == "bundle-screen-sharing-helper.sh"),
+        "the Screen Sharing helper's bundling script was not read: {helpers:?}"
+    );
+    for (script, bundle) in &helpers {
+        // `$name` is the app's name ("cmux NIGHTLY"): the live set's helper is every
+        // `<app name> Screen Sharing.app`.
+        let covered = bundle.strip_prefix("$name").is_some_and(|tail| tail == helper::SUFFIX);
+        assert!(covered, "{script} bundles {bundle}, which `cmux app try` does not carry live");
+    }
+}
+
 /// A signed file past the app's whole-app floor: live_from stops at COMMIT, daemon_from goes on.
 fn past_floor() -> Live {
     let mut body = payload(live::PURPOSE, COMMIT, good_targets());
     body["live_from"] = json!([COMMIT]);
     body.as_object_mut().unwrap().remove("native_from");
     body["daemon_from"] = json!([COMMIT, APP_FULL_COMMIT]);
-    Live::Found(live::verify(&envelope(&body), &keys(), COMMIT).unwrap())
+    Live::Found(Box::new(live::verify(&envelope(&body), &keys(), COMMIT).unwrap()))
 }
 
 #[test]
@@ -907,7 +1526,7 @@ fn app_try_sha_takes_the_daemon_past_a_web_or_swift_floor_and_never_claims_the_w
     // `cmux app try SHA` took only an app built from SHA. The daemon ABI floor (daemon_from) decides now.
     let fixture = fixture();
     let plan = choose(COMMIT, Some(APP_COMMIT), &past_floor(), None, &fixture.base);
-    let Plan::Live { files, scope: Scope::Daemon(left) } = &plan else {
+    let Plan::Live { files, scope: Scope::Daemon(left), .. } = &plan else {
         panic!("expected daemon-only live, got {plan:?}")
     };
     assert!(files.iter().any(|w| w.file == "cmux" && w.binary.is_some()));
@@ -943,10 +1562,11 @@ fn app_try_sha_takes_the_daemon_past_a_web_or_swift_floor_and_never_claims_the_w
 fn app_try_sha_daemon_only_swap_receipt_says_daemon_only_and_undo_restores() {
     let fixture = fixture();
     let plan = choose(COMMIT, Some(APP_COMMIT), &past_floor(), None, &fixture.base);
-    let Plan::Live { files, scope } = plan else { panic!("expected live") };
+    let Plan::Live { files, scope, .. } = plan else { panic!("expected live") };
     let daemon = FakeDaemon::new(fixture.app.join(live::BIN).join("cmux"), true);
     let mut phases = Phases::default();
-    let result = try_live(&fixture.app, &files, &fixture.store, &daemon, &mut phases);
+    let result =
+        try_live(&fixture.app, &files, None, &fixture.store, &daemon, &NoSigning, &mut phases);
     let receipt = json!({
         "schema": 1, "action": "try", "target": COMMIT, "commit": COMMIT, "path": "live",
         "app": fixture.app.to_string_lossy(), "app_commit": APP_COMMIT,
@@ -982,7 +1602,7 @@ fn app_try_sha_from_a_file_before_daemon_from_says_so() {
     let fixture = fixture();
     let mut legacy = payload(live::PURPOSE, COMMIT, good_targets());
     legacy.as_object_mut().unwrap().remove("native_from");
-    let live = Live::Found(live::verify(&envelope(&legacy), &keys(), COMMIT).unwrap());
+    let live = Live::Found(Box::new(live::verify(&envelope(&legacy), &keys(), COMMIT).unwrap()));
     let plan = choose(COMMIT, Some(APP_COMMIT), &live, None, &fixture.base);
     let Plan::Live { scope: Scope::Daemon(left), .. } = &plan else {
         panic!("expected daemon-only live, got {plan:?}")
