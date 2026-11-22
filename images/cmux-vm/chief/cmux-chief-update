@@ -1,0 +1,91 @@
+#!/bin/sh
+# cmux-chief-update [--if-missing]: replace the Cloud Chief's optchat-chief with the newest published build.
+#
+#   1. Read the manifest (CMUX_CHIEF_MANIFEST_URL, default the rolling feat-cmux-next one on files.cmux.com;
+#      a file:// URL works too). Its fields: commit, url, sha256, size.
+#   2. Same sha256 as /var/lib/cmux-chief/current: nothing to do.
+#   3. Download to /var/lib/cmux-chief/store/<sha256>/optchat-chief, check the size and sha256, and run
+#      its `--version` before anything points at it.
+#   4. Move the `current` link in one rename.
+#   5. If cmux-chief.service runs, send its host SIGUSR1: the host stops between turns (never mid-turn) and
+#      exits 0, and Restart=always starts the new build.
+#   6. Keep the two newest builds in the store.
+#
+# --if-missing (the unit's ExecStartPre): only when `current` points at nothing, so a host start never
+# waits on the network otherwise. /etc/cmux/no-self-update (the bake and the smoke) or
+# CMUX_CHIEF_SELF_UPDATE=0 (/etc/cmux/chief.env) turns the update off.
+set -eu
+umask 022
+ROOT="${CMUX_CHIEF_ROOT:-/var/lib/cmux-chief}"
+MANIFEST="${CMUX_CHIEF_MANIFEST_URL:-https://files.cmux.com/optchat-chief/latest/manifest.json}"
+UNIT="${CMUX_CHIEF_UNIT:-cmux-chief.service}"
+log() { echo "cmux-chief-update: $*"; }
+
+if [ "${1:-}" = "--if-missing" ]; then
+  if [ -x "$ROOT/current" ]; then exit 0; fi
+  log "no build at $ROOT/current; fetching the newest"
+elif [ -e /etc/cmux/no-self-update ] || [ "${CMUX_CHIEF_SELF_UPDATE:-1}" = "0" ]; then
+  log "self-update is off"
+  exit 0
+fi
+
+install -d -m 0755 "$ROOT" "$ROOT/store"
+tmp="$(mktemp -d "$ROOT/.update.XXXXXX")"
+trap 'rm -rf "$tmp"' EXIT
+if ! curl -fsSL --retry 3 --max-time 60 -o "$tmp/manifest.json" "$MANIFEST"; then
+  # Nothing published yet, or the network is away: the next timer run tries again. With no build at all
+  # (--if-missing) the host cannot start, so that is a failure.
+  log "no manifest at $MANIFEST"
+  [ "${1:-}" = "--if-missing" ] && exit 1
+  exit 0
+fi
+fields="$(python3 -I -c '
+import json, re, sys
+m = json.load(open(sys.argv[1]))
+sha, url, size = str(m["sha256"]), str(m["url"]), int(m["size"])
+assert re.fullmatch(r"[0-9a-f]{64}", sha), "sha256"
+assert re.match(r"(https|file)://", url), "url"
+assert 0 < size < 1 << 30, "size"
+print(sha, size, url)
+' "$tmp/manifest.json")"
+sha="${fields%% *}"
+rest="${fields#* }"
+size="${rest%% *}"
+url="${rest#* }"
+
+if [ -x "$ROOT/current" ]; then
+  have="$(sha256sum "$(readlink -f "$ROOT/current")" | cut -d' ' -f1)"
+  if [ "$have" = "$sha" ]; then
+    log "up to date ($sha)"
+    exit 0
+  fi
+fi
+
+dest="$ROOT/store/$sha"
+if [ ! -x "$dest/optchat-chief" ]; then
+  curl -fsSL --retry 3 --max-time 600 -o "$tmp/optchat-chief" "$url"
+  got_size="$(stat -c %s "$tmp/optchat-chief")"
+  got_sha="$(sha256sum "$tmp/optchat-chief" | cut -d' ' -f1)"
+  if [ "$got_size" != "$size" ] || [ "$got_sha" != "$sha" ]; then
+    log "download does not match the manifest (size $got_size/$size, sha256 $got_sha/$sha)"
+    exit 1
+  fi
+  chmod 0755 "$tmp/optchat-chief"
+  "$tmp/optchat-chief" --version >/dev/null
+  install -d -m 0755 "$dest"
+  mv "$tmp/optchat-chief" "$dest/optchat-chief"
+fi
+ln -sfn "$dest/optchat-chief" "$tmp/current"
+mv -T "$tmp/current" "$ROOT/current"
+log "current is now $sha ($("$ROOT/current" --version 2>/dev/null || echo '?'))"
+
+if [ "${1:-}" != "--if-missing" ] && systemctl is-active --quiet "$UNIT"; then
+  systemctl kill --kill-whom=main --signal=SIGUSR1 "$UNIT"
+  log "asked $UNIT to restart between turns"
+fi
+
+# Keep the build `current` names and the newest other one.
+keep="$(basename "$(dirname "$(readlink -f "$ROOT/current")")")"
+ls -1t "$ROOT/store" | grep -vx "$keep" | tail -n +2 | while read -r old; do
+  rm -rf "${ROOT:?}/store/$old"
+done
