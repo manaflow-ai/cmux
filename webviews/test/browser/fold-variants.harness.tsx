@@ -48,6 +48,21 @@ function Pane() {
   }, []);
   return (
     <div className="acpmux-shell" data-turn-end-fold={state.look}>
+      {/* The look's name, for the matrix's side-by-side clips; outside the thread, so never sampled. */}
+      <div
+        style={{
+          position: "fixed",
+          right: 8,
+          top: 8,
+          zIndex: 10,
+          font: "600 14px system-ui",
+          color: "var(--agent-text)",
+          opacity: 0.7,
+          pointerEvents: "none",
+        }}
+      >
+        {state.look}
+      </div>
       <div className="acpmux-main" data-dock="float">
         <div className="acpmux-stage">
           <header className="acpmux-header" />
@@ -102,7 +117,67 @@ function bigClaudeTurn(): SimScenario {
   return b.turnEnd().build();
 }
 
+/// One cell of the fold matrix (scripts/fold-matrix.ts): a fixed base turn with one thing changed.
+/// The shapes follow Leo's recorded chats (hq#17661's fixtures) with made-up text, so the clips are public.
+export type MatrixCell = {
+  /** Calls in the turn that folds. */
+  calls: number;
+  /** `between`: a line of the model's chatter after every fifth call. */
+  chatter: "none" | "between";
+  /** A steer from the person halfway through. */
+  steer: boolean;
+  /** A subagent call halfway through. */
+  subagent: boolean;
+  /** `up`: the reader scrolled 400 px up before the turn ended. */
+  viewport: "bottom" | "up";
+  /** `during`: the turn ends 20 ms after the answer's last chunk, while it still streams in; `after`: 1.5 s later. */
+  timing: "during" | "after";
+  /** `recap`: a long closing recap that fills the view (the end of a long coordinator turn). */
+  answer: "short" | "recap";
+};
+
+const COMMANDS = ["bun test test/net", "rg -n attempts src", "git status --short", "bun x tsc --noEmit -p ."];
+const RECAP = Array.from(
+  { length: 6 },
+  (_, index) =>
+    `${index + 1}. Lane ${index + 1} finished its part: the change is pushed, its checks passed on the fleet, and ` +
+    "the follow-up it found is filed with the measurement that showed it, so nothing waits on a person.",
+).join("\n\n");
+
+function matrixTurn(cell: MatrixCell): SimScenario {
+  const b = sim(`matrix`, "One fold-matrix cell: a long Claude turn folding into Worked for.", "claude");
+  for (let turn = 0; turn < 2; turn += 1) {
+    b.prompt(`Earlier question ${turn + 1}: where does the retry helper live?`);
+    b.say(`Earlier answer ${turn + 1}: in src/net/retry.ts, beside its backoff.`);
+    b.turnEnd();
+  }
+  b.prompt("Run the lanes, fix what they find, and tell me where it all stands.");
+  b.think("Starting with the failing suites.");
+  const half = Math.floor(cell.calls / 2);
+  for (let call = 0; call < cell.calls; call += 1) {
+    if (call === half && cell.subagent)
+      b.subagent("Survey the other lanes' open PRs", { ms: 1_500, report: "Three PRs open, two green." });
+    if (call === half && cell.steer) b.steer("also check the nightly while you're at it");
+    const kind = call % 4 === 0 ? "read" : call % 4 === 1 ? "search" : undefined;
+    b.tool(
+      kind === "read" ? `Read src/lane/part-${call}.ts` : `${COMMANDS[call % COMMANDS.length]} # ${call}`,
+      {
+        ...(kind ? { kind } : {}),
+        ms: 400,
+      },
+      200,
+    );
+    if (cell.chatter === "between" && call % 5 === 4 && call < cell.calls - 1)
+      b.say(`Step ${call + 1} of ${cell.calls} done; the next part reads the lane's own tests.`, { chunks: 2 });
+  }
+  if (cell.viewport === "up") b.reader({ scrollBy: -400 });
+  const answer = cell.answer === "recap" ? RECAP : ANSWER;
+  b.say(answer, { chunks: cell.answer === "recap" ? 12 : 4, chunkMs: 80, after: 400 });
+  return b.turnEnd("completed", cell.timing === "during" ? 20 : 1_500).build();
+}
+
 async function scenarioNamed(name: string): Promise<SimScenario> {
+  if (name.startsWith("matrix:")) return matrixTurn(JSON.parse(decodeURIComponent(name.slice(7))) as MatrixCell);
   // `url:PATH`: a recorded chat (ndjson) the dev server serves, such as one fetched outside the repo.
   if (name.startsWith("url:")) {
     const text = await (await fetch(name.slice(4))).text();
@@ -156,13 +231,15 @@ const painted = () => new Promise((resolve) => requestAnimationFrame(() => reque
 /// `end` picks another turn's end (a step index; the chat stops there), and the steps until shortly
 /// before it play without waiting, so a long recorded chat reaches its big fold in seconds.
 async function run(look: string, name = "big-claude-turn", tailMs = 1_400, end?: number) {
+  // A matrix cell plays its window on the steps' own clock (capped at 1.5 s a gap), so its timing is the chat's.
+  const virtual = name.startsWith("matrix:");
   const whole = await scenarioNamed(name);
   const scenario = end === undefined ? whole : { ...whole, steps: whole.steps.slice(0, end + 1) };
   flushSync(() => show({ rows: [], working: false, sends: 0, look }));
   await painted();
   let lastEnd = scenario.steps.length - 1;
   while (lastEnd > 0 && !scenario.steps[lastEnd]!.label.startsWith("turn_result")) lastEnd -= 1;
-  const fastUntil = end === undefined ? 0 : lastEnd - 40;
+  const fastUntil = end === undefined ? (virtual ? lastEnd - 60 : 0) : lastEnd - 40;
   const sampleFrom = Math.max(0, lastEnd - 4);
   const samples: Sample[] = [];
   let sampling = false;
@@ -186,6 +263,11 @@ async function run(look: string, name = "big-claude-turn", tailMs = 1_400, end?:
         requestAnimationFrame(tick);
       }
       flushSync(() => show({ rows, working: state.working, sends, look }));
+      if (step.type === "reader") {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+        if (scroller && "scrollBy" in step.reader) scroller.scrollTop += step.reader.scrollBy;
+        else if (scroller) scroller.scrollTop = step.reader.scroll === "top" ? 0 : scroller.scrollHeight;
+      }
       if (sampling) marks.push({ step: index, t: performance.now(), label: step.label });
       if (index < fastUntil) {
         // fixed-wait: a yield to the event loop while fast-forwarding, so the page stays responsive.
@@ -199,7 +281,8 @@ async function run(look: string, name = "big-claude-turn", tailMs = 1_400, end?:
   // fixed-wait: the frames after the turn's end are the fold being recorded, for a set time.
   await sleep(tailMs);
   sampling = false;
-  const result = { look, samples, marks, startedAt: performance.timeOrigin };
+  const view = document.querySelector<HTMLElement>(".acpmux-scroll")?.clientHeight ?? 0;
+  const result = { look, samples, marks, startedAt: performance.timeOrigin, view };
   marks = [];
   return result;
 }
