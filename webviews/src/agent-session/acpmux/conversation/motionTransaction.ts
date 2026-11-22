@@ -103,18 +103,22 @@ export function threadTransaction(thread: HTMLElement): ThreadTransaction {
 function makeTransaction(thread: HTMLElement): ThreadTransaction {
   let plan: MotionPlan | undefined;
   let drawn: Animation | undefined;
-  /// The open holds: source -> when it lapses (timeline ms).
+  /// The open holds: source -> when it lapses (timers' clock, ms).
   const holds = new Map<string, number>();
   /// The shift held while a hold is open, px: drawn still at `held` from layout.
   let held = 0;
-  let holdTimer: ReturnType<typeof setTimeout> | undefined;
   /// Where the thread was drawn as the hold began (its box's top), px.
   let holdTop = 0;
   let moved: string[] = [];
+  /// The frame loop that draws the plan and lapses holds, while either is open.
+  let frame: number | undefined;
   const now = () => {
     const time = thread.ownerDocument.timeline?.currentTime;
     return typeof time === "number" ? time : performance.now();
   };
+  // A hold's bound is on the timers' clock (performance.now): the clock the page's frames and its
+  // own timers read on any host (frameClock.ts moves it with drawn frames).
+  const clock = () => performance.now();
   const progress = () => {
     const value = drawn?.effect?.getComputedTiming().progress;
     if (!plan) return 1;
@@ -126,35 +130,42 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
     drawn?.cancel();
     drawn = undefined;
   };
+  /// A paused animation the frame loop sets: it draws on the page's own frames, never on whether the
+  /// renderer's timeline ticks (a host that never advanced it left the rows drawn where the send began,
+  /// the sent prompt below the fold: GitHub's runner, run 45015659896).
+  const paused = (keyframes: Keyframe[], duration: number, easing?: string) => {
+    const animation = thread.animate(keyframes, { duration, easing, fill: "forwards", composite: "add" });
+    animation.pause();
+    return animation;
+  };
   const drawHeld = () => {
     clear();
     if (Math.abs(held) < MOVE_FLOOR / 2) return;
-    // Still at `held` for as long as any hold can last; the release replaces it.
-    drawn = thread.animate([{ translate: `0 ${held}px` }, { translate: `0 ${held}px` }], {
-      duration: EXPECT_BOUND_MS * 4,
-      fill: "forwards",
-      composite: "add",
-    });
+    // Still at `held` for as long as the hold lasts; the release replaces it.
+    drawn = paused([{ translate: `0 ${held}px` }, { translate: `0 ${held}px` }], 1);
+  };
+  const finish = () => {
+    clear();
+    plan = undefined;
+    moved = [];
+  };
+  /// Sets the plan's animation to the time since its start; past its end the plan is done.
+  const drawTime = () => {
+    if (!plan || !drawn || holds.size > 0) return;
+    const elapsed = Math.max(0, now() - plan.start);
+    if (elapsed >= plan.duration) finish();
+    else drawn.currentTime = elapsed;
   };
   const drawPlan = () => {
     clear();
     if (!plan) return;
-    const move = thread.animate([{ translate: `0 ${plan.amount}px` }, { translate: "0 0" }], {
-      duration: plan.duration,
-      easing: foldMotion.easing(thread),
-      composite: "add",
-    });
-    // On its start: the time since it, not `startTime`, so the plan holds on any timeline origin (a
-    // page that reads `document.timeline` through a clock of its own, frameClock.ts, included).
-    move.currentTime = Math.max(0, now() - plan.start);
-    drawn = move;
-    move.addEventListener("finish", () => {
-      if (drawn !== move) return;
-      move.cancel();
-      drawn = undefined;
-      plan = undefined;
-      moved = [];
-    });
+    drawn = paused(
+      [{ translate: `0 ${plan.amount}px` }, { translate: "0 0" }],
+      plan.duration,
+      foldMotion.easing(thread),
+    );
+    drawTime();
+    loop();
   };
   const play = () => {
     const ms = foldMs(thread);
@@ -166,32 +177,29 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
       // The hold's whole shift, joined with what still plays (rows already drawn off by it).
       const rest = planOffset(plan, progress());
       plan = ms > 0 ? { amount: held + rest, start: now(), duration: ms } : undefined;
-      held = 0;
     }
+    held = 0;
     if (!plan || !(plan.duration > 0)) {
-      plan = undefined;
-      clear();
+      finish();
       return;
     }
     drawPlan();
   };
-  // A hold's bound is on the timers' clock (performance.now), not the timeline's: its timer and
-  // its check then agree on any page clock (frameClock.ts moves both, a host may move only one), so a
-  // hold always lapses by its bound and never leaves the rows drawn where it began.
-  const clock = () => performance.now();
   const lapse = () => {
-    clearTimeout(holdTimer);
-    holdTimer = undefined;
     if (holds.size === 0) return;
     const at = clock();
     for (const [source, until] of holds) if (until <= at) holds.delete(source);
-    if (holds.size === 0) {
-      play();
-      return;
-    }
-    const next = Math.min(...holds.values());
-    // fixed-wait: a hold's own bound (expect's boundMs), not a pause in a flow
-    holdTimer = setTimeout(lapse, Math.max(0, next - at));
+    if (holds.size === 0) play();
+  };
+  /// One callback a frame while a hold is open or a plan draws; it stops with both.
+  const step = () => {
+    frame = undefined;
+    lapse();
+    drawTime();
+    if (holds.size > 0 || plan) loop();
+  };
+  const loop = () => {
+    if (frame === undefined) frame = thread.ownerDocument.defaultView?.requestAnimationFrame(step);
   };
   const tx: ThreadTransaction = {
     move(delta, source) {
@@ -222,15 +230,11 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
         drawHeld();
         holdTop = thread.getBoundingClientRect().top;
       }
-      lapse();
+      loop();
     },
     release(source) {
       if (!holds.delete(source)) return;
-      if (holds.size === 0) {
-        clearTimeout(holdTimer);
-        holdTimer = undefined;
-        play();
-      }
+      if (holds.size === 0) play();
     },
     settle(source) {
       if (holds.size === 0) return;
@@ -249,8 +253,6 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
       return at;
     },
     cancel() {
-      clearTimeout(holdTimer);
-      holdTimer = undefined;
       holds.clear();
       held = 0;
       plan = undefined;
