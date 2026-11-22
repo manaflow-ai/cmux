@@ -315,9 +315,10 @@ test("a top-side tooltip (a message's time) sits above its element, below only w
   const view = { width: 800, height: 600 };
   const size = { width: 140, height: 22 };
   const time = { left: 100, top: 300, width: 80, height: 24 };
-  // Centered on the time, on the compact 4px grid gap above it (as Claude's), and above by default.
+  // Centered on the time, on the compact 4px grid gap above it (as Claude's). Every other tooltip
+  // sits below its control, as the native one does (Lawrence 2026-11-20: one tooltip everywhere).
   expect(tooltipPosition(time, size, view, "top")).toEqual({ left: 70, top: 274 });
-  expect(tooltipPosition(time, size, view)).toEqual({ left: 70, top: 274 });
+  expect(tooltipPosition(time, size, view)).toEqual({ left: 70, top: 328 });
   // At the pane's top edge: below.
   expect(tooltipPosition({ ...time, top: 10 }, size, view, "top")).toEqual({ left: 70, top: 38 });
   const scaled = tooltipPosition(time, size, view, "top", 1.5);
@@ -326,7 +327,7 @@ test("a top-side tooltip (a message's time) sits above its element, below only w
   expect(UI_TOOLTIP_EDGE).toBe(UI_TOOLTIP_GAP);
   expect(UI_TOOLTIP_MAX_WIDTH).toBe(320);
   const positioned = tooltipPosition(time, size, view);
-  expect(time.top - (positioned.top + size.height)).toBe(UI_TOOLTIP_GAP);
+  expect(positioned.top - (time.top + time.height)).toBe(UI_TOOLTIP_GAP);
 });
 
 test("a tooltip stays inside its region: above when it fits there, else below, else the window's edges", () => {

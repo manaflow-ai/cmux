@@ -107,11 +107,13 @@ class StackWorkersTests(unittest.TestCase):
         self.assertEqual([h["binding"] for h in dev["hyperdrive"]], ["PS_MYSQL"])  # run.sh's Vitess string, as the API's
         self.assertNotIn("env", dev)
 
-    def test_device_hub_signals_on_the_stacks_own_hub_origin(self):
+    def test_device_hub_signals_on_the_origin_each_request_came_by(self):
         cfg = v.load_wrangler_config(ROOT / "workers/device-hub/wrangler.toml")
-        dev = v.render_hub_config(cfg, "https://h:4702")
+        dev = v.render_hub_config(cfg)
         self.assertEqual(dev["name"], "cmux-device-hub-dev")
-        self.assertEqual(dev["vars"]["PUBLIC_BASE_URL"], "https://h:4702")
+        # Empty: the hub derives signal URLs from the request, which the front rewrites to the tailnet or the
+        # public hub origin it arrived on, so a phone off the tailnet gets URLs it can reach.
+        self.assertEqual(dev["vars"]["PUBLIC_BASE_URL"], "")
         self.assertIn("454ecd03-1db2-4050-845e-4ce5b0cd9895", dev["vars"]["STACK_PROJECT_IDS"])  # dev builds' Stack project
         self.assertEqual(dev["compatibility_flags"], cfg["compatibility_flags"])
         self.assertEqual({b["class_name"] for b in dev["durable_objects"]["bindings"]}, {"UserDO", "SessionDO"})
@@ -128,16 +130,24 @@ class StackWorkersTests(unittest.TestCase):
         origins = v.stack_origins("vm.tail.ts.net", 4700)
         self.assertEqual(origins, {"api": "https://vm.tail.ts.net:4700", "mobile": "https://vm.tail.ts.net:4701",
                                    "hub": "https://vm.tail.ts.net:4702"})
-        routes = v.front_routes("VM.tail.ts.net", 4700)
-        self.assertEqual(routes, {"vm.tail.ts.net:4700": "api", "vm.tail.ts.net:4701": "mobile", "vm.tail.ts.net:4702": "hub",
-                                  "127.0.0.1:4700": "api"})
+        routes = v.front_routes("VM.tail.ts.net", 4700, slot="s7")
+        self.assertEqual(routes, {"vm.tail.ts.net:4700": ["api", "tailnet"], "vm.tail.ts.net:4701": ["mobile", "tailnet"],
+                                  "vm.tail.ts.net:4702": ["hub", "tailnet"], "127.0.0.1:4700": ["api", "tailnet"],
+                                  "api.s7.wdev.cmux.dev": ["api", "public"], "mobile.s7.wdev.cmux.dev": ["mobile", "public"],
+                                  "hub.s7.wdev.cmux.dev": ["hub", "public"]})
+        self.assertNotIn("api.s7.wdev.cmux.dev", v.front_routes("vm.tail.ts.net", 4700))  # no slot: tailnet only
+        public = v.public_origins("s7")
+        self.assertEqual(public, {"api": "https://api.s7.wdev.cmux.dev", "mobile": "https://mobile.s7.wdev.cmux.dev",
+                                  "hub": "https://hub.s7.wdev.cmux.dev"})
         names = {"api": v.API_DEV_NAME, "mobile": "cmux-mobile-api-dev", "hub": "cmux-device-hub-dev"}
         cc = dict(v.FALLBACK_CLIENT_CONFIG)
-        front = v.render_front_config(names, routes, origins, cc)
+        front = v.render_front_config(names, routes, {"tailnet": origins, "public": public}, cc)
         self.assertEqual({s["binding"]: s["service"] for s in front["services"]},
                          {"API": v.API_DEV_NAME, "MOBILE": "cmux-mobile-api-dev", "HUB": "cmux-device-hub-dev"})
-        self.assertEqual(json.loads(front["vars"]["WDEV_ORIGINS"]), origins)
+        self.assertEqual(json.loads(front["vars"]["WDEV_ORIGINS"]), {"tailnet": origins, "public": public})
         self.assertEqual(json.loads(front["vars"]["WDEV_ROUTES"]), routes)
+        # A public client is told the public origins: the origin family comes from the route.
+        self.assertIn("JSON.parse(env.WDEV_ORIGINS)[family]", v.FRONT_JS)
         # The client-config the front answers is the API's with the stack's three origins over it.
         for key in ("api_origin", "mobile_origin", "device_hub_origin"):
             self.assertIn(f"config.{key} = origins.", v.FRONT_JS)
@@ -774,6 +784,21 @@ class LifetimeTests(unittest.TestCase):
         finally:
             v.probe = saved
 
+    def test_an_up_that_starts_while_a_request_wakes_the_stack_keeps_it(self):
+        self.stack("q", "stopped", 100, port=4790, served_at=100)
+        e = v.read_entry("q")
+        e.update({"state": "starting", "wake_token": "w1", "wake_started_at": int(time.time())})  # a request is waking it
+        v.write_entry(e)
+        token = v.cmd_prepare(types.SimpleNamespace(tag="q"))["token"]
+        e = v.read_entry("q")
+        self.assertEqual((e["state"], e.get("served_at")), ("starting", 100), "still the served stack, its wake still runs")
+        e.pop("wake_token")
+        e["state"] = "starting"  # start took it from the wake, then never answered
+        v.write_entry(e)
+        self.assertEqual(v.settle_failed_start(v.read_entry("q")), "stopped")
+        self.assertEqual(v.cmd_up_done(types.SimpleNamespace(tag="q", token=token, failed=True))["state"], "stopped")
+        self.assertEqual(self.released, [])
+
     def test_serve_points_every_stack_port_at_the_router(self):
         saved = (v.serve_lock, v.serve_config, v.classic_ports, subprocess.run)
         served = []
@@ -787,6 +812,61 @@ class LifetimeTests(unittest.TestCase):
             v.serve_lock, v.serve_config, v.classic_ports, v.subprocess.run = saved
         self.assertEqual([c[-1] for c in served], [v.ROUTER_TARGET] * 3)
         self.assertEqual([c[-2] for c in served], ["--https=4700", "--https=4701", "--https=4702"])
+
+
+class PublicSlotTests(unittest.TestCase):
+    """Public slots (cloud-dev-stack/gateway) against a temporary registry."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.saved = v.BASE
+        v.BASE = Path(self.tmp.name)
+
+    def tearDown(self):
+        v.BASE = self.saved
+        self.tmp.cleanup()
+
+    def put(self, slots, domain="wdev.cmux.dev"):
+        stdin = sys.stdin
+        sys.stdin = io.StringIO(json.dumps({"domain": domain, "slots": slots}))
+        try:
+            return v.cmd_put_public(None)
+        finally:
+            sys.stdin = stdin
+
+    def test_a_stack_keeps_its_slot_and_a_released_ones_slot_is_free_again(self):
+        self.put(["s2", "s1", "x9", "s1000"])
+        self.assertEqual(v.public_slots(), ("wdev.cmux.dev", ["s1", "s2"]))
+        v.write_entry({"tag": "a", "state": "running", "slot": "s1"})
+        self.assertEqual(v.assign_slot("b", {"tag": "b"}), "s2")
+        self.assertEqual(v.assign_slot("a", v.read_entry("a")), "s1", "kept across ups")
+        v.write_entry({"tag": "b", "state": "stopped", "slot": "s2"})
+        self.assertIsNone(v.assign_slot("c", {"tag": "c"}), "a stopped stack keeps its slot: none free")
+        v.write_entry({"tag": "b", "state": "reaped", "slot": "s2"})
+        self.assertEqual(v.assign_slot("c", {"tag": "c"}), "s2")
+
+    def test_only_our_domain_and_routes_name_public_hosts(self):
+        with self.assertRaises(v.Refused):
+            self.put(["s1"], domain="attacker.example")
+        self.put(["s1"])
+        v.write_entry({"tag": "a", "state": "stopped", "host": "vm.ts.net", "port": 4700, "ports": [4700, 4701, 4702], "slot": "s1", "domain": "wdev.cmux.dev"})
+        table = json.loads((v.BASE / "routes.json").read_text())
+        self.assertEqual(table["mobile.s1.wdev.cmux.dev"], {"tag": "a", "port": 4700, "public": True})
+        self.assertNotIn("public", table["vm.ts.net:4701"])
+        v.write_entry({"tag": "a", "state": "reaped", "host": "vm.ts.net", "port": 4700, "slot": "s1"})
+        self.assertEqual(json.loads((v.BASE / "routes.json").read_text()), {})
+
+    def test_public_jwks_carry_public_halves_only(self):
+        d = v.BASE / "stacks/t"
+        (d / "secrets").mkdir(parents=True)
+        priv = {"kty": "EC", "crv": "P-256", "x": "X1", "y": "Y1", "d": "SECRET1", "kid": "k1"}
+        (d / "secrets/jwt.jwk").write_text(json.dumps(priv))
+        (d / "secrets/hub.vars").write_text("SESSION_KEY='%s'\nTICKET_KEY='%s'\n" % (
+            json.dumps({**priv, "x": "X2", "d": "SECRET2"}), json.dumps({**priv, "x": "X3", "d": "SECRET3"})))
+        v.write_public_jwks(d)
+        text = (d / "public-jwks.json").read_text()
+        self.assertNotIn("SECRET", text)
+        self.assertEqual([k["x"] for k in json.loads(text)["keys"]], ["X1", "X2", "X3"])
 
 
 @contextlib.contextmanager

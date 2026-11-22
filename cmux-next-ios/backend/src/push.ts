@@ -5,16 +5,36 @@ import { PUSH_KINDS, type PushKind, type PushRegistration } from "./store.ts"
 /**
  * APNs for Feed-worthy agent events (PROTOCOL.md `POST /v1/devices/:deviceId/notify`). A deployed Worker's
  * fetch reaches APNs over HTTP/2 through Cloudflare's edge. Secrets: APNS_KEY_P8 (PKCS#8 PEM), APNS_KEY_ID,
- * APNS_TEAM_ID. Without them `notify` answers `configured:false` and sends nothing.
+ * APNS_TEAM_ID. Without them `notify` answers `configured:false` and sends nothing. APNS_SANDBOX_KEY_P8 and
+ * APNS_SANDBOX_KEY_ID (both or neither, same team) sign the sandbox sends only, for when the main key was made for
+ * Production alone (APNs answers its sandbox sends 403 BadEnvironmentKeyInToken).
  */
 export interface ApnsConfig {
   readonly keyP8: string
   readonly keyId: string
   readonly teamId: string
+  readonly sandbox?: { readonly keyP8: string; readonly keyId: string }
 }
 
 export const apnsConfig = (env: Env): ApnsConfig | null =>
-  env.APNS_KEY_P8 && env.APNS_KEY_ID && env.APNS_TEAM_ID ? { keyP8: env.APNS_KEY_P8, keyId: env.APNS_KEY_ID, teamId: env.APNS_TEAM_ID } : null
+  env.APNS_KEY_P8 && env.APNS_KEY_ID && env.APNS_TEAM_ID
+    ? {
+        keyP8: env.APNS_KEY_P8,
+        keyId: env.APNS_KEY_ID,
+        teamId: env.APNS_TEAM_ID,
+        ...(env.APNS_SANDBOX_KEY_P8 && env.APNS_SANDBOX_KEY_ID ? { sandbox: { keyP8: env.APNS_SANDBOX_KEY_P8, keyId: env.APNS_SANDBOX_KEY_ID } } : {})
+      }
+    : null
+
+/** The key that signs a send to ENVIRONMENT: the sandbox key for sandbox when there is one, else the main key. */
+export const signingConfig = (config: ApnsConfig, environment: PushRegistration["environment"]): ApnsConfig =>
+  environment !== "production" && config.sandbox ? { keyP8: config.sandbox.keyP8, keyId: config.sandbox.keyId, teamId: config.teamId } : config
+
+const tokensByEnvironment = async (config: ApnsConfig, targets: ReadonlyArray<PushRegistration>, now: number) => {
+  const tokens = new Map<PushRegistration["environment"], string>()
+  for (const t of targets) if (!tokens.has(t.environment)) tokens.set(t.environment, await providerToken(signingConfig(config, t.environment), now))
+  return tokens
+}
 
 /** The bundle ids a phone may register a token for (APNS_TOPICS, comma separated). */
 export const apnsTopics = (env: Env): ReadonlySet<string> =>
@@ -62,7 +82,7 @@ export const sendCloudAttention = async (
   fetcher: typeof fetch = fetch,
 ): Promise<ReadonlyArray<CloudAttentionSendResult>> => {
   if (!CLOUD_ATTENTION_KINDS.includes(event.kind)) throw new Error("invalid Cloud attention kind")
-  const token = await providerToken(config, now)
+  const tokens = await tokensByEnvironment(config, targets, now)
   const collapseId = await cloudAttentionCollapseId(event)
   const title = event.kind === "question" ? "Cloud chat has a question" : event.kind === "permission" ? "Cloud chat needs permission" : "Cloud chat finished"
   const body = JSON.stringify({
@@ -86,7 +106,7 @@ export const sendCloudAttention = async (
       const request = new Request(`https://${host}/3/device/${target.token}`, {
         method: "POST",
         headers: {
-          authorization: `bearer ${token}`,
+          authorization: `bearer ${tokens.get(target.environment)}`,
           "apns-topic": target.topic,
           "apns-push-type": "alert",
           "apns-priority": "10",
@@ -99,7 +119,7 @@ export const sendCloudAttention = async (
       try {
         const response = await fetcher(request, { signal: controller.signal })
         const reason = response.status === 200 ? undefined : ((await response.json().catch(() => ({}))) as { reason?: string }).reason
-        if (response.status === 403 && (reason === "ExpiredProviderToken" || reason === "InvalidProviderToken")) forgetProviderToken()
+        if (response.status === 403 && (reason === "ExpiredProviderToken" || reason === "InvalidProviderToken")) forgetProviderToken(signingConfig(config, target.environment))
         const apnsId = response.headers.get("apns-id") ?? undefined
         return { token: target.token, outcome: classifyApns(response.status, reason), status: response.status, ...(reason ? { reason } : {}), ...(apnsId ? { apns_id: apnsId } : {}) }
       } finally {
@@ -111,18 +131,21 @@ export const sendCloudAttention = async (
   }))
 }
 
-/** Apple wants one provider token reused for 20 to 60 minutes: one per isolate, renewed after 50 or when refused. */
-let cached: { id: string; token: string; at: number } | undefined
+/** Apple wants one provider token reused for 20 to 60 minutes: one per key per isolate, renewed after 50 or when refused. */
+const cached = new Map<string, { token: string; at: number }>()
 const configId = (c: ApnsConfig) => `${c.teamId}:${c.keyId}:${c.keyP8.length}:${c.keyP8.slice(-16)}`
-export const forgetProviderToken = () => {
-  cached = undefined
+/** Forgets CONFIG's token (every token when none is named). */
+export const forgetProviderToken = (config?: ApnsConfig) => {
+  if (config) cached.delete(configId(config))
+  else cached.clear()
 }
 
 export const providerToken = async (config: ApnsConfig, now: number): Promise<string> => {
-  if (cached && cached.id === configId(config) && now - cached.at < 50 * 60_000) return cached.token
+  const hit = cached.get(configId(config))
+  if (hit && now - hit.at < 50 * 60_000) return hit.token
   const key = await importPKCS8(config.keyP8.replace(/\\n/g, "\n"), "ES256")
   const token = await new SignJWT({}).setProtectedHeader({ alg: "ES256", kid: config.keyId }).setIssuer(config.teamId).setIssuedAt(Math.floor(now / 1000)).sign(key)
-  cached = { id: configId(config), token, at: now }
+  cached.set(configId(config), { token, at: now })
   return token
 }
 
@@ -688,15 +711,15 @@ export const sendApns = async (
   fetcher: typeof fetch = fetch
 ): Promise<Array<ApnsSendResult>> => {
   if (targets.length === 0) return []
-  const token = await providerToken(config, now)
+  const tokens = await tokensByEnvironment(config, targets, now)
   return Promise.all(
     targets.map(async (t) => {
       try {
-        const res = await fetcher(apnsRequest(t, e, token, now))
+        const res = await fetcher(apnsRequest(t, e, tokens.get(t.environment)!, now))
         const body = res.status === 200 ? undefined : ((await res.json().catch(() => ({}))) as { reason?: unknown } | null)?.reason
         // A malformed body (`{"reason": true}`, `null`) has no reason.
         const reason = typeof body === "string" ? body : undefined
-        if (res.status === 403 && (reason === "ExpiredProviderToken" || reason === "InvalidProviderToken")) cached = undefined
+        if (res.status === 403 && (reason === "ExpiredProviderToken" || reason === "InvalidProviderToken")) forgetProviderToken(signingConfig(config, t.environment))
         return { token: t.token, environment: t.environment, outcome: classifyApns(res.status, reason), status: res.status, ...(reason ? { reason } : {}) }
       } catch (err) {
         return { token: t.token, environment: t.environment, outcome: "failed" as const, status: 0, reason: String(err).slice(0, 120) }

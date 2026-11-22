@@ -190,6 +190,9 @@ pub(super) fn plan(
                                 "kinds": WARM_KINDS});
         if let Some(object) = params.as_object_mut() {
             object.insert(cursor.to_owned(), json!(seq));
+            if cursor == "beforeSeq" {
+                object.insert("turnOpener".to_owned(), json!(true));
+            }
         }
         asks.push(Ask { mux: mux.to_owned(), generation, params });
     }

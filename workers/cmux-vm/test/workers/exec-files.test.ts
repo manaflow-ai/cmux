@@ -120,6 +120,49 @@ describe("execVm", () => {
     expect(JSON.parse(seen)).toEqual({ exitCode: 0, stdout: "first part second part", stderr: "" });
   });
 
+  it("runs a command longer than the provider's edge allows a request to stay open, through a background request", async () => {
+    // Production, 2026-11-21: exec-await held open answered 524 from Freestyle's edge after about 125 s, though the
+    // command's timeout was 290 s (cmux-vm logged operation=execVm status=524; the platform answered "the machine did
+    // not answer"). A background request answers 202 before that cut, and its stored result is polled.
+    const t = await harness();
+    const { vmId, upstreamId } = t.addVm(TENANT_A);
+    const key = await t.addKey(TENANT_A, ["vm:exec"]);
+    const id = t.upstream.longExec("sleep 200; echo done", () => Response.json({ statusCode: 0, stdout: "done\n", stderr: "", vmId: upstreamId }), 3);
+
+    const response = await exec(t, key, vmId, { command: "sleep 200; echo done", timeoutMs: 290_000 });
+
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(JSON.parse(text)).toEqual({ exitCode: 0, stdout: "done\n", stderr: "" });
+    expect(text).not.toContain(upstreamId);
+    expect(t.upstream.callsTo("POST", /exec-await$/)).toHaveLength(1);
+    expect(t.upstream.callsTo("GET", new RegExp(`/v5/background-requests/${id}$`))).toHaveLength(4);
+  });
+
+  it("keeps polling a background exec through a transient poll failure", async () => {
+    const t = await harness();
+    const { vmId } = t.addVm(TENANT_A);
+    const key = await t.addKey(TENANT_A, ["vm:exec"]);
+    const id = t.upstream.longExec("long", () => Response.json({ statusCode: 4, stdout: "", stderr: "late" }), 1);
+    t.upstream.backgroundAnswers(id, () => new Response("busy", { status: 503 }), () => new Response("rate", { status: 429 }));
+
+    const body: unknown = await (await exec(t, key, vmId, { command: "long", timeoutMs: 200_000 })).json();
+
+    expect(body).toEqual({ exitCode: 4, stdout: "", stderr: "late" });
+  });
+
+  it("answers a background exec's stored refusal as the provider's status", async () => {
+    const t = await harness();
+    const { vmId } = t.addVm(TENANT_A);
+    const key = await t.addKey(TENANT_A, ["vm:exec"]);
+    t.upstream.longExec("stops", () => Response.json({ code: "VM_NOT_RUNNING", message: "stopped" }, { status: 409 }), 1);
+
+    const response = await exec(t, key, vmId, { command: "stops", timeoutMs: 200_000 });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ _tag: "Conflict" });
+  });
+
   it("answers 409 when the VM is not running", async () => {
     const t = await harness();
     const { vmId } = t.addVm(TENANT_A, "paused");

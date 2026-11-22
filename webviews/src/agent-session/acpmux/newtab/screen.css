@@ -1189,97 +1189,6 @@
 .nt-screen .nt-all-scroll,
 .nt-screen .nt-all-list { flex: none; }
 .nt-screen .nt-all-list { mask-image: none; }
-/* First-run starters (FirstRunStarters.tsx): under the composer while this Mac has no chats. Quiet
-   text rows with an icon, a wash only on hover or keyboard focus (the stage card's rule), never a
-   resting pill. No entry animation: the page draws them in its first frame (Leo, no entry
-   animations on New Tab, #24383). */
-.nt-starters {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-1);
-  width: min(440px, 100%);
-  margin: var(--ds-space-4) auto 0;
-}
-.nt-starters-label {
-  padding: 0 var(--ds-space-2);
-  color: var(--acpmux-composer-dim);
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
-}
-.nt-starters-list {
-  display: flex;
-  flex-direction: column;
-}
-.nt-starter {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-2);
-  width: 100%;
-  min-width: 0;
-  height: var(--ds-control-row);
-  padding: 0 var(--ds-space-2);
-  box-sizing: border-box;
-  border: 0;
-  border-radius: var(--ds-radius-popup);
-  background: none;
-  color: var(--agent-soft);
-  font: inherit;
-  font-size: var(--text-control);
-  letter-spacing: var(--text-control--letter-spacing);
-  text-align: left;
-}
-.nt-starter:hover,
-.nt-starter:focus-visible {
-  background: var(--ds-color-hover);
-  color: var(--agent-text);
-}
-.nt-starter:focus-visible {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 55%, transparent);
-  outline-offset: -1px;
-}
-.nt-starter-icon {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  color: var(--acpmux-composer-dim);
-}
-.nt-starter:hover .nt-starter-icon,
-.nt-starter:focus-visible .nt-starter-icon {
-  color: var(--agent-text);
-}
-.nt-starter-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* Inline: one centred line of plain text actions, no icons. */
-.nt-starters[data-look="inline"] {
-  align-items: center;
-}
-.nt-starters[data-look="inline"] .nt-starters-list {
-  flex-flow: row wrap;
-  justify-content: center;
-  gap: 0 var(--ds-space-1);
-}
-.nt-starters[data-look="inline"] .nt-starter {
-  width: auto;
-  height: var(--ds-control-compact);
-  color: var(--acpmux-composer-dim);
-  font-size: var(--text-detail);
-}
-/* Card: the stage card's surface around the rows. */
-.nt-starters[data-look="card"] .nt-starters-list {
-  padding: var(--ds-space-1);
-  border-radius: var(--ds-radius-popup);
-  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
-  box-shadow:
-    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge),
-    var(--acpmux-composer-shadow, var(--elevation-1));
-}
 /* Suggestion glyphs keep Default's proportions inside the shared zoom. */
 .nt-popover {
   /* A portal outside the composer: the composer's control and inset, so its rows and the + column formula scale
@@ -1348,6 +1257,67 @@
 .nt-screen .nt-create .nt-tool-icon > svg{width:100%;height:100%}
 
 .nt-row:has(.nt-row-shortcut) .nt-row-title{flex-shrink:1}
+/* The home-card-glow experiment (homeCardGlow.experiment.ts; ChatCards sets `data-glow` and each
+   card's `--nt-card-tint`, the chat's own color). One card shell for every chat: a radial glow in
+   its tint from the top corner and a tinted hairline under the meta row; hover or focus brightens
+   the glow. Layout, contents and actions stay as they are; off draws none of it. */
+.nt-cards[data-glow] {
+  --nt-glow-rest: 0.5;
+  --nt-glow-mix: 22%;
+  --nt-glow-reach: 70%;
+  --nt-glow-divider: 30%;
+}
+.nt-cards[data-glow="vivid"] {
+  --nt-glow-rest: 0.6;
+  --nt-glow-mix: 42%;
+  --nt-glow-reach: 95%;
+  --nt-glow-divider: 50%;
+}
+/* A light page has less dark around the glow to carry it: a little more color, the same reach. */
+:root.light .nt-cards[data-glow] {
+  --nt-glow-mix: 16%;
+}
+:root.light .nt-cards[data-glow="vivid"] {
+  --nt-glow-mix: 30%;
+}
+.nt-cards[data-glow] .nt-card {
+  position: relative;
+  isolation: isolate;
+}
+.nt-cards[data-glow] .nt-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-backdrop);
+  border-radius: inherit;
+  /* chat-surface-allow: the default-off Home card glow experiment (#47524), a per-chat tint, not a level */
+  background: radial-gradient(
+    circle at 0% 0%,
+    color-mix(in oklab, var(--nt-card-tint, currentColor) var(--nt-glow-mix), transparent),
+    transparent var(--nt-glow-reach)
+  );
+  opacity: var(--nt-glow-rest);
+  pointer-events: none;
+}
+.nt-cards[data-glow] .nt-card:hover::before,
+.nt-cards[data-glow] .nt-card:focus-visible::before {
+  opacity: 1;
+}
+.nt-cards[data-glow] .nt-card-meta {
+  box-shadow: 0 var(--cmux-hairline, 0.5px) 0
+    color-mix(in oklab, var(--nt-card-tint, currentColor) var(--nt-glow-divider), transparent);
+}
+/* Reduced motion: the glow changes at once. The scale's ceiling step (the largest calm change). */
+@media (prefers-reduced-motion: no-preference) {
+  .nt-cards[data-glow] .nt-card::before {
+    transition: opacity var(--cmux-motion-large, 240ms) var(--cmux-ease-out, ease-out);
+  }
+}
+/* Return's row (NewTabScreen): a ↩ keycap at its end, in the shortcut keycaps' dress, so the highlight
+   reads as "Return does this" before Return is pressed (David Beyer 2026-11-20: words he typed ran as a
+   shell command). It takes no room from the title: the row's end, after any shortcut. */
+.nt-row-return{flex:none;margin-left:auto;padding:var(--grid-half-step) var(--ds-space-1);border-radius:max(0px,calc(var(--ds-radius-control,8px) - var(--ds-space-1,4px)));background:var(--ds-surface-inset);color:var(--agent-soft);font:inherit;font-size:var(--nt-row-detail,var(--text-detail));line-height:1}
+.nt-row-shortcut + .nt-row-return{margin-left:var(--ds-space-1)}
 /* Signed out (NewTabScreen `signedOut`): the cause in one line, then its two fixes as quiet text
    buttons (the trust ask's), wrapping under the text on a narrow pane. */
 .nt-signed-out { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--grid-gap); row-gap: var(--grid-half-step); }
