@@ -483,7 +483,7 @@ final class CloudService {
         } catch {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account, unavailableReason == nil, !Task.isCancelled else { return false }
             lastError = CloudStrings.errorText(error)
-            logger.error("machine list failed: \(String(describing: error), privacy: .public)")
+            logger.error("machine list failed: \(CloudAppOpFailure.logText(error), privacy: .public)")
             return false
         }
     }
