@@ -56,8 +56,9 @@ impl Route {
     fn from_env(argv: &[String], env: &BTreeMap<String, String>) -> Option<Self> {
         // Fleet profiles can put the coordinator wrapper and its options before sr2.
         let sr2 = argv.windows(2).any(|pair| {
-            pair[1] == "claude2"
-                && Path::new(&pair[0]).file_name().is_some_and(|name| name == "sr2" || name == "sr")
+            let [program, subcommand] = pair else { return false };
+            subcommand == "claude2"
+                && Path::new(program).file_name().is_some_and(|name| name == "sr2" || name == "sr")
         });
         let base = if sr2 {
             env.get("SUBROUTER2_BASE_URL")
