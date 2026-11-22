@@ -261,6 +261,9 @@ def remap_link(argv, tmp, k):
     return out
 
 
+WARM_BUILD_S = 4800  # the untimed warm build from a cold slot (see Loop.reload's warm call)
+
+
 def timed(argv, cwd=None, timeout=600):
     t = time.monotonic()
     p = subprocess.run(argv, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=timeout)
@@ -301,18 +304,19 @@ class Loop:
             f.write(self.original)
 
     # -- reload.sh
-    def reload(self, label):
+    def reload(self, label, timeout_s=1800):
         logpath = os.path.join(self.out, "logs", "reload-%s.out" % label)
         t0 = now_ms()
         with open(logpath, "w") as f:
             p = subprocess.Popen(["scripts/reload.sh", "--tag", TAG, "--no-global-cli-links"], cwd=self.repo, stdout=f,
                                  stderr=subprocess.STDOUT)
             try:
-                rc = p.wait(timeout=1800)
+                rc = p.wait(timeout=timeout_s)
             except subprocess.TimeoutExpired:
                 p.terminate()
                 p.wait(60)
-                raise RuntimeError("reload.sh %s ran over 1800 s" % label)
+                tail = open(logpath, errors="replace").read()[-800:].strip()
+                raise RuntimeError("reload.sh %s ran over %d s: %s" % (label, timeout_s, tail))
         t1 = now_ms()
         text = open(logpath, errors="replace").read()
         if rc != 0:
@@ -358,7 +362,15 @@ class Loop:
         try:
             p.wait(timeout=90)
         except subprocess.TimeoutExpired:
-            raise RuntimeError("launch-ready %s did not end 90 s after its app quit" % label)
+            p.terminate()
+            try:
+                p.wait(10)
+            except subprocess.TimeoutExpired:
+                p.kill()
+            # Its own words, since the step returns only report.json: what it saw before it stopped.
+            tails = " | ".join("%s: %s" % (os.path.basename(f), open(f, errors="replace").read()[-600:].strip())
+                               for f in (outp, outp + ".err") if os.path.exists(f))
+            raise RuntimeError("launch-ready %s did not end 90 s after its app quit (%s)" % (label, tails or "no output"))
         lines = [l for l in open(outp).read().splitlines() if l.startswith("LR-RUN ")]
         if not lines:
             raise RuntimeError("launch-ready %s printed no LR-RUN (%s)" % (label, open(outp + ".err").read()[-800:]))
@@ -389,7 +401,10 @@ class Loop:
             raise RuntimeError("launch-ready.swift did not build: " + p.stderr[-1500:])
         log("warm build (untimed)")
         self.restore()
-        self.reload("warm")
+        # The untimed warm build starts from whatever .build the fleet slot kept, often none: a cold Xcode build of the
+        # app ran past 1800 s on 2026-11-21 step 0d5f8be711282a5a8062d811 ("reload.sh warm ran over 1800 s"). Timed
+        # rounds keep 1800 s; this one only fills the caches they measure from.
+        self.reload("warm", timeout_s=WARM_BUILD_S)
         log("app", self.app)
         # The priming launch: one workspace with its terminal left in front, so every later launch restores a
         # terminal and the `type` probe's key has a PTY to reach (launch-ready.sh front=tab).
