@@ -26,6 +26,9 @@ struct CmuxMobileApp: App {
         ClassicLeftovers.cleanUpIfDue()
         // Settings and account saved under the pre-rename (cnx) names move first.
         LegacyStorage.migrate()
+        // The Agent Chats list draws the account's stored first page at once on a cold open
+        // (the Rust read-first store), then the Mac's page replaces it.
+        PhoneReadFirst.installAgentChats()
         #if !DEBUG
         // Release and Production have no Developer page: remove any developer
         // setting (mock data, a scripted demo, relay only) an earlier Debug

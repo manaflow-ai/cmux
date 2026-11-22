@@ -1,7 +1,9 @@
 //! Sans-I/O logic shared by the cmux iOS and Android apps.
 //!
 //! Bytes and events go in, state and effects come out; this crate does no
-//! I/O, spawns no threads and owns no runtime. `cmux-mobile-ffi` binds it for
+//! I/O, spawns no threads and owns no runtime, except [`read_store`], the
+//! phone's own read-first store (plain `std::fs` on one directory the app
+//! names). `cmux-mobile-ffi` binds it for
 //! Swift and Kotlin with uniffi. Network effects belong in `cmux-mobile-net`.
 //!
 //! Slice 0 of plans/cmux-next/mobile-rust-core.md carries the shared terminal
@@ -18,3 +20,7 @@ pub use cmux_terminal_sizing as sizing;
 /// The `cmux.wire/1` client: catalog wire types and the stream mirror with
 /// its intent log (`StreamMirror`), the engine the Mac daemon uses too.
 pub use cmux_cloud_wire as wire;
+
+/// The phone's own read-first store: what a surface last showed, kept per
+/// account, Mac and surface so a cold launch draws it before the Mac answers.
+pub mod read_store;
