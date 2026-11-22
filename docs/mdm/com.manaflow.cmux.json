@@ -1682,6 +1682,18 @@
       "title" : "Spring Response",
       "type" : "number"
     },
+    "appearance.cornerFlush" : {
+      "default" : "flush",
+      "description" : "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water.",
+      "enum" : [
+        "off",
+        "flush",
+        "flush-tight",
+        "flush-goo"
+      ],
+      "title" : "Selected Tab Shape",
+      "type" : "string"
+    },
     "appearance.customDensities" : {
       "default" : [
 
@@ -3792,6 +3804,12 @@
       "default" : false,
       "description" : "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files.",
       "title" : "Claude Code and Codex Customization",
+      "type" : "boolean"
+    },
+    "labs.hostsSidebar" : {
+      "default" : false,
+      "description" : "Shows your machines in the sidebar with Add Host and per-host terminal actions.",
+      "title" : "Hosts Sidebar",
       "type" : "boolean"
     },
     "labs.liveCode" : {
