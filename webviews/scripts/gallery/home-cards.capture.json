@@ -1,0 +1,92 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["light", "light"],
+    ["light", "dark"],
+    ["light", "busy"],
+    ["dark", "none"],
+    ["dark", "light"],
+    ["dark", "dark"],
+    ["dark", "busy"]
+  ],
+  "shots": [
+    {
+      "name": "mcp-facts-table",
+      "entry": "home.messages-cards",
+      "variant": "mcp-facts-table",
+      "width": 560,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "clip": ".hm-mcp",
+      "arms": {
+        "now": "",
+        "look": ":root:root{--grid-cards-radius:16px;--cmux-button-radius:12px}"
+      }
+    },
+    {
+      "name": "mcp-danger-forward-local",
+      "entry": "home.messages-cards",
+      "variant": "mcp-danger-forward-local",
+      "width": 560,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "clip": ".hm-mcp",
+      "arms": {
+        "now": "",
+        "look": ":root:root{--grid-cards-radius:16px;--cmux-button-radius:12px}"
+      }
+    },
+    {
+      "name": "mcp-compact-row",
+      "entry": "home.messages-cards",
+      "variant": "mcp-compact-row",
+      "width": 560,
+      "height": 240,
+      "deviceScaleFactor": 2,
+      "clip": ".hm-mcp",
+      "arms": {
+        "now": "",
+        "look": ":root:root{--grid-cards-radius:16px;--cmux-button-radius:12px}"
+      }
+    },
+    {
+      "name": "mcp-bubble",
+      "entry": "home.messages-cards",
+      "variant": "mcp-bubble",
+      "width": 560,
+      "height": 380,
+      "deviceScaleFactor": 2,
+      "clip": ".hm-mcp",
+      "arms": {
+        "now": "",
+        "look": ":root:root{--grid-cards-radius:16px;--cmux-button-radius:12px}"
+      }
+    },
+    {
+      "name": "mcp-enter-key",
+      "entry": "home.messages-cards",
+      "variant": "mcp-enter-key",
+      "width": 560,
+      "height": 380,
+      "deviceScaleFactor": 2,
+      "clip": ".hm-mcp",
+      "arms": {
+        "now": "",
+        "look": ":root:root{--grid-cards-radius:16px;--cmux-button-radius:12px}"
+      }
+    },
+    {
+      "name": "mcp-connected",
+      "entry": "home.messages-cards",
+      "variant": "mcp-connected",
+      "width": 560,
+      "height": 360,
+      "deviceScaleFactor": 2,
+      "clip": ".hm-mcp",
+      "arms": {
+        "now": "",
+        "look": ":root:root{--grid-cards-radius:16px;--cmux-button-radius:12px}"
+      }
+    }
+  ]
+}
