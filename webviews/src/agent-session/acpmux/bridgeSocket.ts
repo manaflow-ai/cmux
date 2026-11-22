@@ -5,7 +5,8 @@
 // uses, so the protocol code is the same over the bridge, the dev slot's real socket and mock mode.
 // The page never sees an endpoint or a token.
 import { postNative } from "./native";
-import { takeEarlyOpen } from "./chatSnapshot/earlyOpen";
+import { EARLY_RECEIVER, takeEarlyOpen, takeEarlyWire } from "./chatSnapshot/earlyOpen";
+import { EarlyFrames } from "./chatSnapshot/earlyWire";
 import { nativeTimedOut } from "./nativeError";
 import { AcpmuxRpcError } from "./handoff/protocol";
 import { deliverQuestionKeyRequest, isQuestionKeyRequest, type QuestionKeyRequest } from "./question/keyReply";
@@ -134,8 +135,9 @@ function recoverClosedQuestionKeyRefusal(event: TransportEvent): void {
 }
 
 function install(): void {
-  const w = window as { cmuxAcpmuxTransport?: { receive(event: TransportEvent): void } };
-  if (w.cmuxAcpmuxTransport) return;
+  const w = window as { cmuxAcpmuxTransport?: { receive(event: TransportEvent): void; [EARLY_RECEIVER]?: true } };
+  // The boot script's receiver (chatSnapshot/earlyOpen.ts) holds the early socket's pushes until this one.
+  if (w.cmuxAcpmuxTransport && !w.cmuxAcpmuxTransport[EARLY_RECEIVER]) return;
   w.cmuxAcpmuxTransport = { receive: receiveTransportEvent };
 }
 
@@ -159,6 +161,8 @@ export class BridgeSocket {
   private outbox: string[] = [];
   private flushQueued = false;
   private openTimer?: ReturnType<typeof setTimeout>;
+  /// The boot script's requests on this socket and their answers, until each is taken or dropped.
+  private early?: EarlyFrames;
 
   constructor(
     private readonly post: Post = postNative,
@@ -174,6 +178,11 @@ export class BridgeSocket {
     // The open the boot script asked with the page's first handshake (chatSnapshot/earlyOpen.ts),
     // when this is that handshake's socket; else this page's own.
     const early = post === postNative ? takeEarlyOpen() : undefined;
+    const wire = early ? takeEarlyWire() : undefined;
+    if (wire)
+      this.early = new EarlyFrames(wire, (data) => {
+        if (this.readyState === OPEN) this.onmessage?.({ data });
+      });
     const opened = early
       ? early.then((connection) => (connection === undefined ? Promise.reject(new Error("refused")) : { connection }))
       : this.post<{ connection: number }>("transport.open");
@@ -192,6 +201,8 @@ export class BridgeSocket {
         live.set(connection, this);
         this.readyState = OPEN;
         this.onopen?.(new Event("open"));
+        // What came on the early socket before this one took it, in order.
+        if (this.early) for (const event of this.early.takeInbox()) this.receive(event);
       },
       () => {
         this.stopOpenTimer();
@@ -203,6 +214,12 @@ export class BridgeSocket {
   /// Queues `text`; every frame written in one task goes to the host in one bridge call, in order.
   send(text: string): void {
     if (this.readyState !== OPEN) throw new DOMException("The acpmux transport is not open", "InvalidStateError");
+    // A request the boot script sent already is answered by its answer (chatSnapshot/earlyWire.ts).
+    if (this.early) {
+      const answered = this.early.outgoing(text);
+      if (this.early.done) this.early = undefined;
+      if (answered) return;
+    }
     this.outbox.push(text);
     if (this.flushQueued) return;
     this.flushQueued = true;
@@ -221,7 +238,10 @@ export class BridgeSocket {
   receive(event: TransportEvent): void {
     for (const data of event.frames ?? []) {
       if (this.readyState !== OPEN) return;
-      this.onmessage?.({ data });
+      if (this.early) {
+        this.early.incoming(data);
+        if (this.early.done) this.early = undefined;
+      } else this.onmessage?.({ data });
     }
     if (event.closed) {
       this.closeError = event.closed.error;
