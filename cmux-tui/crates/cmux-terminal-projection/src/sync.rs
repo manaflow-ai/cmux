@@ -36,10 +36,18 @@ pub const KIND_DIFF: u8 = 1;
 pub const KIND_ACK: u8 = 2;
 /// The payload format version.
 const VERSION: u8 = 1;
-/// States sent and not yet acked that the sender keeps (to diff from once acked).
-pub const SENT_RING: usize = 64;
-/// States the receiver keeps to apply a diff from (its held one and a few before).
-pub const HELD_RING: usize = 4;
+/// The most states sent and not yet acked that the sender keeps (to diff
+/// from once acked). Acks trail by a round trip, so at 60 Hz this covers
+/// about 17 s of them. Kept as keyframe encodings (a few KB each).
+pub const SENT_RING: usize = 1024;
+/// The most bytes of encoded states the sender keeps.
+pub const SENT_RING_BYTES: usize = 16 << 20;
+/// The most states the receiver keeps to apply a diff from: every state
+/// newer than the newest base seen (the sender diffs from what it saw
+/// acked, a round trip behind), as keyframe encodings.
+pub const HELD_RING: usize = 512;
+/// The most bytes of encoded states the receiver keeps.
+pub const HELD_RING_BYTES: usize = 8 << 20;
 /// Seqs the receiver reassembles fragments for at once.
 pub const PARTIALS: usize = 4;
 /// The most fragments one diff may have (a sanity bound for the receiver).
@@ -996,13 +1004,16 @@ pub struct SyncSender {
     epoch: u32,
     latest: Option<ScreenState>,
     latest_seq: u64,
-    /// States sent and not yet acked, oldest first.
-    sent: VecDeque<(u64, ScreenState)>,
+    /// States sent and not yet acked, oldest first, as keyframe encodings.
+    sent: VecDeque<(u64, Vec<u8>)>,
+    sent_bytes: usize,
     acked_seq: u64,
     acked: Option<ScreenState>,
     /// The datagrams for (latest seq, acked seq), resent as they are.
     cache: Option<(u64, u64, Vec<Vec<u8>>)>,
     last_payload_len: usize,
+    datagrams_sent: u64,
+    bytes_sent: u64,
 }
 
 impl SyncSender {
@@ -1018,10 +1029,13 @@ impl SyncSender {
             latest: None,
             latest_seq: 0,
             sent: VecDeque::new(),
+            sent_bytes: 0,
             acked_seq: 0,
             acked: None,
             cache: None,
             last_payload_len: 0,
+            datagrams_sent: 0,
+            bytes_sent: 0,
         }
     }
 
@@ -1042,6 +1056,13 @@ impl SyncSender {
     /// The datagrams for diff(last acked state, latest). Empty when the
     /// phone already acked the latest.
     pub fn datagrams(&mut self) -> Vec<Vec<u8>> {
+        let datagrams = self.make_datagrams();
+        self.datagrams_sent += datagrams.len() as u64;
+        self.bytes_sent += datagrams.iter().map(|d| d.len() as u64).sum::<u64>();
+        datagrams
+    }
+
+    fn make_datagrams(&mut self) -> Vec<Vec<u8>> {
         let Some(latest) = &self.latest else { return Vec::new() };
         if self.latest_seq == self.acked_seq {
             return Vec::new();
@@ -1058,9 +1079,15 @@ impl SyncSender {
         let datagrams =
             fragment(&payload, self.max_datagram, self.epoch, self.latest_seq, self.acked_seq);
         if self.sent.back().map(|s| s.0) != Some(self.latest_seq) {
-            self.sent.push_back((self.latest_seq, latest.clone()));
-            while self.sent.len() > SENT_RING {
-                self.sent.pop_front();
+            let keyframe = if base.is_none() { payload } else { diff(None, latest) };
+            self.sent_bytes += keyframe.len();
+            self.sent.push_back((self.latest_seq, keyframe));
+            while self.sent.len() > SENT_RING
+                || (self.sent_bytes > SENT_RING_BYTES && self.sent.len() > 1)
+            {
+                if let Some((_, k)) = self.sent.pop_front() {
+                    self.sent_bytes -= k.len();
+                }
             }
         }
         self.cache = Some((self.latest_seq, self.acked_seq, datagrams.clone()));
@@ -1083,13 +1110,25 @@ impl SyncSender {
         if seq <= self.acked_seq {
             return;
         }
-        match self.sent.iter().position(|s| s.0 == seq) {
+        let state = match self.sent.iter().position(|s| s.0 == seq) {
             Some(i) => {
-                self.sent.drain(..i);
-                if let Some((s, state)) = self.sent.pop_front() {
-                    self.acked_seq = s;
-                    self.acked = Some(state);
+                for (_, k) in self.sent.drain(..i) {
+                    self.sent_bytes -= k.len();
                 }
+                let (_, keyframe) = self.sent.pop_front().unwrap_or_default();
+                self.sent_bytes -= keyframe.len();
+                if seq == self.latest_seq {
+                    self.latest.clone()
+                } else {
+                    apply(None, &keyframe).ok()
+                }
+            }
+            None => None,
+        };
+        match state {
+            Some(state) => {
+                self.acked_seq = seq;
+                self.acked = Some(state);
             }
             None => {
                 // The phone holds a state this sender no longer has.
@@ -1117,6 +1156,21 @@ impl SyncSender {
     pub fn last_payload_len(&self) -> usize {
         self.last_payload_len
     }
+
+    /// Datagrams returned by [`SyncSender::datagrams`] so far (resends too).
+    pub fn datagrams_sent(&self) -> u64 {
+        self.datagrams_sent
+    }
+
+    /// Bytes of the datagrams returned by [`SyncSender::datagrams`] so far.
+    pub fn bytes_sent(&self) -> u64 {
+        self.bytes_sent
+    }
+
+    /// States kept to diff from once acked.
+    pub fn kept(&self) -> usize {
+        self.sent.len()
+    }
 }
 
 struct Partial {
@@ -1132,8 +1186,16 @@ struct Partial {
 pub struct SyncReceiver {
     epoch: Option<u32>,
     seq: u64,
-    /// The held state and a few before it, oldest first.
-    held: VecDeque<(u64, ScreenState)>,
+    /// The state held (seq `seq`).
+    current: Option<ScreenState>,
+    /// States a diff may be based on, oldest first, as keyframe encodings:
+    /// every one applied since the newest base seen (the held one too).
+    held: VecDeque<(u64, Vec<u8>)>,
+    held_bytes: usize,
+    /// The newest nonzero base of an applied diff; older states are dropped.
+    floor: u64,
+    /// The last older state decoded to apply a diff from.
+    base_cache: Option<(u64, ScreenState)>,
     partials: Vec<Partial>,
 }
 
@@ -1164,21 +1226,54 @@ impl SyncReceiver {
                 None => return ack(held_seq),
             }
         };
-        let base_state =
-            if h.base == 0 { None } else { self.held.iter().find(|s| s.0 == h.base).map(|s| &s.1) };
-        let Ok(state) = apply(base_state, &payload) else { return ack(held_seq) };
+        let result = if h.base == 0 {
+            apply(None, &payload)
+        } else if h.base == self.seq {
+            apply(self.current.as_ref(), &payload)
+        } else {
+            if self.base_cache.as_ref().map(|c| c.0) != Some(h.base) {
+                let Some(keyframe) = self.held.iter().find(|s| s.0 == h.base).map(|s| &s.1) else {
+                    return ack(held_seq);
+                };
+                let Ok(state) = apply(None, keyframe) else { return ack(held_seq) };
+                self.base_cache = Some((h.base, state));
+            }
+            apply(self.base_cache.as_ref().map(|c| &c.1), &payload)
+        };
+        let Ok(state) = result else { return ack(held_seq) };
         if !same_epoch {
             self.epoch = Some(h.epoch);
             self.held.clear();
+            self.held_bytes = 0;
+            self.floor = 0;
+            self.base_cache = None;
         }
         self.seq = h.seq;
-        self.held.push_back((h.seq, state));
-        while self.held.len() > HELD_RING {
-            self.held.pop_front();
+        let keyframe = if h.base == 0 { payload.into_owned() } else { diff(None, &state) };
+        self.current = Some(state);
+        self.held_bytes += keyframe.len();
+        self.held.push_back((h.seq, keyframe));
+        self.floor = self.floor.max(h.base);
+        while self.held.len() > 1
+            && (self.held.front().is_some_and(|s| s.0 < self.floor)
+                || self.held.len() > HELD_RING
+                || self.held_bytes > HELD_RING_BYTES)
+        {
+            if let Some((_, k)) = self.held.pop_front() {
+                self.held_bytes -= k.len();
+            }
+        }
+        if self.base_cache.as_ref().is_some_and(|c| c.0 < self.floor) {
+            self.base_cache = None;
         }
         let (epoch, seq) = (h.epoch, self.seq);
         self.partials.retain(|p| p.epoch != epoch || p.seq > seq);
         ack(self.seq)
+    }
+
+    /// States kept that a diff may be based on.
+    pub fn kept(&self) -> usize {
+        self.held.len()
     }
 
     /// Adds a fragment; the whole payload once every fragment is in.
@@ -1239,7 +1334,7 @@ impl SyncReceiver {
 
     /// The state held (None before the first keyframe).
     pub fn screen(&self) -> Option<&ScreenState> {
-        self.held.back().map(|s| &s.1)
+        self.current.as_ref()
     }
 
     /// The seq held (0: nothing).
@@ -1612,6 +1707,76 @@ mod tests {
         assert_eq!(rx.screen(), Some(&s[3]));
         tx.on_ack(&a4);
         assert!(!tx.unacked());
+    }
+
+    #[test]
+    fn ten_diffs_in_a_row_on_an_unacked_base_all_apply() {
+        let s = states(12);
+        let mut tx = SyncSender::with_epoch(1200, 1);
+        let mut rx = SyncReceiver::new();
+        tx.update(s[0].clone());
+        for d in tx.datagrams() {
+            tx.on_ack(&rx.on_datagram(&d).unwrap());
+        }
+        assert_eq!(tx.acked_seq(), 1);
+        // Every ack after this is lost: each diff is from seq 1, which the
+        // phone no longer shows but still holds.
+        for (i, st) in s.iter().enumerate().skip(1) {
+            tx.update(st.clone());
+            let d = tx.datagrams();
+            assert_eq!(d.len(), 1);
+            let h = parse_diff_datagram(&d[0]).unwrap().0;
+            assert_eq!((h.seq, h.base), (i as u64 + 1, 1));
+            rx.on_datagram(&d[0]);
+            assert_eq!(rx.seq(), i as u64 + 1, "diff {i} applied");
+            assert_eq!(rx.screen(), Some(st));
+        }
+        assert_eq!(tx.acked_seq(), 1);
+    }
+
+    #[test]
+    fn a_long_round_trip_applies_every_diff_without_keyframes() {
+        // 60 Hz, 1.2 s round trip: 36 ticks each way, a new screen every tick.
+        const ONE_WAY: usize = 36;
+        let s = states(400);
+        let mut tx = SyncSender::with_epoch(1200, 1);
+        let mut rx = SyncReceiver::new();
+        let mut to_phone: VecDeque<(usize, Vec<u8>)> = VecDeque::new();
+        let mut to_host: VecDeque<(usize, Vec<u8>)> = VecDeque::new();
+        let mut first_diff_seq = None;
+        let mut max_kept = 0;
+        for tick in 0..s.len() + 4 * ONE_WAY {
+            if let Some(st) = s.get(tick) {
+                tx.update(st.clone());
+            }
+            let acked_before = tx.acked_seq();
+            while to_host.front().is_some_and(|a| a.0 <= tick) {
+                tx.on_ack(&to_host.pop_front().unwrap().1);
+            }
+            assert!(tx.acked_seq() >= acked_before, "no keyframe fallback");
+            if tick < s.len() {
+                for d in tx.datagrams() {
+                    to_phone.push_back((tick + ONE_WAY, d));
+                }
+            }
+            while to_phone.front().is_some_and(|d| d.0 <= tick) {
+                let d = to_phone.pop_front().unwrap().1;
+                let h = parse_diff_datagram(&d).unwrap().0;
+                if h.base != 0 {
+                    first_diff_seq.get_or_insert(h.seq);
+                } else {
+                    assert!(first_diff_seq.is_none(), "a keyframe after diffs began: {}", h.seq);
+                }
+                let ack = rx.on_datagram(&d).unwrap();
+                assert_eq!(rx.seq(), h.seq, "diff {} from {} applied", h.seq, h.base);
+                to_host.push_back((tick + ONE_WAY, ack));
+            }
+            max_kept = max_kept.max(rx.kept());
+        }
+        assert!(first_diff_seq.is_some_and(|f| f <= 2 * ONE_WAY as u64 + 2));
+        assert_eq!(rx.screen(), s.last());
+        assert!(!tx.unacked());
+        assert!(max_kept <= 2 * ONE_WAY + 4, "kept {max_kept}");
     }
 
     #[test]
