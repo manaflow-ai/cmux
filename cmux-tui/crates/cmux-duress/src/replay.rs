@@ -8,9 +8,10 @@
 //!   when that is longer, so a slow path shows as a later catch-up. Resizes, scrolls and theme
 //!   switches are applied at the start of the frame they fall in.
 //! - `projection`: a full-screen TUI on a Mac terminal, scrolled by inputs; each redraw goes
-//!   through the Mac's stages (screen grid, `HybridStream::update` + `LeanEncoder::encode`), the
-//!   link (`cmux-fault` profile), and the phone's (`LeanDecoder::decode`, the next vsync,
-//!   `vt::frame_bytes` written and its frame built), each stage its own metric.
+//!   through the Mac's stages (waiting for its CPU, screen grid, `HybridStream::update`,
+//!   `LeanEncoder::encode`), the link (`cmux-fault` profile), and the phone's
+//!   (`LeanDecoder::decode`, `vt::frame_bytes` written and its frame built, then the next vsync,
+//!   which presents whatever the phone has applied by then), each stage its own metric.
 //! - chat: when the spec has chat records, `claude::render` over all of them.
 //!
 //! Compute is wall time on the machine that runs it; delivery, pauses and stalls are the
@@ -390,7 +391,8 @@ fn projection_run(
     let mut wire = Link::new(link, Rng::new(knobs.seed ^ SCENARIO_SALT).split(20));
     let mut phone_state = RenderState::new().map_err(vt_err)?;
     let mut mac_state = RenderState::new().map_err(vt_err)?;
-    let (mut back, mut drawn_len, mut phone_free) = (0u64, 0u64, 0.0f64);
+    // Each side's CPU runs one frame at a time; the phone presents what it has at each vsync.
+    let (mut back, mut drawn_len, mut mac_free, mut phone_free) = (0u64, 0u64, 0.0f64, 0.0f64);
     let mut input = 0usize;
     let mut tick = 0.0f64;
     loop {
@@ -421,22 +423,24 @@ fn projection_run(
         let top = len.saturating_sub(view + back);
         mac.vt_write(&redraw(top, len, &words, cols, rows));
 
+        let start = t.max(mac_free);
         let started = Instant::now();
         let (grid, cursor) = screen(&mut mac, &mut mac_state)?;
         let grid_ms = ms(started);
         let started = Instant::now();
-        let lean = hybrid
-            .update(&grid, t as u64)
-            .and_then(|frame| encoder.encode("tui", cols, rows, &frame, cursor));
+        let frame = hybrid.update(&grid, t as u64);
+        let diff_ms = ms(started);
+        let started = Instant::now();
+        let lean = frame.and_then(|frame| encoder.encode("tui", cols, rows, &frame, cursor));
         let encode_ms = ms(started);
+        mac_free = start + grid_ms + diff_ms + encode_ms;
         let Some(lean) = lean else { continue };
-        let sent = t + grid_ms + encode_ms;
+        let sent = mac_free;
         let arrived = wire.deliver((sent * 1000.0) as u64, lean.len()) as f64 / 1000.0;
         let started = Instant::now();
         let decoded = decoder.decode(&lean).ok_or("a lean frame the decoder reads")?;
         let decode_ms = ms(started);
         let ready = arrived.max(phone_free) + decode_ms;
-        let vsync = (ready / FRAME_MS).ceil() * FRAME_MS;
         let started = Instant::now();
         if let Some(bytes) = vt::frame_bytes(&decoded.frame, rows, decoded.cursor) {
             phone.vt_write(&bytes);
@@ -444,17 +448,20 @@ fn projection_run(
         phone_state.update(&mut phone).map_err(vt_err)?;
         let _ = phone_state.build_frame().map_err(vt_err)?;
         let paint_ms = ms(started);
-        phone_free = vsync + paint_ms;
+        phone_free = ready + paint_ms;
+        let present = (phone_free / FRAME_MS).ceil() * FRAME_MS;
 
+        metrics.push("mac_queue_ms", "ms", start - t);
         metrics.push("mac_grid_ms", "ms", grid_ms);
+        metrics.push("mac_diff_ms", "ms", diff_ms);
         metrics.push("mac_encode_ms", "ms", encode_ms);
         metrics.push("wire_ms", "ms", arrived - sent);
         metrics.push("phone_decode_ms", "ms", decode_ms);
-        metrics.push("vsync_wait_ms", "ms", vsync - ready);
+        metrics.push("vsync_wait_ms", "ms", present - phone_free);
         metrics.push("phone_paint_ms", "ms", paint_ms);
         metrics.push("wire_bytes", "bytes", lean.len() as f64);
         if from_input {
-            metrics.push("scroll_to_paint_ms", "ms", phone_free - t);
+            metrics.push("scroll_to_paint_ms", "ms", present - t);
         }
         let mac_text = mac.viewport_text().map_err(vt_err)?;
         let phone_text = phone.viewport_text().map_err(vt_err)?;
@@ -619,9 +626,16 @@ ui = ["X"]
         let run = run(&s, &recordings()).unwrap();
         assert_eq!(run.metrics.0["paint_mismatch"].samples, vec![0.0]);
         assert!(run.metrics.0["scroll_to_paint_ms"].samples.len() >= 30);
-        for stage in
-            ["mac_grid_ms", "mac_encode_ms", "wire_ms", "phone_decode_ms", "phone_paint_ms"]
-        {
+        for stage in [
+            "mac_queue_ms",
+            "mac_grid_ms",
+            "mac_diff_ms",
+            "mac_encode_ms",
+            "wire_ms",
+            "phone_decode_ms",
+            "phone_paint_ms",
+            "vsync_wait_ms",
+        ] {
             assert!(!run.metrics.0[stage].samples.is_empty(), "{stage}");
         }
     }
