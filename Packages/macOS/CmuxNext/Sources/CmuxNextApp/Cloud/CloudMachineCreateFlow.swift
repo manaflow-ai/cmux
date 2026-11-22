@@ -152,7 +152,7 @@ struct CloudMachineCreateFlow {
                               ask: @MainActor (_ request: String) async -> Bool) async throws -> JSONValue {
         var confirmed = confirmed
         var approved: String?, since = now() // `since`: when this attempt learned the approval was answered
-        var attempt = 0; let ensure = self.beside, waits = Int(patience.components.seconds) // each wait is 1 s or more: never more waits than seconds
+        var attempt = 0; let ensure = self.beside, waits = CloudApprovedRetry.waits(within: patience) // the clock ends it first
         async let besideDone: Void = ensure()
         for _ in 0...max(waits, 0) {
             do {
@@ -172,8 +172,10 @@ struct CloudMachineCreateFlow {
                     confirmed = true
                 }
                 onAnswering(request)
+                let steps = CloudApprovedRetry.steps() // a measured start's `machine.ensure` and `machine.approve`
                 do {
-                    await besideDone; try await approve(request, op, args)
+                    await besideDone; steps?.done("machine.ensure")
+                    defer { steps?.done("machine.approve") }; try await approve(request, op, args)
                 } catch let failure as CloudApprovalAnswer.Failure
                             where failure.alreadyAnswered(request: request, answeredEarlier: request == answering) {
                     // An earlier attempt answered it and was cancelled before it could record that: the
@@ -192,9 +194,6 @@ struct CloudMachineCreateFlow {
         }
         throw Failure.stillPending(request: approved ?? "")
     }
-
-    /// 1, 2, 4 … 8 s between the same-key retries after the approval.
-    static func backoff(_ attempt: Int) -> Duration { .seconds(min(8, 1 << min(max(attempt - 1, 0), 3))) }
 }
 
 extension CloudMachineCreateFlow.Failure: CustomStringConvertible, LocalizedError {
