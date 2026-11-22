@@ -1241,12 +1241,18 @@ export function playTurnEnd(
     if (grew) {
       if (startedAt !== undefined) {
         // A frame has painted: each row and copy goes on from where it was drawn. All reads first.
+        // Before the move starts (the exit lead) a clipped row is drawn as the first frame put it: its
+        // clip stays the one captured then, never read back from what is drawn, which moved the reply's
+        // clip 8 px on the fold's second frame and split the fold in two around the lead (fade seed 74
+        // on cmux#50751).
+        const moveRuns = movesAt !== undefined && now() >= movesAt;
         const drawn = [...moving.keys(), ...copyMoves.keys()].flatMap((node) => {
           const top = laid.get(node);
           if (top === undefined) return [];
           const style = (View ?? window).getComputedStyle(node);
           const y = style.translate === "none" ? 0 : Number.parseFloat(style.translate.split(" ")[1] ?? "") || 0;
-          const clip = moving.get(node)?.clip ? clippedBottom(node) : 0;
+          const captured = moving.get(node)?.clip;
+          const clip = captured ? (moveRuns ? clippedBottom(node) : captured) : 0;
           const shown = clip > 0 ? top + y + node.offsetHeight - clip : undefined;
           return [{ node, top: top + y, opacity: Number.parseFloat(style.opacity), shown }];
         });
@@ -1449,7 +1455,9 @@ export function playTurnEnd(
         { delta, fades: false, animations: [], clip, ...(lag > 0 && { hold: lag }) },
         () => [
           [{ translate: `0 ${delta}px` }, { translate: "0 0" }],
-          ...(clip >= 0.5 ? [[{ clipPath: clipBottom(Math.ceil(clip)) }, { clipPath: clipBottom(0) }]] : []),
+          // The clip as read, not rounded up: a whole pixel more hid part of a line the reader had seen,
+          // a step of up to 1 px on the fold's first frame (fade seed 74 on cmux#50751).
+          ...(clip >= 0.5 ? [[{ clipPath: clipBottom(clip) }, { clipPath: clipBottom(0) }]] : []),
         ],
         lag > 0 ? { delay: lag, fill: "backwards" } : {},
       );
