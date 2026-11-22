@@ -779,8 +779,10 @@ pub fn table() -> Value {
                         "to": after.delivery.key(),
                         "effects": effects.iter().map(Effect::kind).collect::<Vec<_>>(),
                     });
-                    if let Some(set) = row_set(&after, &event) {
-                        row["set"] = set;
+                    if let (Some(set), Some(fields)) =
+                        (row_set(&after, &event), row.as_object_mut())
+                    {
+                        fields.insert("set".to_owned(), set);
                     }
                     row
                 }
@@ -847,8 +849,8 @@ pub fn vectors() -> Value {
                 0 => Generation(machine.issued.0.saturating_sub(1)),
                 _ => machine.issued,
             };
-            let hop = hops[(next() % 3) as usize];
-            let code = codes[(next() % 4) as usize].to_owned();
+            let hop = hops.get((next() % 3) as usize).copied().unwrap_or(Hop::Connection);
+            let code = codes.get((next() % 4) as usize).copied().unwrap_or("timeout").to_owned();
             let events = [
                 Event::Submit,
                 Event::SubmitBehindTurn,
@@ -864,7 +866,10 @@ pub fn vectors() -> Value {
                 Event::FailTimer { generation },
                 Event::HandBack,
             ];
-            let event = events[(next() % events.len() as u64) as usize].clone();
+            let event = events
+                .get((next() % events.len() as u64) as usize)
+                .cloned()
+                .unwrap_or(Event::HandBack);
             let row = match step(&machine, &event) {
                 Ok((after, effects)) => {
                     let row = json!({ "before": machine, "event": event, "after": after, "effects": effects });
