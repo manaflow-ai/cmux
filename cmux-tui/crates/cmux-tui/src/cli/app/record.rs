@@ -253,25 +253,26 @@ pub(super) fn run(global: &GlobalArgs, request: Request) -> i32 {
     if let Some(movie) = &place.movie {
         match ffmpeg() {
             None => {
+                let args = ffmpeg_args(&place.frames, request.fps, movie);
+                let words: Vec<String> = args.iter().map(|arg| shell_word(arg)).collect();
+                report["encode_command"] = json!(format!("ffmpeg {}", words.join(" ")));
                 note = Some(messages.no_ffmpeg.replace("{dir}", &place.frames.to_string_lossy()))
             }
-            Some(ffmpeg) => {
-                match encode(&ffmpeg, &place.frames, &report_frames, request.fps, movie) {
-                    Ok(()) => {
-                        let _ = std::fs::remove_dir_all(&place.frames);
-                        report["frames_dir"] = Value::Null;
-                        report["path"] = json!(movie.to_string_lossy());
-                    }
-                    Err(error) => {
-                        note = Some(
-                            messages
-                                .encode_failed
-                                .replace("{error}", &error)
-                                .replace("{dir}", &place.frames.to_string_lossy()),
-                        );
-                    }
+            Some(ffmpeg) => match encode(&ffmpeg, &place.frames, request.fps, movie) {
+                Ok(()) => {
+                    let _ = std::fs::remove_dir_all(&place.frames);
+                    report["frames_dir"] = Value::Null;
+                    report["path"] = json!(movie.to_string_lossy());
                 }
-            }
+                Err(error) => {
+                    note = Some(
+                        messages
+                            .encode_failed
+                            .replace("{error}", &error)
+                            .replace("{dir}", &place.frames.to_string_lossy()),
+                    );
+                }
+            },
         }
     }
     if report.get("path").is_none_or(Value::is_null) {
@@ -464,6 +465,15 @@ pub(super) fn ffmpeg_args(folder: &Path, fps: u64, movie: &Path) -> Vec<String> 
     args
 }
 
+/// `text` as one shell word: as is when it is plain, else in single quotes.
+fn shell_word(text: &str) -> String {
+    if !text.is_empty() && text.chars().all(|c| c.is_ascii_alphanumeric() || "-_./:=+".contains(c))
+    {
+        return text.to_owned();
+    }
+    format!("'{}'", text.replace('\'', "'\\''"))
+}
+
 fn encode(ffmpeg: &Path, folder: &Path, fps: u64, movie: &Path) -> Result<(), String> {
     if let Some(parent) = movie.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -586,6 +596,9 @@ mod tests {
         assert_eq!(args[at("-fps_mode") + 1], "vfr");
         assert_eq!(args[at("-r") + 1], "30");
         assert_eq!(args.last().unwrap(), "/x/clip.mp4");
+        assert_eq!(shell_word("/a b/c's"), "'/a b/c'\\''s'");
+        assert_eq!(shell_word("pad=ceil(iw/2)*2"), "'pad=ceil(iw/2)*2'");
+        assert_eq!(shell_word("-fps_mode"), "-fps_mode");
     }
 
     #[test]
