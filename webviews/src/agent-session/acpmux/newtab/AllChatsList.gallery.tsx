@@ -116,7 +116,10 @@ export default componentEntry<ComponentProps<typeof AllChatsList>>({
   widths: { narrow: 420, normal: 620, wide: 820 },
   height: 360,
   anchors: [{ selector: ".nt-all" }],
-  experiment: { definition: emptyStateContext, script: [] },
+  experiment: {
+    definition: emptyStateContext,
+    script: [{ name: "Search with no matches", run: searchEmpty }],
+  },
   variants: {
     "page-failed": {
       note: "When an older history page fails, the cursor stays in place and the loader becomes an inline Try again action.",

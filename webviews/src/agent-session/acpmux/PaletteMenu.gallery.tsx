@@ -122,7 +122,10 @@ export default componentEntry<{ variant: PaletteMenuVariant }>({
   height: 560,
   widths: { narrow: 360, normal: 520, wide: 760 },
   anchors: [{ selector: ".acpmux-picker-button" }],
-  experiment: { definition: emptyStateContext, script: [] },
+  experiment: {
+    definition: emptyStateContext,
+    script: [{ name: "Search with no results", run: noResults }],
+  },
   checks: {
     anchorMovePx: { value: 0, reason: "The menu is portaled from a stable + trigger." },
     layoutShiftMax: { value: 0, reason: "Opening the floating menu must not shift its trigger or popup content." },

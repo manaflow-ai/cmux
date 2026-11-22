@@ -12132,8 +12132,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!freshChat || !tourCwd || draft?.trim() || emptyStartsDismissed) return undefined;
     const folder = tourCwd.replace(/(.)\/+$/, "$1");
     const lastPrompt = newTabFolderSessions
-      .filter((session) => session.cwd?.replace(/(.)\/+$/, "$1") === folder && session.lastPrompt?.trim())
-      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]?.lastPrompt;
+      .filter((session) => session.cwd?.replace(/(.)\/+$/, "$1") === folder && session.recentPrompt?.trim())
+      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]?.recentPrompt;
     const starts: EmptyStateStart[] = [];
     if (lastPrompt)
       starts.push({ label: lastPrompt, onPick: () => void callNative("chat.send", { text: lastPrompt }) });
@@ -12148,17 +12148,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     if (tourOffer) starts.push({ label: t("tour.offer"), onPick: tourOffer.onTake });
     return starts.slice(0, 3);
-  }, [
-    callNative,
-    draft,
-    emptyStartsDismissed,
-    freshChat,
-    headerPullRequest,
-    newTabFolderSessions,
-    t,
-    tourCwd,
-    tourOffer,
-  ]);
+  }, [draft, emptyStartsDismissed, freshChat, headerPullRequest, newTabFolderSessions, t, tourCwd, tourOffer]);
   useEffect(() => {
     if (freshChat) setEmptyStartsDismissed(false);
   }, [freshChat, snapshot.sessionId]);

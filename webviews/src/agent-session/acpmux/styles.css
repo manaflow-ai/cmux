@@ -403,7 +403,7 @@
 .acpmux-empty-starts{display:flex;flex-wrap:wrap;justify-content:center;gap:var(--ds-space-2);max-width:min(760px,100%);margin-top:var(--ds-space-3)}
 .acpmux-empty-start{display:flex;align-items:center;gap:var(--ds-space-2);max-width:240px;min-width:0;height:32px;padding:0 var(--ds-space-3);border:1px solid color-mix(in srgb,var(--agent-text) 14%,transparent);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-control);letter-spacing:var(--text-control--letter-spacing);text-align:left;cursor:default}
 .acpmux-empty-start:hover,.acpmux-empty-start:focus-visible{background:var(--acpmux-composer-hover);border-color:color-mix(in srgb,var(--agent-text) 24%,transparent)}
-.acpmux-empty-start:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+.acpmux-empty-start:focus-visible{outline:var(--cmux-focus-ring-width) solid var(--agent-text);outline-offset:1px}
 .acpmux-empty-start-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-empty-start-time{flex:none;color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
 /* The hero's folder chooser has no caret (Codex's): its name is dotted underlined as the control, "No folder" too (Lucas 2026-11-11). */

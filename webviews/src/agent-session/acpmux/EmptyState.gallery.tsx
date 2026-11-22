@@ -54,7 +54,15 @@ export default componentEntry<Props>({
   widths: { narrow: 360, normal: 640, wide: 900 },
   height: 420,
   anchors: [{ selector: ".acpmux-project-button" }],
-  experiment: { definition: emptyStateContext, script: [] },
+  experiment: {
+    definition: emptyStateContext,
+    script: [
+      {
+        name: "Point at a start",
+        run: (ctx) => ctx.hover({ selector: ".acpmux-empty-start, .acpmux-project-button" }),
+      },
+    ],
+  },
   checks: {
     anchorMovePx: { value: 0, reason: "Opening the picker uses a portal and must not move the question." },
     layoutShiftMax: { value: 0, reason: "The menu floats below the question without reflowing the hero." },
