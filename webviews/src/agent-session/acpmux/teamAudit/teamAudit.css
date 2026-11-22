@@ -45,4 +45,4 @@ button.tma-crumb:hover{color:var(--agent-text)}
 .tma-eff-table tr[data-outlier]{background:color-mix(in srgb,var(--agent-warning,var(--agent-status-warning,var(--agent-text))) 8%,transparent)}
 .tma-outlier{margin-left:var(--ds-space-2);font-size:var(--text-detail);color:var(--agent-warning,var(--agent-status-warning,var(--agent-text)))}
 .tma-eff-note{display:flex;align-items:center;gap:var(--ds-space-2);margin:0;padding:0 var(--ds-space-2);font-size:var(--text-detail);color:var(--agent-muted)}
-.tma-outlier-mark{flex:none;width:8px;height:8px;border-radius:2px;background:var(--agent-warning,var(--agent-status-warning,var(--agent-text)))}
+.tma-outlier-mark{flex:none;width:8px;aspect-ratio:1;border-radius:50%;background:var(--agent-warning,var(--agent-status-warning,var(--agent-text)))}

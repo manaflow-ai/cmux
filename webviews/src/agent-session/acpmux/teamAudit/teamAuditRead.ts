@@ -36,7 +36,9 @@ export function useAuditRead(load: Load, params: Record<string, unknown> | undef
   const [state, setState] = useState<{ key?: string; result?: AuditResult; reply?: TeamAuditReply }>({});
   const [attempt, setAttempt] = useState(0);
   const loadRef = useRef(load);
-  loadRef.current = load;
+  useEffect(() => {
+    loadRef.current = load;
+  }, [load]);
   useEffect(() => {
     if (!key) return;
     // A reply after the page left, or after the next pick, is dropped.
