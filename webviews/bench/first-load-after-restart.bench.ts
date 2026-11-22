@@ -1429,7 +1429,7 @@ try {
     frames: (r: Round) => r.metrics.frames,
   } as const;
   const json: Record<string, unknown> = {
-    turns: TURNS,
+    turns: simulated?.turns ?? TURNS,
     downMs: DOWN_MS,
     recordMs: RECORD_MS,
     rounds: ROUNDS,
@@ -1556,7 +1556,7 @@ try {
       link: LINK_NAME,
       mode,
       downMs: DOWN_MS,
-      turns: TURNS,
+      turns: simulated?.turns ?? TURNS,
       engine: ENGINE,
       rounds: rounds.length,
       firstContentMs: median(settled.map((one) => one.firstContentMs).filter((v): v is number => v !== null)),

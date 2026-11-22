@@ -16,13 +16,15 @@ const webviews = path.resolve(import.meta.dir, "..");
 const scratch = mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "chat-sim-emit-"));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
+/** chat-sim's summary line (sim/run.ts `summarize`). */
+const SUMMARY =
+  /: (\d+) steps, (\d+) rows drawn \((\d+) before folding\).*; violations (.+); mid-turn sibling folds (.+)$/m;
+
 /** Runs chat-sim with `args`: its exit status and the parts of its summary line a replay must match. */
 function chatSim(args: string[]) {
   const run = Bun.spawnSync([process.execPath, "scripts/chat-sim.ts", ...args], { cwd: webviews });
   const out = run.stdout.toString();
-  const summary = /: (\d+) steps, (\d+) rows drawn \((\d+) before folding\).*; violations (.+); mid-turn sibling folds (.+)$/m.exec(
-    out,
-  );
+  const summary = SUMMARY.exec(out);
   if (!summary) throw new Error(`chat-sim ${args.join(" ")} printed no summary:\n${out}${run.stderr.toString()}`);
   const [, steps, rows, recordRows, violations, siblingFolds] = summary;
   return { code: run.exitCode, out, steps, rows, recordRows, violations, siblingFolds };

@@ -52,9 +52,10 @@ const number = (name: string) => (value(name) === undefined ? undefined : Number
 
 function usage(code: number): never {
   const lines = readFileSync(import.meta.path, "utf8").split("\n");
+  const end = lines.findIndex((line) => line.startsWith("import "));
   console.log(
     lines
-      .slice(1, lines.findIndex((line) => line.startsWith("import ")))
+      .slice(1, end)
       .map((line) => line.replace(/^\/\/ ?/, ""))
       .join("\n"),
   );
