@@ -11,28 +11,33 @@ public struct ConnectionBannerState: Sendable, Hashable {
     public let text: String
     /// A second line, smaller, for what to do next (pairing: where the Mac asks).
     public var detail: String? = nil
+    /// The banner offers its one action (signed out: Sign in). A dropped link has none: the
+    /// link redials on its own (its backoff, a network change, the foreground), so a Retry
+    /// would only ask the person to say yes to what already happens.
     public var offersRetry = false
-    /// The action button's title when it is not "Retry" (signed out: "Sign in").
+    /// The action button's title (signed out: "Sign in"); a banner without one offers nothing.
     public var actionTitle: String? = nil
     /// Stable identity so two Macs with the same state still refresh the banner.
     public var identity: String? = nil
 
     public static func reconnecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac) }
-    public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "Offline", offersRetry: true)
-    public static func macOffline(_ mac: String, identity: String? = nil) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "Offline", offersRetry: true, identity: identity ?? mac) }
+    public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "Offline")
+    public static func macOffline(_ mac: String, identity: String? = nil) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "Offline", identity: identity ?? mac) }
     public static let connected = Self(symbol: "checkmark", showsSpinner: false, text: "Connected")
     public static func connecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac) }
     /// The account's session was revoked: nothing reconnects until the person
     /// signs in again, which the banner's one button starts.
+    // retry-prompt-ok: signing in again is the person's step; nothing reconnects without it
     public static let signedOut = Self(symbol: "person.crop.circle.badge.exclamationmark", showsSpinner: false,
                                        text: String(localized: "This device was signed out. Sign in again"),
                                        offersRetry: true, actionTitle: String(localized: "Sign in"))
-    /// The Mac is connected but a list did not load (Home's last read failed): Retry reads again.
+    /// The Mac is connected but a list did not load (Home's last read failed); Home reads it
+    /// again on its own.
     public static func refreshFailed(identity: String? = nil) -> Self {
         Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: String(localized: "Couldn't refresh"),
-             offersRetry: true, identity: identity)
+             identity: identity)
     }
-    public static let connectionFailed = Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: "Offline", offersRetry: true)
+    public static let connectionFailed = Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: "Offline")
     /// An application failure distinct from connection state.
     public static func failed(_ text: String, identity: String? = nil) -> Self {
         Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: text, identity: identity)
@@ -91,7 +96,7 @@ public struct ConnectionBanner: View {
         .accessibilityAddTraits(.updatesFrequently)
     }
 
-    private var action: (() -> Void)? { state.offersRetry ? retry : nil }
+    private var action: (() -> Void)? { state.offersRetry && state.actionTitle != nil ? retry : nil }
 
     private var oneLine: some View {
         HStack(spacing: 8) {
@@ -146,9 +151,9 @@ public struct ConnectionBanner: View {
     }
 
     private func actionButton(_ action: @escaping () -> Void) -> some View {
-        Button(state.actionTitle ?? String(localized: "Retry"), action: action)
+        Button(state.actionTitle ?? "", action: action)
             .buttonStyle(.cmuxPressFill)
-            .accessibilityIdentifier(state.actionTitle == nil ? "connection.retry" : "connection.action")
+            .accessibilityIdentifier("connection.action")
     }
 }
 #endif

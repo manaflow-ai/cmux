@@ -345,6 +345,7 @@ extension ScreenSharingRefusal {
         case .notShared: "Turn on Share This Mac in the Mac's Settings › Devices."
         case .notFound: nil
         case let .other(reason?): "The device hub could not start the session: \(reason)"
+        // retry-prompt-ok: starting a share asks the Mac again
         case .other: "Check your connection and try again."
         }
     }

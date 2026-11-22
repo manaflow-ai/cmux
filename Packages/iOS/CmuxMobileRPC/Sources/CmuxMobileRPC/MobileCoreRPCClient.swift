@@ -513,6 +513,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             throw MobileShellConnectionError.authorizationFailed(
                 L10n.string(
                     "mobile.pairing.stackAuthTokenUnavailable",
+                    // retry-prompt-ok: sign-in on the computer needs the person
                     defaultValue: "Sign in on your computer with the same account, then try again."
                 )
             )
@@ -640,6 +641,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 throw MobileShellConnectionError.authorizationFailed(
                     L10n.string(
                         "mobile.pairing.stackAuthTokenUnavailable",
+                        // retry-prompt-ok: sign-in on the computer needs the person
                         defaultValue: "Sign in on your computer with the same account, then try again."
                     )
                 )

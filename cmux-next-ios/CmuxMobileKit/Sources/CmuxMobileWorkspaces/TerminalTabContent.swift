@@ -145,6 +145,7 @@ struct PlaceholderTerminalPage: View {
     let tab: WorkspaceTab
     let insets: EdgeInsets
     var retry: (@MainActor () async -> Void)? = nil
+    @State private var autoRetry = AutoRetry()
 
     var body: some View {
         ContentUnavailableView {
@@ -152,8 +153,10 @@ struct PlaceholderTerminalPage: View {
         } description: {
             Text("This terminal isn't available.")
         } actions: {
-            if let retry { RetryButton(action: retry).accessibilityIdentifier("terminal.placeholder.retry") }
+            // Reloads on its own (AutoRetry); past the quiet bound one quiet line, no button.
+            AutoRetryQuietLine(autoRetry)
         }
+        .autoRetry(autoRetry, failing: retry != nil) { await retry?() }
         .padding(.top, insets.top)
         .padding(.bottom, insets.bottom)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

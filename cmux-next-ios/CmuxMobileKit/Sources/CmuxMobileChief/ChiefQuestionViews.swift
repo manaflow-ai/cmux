@@ -98,6 +98,7 @@ struct ChiefQuestionBar: View {
                     Text("Send your last message again.").font(.footnote).foregroundStyle(.secondary).lineLimit(2)
                 }
                 Spacer(minLength: 4)
+                // retry-prompt-ok: re-sends the person's message (a new turn, with cost)
                 Text("Try Again").font(.footnote.weight(.semibold))
             }
             .foregroundStyle(.primary)

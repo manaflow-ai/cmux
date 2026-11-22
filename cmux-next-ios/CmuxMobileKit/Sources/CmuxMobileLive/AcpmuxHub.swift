@@ -783,7 +783,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         flushOpenChunk()
         if replay.requiresResync {
             guard let hub else {
-                continuation.yield(.clientError("Reconnect to load this chat."))
+                // The Mac session this chat came from has ended; the chat opened again comes from the
+                // new one. Nothing here for the person to do over.
+                continuation.yield(.clientError("This chat's connection to the Mac closed."))
                 continuation.finish()
                 return stream
             }
@@ -1351,9 +1353,16 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     public func revokeChatPermission() async throws {
         let reply = try await call("_acpmux/permission_chat_revoke", ["sessionId": .string(sessionID)])
         // acpmux answers `{active: false}` and nothing else (the Mac's client checks the same).
-        guard reply["active"] == .bool(false) else {
-            throw AgentFeatureUnavailable(String(localized: "\(summary.macName) didn't confirm the revoke. Refresh and try again."))
+        guard reply["active"] != .bool(false) else { return }
+        // No confirmation in the reply: read the chat's allowance again (the Refresh the copy used
+        // to ask the person for) and count the revoke done when the Mac no longer allows the chat.
+        guard let now = try? await chatPermissions() else {
+            throw AgentFeatureUnavailable(String(localized: "\(summary.macName) didn't confirm the revoke."))
         }
+        if !now.allowedForChat { return }
+        // retry-prompt-ok: revoking is the person's own change, and the Mac still allows the chat
+        // after it; whether to revoke again is theirs to decide.
+        throw AgentFeatureUnavailable(String(localized: "\(summary.macName) still allows this chat. Try again."))
     }
 
     /// Reads the open asks again: a reattach from the last record applied, whose reply lists
@@ -1402,7 +1411,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let ready: Bool
         if let hub { ready = hub.isReady ? true : await hub.waitUntilReady(timeout: hub.readyGrace, clock: ContinuousClock()) } else { ready = false }
         guard let hub, ready else {
-            throw AgentFeatureUnavailable(String(localized: "Agents on \(summary.macName) aren't connected. Try again in a moment."))
+            // Already waited for, up to the hub's ready grace: nothing to wait for here.
+            throw AgentFeatureUnavailable(String(localized: "Agents on \(summary.macName) aren't connected."))
         }
         do {
             return try await hub.request(method, .object(params))

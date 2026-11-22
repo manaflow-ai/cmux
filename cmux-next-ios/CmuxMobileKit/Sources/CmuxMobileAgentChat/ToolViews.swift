@@ -116,20 +116,18 @@ struct ToolRowView: View {
 struct ToolOutputView: View {
     let call: ACPToolCall
     @Environment(\.loadFullToolOutput) private var loadFull
-    /// The whole output's read failed (link down, an older source): a tap asks again.
+    /// The whole output's read failed (the link was down: the hub answers nil until it is
+    /// ready). Read again on its own (AutoRetry), never a Try Again button.
     @State private var loadFailed = false
+    @State private var autoRetry = AutoRetry()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             card
             if call.outputCut != nil {
-                if loadFailed {
-                    Button("Couldn't load the full output. Try Again") {
-                        loadFailed = false
-                        Task { loadFailed = !(await loadFull(call)) }
-                    }
-                    .font(.footnote)
-                    .padding(.leading, 26)
+                if loadFailed, autoRetry.isQuietLineShown {
+                    AutoRetryQuietLine(autoRetry, Text("Still loading the full output…"))
+                        .padding(.leading, 26)
                 } else {
                     Text("Loading the full output…")
                         .font(.footnote)
@@ -140,6 +138,10 @@ struct ToolOutputView: View {
         }
         .task(id: call.outputCut) {
             guard call.outputCut != nil else { return }
+            loadFailed = !(await loadFull(call))
+        }
+        .autoRetry(autoRetry, failing: loadFailed && call.outputCut != nil) {
+            guard call.outputCut != nil else { loadFailed = false; return }
             loadFailed = !(await loadFull(call))
         }
     }

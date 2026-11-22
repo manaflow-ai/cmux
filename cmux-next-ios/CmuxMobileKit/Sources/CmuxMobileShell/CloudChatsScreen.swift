@@ -20,6 +20,9 @@ struct CloudChatsScreen: View {
     /// No Mac to read Cloud chats through: the state offers Connect a Mac, not Retry.
     @State private var needsMac = false
     @State private var refresh = 0
+    /// A failed directory read is read again on its own (no Retry): the spinner stays, and the
+    /// failure shows only past the quiet bound, without a button.
+    @State private var autoRetry = AutoRetry()
 
     private var macID: String {
         selectedMac.isEmpty ? shell.live?.focusedMacID ?? shell.store.activeTeam?.macs.first?.id ?? "" : selectedMac
@@ -51,8 +54,13 @@ struct CloudChatsScreen: View {
                 } else if needsMac {
                     CloudChatsConnectMac { openDevices() }
                 } else if let error {
-                    Text(error).foregroundStyle(.secondary)
-                    Button("Retry") { refresh += 1 }
+                    // Nothing to decide: `autoRetry` reads the directory again on its own.
+                    if autoRetry.isQuietLineShown {
+                        Text(error).foregroundStyle(.secondary)
+                        AutoRetryQuietLine(autoRetry)
+                    } else {
+                        CmuxSpinner(label: Text("Loading Cloud chats…"))
+                    }
                 } else if locations.isEmpty {
                     ContentUnavailableView(
                         attention == nil ? "No Cloud machines" : "Chat unavailable",
@@ -84,41 +92,52 @@ struct CloudChatsScreen: View {
             }
             .task(id: Load(mac: attention == nil ? macID : "", macs: eligibleMacIDs.sorted(),
                            live: shell.live.map(ObjectIdentifier.init), team: shell.store.activeTeamID, refresh: refresh)) {
-                shell.cloudMacID = attention == nil && !macID.isEmpty ? macID : nil
-                selectedLocation = nil
-                locations = []
-                error = nil
-                needsMac = false
-                guard let live = shell.live, attention != nil ? !eligibleMacIDs.isEmpty : !macID.isEmpty else {
-                    loading = false
-                    needsMac = true
-                    return
-                }
-                loading = true
-                do {
-                    let found: [CloudChatLocation]
-                    if let attention {
-                        // Push routing is pinned to an exact authenticated
-                        // Cloud team/machine, even when another Mac is focused.
-                        let match = await CloudChatAttentionResolver.find(macIDs: eligibleMacIDs, attention: attention) { id in
-                            try await live.cloudMachines(on: id)
-                        }
-                        found = match.map { [$0] } ?? []
-                    } else {
-                        let listed = try await live.cloudMachines(on: macID)
-                        found = CloudChatDirectory.scopedMachines(listed, attention: nil)
-                            .map { CloudChatLocation(macID: macID, machine: $0) }
-                    }
-                    try Task.checkCancellation()
-                    locations = found
-                    loading = false
-                    if attention != nil, found.count == 1 { selectedLocation = found[0] }
-                } catch {
-                    guard !Task.isCancelled else { return }
-                    loading = false
-                    self.error = "Couldn't load Cloud chats. Try again."
-                }
+                await load(retrying: false)
             }
+            .autoRetry(autoRetry, failing: error != nil && !loading && !needsMac) { await load(retrying: true) }
+        }
+    }
+
+    /// Reads the Cloud directory. A retry (`autoRetry`) keeps the failure as it is while it asks,
+    /// so a Mac still unreachable stays failed (and is asked again later) instead of blinking.
+    private func load(retrying: Bool) async {
+        shell.cloudMacID = attention == nil && !macID.isEmpty ? macID : nil
+        if !retrying {
+            selectedLocation = nil
+            locations = []
+            error = nil
+        }
+        needsMac = false
+        guard let live = shell.live, attention != nil ? !eligibleMacIDs.isEmpty : !macID.isEmpty else {
+            loading = false
+            error = nil
+            needsMac = true
+            return
+        }
+        if !retrying { loading = true }
+        do {
+            let found: [CloudChatLocation]
+            if let attention {
+                // Push routing is pinned to an exact authenticated
+                // Cloud team/machine, even when another Mac is focused.
+                let match = await CloudChatAttentionResolver.find(macIDs: eligibleMacIDs, attention: attention) { id in
+                    try await live.cloudMachines(on: id)
+                }
+                found = match.map { [$0] } ?? []
+            } else {
+                let listed = try await live.cloudMachines(on: macID)
+                found = CloudChatDirectory.scopedMachines(listed, attention: nil)
+                    .map { CloudChatLocation(macID: macID, machine: $0) }
+            }
+            try Task.checkCancellation()
+            locations = found
+            error = nil
+            loading = false
+            if attention != nil, found.count == 1 { selectedLocation = found[0] }
+        } catch {
+            guard !Task.isCancelled else { return }
+            loading = false
+            self.error = "Couldn't load Cloud chats from \(macName(macID))."
         }
     }
 
@@ -184,17 +203,18 @@ struct CloudChatsConnecting: View {
     }
 }
 
-/// The connect failed or ran past `cloudConnectBudget`: the cause, then Retry.
+/// The connect failed or ran past `cloudConnectBudget`: the cause, and the quiet line while
+/// `autoRetry` connects again on its own (no Retry: reconnecting has only one answer).
 struct CloudChatsConnectFailed: View {
     let cause: String
-    let retry: () -> Void
+    let autoRetry: AutoRetry
 
     var body: some View {
         ContentUnavailableView {
             Label("Couldn't connect", systemImage: "cloud")
         } description: {
             Text(cause)
-        } actions: { RetryButton { retry() } }
+        } actions: { AutoRetryQuietLine(autoRetry) }
         .accessibilityIdentifier("cloudChats.connectFailed")
     }
 }
@@ -208,10 +228,14 @@ private struct CloudMachineChatsScreen: View {
     @State private var relay: CloudChatRelay?
     @State private var selectedSession: String?
     @State private var error: String?
-    @State private var refresh = 0
     @State private var connectingSince = Date.now
     /// The relay was not ready within `cloudConnectBudget`.
     @State private var timedOut = false
+    /// The cause shown while a retry asks again, so the page does not blink back to the wait.
+    @State private var retryingCause: String?
+    /// A failed connect is made again on its own (no Retry or Reconnect): the wait stays through a
+    /// short failure; past the quiet bound the page says why, with no button.
+    @State private var autoRetry = AutoRetry()
     @State private var openedPreferred = false
     @State private var starting = false
     @State private var startFailed = false
@@ -255,8 +279,10 @@ private struct CloudMachineChatsScreen: View {
                         }
                     }
                 }
-            } else if let cause = failure {
-                CloudChatsConnectFailed(cause: cause) { refresh += 1 }
+            } else if let cause = failure ?? retryingCause, autoRetry.isQuietLineShown || timedOut {
+                // A short failure keeps the wait (`autoRetry` connects again); a full
+                // `cloudConnectBudget` with no answer says so at once.
+                CloudChatsConnectFailed(cause: cause, autoRetry: autoRetry)
             } else {
                 CloudChatsConnecting(machine: machine.name, mac: macName, since: connectingSince)
             }
@@ -264,9 +290,6 @@ private struct CloudMachineChatsScreen: View {
         .navigationTitle(machine.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Reconnect", systemImage: "arrow.clockwise") { refresh += 1 }
-            }
             ToolbarItem(placement: .primaryAction) {
                 Button("New Chat", systemImage: "square.and.pencil") { startChat() }
                     .disabled(starting || relay?.hub.isReady != true)
@@ -285,23 +308,11 @@ private struct CloudMachineChatsScreen: View {
                 ContentUnavailableView("Chat unavailable", systemImage: "bubble.left")
             }
         }
-        .task(id: refresh) {
-            timedOut = false
+        .task {
             connectingSince = .now
-            try? await Task.sleep(for: cloudConnectBudget)
-            guard !Task.isCancelled, relay?.hub.isReady != true else { return }
-            timedOut = true
+            await connect()
         }
-        .task(id: refresh) {
-            error = nil
-            do {
-                guard let live else { error = "Connect your Mac."; return }
-                relay = try await live.cloudChats(on: macID, machine: machine)
-            } catch {
-                guard !Task.isCancelled else { return }
-                self.error = "Couldn't connect. Try again."
-            }
-        }
+        .autoRetry(autoRetry, failing: relay?.hub.isReady != true && (failure ?? retryingCause) != nil) { await connect() }
         .overlay { if starting { CmuxSpinner(label: Text("Starting chat…")) } }
         // The preferred chat opens once it is listed: with the first page, or with a later one.
         .onChange(of: relay?.hub.isReady == true && preferredSession.flatMap { relay?.hub.sessions[$0] } != nil, initial: true) { _, ready in
@@ -310,6 +321,30 @@ private struct CloudMachineChatsScreen: View {
                   relay?.hub.sessions[preferredSession] != nil else { return }
             openedPreferred = true
             selectedSession = preferredSession
+        }
+    }
+
+    /// Opens the machine's chats through the Mac and waits for them, at most `cloudConnectBudget`
+    /// from the start. A retry keeps the last cause on screen until this attempt answers.
+    private func connect() async {
+        retryingCause = failure
+        defer { retryingCause = nil }
+        let started = ContinuousClock.now
+        guard let live else { error = "Connect your Mac."; return }
+        do {
+            let opened = try await live.cloudChats(on: macID, machine: machine)
+            relay = opened
+            // `relay.error` is cleared as the bind starts and set when it fails, so this answers at
+            // the first ready or failed bind (a stale `hub.lastError` is not read here).
+            let left = max(.zero, cloudConnectBudget - (ContinuousClock.now - started))
+            let ready = await ObservationWait({ opened.hub.isReady || opened.error != nil }, budget: left).value
+            guard !Task.isCancelled else { return }
+            error = nil
+            timedOut = !ready && opened.error == nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            timedOut = false
+            self.error = "Couldn't connect."
         }
     }
 
@@ -330,7 +365,7 @@ private struct CloudMachineChatsScreen: View {
             do {
                 selectedSession = try await relay.startChat()
             } catch {
-                startError = (error as? CloudChatStartError)?.message ?? "Try again."
+                startError = (error as? CloudChatStartError)?.message ?? "The Cloud machine didn't start the chat."
                 startFailed = true
             }
         }

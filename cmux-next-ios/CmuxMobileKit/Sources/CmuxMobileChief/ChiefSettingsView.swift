@@ -446,11 +446,13 @@ public struct ChiefSettingsView: View {
         if let backend = error as? ConversationBackendError, backend.code == -1 { return backend.message }
         // No answer from the Mac is not Chief refusing (the old copy blamed Chief for a dropped link).
         switch ChiefEngineProblem(error) {
+        // retry-prompt-ok: a failed settings change or stop the person made
         case .macUnreachable: return String(localized: "Can't reach your Mac. Make sure it's awake and connected, then try again.")
         case .chiefBusy: return String(localized: "mobile.chief.busy", defaultValue: "Chief is busy. Try again.", bundle: .module)
         default: break
         }
         return switch action {
+        // retry-prompt-ok: a failed settings change or stop the person made
         case .change: String(localized: "mobile.chief.saveFailed", defaultValue: "Couldn't save the change. Try again.", bundle: .module)
         case .stop: String(localized: "mobile.chief.stopFailed", defaultValue: "Couldn't stop Chief. Try again.", bundle: .module)
         }

@@ -157,12 +157,16 @@ import Testing
     }
 
     #if os(iOS)
-    @Test func offlineBannerOffersRetryWithoutEmbeddingAnInertActionInText() {
+    /// Leo, 2026-11-22: "vacuous decisions like that should be just done". The link redials on
+    /// its own, so an offline banner offers no Retry; only signed out has a button (Sign in).
+    @Test func offlineBannerOffersNoRetryAndNoInertActionInText() {
         #expect(ConnectionBannerState.connectionFailed.text == "Offline")
-        #expect(ConnectionBannerState.connectionFailed.offersRetry)
-        #expect(ConnectionBannerState.offline.offersRetry)
-        #expect(ConnectionBannerState.macOffline("Studio").offersRetry)
+        #expect(!ConnectionBannerState.connectionFailed.offersRetry)
+        #expect(!ConnectionBannerState.offline.offersRetry)
+        #expect(!ConnectionBannerState.macOffline("Studio").offersRetry)
+        #expect(!ConnectionBannerState.refreshFailed().offersRetry)
         #expect(!ConnectionBannerState.connected.offersRetry)
+        #expect(ConnectionBannerState.signedOut.offersRetry && ConnectionBannerState.signedOut.actionTitle != nil)
         #expect(ConnectionBannerState.reconnecting(to: "Studio").text == "Reconnecting…")
     }
     #endif
