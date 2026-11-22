@@ -48,11 +48,22 @@ const POPUP_PAGES: Record<string, string[]> = {
     "pages/changelog/updateSurfaces.css",
     "pages/changelog/surface.css",
   ],
-  // The floating web card host (server cards): the panel's glass is the page's background.
-  "Packages/macOS/CmuxNext/Sources/CmuxNextPages/WebCard/WebCardPanel.swift": [
+  // The menu bar item's popover (server cards; the floating web card panel went in ba1c7441f70): the
+  // popover's glass is the page's background.
+  "Packages/macOS/CmuxNext/Sources/CmuxNextServer/ServerPage/ServerPanelPopover.swift": [
     "pages/shared/pageBase.css",
     "ui/ui.css",
     "pages/server-cards/styles.css",
+  ],
+  // Debug: Liquid Glass Parity's WebKit column, a see-through page over the playground's backdrop.
+  "Packages/macOS/CmuxNext/Sources/CmuxNextPages/GlassParity/GlassParityPlayground.swift": [
+    "pages/shared/desktop.css",
+    "ui/glass/glass.css",
+    "ui/wave.css",
+    "pages/shared/transientMaterial.css",
+    "ui/ui.css",
+    "ui/notice.css",
+    "pages/glass-parity/styles.css",
   ],
 };
 
