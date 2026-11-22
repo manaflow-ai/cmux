@@ -46,6 +46,7 @@ import { liveTurnWork } from "./liveTurnWork.experiment";
 import { turnFoldReplies } from "./turnFoldReplies.experiment";
 import { liveTurnClock } from "./liveTurnClock.experiment";
 import { turnFoldSteered } from "./turnFoldSteered.experiment";
+import { workedLine } from "./workedLine.experiment";
 import { workedForMessages } from "./workedForMessages.experiment";
 import { bareWorkedTurns } from "./bareWorkedTurns.experiment";
 import { inboxCounts } from "./inboxNotice";
@@ -1112,6 +1113,8 @@ type ShapedTurn = {
   steeredArm: string;
   /// How its "Worked for" counts the messages it folds (workedForMessages.experiment.ts).
   messagesArm: string;
+  /// What its closed "Worked for" says besides its time (workedLine.experiment.ts).
+  lineArm: string;
   /// The person's own prompt opened the next turn (`supersededFooters`).
   endedByPerson: boolean;
   rows: AcpmuxRow[];
@@ -1180,12 +1183,19 @@ function answeringPerson(user: AcpmuxRow, rows: AcpmuxRow[]): AcpmuxRow[] {
 /// turn view, not once per turn: each read parses the stored overrides (experiment.ts), and a view
 /// shaped without reuse (a fold toggled, a fold held while the reader is scrolled up) asked for them
 /// on every turn of a long chat.
-type TurnArms = { foldStyle: TurnFoldStyle; repliesArm: string; steeredArm: string; messagesArm: string };
+type TurnArms = {
+  foldStyle: TurnFoldStyle;
+  repliesArm: string;
+  steeredArm: string;
+  messagesArm: string;
+  lineArm: string;
+};
 const turnArms = (agentFamily: string | undefined): TurnArms => ({
   foldStyle: turnFoldStyle(agentFamily),
   repliesArm: experimentArm(turnFoldReplies),
   steeredArm: experimentArm(turnFoldSteered),
   messagesArm: experimentArm(workedForMessages),
+  lineArm: experimentArm(workedLine),
 });
 
 /// The drawn rows of the turn at `rows[start]` (its prompt) up to `end`, then its held prompts.
@@ -1204,7 +1214,7 @@ function shapedTurn(
   trayAgents = 0,
   retryTarget = false,
   turnStartedAtMs?: number,
-  { foldStyle, repliesArm, steeredArm, messagesArm }: TurnArms = turnArms(agentFamily),
+  { foldStyle, repliesArm, steeredArm, messagesArm, lineArm }: TurnArms = turnArms(agentFamily),
 ): AcpmuxRow[] {
   const user = rows[start]!;
   // A running turn changes with every event: it is neither read from nor kept in the cache, so its
@@ -1234,6 +1244,7 @@ function shapedTurn(
     cached.repliesArm === repliesArm &&
     cached.steeredArm === steeredArm &&
     cached.messagesArm === messagesArm &&
+    cached.lineArm === lineArm &&
     cached.endedByPerson === endedByPerson &&
     cached.source.length === source.length
   ) {
@@ -1389,6 +1400,7 @@ function shapedTurn(
       repliesArm,
       steeredArm,
       messagesArm,
+      lineArm,
       endedByPerson,
       rows: shaped,
     });
@@ -2084,12 +2096,18 @@ function shapeTurn(
         : [...(foldsPrompt && first ? [user] : []), ...work.filter((row) => !keptOut.has(row.id))];
       const previous = style.countsMessages && foldMixesMessages(hidden) ? foldedMessages(hidden) : undefined;
       // The `header` arm names the work on the line itself ("Worked for 5m 15s · Finished 2 background
-      // tasks and ran 8 commands").
+      // tasks and ran 8 commands"), as every arm of workedLine but `time` does for any turn.
+      // workedLine's arms count edits too, so they read every call the fold holds, edit rows included.
+      const lineArm = experimentArm(workedLine);
       const workedRuns =
-        steeredArm === "header"
+        steeredArm === "header" || lineArm !== "time"
           ? hidden
               .flatMap(withoutDrafts)
-              .flatMap((row) => (isRun(row) ? (row.items ?? []).filter((item) => item.tool) : []))
+              .flatMap((row) =>
+                isRun(row) || (lineArm !== "time" && row.kind === "activity")
+                  ? (row.items ?? []).filter((item) => item.tool)
+                  : [],
+              )
           : [];
       // The messages between agents it folds count as calls by default (workedForMessages.experiment.ts).
       const messages = foldedAgentMessages(hidden);
@@ -2507,6 +2525,7 @@ function workKey(runs: readonly AcpmuxActivity[]): number {
     mix(tool.kind ?? "");
     mix(tool.title ?? "");
     mix(tool.status ?? "");
+    mix(String(tool.exitCode ?? ""));
     mix(tool.background?.state ?? "");
     for (const location of tool.locations ?? []) mix(pathKey(location));
     for (const diff of tool.diffs ?? []) mix(pathKey(diff));

@@ -9,7 +9,7 @@
 // Then the call's locations, a path field in a cut-off input, and a path in the title. A row never
 // shows the raw input: no path found is an empty list (the card says "Unknown file").
 import { cmuxTitle } from "./conversation/cmuxExec";
-import { mcpCall, mcpDescription, mcpUsing } from "./conversation/mcpCalls";
+import { mcpCall, mcpDescription, mcpPlainLine, mcpUsing } from "./conversation/mcpCalls";
 import { harnessToolLabel } from "./harnessToolLabels";
 import { currentLanguage, translatorFor } from "./i18n";
 import { commandLine, commandLook, commandSaid } from "./conversation/commandActions";
@@ -98,6 +98,7 @@ export function toolLabel(
     return (
       mcpDescription(call) ??
       cmuxTitle(t, [call], [tool]) ??
+      mcpPlainLine(t, [call], new Map(), tool.status === "pending" || tool.status === "in_progress") ??
       mcpUsing(t, call, tool.status === "pending" || tool.status === "in_progress")
     );
   }
