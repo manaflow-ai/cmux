@@ -754,6 +754,10 @@ export type AcpmuxRow = {
   phaseAt?: number;
   heardAt?: number;
   heardKey?: string;
+  /// With the line reading "Waiting on N subagents" (conversation/turns.ts, this computer's clock):
+  /// when that wait began, the last moment the turn's own rows did anything, so the time beside the
+  /// words is the wait's, never the turn's whole time.
+  waitAt?: number;
   /// The live line's clock is the turn's whole time, past its first step: it reads "4m" beside the label, or "2s · 4m" after a step's own time, so
   /// the time never reads as what the line names (conversation/Thinking.tsx).
   turnTotal?: boolean;
