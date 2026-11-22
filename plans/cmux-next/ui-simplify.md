@@ -26,6 +26,7 @@ Rules for every cut:
 | Tab strip | Separators kept (Lawrence 2026-11-05 asked for them); tab menu rows kept (Leo's screenshot, 2026-10-23) | kept |
 | Composer | Dictation mic stays (Lawrence uses it); context ring stays (asked for). Nothing cut yet | review |
 | Empty workspace | Already one wordmark and one title line; nothing to cut | done |
+| Settings > Sidebar > Spaces | The Spaces card shows only from the second space on; one space draws no card, and no Show Spaces / position / visibility row, New Space or Set Space Theme… button (a1283's "no trace with one space"); search and the palette keep them | batch 4 |
 | Pane "…" and toolbar | Kept visible at rest (user 2026-11-15: "tabbar right side … is missing now"); nothing cut | kept |
 
 ## Passed to their owners (sent 2026-11-20)
@@ -54,3 +55,16 @@ Rules for every cut:
 
 Fleet captures (`cmux-ci capture SHA --state …`), light and dark, before at the base commit and
 after at the landed commit; the report links each pair. cmux-lawrence-2 was offline on 2026-11-20.
+
+## Neighbour reds (2026-11-21)
+
+Three suites failed on feat-cmux-next and on the base too (a1283):
+
+- `SidebarSearchButtonTests`: code. #44449 gave the footer half-point heights, so the button's
+  origin rounded up one device pixel above the avatar's line. `placeSearch()` now rounds the
+  origin down.
+- `MainMenuPlacementTests`: stale test. Set Up cmux… (#46793, Leo 2026-11-18) is the 11th App row.
+- `PointerMenuTrimTests`: stale test. Customize… is on the tab and pane right-click menus (#43407).
+- `ContextMenuEssentialsTests`: code and stale test. #40159 put Copy Cloud Session Link in every workspace
+  and tab Copy folder, where a local target can only refuse it. The app now leaves it out of a local
+  target's menu (CloudTeamMenuRowsTests); the Copy folder test names it.
