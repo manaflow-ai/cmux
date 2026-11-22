@@ -368,25 +368,24 @@ extension CMUXCLI {
         }
     }
 
-    /// Secret intake order: `--stdin` (or a non-TTY stdin) reads one line from
-    /// stdin; otherwise the named environment variable; for Claude Code OAuth,
-    /// a terminal runs `claude setup-token` and parses its output; otherwise a
-    /// hidden terminal prompt. Argv is deliberately not an option: it leaks
-    /// into shell history and process listings.
+    /// Secret intake order: `--stdin` (or a non-TTY stdin) reads all of stdin;
+    /// otherwise the named environment variable; for Claude Code OAuth, a
+    /// terminal runs `claude setup-token` and parses its output; otherwise a
+    /// hidden terminal prompt, which reads one line. Argv is deliberately not
+    /// an option: it leaks into shell history and process listings.
     private func readCoderouterSecret(label: String, envVar: String, forceStdin: Bool, hint: String) throws -> String {
         let stdinIsTerminal = isatty(STDIN_FILENO) == 1
         if forceStdin || !stdinIsTerminal {
-            if !forceStdin, let fromEnv = Self.nonEmpty(ProcessInfo.processInfo.environment[envVar]) {
+            if !forceStdin, let fromEnv = Self.secretWithoutWhitespace(ProcessInfo.processInfo.environment[envVar]) {
                 return fromEnv
             }
             let data = FileHandle.standardInput.readDataToEndOfFile()
-            let text = String(decoding: data, as: UTF8.self)
-            guard let line = text.split(whereSeparator: \.isNewline).map({ $0.trimmingCharacters(in: .whitespaces) }).first(where: { !$0.isEmpty }) else {
+            guard let secret = Self.secretWithoutWhitespace(String(decoding: data, as: UTF8.self)) else {
                 throw CLIError(message: "No \(label) on stdin. \(hint)")
             }
-            return line
+            return secret
         }
-        if let fromEnv = Self.nonEmpty(ProcessInfo.processInfo.environment[envVar]) {
+        if let fromEnv = Self.secretWithoutWhitespace(ProcessInfo.processInfo.environment[envVar]) {
             return fromEnv
         }
         if envVar == "CLAUDE_CODE_OAUTH_TOKEN",
@@ -477,11 +476,21 @@ extension CMUXCLI {
         guard let line = readLine(strippingNewline: true) else {
             throw CLIError(message: "No input received.")
         }
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
+        guard let secret = Self.secretWithoutWhitespace(line) else {
             throw CLIError(message: "No input received.")
         }
-        return trimmed
+        return secret
+    }
+
+    /// A secret copied from a terminal keeps the line breaks and padding where
+    /// it wrapped. None of these secrets contain whitespace, so all of it is
+    /// dropped and the pieces are joined.
+    private static func secretWithoutWhitespace(_ text: String?) -> String? {
+        guard let text else { return nil }
+        let secret = String(String.UnicodeScalarView(
+            text.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) }
+        ))
+        return secret.isEmpty ? nil : secret
     }
 
     // MARK: Account listing and selection
