@@ -23,6 +23,29 @@ fn delivery(n: usize) -> Delivery {
     }
 }
 
+/// cmuxterm-hq#17418: a message queued behind another to the same session waits in the
+/// outbox until that one settles (delivered or failed), never as an error to its sender; one
+/// naming a delivery this outbox does not hold, or itself, goes at once.
+#[test]
+fn a_delivery_after_another_waits_until_that_one_settles() {
+    let outbox = Outbox::default();
+    outbox.add(delivery(1)).unwrap();
+    let mut second = delivery(2);
+    second.request["_meta"]["acpmux"][AFTER_KEY] = json!("d-1");
+    outbox.add(second).unwrap();
+    let second = outbox.get("d-2").unwrap();
+    assert_eq!(second.waits_behind(&outbox).as_deref(), Some("d-1"));
+    outbox.update("d-1", |d| d.state = State::Delivered);
+    assert_eq!(second.waits_behind(&outbox), None);
+    outbox.update("d-1", |d| d.state = State::Failed);
+    assert_eq!(second.waits_behind(&outbox), None);
+    let mut stray = delivery(3);
+    stray.request["_meta"]["acpmux"][AFTER_KEY] = json!("mesh:elsewhere");
+    assert_eq!(stray.waits_behind(&outbox), None);
+    stray.request["_meta"]["acpmux"][AFTER_KEY] = json!("d-3");
+    assert_eq!(stray.waits_behind(&outbox), None);
+}
+
 /// An open delivery past [`OPEN_ON_PEER_FOR_MS`] is not dropped: it fails, saying why, and
 /// its sender's status names the reason.
 #[test]
@@ -187,8 +210,10 @@ fn peer_acceptance_is_scoped_to_its_target_session() {
             std::sync::Arc::new(|_| {}),
         );
     }
-    accepts
-        .accepted("peer", &json!({"sessionId": "a", "promptId": "same-prompt", "turnId": "t-a"}));
+    accepts.accepted(
+        "peer",
+        &json!({"sessionId": "a", "promptId": "same-prompt", "turnId": "t-a"}),
+    );
     assert_eq!(*seen.lock().unwrap(), vec!["a"]);
     // An unrelated peer also cannot consume the second target's hook.
     accepts.accepted(
@@ -196,8 +221,10 @@ fn peer_acceptance_is_scoped_to_its_target_session() {
         &json!({"sessionId": "b", "promptId": "same-prompt", "turnId": "t-b"}),
     );
     assert_eq!(*seen.lock().unwrap(), vec!["a"]);
-    accepts
-        .accepted("peer", &json!({"sessionId": "b", "promptId": "same-prompt", "turnId": "t-b"}));
+    accepts.accepted(
+        "peer",
+        &json!({"sessionId": "b", "promptId": "same-prompt", "turnId": "t-b"}),
+    );
     assert_eq!(*seen.lock().unwrap(), vec!["a", "b"]);
 }
 
@@ -367,7 +394,10 @@ fn bytes_per_change(sizes: [usize; 2]) -> [u64; 2] {
 #[test]
 fn a_change_writes_the_same_bytes_with_ten_or_2500_deliveries_kept() {
     let [small, large] = bytes_per_change([10, 2_500]);
-    assert!(large * 10 <= small * 12, "large {large} B per change is over 1.2x small {small} B");
+    assert!(
+        large * 10 <= small * 12,
+        "large {large} B per change is over 1.2x small {small} B"
+    );
 }
 
 /// The same at 25,000 kept (ten days of a busy machine, 52 MB), the size hang-watch saw. A
@@ -379,7 +409,10 @@ fn a_change_writes_the_same_bytes_with_ten_or_2500_deliveries_kept() {
 #[ignore = "own run, one test at a time: 52 MB through a debug build, past the hang guard under load"]
 fn a_change_writes_the_same_bytes_with_25000_deliveries_kept() {
     let [small, large] = bytes_per_change([10, 25_000]);
-    assert!(large * 10 <= small * 12, "large {large} B per change is over 1.2x small {small} B");
+    assert!(
+        large * 10 <= small * 12,
+        "large {large} B per change is over 1.2x small {small} B"
+    );
 }
 
 /// A torn last line (a crash or a full disk mid-append) costs only that line; the rest of the

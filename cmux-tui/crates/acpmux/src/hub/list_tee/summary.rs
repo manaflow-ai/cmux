@@ -367,12 +367,9 @@ pub(super) fn summary_from_remote(peer: &str, row: &super::super::PeerRow) -> io
         row.session_id().ok_or_else(|| invalid("remote summary has no sessionId"))?.to_owned();
     let mut summary = Summary::new(chat_id);
     summary.origin = peer.to_owned();
-    summary.title = value
-        .get("title")
-        .or_else(|| value.get("name"))
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
+    // A null or empty `title` (a hub row whose machine did not say) falls back to its name.
+    let text = |key: &'static str| value.get(key).and_then(Value::as_str).filter(|t| !t.is_empty());
+    summary.title = text("title").or_else(|| text("name")).unwrap_or_default().to_owned();
     cut_title(&mut summary.title);
     summary.harness = row.harness().unwrap_or_default().to_owned();
     summary.state = value

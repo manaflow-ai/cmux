@@ -87,6 +87,20 @@ pub enum State {
     Failed,
 }
 
+/// `_meta.acpmux.after` of a queued `session/prompt`: the delivery id this one waits behind. The
+/// outbox holds it until that delivery settles (`server/outbox.rs` `deliver`), so two messages a
+/// batch sends one session arrive in its order without the sender sending the second again.
+pub const AFTER_KEY: &str = "after";
+
+impl Delivery {
+    /// The delivery this one waits behind, while that one is in this outbox and not settled.
+    pub fn waits_behind(&self, outbox: &Outbox) -> Option<String> {
+        let after = self.request.pointer("/_meta/acpmux/after").and_then(Value::as_str)?;
+        (after != self.id && outbox.get(after).is_some_and(|d| !d.settled()))
+            .then(|| after.to_owned())
+    }
+}
+
 /// One message to deliver.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

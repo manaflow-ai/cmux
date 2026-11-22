@@ -10,8 +10,8 @@ fn sub_and_page_are_shared_shapes() {
         serde_json::to_value(anchored).unwrap().get("anchor"),
         Some(&serde_json::json!("end"))
     );
-    let anchored =
-        Sub::new("s1", "list").around(Anchor::Row { row_id: 11, side: AnchorSide::Around }, 100);
+    let anchored = Sub::new("s1", "list")
+        .around(Anchor::Row { row_id: 11, side: AnchorSide::Around }, 100);
     assert_eq!(
         serde_json::to_value(anchored).unwrap().get("anchor"),
         Some(&serde_json::json!({"rowId": 11, "side": "around"}))
@@ -26,7 +26,8 @@ fn sub_and_page_are_shared_shapes() {
 
 #[test]
 fn act_wire_round_trips_without_changing_v1_shapes() {
-    let act = Act::new("chat:demo", "append", "a-1", serde_json::json!({"text":"hello"})).since(7);
+    let act =
+        Act::new("chat:demo", "append", "a-1", serde_json::json!({"text":"hello"})).since(7);
     let value = serde_json::to_value(Request::Act(act.clone())).unwrap();
     assert_eq!(value["method"], "act");
     assert_eq!(value["params"]["chat"], "chat:demo");
@@ -42,9 +43,14 @@ fn act_validation_bounds_id_op_and_body() {
     assert!(valid.validate().is_ok());
     assert!(Act::new("chat:demo", "append", "", serde_json::Value::Null).validate().is_err());
     assert!(
-        Act::new("chat:demo", "append", "x".repeat(MAX_ACT_ID_BYTES + 1), serde_json::Value::Null)
-            .validate()
-            .is_err()
+        Act::new(
+            "chat:demo",
+            "append",
+            "x".repeat(MAX_ACT_ID_BYTES + 1),
+            serde_json::Value::Null
+        )
+        .validate()
+        .is_err()
     );
     assert!(
         Act::new("chat:demo", "x".repeat(MAX_ACT_OP_BYTES + 1), "x", serde_json::Value::Null)
@@ -91,7 +97,8 @@ fn a_page_of_turns_round_trips_and_is_left_out_when_false() {
     let back: Page = serde_json::from_str(&text).unwrap();
     assert!(back.turns && back.fold.is_none());
     assert_eq!(serde_json::to_string(&back).unwrap(), text);
-    let old: Page = serde_json::from_str(r#"{"sid":"s1","stream":"chat:c","before":11}"#).unwrap();
+    let old: Page =
+        serde_json::from_str(r#"{"sid":"s1","stream":"chat:c","before":11}"#).unwrap();
     assert!(!old.turns);
 }
 

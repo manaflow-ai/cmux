@@ -41,6 +41,7 @@ impl Hub {
                         harness: m.harness.clone(),
                         state: m.status.to_string(),
                         stuck_reason: None,
+                        cwd: crate::mesh::heartbeat_cwd(&m.cwd.to_string_lossy()),
                         team_address: team_enabled
                             .then(|| {
                                 m.tags

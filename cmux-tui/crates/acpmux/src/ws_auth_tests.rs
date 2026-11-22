@@ -1,6 +1,15 @@
 use super::*;
 
 #[test]
+fn browser_app_capability_is_domain_separated_and_rotates_with_the_listener() {
+    assert_eq!(
+        browser_app_token("0123456789abcdef"),
+        "be108f04ed1c185da4c72453596b237f6a0ac2abb01fd3b0aecfc06a3e5fa147",
+    );
+    assert_ne!(browser_app_token("first"), browser_app_token("second"));
+}
+
+#[test]
 fn a_bearer_header_or_one_token_subprotocol_is_the_token() {
     let p = presented(&["Bearer abc"], &[]).unwrap();
     assert_eq!(p, Presented { token: Some("abc"), answer_protocol: false });

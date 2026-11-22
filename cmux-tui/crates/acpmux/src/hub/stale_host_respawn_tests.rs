@@ -39,6 +39,17 @@ fn this_process_is_not_stale() {
 }
 
 #[tokio::test]
+async fn a_daemon_with_no_running_agents_restarts_no_stale_proxy_agent() {
+    let mut config: crate::config::Config =
+        serde_json::from_value(serde_json::json!({"harnesses": {}})).unwrap();
+    config.store.mode = crate::config::StoreMode::Memory;
+    config.profile_sources = crate::config::ProfileSources::none();
+    let store = crate::store::open(&config.store, Path::new("/unused")).unwrap();
+    let out = Hub::new(config, store).respawn_stale_proxies().await;
+    assert_eq!((out.now, out.after_turn, out.failed.len()), (0, 0, 0));
+}
+
+#[tokio::test]
 async fn a_daemon_with_no_running_agents_restarts_nothing() {
     let mut config: crate::config::Config =
         serde_json::from_value(serde_json::json!({"harnesses": {}})).unwrap();

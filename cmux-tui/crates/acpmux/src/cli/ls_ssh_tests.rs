@@ -7,6 +7,7 @@ fn only_down_ssh_peers_are_read() {
         {"name": "b", "url": "ssh://me@b:2222", "state": "offline"},
         {"name": "c", "url": "ssh://c", "state": "connected"},
         {"name": "d", "url": "ssh://d", "state": "degraded"},
+        {"name": "joined", "url": "ssh://10.0.0.8", "state": "offline", "via": "hub"},
         {"name": "e", "url": "ws://e:1", "state": "offline"},
         {"name": "f", "url": "ssh://-oProxyCommand=x", "state": "offline"},
     ]);
@@ -18,8 +19,9 @@ fn only_down_ssh_peers_are_read() {
 
 #[test]
 fn a_far_row_is_named_on_its_host_and_replaces_the_stale_ones() {
-    let far = parse(br#"{"sessions": [{"sessionId": "s1", "name": "lane"}, {"name": "no id"}]}"#)
-        .unwrap();
+    let far =
+        parse(br#"{"sessions": [{"sessionId": "s1", "name": "lane"}, {"name": "no id"}]}"#)
+            .unwrap();
     let far: Vec<Value> = far.into_iter().map(|r| tag("box", r)).collect();
     assert_eq!(far.len(), 1);
     assert_eq!(

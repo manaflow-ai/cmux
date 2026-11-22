@@ -14,7 +14,11 @@ use std::sync::Arc;
 /// Flags a sub-session start takes no part of, and why.
 fn refused_flags(args: &NewArgs) -> Option<String> {
     let flags = [
-        (args.host.is_some(), "--machine", "a family lives on one daemon"),
+        (
+            args.host.as_deref().is_some_and(|host| host != "local"),
+            "--machine",
+            "a family lives on one daemon",
+        ),
         (args.preset.is_some(), "--preset", "the child takes -m and -e"),
         (args.harness_from.is_some(), "--harness-from", "the child takes -m and -e"),
         (args.policy.is_some(), "--policy", "the child runs its parent's policy"),

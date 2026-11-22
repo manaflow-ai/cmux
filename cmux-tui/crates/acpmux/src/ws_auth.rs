@@ -67,6 +67,15 @@ pub(super) fn presented<'a>(
     Ok(Presented { token, answer_protocol })
 }
 
+/// A capability only for `/app/ws`, never a reusable dashboard credential.
+/// Rotating the listener secret also changes this token and closes open browser connections.
+pub fn browser_app_token(listener_secret: &str) -> String {
+    cmux_local_auth::frontend_proof::hex(&cmux_local_auth::frontend_proof::hmac_sha256(
+        listener_secret.as_bytes(),
+        b"acpmux-browser-app-v1\0/app/ws",
+    ))
+}
+
 /// Loopback, IPv4-mapped loopback included.
 pub fn is_loopback(addr: &SocketAddr) -> bool {
     addr.ip().to_canonical().is_loopback()

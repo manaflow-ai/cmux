@@ -12,6 +12,7 @@ fn given(name: &str, value: &str, proxy: Option<&[&str]>) -> Given {
 fn running() -> Running {
     Running {
         port: 41234,
+        epoch: "e1".to_owned(),
         node_ca: PathBuf::from("/h/vault-egress/node-extra-ca.pem"),
         bundle: Some(PathBuf::from("/h/vault-egress/ca-bundle.pem")),
     }
@@ -38,7 +39,113 @@ fn proxy_entries_are_placeholders_and_env_entries_are_values() {
     assert_eq!(get(&env, "NO_PROXY"), Some("localhost,127.0.0.1,::1,.cmux.internal"));
     assert_eq!(get(&env, "NODE_EXTRA_CA_CERTS"), Some("/h/vault-egress/node-extra-ca.pem"));
     assert_eq!(get(&env, "SSL_CERT_FILE"), Some("/h/vault-egress/ca-bundle.pem"));
+    assert_eq!(get(&env, EPOCH_VAR), Some("e1"));
     assert!(!env.iter().any(|(_, v)| v.contains("ghp_secret_value")));
+}
+
+#[test]
+fn the_port_outlives_the_daemon_and_moves_only_when_taken() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = bind_stable(dir.path()).unwrap();
+    let port = first.local_addr().unwrap().port();
+    let kept = std::fs::read_to_string(dir.path().join(PORT_FILE)).unwrap();
+    assert_eq!(kept.trim(), port.to_string());
+    // The daemon restarts: its listener is gone, the next one takes the same port.
+    drop(first);
+    let second = bind_stable(dir.path()).unwrap();
+    assert_eq!(second.local_addr().unwrap().port(), port);
+    // Another process holds it: a new port, written down for the next start.
+    let third = bind_stable(dir.path()).unwrap();
+    let moved = third.local_addr().unwrap().port();
+    assert_ne!(moved, port);
+    let kept = std::fs::read_to_string(dir.path().join(PORT_FILE)).unwrap();
+    assert_eq!(kept.trim(), moved.to_string());
+}
+
+#[test]
+fn a_kept_port_file_that_is_not_a_port_is_replaced() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(PORT_FILE), "nope").unwrap();
+    let listener = bind_stable(dir.path()).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let kept = std::fs::read_to_string(dir.path().join(PORT_FILE)).unwrap();
+    assert_eq!(kept.trim(), port.to_string());
+}
+
+#[test]
+fn only_an_agent_on_another_start_of_our_proxy_is_stale() {
+    let ca = Path::new("/h/vault-egress/node-extra-ca.pem");
+    let env = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+        pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
+    };
+    let ours = |epoch: Option<&str>| {
+        let mut e = env(&[
+            ("HTTPS_PROXY", "http://127.0.0.1:43007"),
+            ("NODE_EXTRA_CA_CERTS", "/h/vault-egress/node-extra-ca.pem"),
+        ]);
+        if let Some(epoch) = epoch {
+            e.push((EPOCH_VAR.to_owned(), epoch.to_owned()));
+        }
+        e
+    };
+    // This start's agent.
+    assert!(!stale_proxy_env(&ours(Some("e2")), ca, Some("e2")));
+    // The incident: an agent the previous daemon started, its proxy gone.
+    assert!(stale_proxy_env(&ours(Some("e1")), ca, Some("e2")));
+    assert!(stale_proxy_env(&ours(Some("e1")), ca, None));
+    // An older build's agent named no start: it is ours, so it is stale.
+    assert!(stale_proxy_env(&ours(None), ca, Some("e2")));
+    // No proxy, or a proxy of the person's own: never ours to restart.
+    assert!(!stale_proxy_env(&env(&[("PATH", "/bin")]), ca, Some("e2")));
+    let corp = env(&[
+        ("HTTPS_PROXY", "http://corp:3128"),
+        ("NODE_EXTRA_CA_CERTS", "/h/vault-egress/node-extra-ca.pem"),
+    ]);
+    assert!(!stale_proxy_env(&corp, ca, None));
+    let other_ca = env(&[
+        ("HTTPS_PROXY", "http://127.0.0.1:43007"),
+        ("NODE_EXTRA_CA_CERTS", "/etc/corp.pem"),
+    ]);
+    assert!(!stale_proxy_env(&other_ca, ca, None));
+}
+
+/// The judgment reads a live process's environment: an agent process started on a gone
+/// proxy start is stale, one started without our proxy is not.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn a_running_agent_is_judged_by_the_env_it_was_started_with() {
+    let node_ca = crate::config::home().join("vault-egress").join("node-extra-ca.pem");
+    let spawn = |proxied: bool| {
+        let mut cmd = std::process::Command::new("sleep");
+        cmd.arg("30");
+        if proxied {
+            cmd.env("HTTPS_PROXY", "http://127.0.0.1:43007")
+                .env("NODE_EXTRA_CA_CERTS", &node_ca)
+                .env(EPOCH_VAR, "an-earlier-daemons-start");
+        } else {
+            cmd.env_remove("HTTPS_PROXY").env_remove("NODE_EXTRA_CA_CERTS");
+        }
+        cmd.spawn().unwrap()
+    };
+    let (mut stale, mut fresh) = (spawn(true), spawn(false));
+    let judged = (stale_proxy_pid(stale.id()), stale_proxy_pid(fresh.id()));
+    for child in [&mut stale, &mut fresh] {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    assert_eq!(judged, (true, false));
+}
+
+#[test]
+fn a_spawn_carries_the_start_its_stamp_names() {
+    let env = child_env_with(
+        vec![given("T", "s", Some(&["x.example.com"]))],
+        Some(&running()),
+        &|_| None,
+    );
+    let node_ca = running().node_ca;
+    assert!(!stale_proxy_env(&env, &node_ca, Some("e1")));
+    assert!(stale_proxy_env(&env, &node_ca, Some("e9")));
 }
 
 #[test]
@@ -49,7 +156,8 @@ fn no_proxy_entry_means_no_proxy_settings() {
 
 #[test]
 fn a_proxy_that_did_not_start_still_withholds_the_value() {
-    let env = child_env_with(vec![given("T", "secret", Some(&["x.example.com"]))], None, &|_| None);
+    let env =
+        child_env_with(vec![given("T", "secret", Some(&["x.example.com"]))], None, &|_| None);
     assert_eq!(env, vec![("T".to_owned(), "cmux-secret://T".to_owned())]);
 }
 
@@ -88,7 +196,8 @@ fn policy_holds_only_proxy_entries_with_their_valid_hosts() {
 fn trust_files_extend_what_the_launch_trusted() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("base.pem");
-    std::fs::write(&base, "-----BEGIN CERTIFICATE-----\nBASE\n-----END CERTIFICATE-----").unwrap();
+    std::fs::write(&base, "-----BEGIN CERTIFICATE-----\nBASE\n-----END CERTIFICATE-----")
+        .unwrap();
     let node = dir.path().join("node.pem");
     std::fs::write(&node, "-----BEGIN CERTIFICATE-----\nNODE\n-----END CERTIFICATE-----\n")
         .unwrap();
@@ -105,6 +214,7 @@ fn trust_files_extend_what_the_launch_trusted() {
     assert!(node_text.contains("NODE") && node_text.ends_with(ca));
     let bundle_text = std::fs::read_to_string(bundle.unwrap()).unwrap();
     assert!(
-        bundle_text.starts_with("-----BEGIN CERTIFICATE-----\nBASE") && bundle_text.ends_with(ca)
+        bundle_text.starts_with("-----BEGIN CERTIFICATE-----\nBASE")
+            && bundle_text.ends_with(ca)
     );
 }

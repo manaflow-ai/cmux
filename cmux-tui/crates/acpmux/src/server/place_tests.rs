@@ -63,6 +63,7 @@ fn only_peers_whose_link_is_up_are_candidates() {
         json!({"name": "up", "connected": true, "state": "connected", "health": health(40, 0)}),
         json!({"name": "stale", "connected": true, "state": "reconnecting"}),
         json!({"name": "gone", "connected": false, "state": "offline"}),
+        json!({"name": "old-disk", "connected": true, "state": "connected", "outdated": true}),
     ];
     let (peers, down) = split_peers(rows);
     assert_eq!(peers.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["up"]);
@@ -71,6 +72,7 @@ fn only_peers_whose_link_is_up_are_candidates() {
         [
             ("stale".to_owned(), "not connected (reconnecting)".to_owned()),
             ("gone".to_owned(), "not connected (offline)".to_owned()),
+            ("old-disk".to_owned(), "outdated peer build (stale disk copy)".to_owned()),
         ]
     );
 }

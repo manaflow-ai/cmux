@@ -2,11 +2,27 @@ use super::*;
 
 #[test]
 fn every_pattern_compiles() {
-    for re in
-        [&HEADER, &TRACE_ID, &GENERATED, &CO_AUTHOR, &SESSION_LINE, &RECEIPT, &BATCH_LINE, &HANDOFF]
-    {
+    for re in [
+        &HEADER,
+        &TRACE_ID,
+        &GENERATED,
+        &CO_AUTHOR,
+        &SESSION_LINE,
+        &RECEIPT,
+        &BATCH_LINE,
+        &HANDOFF,
+    ] {
         assert!(re.is_some());
     }
+}
+
+#[test]
+fn a_sent_by_trailer_reads_as_an_agents() {
+    let text = "PR #1 is green.\n\nSent-by: devbox/lane-x harness=claude \
+                    model=claude-opus-5-5";
+    let found = detect(text);
+    assert_eq!(found.from.as_deref(), Some("devbox/lane-x"));
+    assert_eq!(found.signals, vec!["a Sent-by line"]);
 }
 
 #[test]
@@ -36,7 +52,8 @@ fn a_persons_words_read_as_theirs() {
 
 #[test]
 fn footers_and_receipts_name_their_signal() {
-    let found = detect("Done.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)");
+    let found =
+        detect("Done.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)");
     assert_eq!(found.from.as_deref(), Some("Claude Code"));
     assert!(detect("Review (gpt-5.5): SHIP at abc123").agent());
     assert!(detect("Co-Authored-By: Claude <noreply@anthropic.com>").agent());

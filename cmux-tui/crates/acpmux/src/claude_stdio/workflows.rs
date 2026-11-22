@@ -46,7 +46,7 @@ const PREVIEW_SCAN: usize = PREVIEW_CHARS * 64;
 #[derive(Debug, Default)]
 pub(super) struct WorkflowRun {
     /// The run's transcript dir, once its launch named it.
-    dir: Option<PathBuf>,
+    pub(super) dir: Option<PathBuf>,
     /// Each agent's item as last seen and its fields as last sent, by
     /// Claude's agent index.
     agents: HashMap<u64, (Value, Map<String, Value>)>,

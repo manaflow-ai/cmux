@@ -23,6 +23,18 @@ fn a_child_start_names_its_parent_harness_model_and_effort() {
 }
 
 #[test]
+fn parent_launches_apply_new_compatibility_spellings_before_validation() {
+    let mut args = new_args(&["--parent", "lead", "--stay", "--wait", "do the work"]);
+    let notices = args.apply_compat();
+    assert_eq!(args.host.as_deref(), Some("local"));
+    assert_eq!(args.prompt, ["do the work"]);
+    assert!(args.quiet);
+    assert!(!args.detach);
+    assert_eq!(notices.len(), 2);
+    assert_eq!(refused_flags(&args), None);
+}
+
+#[test]
 fn force_admit_reaches_the_child_start() {
     let args = new_args(&["--parent", "lead", "--force-admit", "go"]);
     assert_eq!(refused_flags(&args), None);
@@ -48,7 +60,10 @@ fn a_turn_end_reads_as_its_state_and_error() {
 #[test]
 fn flags_a_child_start_takes_no_part_of_are_refused() {
     let why = refused_flags(&new_args(&["--parent", "lead", "--host", "box", "go"]));
-    assert_eq!(why.as_deref(), Some("--parent takes no --machine: a family lives on one daemon"));
+    assert_eq!(
+        why.as_deref(),
+        Some("--parent takes no --machine: a family lives on one daemon")
+    );
     assert!(refused_flags(&new_args(&["--parent", "lead", "--policy", "ask"])).is_some());
     assert!(refused_flags(&new_args(&["--parent", "lead", "--ephemeral"])).is_some());
 }
