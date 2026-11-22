@@ -14,7 +14,8 @@ struct MacScreenViewerControlsTests {
     private func pane(scope: SessionScope = .view) -> MacScreenPane {
         let viewer = MacScreenHubViewer(deviceID: "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff") { nil }
         viewer.phase = .streaming(sessionID: "layout-session", scope: scope)
-        return MacScreenPane(hubDevice: viewer, name: "Studio MacBook Pro", preferences: ScreenPreferences())
+        // These pin the top toolbar bar (look `current`), not the default look.
+        return MacScreenPane(hubDevice: viewer, name: "Studio MacBook Pro", preferences: ScreenPreferences(), viewerLook: .current)
     }
 
     private func button(_ id: String, in pane: MacScreenPane) throws -> NSButton {
