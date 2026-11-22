@@ -20,8 +20,8 @@
 //!    control's result: `{sessionId, cwd, branch?, commit?, timings}`, `timings` the freeze's split
 //!    on this side (`dialMs`, `pages`, `pageBytes`, `pagesMs`, `finishMs`). A repeat of a move that
 //!    landed answers the same chat and folder without a second import (and no `timings`).
-//! A pre-copied move (`transfer_hub_precopy.rs`) stages the history here before the freeze, and
-//! its `move` names the `stageId`.
+//!    A pre-copied move (`transfer_hub_precopy.rs`) stages the history here before the freeze, and
+//!    its `move` names the `stageId`.
 //! 4. The client commits the move on the source with `movedTo {host, via: "hub", ...}`, or aborts
 //!    it on a refusal. A move whose client goes away is ended by the source's watch, which asks
 //!    the target with op `move_forget` (`transfer_watch.rs`).
@@ -148,7 +148,7 @@ impl Hub {
         }
         let mut landed = false;
         let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            landed |= e.kind == "transferred_in" && e.msg["transferId"] == transfer_id;
+            landed |= e.kind == "transferred_in" && *field(&e.msg, "transferId") == transfer_id;
             !landed
         });
         landed.then(|| json!({"sessionId": session.id, "cwd": session.meta().cwd}))
@@ -287,19 +287,20 @@ impl Hub {
                 }
                 let page = pages.call("read", read).await?;
                 page_count += 1;
-                page_bytes += page["data"].as_str().map_or(0, |d| d.len() as u64);
+                page_bytes += field(&page, "data").as_str().map_or(0, |d| d.len() as u64);
                 let mut write = json!({"receiveId": receive_id, "path": path, "offset": offset,
-                                       "data": page["data"]});
+                                       "data": field(&page, "data")});
                 if let Some(epoch) = epoch {
                     write.set("epoch", json!(epoch));
                 }
                 self.transfer_write(&write)?;
-                let next = page["next"].as_u64().ok_or_else(|| pull_error("read", "no next"))?;
-                if next <= offset && page["eof"] != true {
+                let next =
+                    field(&page, "next").as_u64().ok_or_else(|| pull_error("read", "no next"))?;
+                if next <= offset && *field(&page, "eof") != true {
                     return Err(pull_error("read", "the source's page did not move on"));
                 }
                 offset = next;
-                if page["eof"] == true {
+                if *field(&page, "eof") == true {
                     break;
                 }
             }
@@ -405,7 +406,7 @@ impl Hub {
         let op = crate::mesh_relay_config::MOVE_FORGET_OP;
         match self.hub_control(daemon, op, body, key, FORGET_WAIT).await {
             Ok(Ok(Some(result))) => {
-                serde_json::from_str::<Value>(&result).ok()?["landed"].as_bool()
+                serde_json::from_str::<Value>(&result).ok()?.get("landed")?.as_bool()
             }
             _ => None,
         }
@@ -487,6 +488,11 @@ impl Hub {
     fn resolve_hub_machine(&self, name: &str) -> Result<Value, RpcError> {
         Err(RpcError::not_found(format!("{name}: this build has no hub carrier")))
     }
+}
+
+/// `v[k]` without the indexing lint: Null when absent.
+fn field<'a>(v: &'a Value, k: &str) -> &'a Value {
+    v.get(k).unwrap_or(&Value::Null)
 }
 
 #[cfg(test)]

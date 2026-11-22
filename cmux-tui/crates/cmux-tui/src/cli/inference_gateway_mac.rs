@@ -254,7 +254,7 @@ pub(super) async fn enable_once(
     if tokio::fs::try_exists(marker).await.unwrap_or(false) {
         return Ok(false);
     }
-    let common = Common { api: api.to_owned(), team: None, token: token.clone() };
+    let common = Common { api: Some(api.to_owned()), team: None, token: token.clone() };
     let verb = Verb::Mode { personal: true, mode: "gateway".into(), machine: None };
     let (answer, code) = super::inference_gateway_admin::run(&common, &verb).await;
     if code != 0 {

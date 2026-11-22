@@ -474,6 +474,7 @@ export type Connection = {
   readonly sharing: "private" | "team"
   readonly resources?: {
     readonly repos: ReadonlyArray<string> | null
+    readonly linked_by_github_id?: number
   }
   readonly created_at: number
   readonly updated_at: number
@@ -3247,6 +3248,7 @@ export interface CloudOps {
       readonly sharing: "private" | "team"
       readonly resources?: {
         readonly repos: ReadonlyArray<string> | null
+        readonly linked_by_github_id?: number
       }
       readonly created_at: number
       readonly updated_at: number

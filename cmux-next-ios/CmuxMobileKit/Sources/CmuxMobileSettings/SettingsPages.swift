@@ -25,6 +25,8 @@ struct AccountPage: View {
     let auth: CmuxMobileAuthModel
     let directory: (any SettingsDeviceDirectory)?
     @State private var methods: SettingsLoad<[SignInMethod]> = .loading
+    /// The account `methods` was loaded for.
+    @State private var methodsUserID: String?
     @State private var confirmsDeletion = false
     /// Apple's subscription page while the App Store warning is up.
     @State private var renewingSubscription: URL?
@@ -177,7 +179,12 @@ struct AccountPage: View {
     }
 
     private func loadMethods() async {
-        methods = .loading
+        // The page reloads each time it is shown again (a tab switch back to Settings): it keeps
+        // the rows it has instead of swapping them for "Loading" and back, as the Team page does.
+        // Only a first load or another account shows "Loading".
+        let userID = auth.user?.id
+        if case .loaded = methods, methodsUserID == userID {} else { methods = .loading }
+        methodsUserID = userID
         do {
             methods = .loaded(try await auth.signInMethods())
         } catch is CancellationError {

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tests/unittest_shard.py: `--shard I/N` splits a unittest file's tests into N disjoint parts that cover it.
 
-Manual lane (CLAUDE.md: no new CI tests): run it when unittest_shard.py changes,
+Manual lane (kept manual under the 2026-10-23 no-new-CI rule, since lifted): run it when unittest_shard.py changes,
 `python3 -I tests/test_unittest_shard.py`; it needs only python3.
 """
 import subprocess

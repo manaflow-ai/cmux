@@ -34,6 +34,12 @@ pub const HOLD_ATTACH: &str = "attach-hold-v1";
 /// `closedListed` (`server/requests/info.rs` `rows`).
 pub const INFO_ROWS: &str = "info-rows-v1";
 
+/// A client that sends `initialize` with `_meta.acpmux.peerRowBatches: true` hears a burst of one
+/// peer's rows (more than 32, a peer's list) as one `_acpmux/peer_rows_changed`, and follows the
+/// list for them (`hub/list_guard.rs` `send_remote_batch`). Every other client hears each row's
+/// `_acpmux/session_changed`, as before.
+pub const PEER_ROW_BATCHES: &str = "peer-row-batches-v1";
+
 /// Session summaries carry `hasDraft` and `workingBelow` (absent means false only with this id).
 pub const SESSION_IDLE_FACTS: &str = "session-idle-facts-v1";
 
@@ -109,8 +115,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
     // Each local session summary says `hasDraft` and `workingBelow`, omitted when false
-    // (`protocol/session.rs`, `Hub::holds_work_below`). Only from a daemon that lists this id does a
-    // missing field mean false; the app's Update When Idle holds on any other (absent is unknown).
+    // (`protocol/session.rs`, `Hub::holds_work_below_read`). Only from a daemon that lists this
+    // id does a missing field mean false; the app's Update When Idle holds on any other (absent
+    // is unknown).
     Capability { id: SESSION_IDLE_FACTS, wire: &[method::MUX_SESSIONS] },
     // `_acpmux/info {sessionIds, row: true}`: the session list's rows of up to 100 chats by key,
     // the bytes `_acpmux/sessions` lists, and `_acpmux/status`'s `closedListed`. A list caller
@@ -125,6 +132,10 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability {
         id: crate::hub::row_log::CAPABILITY,
         wire: &[method::MUX_WATCH, method::MUX_SESSION_CHANGED],
+    },
+    Capability {
+        id: PEER_ROW_BATCHES,
+        wire: &[method::INITIALIZE, method::MUX_WATCH, method::MUX_PEER_ROWS_CHANGED],
     },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which
