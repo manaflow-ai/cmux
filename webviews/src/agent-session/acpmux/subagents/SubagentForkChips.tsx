@@ -97,8 +97,9 @@ function ReadOnlyChip({
     return (
       <span className={className} data-subagent-chip={kind}>
         {/* tooltip-allow: a read-only chip's hover says why it cannot change here */}
-        <span className={button} role="img" aria-label={`${name}. ${tip}`} title={tip}>
+        <span className={button} title={tip}>
           {face}
+          <span className="visually-hidden">{`${name}. ${tip}`}</span>
         </span>
       </span>
     );
