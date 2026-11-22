@@ -8223,6 +8223,9 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   /* Small-radius rects, not capsules (agent-pane-no-capsules.test.ts). */
   border-radius: var(--ds-radius-control);
   background: color-mix(in srgb, var(--acpmux-needs-you-mark) 16%, transparent);
+  /* The words in the needs-you ink (the mark toward the text), not the raw mark on its own tint: the
+     raw mark was 2.64:1 in light; the dot keeps the mark's hue. */
+  color: var(--acpmux-needs-you-ink);
   line-height: var(--ds-control-icon);
 }
 /* The ringed dot on the 12px glyph step: an 8px dot in the mark's colour inside a 2px ring of it. */
