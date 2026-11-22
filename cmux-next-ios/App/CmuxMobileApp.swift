@@ -80,6 +80,8 @@ struct CmuxMobileApp: App {
                 TerminalResizeDemoRoot()
             } else if AgentCLIHybridBenchRoot.isRequested {
                 AgentCLIHybridBenchRoot()
+            } else if TerminalRealDaemonPanRoot.isRequested {
+                TerminalRealDaemonPanRoot()
             } else if TerminalDemoRoot.isRequested || DeveloperOptions.launchDemo == "terminal" {
                 TerminalDemoRoot()
             } else {
