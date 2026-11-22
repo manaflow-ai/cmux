@@ -112,6 +112,12 @@ if [ "$warm" = true ]; then
 fi
 
 phase=resolve
+# The web bundles and the App Store packages are build output (cx-vn5, #45083), and
+# the app's Verify web bundles phase refuses a build without them (compile exit 65).
+# Make them current here, as the fleet's package-test lane does, before canonical-resolve
+# copies this checkout into the root's src. Its cache is source-keyed, so a warm one
+# installs in seconds; a kill leaves only this checkout's gitignored output.
+bash scripts/ci/ensure-web-bundles.sh >>"$log" 2>&1 || fail "web-bundles"
 GHOSTTYKIT_ARCHIVE_CACHE_DIR="$state/ghosttykit-archives" ./scripts/download-prebuilt-ghosttykit.sh >>"$log" 2>&1 \
   || fail "ghosttykit"
 python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages >>"$log" 2>&1 || fail "sanitize"

@@ -67,6 +67,18 @@ class OwnedCatchUpTest(unittest.TestCase):
             self.assertRegex(line["head"], r"^[0-9a-f]{40}$")
             self.assertEqual(os.listdir(state), ["log"])  # no store was written
 
+    def test_makes_the_web_bundles_current_before_the_tree_is_copied_and_built(self) -> None:
+        # The app's Verify web bundles phase fails a build without the web bundles and the App
+        # Store packages (build output since #45083): two catch-ups of the NEXT tip on
+        # 2026-11-22 failed `compile exit 65` there. canonical-resolve copies this checkout
+        # into the root's src, so the bundles must be current before it, and a failed step
+        # must be named in the result line.
+        text = SCRIPT.read_text()
+        step = text.index("bash scripts/ci/ensure-web-bundles.sh")
+        self.assertLess(step, text.index("canonical-resolve"))
+        self.assertLess(step, text.index("canonical-build"))
+        self.assertIn('ensure-web-bundles.sh >>"$log" 2>&1 || fail "web-bundles"', text)
+
 
 if __name__ == "__main__":
     unittest.main()
