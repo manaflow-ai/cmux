@@ -359,6 +359,11 @@ pub fn hand_out(home: &Path, to: &str, out: &Path) -> Result<Writer, String> {
     if to.trim().is_empty() {
         return Err("hand-out needs --to MACHINE (the target's /etc/machine-id)".into());
     }
+    // One writer: a home already handed out (or moved, or moving) is not the writer, and a
+    // second hand-out from it would give the same epoch to two machines.
+    if let Some(why) = crate::migrate::refusal(home) {
+        return Err(format!("not handing out: {why}"));
+    }
     let root = crate::paths::Paths::new(home).root;
     crate::migrate::create_private_dir(out)?;
     if std::fs::read_dir(out)
@@ -453,7 +458,9 @@ pub fn take_in(home: &Path, writer: &Writer) -> Result<Record, String> {
     }
     for (name, tmp, sha) in placed {
         let to = root.join(&name);
-        let same = crate::migrate::sha256_file(&to).is_ok_and(|(s, _)| s == sha);
+        // A WAL holds rows the main file does not show yet, so a file with one is never "the same".
+        let has_wal = std::fs::metadata(side(&to, "-wal")).is_ok_and(|m| m.len() > 0);
+        let same = !has_wal && crate::migrate::sha256_file(&to).is_ok_and(|(s, _)| s == sha);
         if to.exists() && !same {
             let mut kept = root.join(format!("{name}.before-take-in-{}", writer.epoch));
             if kept.exists() {
@@ -463,9 +470,17 @@ pub fn take_in(home: &Path, writer: &Writer) -> Result<Record, String> {
                     std::process::id()
                 ));
             }
+            // Its side files go with it: a crashed host's last rows are in its WAL.
+            for suffix in ["-wal", "-shm", "-journal"] {
+                let from = side(&to, suffix);
+                if from.exists() {
+                    std::fs::rename(&from, side(&kept, suffix))
+                        .map_err(|e| format!("keeping {}: {e}", from.display()))?;
+                }
+            }
             std::fs::rename(&to, &kept).map_err(|e| format!("keeping {}: {e}", to.display()))?;
         }
-        // The old file's side files belong to the old file.
+        // Side files left now belong to a file identical to the one placed.
         remove_temp_sides(&to);
         std::fs::rename(&tmp, &to).map_err(|e| format!("placing {}: {e}", to.display()))?;
     }
@@ -488,6 +503,13 @@ pub fn take_in(home: &Path, writer: &Writer) -> Result<Record, String> {
 }
 
 /// Removes the SQLite side files of `db` (never `db` itself).
+/// `db` with a SQLite side-file suffix (`-wal`, `-shm`, `-journal`).
+fn side(db: &Path, suffix: &str) -> PathBuf {
+    let mut p = db.as_os_str().to_owned();
+    p.push(suffix);
+    PathBuf::from(p)
+}
+
 fn remove_temp_sides(db: &Path) {
     for suffix in ["-wal", "-shm", "-journal"] {
         let mut p = db.as_os_str().to_owned();
