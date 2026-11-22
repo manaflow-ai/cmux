@@ -1291,6 +1291,9 @@ def is_web_change(path: str) -> bool:
         "scripts/ci/guards_new_reds.py",
         # It also runs the test of the PR scoping of ui-rules and gallery coverage.
         "scripts/tests/test_pr_scoped_webviews_checks.py",
+        # and the naming autofix's check and test (scripts/ci/naming_autofix.py).
+        "scripts/ci/naming_autofix.py",
+        "scripts/tests/test_naming_autofix.py",
         "scripts/check-webviews-bun-version.sh",
         "scripts/webviews_bun_version.py",
         "scripts/check-webviews-react-compiler.mjs",

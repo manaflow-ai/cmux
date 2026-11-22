@@ -23,7 +23,11 @@
 #    CMUX_NEXT_CHECKS_SKIP_REASON="<check> fails in files this push does not touch".
 # 3. Base-merge warning (always, never refuses): scripts/ci/base_merge_warning.py says when the push
 #    merges the base into a branch whose old head still has CI running, which the push cancels.
-# 4. Namespace autofix (opt-in): only when installed with --namespace-fix.
+# 4. Naming autofix (always, a work tree only): scripts/ci/naming_autofix.py --fix renames an experiment or gallery id
+#    the push's changes (since the merge base with <remote>/feat-cmux-next) define against its CI rule, with its
+#    references, and refuses the push with the commit to make, as the namespace autofix does. #48230's dotted
+#    experiment id turned react-apps-check red on every webviews pull request until four of them fixed it by hand.
+# 5. Namespace autofix (opt-in): only when installed with --namespace-fix.
 # Each run that checks commits ends with one `pre-push: hook times:` line on stderr (each phase's seconds and the
 # total), then what a failure means: after a pass, a failure is git or GitHub (retry); a refusal names its phase.
 # Pushes took 34-98 s on 2026-11-09 and nothing said whether the hook, git's pack step or GitHub was slow.
@@ -292,6 +296,24 @@ BASE_MERGE_WARNING="$HOOK_DIR/base_merge_warning.py"
 phase base-merge-warning
 if [[ -f "$BASE_MERGE_WARNING" ]]; then
     "$PYTHON3_BIN" -I "$BASE_MERGE_WARNING" --pre-push --repo "$REPO_ROOT" < "$REFS_FILE" || true
+fi
+
+# Naming autofix (header, 4): it edits the checkout, so a clone without a work tree is left to CI's checks. A base
+# the clone has not fetched skips it (the PR autofix renames it on the pull request instead).
+NAMING="$HOOK_DIR/naming_autofix.py"
+NAMING_BASE="$PUSHED_REMOTE/feat-cmux-next"
+phase naming-autofix
+if [[ -f "$NAMING" ]] && (( HAS_WORK_TREE )) && git rev-parse --verify --quiet "$NAMING_BASE^{commit}" >/dev/null; then
+    naming_before="$(git status --porcelain --untracked-files=no)"
+    naming_out="$("$PYTHON3_BIN" -I "$NAMING" --fix --base "$NAMING_BASE" --repo "$REPO_ROOT" 2>&1)" || true
+    [[ -z "$naming_out" ]] || printf '%s\n' "$naming_out" | sed 's/^/pre-push: naming autofix: /' >&2
+    if [[ "$naming_before" != "$(git status --porcelain --untracked-files=no)" ]]; then
+        naming_files="$(printf '%s\n' "$naming_out" | sed -n 's/^fixed: .* file(s): \(.*\))$/\1/p' | tr ',' '\n' \
+            | sed 's/^ *//' | sort -u | tr '\n' ' ')"
+        echo "pre-push: naming autofix renamed ids that break a CI naming rule (lines above). Commit them, then push again:" >&2
+        echo "    git add -- ${naming_files% } && git commit -m 'Auto-fix naming: scripts/ci/naming_autofix.py' && git push" >&2
+        exit 1
+    fi
 fi
 
 phase ""

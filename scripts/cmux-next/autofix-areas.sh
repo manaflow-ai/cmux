@@ -49,6 +49,9 @@ area ratchets 'Packages/|ios/cmux/|scripts/lint-ios-package-conventions\.sh|scri
 area cloud 'backend/catalog/cloud-operations\.json|backend/packages/protocol/(scripts/export-(rust-)?client\.ts|src/automation-caps\.ts)|clients/ts/cloud/|cmux-tui/crates/cmux-cloud-wire/src/generated/'
 # webviews formatting, and the acpmux protocol types its codegen writes from the spec.
 area webviews 'webviews/|cmux-tui/crates/acpmux/spec/'
+# Experiment and gallery ids that break their CI naming rule (scripts/ci/naming_autofix.py reads the rules from
+# experiment.ts and gallery/format.ts and the definitions from *.experiment.ts and *.gallery.ts(x)).
+area naming 'webviews/src/|scripts/ci/naming_autofix\.py'
 area ghostty 'ghostty$|scripts/ghosttykit-checksums\.txt'
 area fmt 'cmux-tui/|Native/OptChat/'
 # Every tracked Cargo.lock against its manifests (cargo-locks.py): any Cargo.toml or Cargo.lock anywhere, since a
