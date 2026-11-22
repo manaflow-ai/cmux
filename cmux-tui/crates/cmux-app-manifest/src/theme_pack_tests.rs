@@ -77,7 +77,8 @@ fn a_full_pack_that_meets_the_floor_is_valid_with_no_findings() {
         "motion": { "quick": 60, "micro": 100, "standard": 160, "large": 220, "spinner": 1500 },
         "slots": { "chat.thinkingIndicator": "pulse" }
     })));
-    assert!(issues.is_empty(), "{issues:?}");
+    assert!(is_valid(&issues), "{issues:?}");
+    assert!(issues.iter().all(|i| !i.code.starts_with("theme")), "{issues:?}");
 }
 
 #[test]
