@@ -90,17 +90,17 @@ import Testing
     /// A keycap prints a named key as the Mac keyboard does, keeps modifiers and other keys as they are, and a
     /// chord splits into its strokes.
     @Test func keycapsPrintTheKeysAsTheKeyboardDoes() {
-        #expect(["↩", "⏎", "↵", "\r"].map(KeycapLegend.legend) == ["return", "return", "return", "return"])
-        #expect(KeycapLegend.legend("⇥") == "tab")
-        #expect(KeycapLegend.legend("⎋") == "esc")
-        #expect(KeycapLegend.legend("Esc") == "esc")
-        #expect(KeycapLegend.legend("⌫") == "delete")
-        #expect(["⌘", "⌥", "⌃", "⇧", "J", ",", "1…9"].map(KeycapLegend.legend) == ["⌘", "⌥", "⌃", "⇧", "J", ",", "1…9"])
-        #expect(KeycapLegend.text("⌘↩") == "⌘ return")
-        #expect(KeycapLegend.text("⇧⇥") == "⇧ tab")
-        #expect(KeycapLegend.text("⇧⌘P") == "⇧⌘P")
-        #expect(KeycapLegend.strokes(["⌘", "J", "S"]) == [["⌘", "J"], ["S"]])
-        #expect(KeycapLegend.strokes(["⇧", "⌘", "P"]) == [["⇧", "⌘", "P"]])
-        #expect(KeycapLegend.strokes(["⌃", "B", "⌥", "1…9"]) == [["⌃", "B"], ["⌥", "1…9"]])
+        #expect(["↩", "⏎", "↵", "\r"].map(\.keycapLegend) == ["return", "return", "return", "return"])
+        #expect("⇥".keycapLegend == "tab")
+        #expect("⎋".keycapLegend == "esc")
+        #expect("Esc".keycapLegend == "esc")
+        #expect("⌫".keycapLegend == "delete")
+        #expect(["⌘", "⌥", "⌃", "⇧", "J", ",", "1…9"].map(\.keycapLegend) == ["⌘", "⌥", "⌃", "⇧", "J", ",", "1…9"])
+        #expect("⌘↩".keycapText == "⌘ return")
+        #expect("⇧⇥".keycapText == "⇧ tab")
+        #expect("⇧⌘P".keycapText == "⇧⌘P")
+        #expect(["⌘", "J", "S"].keycapStrokes == [["⌘", "J"], ["S"]])
+        #expect(["⇧", "⌘", "P"].keycapStrokes == [["⇧", "⌘", "P"]])
+        #expect(["⌃", "B", "⌥", "1…9"].keycapStrokes == [["⌃", "B"], ["⌥", "1…9"]])
     }
 }
