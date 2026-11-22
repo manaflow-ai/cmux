@@ -19,13 +19,12 @@ extension SidebarBridge {
         let priority = SidebarPriorityFeed(services: services).start(container.sidebarView, approvals: SidebarApprovals(environment: QuitAgents.environment(services)))
         let updateButton = SidebarCardFeed.followAvailableUpdate(container.sidebarView, updater: services.updater)
         let document: @MainActor @Sendable () -> SidebarDocStore? = { [weak services] in services?.sidebarDoc.store }
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, document: document, registry: services.registry, settings: services.settings, asks: services.machineAsks, restoring: { [weak services] in services?.daemon.recovery.restoringText })
+        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, document: document, registry: services.registry, settings: services.settings, asks: services.machineAsks, restoring: { [weak services] in services?.daemon.recovery.restoringCardText })
             .cancelling(nowPlaying).cancelling(priority).cancelling(updateButton)
     }
 }
 
-/// The bottom-left cards: the staged update card (UPDATE-CARD), the "cmux
-/// Updated!" card and the shared notice card for every message to the user
+/// The bottom-left cards: the staged update card (UPDATE-CARD) and the shared notice card for every message to the user
 /// (the update status, the test-feed notice, announcements, the "Did you
 /// know" tip; What's New is the sidebar's top item). Card actions go back
 /// to their owners.
@@ -52,13 +51,11 @@ enum SidebarCardFeed {
     }
 
     static func start(model: SidebarModel, updater: UpdaterService, registry: ActionRegistry? = nil, asks: SidebarAsks? = nil, restoring: (@MainActor @Sendable () -> String?)? = nil) -> Task<Void, Never> {
-        model.updatedCard = updatedCard(updater) // before the window's first frame (relaunch layout shifts)
-        return Task {
-            for await (card, updated, notice) in ObservationStream({ () -> (SidebarUpdateCard?, SidebarUpdatedCard?, SidebarNoticeCard?) in
-                (updateCard(updater), updatedCard(updater), asks?.card ?? restoring?().map { SidebarNoticeCard.restoring($0, withDetails: true) } ?? noticeCard(updater, registry: registry))
+        Task {
+            for await (card, notice) in ObservationStream({ () -> (SidebarUpdateCard?, SidebarNoticeCard?) in
+                (updateCard(updater), asks?.card ?? restoring?().map { SidebarNoticeCard.restoring($0, withDetails: true) } ?? noticeCard(updater, registry: registry))
             }) {
                 if model.updateCard != card { model.updateCard = card }
-                if model.updatedCard != updated { model.updatedCard = updated }
                 if model.noticeCard != notice { model.noticeCard = notice }
             }
         }
@@ -93,7 +90,6 @@ enum SidebarCardFeed {
         case .noticeAction(let card, let action) where !services.machineAsks.answer(card, action: action):
             noticeAction(card, action, updater: services.updater, open: { openUpdateLink($0, services: services) })
         case .dismissNotice(let card) where !services.machineAsks.answer(card, action: nil): dismissNotice(card, updater: services.updater)
-        case .openWhatsNew, .dismissUpdated: route(intent, registry: services.registry, updater: services.updater)
         // The media card's x runs the menu's and the palette's Hide (one action, u2437).
         case .hideNowPlayingCard: _ = services.registry.perform("nowPlaying.hideCard", invocation: ActionInvocation(origin: .user))
         // Edit mode's Add Items (SidebarView+EditItems): Settings on the sidebar's rows (the sidebar
@@ -101,28 +97,6 @@ enum SidebarCardFeed {
         case .addItems: try? services.settingsWindow.show(section: nil, setting: "sidebar.showProjects", focus: true)
         default: break
         }
-    }
-
-    /// The "cmux Updated!" card (cx-7py7): its See What's New opens the What's New tab for the
-    /// span this update crossed and marks it seen, as the update island's button does
-    /// (``UpdaterService/openWhatsNewForLastUpdate()``). Not the palette's `updates.whatsNew`:
-    /// that entry stays a Labs preview, and the card shows with Labs off (user 13935), so its
-    /// button did nothing (Leo 2026-10-29). Its x marks this version seen, so the card and the
-    /// What's New dot go together. Share cmux is the palette's (`app.shareCmux`).
-    static func route(_ intent: SidebarIntent, registry: ActionRegistry, updater: UpdaterService) {
-        switch intent {
-        case .openWhatsNew: _ = updater.openWhatsNewForLastUpdate()
-        case .dismissUpdated: updater.whatsNew.dismissUpdated()
-        default: break
-        }
-    }
-
-    /// The "cmux Updated!" card while it shows (nil while an update is staged
-    /// or an update status shows: they have the slot).
-    static func updatedCard(_ updater: UpdaterService) -> SidebarUpdatedCard? {
-        guard updater.readyCard == nil, updater.card == nil, updater.testFeedURL == nil, updater.whatsNew.showsUpdatedCard else { return nil }
-        return SidebarUpdatedCard(title: UpdaterService.updatedCardTitle, whatsNewTitle: UpdaterService.updatedCardWhatsNewTitle,
-                                  dismissLabel: UpdaterService.updatedCardDismissLabel)
     }
 
     /// A link in the update card's popover (a pull request, the release

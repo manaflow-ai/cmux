@@ -3,7 +3,6 @@ import CmuxNextTestSupport
 import ImageIO
 @testable import CmuxNextApp
 import CmuxNextDesign
-import CmuxNextUpdater
 @testable import CmuxNextSidebar
 import CmuxTheme
 import Foundation
@@ -11,8 +10,8 @@ import Testing
 
 /// Native before/after stills for launch visibility (note: "remove app store for now / Remove what's new?").
 /// Every panel starts with the same stored ``SidebarLayoutDocument.defaults`` fixture:
-/// ``base`` is the pre-change projection, ``hidden`` has no updated card, and ``labs-on`` has
-/// the real sidebar's "cmux Updated!" / What's New card. The output is deliberately a
+/// ``base`` is the pre-change projection; ``hidden`` and ``labs-on`` drew the "cmux Updated!" card's
+/// absence and presence until that card was removed (Leo, 2026-11-22), so all three now match. The output is deliberately a
 /// test-owned gallery so it can run in a GUI package lane without leasing a live app window.
 @MainActor @Suite(.serialized, .closesItsWindows) struct LaunchPolishVisibilityGalleryTests {
     enum Variant: String, CaseIterable {
@@ -46,11 +45,6 @@ import Testing
         let model = SidebarModel(sections: sections())
         model.layout = document
         model.itemInfo = SidebarBridge.itemInfo(for: document, registered: { _ in true })
-        model.updatedCard = variant == .hidden
-            ? nil
-            : SidebarUpdatedCard(title: UpdaterService.updatedCardTitle,
-                                 whatsNewTitle: UpdaterService.updatedCardWhatsNewTitle,
-                                 dismissLabel: UpdaterService.updatedCardDismissLabel)
 
         let width: CGFloat = 300, height: CGFloat = 560
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: height), styleMask: [.borderless],

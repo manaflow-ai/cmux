@@ -147,10 +147,7 @@ try:
     time.sleep(2)  # capture harness: the card comes in
     shoot("update")
     rpc("debug.updater", {"action": "unstage"})
-    if True:  # the cards with a close x: the Updated card (hovered, so its x shows) and a tip's notice card
-        print("updated", rpc("debug.updater", {"action": "updated", "previous": "0.0.1"}), flush=True)
-        time.sleep(3)  # capture harness: the Updated card's page loads its words
-        shoot("updated", lambda: rpc("debug.update_surfaces", {"action": "hover-updated"}))
+    if True:  # the card with a close x: a tip's notice card (the Updated card is gone, 2026-11-22)
         print("tip", rpc("debug.updater", {"action": "tip"}), flush=True)
         time.sleep(2)  # capture harness: the notice card comes in
         shoot("notice")

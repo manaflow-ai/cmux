@@ -30,19 +30,6 @@ import Testing
         return button.layer?.cornerRadius ?? 0
     }
 
-    @Test func theUpdatedCardsCloseIsConcentric() throws {
-        _ = NSApplication.shared
-        for anchor in [SidebarCardAnchor.top, .bottom] {
-            let host = SidebarUpdatedCardHost(frame: NSRect(x: 0, y: 0, width: 216, height: 60))
-            host.anchor = anchor
-            host.layoutSubtreeIfNeeded()
-            host.layout()
-            let close = host.closeButton.frame
-            let broken = Self.broken(close: close, radius: Self.radius(of: host.closeButton), card: host.bounds, outer: host.glass.cornerRadius)
-            #expect(broken.isEmpty, "\(anchor): the x \(close) in \(host.bounds) r\(host.glass.cornerRadius): \(broken)")
-        }
-    }
-
     @Test(arguments: [SidebarNoticeCard(id: "tip", eyebrow: "Did you know?", title: "Command Palette", dismissLabel: "Close"),
                       SidebarNoticeCard(id: "note", title: "Command Palette", dismissLabel: "Close")])
     func theNoticeCardsCloseIsConcentric(notice: SidebarNoticeCard) throws {

@@ -123,7 +123,7 @@ extension SidebarBridge {
             sendPinned(ids, pinned, edit: rows.edits.add(intent), for: intent)
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
-        case .installUpdate, .downloadUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated,
+        case .installUpdate, .downloadUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice,
              .hideNowPlayingCard, .addItems:
             SidebarCardFeed.handle(intent, services: services)
         case .nowPlaying(let command): services.cache.pageRequests.sidebarSources.perform(command)

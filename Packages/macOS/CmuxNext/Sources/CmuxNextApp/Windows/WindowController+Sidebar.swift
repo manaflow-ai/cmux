@@ -32,7 +32,8 @@ extension WindowController {
             self?.root.liveModeBadge = LiveModeBadgeView()
             self?.relayoutTopRowStrips()
         }
-        sidebar.container.sidebarView.healthIndicator = services.healthFeeds.makeIndicator { [weak self] in self?.window } // app health's footer line
+        // App health has no sidebar line (it repairs on its own); the restoring card's Details opens its card.
+        sidebar.container.sidebarView.onHealthDetails = { [weak self, popover = services.healthFeeds.popover] in popover.open(over: self?.window) }
         root.sidebarFloat.isAllowed = { [weak self] in self.map { $0.state.page != .home && !$0.root.presentsPage } ?? false }
         let model = sidebar.model
         sidebarObservation = Task { [weak self] in

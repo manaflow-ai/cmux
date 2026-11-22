@@ -50,6 +50,16 @@ public final class DaemonRecovery {
     public private(set) var isRestoring = false
     /// ``restoring`` in the person's words ("Restoring sessions… 4m 12s"); nil while none.
     public var restoringText: String? { restoring.map { RefusalStrings.restoringSessions(waitedMs: $0.waitedMs) } }
+    /// How long a restore runs before the sidebar's "Restoring sessions…" card shows: a restore that ends sooner
+    /// draws nothing, so the card never flashes in and out on a routine launch (Leo, 2026-11-22: "i am still seeing
+    /// flickers and flashes of bullshit. sub-second in and out bullshit. remove it."). The chat's own line waits as
+    /// long (`RECONNECT_LINE_AFTER_MS`, webviews hostRetry.ts).
+    public static let restoringCardAfterMs: UInt64 = 10_000
+    /// ``restoringText`` once the restore has run ``restoringCardAfterMs``; nil before, and while none runs.
+    public var restoringCardText: String? {
+        guard let restoring, restoring.waitedMs >= Self.restoringCardAfterMs else { return nil }
+        return RefusalStrings.restoringSessions(waitedMs: restoring.waitedMs)
+    }
     /// When the restore ``restoring`` reports began, and its owner; nil after a start that worked.
     @ObservationIgnored private var restoreBegan: (pid: Int32?, at: Date)?
     /// A Restart runs (up to 20 s of probe and stop, then the new owner's start).

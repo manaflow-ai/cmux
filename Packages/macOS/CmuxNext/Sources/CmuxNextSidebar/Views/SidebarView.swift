@@ -108,16 +108,10 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
-    /// App health's dot and line (design/app-health.md), over the sidebar just above the footer row, never in
-    /// its flow (``SidebarFooterBand/placeHealthIndicator(above:)``); it shows and hides itself and asks for a
-    /// layout. It never fades with the footer; Minimal Mode fades it with the cards (``minimalChromeViews``).
-    public var healthIndicator: NSView? {
-        didSet {
-            oldValue?.removeFromSuperview()
-            healthIndicator.map { addSubview($0) }
-            needsLayout = true
-        }
-    }
+    /// Opens app health's card (the "Restoring sessions…" card's Details). App health draws no line of its own in
+    /// the sidebar: it repairs on its own, quietly (Leo, 2026-11-22: "the fuck is actionable about "needs a
+    /// repair". if it's unactionable, get rid of it. plus the text is overlapping.").
+    public var onHealthDetails: (() -> Void)?
     let priorityBellDot = CALayer()
     var priority: SidebarPriorityPanel?
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
@@ -135,11 +129,9 @@ public final class SidebarView: NSView {
     let footer = NSView()
     /// Edit mode's Add Items and Done (`SidebarView+EditItems`); nil out of edit mode.
     var editBar: SidebarEditBar?
-    let updateCardView = SidebarUpdateCardView(), nowPlayingCardView = SidebarNowPlayingCardView(), updatedCardView = SidebarUpdatedCardHost(), noticeCardView = SidebarNoticeCardView()
+    let updateCardView = SidebarUpdateCardView(), nowPlayingCardView = SidebarNowPlayingCardView(), noticeCardView = SidebarNoticeCardView()
     /// The card slot's height as the list lays out: springs when a card comes or goes.
     let cardSlotMotion = SidebarCardSlotMotion()
-    /// The room the Updated card takes at the list's top once it is dragged there, on the same spring.
-    let topCardMotion = SidebarCardSlotMotion()
     /// The hidden footer's height the list takes in Minimal Mode with the pointer away (``SidebarFooterCollapseMotion``).
     let footerCollapseMotion = SidebarFooterCollapseMotion()
     /// The share of the card slot's room the list takes on the same curve (``cardCollapseFraction()``).
@@ -177,7 +169,6 @@ public final class SidebarView: NSView {
         profileBar = ProfileBarView(model: model)
         super.init(frame: .zero)
         buildHierarchy()
-        list.hoverOccluded = { [weak self] point in self?.updatedCardView.covers(windowPoint: point) == true }
         newButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace")
         newWorkspaceOptionsButton.setAccessibilityLabel(Strings.newWorkspaceOptions)
         newWorkspaceOptionsButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace.options")
@@ -242,14 +233,11 @@ public final class SidebarView: NSView {
     }
 
     /// The React update surfaces (cx-urd.61.2): the staged card's highlights
-    /// popover and the "cmux Updated!" card. Set by the App; without them the
-    /// popover does not open and the Updated card does not show.
+    /// popover. Set by the App; without them the popover does not open.
     public var updateSurfaces: (any SidebarUpdateSurfaces)? {
         didSet {
-            updatedCardView.onHeightChange = { [weak self] in self?.needsLayout = true }
             // Each page is made once its card shows.
             updateCardView.surfaces = updateSurfaces
-            updatedCardView.surfaces = updateSurfaces
             needsLayout = true
         }
     }
@@ -469,13 +457,7 @@ public final class SidebarView: NSView {
             !(spacesPosition == .bottom && footerBand.dotsShareBandRow) ? SidebarStyle.footerHeight : 0)
         // The list makes room for a card (and takes it back) on a spring; the card sits at its place.
         let cardsHeight = attachFooterCards(), slotHeight = cardSlot.height(width: b.width)
-        // The Updated card after a relaunch takes its room in the frame it shows (Leo 2026-11-04).
-        let landsAtOnce = cardSlot.updatedLandsAtOnce
-        // The Updated card dragged to the top takes its room there; the bottom slot's closes (Leo 2026-11-07).
-        let atTop = cardSlot.updatedAtTop
-        let updateHeight = cardSlotMotion.height(toward: atTop ? 0 : slotHeight, in: self, snaps: landsAtOnce)
-        let topCardHeight = topCardMotion.height(toward: atTop ? slotHeight : 0, in: self, snaps: landsAtOnce)
-        if landsAtOnce { updatedCardView.landed() }
+        let updateHeight = cardSlotMotion.height(toward: slotHeight, in: self)
         // From the bottom up (R112/R114): the pinned footer section (the
         // profile control, then the dots), the band below the list, the
         // staged update card (UPDATE-CARD), the cards.
@@ -488,18 +470,15 @@ public final class SidebarView: NSView {
         // The faded cards' room goes to the list too; the cards keep their place and show over it only revealed.
         let cardFraction = cardCollapseFraction()
         let cardCollapse = ((updateHeight + cardsHeight) * cardFraction).rounded()
-        let listFrame = layoutBands(top: listTop + (topCardHeight * (1 - cardFraction)).rounded(),
+        let listFrame = layoutBands(top: listTop,
                                    footerHeight: footerHeight - rowCollapse + updateHeight + cardsHeight - cardCollapse,
                                    collapse: pinnedCollapse)
         if !isChromeRevealed { belowFade.alphaValue = belowRegion.restAlpha(hiddenByMode: minimalHiddenBands.bottom) }
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight + rowCollapse, width: b.width, height: footerHeight)
-        cardSlot.place(above: footer.frame.minY, top: listTop, width: b.width, slotHeight: slotHeight, in: self)
+        cardSlot.place(above: footer.frame.minY, width: b.width, slotHeight: slotHeight)
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight, modelChanged: spacesChanged)
-        // App health's line over the sidebar, above the footer row and its cards: placed after the row, from
-        // nothing in it.
-        footerBand.placeHealthIndicator(above: footer.frame.minY - updateHeight - cardsHeight)
         edgeFade.frame = listFrame
         clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)

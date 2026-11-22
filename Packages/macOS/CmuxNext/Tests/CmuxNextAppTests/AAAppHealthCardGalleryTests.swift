@@ -8,8 +8,8 @@ import Foundation
 import Testing
 
 /// Before and after stills of app health's "needs a repair" alert (David Beyer, 2026-11-20: it did not say which
-/// chat): the footer line over the card, dark and light. Before: the parts have no place, as the app shipped
-/// ("Agent chat needs a repair", Done and Repair now). After: the chat's title in the line and the title, its
+/// chat): the card, dark and light (the sidebar's footer line is gone, Leo 2026-11-22). Before: the parts have no place, as the app shipped
+/// ("Agent chat needs a repair", Done and Repair now). After: the chat's title in the title, its
 /// workspace under it, and Show chat. Written under `app-health-card-gallery/` as `before-dark.png`,
 /// `after-dark.png`, `before-light.png`, `after-light.png` and `all.png`.
 @MainActor @Suite(.serialized, .closesItsWindows) struct AAAppHealthCardGalleryTests {
@@ -24,19 +24,11 @@ import Testing
         id == "page:7" ? AppHealthPlace(chat: "Fix the login bug", workspace: "cmux-next", reveal: {}) : nil
     }
 
-    /// The footer line over the card, as the person sees them in turn.
+    /// The card, as the person sees it.
     static func still(_ places: AppHealthPlaces, dark: Bool) throws -> CGImage {
-        let line = AppHealthIndicatorView()
-        line.show(places.headline(AppHealth.headline(of: snapshot)))
-        let size = line.fittingSize
-        line.frame = NSRect(x: 0, y: 0, width: min(size.width, AAAppHealthIndicatorGalleryTests.width), height: max(size.height, 18))
         let card = AAMacScreenApprovalGalleryTests.card(AppHealthCard.spec(snapshot, places: places))
-        let stack = NSView(frame: NSRect(x: 0, y: 0, width: max(line.frame.width, card.frame.width), height: line.frame.height + 16 + card.frame.height))
         card.frame.origin = .zero
-        line.frame.origin = NSPoint(x: 0, y: card.frame.height + 16)
-        stack.addSubview(card)
-        stack.addSubview(line)
-        return try AAUpdateDownloadCardGalleryTests.render(stack, dark: dark)
+        return try AAUpdateDownloadCardGalleryTests.render(card, dark: dark)
     }
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))

@@ -7,8 +7,7 @@ import CmuxNextSidebar
 import CmuxNextUpdater
 
 /// The React update surfaces in the sidebar (cx-urd.61.2): the changelog page's bundle, opened on
-/// `#/surface/ready` (the staged update's highlights), `#/surface/updated` (the "cmux Updated!"
-/// card) or `#/surface/updated-notes` (its changes in a popover). The page reads
+/// `#/surface/ready` (the staged update's highlights). The page reads
 /// ``UpdateHighlights`` and sends its buttons back through `cmux.changelog.surface.*`.
 @MainActor
 final class UpdateSurfaceIslands: SidebarUpdateSurfaces {
@@ -26,12 +25,9 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     private var size = PageSurfaceSize()
     var contentHeight: CGFloat { size.height }
     var contentWidth: CGFloat { size.width }
-    var overlayHeight: CGFloat { size.overlay }
-    var previewHeight: CGFloat { size.preview }
     var onHeightChange: (() -> Void)?
     var onAction: (() -> Void)?
     var onDismiss: (() -> Void)?
-    var onDrag: ((SidebarCardDrag) -> Void)?
     let provider: UpdateSurfaceProvider
     var zoom: CGFloat { ((view as? PageWebView)?.webKitView).map { $0.pageZoom * $0.magnification } ?? 1 }
 
@@ -41,8 +37,6 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
         view = services.flatMap { PageFactory(services: $0).updateSurfacePage(kind: kind, provider: provider) } ?? NSView()
         provider.onSize = { [weak self] h, w, overlay, preview in self?.resize { $0.take(height: h, width: w, overlay: overlay, preview: preview, zoom: $1) } }
         (view as? PageWebView)?.onZoomChange = { [weak self] in self?.resize { $0.rezoom($1) } }
-        provider.card.zoom = { [weak self] in self?.zoom ?? 1 }
-        provider.card.onDrag = { [weak self] in self?.onDrag?(SidebarCardDrag(offset: $0, drop: $1.flatMap(SidebarCardAnchor.init(rawValue:)))) }
         provider.onAction = { [weak self] in self?.onAction?() }
         provider.onDismiss = { [weak self] in self?.onDismiss?() }
     }
@@ -50,27 +44,22 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     /// Applies a size change at the page's zoom; the sidebar lays the card out again when it changed.
     private func resize(_ change: (inout PageSurfaceSize, CGFloat) -> Bool) { if change(&size, zoom) { onHeightChange?() } }
     func close() { (view as? PageWebView)?.close() }
-    func setPointerInside(_ inside: Bool) { provider.pointer.value = inside }
-    func setPlace(_ place: SidebarCardPlace) { provider.card.setPlace(anchor: place.anchor.rawValue, above: place.above, below: place.below) }
 }
 
 /// `cmux.changelog.surface.*`: `get` (the surface's UpdateHighlights or null), `size {height, width?, overlay?, preview?}`
 /// (CSS px, ``PageSurfaceSize``), `openChangelog` and `dismiss`;
-/// `cmux.changelog.surface.changes` resends the highlights on each change, `.pointer` the host's pointer;
-/// `.card.*` is the Updated card's drag (``PageCardDrag``).
+/// `cmux.changelog.surface.changes` resends the highlights on each change, `.pointer` the host's pointer.
 @MainActor
 final class UpdateSurfaceProvider: PageProvider {
     let kind: SidebarUpdateSurfaceKind
     private weak var services: AppServices?
     /// The page's content height, its own width (0: fills the host), its preview's room and open height, CSS px.
     var onSize: ((CGFloat, CGFloat, CGFloat, CGFloat) -> Void)?
-    /// The pointer is on the Updated card (the sidebar host's tracking area), streamed to the page.
+    /// The pointer is on the surface (never set since the Updated card went), streamed to the page.
     let pointer = PageFlagStream(key: "inside")
-    let card = PageCardDrag(prefix: "cmux.changelog.surface.card.")
     /// The page ran an action (the popover closes).
     var onAction: (() -> Void)?
-    /// The card's x: the sidebar sends `.dismissUpdated` (SidebarCardFeed.handle), the one
-    /// card-dismiss path; the provider never dismisses on its own.
+    /// The page's x: its host sends its card's dismiss intent; the provider never dismisses on its own.
     var onDismiss: (() -> Void)?
 
     init(kind: SidebarUpdateSurfaceKind, services: AppServices?) {
@@ -78,11 +67,10 @@ final class UpdateSurfaceProvider: PageProvider {
         self.services = services
     }
 
-    private var highlights: UpdateHighlights? { services?.updater.surfaceHighlights(updated: kind.showsLastUpdate) }
+    private var highlights: UpdateHighlights? { services?.updater.surfaceHighlights(updated: false) }
 
-    /// The Updated card after an automatic install that relaunched cmux behind another app says so.
     private func json(_ highlights: UpdateHighlights?) throws -> JSONValue {
-        try highlights?.surfaceJSON(background: kind.showsLastUpdate && services?.environment.relaunchBehind != nil) ?? .null
+        try highlights?.surfaceJSON(background: false) ?? .null
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -102,7 +90,7 @@ final class UpdateSurfaceProvider: PageProvider {
             return .null
         case "cmux.changelog.surface.openChangelog":
             let focus = ChangelogFocus(area: params["area"]?.stringValue, entry: params["title"]?.stringValue)
-            _ = !kind.showsLastUpdate ? services.updater.openStagedChangelog(focus: focus) : services.updater.openWhatsNewForLastUpdate(focus: focus)
+            _ = services.updater.openStagedChangelog(focus: focus)
             onAction?()
             return .null
         default:
@@ -131,12 +119,12 @@ extension PageFactory {
     /// One update surface: the changelog bundle on `#/surface/<kind>`, its
     /// `cmux.changelog.surface.` ops to `provider`, and the other `cmux.changelog.` ops
     /// (`list`, `get`, a PR chip's `pr.inspect`, `browser.list` and `browser.openIn`) to the
-    /// page's verified notes, so the Updated card sums up every build the update spans. The card shows no pictures: no media inlining.
+    /// page's verified notes. The surface shows no pictures: no media inlining.
     func updateSurfacePage(kind: SidebarUpdateSurfaceKind, provider: UpdateSurfaceProvider) -> PageWebView? {
         let native = AppPageNativeProvider(services: services, page: .changelog)
         // PageRouter tries the longest prefix first: the surface's own ops before the notes.
         let notes = changelogNotes()
-        let routes = [PageRoute(prefix: "cmux.changelog.surface.", provider: provider), PageRoute(prefix: provider.card.prefix, provider: provider.card), PageRoute(prefix: "cmux.changelog.", provider: notes), PageRoute(prefix: "cmux.app.", provider: native)]
+        let routes = [PageRoute(prefix: "cmux.changelog.surface.", provider: provider), PageRoute(prefix: "cmux.changelog.", provider: notes), PageRoute(prefix: "cmux.app.", provider: native)]
         // The island floats over the window's backdrop: a Chromium page cannot be transparent.
         // Window chrome: a first click on See What's New acts while a Chromium page's window has the key.
         let page = PageWebView(descriptor: .changelog, routes: routes, route: "#/surface/\(kind.rawValue)", options: PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: true, keepsLoadedWeb: true), overlayProcess: services.overlayProcess)

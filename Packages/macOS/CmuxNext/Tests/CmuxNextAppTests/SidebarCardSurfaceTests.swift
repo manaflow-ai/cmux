@@ -82,15 +82,6 @@ import Testing
         try Self.expectThemedCardSurface(card, "notice")
     }
 
-    /// Leo 2026-11-07, on the Updated card beside the composer: "the border styles, the glass
-    /// intensity is different". The Updated card's glass is the composer's material, which its page
-    /// paints from the theme (webviews `ui/glass/composerMaterial.css`; updated-card-theme.test.ts
-    /// checks it mixes from the theme's surface): the host lays no sidebar-card veil under it.
-    @Test func theUpdatedCardDrawsNoSidebarCardVeilUnderItsPage() {
-        let host = SidebarUpdatedCardHost(frame: NSRect(x: 0, y: 0, width: 216, height: 80))
-        #expect(!host.subviews.contains { $0 is CardSurfaceView })
-    }
-
     /// Leo 2026-11-03, on the Downloading Update card: "will this be themeed properly?". The
     /// download's bar is the theme's accent (`Palette.accentFill`) in a dark and a light theme, with
     /// and without a chosen accent, never the fixed secondary-text gray it was.

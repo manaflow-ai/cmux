@@ -246,10 +246,8 @@ public final class SidebarModel {
     /// only while an update is staged or installing; nil shows nothing.
     public var updateCard: SidebarUpdateCard?
     /// The shared notice card (the update status or the "Did you know"
-    /// tip), shown only while ``updateCard`` and ``updatedCard`` are nil.
+    /// tip), shown only while ``updateCard`` is nil.
     public var noticeCard: SidebarNoticeCard?
-    /// The "cmux Updated!" card (cx-7py7), shown only while ``updateCard`` is nil.
-    public var updatedCard: SidebarUpdatedCard?
     /// The Now Playing card (cx-ouoxo), shown only while ``updateCard`` is nil.
     public var nowPlaying: SidebarNowPlaying?
     /// What workspace rows show (`sidebar.workspaceRow.*`).
@@ -478,7 +476,7 @@ public final class SidebarModel {
         case let .switchProfile(id):
             activeProfileID = id
         case .activateItem, .installUpdate, .downloadUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .dropOnLayoutSection, .noticeAction, .dismissNotice,
-             .openWhatsNew, .dismissUpdated, .nowPlaying, .hideNowPlayingCard, .toggleWorkspaceAudio, .addItems:
+             .nowPlaying, .hideNowPlayingCard, .toggleWorkspaceAudio, .addItems:
             break
         case let .layout(op):
             if case .success(let next) = SidebarLayoutReducer.reduce(layout, op) { layout = next }

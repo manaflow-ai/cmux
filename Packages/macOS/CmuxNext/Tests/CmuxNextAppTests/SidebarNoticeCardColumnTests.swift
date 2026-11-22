@@ -34,9 +34,8 @@ import Testing
     static func placed(_ card: SidebarNoticeCard, sidebarWidth: CGFloat) -> SidebarNoticeCardView {
         _ = NSApplication.shared
         let notice = SidebarNoticeCardView(motionPolicy: { MotionPolicy(speed: .fast, reduceMotion: true) })
-        let slot = SidebarBottomCardSlot(update: SidebarUpdateCardView(), nowPlaying: SidebarNowPlayingCardView(),
-                                         updated: SidebarUpdatedCardHost(), notice: notice)
-        slot.show(SidebarBottomCards(update: nil, nowPlaying: nil, updated: nil, notice: card))
+        let slot = SidebarBottomCardSlot(update: SidebarUpdateCardView(), nowPlaying: SidebarNowPlayingCardView(), notice: notice)
+        slot.show(SidebarBottomCards(update: nil, nowPlaying: nil, notice: card))
         let slotHeight = slot.height(width: sidebarWidth)
         slot.place(above: 2000, width: sidebarWidth, slotHeight: slotHeight)
         notice.layoutSubtreeIfNeeded()

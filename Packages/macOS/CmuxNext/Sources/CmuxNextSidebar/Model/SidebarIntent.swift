@@ -91,10 +91,6 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case noticeAction(card: String, action: String)
     /// A notice card's x.
     case dismissNotice(String)
-    /// The "cmux Updated!" card's "See What's New" row (`updates.whatsNew`).
-    case openWhatsNew
-    /// The "cmux Updated!" card's x: this version is seen.
-    case dismissUpdated
     /// A Now Playing card control (cx-ouoxo), for the App's Now Playing source.
     case nowPlaying(SidebarNowPlayingCommand)
     /// The Now Playing card's x (u2437): the App runs `nowPlaying.hideCard`, which hides the card

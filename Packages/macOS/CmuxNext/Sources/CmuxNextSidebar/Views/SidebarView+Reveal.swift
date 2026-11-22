@@ -98,7 +98,7 @@ extension SidebarViewComponents {
         return subviews.filter { !exempt.contains(ObjectIdentifier($0)) }
     }
 
-    /// Gives a view that joined the sidebar since the last reveal (a card that came, app health's line) the
+    /// Gives a view that joined the sidebar since the last reveal (a card that came) the
     /// rest opacity at once, so a card that arrives with the pointer away arrives hidden: its own entrance
     /// (``SidebarCardTransition``) would otherwise draw it over the model value until it ends. Runs in `layout()`.
     func applyRestReveal() {
