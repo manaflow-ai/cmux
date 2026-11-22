@@ -73,7 +73,7 @@ class RepositoryTests(unittest.TestCase):
 
     def test_every_allowance_still_names_a_file(self):
         names = {w.name for w in self.workflows}
-        for table in (cc.PER_SOURCE_RUN, cc.SOURCE_KEYED, cc.CANCEL_FALSE_ON_SCHEDULE, cc.TRIVIAL_NO_SUPERSEDE):
+        for table in (cc.PER_SOURCE_RUN, cc.SOURCE_KEYED, cc.CANCEL_FALSE_ON_SCHEDULE, cc.CANCEL_OK_ON_SCHEDULE, cc.TRIVIAL_NO_SUPERSEDE):
             self.assertEqual(sorted(set(table) - names), [])
         for name, _owner in [*cc.EXCLUDED_SHARED, *cc.EXCLUDED_CANCEL]:
             self.assertIn(name, names)

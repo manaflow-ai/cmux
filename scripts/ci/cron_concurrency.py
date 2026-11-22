@@ -116,6 +116,13 @@ CANCEL_FALSE_ON_SCHEDULE: dict[str, str] = {
     "ci-owned-pool-rescue.yml": "!(schedule || dispatch without run_id): false for every schedule run",
 }
 
+# Scheduled sweeps that cancel a running sweep on purpose, and why: each run reads the queue afresh and is
+# idempotent, so a newer sweep loses nothing by cutting an older one short, while a held group starves the drain.
+CANCEL_OK_ON_SCHEDULE: dict[str, str] = {
+    "ci-shed-superseded-runs.yml": ("a newer shed sweep replaces a queued or running one (#48064); sweeps are "
+                                    "idempotent and a cancel of a run already cancelled is a no-op"),
+}
+
 # Trivial pull request checks that keep superseded runs, and why.
 TRIVIAL_NO_SUPERSEDE: dict[str, str] = {
     "cla.yml": "a CLA signature comment must never cancel the check another comment started",
@@ -268,7 +275,8 @@ def cron_findings(workflow: Workflow) -> list[str]:
                 problems.append(f"{where}: group {block['group']!r} is unique per run on {event}, so runs pile up. "
                                 "Key it so every scheduled run shares it (dispatches may keep their own key).")
             kinds = _cancel_kinds(block, workflow, event)
-            if event == "schedule" and kinds != {dc.FALSY} and workflow.name not in CANCEL_FALSE_ON_SCHEDULE:
+            if event == "schedule" and kinds != {dc.FALSY} \
+                    and workflow.name not in CANCEL_FALSE_ON_SCHEDULE and workflow.name not in CANCEL_OK_ON_SCHEDULE:
                 problems.append(f"{where}: cancel-in-progress {block.get('cancel-in-progress')!r} can cut a running "
                                 "scheduled run short; use false (or true only for pull request events).")
             if event == "workflow_run" and kinds == {dc.CONST}:
