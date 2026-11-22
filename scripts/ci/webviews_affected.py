@@ -18,15 +18,20 @@ it from missing a test:
     without the query: `./fixture.md?raw`);
   - a file anywhere that a webviews source names (its repo path, its path under webviews/,
     or a basename of 10 characters or more) selects the tests that reach that source; a
-    name found in a non-code file (a fixture, a config) selects everything;
+    name found in a resolution config (tsconfig, bunfig, package.json outside "scripts")
+    selects everything, and one in any other non-code file (a fixture, a baseline) the tests
+    that import that file (a file read of it is always-run already);
   - a test always runs when it, or any module it imports, does what no import graph follows:
     reads files (sync or async, a glob, Bun.file), imports a computed path or an alias, starts
     Vite or a browser, or spawns a process. Two reviewed loads that read nothing a test controls
     (RUNTIME_LOADS) are exempt at their pinned content;
-  - a build or runner input (webviews/package.json, bun.lock, bunfig, tsconfig, vite configs,
-    webviews/scripts/, the test support dir, the preload bunfig loads before every file and
-    what it imports, the runner scripts, this file, ci-web.yml) selects everything, as does
-    any other file under webviews/ no rule maps.
+  - an input every test loads (EVERY_TEST: webviews/package.json, bun.lock, bunfig, tsconfig,
+    the React Compiler config, the preload bunfig loads before every file and what it imports,
+    the runner scripts, this file, ci-web.yml) selects everything. A vite config, a webviews
+    script or a test helper outside the preload selects the tests that import it, and a file
+    under webviews/ nothing imports or names only the always-run set: only Vite, a browser, a
+    glob, a file read or a spawn can load those, and every test doing one is always-run.
+    CI_WEBVIEWS_NARROW_SELECTION=0 runs everything for them again.
 Docs (.md) no test imports and files no webviews source names select nothing.
 """
 from __future__ import annotations
