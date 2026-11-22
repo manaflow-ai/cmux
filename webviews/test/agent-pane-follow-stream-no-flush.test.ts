@@ -5,11 +5,11 @@
 // Each chunk's follow write moves the offset, and its scroll event reached the scroll pacer, whose frame
 // callback rendered the transcript synchronously (`flushSync`) for that offset. A followed view draws its rows at
 // the layout's end and reads no offset, so that render drew the same rows, once per chunk, ahead of the key the
-// reader typed: with ten other chats streaming, key to paint p95 went from 251 ms to 128 ms without it
+// reader typed: with ten other chats streaming, key to paint p95 went from 236 ms to 129 ms without it
 // (bench/composer-typing.bench.ts, L2).
 //
 // The real pane (`?mock`: the real direct client against the in-page mock daemon), a light 600-row chat, the
-// focused chat streaming 60 chunks/s for three seconds (`typingLoad`, the bench's L1), and the pacer's forced
+// focused chat streaming 60 chunks/s for six seconds (`typingLoad`, the bench's L1), and the pacer's forced
 // renders counted (perf.ts `renders`, `transcript:scroll-flush`).
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -48,15 +48,28 @@ await requireBrowserLane("agent-pane-follow-stream-no-flush.test.ts", async () =
     )) as Record<string, any>;
     expect(seeded.error).toBeUndefined();
     await page.locator(".acpmux-composer-prompt").first().waitFor({ timeout: 30_000 });
-    await page.waitForTimeout(500);
     const started = (await page.evaluate(() =>
-      (window as any).cmuxAcpmuxDebug.typingLoad({ chunks_per_second: 60, tool_lines_per_second: 0, seconds: 3 }),
+      (window as any).cmuxAcpmuxDebug.typingLoad({ chunks_per_second: 60, tool_lines_per_second: 0, seconds: 6 }),
     )) as Record<string, any>;
     expect(started.error).toBeUndefined();
-    // Counts from here: the seed's open and its first placement are not the stream's.
-    await page.waitForTimeout(300);
+    const deltas = () =>
+      page.evaluate(async () => (await (window as any).cmuxAcpmuxDebug.typingLoad()).deltas as number);
+    // Counts from the stream's first chunks: the seed's open and its first placement are not the stream's.
+    await page.waitForFunction(
+      async () => ((await (window as any).cmuxAcpmuxDebug.typingLoad()).deltas as number) >= 15,
+      null,
+      {
+        timeout: 30_000,
+      },
+    );
     await page.evaluate(() => (window as any).cmuxAcpmuxDebug.renders());
-    await page.waitForTimeout(2_500);
+    const from = await deltas();
+    // 120 more chunks, each a follow write that used to force one render.
+    await page.waitForFunction(
+      async (start) => ((await (window as any).cmuxAcpmuxDebug.typingLoad()).deltas as number) >= start + 120,
+      from,
+      { timeout: 30_000 },
+    );
     const renders = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug.renders())) as Record<string, number>;
     const load = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug.typingLoad())) as Record<string, any>;
     const following = await page.evaluate(() => {
@@ -70,7 +83,7 @@ await requireBrowserLane("agent-pane-follow-stream-no-flush.test.ts", async () =
     expect(load.deltas).toBeGreaterThan(100);
     expect(following).not.toBeNull();
     expect(following!).toBeLessThan(4);
-    // A handful at most (a row's own measure moving the end): never one per chunk (24 in this run before the fix).
+    // A handful at most (a row's own measure moving the end): never one per chunk (13 over the same stretch before the fix).
     expect(flushes, "forced transcript renders while a followed chat streams").toBeLessThanOrEqual(5);
   });
 });
