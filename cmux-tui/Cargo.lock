@@ -1339,6 +1339,7 @@ name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
  "cmux-embed",
+ "cmux-theme-tokens",
  "hex",
  "jsonschema",
  "regex",

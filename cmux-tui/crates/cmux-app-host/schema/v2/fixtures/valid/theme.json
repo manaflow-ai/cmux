@@ -1,0 +1,23 @@
+{
+  "manifestVersion": 2,
+  "id": "local/dusk",
+  "name": "Dusk",
+  "version": "1.0.0",
+  "description": "A theme pack (cmux.theme/1): tokens, type, chrome, icons, sounds, motion and a slot variant, as data.",
+  "engines": { "cmux": "^2.0" },
+  "implements": {
+    "cmux.theme/1": {
+      "title": { "en": "Dusk" },
+      "options": {
+        "appearance": "dark",
+        "tokens": { "window": "#101014", "sidebar": "#14141a", "text": "#f0f0f0", "accent": "#ff79c6", "onAccent": "#000000" },
+        "type": { "ui": "Inter", "mono": "JetBrains Mono" },
+        "chrome": { "titleBar": "compact", "tabShape": "pill", "glass": { "sidebar": 0.4 } },
+        "icons": { "tab.close": "icons/close.svg" },
+        "sounds": { "turnDone": "sounds/done.wav" },
+        "motion": { "quick": 60, "micro": 100, "standard": 160, "large": 220 },
+        "slots": { "chat.thinkingIndicator": "pulse" }
+      }
+    }
+  }
+}

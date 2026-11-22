@@ -37,6 +37,7 @@ interfaces! {
     "cmux.sidebar.rows/1" => "cmux.sidebar.rows",
     "cmux.status/1" => "cmux.status",
     "cmux.terminal.backend/1" => "cmux.terminal.backend",
+    "cmux.theme/1" => "cmux.theme",
     "cmux.terminal.connector/1" => "cmux.terminal.connector",
     "cmux.viewer/1" => "cmux.viewer",
     "cmux.widget/1" => "cmux.widget",

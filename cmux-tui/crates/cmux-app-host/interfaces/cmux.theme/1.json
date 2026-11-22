@@ -1,0 +1,310 @@
+{
+  "name": "cmux.theme/1",
+  "version": 1,
+  "docs": "A theme pack: a whole look as data, no script (plans/cmux-next/extensions/DESIGN.md section 6, item 4). An extension implements it with options only (a data implementation): color tokens, type, chrome (window frame, title bar, tab shape, borders, glass levels), an icon set by role, a sound per event, the motion scale, and a variant per slot. Every section is optional: what a pack leaves out comes from the person's theme. Guard rails, checked in Rust when the manifest is validated (cmux-app-manifest theme_pack.rs): every pair of APP_THEME_CONTRACT whose two tokens the pack sets holds its WCAG 2 minimum (4.5:1 for text, 3:1 for UI marks); a pair under it is adjusted (the foreground token moves in OKLCH lightness only as far as its minimums need, reported as a warning naming the color drawn) or, when no lightness reaches every minimum, refused with the reason. A slot or variant this cmux does not ship is a warning and draws the slot's default. Motion steps keep the scale's order (quick <= micro <= standard <= large). Icon and sound paths are files inside the package.",
+  "props": {
+    "title": "string",
+    "description": "string?"
+  },
+  "methods": {},
+  "events": [],
+  "contrast": {
+    "text": 4.5,
+    "ui": 3,
+    "source": "cmux-theme-tokens AppTheme::contract (webviews APP_THEME_CONTRACT, Swift AppTheme.contract)"
+  },
+  "slots": {
+    "chat.thinkingIndicator": [
+      "default",
+      "counting-dots",
+      "pulse",
+      "caret",
+      "blocks"
+    ],
+    "chat.jumpToBottom": [
+      "default",
+      "nudge",
+      "bob",
+      "cascade"
+    ]
+  },
+  "options": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "appearance": {
+        "enum": [
+          "dark",
+          "light"
+        ],
+        "description": "Whether the pack is a dark or a light look; the person's theme picks when it is left out."
+      },
+      "tokens": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "window": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "sidebar": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "content": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "elevated": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "control": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "hover": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "pressed": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "selection": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "separator": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "controlStroke": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "text": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "textSecondary": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "icon": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "accent": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "onAccent": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "accentText": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "focusRing": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "danger": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "warning": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "success": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          }
+        },
+        "description": "App color tokens (--cmux-app-*), opaque #rrggbb. A token left out is derived from the person's theme."
+      },
+      "type": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ui": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "The interface font family."
+          },
+          "mono": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "The terminal and code font family."
+          },
+          "transcript": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "The agent chat reply font family."
+          },
+          "scale": {
+            "type": "number",
+            "minimum": 0.75,
+            "maximum": 1.5,
+            "description": "The type scale multiplier (1 is cmux's)."
+          }
+        },
+        "description": "Type tokens."
+      },
+      "chrome": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "windowCornerRadius": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 24
+          },
+          "titleBar": {
+            "enum": [
+              "standard",
+              "compact",
+              "unified"
+            ]
+          },
+          "tabShape": {
+            "enum": [
+              "rounded",
+              "square",
+              "pill",
+              "underline"
+            ]
+          },
+          "borderWidth": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 4
+          },
+          "cornerRadius": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 24,
+            "description": "Controls, cards and panes."
+          },
+          "glass": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "window": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "sidebar": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "titleBar": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "popover": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "description": "Translucency per surface, 0 opaque to 1 clearest."
+          }
+        },
+        "description": "The window frame, title bar, tab shape, borders and glass levels. A pack changes how chrome looks, never where it is."
+      },
+      "icons": {
+        "type": "object",
+        "maxProperties": 256,
+        "propertyNames": {
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$",
+          "maxLength": 64
+        },
+        "additionalProperties": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/@-]+$"
+        },
+        "description": "An icon set by role (\"tab.close\", \"sidebar.workspace\"): a package path to an SVG or PNG. A role left out keeps cmux's icon."
+      },
+      "sounds": {
+        "type": "object",
+        "maxProperties": 64,
+        "propertyNames": {
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$",
+          "maxLength": 64
+        },
+        "additionalProperties": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/@-]+$"
+        },
+        "description": "A sound per event (\"turnDone\", \"needsYou\", \"ciGreen\"): a package path. Sounds stay opt-in; a pack only says which file plays."
+      },
+      "motion": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "quick": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000,
+            "description": "Hover and pressed fills, anything leaving (cmux: 80)."
+          },
+          "micro": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000,
+            "description": "Small things arriving (cmux: 120)."
+          },
+          "standard": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000,
+            "description": "Structural changes (cmux: 180)."
+          },
+          "large": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000,
+            "description": "The largest moves, and the ceiling (cmux: 240)."
+          },
+          "spinner": {
+            "type": "integer",
+            "minimum": 200,
+            "maximum": 10000,
+            "description": "One spinner turn (cmux: 2000)."
+          }
+        },
+        "description": "The motion scale (schemas/motion-scale) in milliseconds. Reduce Motion still wins."
+      },
+      "slots": {
+        "type": "object",
+        "maxProperties": 64,
+        "propertyNames": {
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)+$"
+        },
+        "additionalProperties": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$"
+        },
+        "description": "A variant per slot (schemas/theme/slots.json): { \"chat.thinkingIndicator\": \"pulse\" }."
+      }
+    }
+  },
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

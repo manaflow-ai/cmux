@@ -195,6 +195,9 @@
         },
         "cmux.composer.mention/1": {
           "$ref": "#/$defs/dataImplementation"
+        },
+        "cmux.theme/1": {
+          "$ref": "#/$defs/dataImplementation"
         }
       },
       "additionalProperties": {
@@ -738,7 +741,7 @@
       "required": [
         "options"
       ],
-      "description": "An implementation that is data only (the composer's commands and mention providers): the daemon reads its options, no script runs, so a save of the manifest is the whole change.",
+      "description": "An implementation that is data only (the composer's commands and mention providers, a theme pack): the daemon reads its options, no script runs, so a save of the manifest is the whole change.",
       "properties": {
         "title": {
           "$ref": "#/$defs/text"
