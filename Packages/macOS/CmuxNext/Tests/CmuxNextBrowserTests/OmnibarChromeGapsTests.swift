@@ -117,12 +117,12 @@ struct OmnibarChromeGapsTests {
 
     // MARK: Always Show Full URLs
 
-    /// The resting bar shows the host alone (OmnibarCutsTests); Always Show Full URLs shows the whole address, host
+    /// The resting bar shows the compact address (OmnibarCutsTests); Always Show Full URLs shows the whole address, host
     /// emphasized.
     @Test func showFullURLsKeepsSchemeAndWWW() throws {
         let page = try #require(URL(string: "https://www.example.com/a?b=1"))
         let (compact, _) = reduce(OmnibarState(pageURL: page), [])
-        #expect(compact.fieldText == "example.com")
+        #expect(compact.fieldText == "example.com/a?b=1")
         let (full, _) = reduce(compact, [.showFullURLsChanged(true)])
         #expect(full.fieldText == "https://www.example.com/a?b=1")
         let host = try #require(BrowserURLDisplay.hostRange(in: full.fieldText, for: page))

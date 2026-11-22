@@ -4,8 +4,8 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// The omnibar, cut down (Lawrence 2026-11-21, "drastically simplify all parts of the UI"): at rest the field shows the
-/// host alone; the site-info chip of a secure page and the star of a page not bookmarked show only on hover or focus,
+/// The omnibar, cut down (Lawrence 2026-11-21, "drastically simplify all parts of the UI"): at rest the field shows
+/// Chrome's compact URL (the host alone read as a wrong link, https://github.com/manaflow-ai/cmux/issues/50986); the site-info chip of a secure page and the star of a page not bookmarked show only on hover or focus,
 /// keeping their room; a suggestion row is its title and the host, at most 6 rows; the placeholder is a short
 /// "Search or enter address".
 @MainActor
@@ -26,19 +26,27 @@ struct OmnibarCutsTests {
         return (bar, window)
     }
 
-    // MARK: 1. The host alone at rest
+    // MARK: 1. The page's address at rest
 
+    /// At rest the field shows which page this is, as Chrome does: the host and the path, query and fragment, without
+    /// `https://` or `www.` (`http://` stays, so an insecure page reads as one). A pull request read `github.com` alone,
+    /// and a person took the bar for a wrong link (https://github.com/manaflow-ai/cmux/issues/50986).
     @Test(arguments: [
-        ("https://www.github.com/manaflow-ai/cmux/pull/1?tab=files#diff", "github.com"),
-        ("http://example.com/login?next=%2Fhome", "example.com"),
-        ("http://localhost:3000/dashboard", "localhost:3000"),
+        ("https://github.com/manaflow-ai/cmux/pull/47051", "github.com/manaflow-ai/cmux/pull/47051"),
+        ("https://www.github.com/manaflow-ai/cmux/pull/1?tab=files#diff", "github.com/manaflow-ai/cmux/pull/1?tab=files#diff"),
+        ("http://example.com/login?next=%2Fhome", "http://example.com/login?next=/home"),
+        ("http://localhost:3000/dashboard", "http://localhost:3000/dashboard"),
         ("https://claude.ai/", "claude.ai"),
     ])
-    func atRestTheFieldShowsTheHostAlone(address: String, host: String) throws {
+    func atRestTheFieldShowsThePagesAddress(address: String, shown: String) throws {
         let (bar, window) = try bar(address)
         defer { window.closeAfterTest() }
-        #expect(bar.state.fieldText == host, "at rest \(address) shows \(bar.state.fieldText.debugDescription)")
-        #expect(bar.field.stringValue == host)
+        #expect(bar.state.fieldText == shown, "at rest \(address) shows \(bar.state.fieldText.debugDescription)")
+        #expect(bar.field.stringValue == shown)
+        // The host at full strength, the rest drawn too (the path dimmed, never cut from the text).
+        let value = bar.field.attributedStringValue
+        let host = try #require(BrowserURLDisplay.hostRange(in: value.string, for: URL(string: address)))
+        #expect(host.length > 0 && value.string == shown)
     }
 
     /// Cmd-L shows the whole address to edit, selected.
