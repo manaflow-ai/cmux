@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 222a80af7c84d5a6d970a6c35cdf5c607cf4857244e982b32181de8420c1c2da. */
+/* cmux-tui mux protocol 12, IR f4f264fe91b09fe69bd77b53b3d3cc09cbdfcd932f472b8cf0ceaf53a3c3c224. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "222a80af7c84d5a6d970a6c35cdf5c607cf4857244e982b32181de8420c1c2da" as const;
+export const SDK_IR_SHA256 = "f4f264fe91b09fe69bd77b53b3d3cc09cbdfcd932f472b8cf0ceaf53a3c3c224" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -4050,6 +4050,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "agent-session-share-changed": {
+    "since": 12,
+    "capability": "agent-session-share-events-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
   "bell": {
     "since": 5,
     "capability": null,
@@ -4943,6 +4951,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "terminal_id": {
+        "description": "The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "updated_at_ms": {
@@ -31648,6 +31666,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "terminal_id": {
+        "description": "The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "updated_at_ms": {
         "nullable": false,
         "presence": "required",
@@ -31945,6 +31973,28 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "agent-session-share-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "agent-session-share-changed"
+        }
+      },
+      "session": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

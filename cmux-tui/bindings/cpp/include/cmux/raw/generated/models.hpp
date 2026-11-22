@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "222a80af7c84d5a6d970a6c35cdf5c607cf4857244e982b32181de8420c1c2da";
+inline constexpr std::string_view kProtocolIrSha256 = "f4f264fe91b09fe69bd77b53b3d3cc09cbdfcd932f472b8cf0ceaf53a3c3c224";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -635,6 +635,7 @@ struct AgentCliLeanEvent;
 struct AgentInventoryChangedEvent;
 struct AgentInventoryWatchEndedEvent;
 struct AgentPresenceChangedEvent;
+struct AgentSessionShareChangedEvent;
 struct BellEvent;
 struct BookmarksChangedEvent;
 struct BrowserStateEvent;
@@ -838,6 +839,7 @@ struct AgentChangedEvent {
     AgentSource source{};
     AgentState state{};
     Id surface{};
+    std::optional<std::string> terminal_id{};
     std::uint64_t updated_at_ms{};
     friend bool operator==(const AgentChangedEvent&, const AgentChangedEvent&) = default;
 };
@@ -913,6 +915,7 @@ struct AgentRecord {
     AgentState state{};
     Field<AgentState> status{};
     Id surface{};
+    std::optional<std::string> terminal_id{};
     std::uint64_t updated_at_ms{};
     friend bool operator==(const AgentRecord&, const AgentRecord&) = default;
 };
@@ -920,6 +923,11 @@ struct AgentRecord {
 enum class AgentReportSource {
     socket,
     hook,
+};
+
+struct AgentSessionShareChangedEvent {
+    std::string session{};
+    friend bool operator==(const AgentSessionShareChangedEvent&, const AgentSessionShareChangedEvent&) = default;
 };
 
 struct AgentSessionSource {
@@ -10431,6 +10439,12 @@ template <>
 struct Codec<AgentPresenceChangedEvent> {
     static Result<Json> encode(const AgentPresenceChangedEvent& value);
     static Result<AgentPresenceChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionShareChangedEvent> {
+    static Result<Json> encode(const AgentSessionShareChangedEvent& value);
+    static Result<AgentSessionShareChangedEvent> decode(const Json& value);
 };
 
 template <>

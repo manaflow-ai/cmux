@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 222a80af7c84d5a6d970a6c35cdf5c607cf4857244e982b32181de8420c1c2da.
+// cmux-tui mux protocol 12, IR f4f264fe91b09fe69bd77b53b3d3cc09cbdfcd932f472b8cf0ceaf53a3c3c224.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -77,6 +77,9 @@ pub struct AgentRecord {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub status: Optional<AgentState>,
     pub surface: Id,
+    /// The terminal's public id (\`term_…\`). The record's \`surface\` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub terminal_id: Option<String>,
     pub updated_at_ms: u64,
 }
 
