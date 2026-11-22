@@ -169,9 +169,15 @@ try {
     const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
     const page = await context.newPage();
     const cells = grid.map(([arm, row]) => [arm, row.map((f) => (f ? fs.readFileSync(f).toString("base64") : null))]);
-    const labels = envs.map(([s, b]) => (b === "none" ? s : BUNDLED.has(b) ? `${s} over picture` : `${s} over ${b}`));
+    // A spec's "sheet": { "scale": 0.5, "caption": "…", "envLabels": { "dark wallpaper": "…" } } (optional):
+    // cells drawn at that scale (a 2x capture at 0.5 is one CSS px per sheet px), a caption under the title.
+    const sheet = spec.sheet ?? {};
+    const labels = envs.map(
+      ([s, b]) =>
+        sheet.envLabels?.[`${s} ${b}`] ?? (b === "none" ? s : BUNDLED.has(b) ? `${s} over picture` : `${s} over ${b}`),
+    );
     const png = await page.evaluate(
-      async ([cells, labels, title]) => {
+      async ([cells, labels, title, scale, caption]) => {
         const load = (src) =>
           src
             ? new Promise((resolve, reject) => {
@@ -182,11 +188,13 @@ try {
               })
             : Promise.resolve(null);
         const images = await Promise.all(cells.map(async ([arm, row]) => [arm, await Promise.all(row.map(load))]));
-        const cw = Math.max(1, ...images.flatMap(([, r]) => r.map((i) => i?.width ?? 0)));
-        const ch = Math.max(1, ...images.flatMap(([, r]) => r.map((i) => i?.height ?? 0)));
+        const cw = Math.round(scale * Math.max(1, ...images.flatMap(([, r]) => r.map((i) => i?.width ?? 0))));
+        const ch = Math.round(scale * Math.max(1, ...images.flatMap(([, r]) => r.map((i) => i?.height ?? 0))));
         const gap = 16;
-        const left = 120;
-        const top = 64;
+        const probe = document.createElement("canvas").getContext("2d");
+        probe.font = "600 26px sans-serif";
+        const left = 32 + Math.max(88, ...images.map(([arm]) => probe.measureText(arm).width));
+        const top = caption ? 104 : 64;
         const canvas = document.createElement("canvas");
         canvas.width = left + labels.length * (cw + gap);
         canvas.height = top + images.length * (ch + gap);
@@ -197,15 +205,16 @@ try {
         g.font = "600 26px sans-serif";
         g.fillText(title, 16, 34);
         g.font = "22px sans-serif";
+        if (caption) g.fillText(caption, 16, 70);
         labels.forEach((label, c) => g.fillText(label, left + c * (cw + gap), top - 8));
         images.forEach(([arm, row], r) => {
           g.font = "600 26px sans-serif";
           g.fillText(arm, 16, top + r * (ch + gap) + 34);
-          row.forEach((image, c) => image && g.drawImage(image, left + c * (cw + gap), top + r * (ch + gap)));
+          row.forEach((image, c) => image && g.drawImage(image, left + c * (cw + gap), top + r * (ch + gap), cw, ch));
         });
         return canvas.toDataURL("image/png").split(",")[1];
       },
-      [cells, labels, shot.name],
+      [cells, labels, shot.name, sheet.scale ?? 1, sheet.caption ?? ""],
     );
     fs.writeFileSync(path.join(out, `${shot.name}.png`), Buffer.from(png, "base64"));
     await context.close();

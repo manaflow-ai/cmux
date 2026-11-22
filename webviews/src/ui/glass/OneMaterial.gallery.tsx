@@ -17,8 +17,17 @@
 //
 // The candidate materials are arms of webviews/scripts/gallery/one-material.capture.json (CSS injected
 // over this stage), not code here. Over a picture the gallery paints the window's art and tint behind
-// the see-through page (frame/background.ts); the App's native host glass under a popup does not exist
-// in a browser, so every surface here draws the page's own glass.
+// the see-through page (frame/background.ts).
+//
+// App glass is simulated. In the App a surface marked data-host-glass (menus, popovers, hover cards,
+// chips) is reported by the pane (ui/glass/hostGlass.ts reportHostGlass, `pane.glass`), the App draws
+// its native glass at that box under the page, and the page clears its own fill there. The gallery has
+// no App, so this entry answers `pane.glass` itself (appGlass below): the pane's real reporter runs,
+// marks the surfaces drawn as the App's answer does, and the stand-in draws, under the whole page, at
+// each reported box, a frosted copy of the window's picture (backdrop blur 30px, saturate 1.6), a faint
+// neutral tint, a hairline edge and the popover shadow. It approximates Glass.makeHostSurface; it is
+// not the native material (no Liquid Glass rim or lensing, one tint for every level). A capture arm
+// may restyle it through the --om-app-* properties, as an arm that changes what the App draws would.
 import type { ReactNode } from "react";
 import { agentPaneEntry } from "../../gallery/format";
 import type { Play, PlayContext } from "../../gallery/play";
@@ -39,7 +48,80 @@ const newTab = () => ({
   newSession: true,
 });
 
-const signedIn = { "cloudMachine.list": { signedIn: true, loaded: true, machines: [] } };
+/** The stand-in's look, the App's popover glass by default (HostGlass.gallery.tsx APP_TINT); arms set
+ * the --om-app-* properties to draw their own material there. */
+const APP_GLASS_CSS = `
+:root {
+  --om-app-blur: 30px;
+  --om-app-saturate: 1.6;
+  --om-app-tint: rgba(250, 250, 252, 0.38);
+  --om-app-edge: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+  --om-app-shadow: var(--elevation-2);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --om-app-tint: rgba(30, 31, 36, 0.5);
+    --om-app-edge: inset 0 0 0 0.5px rgba(255, 255, 255, 0.14);
+  }
+}
+.om-app-glass-layer { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+.om-app-glass {
+  position: absolute;
+  /* glass-raw-blur-allow: the gallery's stand-in for the App's native glass, not a page glass */
+  backdrop-filter: blur(var(--om-app-blur)) saturate(var(--om-app-saturate));
+  -webkit-backdrop-filter: blur(var(--om-app-blur)) saturate(var(--om-app-saturate));
+  background: var(--om-app-tint);
+  box-shadow: var(--om-app-edge), var(--om-app-shadow);
+}`;
+
+type ReportedSurface = { id: string; left: number; top: number; right: number; bottom: number; radius: number; opacity: number };
+
+/** The App's side of `pane.glass`: draws its glass at each reported box, under the whole page (a fixed
+ * layer at z-index -1, so its backdrop is the window's picture alone, as the native glass sees only the
+ * window behind the page), and answers so the reporter marks the surfaces drawn. */
+function appGlass(params: unknown): null {
+  const doc = document;
+  if (!doc.getElementById("om-app-glass-style")) {
+    const style = doc.createElement("style");
+    style.id = "om-app-glass-style";
+    style.textContent = APP_GLASS_CSS;
+    doc.head.append(style);
+  }
+  let layer = doc.querySelector<HTMLElement>(".om-app-glass-layer");
+  if (!layer) {
+    layer = doc.createElement("div");
+    layer.className = "om-app-glass-layer";
+    layer.setAttribute("aria-hidden", "true");
+    doc.body.prepend(layer);
+  }
+  const surfaces = ((params as { surfaces?: ReportedSurface[] } | null)?.surfaces ?? []).filter(Boolean);
+  const live = new Set(surfaces.map((surface) => surface.id));
+  for (const old of [...layer.children] as HTMLElement[])
+    if (!live.has(old.dataset.surface ?? "")) old.remove();
+  for (const surface of surfaces) {
+    let glass = layer.querySelector<HTMLElement>(`[data-surface="${surface.id}"]`);
+    if (!glass) {
+      glass = doc.createElement("div");
+      glass.className = "om-app-glass";
+      glass.dataset.surface = surface.id;
+      layer.append(glass);
+    }
+    Object.assign(glass.style, {
+      left: `${surface.left}px`,
+      top: `${surface.top}px`,
+      width: `${surface.right - surface.left}px`,
+      height: `${surface.bottom - surface.top}px`,
+      borderRadius: `${surface.radius}px`,
+      opacity: String(surface.opacity),
+    });
+  }
+  return null;
+}
+
+const signedIn = {
+  "cloudMachine.list": { signedIn: true, loaded: true, machines: [] },
+  "pane.glass": appGlass,
+};
 
 const FOLDER = '.nt-location [aria-label="Folder"]';
 const ACCESS = ".nt-foot .acpmux-access-trigger";
@@ -62,6 +144,17 @@ const folderPicker: Play = async (ctx) => {
   await ready(ctx);
   await ctx.click({ selector: FOLDER });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu input"));
+  // Above its chip, as it opens in the App (the gallery's short stage drops it over the composer): the
+  // positioner moves by `translate`, which Base UI's own placement (left/top/transform) leaves alone.
+  const chip = ctx.document.querySelector<HTMLElement>(FOLDER);
+  const menu = ctx.document.querySelector<HTMLElement>(".acpmux-location-menu");
+  let positioner: HTMLElement | null = menu;
+  while (positioner && !["absolute", "fixed"].includes(ctx.document.defaultView!.getComputedStyle(positioner).position))
+    positioner = positioner.parentElement;
+  if (!chip || !menu || !positioner) throw new Error("no folder picker to place");
+  const gap = 6;
+  const shift = chip.getBoundingClientRect().top - gap - menu.getBoundingClientRect().bottom;
+  positioner.style.translate = `0 ${shift}px`;
 };
 
 const accessMenu: Play = async (ctx) => {
@@ -171,7 +264,18 @@ export default agentPaneEntry({
   height: 620,
   widths: { narrow: 720, normal: 1000, wide: 1200 },
   covers: ["ui/glass/glass.css", "ui/popupSurface.css"],
-  keywords: ["glass", "material", "background", "wallpaper", "popover", "tooltip", "toast", "dialog", "link", "hover card"],
+  keywords: [
+    "glass",
+    "material",
+    "background",
+    "wallpaper",
+    "popover",
+    "tooltip",
+    "toast",
+    "dialog",
+    "link",
+    "hover card",
+  ],
   variants: {
     "folder-picker": {
       note: "The new chat's composer with the folder chip's popover open (Search folders or type a path).",
