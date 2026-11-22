@@ -897,6 +897,28 @@ fn a_space_after_a_link_is_not_linked_on_the_phone() {
     }
 }
 
+/// A row erased in a background, then written over in the default style,
+/// wraps on the phone: the phone's autowrap and line feeds scroll new rows
+/// in, which take the current background (BCE). Past the line's end the
+/// phone has no background, as the Mac has none.
+#[test]
+fn a_background_never_spills_past_a_lines_end_on_the_phone() {
+    let bytes = b"\x1b[41m\x1b[2K\x1b[0mred whole row erased, text after reset\r\n\x1b[7m inverse blank tail       \x1b[0m\r\n$ ";
+    for chunk in [usize::MAX, 61, 1] {
+        let mut run = Run::new((120, 40), (33, 3), false);
+        // Rows the phone has scrolled past, so its writes scroll.
+        run.feed(b"1\r\n2\r\n3\r\n4\r\n");
+        for part in bytes.chunks(chunk.min(bytes.len())) {
+            run.feed(part);
+        }
+        let score = run.compare();
+        assert_eq!(score.mismatched, 0, "chunk {chunk}: {:?}", score.first);
+        run.set_viewport(33, 30);
+        let score = run.compare();
+        assert_eq!(score.mismatched, 0, "chunk {chunk}, after a reset: {:?}", score.first);
+    }
+}
+
 #[test]
 fn projection_matches_the_macs_grid_cell_by_cell() {
     let corpora: Vec<Corpus> = synthetic().into_iter().chain(recorded()).collect();

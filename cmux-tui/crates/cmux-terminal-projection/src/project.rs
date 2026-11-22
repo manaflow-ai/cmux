@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use crate::style::Style;
+use crate::style::{Color, Style};
 use crate::terminal::{Cell, Row, SPACER_HEAD, Terminal, WIDE, WIDE_TAIL};
 
 /// One row of the phone's view.
@@ -691,6 +691,12 @@ impl View {
                     // A soft wrap is the phone's own autowrap (a wrapped row
                     // is full, or one short of a wide glyph that follows).
                     if !tail.get(i + k - 1).is_some_and(|r| r.wrapped) {
+                        // A line feed that scrolls fills the new row with the
+                        // current background (BCE): the default one, as the
+                        // host's own empty rows have.
+                        if let Some(style) = self.phone_style.filter(|s| s.bg != Color::Default) {
+                            self.phone_style = Some(plain_keeping_link(&mut out, style));
+                        }
                         out.extend_from_slice(b"\r\n");
                     }
                     abs += 1;
@@ -708,6 +714,15 @@ impl View {
                         term.write_cell(*cell, &mut out);
                     }
                     col += cell.width();
+                }
+                if k > 0 && tail.get(i + k - 1).is_some_and(|r| r.wrapped) {
+                    let entered = projected.cells.first().map(|c| term.styles.get(c.style));
+                    if let Some(style) = self.phone_style
+                        && end_after_autowrap(projected, entered, self.cols)
+                    {
+                        self.phone_style = Some(plain_keeping_link(&mut out, style));
+                        out.extend_from_slice(b"\x1b[K");
+                    }
                 }
             }
             // A soft wrap left pending lands on the next row when written.
@@ -780,6 +795,10 @@ impl View {
             let from = if end == 0 { 0 } else { last };
             let screen_row = from - top;
             out.extend_from_slice(format!("\x1b[{};1H", screen_row + 1).as_bytes());
+            if let Some(style) = self.phone_style.filter(|s| s.bg != Color::Default) {
+                // Rows a line feed scrolls in take the current background.
+                self.phone_style = Some(plain_keeping_link(out, style));
+            }
             for _ in from..row {
                 out.extend_from_slice(b"\n");
             }
@@ -799,8 +818,10 @@ fn encode_line(term: &Terminal, rows: &[&Row], cols: usize, compact: bool) -> (V
     let wrapped = wrap_line(term, rows, term.cols, cols, None, compact);
     let mut out = Vec::new();
     let mut style = Style::default();
+    let mut previous_wrapped = false;
     for row in &wrapped.rows {
         // A line's rows follow by the phone's own autowrap.
+        let entered = row.cells.first().map(|c| term.styles.get(c.style));
         for cell in &row.cells {
             let next = term.styles.get(cell.style);
             if next != style {
@@ -813,12 +834,34 @@ fn encode_line(term: &Terminal, rows: &[&Row], cols: usize, compact: bool) -> (V
                 term.write_cell(*cell, &mut out);
             }
         }
+        if previous_wrapped && end_after_autowrap(row, entered, cols) {
+            style = plain_keeping_link(&mut out, style);
+            out.extend_from_slice(b"\x1b[K");
+        }
+        previous_wrapped = row.wrapped;
     }
     if style != Style::default() {
         write_style(term, &mut out, Some(style), Style::default());
     }
     out.extend_from_slice(b"\r\n");
     (out, wrapped.rows.len() as u64)
+}
+
+/// Whether the rest of `row` must be erased in the default style once its
+/// cells are written: the last row of a line, not full, entered by the
+/// phone's autowrap in `entered` (its first glyph's style) with a
+/// background. An autowrap that scrolls fills the new row with that
+/// background (BCE), where the host has none past the line's end.
+fn end_after_autowrap(row: &ProjectedRow, entered: Option<Style>, cols: usize) -> bool {
+    !row.wrapped && row.width() < cols && entered.is_some_and(|s| s.bg != Color::Default)
+}
+
+/// Writes the default SGR, keeping the open link (an SGR reset does not
+/// close one); the style the phone's terminal then has.
+fn plain_keeping_link(out: &mut Vec<u8>, style: Style) -> Style {
+    let plain = Style { link: style.link, ..Style::default() };
+    plain.write_sgr(out);
+    plain
 }
 
 fn write_style(term: &Terminal, out: &mut Vec<u8>, previous: Option<Style>, style: Style) {
