@@ -49,7 +49,7 @@ public nonisolated struct DesktopShown: Hashable, Sendable {
     ///   - cache: Where the dynamic metadata and aerial lookups are kept.
     /// - Returns: Nil only when no file can be drawn at all.
     static func resolve(_ picture: DesktopPicture, dark: Bool, choice: DesktopStoreChoice?, at date: Date,
-                        cache: DesktopStoreCache = .shared) -> DesktopShown? {
+                        cache: DesktopStoreCache) -> DesktopShown? {
         let fill = [picture.fill.red, picture.fill.green, picture.fill.blue]
         if let choice, choice.isAerial, let movie = cache.aerial(choice.aerialIDs) {
             return DesktopShown(path: movie, fit: picture.fit, fill: fill)

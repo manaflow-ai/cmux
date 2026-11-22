@@ -41,7 +41,8 @@ public final class DesktopWallpaperWatch {
         // `desktopImageOptions(for:)` wait on the WindowServer, and the reading stats the file. A
         // serial queue, not the cooperative pool, whose threads must not block.
         let queue = DispatchQueue(label: "com.cmuxterm.next.desktop-picture", qos: .utility)
-        return DesktopWallpaperWatch(readScreens: { await readScreens(on: queue) }, sample: sample, defaults: defaults, isHidden: showsNoWindow)
+        let cache = DesktopStoreCache()
+        return DesktopWallpaperWatch(readScreens: { await readScreens(on: queue, cache: cache) }, sample: sample, defaults: defaults, isHidden: showsNoWindow)
     }
 
     /// Where the last color is kept, so the next launch's first window has it before a sample.
@@ -63,14 +64,16 @@ public final class DesktopWallpaperWatch {
         ///   - dark: Whether the app is in the dark appearance.
         ///   - choice: The wallpaper store's desktop choice for the screen; nil when unknown.
         ///   - date: Now (a dynamic picture's frame).
-        init(picture: DesktopPicture, dark: Bool, choice: DesktopStoreChoice? = nil, at date: Date = Date()) {
+        ///   - cache: The watch's store and metadata cache; a fresh one reads everything.
+        init(picture: DesktopPicture, dark: Bool, choice: DesktopStoreChoice? = nil, at date: Date = Date(),
+             cache: DesktopStoreCache = DesktopStoreCache()) {
             self.picture = picture
             self.dark = dark
             // A fresh stat each time: the URL's own resource values can be a cached copy from before the overwrite.
             modified = picture.reportedURL.flatMap { url in
                 url.isFileURL ? (try? FileManager.checked.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date : nil
             }
-            shown = DesktopShown.resolve(picture, dark: dark, choice: choice, at: date)
+            shown = DesktopShown.resolve(picture, dark: dark, choice: choice, at: date, cache: cache)
         }
 
         static func == (lhs: Reading, rhs: Reading) -> Bool {
@@ -417,7 +420,7 @@ public final class DesktopWallpaperWatch {
     /// Every screen's desktop picture in the app's appearance, and which is the main screen's (the
     /// one with the key window). The screens and the appearance are read here; the pictures and
     /// the wallpaper store's index on `queue`.
-    private static func readScreens(on queue: DispatchQueue) async -> Readings {
+    private static func readScreens(on queue: DispatchQueue, cache: DesktopStoreCache) async -> Readings {
         guard let main = NSScreen.main ?? NSScreen.screens.first else { return Readings() }
         let dark = NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let mainID = displayID(main)
@@ -425,11 +428,11 @@ public final class DesktopWallpaperWatch {
         let mainHandle = ScreenHandle(screen: main, id: mainID ?? 0)
         return await withCheckedContinuation { continuation in
             queue.async {
-                let index = DesktopStoreCache.shared.indexData()
+                let index = cache.indexData()
                 let date = Date()
                 func reading(_ handle: ScreenHandle) -> Reading {
                     let choice = index.flatMap { DesktopStoreChoice.read($0, display: displayUUID(handle.id)) }
-                    return Reading(picture: DesktopPicture(screen: handle.screen, named: choice?.files ?? []), dark: dark, choice: choice, at: date)
+                    return Reading(picture: DesktopPicture(screen: handle.screen, named: choice?.files ?? []), dark: dark, choice: choice, at: date, cache: cache)
                 }
                 var readings = Readings()
                 for handle in handles { readings.screens[handle.id] = reading(handle) }

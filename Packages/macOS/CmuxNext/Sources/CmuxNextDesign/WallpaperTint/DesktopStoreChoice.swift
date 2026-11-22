@@ -136,10 +136,9 @@ nonisolated struct DesktopStoreChoice: Equatable, Sendable {
 }
 
 /// The store index and each picture's dynamic metadata, read once per file version and shared by
-/// every reading (the 5-second re-read stats them and parses nothing new). Called only on the
-/// desktop watch's queue; the lock keeps it safe from anywhere.
+/// every reading (the 5-second re-read stats them and parses nothing new). The live desktop watch
+/// owns one and uses it only on its queue; the lock keeps it safe from anywhere.
 nonisolated final class DesktopStoreCache: Sendable {
-    static let shared = DesktopStoreCache()
 
     private nonisolated struct State: Sendable {
         var index: (modified: Date?, data: Data?)?
