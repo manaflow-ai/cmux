@@ -25,17 +25,26 @@ pub fn names(tools: &Value) -> impl Iterator<Item = &str> {
 /// that close, or `name` is longer than [`MAX_NAME`] characters (no tool's name is: a caller's
 /// name of any size costs at most that much work); `name` itself is never its own hint.
 pub fn nearest<'a>(name: &str, known: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
+    nearest_all(name, known).into_iter().next()
+}
+
+/// Every known name equally closest to `name`, in `known`'s order: [`nearest`] with its
+/// tie-break left to the caller, for one that may not guess. A hint may pick between two names
+/// a typo fits alike, but reading an argument as one of them would send the tool the wrong one
+/// with nothing to show for it (`mcp_args::reads`).
+pub fn nearest_all<'a>(name: &str, known: impl IntoIterator<Item = &'a str>) -> Vec<&'a str> {
     let name_trimmed = name.trim();
     // A char is at most 4 bytes: a longer name is refused before it is read again.
     if name_trimmed.len() > MAX_NAME_BYTES || name_trimmed.chars().count() > MAX_NAME {
-        return None;
+        return Vec::new();
     }
     let wanted: Vec<char> = name_trimmed.to_lowercase().chars().collect();
     if wanted.is_empty() {
-        return None;
+        return Vec::new();
     }
     let limit = if wanted.len() <= 3 { 1 } else { wanted.len().checked_div(3).unwrap_or(0).max(2) };
-    let mut best: Option<(usize, &str)> = None;
+    let mut best: Option<usize> = None;
+    let mut tied: Vec<&str> = Vec::new();
     for candidate in known {
         if candidate == name || candidate.chars().count() > MAX_NAME {
             continue;
@@ -51,11 +60,20 @@ pub fn nearest<'a>(name: &str, known: impl IntoIterator<Item = &'a str>) -> Opti
         if prefix {
             score = score.min(limit);
         }
-        if score <= limit && best.is_none_or(|(least, _)| score < least) {
-            best = Some((score, candidate));
+        if score > limit {
+            continue;
+        }
+        match best {
+            Some(least) if score > least => {}
+            Some(least) if score == least => tied.push(candidate),
+            _ => {
+                best = Some(score);
+                tied.clear();
+                tied.push(candidate);
+            }
         }
     }
-    best.map(|(_, candidate)| candidate)
+    tied
 }
 
 /// The longest tool name a hint is looked for (tool names are short identifiers).
