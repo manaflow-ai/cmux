@@ -17,6 +17,7 @@ public import CmuxNextDesign
 ///   (``AgentPaneNewTabText``): each page's model gets it, so the pages of a held New Tab key cost one make.
 /// - `lookSound`: the active look's sound pack for a page's finish moments (``AgentPaneFinishSound/lookSource(_:)``,
 ///   `notifications.sounds.lookPack`); nil (tests) plays only the built-in sounds.
+/// - `hostMarks`: the app's host marks (`AppServices.personInput.hostMarks`, ``AgentPaneHostMarks``); nil (tests): a key's mark is never taken back.
 public struct AgentPaneShared {
     public let openPanel: MadeAheadOpenPanel?
     public let eventSources: EventSourceProcesses
@@ -26,12 +27,15 @@ public struct AgentPaneShared {
     public let focusLoss: AgentPaneView.PageFocusLoss?
     public let newTabText: AgentPaneNewTabText
     public let lookSound: AgentPaneFinishSound.LookSource?
+    public let hostMarks: AgentPaneHostMarks?
 
-    /// The defaults (tests): no open panel, a posting-process table of the pane's own, no apps, no grant, no flicker log, no focus log
-    /// and a New Tab text of this value's own.
+    /// The defaults (tests): no open panel, a posting-process table of the pane's own, no apps, no grant, no flicker log, no focus log,
+    /// a New Tab text of this value's own and no host marks.
     public init(openPanel: MadeAheadOpenPanel? = nil, eventSources: EventSourceProcesses = EventSourceProcesses(), apps: AppsClient? = nil,
                 actAsMe: AgentPaneActAsMe? = nil, flickerLog: AgentPageFlickerLog? = nil, focusLoss: AgentPaneView.PageFocusLoss? = nil,
-                newTabText: AgentPaneNewTabText = AgentPaneNewTabText(), lookSound: AgentPaneFinishSound.LookSource? = nil) {
+                newTabText: AgentPaneNewTabText = AgentPaneNewTabText(), lookSound: AgentPaneFinishSound.LookSource? = nil,
+                hostMarks: AgentPaneHostMarks? = nil) {
+        self.hostMarks = hostMarks
         self.openPanel = openPanel
         self.eventSources = eventSources
         self.apps = apps
@@ -51,6 +55,7 @@ extension AgentPaneView {
                   openPanel: shared.openPanel, eventSources: shared.eventSources, flickerLog: shared.flickerLog)
         model.transport.gestures.actAsMe = shared.actAsMe
         model.finishSound.lookSound = shared.lookSound
+        model.hostTouch.marks = shared.hostMarks
         model.newTabText = shared.newTabText // before the page's first request: a new view's document has no shared text
         onPageFocusLost = shared.focusLoss
         showActAsMe(shared.actAsMe)

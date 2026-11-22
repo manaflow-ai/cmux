@@ -74,6 +74,184 @@ workspace moved and ranked within its section. The watcher test writes a
 temporary \`cmux-next.json\` through an atomic replacement and observes the new
 projection without a restart.
 
+## A nav block of cmux actions: `sidebar.nav`
+
+A look (or you) can put a column of plain rows at the very top of the sidebar, each running a cmux
+action, as the Codex app's sidebar does with New chat, Search, Pull requests and Scheduled. Each entry
+is an action id (`cmux action list` names them), optionally followed by a title and an SF Symbol:
+
+```json
+{
+  "sidebar.nav": [
+    "palette.newAgentChat | New chat | square.and.pencil",
+    "search.chats | Search | magnifyingglass",
+    "palette.openWorkspacePullRequests | Pull requests | arrow.triangle.pull",
+    "automations.show | Scheduled | clock",
+    "appStore.show | Plugins | puzzlepiece.extension"
+  ]
+}
+```
+
+The rows draw in the built-in look (an icon and a label, no fill at rest, the hover fill), above
+Home, and follow `sidebar.sectionLook`. A row with no title or symbol takes the action's own. Rust
+checks the list (`cmux-layout-reducer` `sidebar_nav.rs`): an unknown id, a debug-only or destructive
+action, a duplicate, or more than 12 rows is dropped with a diagnostic, and the rest still draw. The
+rows are never written to the sidebar document, so removing the key, or the look that set it, leaves
+your sidebar as it was. Empty (the default) draws no block. Together with `sidebar.groupBy: recents`
+(Projects and Recents headers) and Pinned, this gives a sidebar the shape of the Codex app's.
+
+# Sidebar looks
+
+`sidebar.look` draws the sidebar like another app's: `claude` (the Claude desktop app), `codex`
+(the Codex app), `studio` (a coding studio: threads under a heading per project, status in words and icons) or
+`cmux`, the default, which is today's sidebar. The transcript (`agentPane.display.transcriptLook`)
+and the composer (`agentPane.display.composerLook`) use the same four names, so one word sets the
+whole window's look.
+
+```sh
+cmux settings set sidebar.look claude
+cmux settings reset sidebar.look      # back to cmux's own sidebar
+```
+
+Or in `~/.config/cmux/cmux-next.json`: `{ "sidebar": { "look": "studio" } }`. Saving the file is
+the reload, as with every sidebar setting. A theme file may set `sidebar.look` too.
+
+## A look is only public settings
+
+Each look is a file of ordinary sidebar settings, shipped in `Resources/sidebar-looks/<look>.json`
+and read by the app (`SidebarLookPreset`) and by the daemon and the CLI (cmux-config
+`sidebar_look`). A look fills only the keys that cmux-next.json, the managed layers and the theme
+file leave unset. Your own setting always wins, so you can take a look and change one thing:
+
+```json
+{ "sidebar": { "look": "codex", "showTimestamps": false } }
+```
+
+Or drop `sidebar.look` and copy a look's lines into your file to own every value. These are the
+three looks written out, exactly as shipped:
+
+**Claude**: sessions under a plain heading per project; a row is its title; a small dot for work.
+
+```json
+{
+  "sidebar.groupBy": "folder",
+  "sidebar.groupHeader.background": "sections",
+  "sidebar.groupHeader.memberCount": false,
+  "sidebar.groupHeader.unreadCount": false,
+  "sidebar.sectionLook": "quiet",
+  "sidebar.workspaceRow.icon": false,
+  "sidebar.showColors": false,
+  "sidebar.showTimestamps": false,
+  "sidebar.detailedStatusIcons": false,
+  "appearance.statusIndicator.style": "dot",
+  "sidebar.showSpaces": false
+}
+```
+
+**Codex**: threads under a plain heading per project folder; title and time on one line; a thin
+ring for work.
+
+```json
+{
+  "sidebar.groupBy": "folder",
+  "sidebar.groupHeader.background": "sections",
+  "sidebar.groupHeader.memberCount": false,
+  "sidebar.groupHeader.unreadCount": false,
+  "sidebar.sectionLook": "quiet",
+  "sidebar.workspaceRow.icon": false,
+  "sidebar.showColors": false,
+  "sidebar.showTimestamps": true,
+  "sidebar.detailedStatusIcons": false,
+  "appearance.statusIndicator.style": "arc",
+  "sidebar.showSpaces": false
+}
+```
+
+**Studio**: threads under a plain heading per project; title and compact time; working, waiting,
+error and done each have their own icon.
+
+```json
+{
+  "sidebar.groupBy": "folder",
+  "sidebar.groupHeader.background": "sections",
+  "sidebar.groupHeader.memberCount": false,
+  "sidebar.groupHeader.unreadCount": false,
+  "sidebar.sectionLook": "quiet",
+  "sidebar.workspaceRow.icon": false,
+  "sidebar.showColors": false,
+  "sidebar.showTimestamps": true,
+  "sidebar.detailedStatusIcons": true,
+  "appearance.statusIndicator.style": "arc",
+  "sidebar.showSpaces": false
+}
+```
+
+Colors are not part of a sidebar look: they belong to theme files. Pair a look with one, for
+example `sidebar.look` `claude` with the shipped `claude-desktop` theme file
+(`cmux settings set appearance.themeFile claude-desktop`). Past settings and theme files, the
+`customize/main.js` row hook (`cmux.sidebar.rows/1`, below) adds icons, weight, an indicator or a
+badge per row, and the hover card hook redraws the card. Every look here uses only those three
+routes, so anything a shipped look does, you can do yourself without a build.
+
+## No shift
+
+A look never moves the pane or a row. It may set only the grid keys (cmux-config
+`sidebar_look::GRID_KEYS`): grouping, headings, which marks a row draws and how status shows. It
+never sets row height, sidebar width, the trailing column or motion (`sidebar.density`,
+`sidebar.textSize`, `sidebar.style`, `appearance.metrics.*`, animation keys, or row elements that
+add a line). Those stay on the shared grid, and they stay yours: a look keeps your density and
+width.
+
+Two detectors hold this:
+
+- Rust (`cargo test -p cmux-config --lib sidebar_look`): every shipped look reads whole, sets only
+  grid keys that are public settings, fills only unset keys, keeps the density, and `cmux` fills
+  nothing.
+- Swift (`AASidebarLookPresetGalleryTests`, CmuxNextAppTests): through the real sidebar list, for
+  every look, a row changing state (working, busy, waiting, error, done, unread, idle) and a hot
+  reload move no row's frame; switching looks keeps the list width and one workspace row height
+  across all four looks; and switching away and back returns every row frame exactly. Its gallery
+  (`CMUX_TEST_REQUIRE_GUI=1`) writes `sidebar-look-presets-gallery/`, one column per look, dark
+  above light.
+
+## How faithful, and what is not expressible yet
+
+Each look was checked against captures of the real app's sidebar (dark mode; sizes in points).
+The gallery (`AASidebarLookPresetGalleryTests.renderGallery`) draws every look at its reference's
+width (`reference-width-<look>.png`) and writes `metrics.json` (width, row height and pitch, header
+heights, title and detail type) so the two can be compared number by number.
+
+| | Claude | Codex | Studio |
+|---|---|---|---|
+| Sidebar width | 288 (resizable) | about 300 (295 to 306) | 256 |
+| Row pitch | 30 | 31 | 83: a three-line card, 78 tall |
+| Title | 13 to 14, regular | 13, regular | 14, medium |
+| Trailing text | none | time, 12 | time, 12 |
+| Status | a 6 pt dot at the trailing edge | a thin ring of about 12 pt, leading | a word with an icon |
+| List | by project | by project, or flat threads under Pinned | by project |
+| Headings | plain, about 13, no count | plain, 12 to 13, no count | plain, no count |
+| Selection | a fill, no ring | a fill, no ring, radius about 9 | a fill, radius about 8 |
+
+What each look sets to match: Claude groups by project, hides the time, draws a dot; Codex groups by
+project, shows the time and draws the thin ring (`arc`); Studio groups by project, shows the time and draws an
+icon for each status.
+
+Width and row pitch are not set by a look (No shift). To match a reference's numbers, set them
+yourself: `appearance.metrics.sidebarWidth` (for example 256, 288 or 300) and `sidebar.density`.
+Studio's three-line card is nearest to `sidebar.density` `expanded`.
+
+What a look keeps of cmux's own, beyond the original:
+
+- Live state on every row: working, waiting, error and done, as they happen.
+- Status in words on hover cards, and unread counts.
+- No shift: a row changing state, a reload or a look switch moves no row.
+
+Not expressible as settings yet, so no look sets them:
+
+- Claude's status dot at the row's trailing edge. cmux draws the status mark at the leading edge.
+- Codex's pin and automation marks, and the archive button that replaces the time on hover.
+- Studio's three-line card (project, title, branch) and its hover actions.
+
 # Customizing the sidebar's hover card and rows
 
 cmux-next lets you redraw a workspace row's hover card and decorate sidebar rows with a short

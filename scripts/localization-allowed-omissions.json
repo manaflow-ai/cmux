@@ -7545,6 +7545,125 @@
       }
     }
   },
+  "store.scope.coderouter": {
+    "source": "CodeRouter",
+    "class": "brand"
+  },
+  "store.detail.version": {
+    "source": "Version",
+    "identityLocales": {
+      "da": {
+        "reason": "Version is the standard word for a software version in Danish, German and French.",
+        "values": [
+          "Version"
+        ]
+      },
+      "de": {
+        "reason": "Version is the standard word for a software version in Danish, German and French.",
+        "values": [
+          "Version"
+        ]
+      },
+      "fr": {
+        "reason": "Version is the standard word for a software version in Danish, German and French.",
+        "values": [
+          "Version"
+        ]
+      }
+    }
+  },
+  "store.scope.network": {
+    "source": "Internet",
+    "identityLocales": {
+      "bs": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "da": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "de": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "es": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "fr": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "it": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "pl": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      },
+      "vi": {
+        "reason": "Internet is the standard word for the internet in this language.",
+        "values": [
+          "Internet"
+        ]
+      }
+    }
+  },
+  "store.scope.notifications": {
+    "source": "Notifications",
+    "identityLocales": {
+      "fr": {
+        "reason": "Notifications is the standard French plural noun for app notifications.",
+        "values": [
+          "Notifications"
+        ]
+      }
+    }
+  },
+  "store.scope.terminal": {
+    "source": "Terminals",
+    "identityLocales": {
+      "de": {
+        "reason": "Terminals is the standard German plural of Terminal.",
+        "values": [
+          "Terminals"
+        ]
+      }
+    }
+  },
+  "store.detail.screenshot": {
+    "source": "Screenshot %@",
+    "identityLocales": {
+      "it": {
+        "reason": "Screenshot is the standard Italian word for a screen capture.",
+        "values": [
+          "Screenshot %@"
+        ]
+      }
+    }
+  },
   "settings.category.cloud": {
     "source": "Cloud",
     "identityLocales": {
@@ -7557,6 +7676,14 @@
     "identityLocales": {
       "de": "Agent is the standard noun for an AI agent in German, spelled as in English (as home.info.agent).",
       "fr": "Agent is the standard noun for an AI agent in French, spelled as in English (as home.info.agent)."
+    }
+  },
+  "settings.remote.screenSharingProfile.ultra": {
+    "source": "Ultra",
+    "identityLocales": {
+      "de": "Ultra is the profile's product name, spelled the same in this locale (the Ultra Connection Mode row's own name keeps it too); a translated entry is still required.",
+      "fr": "Ultra is the profile's product name, spelled the same in this locale (the Ultra Connection Mode row's own name keeps it too); a translated entry is still required.",
+      "es": "Ultra is the profile's product name, spelled the same in this locale (the Ultra Connection Mode row's own name keeps it too); a translated entry is still required."
     }
   }
 }
