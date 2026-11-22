@@ -127,6 +127,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
     let explicit_max_kbps = opts.get("max-kbps").map(|_| opts.num_or("max-kbps", 0)).transpose()?;
     Ok(SessionCfg {
         display,
+        display_pick: opts.get("monitor").map(str::to_owned),
         max_fps: encode_profile.stream_fps(max_fps),
         encode_profile,
         start_kbps: opts.num_or("start-kbps", 8000)?,
@@ -152,6 +153,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
             .get("max-width")
             .map(|w| w.parse().map_err(|_| format!("--max-width {w}: a pixel count")))
             .transpose()?,
+        show_cursor: true,
         // The Cloud host streams its own virtual X display unless `--capture portal` asks
         // for the compositor's screen (a Wayland desktop).
         capture: opts
