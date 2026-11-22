@@ -387,5 +387,219 @@ class SpareToken(unittest.TestCase):
         self.assertEqual(code, 201)
 
 
+# DEFERRED_TREE_HAS_A_FILLER (cmux#51086, the detector): cmux#50471 at 0d0b49cc deferred tree ca63fe36 to run
+# 45060021944, which hung in a download and was cancelled; its failed notify and hand-off were refused on the spent
+# quota, nothing retried, and every re-run of the pull request's run deferred to the dead run again.
+import io  # noqa: E402
+import tempfile  # noqa: E402
+import unittest.mock  # noqa: E402
+import zipfile  # noqa: E402
+from typing import Callable  # noqa: E402
+
+import cmux_next_tree_notify as notify  # noqa: E402
+import cmux_next_tree_refill as refill  # noqa: E402
+
+TREE = "ca63fe364c973426166d7a6b6ddc647501deae6e"
+PUBLISHER = "0d0b49cce993c182151d914226aafd2842602f27"
+PUBLISHER_RUN = 45060021944
+SAME_REPO = {"id": 77, "repository_id": 1, "head_repository_id": 1, "head_branch": "rfd38-refresh-dispatch-rebuild"}
+
+
+def zipped(record: dict) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("pending.json", json.dumps(record))
+    return buffer.getvalue()
+
+
+def failed_record(reason: str = "r") -> dict:
+    return {"key": TREE, "keys": [TREE], "state": "failed", "why": "HTTP 403", "reason": reason,
+            "run_id": PUBLISHER_RUN}
+
+
+class RefillApi:
+    """The calls refill and the sweep make: runs, run lists, re-runs, pending records."""
+
+    def __init__(self, run: dict | None = None, runs: list[dict] | None = None, records: list[bytes] = (),
+                 refusals: int = 0, rerun_code: int = 201):
+        self.run = run or {}
+        self.runs = runs if runs is not None else []
+        self.records = [{"id": 500 + index, "name": notify.PENDING_ARTIFACT, "expired": False,
+                         "archive_download_url": f"pending/{index}", "workflow_run": SAME_REPO}
+                        for index, _ in enumerate(records)]
+        self.zips = {f"pending/{index}": body for index, body in enumerate(records)}
+        self.refusals = refusals
+        self.rerun_code = rerun_code
+        self.posts: list[str] = []
+        self.deleted: list[int] = []
+        self.last: tuple[int, bytes, dict] = (200, b"", {})
+
+    def get(self, path: str):
+        if self.refusals:
+            self.refusals -= 1
+            self.last = (403, b'{"message":"API rate limit exceeded for installation"}',
+                         {"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1000300"})
+            raise RuntimeError(f"GET {path}: HTTP 403")
+        self.last = (200, b"", {})
+        if path.startswith(f"repos/o/r/actions/artifacts?name={notify.PENDING_ARTIFACT}&"):
+            return {"artifacts": self.records}
+        if path.startswith("repos/o/r/actions/artifacts?name="):
+            return {"artifacts": []}
+        if path == f"repos/o/r/actions/runs/{PUBLISHER_RUN}":
+            return self.run
+        if path.startswith("repos/o/r/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha="):
+            return {"workflow_runs": self.runs}
+        raise RuntimeError(f"GET {path}: HTTP 404")
+
+    def download(self, url: str) -> bytes:
+        return self.zips[url]
+
+    def post(self, path: str, body: dict) -> int:
+        self.posts.append(path)
+        return self.rerun_code
+
+    def delete(self, path: str) -> int:
+        self.deleted.append(int(path.rsplit("/", 1)[1]))
+        return 204
+
+
+def ended(conclusion: str = "cancelled", attempt: int = 1) -> dict:
+    return {"id": PUBLISHER_RUN, "status": "completed", "conclusion": conclusion, "run_attempt": attempt,
+            "path": ".github/workflows/cmux-tui-artifacts.yml"}
+
+
+def maker() -> tuple[list[dict], Callable]:
+    calls: list[dict] = []
+    return calls, lambda _api, **kw: calls.append(kw) or 1
+
+
+class DeferredTreeHasAFiller(unittest.TestCase):
+    def test_a_refused_failed_notify_is_recorded_with_its_run(self):
+        class Refused(notify.GitHub):
+            def _send(self, method, url, body=None):
+                return 403, b'{"message": "API rate limit exceeded for installation"}', {"x-ratelimit-remaining": "0"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "p", "pending.json")
+            env = {"GH_TOKEN": "spent", "GITHUB_RUN_ID": str(PUBLISHER_RUN)}
+            with unittest.mock.patch.object(notify, "GitHub", Refused), unittest.mock.patch.dict(os.environ, env), \
+                    unittest.mock.patch.object(notify, "fetch_completion", lambda key: None):
+                code = notify.main(["--repo", "o/r", "--key", TREE, "--state", "failed", "--pending-file", path,
+                                    "--reason", "the run ended without publishing"])
+            self.assertEqual(code, 0)
+            record = json.loads(Path(path).read_text())
+        self.assertEqual((record["state"], record["run_id"], record["keys"]), ("failed", PUBLISHER_RUN, [TREE]))
+        self.assertIn("without publishing", record["reason"])
+
+    def test_the_sweep_reruns_the_publisher_that_ended_unpublished(self):
+        api = RefillApi(run=ended(), records=[zipped(failed_record())])
+        calls, make = maker()
+        again: list[list[str]] = []
+        left = notify.sweep_pending(api, "o/r", log=lambda _l: None, make=make, record=again.append,
+                                    fetch_completion=lambda key: None)
+        self.assertEqual(left, [])
+        self.assertEqual(api.posts, [f"repos/o/r/actions/runs/{PUBLISHER_RUN}/rerun-failed-jobs"])
+        self.assertEqual((calls, api.deleted, again[-1]), ([], [500], []))
+
+    def test_a_publisher_at_its_last_attempt_is_reported_red_not_rerun(self):
+        api = RefillApi(run=ended(attempt=3), records=[zipped(failed_record())])
+        calls, make = maker()
+        notify.sweep_pending(api, "o/r", log=lambda _l: None, make=make, fetch_completion=lambda key: None)
+        self.assertEqual(api.posts, [])
+        self.assertEqual([(call["key"], call["state"]) for call in calls], [(TREE, "failed")])
+
+    def test_a_published_key_still_makes_its_ready_notify(self):
+        api = RefillApi(run=ended(), records=[zipped(failed_record())])
+        calls, make = maker()
+        notify.sweep_pending(api, "o/r", log=lambda _l: None, make=make,
+                             fetch_completion=lambda key: {"key": key, "binaries": {}})
+        self.assertEqual(([call["state"] for call in calls], api.posts), (["ready"], []))
+
+    def test_a_sweep_that_cannot_finish_records_the_failed_key_again(self):
+        api = RefillApi(run=ended(), records=[zipped(failed_record("why"))], rerun_code=403)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "pending.json")
+            failed: dict = {}
+
+            def record(keys: list[str]) -> None:
+                if keys:
+                    notify.write_pending(path, keys, "ready", "again", failed=failed)
+            left = notify.sweep_pending(api, "o/r", log=lambda _l: None, fetch_completion=lambda key: None,
+                                        failed_out=failed, record=record)
+            again = notify.read_pending(RefillApi(records=[zipped(json.loads(Path(path).read_text()))]),
+                                        {"archive_download_url": "pending/0"})
+        self.assertEqual(left, [TREE])
+        self.assertEqual(again["failed"], {TREE: {"reason": "why", "run_id": PUBLISHER_RUN}})
+
+    def test_the_pull_requests_own_run_waits_out_the_limit_then_reruns_the_dead_publisher(self):
+        api = RefillApi(run=ended(), runs=[ended()], refusals=2)
+        calls, make = maker()
+        slept: list[float] = []
+        clock = [1000000.0]
+
+        def sleep(seconds: float) -> None:
+            slept.append(seconds)
+            clock[0] += seconds
+        args = refill.argparse.Namespace(repo="o/r", key=TREE, publisher_sha=PUBLISHER, reason="deferred")
+        with unittest.mock.patch.object(notify, "notify", make):
+            code = refill.run(api, args, log=lambda _l: None, sleep=sleep, now=lambda: clock[0],
+                              fetch_completion=lambda key: None)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(slept), 2)
+        self.assertEqual(api.posts, [f"repos/o/r/actions/runs/{PUBLISHER_RUN}/rerun-failed-jobs"])
+        self.assertEqual(calls, [])
+
+    def test_the_refill_verdicts(self):
+        def verdict(api: RefillApi, completion: object = None) -> tuple:
+            calls, make = maker()
+            got = refill.check(api, repo="o/r", key=TREE, sha=PUBLISHER, reason="", log=lambda _l: None,
+                               fetch_completion=lambda key: completion, make=make)
+            return got, [call["state"] for call in calls], api.posts
+        open_run = dict(ended(), status="in_progress")
+        self.assertEqual(verdict(RefillApi(runs=[open_run])), ("live", [], []))
+        self.assertEqual(verdict(RefillApi(runs=[]))[:2], ("reported", ["failed"]))
+        self.assertEqual(verdict(RefillApi(), {"key": TREE, "binaries": {}})[:2], ("published", ["ready"]))
+        self.assertEqual(verdict(RefillApi(run=ended(attempt=3), runs=[ended(attempt=3)]))[:2],
+                         ("reported", ["failed"]))
+        self.assertEqual(verdict(RefillApi(run=ended(), runs=[ended()]))[0], "rerun")
+
+    def test_a_refusal_past_the_budget_is_the_jobs_red(self):
+        class Far(RefillApi):
+            def get(self, path):
+                self.last = (403, b"", {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(10 ** 7)})
+                raise RuntimeError("HTTP 403")
+        args = refill.argparse.Namespace(repo="o/r", key=TREE, publisher_sha=PUBLISHER, reason="")
+        logs: list[str] = []
+        self.assertEqual(refill.run(Far(), args, log=logs.append, sleep=lambda s: None, now=lambda: 0.0,
+                                    fetch_completion=lambda key: None), 1)
+        self.assertIn("::error", logs[-1])
+
+    def test_the_workflows_route_an_unfilled_deferral_to_the_refill(self):
+        route = jobs()["path_route"]
+        self.assertIn("tree_refill", route["outputs"])
+        self.assertIn("tree_source", route["outputs"])
+        marker = next(step for step in route["steps"] if step.get("id") == "marker")
+        self.assertIn("tree_refill == '1'", marker["if"])
+        job = jobs()["same-tree-refill"]
+        self.assertIn("needs.path_route.outputs.tree_refill == '1'", job["if"])
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", job["if"])
+        self.assertEqual(job["permissions"]["actions"], "write")
+        self.assertIn("cmux_next_tree_refill.py", job["steps"][-1]["run"])
+        self.assertGreaterEqual(job["timeout-minutes"] * 60, refill.WAIT_BUDGET_S)
+        pin = PIN.read_text()
+        limited = pin.split("    rate-limited)\n", 1)[1].split(";;", 1)[0]
+        self.assertIn("refill=1", limited)
+        self.assertIn('echo "tree_refill=1"', pin)
+        artifacts = yaml.safe_load((WORKFLOWS / "cmux-tui-artifacts.yml").read_text())["jobs"]
+        steps = artifacts["notify-unpublished-tree"]["steps"]
+        names = [step.get("name") for step in steps]
+        report = steps[names.index("Report the unpublished tree to the cmux-next runs that wait for it")]
+        self.assertIn("--pending-file", report["run"])
+        self.assertIn("GH_TOKEN_SPARE", report["env"])
+        self.assertLess(names.index("Mint the hand-off's spare token"), names.index(report["name"]))
+        upload = steps[names.index(report["name"]) + 1]
+        self.assertEqual((upload["with"]["name"], upload["if"]), (notify.PENDING_ARTIFACT, "always()"))
+
+
 if __name__ == "__main__":
     unittest.main()
