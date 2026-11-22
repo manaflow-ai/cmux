@@ -27,7 +27,7 @@
   content: "";
   box-sizing: border-box;
   width: 12px;
-  height: 12px;
+  aspect-ratio: 1;
   border-radius: 50%;
   background: radial-gradient(circle, var(--cv-text-dim) 3px, transparent 3.5px);
 }
