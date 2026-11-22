@@ -74,10 +74,25 @@
   },
   {
    "name": "agent.fork",
-   "meaning": "Fork the agent conversation into a new chat (to the right/left/above/below).",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='7' cy='6' r='2.25'/><circle cx='7' cy='18' r='2.25'/><circle cx='17' cy='6' r='2.25'/><path d='M7 8.25v7.5M17 8.25c0 4.75-10 3.25-10 7.5'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7 8.5v7M17 8.5c0 4.5-10 3-10 7' fill='none' stroke-width='2'/><circle cx='7' cy='6' r='2.5' stroke='none'/><circle cx='7' cy='18' r='2.5' stroke='none'/><circle cx='17' cy='6' r='2.5' stroke='none'/></svg>",
+   "meaning": "Fork the agent conversation into a new chat (to the right/left/above/below): the split arrow Claude and Codex draw for branching a chat, a stem that runs on up and right while a detached arm peels off down and right.",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 12h8l9-9M15.5 3h5v5M14.5 15l6 6M20.5 16v5h-5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 12h8l9-9M15.5 3h5v5M14.5 15l6 6M20.5 16v5h-5'/></svg>",
    "alts": [
+    {
+     "label": "Before (Leo 2026-11-22: \"i think this is too cute for a fork chat button. it's reminiscent of github stuff\"): the branch mark, a stem node with a second node curving in",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='7' cy='6' r='2.25'/><circle cx='7' cy='18' r='2.25'/><circle cx='17' cy='6' r='2.25'/><path d='M7 8.25v7.5M17 8.25c0 4.75-10 3.25-10 7.5'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7 8.5v7M17 8.5c0 4.5-10 3-10 7' fill='none' stroke-width='2'/><circle cx='7' cy='6' r='2.5' stroke='none'/><circle cx='7' cy='18' r='2.5' stroke='none'/><circle cx='17' cy='6' r='2.5' stroke='none'/></svg>"
+    },
+    {
+     "label": "Soft knee: the same split arrow, the stem bending into the upper arm on a small curve",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 12h6.5c1 0 1.5-.5 2.2-1.2L20.5 3M15.5 3h5v5M14.5 15l6 6M20.5 16v5h-5'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 12h6.5c1 0 1.5-.5 2.2-1.2L20.5 3M15.5 3h5v5M14.5 15l6 6M20.5 16v5h-5'/></svg>"
+    },
+    {
+     "label": "Joined split: both arms leave the stem's end, a symmetric turned Y with corner heads",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 12h8l9-9M15.5 3h5v5M11.5 12l9 9M20.5 16v5h-5'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 12h8l9-9M15.5 3h5v5M11.5 12l9 9M20.5 16v5h-5'/></svg>"
+    },
     {
      "label": "Before (Leo 2026-11-07: \"our generated github icon\"): the fork mark, two top nodes whose tines join one stem to a bottom node",
      "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='7' cy='6' r='2.25'/><circle cx='17' cy='6' r='2.25'/><circle cx='12' cy='18' r='2.25'/><path d='M7 8.25v1.25c0 1.4 1.1 2.5 2.5 2.5h5c1.4 0 2.5-1.1 2.5-2.5V8.25M12 12v3.75'/></svg>",
