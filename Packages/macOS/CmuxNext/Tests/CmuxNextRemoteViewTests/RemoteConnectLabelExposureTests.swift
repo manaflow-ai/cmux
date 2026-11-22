@@ -76,7 +76,7 @@ import Testing
 
     @Test func aSlowConnectShowsItsCardAfterOneSecond() {
         let slow = Self.measure(Self.firstConnect("connect-2500ms", streamAt: 2000, frameAt: 2500))
-        #expect(slow.cardMs == 2500 - Int(RemotePaneState.connectNoticeDelay.components.seconds) * 1000)
+        #expect(slow.cardMs == 1500, "the card after the 1 s coming-up time, until the first frame at 2.5 s")
     }
 
     @Test func aReconnectUnderTenSecondsDrawsNoCard() {
