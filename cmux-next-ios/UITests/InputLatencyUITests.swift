@@ -104,6 +104,62 @@ final class InputLatencyUITests: XCTestCase {
         report("chat", app)
     }
 
+    /// The terminal open, cold (a fresh launch per open), first frame drawn
+    /// off the layout pass (now) and in it (`-cmux-mobile-term-sync-first-draw`,
+    /// before), each idle and with a stream running (`-cmux-mobile-term-fake-codex`),
+    /// sides interleaved on one simulator. Per open: tap to the SwiftUI screen's
+    /// surface (`term_open_to_surface`), `ghostty_surface_new` (`term_surface_new`),
+    /// tap to the first frame (`term_open_first_present`), and the longest
+    /// main-thread iteration from the tap on (`term_open_max_iteration`).
+    /// Prints `TERMOPEN {json}` per open and `TERMOPEN_TABLE` rows (n, p50, p95, max).
+    @MainActor
+    func testTerminalOpen() throws {
+        let opens = Int(ProcessInfo.processInfo.environment["CMUX_TERM_OPEN_N"] ?? "") ?? 10
+        let kinds = ["term_open_to_surface", "term_surface_new", "term_open_first_present", "term_open_max_iteration"]
+        let rows: [(name: String, args: [String])] = [
+            ("idle/new", []), ("idle/old", ["-cmux-mobile-term-sync-first-draw"]),
+            ("stream/new", ["-cmux-mobile-term-fake-codex"]),
+            ("stream/old", ["-cmux-mobile-term-fake-codex", "-cmux-mobile-term-sync-first-draw"]),
+        ]
+        var values: [String: [String: [Double]]] = [:]
+        var lines: [String] = []
+        for index in 0 ..< opens {
+            for row in rows {
+                let app = Self.listApp()
+                app.launchArguments += row.args
+                app.launch()
+                open(Self.terminalWorkspace, in: app)
+                let done = waitFor(app, timeout: 30) { ($0["term_open_max_iteration"] as? [String: Any]).flatMap { $0["n"] as? Int } ?? 0 >= 1 }
+                let probe = summary(app)
+                var one: [String: Double] = [:]
+                for kind in kinds {
+                    if let ms = (probe[kind] as? [String: Any])?["max"] as? Double { one[kind] = ms }
+                }
+                for (kind, ms) in one { values[row.name, default: [:]][kind, default: []].append(ms) }
+                let json = one.sorted { $0.key < $1.key }.map { String(format: "\"%@\":%.1f", $0.key, $0.value) }.joined(separator: ",")
+                let line = #"TERMOPEN {"row":"\#(row.name)","i":\#(index),"done":\#(done),\#(json)}"#
+                print(line)
+                lines.append(line)
+                app.terminate()
+            }
+        }
+        for row in rows {
+            for kind in kinds {
+                let sorted = (values[row.name]?[kind] ?? []).sorted()
+                guard !sorted.isEmpty else { continue }
+                func p(_ q: Double) -> Double { sorted[min(sorted.count - 1, max(0, Int((q * Double(sorted.count)).rounded(.up)) - 1))] }
+                let line = String(format: "TERMOPEN_TABLE %@ %@ n=%d p50=%.1f p95=%.1f max=%.1f", row.name, kind, sorted.count, p(0.5), p(0.95), sorted.last ?? 0)
+                print(line)
+                lines.append(line)
+            }
+        }
+        let attachment = XCTAttachment(string: lines.joined(separator: "\n"))
+        attachment.name = "terminal-open-table"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        XCTAssertFalse(values.isEmpty, "no terminal open was timed")
+    }
+
     // MARK: Helpers
 
     @MainActor

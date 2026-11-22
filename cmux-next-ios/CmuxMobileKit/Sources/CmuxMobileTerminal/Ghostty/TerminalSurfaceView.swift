@@ -158,7 +158,13 @@ final class TerminalSurfaceView: UIView {
                 DispatchQueue.main.async { MainActor.assumeIsolated { box.deliver?(data) } }
             }
         }
+        // The open's phases (InputLatencyUITests.testTerminalOpen): tap to here is the
+        // SwiftUI work that builds the terminal screen; then Ghostty's surface.
+        let trace = InputLatencyTrace.shared
+        if let start = trace?.openStart { trace?.sample("term_open_to_surface", since: start) }
+        let surfaceStart = CACurrentMediaTime()
         surface = ghostty_surface_new(app.app, &config)
+        trace?.sample("term_surface_new", since: surfaceStart)
         guard let surface else { return }
         prediction = TerminalSurfacePrediction(view: self, alternateScreen: showsAlternateScreen)
         if let hostTheme { prediction?.setColors(background: hostTheme.backgroundColor, foreground: hostTheme.foregroundColor) }
@@ -352,8 +358,18 @@ final class TerminalSurfaceView: UIView {
         // on the GPU while the terminal opened (652.9 ms, InputLatencyUITests
         // trace b4eef07b: didMoveToWindow -> syncSize -> drawNow ->
         // waitUntilCompleted). Ask the renderer for the first frame instead.
-        if presents > 0 { drawNow() } else { setNeedsTerminalDraw() }
+        if presents > 0 || Self.drawsFirstFrameInLayout { drawNow() } else { setNeedsTerminalDraw() }
     }
+
+    /// `-cmux-mobile-term-sync-first-draw` (DEBUG): the first frame drawn in
+    /// layout as before, so one build times both paths (testTerminalOpen).
+    private static let drawsFirstFrameInLayout: Bool = {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-sync-first-draw")
+        #else
+        false
+        #endif
+    }()
 
     #if DEBUG
     /// DEBUG (termqa round 8): reads one row by each Ghostty point tag, to
@@ -760,6 +776,7 @@ final class TerminalSurfaceView: UIView {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.presents += 1
+                if self.presents == 1 { InputLatencyTrace.shared?.endOpen() }
                 self.presentPending = true
                 self.observeCommits()
             }

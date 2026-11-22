@@ -100,6 +100,35 @@ public final class InputLatencyTrace {
         NextFrame.after { [weak self] in self?.sample(kind, since: start) }
     }
 
+    // MARK: Terminal open
+
+    /// When the open being timed began (a workspace row's tap), until its terminal's first frame.
+    public private(set) var openStart: CFTimeInterval?
+    /// The longest main-thread iteration since `openStart` (ms).
+    private var openMaxIterationMs = 0.0
+
+    /// A workspace row was tapped: times the terminal open that may follow
+    /// (`term_open_*` samples, `TerminalSurfaceView`).
+    public func beginOpen() {
+        openStart = CACurrentMediaTime()
+        openMaxIterationMs = 0
+    }
+
+    /// The opened terminal presented its first frame: `term_open_first_present`
+    /// (tap to that frame), and half a second later `term_open_max_iteration`,
+    /// the longest main-thread iteration from the tap on (the open's hitch).
+    public func endOpen() {
+        guard let start = openStart else { return }
+        sample("term_open_first_present", since: start)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.openStart == start else { return }
+                self.openStart = nil
+                self.sample("term_open_max_iteration", ms: self.openMaxIterationMs)
+            }
+        }
+    }
+
     // MARK: Run loop
 
     private func installRunLoopObserver() {
@@ -120,6 +149,7 @@ public final class InputLatencyTrace {
 
     private func iterationEnded(_ iteration: MainThreadWatch.Iteration) {
         let ms = (iteration.end - iteration.start) * 1000
+        if let openStart, iteration.end >= openStart { openMaxIterationMs = max(openMaxIterationMs, ms) }
         guard ms >= Self.recordMs else { return }
         iterations4 += 1
         if ms >= 8 { hitches8 += 1 }
