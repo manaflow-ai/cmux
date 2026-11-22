@@ -1230,6 +1230,12 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
         stuck_reason: None,
         team_address: None,
         cwd: None,
+        title: None,
+        title_source: None,
+        name_given: None,
+        model: None,
+        agent_session_id: None,
+        host_build: None,
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
@@ -1266,6 +1272,12 @@ async fn the_sender_of_a_direct_send_through_the_hub_reads_its_status_and_no_oth
         stuck_reason: None,
         team_address: None,
         cwd: None,
+        title: None,
+        title_source: None,
+        name_given: None,
+        model: None,
+        agent_session_id: None,
+        host_build: None,
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
@@ -1321,6 +1333,12 @@ async fn a_send_through_the_hub_carries_its_sender_claim() {
         stuck_reason: None,
         team_address: None,
         cwd: None,
+        title: None,
+        title_source: None,
+        name_given: None,
+        model: None,
+        agent_session_id: None,
+        host_build: None,
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
