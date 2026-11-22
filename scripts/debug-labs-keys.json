@@ -31,6 +31,7 @@
   "agentChat.terminalButtonAdds": {"case": "flip", "why": "Leo 10-15 said the Terminal button should add a terminal on the right each click, not toggle; it was built only as an off switch."},
   "appearance.borders": {"case": "keep", "why": "A look choice that also overrides cmux.json; None is the only way to see the app with no borders, and the default is the chosen look."},
   "apps.section.look": {"case": "keep", "why": "A look comparison for app sidebar sections; the card default is the one Lawrence picked."},
+  "apps.store.surface": {"case": "keep", "why": "Web is the default; the native App Store is an opt-in until it reaches parity, and only Leo's word flips it."},
   "auth.signInWindow": {"case": "keep", "why": "Lets testers pick where sign-in opens; Automatic is the chosen default and the choice is read at sign-in."},
   "browserHost.helperPrototype": {"case": "keep", "why": "A Debug-build-only prototype of a separate Chromium app, off because it is unfinished."},
   "browserPage.uiPointer": {"case": "keep", "why": "Off while the first slice of the page element picker is still being tried out; it is not finished."},

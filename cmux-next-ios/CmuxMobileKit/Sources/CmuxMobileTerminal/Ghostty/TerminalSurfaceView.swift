@@ -251,7 +251,8 @@ final class TerminalSurfaceView: UIView {
         ) { [weak self] note in
             let macID = note.userInfo?[CmuxMobileTerminalThemes.macIDKey] as? String
             MainActor.assumeIsolated {
-                guard let self, macID == self.themeMacID || self.themeMacID == nil else { return }
+                // No Mac id: Match Mac theme flipped, so every terminal recolors.
+                guard let self, macID == nil || macID == self.themeMacID || self.themeMacID == nil else { return }
                 self.applyHostTheme()
             }
         }

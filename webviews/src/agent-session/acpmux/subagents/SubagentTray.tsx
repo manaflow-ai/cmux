@@ -144,7 +144,7 @@ import type { StartedSession } from "../started/startedSessions";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
-import { hatDrag, setHatHeight, useHatHeight } from "./trayResize";
+import { HAT_OPEN_SLOP, hatDragEnd, hatDragHeight, setHatHeight, useHatHeight } from "./trayResize";
 import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
@@ -648,65 +648,80 @@ export const SubagentTray = memo(function SubagentTray({
     setOpened(!open);
     rememberTrayOpen(chat, !open);
   };
-  // The top rim drags the list taller or shorter (trayResize.ts): up from folded opens it, down past
-  // its last line folds it, a double-click goes back to the default five lines.
+  // The top rim drags the list taller or shorter (trayResize.ts): it stays under the cursor, settles
+  // on each line's edge, lands on a whole line, and folds below half the first. A press that never
+  // moves does nothing; a double-click goes back to the default five lines.
   const resizes = !(headed && opensPanel === "header");
   const onRimDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
-    const list = trayNode.current?.querySelector<HTMLElement>(".acpmux-running-tray__list");
-    const start = open && list ? list.getBoundingClientRect().height : 0;
-    const { clientX: startX, clientY: startY } = event;
+    const listNode = () => trayNode.current?.querySelector<HTMLElement>(".acpmux-running-tray__list") ?? null;
+    // The list in the height's own units (its content box, as `--acpmux-tray-list-height` caps it):
+    // how tall it is now and where each line's bottom edge falls.
+    const measure = (list: HTMLElement | null) => {
+      if (!list) return { height: 0, edges: [] as number[] };
+      const style = getComputedStyle(list);
+      const padTop = parseFloat(style.paddingTop) || 0;
+      const padBottom = parseFloat(style.paddingBottom) || 0;
+      const origin = list.getBoundingClientRect().top + list.clientTop + padTop - list.scrollTop;
+      const edges = [...list.children]
+        .map((child) => Math.round(child.getBoundingClientRect().bottom - origin))
+        .filter((edge, index, all) => edge > 0 && (index === 0 || edge > all[index - 1]!));
+      return { height: Math.max(0, list.clientHeight - padTop - padBottom), edges };
+    };
+    const first = measure(open ? listNode() : null);
+    const frame = { start: first.height, edges: first.edges, viewport: window.innerHeight };
+    const startY = event.clientY;
     const rim = event.currentTarget;
-    rim.setPointerCapture(event.pointerId);
+    try {
+      rim.setPointerCapture(event.pointerId);
+    } catch {
+      // A pointer the browser no longer tracks: the rim's own listeners still follow it.
+    }
     event.preventDefault();
     let shown = open;
     // The height before the drag: a drag that folds the hat, or never moves past the slop, keeps it.
     const before = hatHeight;
-    let last = before;
     let dragged = false;
+    let grown = 0;
     const move = (moved: PointerEvent) => {
-      const step = hatDrag(start, startY - moved.clientY, window.innerHeight);
-      if (step.kind === "rest") return;
+      grown = startY - moved.clientY;
+      if (!dragged && Math.abs(grown) < HAT_OPEN_SLOP) return;
+      if (!dragged && !shown && grown < 0) return;
+      if (!dragged) trayNode.current?.setAttribute("data-dragging", "");
       dragged = true;
-      if (step.kind === "fold") {
-        last = before;
-        setHatHeight(before, false);
-        if (shown && headed) {
-          shown = false;
-          setOpened(false);
-          rememberTrayOpen(chat, false);
-        }
-        return;
-      }
       if (!shown && headed) {
+        // Opened from folded: the list mounts at the height the cursor reached, then is measured.
         shown = true;
         setOpened(true);
         rememberTrayOpen(chat, true);
       }
-      last = step.height;
-      setHatHeight(step.height, false);
+      if (frame.edges.length === 0) frame.edges = measure(listNode()).edges;
+      setHatHeight(hatDragHeight(frame, grown), false);
     };
     const end = (ended: PointerEvent) => {
       rim.removeEventListener("pointermove", move);
       rim.removeEventListener("pointerup", end);
       rim.removeEventListener("pointercancel", end);
       rim.removeEventListener("lostpointercapture", end);
-      if (dragged) {
-        setHatHeight(last, true);
+      trayNode.current?.removeAttribute("data-dragging");
+      // A press that never moved does nothing at all: no fold, no click on what the rim lies over.
+      if (!dragged) return;
+      if (ended.type === "pointerup") grown = startY - ended.clientY;
+      const landed = hatDragEnd(frame, grown);
+      if (landed.kind === "size") {
+        setHatHeight(landed.height, true);
         return;
       }
-      // No drag: the press was a click on what the band lies over (the header's top, a lone line's,
-      // the composer seam), so it goes there, never swallowed by the rim.
-      if (ended.type !== "pointerup") return;
-      rim.style.pointerEvents = "none";
-      const under = document.elementFromPoint(startX, startY);
-      rim.style.pointerEvents = "";
-      if (under instanceof HTMLElement && !rim.contains(under)) under.click();
+      setHatHeight(before, false);
+      if (landed.kind === "fold" && shown && headed) {
+        setOpened(false);
+        rememberTrayOpen(chat, false);
+      }
     };
     rim.addEventListener("pointermove", move);
     rim.addEventListener("pointerup", end);
     rim.addEventListener("pointercancel", end);
-    // The hat leaves mid-drag (its last line ended): the drag ends, and what it reached is kept.
+    // The hat leaves mid-drag (its last line ended): the drag ends where it reached.
     rim.addEventListener("lostpointercapture", end);
   };
   // The header's mark is in the accent while anything under it runs.
