@@ -86,7 +86,18 @@ carveout_ok() { # file lineno — carve-out classes may also justify inline
 scan() { # rule severity pattern carveout(0/1) pathspec...
   local rule="$1" sev="$2" pat="$3" carve="$4"; shift 4
   local paths=("$@")
-  if [ -n "$FILES_FROM" ]; then paths=(${TARGET_FILES[@]+"${TARGET_FILES[@]}"}); fi
+  if [ -n "$FILES_FROM" ]; then
+    # The changed files inside this scan's own scope only: these line scans cover the iOS
+    # line (above), so a changed macOS package file (CmuxNext's sanctioned singletons) is not theirs.
+    local scoped=() file scope
+    for file in ${TARGET_FILES[@]+"${TARGET_FILES[@]}"}; do
+      for scope in ${paths[@]+"${paths[@]}"}; do
+        case "$file" in "$scope"/*) scoped+=("$file"); break ;; esac
+      done
+    done
+    [ "${#scoped[@]}" -gt 0 ] || return 0
+    paths=("${scoped[@]}")
+  fi
   local grep_args
   if [ -n "$FILES_FROM" ]; then
     grep_args=(-nHE "$pat" "${paths[@]}")
