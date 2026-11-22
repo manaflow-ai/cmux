@@ -506,7 +506,7 @@ case "$*" in
   "run view"*"--json jobs"*) echo "build, lint" ;;
   "pr view"*) echo 0123456789abcdef0123456789abcdef01234567 ;;
   "pr checks"*--watch*) exit 0 ;;
-  "pr checks"*) echo "" ;;
+  "pr checks"*) echo "lint" ;;
 esac
 "#,
             calls.display()
@@ -535,8 +535,11 @@ esac
             "{all}"
         );
         assert!(all.contains("failed jobs: build, lint"), "{all}");
-        let (code, last, _) = run(json!({"repo": "o/r", "pr": 3, "sha": "0123456789abcdef"}));
-        assert_eq!((code, last.as_str()), (Some(0), "Checks of o/r#3 passed"));
+        // A passing wait names no failed checks, even when gh still lists a superseded run's cancelled
+        // check ("lint" here): cmux#50630's own wait printed six of those above its "passed".
+        let (code, last, all) = run(json!({"repo": "o/r", "pr": 3, "sha": "0123456789abcdef"}));
+        assert_eq!((code, last.as_str()), (Some(0), "Checks of o/r#3 passed"), "{all}");
+        assert!(!all.contains("failed checks"), "{all}");
         let (code, last, _) = run(json!({"repo": "o/r", "pr": 3, "sha": "fedcba9"}));
         assert_eq!(code, Some(2));
         assert!(last.contains("its head is 0123456789abcdef"), "{last}");
@@ -879,7 +882,7 @@ impl RunWait {
                 lines.push(SHARED_WATCH.to_owned());
                 lines.push(format!("case $rc in 3|64) shared_watch \"run {repo}/{run}\" gh run watch {run} --repo {repo} --exit-status --interval {GH_INTERVAL_S} ;; esac"));
                 lines.push(format!("gh run view {run} --repo {repo} --json conclusion,url --jq '\"conclusion: \" + (.conclusion // \"none\") + \"  \" + .url'"));
-                lines.push(format!("failed=$(gh run view {run} --repo {repo} --json jobs --jq '[.jobs[] | select(.conclusion == \"failure\" or .conclusion == \"cancelled\" or .conclusion == \"timed_out\") | .name] | join(\", \")' 2>/dev/null)"));
+                lines.push(format!("failed=; [ $rc -eq 0 ] || failed=$(gh run view {run} --repo {repo} --json jobs --jq '[.jobs[] | select(.conclusion == \"failure\" or .conclusion == \"cancelled\" or .conclusion == \"timed_out\") | .name] | join(\", \")' 2>/dev/null)"));
                 lines.push("[ -n \"$failed\" ] && echo \"failed jobs: $failed\"".to_owned());
                 lines.push(format!("if [ $rc -eq 0 ]; then echo \"{name} passed\"; else echo \"{name} failed${{failed:+: $failed}}${{why:+ ($why)}}\"; fi"));
             }
@@ -901,7 +904,7 @@ impl RunWait {
                     format!("pr {repo}#{number}")
                 };
                 lines.push(format!("case $rc in 3|64) shared_watch \"{key}\" gh pr checks {number} --repo {repo} --watch --fail-fast --interval {GH_INTERVAL_S} ;; esac"));
-                lines.push(format!("failed=$(gh pr checks {number} --repo {repo} --json name,bucket --jq '[.[] | select(.bucket == \"fail\" or .bucket == \"cancel\") | .name] | join(\", \")' 2>/dev/null)"));
+                lines.push(format!("failed=; [ $rc -eq 0 ] || failed=$(gh pr checks {number} --repo {repo} --json name,bucket --jq '[.[] | select(.bucket == \"fail\" or .bucket == \"cancel\") | .name] | join(\", \")' 2>/dev/null)"));
                 lines.push("[ -n \"$failed\" ] && echo \"failed checks: $failed\"".to_owned());
                 if let Some(sha) = sha {
                     lines.push(format!("read_head || {{ echo \"{name} failed: its head could not be read after the wait${{refusal:+ ($refusal)}}\"; exit 2; }}"));
