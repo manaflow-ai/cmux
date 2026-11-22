@@ -72,6 +72,7 @@ pub const INDEXED_KINDS: &[&str] = &[
     "transferred",
     // A log load's restored inbox (`hub/inbox.rs` `restore_inbox`).
     "inbox",
+    "inbox_triaged",
     "inbox_noticed",
     "inbox_returned",
     "inbox_answered",
@@ -107,6 +108,10 @@ pub const INDEXED_KINDS: &[&str] = &[
     "prompt_retracted",
     "turn_end",
     "turn_error",
+    // A chat's thread owners, read by each surge triage pass (`hub/surge_triage.rs`).
+    "inbox_subscription",
+    // A recipient's grants of its threads to owners, read with them.
+    "inbox_owner_grant",
 ];
 
 /// The folder of a chat's copies, beside its `events`.

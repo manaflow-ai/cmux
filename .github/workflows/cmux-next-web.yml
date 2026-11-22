@@ -14,9 +14,14 @@ name: cmux-next web
 # request tripped over them, and a pull request's new web red passed as a base red
 # (#20633). Leo, 2026-10-19: the base stays green by construction. The routing keeps
 # unrelated Swift-only work cheap while retaining the base React signal.
+#
+# 2026-11-21: the base's web verdict moved to the post-merge batch tier (cmux-next-post-merge.yml, suite `web`, which
+# calls ci-web.yml with the same `web / ...` job names); this file no longer runs on feat-cmux-next pushes. Leo,
+# 2026-11-21: "id rather we simply cut shit now and revisit later." It stays for its dispatch: next_batch.py's web
+# lane dispatches it on a stack head (WEB_WORKFLOW), where coalesce runs at once (`wait --off`) and web bisect, a
+# push-only job, never starts. The batch tier's own bisect replaces web bisect and the 120-minute coalescing below.
+# post_merge_batch.py tick no longer dispatches its coalescing tick (the `tick` input stays for a hand dispatch).
 on:
-  push:
-    branches: [feat-cmux-next]
   workflow_dispatch:
     inputs:
       tick:
@@ -45,6 +50,10 @@ permissions:
 concurrency:
   group: cmux-next-web-${{ github.sha }}
   cancel-in-progress: false
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   coalesce:
@@ -127,7 +136,9 @@ jobs:
   # A coalesced run covers every commit since the last one. When its webview tests go red, the first red commit of
   # each new red file is found by re-running only those files, only on the commits the run covered whose webview
   # inputs changed (scripts/ci/web_coalesce.py bisect, a binary search of at most 6 probes). It reports and never
-  # fails: its lines are what base-red-watch names the first red commit and its pull request from.
+  # fails: its lines are what base-red-watch names the first red commit and its pull request from, and the report's
+  # `culprits` (each pinned commit, its pull request and the files it broke) is what an auto-revert reads from the
+  # web-bisect artifact.
   web-bisect:
     name: web bisect
     needs: [coalesce, web]
@@ -230,7 +241,8 @@ jobs:
           python3 -I "$WEB_BISECT_RUNNER/web_coalesce.py" bisect --base "$BASE" --head "$GITHUB_SHA" \
             --last-known-green "${{ steps.lkg.outputs.sha }}" \
             --results "${results[@]}" --history "$RUNNER_TEMP/webviews-test-history/history.json" \
-            --probe "$WEB_BISECT_RUNNER/web-bisect-probe.sh" --report "$RUNNER_TEMP/web-bisect/report.json"
+            --probe "$WEB_BISECT_RUNNER/web-bisect-probe.sh" --report "$RUNNER_TEMP/web-bisect/report.json" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           git checkout -q --force --detach "$GITHUB_SHA"
 
       - name: Upload the bisect report

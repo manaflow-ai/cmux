@@ -95,6 +95,10 @@ public struct PalettePageSpec {
     public var initialQuerySelection: Int?
     /// Values chosen so far on a multi-value step, drawn as chips before the query.
     public var tokens: [PaletteToken] = []
+    /// The query may name the page's sections to search (`in:tabs`, `-in:history`,
+    /// `kind:settings`): the shared ranker keeps or drops those sections' rows
+    /// (cmux-palette-ranker `filter`). Search Everything sets it.
+    public var filtersBySection = false
 
     public init(
         id: String,

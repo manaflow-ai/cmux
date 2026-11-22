@@ -695,4 +695,10 @@ pub trait HostServices: Send + Sync {
         Err(DesktopError::Unsupported("the host lists no capture apps".into()))
     }
     fn request_permission(&self, which: &str) -> DResult<()>;
+    /// Screen Recording as this host reads it, or None to leave the read to the engine. The
+    /// macOS worker reads it in a fresh process when its own answer is no, because a running
+    /// process keeps an old denial after the person grants it in System Settings.
+    fn screen_capture_granted(&self) -> Option<bool> {
+        None
+    }
 }
