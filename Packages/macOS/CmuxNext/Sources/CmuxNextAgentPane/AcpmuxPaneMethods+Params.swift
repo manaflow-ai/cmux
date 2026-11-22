@@ -112,6 +112,10 @@ nonisolated extension AcpmuxPaneMethods {
         // grants nothing (the same probes acpmux runs in the background), so no gesture rule.
         // `localOnly`: this machine's lists only, without waiting on the peers (the picker's own read).
         "_acpmux/models": (["refresh", "localOnly"], []),
+        "catalog.get": ([], []),
+        "catalog.refresh": ([], []),
+        // Only the live-tree read: `waitLogs: false` answers from the session list at once.
+        "_acpmux/info": (["sessionId", "waitLogs", "includeLiveTree"], []),
         "_acpmux/status": ([], []),
         "_acpmux/peers": ([], []),
         // The chat Inspector's Perf tab and page reporter (PerfPanel.tsx, perfReporter.ts; acpmux perf_watch.rs):
