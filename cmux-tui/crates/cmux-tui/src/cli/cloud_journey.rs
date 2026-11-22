@@ -226,8 +226,8 @@ impl Journey {
         let Some(dir) = &self.out else { return };
         let _ = std::fs::create_dir_all(dir);
         let _ = std::fs::write(dir.join("journey.json"), format!("{:#}\n", self.json()));
-        let name = self.backend["name"].as_str().unwrap_or("");
-        let api = self.backend["api"].as_str().unwrap_or("");
+        let name = self.backend.get("name").and_then(Value::as_str).unwrap_or("");
+        let api = self.backend.get("api").and_then(Value::as_str).unwrap_or("");
         let _ = std::fs::write(
             dir.join("summary.md"),
             summary_markdown(name, api, &self.meta, &self.steps),
@@ -380,14 +380,12 @@ fn run_tag() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or_default();
-    let digits = b"0123456789abcdefghijklmnopqrstuvwxyz";
     let mut out = Vec::new();
     while ms > 0 {
-        out.push(digits[(ms % 36) as usize]);
+        out.extend(u32::try_from(ms % 36).ok().and_then(|d| char::from_digit(d, 36)));
         ms /= 36;
     }
-    out.reverse();
-    format!("jr-{}", String::from_utf8_lossy(&out))
+    format!("jr-{}", out.iter().rev().collect::<String>())
 }
 
 /// One machine's exec, through a client session minted once and reused, or through the cmux API's
@@ -445,8 +443,9 @@ impl Exec<'_> {
 }
 
 fn tail(text: &str, n: usize) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    chars[chars.len().saturating_sub(n)..].iter().collect()
+    let mut chars: Vec<char> = text.chars().rev().take(n).collect();
+    chars.reverse();
+    chars.into_iter().collect()
 }
 
 fn env_nonempty(name: &str) -> Option<String> {
@@ -714,7 +713,7 @@ async fn chat_steps(
 ) -> Result<(), ()> {
     // running (status)
     let t0 = Instant::now();
-    let mut last = String::new();
+    let mut last: String;
     loop {
         let params = CloudMachineGetParams { machine: machine_id.to_owned() };
         match ops::call::<CloudMachineGetOp>(http, base, params, None, None)
@@ -834,7 +833,7 @@ async fn chat_steps(
     );
 
     // start agent (claude)
-    let tag = j.meta["tag"].as_str().unwrap_or("jr").to_owned();
+    let tag = j.meta.get("tag").and_then(Value::as_str).unwrap_or("jr").to_owned();
     let session = format!("journey-{tag}");
     let t0 = Instant::now();
     let program = format!(
@@ -1019,12 +1018,14 @@ fn finish(j: &Journey, json_out: bool) -> i32 {
     let failed = j.steps.iter().any(|s| s.status == Status::Fail);
     if json_out {
         let mut value = j.json();
-        value["ok"] = json!(!failed);
-        value["ready_ms"] = json!(ready_ms(&j.steps));
+        if let Some(fields) = value.as_object_mut() {
+            fields.insert("ok".to_owned(), json!(!failed));
+            fields.insert("ready_ms".to_owned(), json!(ready_ms(&j.steps)));
+        }
         let _ = writeln!(std::io::stdout(), "{value}");
     } else {
-        let name = j.backend["name"].as_str().unwrap_or("");
-        let api = j.backend["api"].as_str().unwrap_or("");
+        let name = j.backend.get("name").and_then(Value::as_str).unwrap_or("");
+        let api = j.backend.get("api").and_then(Value::as_str).unwrap_or("");
         let head = summary_markdown(name, api, &j.meta, &j.steps);
         println!("{}", head.lines().next().unwrap_or(""));
     }
