@@ -102,8 +102,10 @@ const V1_PAGES: &str = method::MUX_SESSIONS;
 const CURSOR_PAGE: &str = method::MUX_SESSIONS;
 
 /// A one-shot listing must leave a stalled joined route with an actionable error. The per-step
-/// bound catches a request that never gets a reply, while the total bound covers paging and the
-/// optional relay/SSH recovery reads together.
+/// bound catches one request or one page that never gets a reply, while the total bound covers
+/// paging and the optional relay/SSH recovery reads together. A read of many pages is bounded
+/// by the total only: a fleet's 1,548 sessions on 37 machines took 1.7 to 3.2 s to page, and
+/// a loaded host takes longer, with every page in time (hq#18450).
 const LS_STEP_DEADLINE: Duration = Duration::from_secs(4);
 pub(crate) const LS_TOTAL_DEADLINE: Duration = Duration::from_secs(15);
 
@@ -156,6 +158,25 @@ async fn bounded_total<T>(
     tokio::time::timeout(remaining, future)
         .await
         .map_err(|_| timeout_error(budget, step, LS_TOTAL_DEADLINE))
+}
+
+/// A whole read of the session list, its pages and fetches: noted on stderr when slow, and
+/// bounded by the listing's total, never by one step's bound. Its pages are each bounded by
+/// [`LS_STEP_DEADLINE`] where they are read (`request_bounded`, [`list_read::Form::page_bound`]).
+async fn whole_read<T>(
+    budget: Option<&ListBudget>,
+    read: impl Future<Output = Result<T>>,
+) -> Result<T> {
+    let read = crate::cli::slow_notice::noted("the session list", read);
+    let Some(budget) = budget else {
+        return read.await;
+    };
+    bounded_total(budget, "read", read).await?.map_err(|error| {
+        match error.downcast_ref::<list_read::PageStalled>() {
+            Some(stalled) => timeout_error(budget, "page", stalled.0),
+            None => error,
+        }
+    })
 }
 
 fn timeout_error(budget: &ListBudget, step: &str, waited: Duration) -> anyhow::Error {
@@ -441,19 +462,9 @@ async fn scoped_output_with_budget(
                 }),
                 with_tools,
                 usage,
+                page_bound: budget.map(|_| LS_STEP_DEADLINE),
             };
-            let fetched = match budget {
-                Some(budget) => {
-                    crate::cli::slow_notice::noted(
-                        "the session list",
-                        bounded_step(budget, "read", source.read(form)),
-                    )
-                    .await??
-                }
-                None => {
-                    crate::cli::slow_notice::noted("the session list", source.read(form)).await?
-                }
-            };
+            let fetched = whole_read(budget, source.read(form)).await?;
             let closed = if compact { closed_listed.unwrap_or(0) } else { 0 };
             (ls_pages::Pages { rows: fetched.rows, next: fetched.next }, closed)
         }
@@ -464,26 +475,8 @@ async fn scoped_output_with_budget(
                 let budget = budget.cloned();
                 async move { request_bounded(&client, list, page, budget.as_ref()).await }
             };
-            let read = match budget {
-                Some(budget) => {
-                    crate::cli::slow_notice::noted(
-                        "the session list",
-                        bounded_step(
-                            budget,
-                            "read",
-                            ls_pages::read(params, cursor, plan, step, fetch),
-                        ),
-                    )
-                    .await??
-                }
-                None => {
-                    crate::cli::slow_notice::noted(
-                        "the session list",
-                        ls_pages::read(params, cursor, plan, step, fetch),
-                    )
-                    .await?
-                }
-            };
+            let read =
+                whole_read(budget, ls_pages::read(params, cursor, plan, step, fetch)).await?;
             (read, 0)
         }
     };
@@ -730,6 +723,78 @@ mod timeout_tests {
         assert!(error.contains("joined-vm"));
         assert!(error.contains("hub/carrier"));
         assert!(error.contains("read step stalled after 15s"));
+    }
+
+    fn remote_budget() -> ListBudget {
+        ListBudget {
+            deadline: tokio::time::Instant::now() + LS_TOTAL_DEADLINE,
+            machine: "loaded-host".to_owned(),
+            route: "hub/carrier",
+        }
+    }
+
+    /// v1's pages, each answered after `each` (or never), through `ls`'s own bounds.
+    async fn paged_read(pages: u64, each: Option<Duration>) -> Result<ls_pages::Pages> {
+        let budget = remote_budget();
+        let served = std::cell::Cell::new(0u64);
+        let fetch = |_page: Value| {
+            let budget = budget.clone();
+            let n = served.get();
+            served.set(n + 1);
+            async move {
+                bounded_step(&budget, "request", async move {
+                    match each {
+                        Some(each) => tokio::time::sleep(each).await,
+                        None => std::future::pending::<()>().await,
+                    }
+                    let next = (n + 1 < pages).then(|| format!("c{n}"));
+                    json!({"sessions": [{"sessionId": format!("s{n}"), "updatedAt": 100 - n}],
+                        "nextCursor": next})
+                })
+                .await
+            }
+        };
+        let plan = Plan { size: 1, want: None, one: false, exact: false };
+        let read = ls_pages::read(json!({}), None, plan, |_| Step::Keep, fetch);
+        whole_read(Some(&budget), read).await
+    }
+
+    // hq#18450: three pages of 3 s each, every one under the 4 s step bound, sum to 9 s. The
+    // whole read was bounded by the step and failed "read step stalled after 4s" on loaded hosts.
+    #[tokio::test(start_paused = true)]
+    async fn pages_each_in_time_are_read_past_the_step_bound() {
+        let started = tokio::time::Instant::now();
+        let read = paged_read(3, Some(Duration::from_secs(3))).await.unwrap();
+        assert_eq!(read.rows.len(), 3);
+        assert!(started.elapsed() > LS_STEP_DEADLINE);
+        assert!(started.elapsed() < LS_TOTAL_DEADLINE);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn one_page_with_no_answer_fails_at_the_step_bound() {
+        let started = tokio::time::Instant::now();
+        let error = paged_read(3, None).await.unwrap_err().to_string();
+        assert_eq!(started.elapsed(), LS_STEP_DEADLINE);
+        assert!(error.contains("request step stalled after 4s"), "{error}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn pages_past_the_total_fail_at_the_total_bound() {
+        let started = tokio::time::Instant::now();
+        let error = paged_read(10, Some(Duration::from_secs(3))).await.unwrap_err().to_string();
+        // The last page's step bound is cut to what the total leaves, so either names it.
+        assert_eq!(started.elapsed(), LS_TOTAL_DEADLINE);
+        assert!(error.contains("loaded-host") && error.contains("step stalled"), "{error}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stalled_v2_page_names_the_machine_and_its_bound() {
+        let budget = remote_budget();
+        let read =
+            async { Err::<(), _>(anyhow::Error::new(list_read::PageStalled(LS_STEP_DEADLINE))) };
+        let error = whole_read(Some(&budget), read).await.unwrap_err().to_string();
+        assert!(error.contains("loaded-host"), "{error}");
+        assert!(error.contains("page step stalled after 4s"), "{error}");
     }
 }
 
