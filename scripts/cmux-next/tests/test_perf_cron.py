@@ -24,7 +24,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "web-ui-typing", "chat-disk", "terminal-scroll", "daemon-restart", "coord-sim"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "web-ui-typing", "web-ui-scroll", "chat-disk", "terminal-scroll", "daemon-restart", "coord-sim"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -1112,6 +1112,17 @@ class WebUiTests(unittest.TestCase):
         # The suite names the bench the part asks for (web-ui-suite.ts), as its own part outside the suite's cap.
         suite = open(os.path.join(cron.ROOT, "webviews/bench/web-ui-suite.ts"), encoding="utf-8").read()
         self.assertRegex(suite, r'name: "composer-typing",\s*file: "composer-typing\.bench\.ts"')
+
+    def test_the_chat_fast_scroll_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-scroll"))
+        self.assertEqual(cron.part_for_row("webui.chat_fast_scroll.fling_interval.n200@linux"), "web-ui-scroll")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-scroll")["suite"]
+        self.assertEqual(cron.part_for_row("webui.sidebar_chats_fling.n1000.late.fling1500.work@linux"), "web-ui-scroll")
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-fast-scroll,sidebar-chats-fling"])
+        self.assertEqual(cwd, "/r/webviews")
+        suite = open(os.path.join(cron.ROOT, "webviews/bench/web-ui-suite.ts"), encoding="utf-8").read()
+        self.assertRegex(suite, r'name: "chat-fast-scroll",\s*file: "chat-fast-scroll\.bench\.ts"')
+        self.assertRegex(suite, r'name: "sidebar-chats-fling",\s*file: "sidebar-chats-fling\.bench\.ts"')
 
     def test_the_chat_disk_rows_have_their_own_linux_part(self):
         self.assertTrue(cron.is_linux_part("chat-disk"))
@@ -4297,6 +4308,128 @@ class LinuxControllerRouteTests(unittest.TestCase):
         self.assertIn("linux_request: ${{ steps.plan.outputs.linux_request }}", text)
         self.assertIn("CMUX_NEXT_PERF_CRON_LINUX_CONTROLLER", text)
         self.assertIn("--linux-controller", text)
+
+
+class BatchTests(unittest.TestCase):
+    """The controller route asks for a measurement's Mac parts back to back (BATCH_PREFIX) and stores their results
+    from one result run. Leo, 2026-11-22, on the bench window: "does it need to take it for 2h tho? cant it be
+    faster?" One part per round trip took a tip 3 to 14 h; back to back its Mac parts take about 1.5 h."""
+    SHA = "c" * 40
+
+    class Answer(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def plan_tick(self, d, now, parts):
+        out = os.path.join(d, "plan.out")
+        with mock.patch.object(cron, "now_utc", lambda: now), mock.patch.object(cron, "git", lambda *a, check=True: self.SHA), \
+                mock.patch.object(cron, "measure_version", lambda sha: 2), \
+                mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
+                mock.patch.object(cron, "tree_published", lambda sha: True), \
+                mock.patch.object(cron, "github_busy", lambda *a: None), \
+                mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
+                mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
+                mock.patch.object(cron, "supported_parts_at", lambda sha: parts):
+            cron.cmd_plan(argparse.Namespace(repo="o/r", dir=d, tip="HEAD", yield_mode="queued", no_mac=False, output=out,
+                                             controller=True))
+        with open(out) as f:
+            plan = dict(line.split("=", 1) for line in f.read().splitlines())
+        os.remove(out)
+        with open(os.path.join(d, "state.json")) as f:
+            return plan, json.load(f)
+
+    def result(self, part, state="done", step=None):
+        return {"run": 5, "attempt": 1, "sha": self.SHA, "part": part, "step_id": step or f"s-{part}", "state": state,
+                "worker": BENCH, "artifact_url": "https://store.example/" + part}
+
+    def test_the_request_lists_the_mac_parts_still_to_do_the_requested_one_first(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = cron.empty_state(T0)
+            state["persisted"] = True
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            plan, saved = self.plan_tick(d, T0, ["motion", "switch"])
+            self.assertEqual((plan["action"], plan["part"]), ("part", "build"))
+            self.assertEqual(plan["mac_parts"], "build motion switch")
+            self.assertEqual(saved["current"]["batch"]["parts"], ["build", "motion", "switch"])
+            self.assertEqual(sorted(saved["current"]["configs"]), ["build", "motion", "switch"],
+                             "every listed part's rows carry this file's configuration")
+            plan, again = self.plan_tick(d, at(0.5), ["motion", "switch"])
+            self.assertEqual(again["current"]["batch"], saved["current"]["batch"], "a later tick keeps the batch asked for")
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump({**cron.empty_state(T0), "persisted": True}, f)
+            plan, saved = self.plan_tick(d, T0, [])
+            self.assertEqual(plan["mac_parts"], "", "no other Mac part: one part, no line")
+
+    def test_the_host_may_stay_silent_for_the_batchs_deadline(self):
+        state = cron.empty_state(T0)
+        state["current"] = cur = cron.new_measurement(self.SHA, "tip", ["build", "motion", "switch"], T0)
+        cur["host"] = BENCH
+        cur["host_asked_since"] = cron.iso(T0)
+        self.assertEqual(cron.host_wait_hours(cur), cron.HOST_WAIT_HOURS)
+        cur["batch"] = {"parts": ["build", "motion", "switch"], "asked_at": cron.iso(T0)}
+        run = sum(cron.PART_BY_NAME[p].get("run_seconds", cron.PART_RUN_SECONDS) for p in cur["batch"]["parts"]) / 3600
+        wait = cron.HOST_WAIT_HOURS + cron.BATCH_SLACK_HOURS + run
+        self.assertAlmostEqual(cron.host_wait_hours(cur), wait)
+        self.assertIsNone(cron.give_up_host(state, at(cron.HOST_WAIT_HOURS + 0.5)), "the batch runs: no result yet")
+        self.assertIn("took no part", cron.give_up_host(state, at(wait + 0.1)))
+        self.assertNotIn("batch", cur, "the next request lists again")
+
+    def test_a_batchs_results_are_stored_from_one_result_run(self):
+        state = cron.empty_state(T0)
+        state["persisted"] = True
+        state["current"] = cur = cron.new_measurement(self.SHA, "tip", ["build", "motion", "switch"], T0)
+        cur["batch"] = {"parts": ["build", "motion", "switch"], "asked_at": cron.iso(T0)}
+        cur["host_asked_since"] = cron.iso(T0)
+        results = [self.result("build"), self.result("motion"), self.result("motion", step="dup"),
+                   {**self.result("stress"), "sha": "d" * 40}, self.result("switch", "yielded")]
+        raw = json.dumps({"results": results})
+        self.assertEqual([v["part"] for v in cron.controller_results(raw)], ["build", "motion", "motion", "stress", "switch"])
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            out = os.path.join(d, "plan.out")
+            with contextlib.redirect_stdout(io.StringIO()):
+                cron.result_plan(argparse.Namespace(dir=d, output=out, perf_result=raw), state, at(1.5))
+            with open(out) as f:
+                plan = dict(line.split("=", 1) for line in f.read().splitlines())
+            self.assertEqual((plan["action"], plan["part"], plan["result_parts"]), ("result", "build", "build motion switch"))
+            parts = os.path.join(d, "result")
+            with mock.patch.object(cron.urllib.request, "urlopen", lambda req, timeout=0: self.Answer(b'{"summary": []}')), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                cron.cmd_fetch_result(argparse.Namespace(result=raw, out=parts, each=True))
+            self.assertEqual(sorted(os.listdir(parts)), ["build", "motion", "stress", "switch"])
+            with open(os.path.join(parts, "switch", "result.json")) as f:
+                self.assertEqual(json.load(f)["state"], "yielded")
+            specs = [f"{p}={os.path.join(parts, p)}" for p in plan["result_parts"].split()]
+            with mock.patch.object(cron, "store_part_rows", lambda *a: None), contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                cron.report(argparse.Namespace(repo="", dir=d, result=specs, run_url="u", finish=False, issues=False,
+                                               output=os.path.join(d, "report.out")), t=at(1.5))
+            with open(os.path.join(d, "state.json")) as f:
+                cur = json.load(f)["current"]
+            self.assertEqual(cur["parts_todo"], ["switch"], "the pre-empted part stays to do")
+            self.assertEqual((cur["parts"]["build"]["state"], cur["parts"]["motion"]["state"]), ("done", "done"))
+            self.assertNotIn("batch", cur)
+            self.assertNotIn("host_asked_since", cur)
+
+    def test_one_result_is_still_one_part(self):
+        raw = json.dumps(self.result("motion"))
+        self.assertEqual([v["part"] for v in cron.controller_results(raw)], ["motion"])
+        self.assertEqual(cron.controller_results(json.dumps({"results": "x"})), [])
+        self.assertEqual(cron.controller_results("{"), [])
+
+    def test_the_workflow_prints_the_line_and_stores_every_result(self):
+        with open(os.path.join(HERE, "..", "..", "..", ".github", "workflows", "cmux-next-perf-budgets.yml")) as f:
+            text = f.read()
+        self.assertIn('echo "perf-cron-batch: $MAC_PARTS"', text)
+        self.assertEqual(cron.BATCH_PREFIX, "perf-cron-batch: ")
+        self.assertIn("fetch-result --each", text)
+        self.assertIn('for part in $RESULT_PARTS; do results+=(--result "$part=$RUNNER_TEMP/perf-cron-result/$part"); done', text)
 
 
 if __name__ == "__main__":
