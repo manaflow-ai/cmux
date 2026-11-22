@@ -59,7 +59,9 @@ function applyTokens(target: HTMLElement, t: ThemeTokens): void {
   set("--app-attention", css(t.attention));
   set("--app-danger", css(t.danger));
   set("--app-accent", css(t.accent));
-  set("--app-tab", css(mixed(t.stripBackground, t.contentBackground, 0.6)));
+  // The selected tab's pill is the selection fill, as the app draws it (TabCell.swift); a mix of the strip and
+  // the content surface was the same colour as the strip (1.00:1), so no tab read as selected.
+  set("--app-tab", css(t.selectionFill));
   root.style.colorScheme = t.isDark ? "dark" : "light";
 }
 applyTokens(root, tokens);
