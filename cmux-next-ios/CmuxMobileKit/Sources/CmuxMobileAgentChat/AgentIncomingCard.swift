@@ -57,8 +57,8 @@ struct AgentIncomingCard: View {
             Text(Self.inlineMarkdown(message.text))
                 .font(.body)
                 .lineSpacing(4)
-                .foregroundStyle(.white)
-                .tint(.white)
+                .foregroundStyle(.white) // color-literal-allow: text on the iMessage blue bubble (documented exception)
+                .tint(.white) // color-literal-allow: links on the iMessage blue bubble
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
                 .background(Color(uiColor: .systemBlue), in: .rect(cornerRadius: 20, style: .continuous))
@@ -113,8 +113,7 @@ struct AgentIncomingCard: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(Color.cmuxMobileBubble.opacity(0.55), in: .rect(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.separator, lineWidth: 0.5))
+        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 16, style: .continuous))
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(.contextMenuPreview, .rect(cornerRadius: 16, style: .continuous))
         .contextMenu { menu }
@@ -274,7 +273,7 @@ struct AgentIncomingChip: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
-            .background(.quaternary, in: .capsule)
+            .cmuxMobileContentSurface(.inset, in: Capsule())
     }
 }
 #endif

@@ -265,7 +265,7 @@ struct ChatComposer: View {
         // less takes the offer, and the grown draft ran outside the rounded
         // card (user report 2026-11-12, the same rule as the terminal composer).
         .fixedSize(horizontal: false, vertical: true)
-        .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
+        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 24, style: .continuous))
         .padding(.horizontal, collapsed ? 20 : 12)
     }
 
@@ -658,7 +658,7 @@ struct ChatComposer: View {
             .scrollBounceBehavior(.basedOnSize)
         }
         .clipShape(.rect(cornerRadius: 20, style: .continuous))
-        .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
+        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 20, style: .continuous))
         // The card's top, which only the keyboard or the resting place moves (the
         // stack is bottom-aligned), so the list's own height never feeds back here.
         .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .global).maxY }) { bottom in
@@ -696,7 +696,7 @@ struct ChatComposer: View {
                 .accessibilityLabel(Text("Mention \(artifact.reference)"))
             }
         }
-        .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
+        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 20, style: .continuous))
         .padding(.horizontal, 12)
     }
 
@@ -824,7 +824,7 @@ struct QueuedPromptsView: View {
         }
         .padding(.horizontal, 14)
         .frame(minHeight: 40)
-        .glassEffect(.regular, in: .capsule)
+        .cmuxMobileFloatingGlass(in: .capsule)
         .accessibilityElement(children: .contain)
     }
 
@@ -858,7 +858,7 @@ struct QueuedPromptsView: View {
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 40)
-                .glassEffect(.regular, in: .capsule)
+                .cmuxMobileFloatingGlass(in: .capsule)
         }
         .accessibilityIdentifier("chat.queued")
     }
@@ -881,7 +881,7 @@ struct AttachmentThumb: View {
                     Image(uiImage: image).resizable().scaledToFill().frame(width: 56, height: 56)
                 } else if attachment.kind == .image {
                     LinearGradient(colors: [.orange, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
-                        .overlay { Image(systemName: "photo").foregroundStyle(.white) }
+                        .overlay { Image(systemName: "photo").foregroundStyle(.white) } // color-literal-allow: glyph over a photo thumbnail
                         .frame(width: 56, height: 56)
                 } else {
                     HStack(spacing: 8) {
@@ -907,10 +907,10 @@ struct AttachmentThumb: View {
                     // Opaque, ringed badge (as in Messages): readable over any thumbnail.
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.white) // color-literal-allow: glyph on the remove badge over a photo
                         .frame(width: 22, height: 22)
-                        .cmuxMobilePressBackground(Color(white: 0.18), in: .circle)
-                        .overlay(Circle().strokeBorder(Color(uiColor: .systemBackground), lineWidth: 1.5))
+                        .cmuxMobilePressBackground(Color(white: 0.18), in: .circle) // color-literal-allow: remove badge over a photo thumbnail
+                        .overlay(Circle().strokeBorder(Color(uiColor: .systemBackground), lineWidth: 1.5)) // color-literal-allow: ring parting the badge from the photo
                         .frame(width: 44, height: 44)
                         .contentShape(.rect)
                 }

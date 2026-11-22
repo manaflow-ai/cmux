@@ -4884,3 +4884,14 @@ The fast check's own verdict (a gateway's fleet compile) first, else the Mac Rel
 Above `[[ "$state" != error ]] || { echo "::error::no verdict: cmux-next/compile for $S` in `.github/workflows/cmux-next.yml`.
 
 The needs_verdict rule's words: a fallback's red is a red, nothing ran is no verdict (exit 3).
+
+## note-551
+
+Above `kit-tests: iPhone surface colors` in `.github/workflows/cmux-next-ios-kit.yml`.
+
+The iPhone app's views draw the design system's content surface levels and themed floating glass,
+never a literal color or an opaque stock surface (Leo 2026-11-22, a black subagent card over his
+themed wallpaper: "THEME IT"). Fails when a file gains a hit over its row in
+scripts/cmux-next/ios-surface-colors-baseline.tsv; a needed literal says why with
+`// color-literal-allow: <reason>`. It runs in the kit job because cmux-next.yml does not run on a
+phone-only change.
