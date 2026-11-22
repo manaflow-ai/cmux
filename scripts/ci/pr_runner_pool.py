@@ -372,7 +372,14 @@ SIM_FIRST_CAPABILITY = "glaeda-ios-sim"
 # Blacksmith label. Named one by one, never by pattern: a label here may lead a RUNNER_POOLS pool
 # (runner_pools.owned_ephemeral()), and the janitor's snapshot counts its queue and starts
 # (queue_janitor.pool_load_snapshot(), label_started()) so a full fleet moves its pool to Blacksmith.
-OWNED_EPHEMERAL_LINUX = ("glaeda-linux-arm64",)
+OWNED_MAC_LINUX_VMS = ("glaeda-linux-arm64",)
+# The owned GCP fleet's one-job x64 label for secret-bearing and write-token jobs (RUNNER_POOLS linux_4, and
+# CI_TRUSTED_RUNNER once its readers accept it): served only by just-in-time runners on VMs the cmuxterm-hq fleet
+# reconciler boots per queued job and deletes after it (runner_pool.py JIT_ONLY_LABELS), so no persistent runner
+# carries it and a job there leaves nothing for the next one. Leo, 2026-11-19, on Blacksmith: "stop ... relying on it".
+OWNED_GCP_JIT_LINUX = ("cmux-gcp-secret-jit-x64",)
+# Every owned Linux label that is ephemeral (one job per fresh VM): it may lead any pool, ephemeral_only ones included.
+OWNED_EPHEMERAL_LINUX = OWNED_MAC_LINUX_VMS + OWNED_GCP_JIT_LINUX
 # The owned GCP Linux pool's own label: same-repository x64 work the GCP fleet takes (a reconciler boots a VM per
 # queued job, and the persistent pool's runners carry it too). Blacksmith's runners never take it, so a job naming it
 # runs on our machines only. It may lead an x64 RUNNER_POOLS pool whose jobs need no fresh machine

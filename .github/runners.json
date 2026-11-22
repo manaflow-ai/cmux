@@ -63,7 +63,7 @@
       "label itself (tests/test_ci_runner_set.py). runner_pools.py moves a pool to its next member",
       "when the queue janitor or the overflow probe sees the current one start nothing.",
       "Members are Blacksmith labels, led at most by one owned Linux label (runner_pools.owned_lead()); owned Macs come",
-      "first through a picker's output, never a pool. An ephemeral_only pool never leads with the owned GCP label.",
+      "first through a picker's output, never a pool. An ephemeral_only pool never leads with the owned GCP pool label; it may lead with a one-job label (OWNED_EPHEMERAL_LINUX).",
       "Only a pool marked hosted may name a GitHub-hosted label, and it says why."
     ],
     "linux": {
@@ -91,9 +91,10 @@
       ]
     },
     "linux_4": {
-      "why": "Jobs measured at 4 vCPU that must stay on an ephemeral machine (secret-bearing and write-token jobs, which the linux pool may one day not be). A stalled 4 vCPU size moves them to 16 vCPU. ephemeral_only: never led by the owned GCP label, whose persistent runners take it too; fork pull requests read this pool (acpmux-sim-sweep.yml, cmux-mobile-ffi.yml)",
+      "why": "Jobs measured at 4 vCPU that must stay on an ephemeral machine (secret-bearing and write-token jobs, which the linux pool may one day not be). Led by the owned GCP fleet's one-job label (cmux-gcp-secret-jit-x64, OWNED_GCP_JIT_LINUX: a VM booted per queued job and deleted after it, no persistent runner carries it); once a job waits there past the stall cutoff, the pool overflows to 4, then 16 vCPU Blacksmith until that queue drains (Leo, 2026-11-19, on Blacksmith: \"stop ... relying on it\"). ephemeral_only: never led by the owned GCP pool label (cmux-fleet-linux-x64), whose persistent runners take it too. Fork pull requests never read it: every reader routes a fork to a Blacksmith label before it or skips forks",
       "ephemeral_only": true,
       "members": [
+        "cmux-gcp-secret-jit-x64",
         "blacksmith-4vcpu-ubuntu-2404",
         "blacksmith-16vcpu-ubuntu-2404"
       ]
