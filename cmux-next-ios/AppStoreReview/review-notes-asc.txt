@@ -35,7 +35,7 @@ Other screens:
 Permissions, each optional and asked only when first used:
 - Notifications: during setup, or with the first message to Chief, so Chief can tell you when an agent needs you.
 - Microphone: calls with Chief and audio messages to Chief and agents.
-- Speech Recognition: turns voice notes into text on this device. Audio is not sent for recognition.
+- Speech Recognition: turns voice notes into text on this device, and dictates messages (on this device when it can, otherwise Apple's speech service).
 - Camera: a photo to attach to a message, or scanning the pairing code a Mac shows.
 - Photos: attaching photos to messages, and saving images to Photos.
 - Face ID: only when "Require Face ID" is on in Settings.
