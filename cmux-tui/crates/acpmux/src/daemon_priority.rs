@@ -20,6 +20,12 @@
 //! there as before. A knob the kernel refuses leaves the daemon as it was; it starts anyway, and
 //! its log says which knobs took in one line ([`Report::line`], `daemon priority: …`).
 //!
+//! A daemon a CLI starts goes through `acpmux.service` when it is loaded (Linux,
+//! `daemon/managed_unit.rs`) or through a login-session launchd job when the CLI runs lowered
+//! (macOS, `daemon/login_session.rs`), so it does not inherit an agent's nice. Only a Linux host
+//! without the unit spawns it detached, at the caller's nice: the log line then says
+//! `inherited nice N from caller`.
+//!
 //! Not reached: a CLI call (`acpmux ls` from an agent's hook) inherits the agent's lowered nice and
 //! cannot undo it without the same privilege; it does little work of its own, the daemon does the
 //! work. A `CPUWeight` competes only with the unit's siblings in `app.slice`: a build in an ssh
@@ -87,7 +93,19 @@ pub fn lower_nice(was: i32, mut set: impl FnMut(i32) -> bool) -> Knob {
             });
         }
     }
-    Knob::Refused(format!("kept {was}: lowering needs CAP_SYS_NICE or RLIMIT_NICE (ulimit -e)"))
+    Knob::Refused(refused_nice(was))
+}
+
+/// Why a nice stayed. A positive one came from the caller: a CLI under an agent started this
+/// daemon detached, where no `acpmux.service` (Linux, `daemon/managed_unit.rs`) or login-session
+/// job (macOS, `daemon/login_session.rs`) could start it instead.
+fn refused_nice(was: i32) -> String {
+    let lowering = "lowering needs CAP_SYS_NICE or RLIMIT_NICE (ulimit -e)";
+    if was > 0 {
+        format!("inherited nice {was} from caller, kept: {lowering}")
+    } else {
+        format!("kept {was}: {lowering}")
+    }
 }
 
 /// A cgroup weight file's knob: its value, or why there is none.
@@ -261,7 +279,14 @@ mod tests {
         assert_eq!(lower_nice(0, |_| true), Knob::Took("-5".into()));
         assert_eq!(lower_nice(5, |s| s == 0), Knob::Took("0 (wanted -5)".into()));
         let refused = lower_nice(5, |_| false);
-        assert!(matches!(&refused, Knob::Refused(why) if why.starts_with("kept 5")));
+        assert_eq!(
+            refused,
+            Knob::Refused(
+                "inherited nice 5 from caller, kept: lowering needs CAP_SYS_NICE or RLIMIT_NICE \
+                 (ulimit -e)"
+                    .into()
+            )
+        );
         let mut asked = Vec::new();
         lower_nice(-10, |s| {
             asked.push(s);
