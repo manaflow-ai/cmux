@@ -5,7 +5,7 @@ import Testing
 /// Terminals over a glass window show the glass (Leo, 2026-10-18: "if we're doing glass, we're doing
 /// glass, period"). Glass at the default Opacity 1 tinted the Liquid Glass at alpha 1, so the window,
 /// and every terminal over it, was the solid theme colour. The glass tint now stops at
-/// ``ThemeTokens/glassTintCeiling``, Raycast's theme background at about 40% (hq
+/// ``ThemeTokens/glassTintCeiling``, the reference's theme background at about 40% (hq
 /// docs/design/glass-raycast-parity.md), while an opaque window and Reduce Transparency stay solid.
 @MainActor @Suite struct TerminalOverGlassTintTests {
     static let dark = ThemeInput(background: ThemeRGB(hex: 0x1E1E1E), foreground: ThemeRGB(hex: 0xD4D4D4))

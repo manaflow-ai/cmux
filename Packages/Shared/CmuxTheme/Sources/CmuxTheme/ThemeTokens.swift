@@ -121,7 +121,7 @@ public struct ThemeTokens: Hashable, Sendable {
         return min(max(themeFloor + (1 - contrastHeadroom) * 0.10 + luminanceBias, 0.52), 0.76)
     }
 
-    /// The most theme tint a glass window (`background-blur` below 0) lays over its glass: Raycast's theme
+    /// The most theme tint a glass window (`background-blur` below 0) lays over its glass: the reference's theme
     /// background at about 40% (hq docs/design/glass-raycast-parity.md), and 0.55 on a light theme, the command
     /// palette's measured glass tint. Below it the Opacity asked for is kept; at Opacity 1 the glass tinted solid,
     /// terminals and panes included (Leo, 2026-10-18: "if we're doing glass, we're doing glass, period").
