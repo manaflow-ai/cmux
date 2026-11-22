@@ -17,6 +17,7 @@ import { ChevronRight, Globe } from "./icons";
 import { pagePathLabel, sourcesLine, type WebSource } from "./webSourceList";
 import "./WebSources.css";
 import { Sign } from "../../../ui/Typography";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 /// The sites the closed line names before "+N", the pages from any other site.
 const NAMED = 3;
@@ -42,21 +43,25 @@ function SiteMark({ url }: { url: string }) {
 function PageLink({ url, className, children }: { url: string; className: string; children: ReactNode }) {
   const readOnly = useTranscriptReadOnly();
   return (
-    <a
-      href={url}
-      className={className}
-      aria-description={url}
-      {...(readOnly
-        ? { target: "_blank", rel: "noopener noreferrer" }
-        : {
-            onClick: (event: MouseEvent<HTMLAnchorElement>) => {
-              event.preventDefault();
-              open(url);
-            },
-          })}
-    >
-      {children}
-    </a>
+    <WithFacts facts={[{ value: url, code: true }]}>
+      {(facts) => (
+        <a
+          {...facts}
+          href={url}
+          className={className}
+          {...(readOnly
+            ? { target: "_blank", rel: "noopener noreferrer" }
+            : {
+                onClick: (event: MouseEvent<HTMLAnchorElement>) => {
+                  event.preventDefault();
+                  open(url);
+                },
+              })}
+        >
+          {children}
+        </a>
+      )}
+    </WithFacts>
   );
 }
 
