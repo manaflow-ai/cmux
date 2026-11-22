@@ -267,6 +267,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 
 name, limit_name, default, ci_check, findings = sys.argv[1:6]
 command = sys.argv[7:]
@@ -285,6 +286,16 @@ def stop(signum):
         pass
 
 
+def group_alive():
+    try:
+        os.killpg(child.pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def forward(number, frame):
     signalled.append(number)
     stop(number)
@@ -296,10 +307,12 @@ try:
     code = child.wait(timeout=limit if limit > 0 else None)
 except subprocess.TimeoutExpired:
     stop(signal.SIGTERM)
-    try:
-        child.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        pass
+    # The grace belongs to the whole group, not just the leader: a leader that dies at once on SIGTERM must not cut short
+    # the cleanup of a git child still in the group (a .git/index.lock left behind). poll() reaps the leader, so a
+    # group that still answers holds a live member.
+    grace_ends = time.monotonic() + 5
+    while time.monotonic() < grace_ends and (child.poll() is None or group_alive()):
+        time.sleep(0.05)
     stop(signal.SIGKILL)
     child.wait()
     print(f"pre-push: {name} ran past its {limit:g}s limit ({limit_name}); stopped it and every process it started. "

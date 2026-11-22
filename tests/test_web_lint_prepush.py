@@ -829,6 +829,31 @@ class WebLintPrePushTests(unittest.TestCase):
     def test_a_cmux_next_gate_past_its_limit_is_stopped_with_its_children_and_the_push_goes_on(self):
         self.assert_stopped_at_limit("cmux_next_prepush_gate.py", "CMUX_PREPUSH_GATE_TIMEOUT_SECONDS", "cmux-next gate")
 
+    def test_the_limit_gives_a_grandchild_its_grace_even_when_the_leader_dies_at_once(self):
+        """A step that dies at once on SIGTERM must not cut short the cleanup of a child still in its group (a git
+        removing its index.lock): the grace runs until the whole group is gone, not until the leader is."""
+        hooks = Path(self.git("config", "--get", "core.hooksPath").stdout.strip())
+        marker = self.root / "cleaned-up"
+        ready = self.root / "ready"
+        grandchild = (f"import signal, sys, time\n"
+                      f"def done(*_):\n    time.sleep(1)\n    open({str(marker)!r}, \"w\").write(\"ok\")\n"
+                      f"    sys.exit(0)\n"
+                      f"signal.signal(signal.SIGTERM, done)\nopen({str(ready)!r}, \"w\").write(\"ok\")\n"
+                      f"time.sleep(300)\n")
+        leader = (f"import subprocess, sys, time\n"
+                  f"subprocess.Popen([sys.executable, \"-c\", {grandchild!r}])\n"
+                  f"while True:\n    time.sleep(300)\n")
+        (hooks / "web_lint_prepush.py").write_text(leader)
+        self.write("web/app/page.tsx", "export const page = 2;\n")
+        self.commit("touch one web file")
+
+        result = self.push(**HOOK_DEFAULT, CMUX_WEB_LINT_TIMEOUT_SECONDS="2")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(ready.exists(), result.stderr)
+        self.assertIn("pre-push: web lint ran past its 2s limit", result.stderr)
+        self.assertTrue(marker.exists(), "the grandchild was killed before its SIGTERM cleanup finished")
+
     def test_the_hook_installs_nothing_for_an_area_with_no_node_modules(self):
         shutil.rmtree(self.repo / "web/node_modules")
         bun_log = self.root / "bun.log"
