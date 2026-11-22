@@ -23,6 +23,7 @@ STAGES = ["compile", "link", "sign", "quit", "launch", "ready"]
 GRAPH = {"compile": [], "link": ["compile"], "sign": ["link"], "quit": [], "launch": ["sign", "quit"], "ready": ["launch"]}
 ANCHOR = 'defer { DebugTimings.markLaunch("did_finish_launching_end") }'
 IDLE_S = 15  # after a launch: time for the window, the typed key's echo and the app to go idle before the next step
+LAUNCH_WAIT_S = 180  # LaunchServices' open to the app's process: a few s; 60 s once ran out (step a8b4d181c32ad2c06b3a0126)
 
 
 def now_ms():
@@ -261,6 +262,9 @@ def remap_link(argv, tmp, k):
     return out
 
 
+WARM_BUILD_S = 4800  # the untimed warm build from a cold slot (see Loop.reload's warm call)
+
+
 def timed(argv, cwd=None, timeout=600):
     t = time.monotonic()
     p = subprocess.run(argv, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=timeout)
@@ -301,18 +305,19 @@ class Loop:
             f.write(self.original)
 
     # -- reload.sh
-    def reload(self, label):
+    def reload(self, label, timeout_s=1800):
         logpath = os.path.join(self.out, "logs", "reload-%s.out" % label)
         t0 = now_ms()
         with open(logpath, "w") as f:
             p = subprocess.Popen(["scripts/reload.sh", "--tag", TAG, "--no-global-cli-links"], cwd=self.repo, stdout=f,
                                  stderr=subprocess.STDOUT)
             try:
-                rc = p.wait(timeout=1800)
+                rc = p.wait(timeout=timeout_s)
             except subprocess.TimeoutExpired:
                 p.terminate()
                 p.wait(60)
-                raise RuntimeError("reload.sh %s ran over 1800 s" % label)
+                tail = open(logpath, errors="replace").read()[-800:].strip()
+                raise RuntimeError("reload.sh %s ran over %d s: %s" % (label, timeout_s, tail))
         t1 = now_ms()
         text = open(logpath, errors="replace").read()
         if rc != 0:
@@ -343,7 +348,7 @@ class Loop:
                               str(settle), os.path.join(self.sock_dir, "app.sock"), "type"], cwd=self.repo,
                              stdout=open(outp, "w"), stderr=open(outp + ".err", "w"), env=env)
         self.launches.append(p)
-        exe, pid, end = self.executable(), None, time.time() + 60
+        exe, pid, end = self.executable(), None, time.time() + LAUNCH_WAIT_S
         while time.time() < end and pid is None:
             rec = self.watch.find(exe, t)
             pid = rec["pid"] if rec else None
@@ -351,14 +356,31 @@ class Loop:
                 break
             time.sleep(0.05)
         if pid is None:
-            raise RuntimeError("launch %s: no app process within 60 s (%s)" % (label, open(outp + ".err").read()[-800:]))
+            # 2026-11-22 step a8b4d181c32ad2c06b3a0126: "launch floor3: no app process within 60 s ()": launch-ready's
+            # stderr was empty, and its own failure ("open: ...") goes to stdout. Say both, and what of the app ran.
+            with self.watch.lock:
+                live = sorted("%d %s" % (r["pid"], os.path.basename(r["path"])) for r in self.watch.procs.values()
+                              if r["end"] is None and r["path"].startswith(self.app + "/"))
+            tails = " | ".join("%s: %s" % (os.path.basename(f), open(f, errors="replace").read()[-600:].strip())
+                               for f in (outp, outp + ".err") if os.path.exists(f))
+            raise RuntimeError("launch %s: no app process within %d s (launch-ready %s; %s; app processes live: %s)"
+                               % (label, LAUNCH_WAIT_S, "running" if p.poll() is None else "exited %s" % p.returncode,
+                                  tails or "no output", ", ".join(live) or "none"))
         return p, outp, t, pid
 
     def finish_launch(self, label, p, outp):
         try:
             p.wait(timeout=90)
         except subprocess.TimeoutExpired:
-            raise RuntimeError("launch-ready %s did not end 90 s after its app quit" % label)
+            p.terminate()
+            try:
+                p.wait(10)
+            except subprocess.TimeoutExpired:
+                p.kill()
+            # Its own words, since the step returns only report.json: what it saw before it stopped.
+            tails = " | ".join("%s: %s" % (os.path.basename(f), open(f, errors="replace").read()[-600:].strip())
+                               for f in (outp, outp + ".err") if os.path.exists(f))
+            raise RuntimeError("launch-ready %s did not end 90 s after its app quit (%s)" % (label, tails or "no output"))
         lines = [l for l in open(outp).read().splitlines() if l.startswith("LR-RUN ")]
         if not lines:
             raise RuntimeError("launch-ready %s printed no LR-RUN (%s)" % (label, open(outp + ".err").read()[-800:]))
@@ -389,7 +411,10 @@ class Loop:
             raise RuntimeError("launch-ready.swift did not build: " + p.stderr[-1500:])
         log("warm build (untimed)")
         self.restore()
-        self.reload("warm")
+        # The untimed warm build starts from whatever .build the fleet slot kept, often none: a cold Xcode build of the
+        # app ran past 1800 s on 2026-11-21 step 0d5f8be711282a5a8062d811 ("reload.sh warm ran over 1800 s"). Timed
+        # rounds keep 1800 s; this one only fills the caches they measure from.
+        self.reload("warm", timeout_s=WARM_BUILD_S)
         log("app", self.app)
         # The priming launch: one workspace with its terminal left in front, so every later launch restores a
         # terminal and the `type` probe's key has a PTY to reach (launch-ready.sh front=tab).
