@@ -168,6 +168,8 @@ jobs:
       # Push classes (Leo, 2026-11-22: "there must surely be some changes which can get the fast track
       # route. like a nexus card."): the summary names the push's class (fast, sampled, full), the rule that fired and
       # how to get a full run; `class` hands it to the shards (a fast push's shard 1 runs its checks and no test file).
+      # On a fast or sampled push shard 1 runs its checks and only the touched tests in its share (--direct-out's
+      # entry "1"), not its share of the closure: that share was about 37 of its 48 minutes (11-22).
       - name: Pick the react-apps-check shards
         id: react-shards
         if: ${{ steps.scope.outputs.react_apps == 'true' }}
@@ -961,22 +963,28 @@ jobs:
           # or an unmapped path); empty output runs every file. A feat-cmux-next push and full-ci run all.
           if [ -n "$BASE_REF" ] && [ "$FULL_CI" != true ]; then
             CMUX_WEB_TEST_FILES="$(python3 ../scripts/ci/webviews_affected.py --base "$BASE_REF" --head HEAD)" || CMUX_WEB_TEST_FILES=""
-            # The one shard past 1 a pull request picks carries every touched test outside shard 1
-            # (webviews_pr_shards.py --direct-out): it runs just those, as one unsplit list, not its share of the
-            # closure above. No entry (an every-shard pick, a failed pick, no file) keeps the closure share.
-            own="$(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1])).get(sys.argv[2], [])))' \
-              "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" "$CMUX_WEB_TEST_SHARD" 2>/dev/null)" || own=""
-            if [ "$CMUX_WEB_TEST_SHARD" != 1 ] && [ -n "$own" ]; then
+            # Shard 1 and the one shard past 1 a pull request picks run only their touched tests
+            # (webviews_pr_shards.py --direct-out), as one unsplit list, not their share of the closure above: shard 1
+            # the touched tests in its own share (maybe none), the other every touched test outside shard 1. No entry
+            # (an every-shard pick, a failed pick, no file) keeps the closure share; "-" below marks no entry.
+            own="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("\n".join(d[sys.argv[2]]) if sys.argv[2] in d else "-")' \
+              "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" "$CMUX_WEB_TEST_SHARD" 2>/dev/null)" || own="-"
+            if [ "$own" != - ] && [ -n "$own" ]; then
               CMUX_WEB_TEST_FILES="$own"
               export CMUX_WEB_TEST_SHARD=1 CMUX_WEB_TEST_SHARD_COUNT=1 CMUX_WEB_TEST_SHARD_HEAD_START=""
               echo "shard ${{ matrix.shard }} runs its $(printf '%s\n' "$own" | wc -l) touched tests"
             fi
             export CMUX_WEB_TEST_FILES
-            # A fast push (docs or comments only, webviews_pr_shards.py classify) runs no test file: shard 1's checks
-            # above were its run. An empty head map is a run with no red, which react-apps-base-check passes.
-            if [ "$REACT_APPS_CLASS" = fast ] && [ "$CMUX_WEB_TEST_SHARD" = 1 ]; then
+            # A fast push (docs or comments only, webviews_pr_shards.py classify), or a pick that left shard 1 no
+            # touched test, runs no test file there: shard 1's checks above were its run. An empty head map is a run
+            # with no red, which react-apps-base-check passes.
+            if [ "${{ matrix.shard }}" = 1 ] && { [ "$REACT_APPS_CLASS" = fast ] || [ -z "$own" ]; }; then
               printf '{}\n' > "$CMUX_WEB_TEST_RESULTS"
-              echo "fast push: no test file runs (the step summary of web-subarea-scope names the rule)"
+              if [ "$REACT_APPS_CLASS" = fast ]; then
+                echo "fast push: no test file runs (the step summary of web-subarea-scope names the rule)"
+              else
+                echo "shard 1 holds no touched test: its checks above were its run (webviews_pr_shards.py --direct-out)"
+              fi
               exit 0
             fi
           fi
