@@ -381,6 +381,51 @@
           "swift_enum": {
             "name": "AgentPaneNewChatPlace"
           }
+        },
+        {
+          "key": "agentPane.sessionWorktrees",
+          "title": {
+            "key": "settings.agentPane.sessionWorktrees",
+            "text": "Session Worktrees"
+          },
+          "help": {
+            "key": "settings.agentPane.sessionWorktrees.help",
+            "text": "Choose where to keep worktrees for local chats and forks."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "shared",
+              "title": {
+                "key": "settings.choice.sessionWorktreesShared",
+                "text": "Shared Worktree Folder"
+              }
+            },
+            {
+              "value": "project",
+              "title": {
+                "key": "settings.choice.sessionWorktreesProject",
+                "text": "Inside Project"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "git",
+            "worktree",
+            "fork",
+            "folder"
+          ],
+          "swift_enum": {
+            "name": "AgentPaneSessionWorktrees"
+          }
         }
       ]
     }

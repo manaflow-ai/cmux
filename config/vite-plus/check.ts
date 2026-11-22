@@ -29,18 +29,24 @@ export function cmuxCheckConfig({
       options: { denyWarnings: !allowWarnings, typeAware: true, typeCheck: true },
       rules: {
         ...(effectCleanupPlugin ? { "cmux-lifecycle/effect-interval-cleanup": "error" as const } : {}),
-        ...(perfPlugin ? { "cmux-perf/layout-thrash-in-loop": "error" as const } : {}),
+        ...(perfPlugin
+          ? { "cmux-perf/layout-thrash-in-loop": "error" as const, "cmux-perf/no-intl-construct": "error" as const }
+          : {}),
         "typescript/await-thenable": "off" as const,
         "typescript/no-base-to-string": "off" as const,
         "typescript/no-redundant-type-constituents": "off" as const,
         "typescript/unbound-method": "off" as const,
+        // Its role table predates ARIA 1.3, where aria-description is a global attribute that every role
+        // supports; it flagged each of the 76 aria-description props that replaced visible-text tooltips
+        // (c0ecbb88), and denyWarnings made those 29 findings fail the web lint.
+        "jsx-a11y/role-supports-aria-props": "off" as const,
       },
       // Tests and benches measure layout on purpose; the perf rules are for code that ships.
       overrides: perfPlugin
         ? [
             {
               files: ["test/**", "bench/**", "scripts/**", "**/*.test.ts", "**/*.test.tsx"],
-              rules: { "cmux-perf/layout-thrash-in-loop": "off" as const },
+              rules: { "cmux-perf/layout-thrash-in-loop": "off" as const, "cmux-perf/no-intl-construct": "off" as const },
             },
           ]
         : [],
