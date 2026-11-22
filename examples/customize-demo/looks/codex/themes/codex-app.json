@@ -24,5 +24,14 @@
   "appearance.statusIndicator.style": "native",
 
 
-  "appearance.density": "comfortable"
+  "appearance.density": "comfortable",
+
+  // Shape, not only color (Leo: "customizing the tabs/sidebars a lot deeper"): Codex's big round corners: 14 pt tabs, 12 pt sidebar rows on a 300 pt sidebar in large text, Codex's sidebar look, the top right buttons always shown, Session Info over the chat.
+  "density": { "basedOn": "comfortable", "tokens": {"tabCornerRadius": 14, "tabCloseCornerRadius": 8, "verticalTabCornerRadius": 12, "sidebarCornerRadius": 12, "itemCornerRadius": 12, "panelCornerRadius": 20, "sidebarWidth": 300, "sidebarRowHeight": 34, "sidebarRowGap": 2, "sidebarRowInset": 10, "tabGap": 6, "browserRowHeight": 32, "controlHeight": 30 } },
+  "sidebar.look": "codex",
+  "sidebar.textSize": "large",
+  "appearance.cornerFlush": "off",
+  "window.titlebarButtons": "always",
+  "tabs.plusButton": "hover",
+  "agentPane.display.sessionInfo.placement": "overlay"
 }
