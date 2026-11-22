@@ -211,7 +211,7 @@ pub fn not_connected() -> RpcError {
     RpcError::new(
         -32044,
         format!(
-            "GitHub is not connected on this Mac: {} (or sign in with `gh auth login`), then try again",
+            "GitHub is not connected on this Mac: {} (or sign in with `gh auth login`)",
             cmux_host::github_connect::CONNECT_GITHUB
         ),
     )
@@ -273,13 +273,13 @@ fn app_error(code: &str) -> RpcError {
             "integration.not_found",
             -32044,
             "github.not_connected",
-            "GitHub is not connected for this team: connect GitHub in cmux Settings (Accounts > GitHub, or the command palette's Connect GitHub), or run `cmux accounts github-connect` on your Mac, then try again",
+            "GitHub is not connected for this team: connect GitHub in cmux Settings (Accounts > GitHub, or the command palette's Connect GitHub), or run `cmux accounts github-connect` on your Mac",
         ),
         "needs_reauth" => (
             "needs_reauth",
             -32044,
             "github.not_connected",
-            "GitHub needs to be connected again: reconnect GitHub in cmux Settings (Accounts > GitHub, or the command palette's Connect GitHub), or run `cmux accounts github-connect` on your Mac, then try again",
+            "GitHub needs to be connected again: reconnect GitHub in cmux Settings (Accounts > GitHub, or the command palette's Connect GitHub), or run `cmux accounts github-connect` on your Mac",
         ),
         "policy.denied" => (
             "policy.denied",
@@ -314,6 +314,11 @@ fn app_error(code: &str) -> RpcError {
         _ => ("unknown", -32045, "github.app_token", "cmux could not get a GitHub token"),
     };
     let mut data = json!({"reason": reason, "code": code});
+    if code == "unreachable"
+        && let Some(fields) = data.as_object_mut()
+    {
+        fields.insert("retryable".into(), json!(true));
+    }
     if reason == "github.not_connected"
         && let Some(fields) = data.as_object_mut()
     {
@@ -361,8 +366,29 @@ async fn bounded_json(mut res: reqwest::Response) -> Value {
 /// A token for `r.repo` alone, with `permissions(r.action)`; checked to be an App installation
 /// token for that repository before anything uses it.
 async fn mint(lent: &Lent, r: &GithubActionParams) -> Result<String, RpcError> {
-    mint_in(lent, r, cmux_build_space::process().map(|space| space.cloned())).await
+    use cmux_tui_util::retry::{Attempt, Patience};
+    // cmux Cloud not answering, or answering 5xx, is asked again for a few seconds: a mint
+    // changes nothing, and the person's only answer to "try again" would be yes.
+    Patience::new("cmux Cloud to mint a GitHub token", MINT_PATIENCE)
+        .quiet()
+        .run_async(move || async move {
+            mint_in(lent, r, cmux_build_space::process().map(|space| space.cloned())).await.map_err(
+                |e| {
+                    if e.data.as_ref().and_then(|d| d.get("code")).and_then(Value::as_str)
+                        == Some("unreachable")
+                    {
+                        Attempt::Retry(e)
+                    } else {
+                        Attempt::Fail(e)
+                    }
+                },
+            )
+        })
+        .await
 }
+
+/// How long [`mint`] asks cmux Cloud again while it does not answer.
+const MINT_PATIENCE: std::time::Duration = std::time::Duration::from_secs(8);
 
 /// [`mint`] in `space`: the lent sign-in is an install token of the app's build space, which
 /// Cloud refuses (401) without that space's `x-cmux-build-space`.
@@ -396,10 +422,13 @@ async fn mint_in(
             app_error("unreachable")
         })?;
     let ok = res.status().is_success();
+    let down = res.status().is_server_error();
     let answer = bounded_json(res).await;
     if !ok {
         let code = answer.pointer("/error/code").and_then(Value::as_str);
-        return Err(app_error(code.unwrap_or("unknown")));
+        // A 5xx that names no code is Cloud not answering (a deploy, an overload).
+        let code = code.unwrap_or(if down { "unreachable" } else { "unknown" });
+        return Err(app_error(code));
     }
     let token = answer.get("token").and_then(Value::as_str).unwrap_or("");
     let repo = answer.get("repo").and_then(Value::as_str).unwrap_or("");

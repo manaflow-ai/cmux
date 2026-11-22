@@ -77,7 +77,7 @@ impl fmt::Display for CloudError {
                 }
                 if *retryable {
                     formatter.write_str(
-                        "; retry the request; if it keeps failing, run `cmux cloud diagnostics`",
+                        "; the Cloud refused it for now (a rate limit or a brief outage); if it keeps failing, run `cmux cloud diagnostics`",
                     )
                 } else {
                     formatter.write_str("; run `cmux cloud diagnostics`")
@@ -125,14 +125,14 @@ mod tests {
             let message = error.to_string();
             assert!(message.contains("scope is missing"));
             assert!(message.contains("cmux cloud diagnostics"));
-            assert_eq!(message.contains("retry"), retryable, "{message}");
+            assert_eq!(message.contains("for now"), retryable, "{message}");
         }
         let rate_limited = CloudError::Rejected {
             code: "rate_limited".into(),
             message: "HTTP 429".into(),
             retryable: true,
         };
-        assert!(rate_limited.to_string().contains("retry the request"));
+        assert!(rate_limited.to_string().contains("a rate limit"));
         // The outcome of a mutation is unknown: never advise a blind resend.
         let unavailable = CloudError::Unavailable("timeout".into()).to_string();
         assert!(!unavailable.contains("retry"), "{unavailable}");

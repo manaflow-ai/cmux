@@ -758,7 +758,7 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
                     let busy = error_frame(
                         &id,
                         "inference.gateway_busy",
-                        "the gateway is at its call limit; retry",
+                        &format!("the gateway is running its limit of {MAX_CALLS} calls"),
                     );
                     send(&tx, &busy).await;
                     continue;

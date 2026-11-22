@@ -346,7 +346,7 @@ impl Hub {
                 Ok(guard) => Some(guard),
                 Err(_) => {
                     let why = format!(
-                        "the running turn did not end within {}s; try again, or pass --interrupt",
+                        "the running turn did not end within {}s, so nothing moved; --interrupt stops it and moves the chat now",
                         AFTER_TURN_WAIT.as_secs()
                     );
                     return Err(transfer_error("busy", why));

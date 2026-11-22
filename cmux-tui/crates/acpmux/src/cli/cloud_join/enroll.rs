@@ -381,9 +381,13 @@ async fn record_leave_intent_at(
 ) -> Result<bool> {
     let at = signed_out_at.unwrap_or_else(now_ms);
     let account = safe_id(account.trim()).ok_or_else(|| anyhow!("the user id is malformed"))?;
-    let _lock = wait_for_lock(home)
-        .await
-        .ok_or_else(|| anyhow!("another join or leave holds this machine; try again"))?;
+    let _lock = wait_for_lock(home).await.ok_or_else(|| {
+        anyhow!(
+            "another join or leave has held this machine's join lock for {} s; it may be stuck: \
+                 `acpmux machine status` shows it",
+            LOCK_WAIT.as_secs()
+        )
+    })?;
     if signed_in_since(home, &account, at) {
         tracing::info!("sign-out intent: that account signed in again since; not recorded");
         return Ok(false);

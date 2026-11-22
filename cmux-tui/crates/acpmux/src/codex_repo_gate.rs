@@ -70,6 +70,8 @@ fn refusal(reason: &str) -> String {
     denial
         .pointer("/hookSpecificOutput/permissionDecisionReason")
         .and_then(serde_json::Value::as_str)
+        // retry-prompt-ok: read by the agent, not a person: a hook cannot hold the call, so the
+        // agent issues it again once the sync it names completes.
         .unwrap_or("Repository sync is not ready. Retry after synchronization completes.")
         .to_owned()
 }

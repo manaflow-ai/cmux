@@ -132,8 +132,28 @@ pub(crate) async fn attach(
     } else {
         format!("/v1/mesh/nodes/{}/attach", machine.id)
     };
-    post(machine, &path, token, None).await
+    // Attaching (or detaching) twice is as once: a platform that did not answer, or a busy
+    // mesh hub (503), is asked again for a few seconds instead of the person.
+    cmux_tui_util::retry::Patience::new("the cmux platform", PLATFORM_PATIENCE)
+        .quiet()
+        .run_async({
+            let path = path.as_str();
+            move || async move {
+                post(machine, path, token, None).await.map_err(|e| {
+                    if e.data.as_ref().and_then(|d| d.get("retryable")) == Some(&Value::Bool(true))
+                    {
+                        cmux_tui_util::retry::Attempt::Retry(e)
+                    } else {
+                        cmux_tui_util::retry::Attempt::Fail(e)
+                    }
+                })
+            }
+        })
+        .await
 }
+
+/// How long an idempotent platform call is asked again while the platform does not answer.
+const PLATFORM_PATIENCE: std::time::Duration = std::time::Duration::from_secs(8);
 
 /// Who holds this machine's WireGuard key for a rekey.
 pub(crate) enum Holder {
@@ -424,7 +444,7 @@ async fn post(
         request = request.json(&body);
     }
     let unreachable = || {
-        refusal("platform_unreachable", "the cmux platform did not answer; try again")
+        refusal("platform_unreachable", "the cmux platform did not answer")
             .with_data(json!({"reason": "platform_unreachable", "retryable": true}))
     };
     let response = request.send().await.map_err(|_| unreachable())?;
@@ -465,7 +485,7 @@ fn refused_words(status: u16, code: &str) -> String {
                 .into()
         }
         _ if status == 401 => "sign in to cmux again".into(),
-        _ if status == 503 => "the cmux mesh hub is busy or unreachable; try again".into(),
+        _ if status == 503 => "the cmux mesh hub is busy or unreachable".into(),
         "" => format!("the cmux platform refused (HTTP {status})"),
         code => format!("the cmux platform refused: {code} (HTTP {status})"),
     }

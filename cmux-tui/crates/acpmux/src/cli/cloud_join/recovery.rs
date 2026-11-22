@@ -285,6 +285,7 @@ fn error(exit: i32, message: &str) -> anyhow::Error {
         .into()
 }
 fn hub_error() -> anyhow::Error {
+    // retry-prompt-ok: join resumes a side-effecting enrollment; the person chooses when.
     error(4, "join incomplete; hub unavailable or returned an invalid response; rerun join")
 }
 
@@ -602,6 +603,7 @@ pub(super) async fn join(
     let refused = || {
         error(
             3,
+            // retry-prompt-ok: a choice of the person's: the original token or a fresh one.
             "join incomplete; enrollment refused; rerun with the original token or obtain fresh enrollment",
         )
     };
@@ -619,6 +621,7 @@ pub(super) async fn join(
             Some(400 | 401 | 404 | 409 | 410) => refused(),
             _ => error(
                 4,
+                // retry-prompt-ok: a choice of the person's: the original token or a fresh one.
                 "join incomplete; enrollment refused; rerun with the original token or obtain fresh enrollment",
             ),
         });

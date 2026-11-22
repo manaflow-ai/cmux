@@ -933,7 +933,7 @@ impl MacDesktop {
         // The menu was read from accessibility: it opened.
         let mut out = ActionOutcome::confirmed(route);
         out.expect = self.keep_check(Some(shown_check));
-        if let Some(note) = loading_note(workspace::app_names_ready()) {
+        if let Some(note) = loading_note(workspace::app_names_ready_soon()) {
             out.note = note.into();
         }
         let mut report = MenuReport::open(shown, hidden);
@@ -966,7 +966,7 @@ impl MacDesktop {
             kept,
             all.iter().any(|i| i.denied),
             all.iter().any(|i| i.info.submenu),
-            workspace::app_names_ready(),
+            workspace::app_names_ready_soon(),
         );
         let nested_hidden = decision != HeldMenu::LeaveOpen;
         if nested_hidden {
@@ -1068,7 +1068,8 @@ impl MacDesktop {
             let hidden: Vec<bool> = all.iter().map(|i| i.denied).collect();
             // Items are checked against the app names: none is chosen while
             // they load (the protected apps always apply).
-            let picked = match gated_pick(workspace::app_names_ready(), &titles, &hidden, part) {
+            let picked = match gated_pick(workspace::app_names_ready_soon(), &titles, &hidden, part)
+            {
                 Ok(p) => p,
                 Err(why) => return refuse(why.into()),
             };

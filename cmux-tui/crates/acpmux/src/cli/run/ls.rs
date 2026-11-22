@@ -160,7 +160,7 @@ async fn bounded_total<T>(
 
 fn timeout_error(budget: &ListBudget, step: &str, waited: Duration) -> anyhow::Error {
     anyhow!(
-        "acpmux ls for machine {:?} via {}: {} step stalled after {:.0?}; retry after the machine reconnects",
+        "acpmux ls for machine {:?} via {}: {} step stalled after {:.0?}: the machine is not answering (`acpmux machine ls` shows its link)",
         budget.machine,
         budget.route,
         step,

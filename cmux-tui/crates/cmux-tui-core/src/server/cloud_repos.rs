@@ -7,6 +7,31 @@ use std::sync::{
 };
 static WORKERS: AtomicUsize = AtomicUsize::new(0);
 const MAX_WORKERS: usize = 16;
+/// Threads running or waiting for a worker slot. A request past
+/// `MAX_WORKERS` waits for a slot (up to `SLOT_WAIT`) instead of being
+/// refused with "retry after the current action finishes".
+static QUEUED: AtomicUsize = AtomicUsize::new(0);
+const MAX_QUEUED: usize = MAX_WORKERS * 4;
+const SLOT_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+fn busy(message: &str) -> Value {
+    json!({"code":"seed.clone_failed","message":message})
+}
+
+/// Waits (bounded, quietly) for one of the `max` worker slots of `workers`.
+fn take_slot(workers: &AtomicUsize, max: usize, wait: std::time::Duration) -> bool {
+    use crate::retry::{Attempt, Patience};
+    Patience::new("a repository worker", wait)
+        .quiet()
+        .spaced(std::time::Duration::from_millis(50), std::time::Duration::from_millis(500))
+        .run(|| {
+            workers
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < max).then_some(n + 1))
+                .map(|_| ())
+                .map_err(|_| Attempt::Retry(()))
+        })
+        .is_ok()
+}
 
 pub(super) fn try_handle(
     mux: &Arc<Mux>,
@@ -21,17 +46,37 @@ pub(super) fn try_handle(
     if !permitted {
         return Some(writer.send_control(&json!({"id":id,"ok":false,"error_code":"remote_denied","error":"permission denied"})).is_ok());
     }
-    if WORKERS
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < MAX_WORKERS).then_some(n + 1))
+    if QUEUED
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < MAX_QUEUED).then_some(n + 1))
         .is_err()
     {
-        return Some(writer.send_control(&json!({"id":id,"ok":true,"data":{"code":"seed.clone_failed","message":"Repository actions are busy. Retry after the current action finishes."}})).is_ok());
+        let message = format!(
+            "Repository actions are busy: {MAX_QUEUED} are already running or waiting for a turn."
+        );
+        return Some(
+            writer.send_control(&json!({"id":id,"ok":true,"data":busy(&message)})).is_ok(),
+        );
     }
     let mux = mux.clone();
     let writer = writer.clone();
     let fallback = writer.clone();
     let fallback_id = id.clone();
     match std::thread::Builder::new().name("cloud-repo".into()).spawn(move || {
+        struct Queued;
+        impl Drop for Queued {
+            fn drop(&mut self) {
+                QUEUED.fetch_sub(1, Ordering::AcqRel);
+            }
+        }
+        let _queued = Queued;
+        if !take_slot(&WORKERS, MAX_WORKERS, SLOT_WAIT) {
+            let message = format!(
+                "Repository actions stayed busy for {} s: {MAX_WORKERS} were still running.",
+                SLOT_WAIT.as_secs()
+            );
+            let _ = writer.send_control(&json!({"id":id,"ok":true,"data":busy(&message)}));
+            return;
+        }
         struct Done;
         impl Drop for Done {
             fn drop(&mut self) {
@@ -44,10 +89,28 @@ pub(super) fn try_handle(
     }) {
         Ok(_) => Some(true),
         Err(_) => {
-            WORKERS.fetch_sub(1, Ordering::AcqRel);
-            Some(fallback.send_control(&json!({"id":fallback_id,"ok":false,"error_code":"seed.clone_failed","error":"Retry the repository action; the worker could not start."})).is_ok())
+            QUEUED.fetch_sub(1, Ordering::AcqRel);
+            // The OS refused a thread (resource exhaustion): nothing ran.
+            Some(fallback.send_control(&json!({"id":fallback_id,"ok":false,"error_code":"seed.clone_failed","error":"The repository action did not run: this machine could not start a worker thread."})).is_ok())
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn a_full_worker_pool_is_waited_for_instead_of_refused() {
+    let workers = Arc::new(AtomicUsize::new(2));
+    let release = {
+        let workers = workers.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            workers.fetch_sub(1, Ordering::AcqRel);
+        })
+    };
+    assert!(take_slot(&workers, 2, std::time::Duration::from_secs(5)));
+    release.join().unwrap();
+    assert_eq!(workers.load(Ordering::Acquire), 2);
+    assert!(!take_slot(&workers, 2, std::time::Duration::from_millis(150)));
 }
 
 /// Local user and linked Mac requests retain their existing access. A

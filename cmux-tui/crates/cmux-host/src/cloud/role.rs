@@ -907,7 +907,7 @@ impl Worker {
             if self.clients.len() >= MAX_CLIENTS {
                 // A GitHub token asker gets an answer rather than an EOF.
                 let mut stream = stream;
-                let busy = github::refusal("busy", "the Cloud agent's socket is full; retry");
+                let busy = github::transient_refusal("busy", "the Cloud agent's socket is full");
                 let _ = stream.set_write_timeout(Some(Duration::from_millis(200)));
                 let _ = stream.write_all(format!("{busy}\n").as_bytes());
                 continue;

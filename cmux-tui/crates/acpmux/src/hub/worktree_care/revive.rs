@@ -114,7 +114,7 @@ impl Hub {
 
 fn folder_missing(meta: &crate::store::SessionMeta) -> RpcError {
     RpcError::internal(format!(
-        "session.folder_missing: the folder of {} ({}) could not be recreated; retry after the worktree is back",
+        "session.folder_missing: the folder of {} ({}) could not be recreated, so its agent cannot start until the worktree is back",
         meta.name,
         meta.cwd.display()
     ))

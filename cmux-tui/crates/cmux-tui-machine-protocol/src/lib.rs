@@ -2048,7 +2048,7 @@ mod tests {
             "id": "19",
             "error": {
                 "code": "provider_rate_limited",
-                "message": "Try again later",
+                "message": "Rate limited",
                 "retryable": true
             }
         });
@@ -2058,7 +2058,7 @@ mod tests {
             decoded.response,
             ProviderResponse::Failure(ProviderError {
                 code: ProviderErrorCode::Other("provider_rate_limited".into()),
-                message: "Try again later".into(),
+                message: "Rate limited".into(),
                 retryable: true,
             })
         );

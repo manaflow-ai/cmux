@@ -919,9 +919,9 @@ async fn forward_inner(
             tokio::time::timeout(std::time::Duration::from_secs(30), peer.request_on(m, p, on))
                 .await
                 .unwrap_or_else(|_| Err(RpcError::internal(format!(
-                    "reading {m} from peer {} did not finish within 30 seconds; check the peer connection and retry this read",
+                    "reading {m} from peer {} did not finish within 30 seconds: its daemon took the read but has not answered",
                     peer.name
-                )).with_data(json!({"reason": "peer_read_timeout", "peer": peer.name, "method": m}))))
+                )).with_data(json!({"reason": "peer_read_timeout", "retryable": true, "peer": peer.name, "method": m}))))
         } else if crate::peer::waits_on_turn(m) {
             tokio::select! {
                 result = peer.request_on(m, p, on) => result,

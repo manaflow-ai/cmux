@@ -342,6 +342,11 @@ impl RemoteSession {
                 }
             }
             Some("detached") => {
+                // cmux-terminal-sizing's detach_reason::DISCONNECTED_BY: a
+                // kick, after which the client must not reconnect by itself.
+                if value["reason"].as_str() == Some("disconnected-by") {
+                    self.disconnect_state.record_disconnected_by_peer();
+                }
                 if let Some(id) = surface_id() {
                     self.surfaces.lock().unwrap().remove(&id);
                     self.size_states.lock().unwrap().remove(&id);
@@ -560,11 +565,11 @@ impl RemoteSession {
                             self.surface_overflow_reconnect_required.load(Ordering::Acquire);
                         if !reconnect_required || !reconnect_was_required {
                             self.emit(MuxEvent::Status(if reconnect_required {
-                                "surface overflow recovery capacity was exhausted; detach and reconnect to recover"
+                                "surface overflow recovery capacity was exhausted; output resumes once this session is attached again"
                                     .to_string()
                             } else if stopped {
                                 format!(
-                                    "surface {surface_id} event stream repeatedly overflowed; detach and reconnect to recover"
+                                    "surface {surface_id} event stream repeatedly overflowed; its output resumes once this session is attached again"
                                 )
                             } else {
                                 format!(

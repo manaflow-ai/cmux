@@ -114,8 +114,18 @@ impl<O: Send + Sync + 'static> Handles<O> {
             let message = "too many media files are open; read one to its end";
             return Err(refused("media.handles", message));
         }
+        // Transient: a slot frees as another connection's file is read to its end or idles out,
+        // so the GUI may ask again on its own (`retryable`).
         let slot = Slot::take().ok_or_else(|| {
-            refused("media.busy", "the daemon has too many media files open; try again soon")
+            let mut e = refused(
+                "media.busy",
+                "the daemon has its most media files open over all connections; one frees as \
+                 another is read to its end",
+            );
+            if let Some(data) = e.data.as_mut().and_then(serde_json::Value::as_object_mut) {
+                data.insert("retryable".into(), serde_json::Value::Bool(true));
+            }
+            e
         })?;
         let Opened { file, identity, .. } = opened;
         let entry = Entry {

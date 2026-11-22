@@ -158,6 +158,33 @@ pub fn refusal(code: &str, message: &str) -> Value {
     json!({ "ok": false, "error": { "code": code, "message": message } })
 }
 
+/// A refusal a later ask can pass with nothing changed (the agent busy, the platform out of
+/// reach or failing after the machine already waited it out): `error.retryable` tells the
+/// caller to ask again itself rather than show it.
+pub fn transient_refusal(code: &str, message: &str) -> Value {
+    json!({ "ok": false, "error": { "code": code, "message": message, "retryable": true } })
+}
+
+/// A 429 that outlasted the machine's own wait: its message names the reset when the platform
+/// gave one (`retry_after`, seconds), and the reply keeps that field for the caller.
+pub fn rate_limited(service: &str, retry_after: Option<u64>) -> Value {
+    let message = match retry_after {
+        // retry-prompt-ok: a rate-limit window the person must wait out, with its reset named.
+        Some(secs) => format!("{service} is rate limited; it accepts requests again in {secs} s."),
+        None => format!("{service} is rate limited; the limit resets within a few minutes."),
+    };
+    let mut reply = transient_refusal("rate_limited", &message);
+    if let Some(secs) = retry_after {
+        reply["retry_after"] = json!(secs);
+    }
+    reply
+}
+
+/// The `retry_after` seconds of a platform error body (top level or under `error`).
+pub fn retry_after_of(body: &Value) -> Option<u64> {
+    body.field("retry_after").as_u64().or(body.field("error").field("retry_after").as_u64())
+}
+
 /// The reply line for the API's answer to `ask`: the token and its expiry,
 /// or the API's error (code, message, HTTP status, `retry_after` when given).
 /// A 200 that lacks a field of the contract (an installation token,
