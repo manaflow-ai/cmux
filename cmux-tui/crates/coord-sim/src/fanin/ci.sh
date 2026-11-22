@@ -52,7 +52,7 @@ profile() {
   perf report -i "$OUT/perf.data" --stdio --no-children --sort sym -g none --percent-limit 0.3 >"$OUT/perf.self.txt" 2>/dev/null
   perf report -i "$OUT/perf.data" --stdio --children --sort sym -g none --percent-limit 2 >"$OUT/perf.children.txt" 2>/dev/null
   # Every sample's stack, for any caller/callee split afterwards (perf.data itself is too big to keep).
-  perf script -i "$OUT/perf.data" -F tid,sym 2>/dev/null | gzip >"$OUT/perf.stacks.gz"
+  perf script -i "$OUT/perf.data" -F tid,ip,sym 2>/dev/null | gzip >"$OUT/perf.stacks.gz"
   rm -f "$OUT/perf.data"
   echo "FANIN perf: top self:"; grep -E '^ +[0-9]' "$OUT/perf.self.txt" | head -25
 }
