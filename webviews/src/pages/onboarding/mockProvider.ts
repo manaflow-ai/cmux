@@ -33,7 +33,7 @@ export class MockOnboardingProvider implements PageClient {
       kind?: ImportDataKind;
       target?: string | null;
       pane?: string;
-      value?: string;
+      value?: string | number;
     };
     const state = this.state;
     switch (op) {
@@ -116,9 +116,9 @@ export class MockOnboardingProvider implements PageClient {
           op === OPS.workStyle
             ? { ...choices, workStyle: input.value as WorkStyle }
             : op === OPS.density
-              ? { ...choices, density: input.value as string }
+              ? { ...choices, density: String(input.value) }
               : op === OPS.opacity
-                ? { ...choices, opacity: input.value as number, opacitySet: true }
+                ? { ...choices, opacity: Number(input.value), opacitySet: true }
                 : op === OPS.material
                   ? { ...choices, material: input.value as MakeItYoursMaterial }
                   : { ...choices, background: input.id ?? null };
