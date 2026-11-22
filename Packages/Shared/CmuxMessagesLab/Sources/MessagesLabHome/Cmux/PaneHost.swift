@@ -328,7 +328,10 @@ extension FieldChrome {
     ///
     /// A light theme's glass is as pale as the page, so the field gets a hairline edge of
     /// `edge` (the palette's `composeStroke`: 3:1 on the page, WCAG 1.4.11); dark glass keeps its own rim.
-    func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil) {
+    /// `fill`: the field's tint over a see-through window (the web composer's surface there), so the
+    /// placeholder reads on it as on the web field; nil keeps the clear system glass.
+    func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil, fill: NSColor? = nil) {
+        if field.tintColor != fill { field.tintColor = fill }
         field.wantsLayer = true
         if let layer = field.layer {
             // NSGlassEffectView rounds its glass internally, independently of its backing
