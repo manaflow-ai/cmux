@@ -797,6 +797,12 @@ export interface ModelsParams {
   refresh?: unknown;
 }
 
+export interface MoveTargetsParams {
+  _meta?: RequestMeta;
+  source?: unknown;
+  sourceKind?: unknown;
+}
+
 export interface NativeHistoryParams {
   _meta?: RequestMeta;
   before?: unknown;
@@ -2402,6 +2408,12 @@ export interface TrustSetParams {
   sessionId?: unknown;
 }
 
+export interface TurnShotsParams {
+  _meta?: RequestMeta;
+  sessionId?: unknown;
+  turnId?: unknown;
+}
+
 /** The running turn. */
 export type TurnSummary = {
   /**
@@ -2434,6 +2446,27 @@ export interface TypingParams {
   on: boolean;
   sessionId: string;
 }
+
+/** `_acpmux/usage` (capability `session-usage-v1`): what Session Info's Usage reads. */
+export interface UsageParams {
+  /**
+   * The `digest` of the last reply the client holds: while the stats read the same, the reply
+   * is `{digest, unchanged: true}` and carries none.
+   */
+  known?: (string | null);
+}
+
+export type UsageResult = {
+  /** Names what `usage` holds: equal digests, equal stats (within one daemon run). */
+  digest: string;
+  /** `known` is `digest`: the client's stats stand. */
+  unchanged?: (boolean | null);
+  /**
+   * Every listed chat that reports usage, its `usageStats` by the `sessionId` its row lists it
+   * under (this daemon's chats and the peers' rows). Absent with `unchanged`.
+   */
+  usage?: (Record<string, UsageStats> | null);
+} & Record<string, unknown>;
 
 /**
  * A chat's spend and context as its harness recorded them (`usage_stats.rs`):

@@ -225,12 +225,12 @@ test("the recipient is the Agent call's description for its agentId, or a short 
   expect(line.querySelector(".cv-agentmsg__name")?.textContent).toBe("Fix grid jump");
   expect(line.textContent).not.toContain("This agent");
   expect(host.textContent).not.toContain("a39e817af38ddf5e7");
-  // The full id is the chip's tooltip.
-  expect(line.querySelector(".cv-agentmsg__name")?.getAttribute("title")).toBe("Agent ID: a39e817af38ddf5e7");
-  // An id nothing names reads as a short id, the full one in the tooltip.
+  // The chip shows its name, so it has no tooltip (a1315's cut 2: none on an element whose text shows).
+  expect(line.querySelector(".cv-agentmsg__name")?.getAttribute("title")).toBeNull();
+  // An id nothing names reads as a short id; the chip shows text, so it has no tooltip.
   await renderNamed("a5f0c2b9e1d4a7c3b", new Map());
   expect(host.querySelector(".cv-agentmsg__name")?.textContent).toBe("a5f0c2b9");
-  expect(host.querySelector(".cv-agentmsg__name")?.getAttribute("title")).toBe("Agent ID: a5f0c2b9e1d4a7c3b");
+  expect(host.querySelector(".cv-agentmsg__name")?.getAttribute("title")).toBeNull();
   expect(host.textContent).not.toContain("a5f0c2b9e1d4a7c3b");
   // A name the call gives (a teammate, an acpmux session) shows as it is, with no tooltip.
   await renderNamed("grid-fix", new Map());

@@ -30,6 +30,9 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private let line = MacScreenFill(\.separator)
     /// Slots shown now (the stats and hint slots exist while their condition holds, whether or not they fit).
     private var statsSlot = false
+    /// The bar's stats line in full and without codec and size (``statsLine(_:)``): the layout shows the full one only
+    /// beside the whole name, so the name and the rate never truncate for the codec. Nil: the stats slot shows one text.
+    private var statsLines: (full: String, short: String, room: CGFloat)?
     private var hintSlot = false
     private var controlsShown = false
     private var accessIsViewOnly: Bool?
@@ -42,8 +45,26 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private var surfaceLook: MacScreenViewerLook?
     /// The pill layout (``MacScreenViewerStyle/ToolbarLayout/pill``): one row, the secondary controls in More.
     private var isPill: Bool { model.viewerLook.style.toolbarLayout == .pill }
+    /// Look A's auto-hide faded the toolbar out (``MacScreenViewerOverlay``): it stays hidden so clicks reach the picture.
+    var autoHidden = false {
+        didSet { syncHidden() }
+    }
+
+    /// Whether the selected look hides the toolbar now: under look B's strip (it carries the state and the controls), a
+    /// pill anywhere but over a live picture, or a toolbar look A's auto-hide faded out. The toolbar's own state and the
+    /// pane's layout both set ``isHidden`` from here, so neither undoes the other.
+    var hiddenByLook: Bool {
+        let style = model.viewerLook.style
+        if style.statusStrip || autoHidden { return true }
+        return style.toolbarLayout == .pill && !(model.showsSessionControls && model.isLive)
+    }
+
+    func syncHidden() {
+        let hidden = hiddenByLook
+        if isHidden != hidden { isHidden = hidden }
+    }
     /// The pill's width the pane last laid out (nil: not a pill).
-    private var reportedPillWidth: CGFloat?
+    private var reportedWidth: CGFloat?
     /// The look's View | Control segments, in place of `access` when it asks (``MacScreenViewerStyle/toolbarScopeSegments``).
     private lazy var segments = MacScreenScopeSegments { [weak self] scope in self?.actions.requestScope(scope) }
     private var scopeControl: NSView { model.viewerLook.style.toolbarScopeSegments ? segments : access }
@@ -138,13 +159,24 @@ final class MacScreenToolbarView: MacScreenThemedView {
         }
         needsLayout = true
         let height = height(for: bounds.width)
-        // A pill's width follows what it shows (the keyboard hint, Reconnect): the pane centres it again.
-        let width = isPill ? expandedWidth : nil
-        if reportedHeight != height || reportedPillWidth != width {
+        // A floating toolbar's width follows what it shows (the stats, the keyboard hint, Reconnect): the pane centres it again.
+        let width = model.viewerLook.style.toolbarPlacement == .floating ? floatingWidth : nil
+        if reportedHeight != height || reportedWidth != width {
             reportedHeight = height
-            reportedPillWidth = width
+            reportedWidth = width
             superview?.needsLayout = true
         }
+    }
+
+    /// The device's name, then a run link's name, or that its display is gone (the host shows its main display).
+    static func title(_ model: MacScreenPaneModel) -> String {
+        var parts = [model.name]
+        if model.session?.linkedDisplayGone == true {
+            parts.append(L.t("macScreen.run.displayGone", "That run's display is gone; showing the main display"))
+        } else if let run = model.runName {
+            parts.append(run)
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func apply() {
@@ -155,16 +187,23 @@ final class MacScreenToolbarView: MacScreenThemedView {
             superview?.needsLayout = true
         }
         dot.fill = statusColor
-        if name.stringValue != model.name { name.stringValue = model.name }
+        let title = Self.title(model)
+        if name.stringValue != title { name.stringValue = title }
         let session = model.session
         let live = model.isLive
         statsSlot = session != nil && live
+        statsLines = nil
         if statsSlot, let session {
             // A pill keeps to the latency, and says a brief outage there quietly (the picture stays up); the full
             // stats line is the bar's.
-            stats.stringValue = isPill && model.isQuietOutage ? L.t("macScreen.card.reconnecting", "Reconnecting…")
-                : session.preferences.showStats && !isPill ? Self.statsLine(session)
-                : session.stats.latencyMs.map { String(format: "%.0f ms", $0) } ?? "— ms"
+            if session.preferences.showStats && !isPill {
+                let lines = Self.statsLines(session)
+                statsLines = lines
+                stats.stringValue = lines.full
+            } else {
+                stats.stringValue = isPill && model.isQuietOutage ? L.t("macScreen.card.reconnecting", "Reconnecting…")
+                    : session.stats.latencyMs.map { String(format: "%.0f ms", $0) } ?? "— ms"
+            }
         }
         let viewOnly = model.viewOnly
         if accessIsViewOnly != viewOnly {
@@ -178,7 +217,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         controlsShown = model.showsSessionControls
         let pill = isPill
         // A pill floats only over a live picture: every other state takes the pane with its own actions.
-        isHidden = pill && !(controlsShown && live)
+        syncHidden()
         access.isHidden = !controlsShown || scopeControl !== access
         segments.isHidden = !controlsShown || scopeControl !== segments
         access.isEnabled = controlsShown
@@ -251,6 +290,19 @@ final class MacScreenToolbarView: MacScreenThemedView {
         let stats = session.stats
         return statsLine(path: session.streamPath, fps: stats.fps, targetFps: stats.targetFps, latencyMs: stats.latencyMs,
                          encoding: stats.encoding, frameSize: session.frameSize)
+    }
+
+    /// The stats line in full and short (no codec, no size), and the room the full one takes with every number at three
+    /// digits, so a floating toolbar sized for it does not move as the numbers change.
+    static func statsLines(_ session: MacScreenSession) -> (full: String, short: String, room: CGFloat) {
+        let stats = session.stats
+        let full = statsLine(path: session.streamPath, fps: stats.fps, targetFps: stats.targetFps, latencyMs: stats.latencyMs,
+                             encoding: stats.encoding, frameSize: session.frameSize)
+        let short = statsLine(path: session.streamPath, fps: stats.fps, targetFps: stats.targetFps, latencyMs: stats.latencyMs,
+                              encoding: "-", frameSize: .zero)
+        let widest = statsLine(path: session.streamPath, fps: 888, targetFps: stats.targetFps.map { _ in 888 }, latencyMs: 888,
+                               encoding: stats.encoding, frameSize: session.frameSize)
+        return (full, short, max(textWidth(full, font: MacScreenType.stats), textWidth(widest, font: MacScreenType.stats)))
     }
 
     /// The stats line: path, frame rate (measured, then the rate the Mac
@@ -423,6 +475,21 @@ final class MacScreenToolbarView: MacScreenThemedView {
             + hintRoom + controlsRoom)
     }
 
+    /// A floating bar's width (look A): room for the whole name, the full stats line, the keyboard hint and the
+    /// controls side by side, so the name and stats never truncate beside empty space. The pane caps it at its own
+    /// width; below the full width the layout drops the codec and size first. A pill keeps ``expandedWidth``.
+    var floatingWidth: CGFloat {
+        guard !isPill else { return expandedWidth }
+        let gap = Metrics.space2
+        let nameRoom = min(Self.textWidth(name), ceil(MacScreenType.body.pointSize * 16))
+        let statsRoom = statsSlot ? (statsLines?.room ?? Self.textWidth(stats)) + gap : 0
+        let hintRoom = hintSlot ? hint.fittingSize.width + gap : 0
+        let header = Metrics.space3 * 2 + Metrics.space2 + gap + icon.intrinsicContentSize.width + gap + nameRoom + gap + statsRoom + hintRoom
+        // ``expandedWidth`` is the controls' room plus a fixed allowance for the header: the header's own room instead.
+        let allowance = (Metrics.space6 * 2) * 8
+        return ceil(expandedWidth + max(0, header - allowance))
+    }
+
     /// The pill's controls: access (View Only shows as such), quality, More, Connect or Disconnect.
     private var pillControls: [NSView] { ([access, quality, more, connect, disconnect] as [NSView]).filter { !$0.isHidden } }
 
@@ -470,7 +537,15 @@ final class MacScreenToolbarView: MacScreenThemedView {
         x += Metrics.space2 + gap
         icon.isHidden = compact
         if !icon.isHidden { place(icon, width: icon.intrinsicContentSize.width, y: 0) }
-        let statsWidth = min(Self.textWidth(stats), max(0, (headerRight - x) / 2))
+        if let lines = statsLines {
+            // The whole name and the rate come before the codec and size: the full line only when both fit.
+            let fits = Self.textWidth(lines.full, font: MacScreenType.stats) + gap + Self.textWidth(name) <= headerRight - x
+            let text = fits ? lines.full : lines.short
+            if stats.stringValue != text { stats.stringValue = text }
+        }
+        // The name keeps its whole width up to half the header; the stats take the rest.
+        let nameFloor = min(Self.textWidth(name), max(0, (headerRight - x) / 2))
+        let statsWidth = min(Self.textWidth(stats), max(0, headerRight - x - nameFloor - gap))
         stats.isHidden = !statsSlot
         let remaining = max(0, headerRight - x - (statsSlot ? statsWidth + gap : 0))
         let hintWidth = hint.fittingSize.width
@@ -496,6 +571,11 @@ extension MacScreenToolbarView {
     static func textWidth(_ label: NSTextField) -> CGFloat {
         let cell = label.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: 1000)).width
         return ceil(max(cell ?? 0, label.attributedStringValue.size().width + 4))
+    }
+
+    /// A one-line string's width in `font`, with the same slack as a label's.
+    static func textWidth(_ text: String, font: NSFont) -> CGFloat {
+        ceil(NSAttributedString(string: text, attributes: [.font: font]).size().width + 4)
     }
 }
 
