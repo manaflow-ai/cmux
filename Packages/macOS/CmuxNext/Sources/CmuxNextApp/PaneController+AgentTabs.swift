@@ -31,6 +31,7 @@ extension PaneController {
     func openAgentTab(session: String? = nil, seed: AgentPaneSeedSource? = nil,
                       newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
                       linked: Bool = false, placed: Bool = true, select: Bool = true, then: (@MainActor (String) -> Void)? = nil) -> Bool {
+        drawIfOnScreen("new agent tab") // Cmd-T's tab must stay listed once the store replaces its stand-in
         let open = NewChatPlacement.opening(from: self, placed: placed && newTab == nil, select: select, then: then)
         return services.agentTabs.openTab(in: open.target, session: session, seed: seed, newTab: newTab, spare: spare,
                                           linked: linked, select: open.select, hidden: open.hidden, split: open.split,
