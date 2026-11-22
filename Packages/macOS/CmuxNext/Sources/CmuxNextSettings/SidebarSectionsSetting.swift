@@ -61,6 +61,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: detailedStatusIconsDefault, &diagnostics)
         result.showTimestamps = flag(root, showTimestampsPath, fallback: showTimestampsDefault, &diagnostics)
         result.settleFinished = flag(root, settleFinishedPath, fallback: settleFinishedDefault, &diagnostics)
+        result.showAutomaticSessions = flag(root, showAutomaticSessionsPath, fallback: showAutomaticSessionsDefault, &diagnostics)
         result.showColors = flag(root, showColorsPath, fallback: showColorsDefault, &diagnostics)
         result.workspaceColorIndicator = WorkspaceColorsSetting.parseIndicatorStyle(root, fallback: WorkspaceColorsSetting.indicatorStyleDefault, &diagnostics)
         result.showLocalMachine = flag(root, showLocalMachinePath, fallback: showLocalMachineDefault, &diagnostics)
