@@ -76,7 +76,8 @@
   padding: 0;
   border: 0;
   border-radius: 999px;
-  background: var(--acpmux-minimap-mark, var(--agent-accent));
+  /* A color, never --acpmux-minimap-mark: that token is the ticks' opacity (a number), not a color. */
+  background: var(--agent-accent);
   opacity: 0.9;
   cursor: pointer;
 }

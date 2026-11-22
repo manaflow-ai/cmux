@@ -1856,7 +1856,7 @@ function TranscriptView({
   onAnchor,
   anchorNow,
   inViewNow,
-  onSeenThrough,
+  onSeenRows,
   heldWorkedClosing,
   onLoadOlder,
   sends = 0,
@@ -1901,8 +1901,9 @@ function TranscriptView({
   /// Filled with the ids of the rows in the reader's view now, or null while it follows the latest
   /// message (a turn's end keeps those rows open, conversation/turnEndHold.ts).
   inViewNow?: React.MutableRefObject<(() => readonly string[] | null) | undefined>;
-  /// Advances the daemon cursor through the greatest seq in the rows that are on screen.
-  onSeenThrough?: (seq: number) => void;
+  /// The rows on screen now (no overscan), each time that run changes: the pane advances the
+  /// person's seen cursor through the newest event they show (direct.ts `markSeenRows`).
+  onSeenRows?: (rows: readonly AcpmuxRow[]) => void;
   /// Set by the pane when the rows it hands over next close a turn's Worked for that was held open
   /// while the reader was scrolled up (App.tsx `heldWorked`), the reader now back at the latest row.
   /// That close folds in the turn's end motion (conversation/turnEndFold.ts). Only read here: the
@@ -4760,15 +4761,13 @@ function TranscriptView({
   );
   // The run of mounted rows the reader sees.
   const view = visibleLayoutRange(layout, shownTop, height);
+  // The rows truly on screen, with no overscan: only these count as seen (the mounted run above
+  // draws a few rows past each edge that the reader has not seen).
+  const onScreen = visibleLayoutRange(layout, shownTop, height, 0);
   useLayoutEffect(() => {
-    if (!onSeenThrough || sessionId === undefined) return;
-    let max = -1;
-    for (let index = view.first; index < view.last; index += 1) {
-      const seq = rows[index]?.seq;
-      if (typeof seq === "number" && seq > max) max = seq;
-    }
-    if (max >= 0) onSeenThrough(max);
-  }, [onSeenThrough, rows, sessionId, view.first, view.last]);
+    if (!onSeenRows || sessionId === undefined || onScreen.last <= onScreen.first) return;
+    onSeenRows(rows.slice(onScreen.first, onScreen.last));
+  }, [onSeenRows, rows, sessionId, onScreen.first, onScreen.last]);
   const range = ahead.find((each) => each.first <= view.first && view.first < each.last) ?? view;
   // The rows a viewport either side of where the reader was also mount, in a deferred render
   // between frames: a scroll then finds the rows it brings in already drawn and measured instead
@@ -7681,7 +7680,7 @@ function TranscriptView({
                 scrollTop={renderScroll.top - origin}
                 scrolls={layout.totalHeight - height > 0.5}
                 change={rowsChange.current}
-                cutoverSeq={sinceRow?.since?.seq}
+                cutoverIndex={sinceRow?.since ? sinceIndex : undefined}
                 onCutover={onJumpToSince}
                 earlier={earlier}
                 promptCount={promptCount}

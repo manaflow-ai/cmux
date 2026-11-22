@@ -115,3 +115,48 @@ test("a reply the person left mid-stream goes under the divider, so the rest of 
   done.setAt(done.placeAfter(4), divider(4, 1));
   expect(done.sorted().map((row) => row.id)).toEqual(["row-1", "row-2", "reply", SINCE_DIVIDER, "row-6"]);
 });
+
+// The divider reads the daemon's persisted seen cursor (acpmux `readThrough`), never the client's
+// `seenSeq`: what counts as new is the turns written after it (OrderedRows.turnsAfter).
+const summary = (seq: number): AcpmuxRow => ({ id: `turn-${seq}`, version: 1, at: seq, kind: "turnSummary" });
+
+test("nothing after the cursor is no new turn: a refocus with nothing new draws no line", () => {
+  const rows = eventRows([1, 2, 5]);
+  rows.current = 6;
+  rows.set("turn-6", summary(6));
+  rows.current = undefined;
+  expect(rows.turnsAfter(6)).toBe(0);
+  expect(rows.turnsAfter(99)).toBe(0);
+});
+
+test("turns that ended after the cursor count once each; a reply still going counts as one", () => {
+  const rows = eventRows([1, 2]);
+  rows.current = 3;
+  rows.set("turn-3", summary(3));
+  for (const seq of [4, 6]) {
+    rows.current = seq;
+    rows.set(`row-${seq}`, reply(seq));
+  }
+  rows.current = 7;
+  rows.set("turn-7", summary(7));
+  rows.current = 8;
+  rows.set("row-8", reply(8));
+  rows.current = undefined;
+  expect(rows.turnsAfter(3)).toBe(1);
+  expect(rows.turnsAfter(2)).toBe(2);
+  expect(rows.turnsAfter(7)).toBe(1);
+});
+
+test("a row's seq is the newest event that wrote it; page-made rows and the divider have none", () => {
+  const rows = eventRows([1, 2]);
+  rows.current = 4;
+  rows.set("row-2", { ...reply(2), text: "r2 more" });
+  rows.current = undefined;
+  rows.set("local", { ...reply(0), id: "local" });
+  rows.setAt(rows.placeAfter(1), divider(1, 1));
+  expect(rows.seqOf("row-1")).toBe(1);
+  expect(rows.seqOf("row-2")).toBe(4);
+  expect(rows.seqOf("local")).toBeUndefined();
+  expect(rows.seqOf(SINCE_DIVIDER)).toBeUndefined();
+  expect(rows.seqOf("missing")).toBeUndefined();
+});
