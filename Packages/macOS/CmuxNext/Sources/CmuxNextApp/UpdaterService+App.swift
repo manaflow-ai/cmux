@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextPages
 import CmuxNextDesign
@@ -61,9 +63,36 @@ extension UpdaterService {
         }
         attachTips(registry: services.registry)
         UpdateSimulation(updater: self).follow(simulating)
+        attachInstallCheck(services: services)
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarnessProbe.install(updater: self)
         #endif
+    }
+
+    /// NIGHTLY's install check (``NightlyInstallCheck``): once per build, a canary chat to this
+    /// build's acpmux daemon; a refusal rolls app and daemon back to the last build that passed.
+    /// The notice goes to the daemon's notification ledger, so it outlives the relaunch.
+    func attachInstallCheck(services: AppServices) {
+        let check = NightlyInstallCheck(self)
+        guard check.isEnabled else { return }
+        let host = services.agentTabs.host as? AcpmuxHost
+        let daemon = services.daemon
+        let directories = pulledWatch.stateDirectories()
+        // task-owner: one check per launch that ends by itself (each step has its own deadline).
+        Task { @MainActor in
+            await check.run(canary: {
+                switch await host?.installCanary() {
+                case nil: nil
+                case .passed: .passed
+                case .refused(let reason): .refused(reason)
+                case .inconclusive(let reason): .inconclusive(reason)
+                }
+            }, stateDirectories: directories, notify: { title, body in
+                daemon.send("install check notice") { connection in
+                    try await connection.notify(title: title, body: body, level: .error, source: NotificationSource.cli.rawValue)
+                }
+            })
+        }
     }
 
     /// The tips card (BOTTOM-LEFT-CARDS K1): "Try It" runs the catalog
