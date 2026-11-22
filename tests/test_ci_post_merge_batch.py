@@ -300,7 +300,14 @@ class WiringTest(unittest.TestCase):
             self.assertEqual(first["uses"], again["uses"], key)
             bound = first.get("timeout-minutes", 0) + again.get("timeout-minutes", 0)
             self.assertTrue(0 < first.get("timeout-minutes", 0) and 0 < again.get("timeout-minutes", 0), key)
-            self.assertLess(bound, job["timeout-minutes"], f"{key}: both tries fit inside the job's budget")
+            history = next(s for s in job["steps"] if s.get("name") == "Fetch this ref's history")
+            self.assertGreater(job["steps"].index(history), job["steps"].index(again), key)
+            bound += history["timeout-minutes"]
+            self.assertLess(bound, job["timeout-minutes"], f"{key}: every try fits inside the job's budget")
+            # Only this ref: fetch-depth 0 fetches every branch of the repository, which is what hung.
+            self.assertNotIn("fetch-depth", first["with"], key)
+            self.assertIn('origin "$(git rev-parse HEAD)"', history["run"], key)
+            self.assertIn("--unshallow", history["run"], key)
 
 
 class GuardTest(unittest.TestCase):
