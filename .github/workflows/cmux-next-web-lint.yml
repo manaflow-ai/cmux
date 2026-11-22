@@ -83,7 +83,7 @@ jobs:
   webviews-typecheck:
     name: webviews typecheck (whole tree)
     # tsgo holds about 5 GB on webviews (scripts/web_lint_prepush.py): 8 vCPU, as cmux-next-web-bundles' webviews checks.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
