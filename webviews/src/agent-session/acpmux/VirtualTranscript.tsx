@@ -2809,6 +2809,21 @@ function TranscriptView({
       // one smooth motion."
       const sendGaveRoom =
         dockCardRef.current < cardBefore - 0.5 && performance.now() < sendRiseUntil.current && !(sendClockMs(rows) > 0);
+      // With the transaction (motionTransaction.ts) the send's motion is one glide, so the room it
+      // gives back joins that glide instead of landing in a frame of its own: a hold that is open
+      // (the send's) takes the shift, and a send whose room comes before its rows opens the hold here.
+      if (Math.abs(delta) >= 0.5 && transactionOn(rows)) {
+        const tx = threadTransaction(rows);
+        if (tx.expecting()) {
+          tx.settle("stack");
+          return;
+        }
+        if (sendGaveRoom) {
+          tx.expect("send");
+          tx.move(delta, "stack");
+          return;
+        }
+      }
       const ms = Math.abs(delta) < 0.5 || sendGaveRoom ? 0 : foldMs(rows);
       if (!(ms > 0)) return;
       // One motion for every mover in the frame (motionTransaction.ts): a send's rows that land next,
