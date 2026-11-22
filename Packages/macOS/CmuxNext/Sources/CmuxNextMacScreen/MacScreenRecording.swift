@@ -15,6 +15,8 @@ public import Observation
 public final class MacScreenRecording {
     /// The file being written; nil when not recording (internal set: the viewer gallery draws a recording).
     public internal(set) var file: URL?
+    /// When the file being written was started; nil when not recording (the elapsed-time mark).
+    public internal(set) var startedAt: Date?
     /// The newest finished file (Show in Finder).
     public private(set) var lastFile: URL?
     /// The last recording could not be created or written.
@@ -34,6 +36,7 @@ public final class MacScreenRecording {
         if let file {
             lastFile = file
             self.file = nil
+            startedAt = nil
         }
     }
 
@@ -45,12 +48,14 @@ public final class MacScreenRecording {
         guard let transport, file == nil else { return }
         let url = Self.fileURL(device: device, at: Date())
         file = url
+        startedAt = Date()
         failed = false
         transport.startRecording(to: url) { ok in
             guard !ok else { return }
             MainDelivery().run { [weak self] in
                 guard let self, file == url else { return }
                 file = nil
+                startedAt = nil
                 failed = true
             }
         }
@@ -59,6 +64,7 @@ public final class MacScreenRecording {
     func stop() {
         guard let url = file else { return }
         file = nil
+        startedAt = nil
         lastFile = url
         transport?.stopRecording { frames in
             guard frames == nil else { return }

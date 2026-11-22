@@ -102,6 +102,7 @@ struct AAMacScreenViewerGalleryTests {
         pane.model.hasFrame = state.hasFrame
         if state.recording {
             pane.model.recording.file = MacScreenRecording.fileURL(device: "Studio MacBook Pro", at: Date(timeIntervalSince1970: 1_795_320_000))
+            pane.model.recording.startedAt = Date(timeIntervalSince1970: 1_795_320_000)
         }
         pane.session?.showPreviewState(phase: state.phase, failureCause: state.cause, linkConnected: state.linkConnected,
                                        frameSize: state.hasFrame ? remotePixels : .zero)
@@ -136,8 +137,12 @@ struct AAMacScreenViewerGalleryTests {
         try #require(pane.model.capturesKeyboard == state.capturesKeyboard, "\(look.rawValue)-\(state.name): capturesKeyboard")
         if state.recording {
             // The Record button is drawn red with its Stop Recording tip, as while a file is being written.
-            let record = try #require(AANestedGroupsGalleryTests.all(root).first { $0.accessibilityIdentifier() == "macScreen.record" })
-            #expect(!record.isHidden, "\(look.rawValue)-\(state.name): Record shown")
+            // In every look, the pill included; a compact bar folds it into More.
+            let views = AANestedGroupsGalleryTests.all(root)
+            let record = try #require(views.first { $0.accessibilityIdentifier() == "macScreen.record" })
+            let more = try #require(views.first { $0.accessibilityIdentifier() == "macScreen.more" })
+            #expect(!record.isHidden || !more.isHidden, "\(look.rawValue)-\(state.name): Record reachable")
+            if size == Self.wide { #expect(!record.isHidden, "\(look.rawValue)-\(state.name): Record shown") }
             #expect(pane.model.recording.isRecording)
         }
         for view in AANestedGroupsGalleryTests.all(root) { view.needsDisplay = true; view.displayIfNeeded() }

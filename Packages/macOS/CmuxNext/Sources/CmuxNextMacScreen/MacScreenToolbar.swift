@@ -355,6 +355,12 @@ final class MacScreenToolbarView: MacScreenThemedView {
         let refresh = NSMenuItem.macScreen(L.t("macScreen.toolbar.refresh", "Refresh Screen")) { [weak self] in self?.actions.refresh() }
         refresh.isEnabled = model.isLive
         menu.addItem(refresh)
+        if record.isHidden {
+            // A compact bar folds Record into More with the rest.
+            let recordItem = NSMenuItem(title: L.t("macScreen.record.title", "Record Screen"), action: nil, keyEquivalent: "")
+            recordItem.submenu = recordMenu()
+            menu.addItem(recordItem)
+        }
         if pill {
             // The pill's More also holds what the bar shows as buttons: Full Screen.
             menu.addItem(.separator())
@@ -418,7 +424,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private func applyRecord(live: Bool) {
         let recording = model.recording
         let active = recording.isRecording
-        record.isHidden = !controlsShown || isPill
+        record.isHidden = !controlsShown
         record.isEnabled = active || (live && recording.canRecord) || recording.lastFile != nil
         if recordShowsActive != active {
             recordShowsActive = active
@@ -529,8 +535,8 @@ final class MacScreenToolbarView: MacScreenThemedView {
         return ceil(expandedWidth + max(0, header - allowance))
     }
 
-    /// The pill's controls: access (View Only shows as such), quality, More, Connect or Disconnect.
-    private var pillControls: [NSView] { ([access, quality, more, connect, disconnect] as [NSView]).filter { !$0.isHidden } }
+    /// The pill's controls: access (View Only shows as such), quality, Record, More, Connect or Disconnect.
+    private var pillControls: [NSView] { ([access, quality, record, more, connect, disconnect] as [NSView]).filter { !$0.isHidden } }
 
     private func arrangedControls(for width: CGFloat) -> [NSView] {
         if isPill {
@@ -541,6 +547,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         displayButton.isHidden = !controlsShown || model.displays.count <= 1 || compact
         sendKeys.isHidden = !controlsShown || compact
         refresh.isHidden = !controlsShown || compact
+        record.isHidden = !controlsShown || compact
         more.isHidden = !controlsShown || !compact
         return ([scopeControl, displayButton, quality, sendKeys, record, refresh, fullScreen, more, connect, disconnect] as [NSView]).filter { !$0.isHidden }
     }
