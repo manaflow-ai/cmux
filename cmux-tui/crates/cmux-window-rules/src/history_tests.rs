@@ -30,3 +30,18 @@ fn an_undo_that_closes_panes_waits_for_the_next_undo_on_its_revision() {
     );
     assert_eq!(undo_reply(true, None, None), UndoReply { pending: None, closes_panes: Some(1) });
 }
+
+#[test]
+fn each_tab_walk_has_its_step_and_its_strict_scope() {
+    let walks: Vec<_> =
+        actions().tab_walks.iter().map(|walk| (walk.action, walk.step, walk.scope)).collect();
+    assert_eq!(
+        walks,
+        vec![
+            ("focusTabBack", TabStep::Back, TabScope::Any),
+            ("focusTabBackInWorkspace", TabStep::Back, TabScope::Workspace),
+            ("focusTabRecent", TabStep::Recent, TabScope::Any),
+            ("focusTabRecentInWorkspace", TabStep::Recent, TabScope::Workspace),
+        ]
+    );
+}

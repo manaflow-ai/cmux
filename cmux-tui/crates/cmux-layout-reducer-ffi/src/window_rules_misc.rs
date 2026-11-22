@@ -5,7 +5,7 @@
 
 use cmux_window_rules::{
     appearance, browser, files, history, launch, notifications, remote, restore, screen_share,
-    update_idle,
+    tab_history, update_idle,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -194,6 +194,8 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
             json!({ "desktop": notifications::toggle_banners(&read::<Banners>(request)?.desktop) })
         }
         b"window_history_actions" => value(history::actions())?,
+        // Strict tab history: record a settled tab, step Back or Recent, forget a closed tab.
+        b"window_history_tab" => value(tab_history::apply(read(request)?))?,
         b"window_history_undo_reply" => {
             let request: Undo = read(request)?;
             value(history::undo_reply(
