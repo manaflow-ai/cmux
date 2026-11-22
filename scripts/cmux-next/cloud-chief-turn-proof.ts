@@ -35,6 +35,9 @@ const DIR = `${HOME}/.cmux-chief-proof`;
 /** The machine's cmux-tui, as the journey finds it. */
 const FIND_CMUX = 'c=$(command -v cmux-tui || true); [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
 export const NOT_SIGNED_IN = /not signed in|not logged in/i;
+/** The model's own answer to "Reply with exactly one word: OK" (run 45014138990's "Can't answer “Reply with exactly one
+ * word: OK” yet" quoted the prompt and must not pass). */
+export const MODEL_OK = /^\W*ok\W*$/i;
 
 export type RunResult = { label: string; exit: string; replies: string[]; timeout: boolean | null; why: string };
 
@@ -42,7 +45,7 @@ export type RunResult = { label: string; exit: string; replies: string[]; timeou
 export function judge(label: "control" | "proof", r: RunResult): boolean {
   const text = r.replies.join("\n");
   if (label === "control") return NOT_SIGNED_IN.test(text);
-  return /\bok\b/i.test(text) && !NOT_SIGNED_IN.test(text);
+  return r.replies.some((x) => MODEL_OK.test(x.trim())) && !NOT_SIGNED_IN.test(text);
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
@@ -140,6 +143,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       report.facts = r.stdout.trim();
       return { value: kv, detail: r.stdout.trim().replace(/\n/g, "; ").slice(0, 600) };
     });
+    // The staging image has no Claude Code (run 45014138990: "acpmux has no harness named claude"). The image is
+    // another lane's; this test machine only gets the official installer's copy in ~/.local/bin.
+    if (!facts.claude) await J.step("install Claude Code on this test machine", async () => {
+      const r = await run(`curl -fsSL https://claude.ai/install.sh | bash >/tmp/claude-install.log 2>&1; tail -3 /tmp/claude-install.log; "$HOME/.local/bin/claude" --version`, 280_000);
+      if (r.code !== 0) throw new Error(`install: exit ${r.code} ${(r.stdout + r.stderr).slice(-400)}`);
+      return { value: null, detail: r.stdout.trim().split("\n").pop() ?? "" };
+    });
     // The driver's bins: this checkout's optchat-chief, the machine's cmux-tui, and acpmux as the machine runs it.
     const acpmux = facts.acpmux ? `ln -sf ${shq(facts.acpmux)} ${DIR}/bin/acpmux` : `printf '#!/bin/sh\\nexec %s acp "$@"\\n' ${shq(facts["cmux-tui"])} > ${DIR}/bin/acpmux && chmod +x ${DIR}/bin/acpmux`;
     await run(`ln -sf ${shq(facts["cmux-tui"])} ${DIR}/bin/cmux-tui && ${acpmux}`);
@@ -155,7 +165,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       // stopped 3 min into a background driver polled every 10 s: 409 vm_not_running; cloud-journey.ts 43983037186).
       let done = false;
       try {
-        const d = await run(`timeout -k 5 265 python3 ${DIR}/measure/chief_driver.py --scenario smoke --only s03 --out ${out} --bins ${DIR}/bin ` +
+        const d = await run(`export PATH="$HOME/.local/bin:$PATH"; timeout -k 5 265 python3 ${DIR}/measure/chief_driver.py --scenario smoke --only s03 --out ${out} --bins ${DIR}/bin ` +
           `--login-env ${login} --delete-login-env --turn-timeout 200 --max-settle 0 ${optIn} ` +
           `> ${DIR}/${label}.log 2>&1 < /dev/null; echo "driver_exit=$?"`, 290_000);
         done = /driver_exit=0\b/.test(d.stdout);
