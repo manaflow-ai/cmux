@@ -425,10 +425,20 @@ pub(super) fn run(global: &GlobalArgs, prefix: &[String], request: Request) -> i
             if activate {
                 return settings(global, prefix, &["set", theme_file::SETTING_KEY, &name]);
             }
+            // Not picked: the look is unchanged until it is, so say how in one command.
             ok(
                 global,
-                &json!({ "name": name, "path": path, "diagnostics": diagnostics_json(&checked) }),
-                &path.display().to_string(),
+                &json!({
+                    "name": name,
+                    "path": path,
+                    "active": false,
+                    "use": format!("cmux theme use {name}"),
+                    "diagnostics": diagnostics_json(&checked),
+                }),
+                &format!(
+                    "{}\n  not in use yet (the look is unchanged): `cmux theme use {name}` applies it, or import with --use",
+                    path.display()
+                ),
             )
         }
         Request::Use { name } => {
@@ -467,7 +477,10 @@ pub(super) fn run(global: &GlobalArgs, prefix: &[String], request: Request) -> i
                     Err(code) => return code,
                 },
             };
-            let file = read(&paths, &name, text.as_deref());
+            let mut file = read(&paths, &name, text.as_deref());
+            // The font pack's face files: the check stats them, the read does not.
+            let faces = file.face_diagnostics();
+            file.diagnostics.extend(faces);
             let problems: Vec<String> = file.diagnostics.iter().map(|d| d.display()).collect();
             if matches!(global.output, OutputMode::Json | OutputMode::JsonLines) {
                 super::wire::print_local_success(

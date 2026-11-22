@@ -455,7 +455,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             // Another tab's last page from the launch must not stay under this one.
             view.clearLaunchImage()
         }
-        if let currentTabKey, currentTabKey != key {
+        if let currentTabKey, currentTabKey != key, !((key.flatMap { services.cache.browsers[$0] } ?? services.cache.browsers[currentTabKey]).map { view.browserChrome.chrome?.shows($0.state) == true } == true && (key.flatMap { services.cache.browsers[$0] } != nil || daemon.store.creations.replacement(ofStandIn: currentTabKey, in: pane).map { $0.id == key && services.cache.moveBrowser(currentTabKey, to: $0) } == true)) { // the chrome shows `key`'s page already: a stand-in that became `key` (moved by its opener, or here, a step before it), the same page, its omnibar keeps the keyboard and the keys typed into it
             view.contentHost.handKeyboardToWindow() // before the old tab hides: no AppKit key view loop walk (5 ms); focus has the new selection
             BenchSpans.measure("switch.withdraw") { services.cache.withdraw(currentTabKey, by: self) }
         }
@@ -469,6 +469,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if !elsewhere { elsewhereNotice = nil }
         let ownsView = guestTerminal?.key == key || elsewhere // not the cache's surface: the ledger never hears of it
         if case .browser(let entry) = content {
+            (entry.tab as? CEFTab)?.willShow(inPane: BrowserPaneID(rawValue: "pane-\(state.map { String(describing: $0.id) } ?? "-")-\(paneKey)")) // its pane's Chromium window
             _ = BenchSpans.measure("switch.bindChrome") { view.browserChrome.bind(entry.tab, state: entry.state) }
         }
         DebugTabSwitch.mark(self, "content")
@@ -505,6 +506,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// was destroyed. Let the view go without pausing it; re-present when
     /// this pane shows the tab again.
     func surfaceWasDisplaced(_ key: String) { letGo(key, parks: false) }
+    func surfaceIsFree(_ key: String) { if currentTabKey == nil, stripModel.selectedID?.rawValue == key { services.presentation.setNeedsShowSelected(self) } }
     func letGo(_ key: String, parks: Bool) {
         guard currentTabKey == key else { return }
         currentTabKey = nil
@@ -517,7 +519,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     func showWhileWaiting() { // perf-hot: 1ms launch-first-frame (REOPEN-F1: a visible terminal waiting for its surface shows its last frame)
         guard presence == .visible, !isSuspended, !view.hostsContent, showsLiveTerminal, let key = stripModel.selectedID?.rawValue else { return }
         services.themes.applyPaneBackground(self, waitsForTerminal: true) // its terminal's ground under the frame, or alone (m81)
-        launchFrames.showAhead(key, in: view.contentHost)
+        launchFrames.showAhead(key, in: view.contentHost); if let tab = pane.tabs.first(where: { $0.id == key }) { services.cache.attachAhead(tab, daemon: daemon) } // its attach starts now, its surface later (startup-tti)
     }
 
     /// Shows stand-in `key` again once its key's frame committed (within the frame's surface budget); false: it shows no more.
@@ -583,6 +585,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         return (key == currentTabKey && view.hostsContent) || (isGuestView ? guestTerminal?.key == key : services.cache.hasContent(for: key))
             || services.agentTabs.existingView(key) != nil || services.pages.existingView(key) != nil
             || services.newTabSpares.hasNativeAdoption(key)
+            // A New Tab tab with no page view that takes an idle one at its show (the page that this pane leaves, or one that no window shows): no page is made.
+            || (daemon.isLocal && services.agentTabs.idlePage(for: services.agentTabs.tabKey(key, machine: daemon.machineID), leaving: self) != nil)
     }
 
     /// The layout reported this pane on screen, in the keep-alive band, or away.
