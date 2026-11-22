@@ -282,6 +282,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::AgentHoldParams>(method::MUX_AGENT_HOLD, Request),
         request::<RetryParams, RetryResult>(method::MUX_RETRY),
         request::<auth::SessionAuthParams, auth::SessionAuthResult>(method::MUX_SESSION_AUTH),
+        untyped(method::MUX_LOGIN_FLOW, Request),
         keyed::<params::ProcessListParams>(method::MUX_PROCESS_LIST, Request),
         keyed::<params::ProcessTailParams>(method::MUX_PROCESS_TAIL, Request),
         keyed::<params::ProcessKillParams>(method::MUX_PROCESS_KILL, Request),

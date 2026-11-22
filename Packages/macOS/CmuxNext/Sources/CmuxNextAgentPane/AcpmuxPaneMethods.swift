@@ -167,6 +167,12 @@ nonisolated enum AcpmuxPaneMethods {
         // only. It names its chat (`sessionId`, in the pane's scope) or a new chat's `target` (a
         // harness, and optionally its host and route), never another chat.
         "_acpmux/session/auth",
+        // Setup's provider sign-in, observed until done (loginFlow.ts; acpmux login_flow.rs): a
+        // flow for a new chat's `target` that records the app opened the login terminal, then reads
+        // the target's sign-in again as `_acpmux/session/auth` does. It runs no program (the
+        // terminal is the app's own `tab.open`) and keeps no secret; acpmux takes it only from this
+        // machine's app or unix socket.
+        "_acpmux/login_flow",
         // Session Info's running-limit stepper (direct.ts setRunningLimit): how many of a chat's
         // sub-sessions in the pane's scope run a turn at once, or back to the inherited limit
         // (`null`). Only `maxRunning`: it starts nothing new and widens no permission (each child already

@@ -24,6 +24,7 @@ import { setNativeHost } from "../native";
 import { resetToastAvoidanceReports } from "../toastAvoidance";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { Popover } from "../../../ui/Popover";
+import { SignInContext, type SignIn } from "../signIn";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -2334,4 +2335,101 @@ test("/resume <id> resumes through the cmux command, by Return or the Resume row
   expect(promptValue(field)).toBe(`/resume ${unknown}`);
   expect(opens).toEqual([]);
   expect(asks).toEqual([]);
+});
+
+// Leo: "select the thing and then start the thing". A Return refused because the agent is signed
+// out holds the start; Sign In runs an observed flow (opening the terminal is not success), and
+// once acpmux verifies the sign-in the note offers Start, which asks once with the newest draft.
+test("a verified sign-in offers Start for the held start, once, with the newest draft", async () => {
+  const asked: string[] = [];
+  const calls: string[] = [];
+  let signedIn = false;
+  saved.set("localStorage", scope.localStorage);
+  Object.assign(scope, { localStorage: dom!.window.localStorage });
+  seedLastPicks({ global: { harness: "codex", model: "gpt-5" } });
+  const flow = (phase: string, target: unknown) => ({
+    flowId: "f1",
+    phase,
+    target,
+    startedAt: 1,
+    expiresAt: Number.MAX_SAFE_INTEGER,
+  });
+  let target: unknown;
+  const signIn: SignIn = {
+    signedOut: {},
+    logIn: () => calls.push("plain logIn"),
+    openLogIn: async () => (calls.push("terminal"), true),
+    readSessionAuth: async () =>
+      signedIn
+        ? { state: "ready", source: "authCheck", evidenceAt: 2, harness: "codex", host: null }
+        : {
+            state: "signedOut",
+            source: "authCheck",
+            evidenceAt: 1,
+            harness: "codex",
+            host: null,
+            login: { kind: "terminal", command: "codex login", host: null },
+          },
+    loginFlow: async (params) => {
+      calls.push(String(params.op));
+      if (params.op === "start") {
+        target = params.target;
+        return flow("starting", target);
+      }
+      if (params.op === "opened") return flow("waiting", target);
+      if (params.op === "check") {
+        signedIn = true;
+        return flow("succeeded", target);
+      }
+      return undefined;
+    },
+  };
+  await act(async () => {
+    root!.render(
+      <SignInContext.Provider value={signIn}>
+        <NewTabScreen
+          {...firstRunProps}
+          omnibar={EMPTY_OMNIBAR}
+          onAsk={(harness, text, _cwd, model) => void asked.push(`${harness} ${model}: ${text}`)}
+        />
+      </SignInContext.Provider>,
+    );
+  });
+  const field = await promptField();
+  await act(async () => {
+    field.acpmuxMarkdownField!.focus();
+    field.acpmuxMarkdownField!.type("first words");
+  });
+  await press(field, "Enter");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asked).toEqual([]);
+  const note = () => container.querySelector(".nt-signed-out");
+  const button = (text: string) =>
+    [...container.querySelectorAll<HTMLButtonElement>(".nt-signed-out-actions button")].find(
+      (candidate) => candidate.textContent === text,
+    );
+  expect(note()).not.toBeNull();
+  // Sign In: the terminal opens, and the note waits; nothing says it is done.
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-signed-out-actions button")!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(calls).toEqual(["start", "terminal", "opened"]);
+  expect(target).toEqual({ harness: "codex" });
+  expect(note()?.textContent).toContain(translate("loginFlow.waiting"));
+  expect(button(translate("loginFlow.start"))).toBeUndefined();
+  // A newer draft typed while signing in.
+  await act(async () => {
+    field.acpmuxMarkdownField!.writeText("newer words", 11, 11);
+  });
+  await act(async () => button(translate("loginFlow.checkNow"))!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asked).toEqual([]);
+  const start = button(translate("loginFlow.start"));
+  expect(start).toBeTruthy();
+  await act(async () => {
+    start!.click();
+    start!.click();
+  });
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asked).toEqual(["codex gpt-5: newer words"]);
+  expect(calls).not.toContain("plain logIn");
 });

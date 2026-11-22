@@ -456,6 +456,10 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             ),
         ),
         (method::MUX_SESSION_AUTH, Run(json!({"sessionId": "$S"}))),
+        (
+            method::MUX_LOGIN_FLOW,
+            Any(json!({"op": "get", "flowId": "lf-none"}), "an unknown flow is invalid params"),
+        ),
         (method::MUX_PROMPT_WITHDRAW, Run(json!({"sessionId": "$S", "promptId": "p-none"}))),
         (
             method::MUX_AGENT_PAIR_RESUME,

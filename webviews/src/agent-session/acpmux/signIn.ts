@@ -1,3 +1,4 @@
+import type { LoginFlowCall } from "./loginFlow";
 import type { ReadSessionAuth, SessionAuth } from "./sessionAuth";
 import { createContext, useContext } from "react";
 
@@ -20,6 +21,9 @@ export type SignIn = {
   /// ``logIn``, resolving whether the host opened the tab: it opens a login only on the person's
   /// own gesture (a model pick's setup offers Sign In when it refused, harnessSetup.ts).
   openLogIn?(harness: string, login: string): Promise<boolean>;
+  /// `_acpmux/login_flow`: the observed sign-in a composer's Sign In runs for its chosen target
+  /// (loginFlow.ts). Absent, or answering undefined, the plain terminal login stands.
+  loginFlow?: LoginFlowCall;
 };
 
 export const SignInContext = createContext<SignIn | undefined>(undefined);

@@ -2639,6 +2639,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           run: true,
         }).catch(() => undefined);
       },
+      loginFlow: (params) =>
+        connected && directClient.current ? directClient.current.loginFlow(params) : Promise.resolve(undefined),
       openLogIn: (_harness, login) => {
         healthStale.current = true;
         return callNative("tab.open", {
@@ -2653,6 +2655,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
     }),
     [
+      connected,
       signedOut,
       sessionAuth,
       recheckSession,

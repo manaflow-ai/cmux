@@ -104,6 +104,7 @@ export interface AcpmuxRequests {
   "_acpmux/agent_hold": { params: AgentHoldParams; result: unknown };
   "_acpmux/retry": { params: RetryParams; result: RetryResult };
   "_acpmux/session/auth": { params: SessionAuthParams; result: SessionAuthResult };
+  "_acpmux/login_flow": { params: unknown; result: unknown };
   "_acpmux/process/list": { params: ProcessListParams; result: unknown };
   "_acpmux/process/tail": { params: ProcessTailParams; result: unknown };
   "_acpmux/process/kill": { params: ProcessKillParams; result: unknown };
@@ -504,6 +505,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/agent_hold", kind: "request", acp: false, typed: true },
   { name: "_acpmux/retry", kind: "request", acp: false, typed: true },
   { name: "_acpmux/session/auth", kind: "request", acp: false, typed: true },
+  { name: "_acpmux/login_flow", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process/list", kind: "request", acp: false, typed: true },
   { name: "_acpmux/process/tail", kind: "request", acp: false, typed: true },
   { name: "_acpmux/process/kill", kind: "request", acp: false, typed: true },

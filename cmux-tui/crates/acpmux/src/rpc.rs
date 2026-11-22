@@ -551,6 +551,8 @@ pub mod method {
     pub const MUX_RETRY: &str = "_acpmux/retry";
     /// What this daemon knows of a chat's sign-in (`hub/session_auth.rs`).
     pub const MUX_SESSION_AUTH: &str = "_acpmux/session/auth";
+    /// Setup's provider sign-in for one target, observed until done (`login_flow.rs`).
+    pub const MUX_LOGIN_FLOW: &str = "_acpmux/login_flow";
     pub const MUX_INFO: &str = "_acpmux/info";
     /// The safe machine/workspace capability snapshot for the calling agent.
     pub const MUX_MACHINE_INFO: &str = "_acpmux/machine_info";
