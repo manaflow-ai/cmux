@@ -430,7 +430,7 @@ public actor MobileHostSupervisor {
                     let links = await inputs.cloudLinks()
                     if let line = MobileHostLaunch.cloudLinksLine(request: request, links: links) { child.send(line) }
                 }
-            case .pairRequest, .unpaired:
+            case .pairRequest, .unpaired, .pairAnswer:
                 await pairingQueue.send(event)
             case let .needBrowser(request, tab, url):
                 startBrowser(child, inputs: inputs, request: request, tab: tab, url: url)
