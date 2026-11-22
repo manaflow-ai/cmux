@@ -1,0 +1,30 @@
+{
+  "family": "palette_usage",
+  "ops": {
+    "palette_usage.forget": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "6984fa469c3ee77f"
+    },
+    "palette_usage.get": {
+      "source": "local",
+      "class": "read",
+      "digest": "cf4970afa4df7df6"
+    },
+    "palette_usage.hide": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "004d87d0d9776c41"
+    },
+    "palette_usage.import": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "93776745f4acbe7d"
+    },
+    "palette_usage.record": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "8a2e203355c010de"
+    }
+  }
+}
