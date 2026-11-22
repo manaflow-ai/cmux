@@ -243,7 +243,9 @@ public final class WebBundleServedViews {
         let pages = PageRegistry.pages()
         for webView in views {
             guard let page = pages.first(where: { $0.webKitView === webView }) else {
-                webView.reload()
+                // An agent chat's pane (not a page view): the same hand-off and still (WebViewSwap.swift).
+                // task-owner: one swap per view; it ends with the view's restored frame or its cover limit
+                Task { await WebViewSwap.reload(webView) }
                 continue
             }
             // task-owner: one swap per page; it ends with the page's restored frame or its cover limit

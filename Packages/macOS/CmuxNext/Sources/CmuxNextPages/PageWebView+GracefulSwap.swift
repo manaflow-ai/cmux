@@ -23,11 +23,14 @@ extension PageWebView {
         guard !isClosed else { return }
         // A page without the hand-off (an older bundle, a page outside the desktop layer) reloads as before.
         guard prepared, isShownForHealth, let still = await swapStill(), !isClosed else { return reloadPage() }
-        let cover = NSImageView(frame: swapStillFrame)
+        let cover = StillCover(frame: swapStillFrame)
         cover.image = still
         cover.imageScaling = .scaleAxesIndependently
         cover.autoresizingMask = [.width, .height]
-        addSubview(cover, positioned: .below, relativeTo: webKitView)
+        // WebKit: over the view, since it paints its own background between the old document and the
+        // new one's first script (a blank frame on Settings in the after-run). Chromium draws in a window
+        // of its own over this view, so its still goes under the WebKit view, where that window shows it.
+        addSubview(cover, positioned: showsChromium ? .below : .above, relativeTo: webKitView)
         reloadPage()
         let probe = await waitForSwapRestored()
         // Once the restored frame is on screen (Chromium draws in its own window a frame later).
