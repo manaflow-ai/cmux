@@ -151,6 +151,11 @@ final class DaemonAppsTransport: AppsTransport {
         AppJSON(try await send(AppsPageCallRequest(app: app, page: page, message: message), timeout: Self.runTimeout))
     }
 
+    func safeMode(_ op: String, args: AppJSON, origin: AppOrigin, timeout: Duration?) async throws(AppsTransportError) -> AppJSON {
+        let wire = origin.wire(userOriginAllowed: await daemon.connection?.userOriginAllowed == true)
+        return try await AppJSON(send(AppsSafeModeRequest(op: op, args: args.daemonValue, origin: wire), timeout: timeout))
+    }
+
     func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] { AppsWireDecoding().logs(try await send(AppsLogsRequest(app: app, follow: follow))) }
 
     func openLink(_ url: String, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON {

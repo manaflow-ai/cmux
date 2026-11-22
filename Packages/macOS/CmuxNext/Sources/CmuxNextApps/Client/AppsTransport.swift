@@ -74,6 +74,11 @@ public protocol AppsTransport: AnyObject {
     /// Offers a clicked link to the app whose `cmux.opener/1` matches it (`apps-open-link`; the
     /// daemon picks the app). The answer is `{handled, app?, error?}`.
     func openLink(_ url: String, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON
+    /// One safe mode op (`apps-safe-mode {op, args, origin}`, docs/cmux-next/extensions/safe-mode.md):
+    /// `safe_mode.set {on}` (leaving needs `user` on the verified connection), `safe_mode.launch_began`,
+    /// `safe_mode.launch_settled {reason}`. `timeout` bounds the wait (the quit's report); nil is the
+    /// control-plane deadline.
+    func safeMode(_ op: String, args: AppJSON, origin: AppOrigin, timeout: Duration?) async throws(AppsTransportError) -> AppJSON
 }
 
 public extension AppsTransport {
@@ -85,6 +90,9 @@ public extension AppsTransport {
 }
 
 extension AppsTransport {
+    /// A transport with no safe mode (tests) answers each op with an empty object.
+    public func safeMode(_ op: String, args: AppJSON, origin: AppOrigin, timeout: Duration?) async throws(AppsTransportError) -> AppJSON { .object([:]) }
+
     /// A transport with no supervisor link handlers (tests, previews): cmux opens every link itself.
     public func openLink(_ url: String, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON { ["handled": .bool(false)] }
 }

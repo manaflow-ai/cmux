@@ -141,6 +141,7 @@ final class QuitCoordinator {
         // Awaited (bounded, 500 ms) so `quitting` is on disk before the quit
         // can end the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()
+        await services.apps.client.reportCleanQuit() // settles this launch for safe mode's crash loop rule, bounded
         DebugTimings.markLaunch("quit.marked")
         await quitSteps(choice).run(ends: choice.ends)
         DebugTimings.markLaunch("quit.replied")
