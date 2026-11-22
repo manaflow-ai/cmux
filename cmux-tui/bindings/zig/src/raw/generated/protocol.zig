@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "c2d305b12cb27ffd20f76a0147e95213dd4b1b84870902ec22ec7126da8c7e75";
+pub const ir_sha256 = "b7078a0bf994c64d7f40e5b6c3c5f7881c05b890301afc3442fa6b3e79074976";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -68,10 +68,13 @@ pub const AgentRecord = struct {
     /// What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`.
     status: wire.Field(AgentState) = .absent,
     surface: Id,
+    /// The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab.
+    terminal_id: ?[]const u8 = null,
     updated_at_ms: u64,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "since_ms",
+        "terminal_id",
     };
 };
 
@@ -11047,10 +11050,13 @@ pub const AgentChangedEvent = struct {
     source: AgentSource,
     state: AgentState,
     surface: Id,
+    /// The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab.
+    terminal_id: ?[]const u8 = null,
     updated_at_ms: u64,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "since_ms",
+        "terminal_id",
     };
 };
 

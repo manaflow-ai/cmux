@@ -373,6 +373,7 @@ class AgentRecord:
     source: AgentSource
     state: AgentState
     updated_at_ms: int
+    terminal_id: Union[str, MissingType] = field(default=MISSING)
     agent: Union[str, None, MissingType] = field(default=MISSING)
     agent_session_id: Union[str, None, MissingType] = field(default=MISSING)
     last_prompt: Union[str, None, MissingType] = field(default=MISSING)
@@ -5603,6 +5604,7 @@ class AgentChangedEvent(EventBase):
     source: AgentSource
     state: AgentState
     updated_at_ms: int
+    terminal_id: Union[str, MissingType] = field(default=MISSING)
     agent: Union[str, None, MissingType] = field(default=MISSING)
     agent_session_id: Union[str, None, MissingType] = field(default=MISSING)
     last_prompt: Union[str, None, MissingType] = field(default=MISSING)
