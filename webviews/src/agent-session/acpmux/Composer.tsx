@@ -177,13 +177,15 @@ import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { MachineLinkStatus } from "./MachineLinkStatus";
 import { peerLink, type PeerLink } from "./peerLink";
 import {
+  closingShortcode,
   emojiMatches,
-  emojiTrigger,
   loadEmojiShortcodes,
   loadRecentEmoji,
   rememberEmoji,
+  replaceShortcodes,
   type EmojiMatch,
   type EmojiShortcodes,
+  type EmojiTrigger,
 } from "./emojiShortcodes";
 import { COMPOSER_LABELS } from "./composerModel";
 import { attachmentViewMenu } from "./composer/attachmentViewMenu";
@@ -712,6 +714,12 @@ function ComposerFrame({
       onCaret: (at: number) => promptCaret.current(at),
       onKeyDown: (event: KeyboardEvent) => promptKeyDown.current(event),
       onReturnInput: () => promptReturnInput.current(),
+      onEmoji: (trigger: EmojiTrigger | undefined) => setEmojiCaret(trigger),
+      // A paste's `:code:`s as emoji, once the table is in (it loads on the first edit).
+      transformPaste: (pasted: string) => {
+        const data = emojiDataNow.current;
+        return data ? replaceShortcodes(data, pasted, emojiToneNow.current) : pasted;
+      },
       onCompositionChange: (value: boolean) => promptComposition.current(value),
       onUnplacedQuotes: (quotes: string[]) => promptUnplacedQuotes.current?.(quotes),
     }),
@@ -1446,11 +1454,17 @@ function ComposerFrame({
     !!searchFiles && !!mentionWord?.trim() && (mentionSearch.kind === "idle" || mentionSearch.kind === "searching");
   const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending, mentionProviderAsked);
   useEffect(() => setMentionActive(undefined), [mentionWord]);
-  // `:` and two letters at a word start list emoji by shortcode; a text emoticon (`:)`, `:DD`,
-  // `<3`) lists its face; Return or Tab writes the highlighted row, Esc keeps the text (emojiShortcodes.ts).
+  // `:` and two letters at a word start, on any line of the draft, list emoji by shortcode; a text
+  // emoticon (`:)`, `:DD`, `<3`) lists its face; Return, Tab or a click writes the highlighted row,
+  // Esc keeps the text; the `:` that closes a known `:code:` writes its emoji, and a paste's
+  // `:code:`s go in as emoji (emojiShortcodes.ts, composer/emojiTokens.ts). Leo, 2026-11-22: "for
+  // some reason i can't do :pleading_face: with the emoji here. we need to actually improve the
+  // ergonomics and lifecycle of that."
   // The table loads in its own chunk at the first idle moment after the person first types in this
   // composer (`edit`), never while a chat opens: a `:` and two letters come well after that.
   const [emojiData, setEmojiData] = useState<EmojiShortcodes | undefined>();
+  const emojiDataNow = useRef(emojiData);
+  emojiDataNow.current = emojiData;
   const emojiRequested = useRef(false);
   const requestEmoji = () => {
     if (emojiRequested.current) return;
@@ -1468,11 +1482,12 @@ function ComposerFrame({
   const [emojiActive, setEmojiActive] = useState<string | undefined>();
   const [emojiDismissed, setEmojiDismissed] = useState<string | undefined>();
   const [emojiRecents, setEmojiRecents] = useState(loadRecentEmoji);
+  const emojiToneNow = useRef(emojiRecents.tone);
+  emojiToneNow.current = emojiRecents.tone;
+  // The token the field reads at its caret, on whichever line it is (MarkdownField `onEmoji`).
+  const [emojiCaret, setEmojiCaret] = useState<EmojiTrigger | undefined>();
   const otherMenu = open || Boolean(mentionTyped) || recalling || shell;
-  const emojiTyped = useMemo(
-    () => (!otherMenu && emojiDismissed !== text ? emojiTrigger(text, markdownOffset(text, caret)) : undefined),
-    [otherMenu, emojiDismissed, text, caret],
-  );
+  const emojiTyped = !otherMenu && emojiDismissed !== text ? emojiCaret : undefined;
   const emojiKey = emojiTyped ? `${emojiTyped.start}:${emojiTyped.token}` : undefined;
   const emojiRows = useMemo(
     () => (emojiTyped && emojiData ? emojiMatches(emojiData, emojiTyped, emojiRecents) : []),
@@ -1482,6 +1497,20 @@ function ComposerFrame({
   const emojiChosen = emojiActive === undefined ? -1 : emojiRows.findIndex((row) => row.key === emojiActive);
   const emojiSelected = emojiRows.length === 0 ? -1 : Math.max(0, emojiChosen);
   useEffect(() => setEmojiActive(undefined), [emojiKey]);
+  // The @ and emoji lists belong to the prompt with the keyboard. Another pane's web view taking it
+  // blurs this window, never the prompt (WebKit keeps the element focused), so the list stayed up
+  // over a prompt that no longer took its keys: Leo's `:plead` list in the next pane while he typed
+  // here (2026-11-22). Closed as Esc closes it, until the text changes.
+  const textNow = useRef(text);
+  textNow.current = text;
+  useEffect(() => {
+    const away = () => {
+      setEmojiDismissed(textNow.current);
+      setMentionDismissed(textNow.current);
+    };
+    window.addEventListener("blur", away);
+    return () => window.removeEventListener("blur", away);
+  }, []);
   const emojiLook = experimentArm(emojiShortcodeLook);
   const listShown = open || Boolean(mentionAt) || Boolean(emojiAt);
   // A live command update can shrink the list under the selection.
@@ -1569,19 +1598,13 @@ function ComposerFrame({
     edit(text.slice(0, mentionAt.start) + markdown + after, at);
     field.current?.focus();
   };
-  /// Writes the picked emoji, and a space, over the `:word` or emoticon being typed.
+  /// Writes the picked emoji, and a space, over the `:word` or emoticon being typed, in place on its
+  /// line as one undo step (⌘Z gives back the typed `:plead`). One space after it: the text's own
+  /// when it already starts with one (a mid-line pick); a line break is not a space.
   const pickEmoji = (match: EmojiMatch) => {
-    if (!emojiAt) return;
-    setEmojiRecents(rememberEmoji(match.emoji));
-    // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
-    const after = text.slice(markdownOffset(text, caret)).replace(/^\s+$/, "");
-    // One space after the emoji: the text's own when it already starts with one (a mid-line pick);
-    // a line break is not a space, so a pick at a line's end still adds one.
-    const space = /^[ \t]/.test(after) ? "" : " ";
-    const at = caret - emojiAt.token.length + match.emoji.length + 1;
-    pendingCaret.current = at;
-    edit(`${text.slice(0, emojiAt.start)}${match.emoji}${space}${after}`, at);
-    field.current?.focus();
+    if (!emojiAt || !field.current?.replaceBeforeCaret(emojiAt.token.length, match.emoji, true)) return;
+    setEmojiRecents(rememberEmoji(match.key));
+    field.current.focus();
   };
   /// `kept`: the gesture an earlier hold of this send bound (`useSendWhenAttached`). `route` "side":
   /// the draft goes as `/side`'s prompt, to a side chat forked from this one (Send's menu).
@@ -2660,6 +2683,16 @@ function ComposerFrame({
   useInsertionEffect(() => {
     promptBeforeInput.current = (data, state) => {
       typedAt.current = performance.now();
+      // The `:` that closes a known `:code:` writes its emoji at once, as Slack and GitHub do; ⌘Z
+      // gives back `:code:` as typed. `:skin-tone-N:` after a toned emoji re-tones it.
+      if (data === ":" && !state.composing && !state.paste && emojiData && field.current) {
+        const before = field.current.textBeforeCaret();
+        const closed = before === undefined ? undefined : closingShortcode(emojiData, before, emojiRecents.tone);
+        if (closed && field.current.typeThenReplace(":", closed.back, closed.emoji)) {
+          setEmojiRecents(rememberEmoji(closed.key, Date.now(), closed.tone));
+          return true;
+        }
+      }
       // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`. Not while a Cloud
       // start is out: the started chat has no shell yet, and only the prompt's text reaches it, so `!`
       // stays text.
@@ -2961,6 +2994,8 @@ function ComposerFrame({
           onCaret: stablePromptCallbacks.onCaret,
           onKeyDown: stablePromptCallbacks.onKeyDown,
           onReturnInput: stablePromptCallbacks.onReturnInput,
+          onEmoji: stablePromptCallbacks.onEmoji,
+          transformPaste: stablePromptCallbacks.transformPaste,
           onCompositionChange: stablePromptCallbacks.onCompositionChange,
           onUnplacedQuotes: stablePromptCallbacks.onUnplacedQuotes,
           slashNames,
