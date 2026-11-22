@@ -103,6 +103,36 @@ fn nightly_list_marks_the_running_kept_and_pulled_builds() {
     assert_eq!(human(&json!({ "builds": [] }), messages()), format!("{}\n", messages().no_builds));
 }
 
+/// A build the appcast offers before its notes land comes with no commit and no titles: it is
+/// still the `*` row when it runs, and installable from an older build.
+#[test]
+fn nightly_lists_and_installs_a_build_whose_notes_lag_the_appcast() {
+    let ahead = |installed: bool| {
+        json!({ "build": "4495894547301", "version": "1.0.0-nightly.4495894547301", "date": "2026-11-21",
+                "commit": Value::Null, "health": "pending", "installed": installed, "kept": false,
+                "switchable": !installed, "titles": [] })
+    };
+    let older = |installed: bool| {
+        json!({ "build": "4495375783401", "version": "1.0.0-nightly.4495375783401", "date": "2026-11-21",
+                "commit": "afeb89238dab", "health": "pending", "installed": installed, "kept": false,
+                "switchable": !installed, "titles": ["Faster tabs"] })
+    };
+    let running = json!({ "installed": "4495894547301", "switches": true,
+                          "builds": [ahead(true), older(false)] });
+    let text = human(&running, messages());
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines[0].starts_with("* 4495894547301"), "{}", lines[0]);
+    assert!(lines[1].starts_with("  4495375783401"), "{}", lines[1]);
+    let previous = pick(&running, &Target::Previous, messages()).map_err(|(code, _)| code);
+    assert_eq!(previous.map(|build| build["build"].clone()), Ok(json!("4495375783401")));
+
+    let behind = json!({ "installed": "4495375783401", "switches": true,
+                         "builds": [ahead(false), older(true)] });
+    let target = Target::Build("4495894547301".into());
+    let picked = pick(&behind, &target, messages()).map_err(|(code, _)| code);
+    assert_eq!(picked.map(|build| build["build"].clone()), Ok(json!("4495894547301")));
+}
+
 /// Only a connection that closes with no answer counts as the restart; an answer, a refusal and an
 /// unreadable line are reported as they are.
 #[test]
