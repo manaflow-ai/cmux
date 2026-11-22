@@ -746,7 +746,40 @@ final class TerminalDemoDriver {
         await wait(1)
     }
 }
-<<<<<<< HEAD
+/// Frame intervals from a display link at the screen's top rate, for
+/// `scrollBench` (works without `-CmuxMobileFrameLog`).
+@MainActor
+private final class FrameSampler: NSObject {
+    private var link: CADisplayLink?
+    private var last: CFTimeInterval = 0
+    private var intervals: [Double] = []
+
+    func start() {
+        let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        let top = Float(UIScreen.main.maximumFramesPerSecond)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: top, maximum: top, preferred: top)
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        if last > 0 { intervals.append((link.timestamp - last) * 1000) }
+        last = link.timestamp
+    }
+
+    /// Stops and returns `frames=N p50=.. p95=.. max=.. hitches=..` (ms).
+    func stop() -> String {
+        link?.invalidate()
+        link = nil
+        let sorted = intervals.sorted()
+        guard !sorted.isEmpty else { return "frames=0" }
+        func pct(_ p: Double) -> Double { sorted[min(sorted.count - 1, Int(Double(sorted.count - 1) * p))] }
+        let frame = 1000 / Double(max(60, UIScreen.main.maximumFramesPerSecond))
+        let hitches = sorted.filter { $0 > frame * 1.5 }.count
+        return String(format: "frames=%d p50=%.2f p95=%.2f max=%.2f hitches=%d", sorted.count, pct(0.5), pct(0.95), sorted.last ?? 0, hitches)
+    }
+}
+
 /// DEBUG bench (`tuipan-paged`): one display frame's scroll position.
 struct TerminalScrollSample {
     var fromEnd: CGFloat
@@ -864,25 +897,10 @@ final class TerminalPanMeter: NSObject {
         window.addGestureRecognizer(watcher)
         let link = CADisplayLink(target: self, selector: #selector(frame(_:)))
         link.preferredFrameRateRange = .terminal
-=======
-/// Frame intervals from a display link at the screen's top rate, for
-/// `scrollBench` (works without `-CmuxMobileFrameLog`).
-@MainActor
-private final class FrameSampler: NSObject {
-    private var link: CADisplayLink?
-    private var last: CFTimeInterval = 0
-    private var intervals: [Double] = []
-
-    func start() {
-        let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
-        let top = Float(UIScreen.main.maximumFramesPerSecond)
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: top, maximum: top, preferred: top)
->>>>>>> origin/feat-cmux-next
         link.add(to: .main, forMode: .common)
         self.link = link
     }
 
-<<<<<<< HEAD
     private var active: Bool {
         if continuous { return touches > 0 }
         return touchesDown > 0 || lastTouchUp.map { CACurrentMediaTime() - $0 < 0.6 } ?? false
@@ -941,23 +959,6 @@ private final class FrameSampler: NSObject {
             + " periodMs=\(String(format: "%.1f", period * 1000)) over33NearReplay=\(nearReplay) topMs=\(Int(topSeconds * 1000)) worst=\(worst.isEmpty ? "-" : worst)"
             + String(format: " offsetJumps=%d maxOffsetJumpPt=%.0f readerJumps=%d maxReaderJumpPt=%.0f",
                      offsetJumps.jumps, offsetJumps.largest, readerJumps.jumps, readerJumps.largest)
-=======
-    @objc private func tick(_ link: CADisplayLink) {
-        if last > 0 { intervals.append((link.timestamp - last) * 1000) }
-        last = link.timestamp
-    }
-
-    /// Stops and returns `frames=N p50=.. p95=.. max=.. hitches=..` (ms).
-    func stop() -> String {
-        link?.invalidate()
-        link = nil
-        let sorted = intervals.sorted()
-        guard !sorted.isEmpty else { return "frames=0" }
-        func pct(_ p: Double) -> Double { sorted[min(sorted.count - 1, Int(Double(sorted.count - 1) * p))] }
-        let frame = 1000 / Double(max(60, UIScreen.main.maximumFramesPerSecond))
-        let hitches = sorted.filter { $0 > frame * 1.5 }.count
-        return String(format: "frames=%d p50=%.2f p95=%.2f max=%.2f hitches=%d", sorted.count, pct(0.5), pct(0.95), sorted.last ?? 0, hitches)
->>>>>>> origin/feat-cmux-next
     }
 }
 #endif
