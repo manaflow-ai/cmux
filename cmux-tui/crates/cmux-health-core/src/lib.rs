@@ -109,6 +109,10 @@ pub struct Action {
     /// answer), for the host's log line.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hung_ms: Option<u64>,
+    /// The part's label (`register`), for the host's log: which part it repairs.
+    pub label: String,
+    /// Why, in the words the indicator shows ("Not answering for 12 s."), for the host's log.
+    pub cause: String,
 }
 
 /// How a receipt's repair ended.

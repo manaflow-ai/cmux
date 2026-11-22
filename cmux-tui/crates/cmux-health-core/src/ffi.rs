@@ -17,7 +17,9 @@ use std::ffi::{CStr, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type, a function or an op.
-pub const CMUX_HEALTH_ABI_VERSION: u32 = 3;
+/// 3: the page event `navigationStarted`, and each action's `label` and `cause`.
+/// 4: `liveness` parts, their `ping` and `endRenderer` actions, and `endRenderer`'s `hungMs`.
+pub const CMUX_HEALTH_ABI_VERSION: u32 = 4;
 pub const CMUX_HEALTH_OK: i32 = 0;
 /// A null pointer where one is required.
 pub const CMUX_HEALTH_ERR_NULL: i32 = -1;

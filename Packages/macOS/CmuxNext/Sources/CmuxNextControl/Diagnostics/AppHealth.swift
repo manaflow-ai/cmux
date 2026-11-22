@@ -61,9 +61,11 @@ public final class AppHealth: Sendable {
         case endRenderer
     }
 
-    /// The contract's events (`event {id, event}`).
+    /// The contract's events (`event {id, event}`). `navigationStarted`: the host started loading a page's
+    /// document (a reload, crash recovery, a repair), so the page loads and is not hung until `loaded` (a
+    /// model older than ABI 3 ignores it).
     public enum Event: String, Sendable {
-        case crashed, loaded, unresponsive, responsive, connected, disconnected, loadFailed, listenerMissing
+        case crashed, loaded, navigationStarted, unresponsive, responsive, connected, disconnected, loadFailed, listenerMissing
         case started, ready, exited, restoreProgress, restoreStarted, restoreFinished
         /// A `liveness` part's time did not count (the Mac slept or woke, a debugger holds the page
         /// or the app): its pings out are void.
@@ -81,14 +83,21 @@ public final class AppHealth: Sendable {
         public var token: UInt64?
         /// `endRenderer`: how long the renderer has not answered, in model ms.
         public var hungMs: UInt64?
+        /// The part's label and why it is repaired ("Not answering for 12 s."), for the log (nil from a model
+        /// older than ABI 3).
+        public var label: String?
+        public var cause: String?
 
-        public init(id: String, kind: Kind, action: Repair, attempt: Int, token: UInt64? = nil, hungMs: UInt64? = nil) {
+        public init(id: String, kind: Kind, action: Repair, attempt: Int, token: UInt64? = nil, hungMs: UInt64? = nil,
+                    label: String? = nil, cause: String? = nil) {
             self.id = id
             self.kind = kind
             self.action = action
             self.attempt = attempt
             self.token = token
             self.hungMs = hungMs
+            self.label = label
+            self.cause = cause
         }
     }
 
@@ -136,6 +145,8 @@ public final class AppHealth: Sendable {
         var restoreProgressAt: UInt64?
     }
 
+    // Lock carve-out: owners feed signals synchronously from any thread (scheme handlers, the daemon
+    // reader, the main actor), one short swap around one model call, never a wait or an await.
     private let box = Mutex(Box())
     /// The version last delivered to the subscribers. Delivery runs under this lock, outside the
     /// model's, so two ops racing to publish never land an older snapshot after a newer one.
@@ -426,7 +437,8 @@ public final class AppHealth: Sendable {
                   let action = Repair(rawValue: value["action"]?.stringValue ?? "") else { return nil }
             let token = value["token"]?.doubleValue.flatMap { UInt64(exactly: $0) }
             let hungMs = value["hungMs"]?.doubleValue.flatMap { UInt64(exactly: $0) }
-            return Action(id: id, kind: kind, action: action, attempt: value["attempt"]?.intValue ?? 1, token: token, hungMs: hungMs)
+            return Action(id: id, kind: kind, action: action, attempt: value["attempt"]?.intValue ?? 1, token: token, hungMs: hungMs,
+                          label: value["label"]?.stringValue, cause: value["cause"]?.stringValue)
         }
     }
 
@@ -440,7 +452,9 @@ public final class AppHealth: Sendable {
             }
             // A ping is no repair: its answer is the part's beat, and it leaves no receipt or log line.
             let isPing = action.action == .ping
-            if !isPing { logger.notice("health: \(action.action.rawValue, privacy: .public) for \(action.kind.rawValue, privacy: .public), attempt \(action.attempt)") }
+            // Which part (its id and label) and why: "health: reloadPage for page page:12 (Agent chat), attempt 1:
+            // Not answering for 10 s." A bare "for page" named no chat and no cause (cosmic-gray, 2026-11-22 06:41Z).
+            if !isPing { logger.notice("health: \(action.action.rawValue, privacy: .public) for \(action.kind.rawValue, privacy: .public) \(action.id, privacy: .public) (\(action.label ?? "?", privacy: .public)), attempt \(action.attempt): \(action.cause ?? "no cause given", privacy: .public)") }
             // task-owner: one repair per model action; ends when the owner's handler returns (each is bounded).
             Task(priority: .utility) { [weak self] in
                 let ok = await handler(action)
@@ -474,8 +488,8 @@ private final class Model {
     /// ABI 2 added the page's rest beat (cmux-health-core `Health::rest`).
     var takesRestBeats: Bool { handle == nil || cmux_health_abi_version() >= 2 }
 
-    /// ABI 3 added `liveness` parts and their `ping` / `endRenderer` actions.
-    var timesLiveness: Bool { handle != nil && cmux_health_abi_version() >= 3 }
+    /// ABI 4 added `liveness` parts and their `ping` / `endRenderer` actions.
+    var timesLiveness: Bool { handle != nil && cmux_health_abi_version() >= 4 }
 
     /// One op's reply (JSON), nil when the model refused it.
     func call(_ op: String, _ request: Data) -> Data? {
