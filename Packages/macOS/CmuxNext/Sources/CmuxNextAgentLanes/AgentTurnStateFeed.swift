@@ -14,6 +14,7 @@ import os
 /// changed since, laid over the list the feed held.
 @MainActor
 public final class AgentTurnStateFeed {
+    public typealias PeerStateObserver = @MainActor (_ peer: String?, _ state: String?) -> Void
     /// The app's one feed (nil until `ChatsFeed.started` makes it).
     public static var shared: AgentTurnStateFeed?
     /// Each drain's line count and main-actor time (the App's `debug.timings`, cx-9c8m.6).
@@ -97,15 +98,15 @@ public final class AgentTurnStateFeed {
     public var peerStateChanged: (@MainActor (_ peer: String?, _ state: String?) -> Void)?
     /// Window-owned listeners for the same peer-link stream. Each sidebar registers a token so
     /// closing one window cannot overwrite another listener or the legacy device-directory hook.
-    private var peerStateObservers: [UUID: @MainActor (_ peer: String?, _ state: String?) -> Void] = [:]
+    private var peerStateObservers: [String: PeerStateObserver] = [:]
 
-    package func addPeerStateObserver(_ observer: @escaping @MainActor (_ peer: String?, _ state: String?) -> Void) -> UUID {
-        let id = UUID()
+    public func addPeerStateObserver(_ observer: @escaping PeerStateObserver) -> String {
+        let id = UUID().uuidString
         peerStateObservers[id] = observer
         return id
     }
 
-    package func removePeerStateObserver(_ id: UUID) {
+    public func removePeerStateObserver(_ id: String) {
         peerStateObservers.removeValue(forKey: id)
     }
 

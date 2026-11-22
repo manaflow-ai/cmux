@@ -9,7 +9,7 @@ import Observation
 /// The app supplies only transport and navigation closures; the feed observer and lifetime stay
 /// in the agent-lanes target so closing a window cannot leak a listener or a peer read.
 @MainActor
-package final class RemoteMachinesSidebarExperiment {
+public final class RemoteMachinesSidebarExperiment {
     private let sidebar: RemoteMachinesSidebar
     private let feed: AgentTurnStateFeed?
     private let enabled: @MainActor @Sendable () -> Bool
@@ -17,9 +17,9 @@ package final class RemoteMachinesSidebarExperiment {
     private let displayName: (String) -> String?
     private let open: (AgentActivityLane) -> Void
     private var observation: Task<Void, Never>?
-    private var observerID: UUID?
+    private var observerID: String?
 
-    package init(sidebar: RemoteMachinesSidebar,
+    public init(sidebar: RemoteMachinesSidebar,
                 feed: AgentTurnStateFeed? = AgentTurnStateFeed.shared,
                 enabled: @escaping @MainActor @Sendable () -> Bool,
                 socketPath: @escaping @MainActor @Sendable () -> String?,
@@ -33,7 +33,7 @@ package final class RemoteMachinesSidebarExperiment {
         self.open = open
     }
 
-    package func start() {
+    public func start() {
         stop()
         if let feed {
             observerID = feed.addPeerStateObserver { [weak sidebar] peer, state in
@@ -57,7 +57,7 @@ package final class RemoteMachinesSidebarExperiment {
         }
     }
 
-    package func stop() {
+    public func stop() {
         observation?.cancel()
         observation = nil
         if let observerID, let feed { feed.removePeerStateObserver(observerID) }
