@@ -37,6 +37,7 @@ import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.expe
 import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.experiment";
 import { threadMinimapWave } from "../agent-session/acpmux/threadMinimap/wave.experiment";
 import { threadMinimapIncoming } from "../agent-session/acpmux/threadMinimap/incoming.experiment";
+import { threadMinimapReplies } from "../agent-session/acpmux/threadMinimap/replies.experiment";
 import { threadMinimapCard } from "../agent-session/acpmux/threadMinimap/card.experiment";
 import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
 import { codeActionsLook } from "../agent-session/acpmux/conversation/codeActions.experiment";
@@ -49,7 +50,7 @@ import { liveTurnWork } from "../agent-session/acpmux/conversation/liveTurnWork.
 import { jumpUpButton } from "../agent-session/acpmux/jumpUp.experiment";
 import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
 import { turnFoldSteered } from "../agent-session/acpmux/conversation/turnFoldSteered.experiment";
-import { sinceRead } from "../agent-session/acpmux/conversation/sinceRead.experiment";
+import { sinceLook } from "../agent-session/acpmux/conversation/sinceLook.experiment";
 import { workedForMessages } from "../agent-session/acpmux/conversation/workedForMessages.experiment";
 import { bareWorkedTurns } from "../agent-session/acpmux/conversation/bareWorkedTurns.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
@@ -126,7 +127,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   jumpUpButton,
   turnFoldReplies,
   turnFoldSteered,
-  sinceRead,
+  sinceLook,
   workedForMessages,
   bareWorkedTurns,
   threadMinimapLayout,
@@ -140,6 +141,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   threadMinimapMark,
   threadMinimapWave,
   threadMinimapIncoming,
+  threadMinimapReplies,
   threadMinimapCard,
   chatMinimapPlaceholder,
   codeActionsLook,

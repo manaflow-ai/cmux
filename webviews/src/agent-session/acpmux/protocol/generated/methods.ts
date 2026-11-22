@@ -204,6 +204,9 @@ export interface AcpmuxRequests {
   "_acpmux/inbox_threads": { params: unknown; result: unknown };
   "_acpmux/inbox_thread": { params: InboxThreadParams; result: unknown };
   "_acpmux/inbox_reply": { params: unknown; result: unknown };
+  "_acpmux/inbox_subscription_set": { params: unknown; result: unknown };
+  "_acpmux/inbox_subscription_remove": { params: unknown; result: unknown };
+  "_acpmux/inbox_subscriptions": { params: unknown; result: unknown };
   "_acpmux/person_enroll": { params: unknown; result: unknown };
   "_acpmux/computer_use_call": { params: unknown; result: unknown };
   "_acpmux/computer_use_machines": { params: unknown; result: unknown };
@@ -216,6 +219,8 @@ export interface AcpmuxRequests {
   "_acpmux/mac_approvers": { params: unknown; result: unknown };
   "_acpmux/new_chat_picks_set": { params: unknown; result: unknown };
   "_acpmux/workspace_roots_set": { params: unknown; result: unknown };
+  "_acpmux/browser_workspace_source_set": { params: unknown; result: unknown };
+  "_acpmux/browser_workspaces": { params: unknown; result: unknown };
   "_acpmux/secret_request": { params: unknown; result: unknown };
   "_acpmux/secret_submit": { params: SecretSubmitParams; result: unknown };
   "_acpmux/secret_run": { params: unknown; result: unknown };
@@ -332,6 +337,10 @@ export interface AcpmuxRequests {
   "_acpmux/machine_enroll": { params: unknown; result: unknown };
   "_acpmux/machine_leave_if_auto": { params: unknown; result: unknown };
   "_acpmux/machine_signed_in": { params: unknown; result: unknown };
+  "_acpmux/device_hello": { params: unknown; result: unknown };
+  "_acpmux/device_enroll": { params: unknown; result: unknown };
+  "_acpmux/browser_sign_in_start": { params: unknown; result: unknown };
+  "_acpmux/browser_sign_in_complete": { params: unknown; result: unknown };
   "_acpmux/machine.tunnel.attach": { params: unknown; result: unknown };
   "_acpmux/machine.tunnel.detach": { params: unknown; result: unknown };
   "_acpmux/machine.tunnel.rekey": { params: unknown; result: unknown };
@@ -597,6 +606,9 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/inbox_threads", kind: "request", acp: false, typed: false },
   { name: "_acpmux/inbox_thread", kind: "request", acp: false, typed: true },
   { name: "_acpmux/inbox_reply", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/inbox_subscription_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/inbox_subscription_remove", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/inbox_subscriptions", kind: "request", acp: false, typed: false },
   { name: "_acpmux/person_enroll", kind: "request", acp: false, typed: false },
   { name: "_acpmux/computer_use_call", kind: "request", acp: false, typed: false },
   { name: "_acpmux/computer_use_machines", kind: "request", acp: false, typed: false },
@@ -609,6 +621,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/mac_approvers", kind: "request", acp: false, typed: false },
   { name: "_acpmux/new_chat_picks_set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/workspace_roots_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/browser_workspace_source_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/browser_workspaces", kind: "request", acp: false, typed: false },
   { name: "_acpmux/secret_request", kind: "request", acp: false, typed: false },
   { name: "_acpmux/secret_submit", kind: "request", acp: false, typed: true },
   { name: "_acpmux/secret_run", kind: "request", acp: false, typed: false },
@@ -728,6 +742,10 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/machine_enroll", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_leave_if_auto", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_signed_in", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/device_hello", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/device_enroll", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/browser_sign_in_start", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/browser_sign_in_complete", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine.tunnel.attach", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine.tunnel.detach", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine.tunnel.rekey", kind: "request", acp: false, typed: false },

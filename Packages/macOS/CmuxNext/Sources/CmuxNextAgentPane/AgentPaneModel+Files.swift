@@ -19,7 +19,7 @@ extension AgentPaneModel {
             NSWorkspace.shared.revealInBackground([url])
             return AgentPaneReply.success()
         }
-        guard await onOpenFile(url, target) else {
+        guard await onOpenFile(url, target, nil) else {
             return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
         }
         return AgentPaneReply.success()
