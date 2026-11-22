@@ -620,3 +620,165 @@ fn a_reopen_trims_a_cache_left_over_its_cap() {
     let bytes = big_bytes();
     assert_eq!(overlay.read(big, chunk, 16).unwrap(), bytes[chunk as usize..][..16]);
 }
+
+/// A manifest of files of `size` bytes each at `paths` (folders are made as they are needed).
+fn sized(files: &[(&str, u64)]) -> Manifest {
+    let items = files
+        .iter()
+        .map(|(path, size)| Item {
+            path: (*path).into(),
+            kind: Kind::File,
+            mode: 0o644,
+            size: *size,
+            mtime_ns: 1,
+            link: None,
+        })
+        .collect();
+    Manifest::build(1, items).unwrap()
+}
+
+/// What a fault on `path` reads ahead, as paths, with the paths `skip` names left out.
+fn picked(manifest: &Manifest, path: &str, skip: impl Fn(&str, &Entry) -> bool) -> Vec<String> {
+    let index = manifest.resolve(path).unwrap();
+    let picked = read_ahead(manifest, index, |other, entry| skip(&manifest.path_of(other), entry));
+    let names: Vec<String> = picked.iter().map(|other| manifest.path_of(*other)).collect();
+    let mut unique = names.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), names.len(), "a file is picked twice");
+    assert!(!names.iter().any(|name| name == path), "the faulting file is picked");
+    names
+}
+
+/// Two projects: `cmux-tui/crates/a` (a `Cargo.toml`) and `cmux-tui/crates/b`, and a folder with no
+/// marker at all.
+fn projects() -> Manifest {
+    sized(&[
+        ("cmux-tui/Cargo.toml", 4),
+        ("cmux-tui/crates/a/Cargo.toml", 4),
+        ("cmux-tui/crates/a/src/x.rs", 4),
+        ("cmux-tui/crates/a/src/y.rs", 4),
+        ("cmux-tui/crates/a/src/deep/z.rs", 4),
+        ("cmux-tui/crates/a/tests/t.rs", 4),
+        ("cmux-tui/crates/b/src/w.rs", 4),
+        ("docs/one.md", 4),
+        ("docs/sub/two.md", 4),
+    ])
+}
+
+#[test]
+fn a_fault_in_a_folder_with_no_marker_reads_only_its_own_folder() {
+    let manifest =
+        sized(&[("src/a.rs", 4), ("src/b.rs", 4), ("src/deep/d.rs", 4), ("README.md", 4)]);
+    assert_eq!(picked(&manifest, "src/a.rs", |_, _| false), ["src/b.rs"]);
+}
+
+#[test]
+fn a_fault_reads_the_folders_under_the_nearest_marker_breadth_first() {
+    let manifest = projects();
+    assert_eq!(
+        picked(&manifest, "cmux-tui/crates/a/src/x.rs", |_, _| false),
+        [
+            "cmux-tui/crates/a/src/y.rs",
+            "cmux-tui/crates/a/Cargo.toml",
+            "cmux-tui/crates/a/tests/t.rs",
+            "cmux-tui/crates/a/src/deep/z.rs",
+        ]
+    );
+    // A fault in the other project never reaches the first one's folders.
+    assert_eq!(picked(&manifest, "cmux-tui/crates/b/src/w.rs", |_, _| false), Vec::<String>::new());
+}
+
+#[test]
+fn a_marker_folder_itself_is_the_scope_of_its_own_faults() {
+    let manifest = projects();
+    assert_eq!(
+        picked(&manifest, "cmux-tui/crates/a/Cargo.toml", |_, _| false),
+        [
+            "cmux-tui/crates/a/src/x.rs",
+            "cmux-tui/crates/a/src/y.rs",
+            "cmux-tui/crates/a/tests/t.rs",
+            "cmux-tui/crates/a/src/deep/z.rs",
+        ]
+    );
+}
+
+#[test]
+fn skipped_files_and_folders_are_not_read_or_walked() {
+    let manifest = projects();
+    let skipped = |path: &str, entry: &Entry| {
+        path == "cmux-tui/crates/a/tests"
+            || (entry.kind == Kind::File && path == "cmux-tui/crates/a/src/y.rs")
+    };
+    assert_eq!(
+        picked(&manifest, "cmux-tui/crates/a/src/x.rs", skipped),
+        ["cmux-tui/crates/a/Cargo.toml", "cmux-tui/crates/a/src/deep/z.rs"]
+    );
+}
+
+#[test]
+fn a_batch_holds_at_most_the_file_budget_with_the_faulting_file() {
+    let files: Vec<(String, u64)> = (0..300).map(|at| (format!("d/f{at:03}.rs"), 4)).collect();
+    let refs: Vec<(&str, u64)> = files.iter().map(|(path, size)| (path.as_str(), *size)).collect();
+    let manifest = sized(&refs);
+    let names = picked(&manifest, "d/f000.rs", |_, _| false);
+    assert_eq!(names.len(), BATCH_FILES - 1);
+    assert_eq!(names.first().map(String::as_str), Some("d/f001.rs"));
+}
+
+#[test]
+fn a_batch_holds_at_most_the_byte_budget_and_no_big_file() {
+    const MIB: u64 = 1024 * 1024;
+    let mut files: Vec<(String, u64)> =
+        vec![("d/a.bin".into(), MIB), ("d/huge.bin".into(), CHUNK + 1)];
+    files.extend((0..40).map(|at| (format!("d/b{at:02}.bin"), MIB)));
+    let refs: Vec<(&str, u64)> = files.iter().map(|(path, size)| (path.as_str(), *size)).collect();
+    let manifest = sized(&refs);
+    let names = picked(&manifest, "d/a.bin", |_, _| false);
+    // The faulting megabyte and fifteen more make the budget's sixteen.
+    assert_eq!(names.len(), 15);
+    assert!(!names.iter().any(|name| name == "d/huge.bin"));
+}
+
+#[test]
+fn a_walk_looks_at_no_more_than_its_scan_budget() {
+    let mut files: Vec<(String, u64)> =
+        (0..BATCH_SCAN + 10).map(|at| (format!("a/src/s{at:05}.rs"), 4)).collect();
+    files.push(("a/src/fault.rs".into(), 4));
+    files.push(("a/Cargo.toml".into(), 4));
+    files.push(("a/other/o.rs".into(), 4));
+    let refs: Vec<(&str, u64)> = files.iter().map(|(path, size)| (path.as_str(), *size)).collect();
+    let manifest = sized(&refs);
+    // Every file of the own folder is skipped, so the walk stops at its scan budget before it
+    // gets to the folder under the marker.
+    let names = picked(&manifest, "a/src/fault.rs", |path, entry| {
+        entry.kind == Kind::File && path != "a/src/fault.rs"
+    });
+    assert_eq!(names, Vec::<String>::new());
+}
+
+#[test]
+fn a_fault_fetches_the_folders_under_its_marker_once_each() {
+    let manifest = Arc::new(projects());
+    let mut fake = Fake::default();
+    for path in [
+        "cmux-tui/crates/a/src/x.rs",
+        "cmux-tui/crates/a/Cargo.toml",
+        "cmux-tui/crates/a/src/y.rs",
+        "cmux-tui/crates/a/tests/t.rs",
+        "cmux-tui/crates/a/src/deep/z.rs",
+    ] {
+        fake.bytes.insert(manifest.resolve(path).unwrap(), format!("<{path}>").into_bytes());
+    }
+    let fake = Arc::new(fake);
+    let state = tempfile::tempdir().unwrap();
+    let overlay = open(state.path(), &manifest, &fake);
+    let x = path_ino(&overlay, "cmux-tui/crates/a/src/x.rs");
+    assert_eq!(overlay.read(x, 0, 100).unwrap(), b"<cmux-tui/crates/a/src/x.rs>");
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 1);
+    assert_eq!(fake.batches.lock().unwrap()[0].len(), 5);
+    let t = path_ino(&overlay, "cmux-tui/crates/a/tests/t.rs");
+    assert_eq!(overlay.read(t, 0, 100).unwrap(), b"<cmux-tui/crates/a/tests/t.rs>");
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 1);
+    assert_eq!(overlay.stats().remote_reads, 5);
+}

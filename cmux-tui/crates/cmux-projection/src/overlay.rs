@@ -25,7 +25,7 @@
 //!   [`crate::reap`]).
 
 use anyhow::Context as _;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::Write as _;
 use std::os::fd::AsRawFd as _;
@@ -35,21 +35,27 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, UNIX_EPOCH};
 
-use crate::manifest::{Kind, Manifest, ROOT};
+use crate::manifest::{Entry, Kind, Manifest, ROOT};
 use crate::upper::{SetTime, Stat, Upper};
 use crate::{Fetch, FetchError};
 
 /// The size of a chunk of a big file, and the largest file fetched whole.
 pub const CHUNK: u64 = 4 * 1024 * 1024;
-/// The most files one directory readahead batch asks for.
+/// The most files one readahead batch asks for.
 const BATCH_FILES: usize = 256;
-/// The most bytes one directory readahead batch asks for.
+/// The most bytes one readahead batch asks for.
 const BATCH_BYTES: u64 = 16 * 1024 * 1024;
 /// The most bytes of the Mac's files one projection keeps cached on the machine's disk (RFD 0007,
 /// hard case 8).
 pub const DEFAULT_CACHE_MAX_BYTES: u64 = 512 * 1024 * 1024;
 /// The cache's own file naming the manifest it belongs to (never evicted).
 pub const CACHE_ID_FILE: &str = "manifest-id";
+/// The most entries one readahead walk looks at, skipped ones included, so a fault never walks a
+/// big folder for nothing.
+const BATCH_SCAN: usize = 4096;
+/// The files that mark a project's folder: a fault's read-ahead reaches the folders under the
+/// nearest one (see [`read_ahead_scope`]).
+const MARKERS: [&str; 2] = ["Cargo.toml", "package.json"];
 
 /// `errno` values (Linux numbers; the mount is Linux only).
 pub mod errno {
@@ -426,6 +432,104 @@ fn append_entry(
         file.set_len(len)?;
     }
     written
+}
+
+/// The folder whose subtree a fault on a file in `folder` reads ahead: the nearest folder at or
+/// above `folder` that holds a [`MARKERS`] file. None when no folder above has one, and then the
+/// read-ahead stays in `folder` itself.
+fn read_ahead_scope(manifest: &Manifest, folder: u32) -> Option<u32> {
+    let mut at = folder;
+    loop {
+        let marked = MARKERS.iter().any(|name| {
+            manifest
+                .lookup(at, name)
+                .and_then(|child| manifest.entry(child))
+                .is_some_and(|child| child.kind == Kind::File)
+        });
+        if marked {
+            return Some(at);
+        }
+        if at == ROOT {
+            return None;
+        }
+        at = manifest.entry(at)?.parent;
+    }
+}
+
+/// The small files a fault on file `index` reads ahead with it, in the order to ask for them: the
+/// faulting file's own folder's files first, then, when a [`MARKERS`] folder is above it, the
+/// files of the folders under that one, breadth first. `skip` names what is not to be read (a
+/// hidden path, and for a file a cached one); a skipped folder is not walked. The faulting file's
+/// size counts against [`BATCH_BYTES`], and the batch holds at most [`BATCH_FILES`] files with the
+/// faulting one; a walk looks at most [`BATCH_SCAN`] entries. No folder is visited twice (the
+/// folders form a tree), so no file is picked twice.
+fn read_ahead(manifest: &Manifest, index: u32, skip: impl Fn(u32, &Entry) -> bool) -> Vec<u32> {
+    let Some(faulting) = manifest.entry(index) else { return Vec::new() };
+    let own = faulting.parent;
+    let mut pick =
+        Pick { manifest, index, skip, picked: Vec::new(), bytes: faulting.size, scanned: 0 };
+    pick.walk(own, true, None);
+    if let Some(scope) = read_ahead_scope(manifest, own) {
+        let mut queue = VecDeque::from([scope]);
+        while let Some(folder) = queue.pop_front() {
+            if pick.full() {
+                break;
+            }
+            pick.walk(folder, folder != own, Some(&mut queue));
+        }
+    }
+    pick.picked
+}
+
+/// The state of one [`read_ahead`] walk.
+struct Pick<'a, F> {
+    manifest: &'a Manifest,
+    index: u32,
+    skip: F,
+    picked: Vec<u32>,
+    bytes: u64,
+    scanned: usize,
+}
+
+impl<F: Fn(u32, &Entry) -> bool> Pick<'_, F> {
+    fn full(&self) -> bool {
+        self.picked.len() + 1 >= BATCH_FILES || self.scanned >= BATCH_SCAN
+    }
+
+    /// Looks at the children of `folder` in name order: takes its small files when `take_files`,
+    /// and queues its folders (not skipped) onto `queue` when there is one.
+    fn walk(&mut self, folder: u32, take_files: bool, mut queue: Option<&mut VecDeque<u32>>) {
+        let (first, children) = self.manifest.children(folder);
+        for (at, child) in children.iter().enumerate() {
+            if self.full() {
+                return;
+            }
+            self.scanned += 1;
+            let Some(other) = u32::try_from(at).ok().and_then(|at| first.checked_add(at)) else {
+                return;
+            };
+            if (self.skip)(other, child) {
+                continue;
+            }
+            match child.kind {
+                Kind::Dir => {
+                    if let Some(queue) = queue.as_deref_mut() {
+                        queue.push_back(other);
+                    }
+                }
+                Kind::File
+                    if take_files
+                        && other != self.index
+                        && child.size <= CHUNK
+                        && self.bytes + child.size <= BATCH_BYTES =>
+                {
+                    self.bytes += child.size;
+                    self.picked.push(other);
+                }
+                Kind::File | Kind::Link => {}
+            }
+        }
+    }
 }
 
 impl Overlay {
@@ -1092,8 +1196,8 @@ impl Overlay {
         self.remote_bytes.fetch_add(bytes, Ordering::Relaxed);
     }
 
-    /// A small file's bytes: from the cache, else fetched with its folder's other uncached small
-    /// files in one batch (directory readahead).
+    /// A small file's bytes: from the cache, else fetched with the other uncached small files
+    /// [`read_ahead`] picks for it, in one batch (readahead).
     fn whole(&self, index: u32) -> Result<Vec<u8>, i32> {
         let key = (index, WHOLE);
         if let Some(bytes) = self.cached(key) {
@@ -1104,37 +1208,18 @@ impl Overlay {
             return Ok(bytes);
         }
         let mut batch = vec![index];
-        let mut bytes = self.manifest.entry(index).map_or(0, |entry| entry.size);
         // A source with no cache answers one file at a time: read ahead would be thrown away.
-        if let Some(entry) = self.manifest.entry(index).filter(|_| self.fetch.cache()) {
-            let folder = self.manifest.path_of(entry.parent);
-            let (first, siblings) = self.manifest.children(entry.parent);
-            let mut candidates = Vec::new();
-            {
+        if self.fetch.cache() {
+            let picked = {
                 let inner = self.lock();
-                for (at, sibling) in siblings.iter().enumerate() {
-                    if candidates.len() + 1 >= BATCH_FILES {
-                        break;
-                    }
-                    let Ok(at) = u32::try_from(at) else { break };
-                    let other = first + at;
-                    if other == index
-                        || sibling.kind != Kind::File
-                        || sibling.size > CHUNK
-                        || bytes + sibling.size > BATCH_BYTES
-                    {
-                        continue;
-                    }
-                    let path = join(&folder, &sibling.name);
-                    if Self::hidden(&inner, &path) || self.cache_path((other, WHOLE)).exists() {
-                        continue;
-                    }
-                    candidates.push((other, path, sibling.size));
-                    bytes += sibling.size;
-                }
-            }
+                read_ahead(&self.manifest, index, |other, entry| {
+                    Self::hidden(&inner, &self.manifest.path_of(other))
+                        || (entry.kind == Kind::File && self.cache_path((other, WHOLE)).exists())
+                })
+            };
             let mut inflight = self.inflight.lock().unwrap_or_else(PoisonError::into_inner);
-            for (other, path, _) in candidates {
+            for other in picked {
+                let path = self.manifest.path_of(other);
                 if inflight.contains(&(other, WHOLE)) || self.upper.stat(&path).is_ok() {
                     continue;
                 }
