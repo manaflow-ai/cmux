@@ -1914,3 +1914,31 @@ mod deadline_defaults_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod register_flags_tests {
+    use super::Cli;
+    use clap::Parser;
+
+    fn parses(args: &[&str]) -> bool {
+        Cli::try_parse_from(std::iter::once("acpmux").chain(args.iter().copied())).is_ok()
+    }
+
+    #[test]
+    fn register_needs_a_name_unless_auto_or_renew() {
+        assert!(parses(&["register", "desktop-zoe"]));
+        assert!(parses(&["register", "desktop-zoe", "--code", "c0de"]));
+        assert!(parses(&["register", "--auto"]));
+        assert!(parses(&["register", "--auto", "desktop-zoe"]));
+        assert!(parses(&["register", "--renew"]));
+        assert!(!parses(&["register"]));
+        assert!(!parses(&["register", "--code", "c0de"]));
+    }
+
+    #[test]
+    fn code_auto_and_renew_exclude_each_other() {
+        assert!(!parses(&["register", "desktop-zoe", "--auto", "--code", "c0de"]));
+        assert!(!parses(&["register", "desktop-zoe", "--renew", "--code", "c0de"]));
+        assert!(!parses(&["register", "--auto", "--renew"]));
+    }
+}
