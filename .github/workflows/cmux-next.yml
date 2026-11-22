@@ -1624,7 +1624,22 @@ jobs:
         env:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-        run: if [ -f scripts/ci/mac_grants.py ] && [ -f scripts/ci/mac-grants.json ]; then python3 scripts/ci/mac_grants.py; fi
+          BASE_REF: ${{ github.base_ref }}
+        # A pull request reads the switch at its base branch's tip, not pull_request.base.sha (the checkout above):
+        # GitHub keeps that sha from the PR's last base update, so a PR not rebased since #49470 turned the switch
+        # off kept getting per-run labels no runner took (2026-11-22). A failed read is off. A push is the tip.
+        run: |
+          switch=scripts/ci/mac-grants.json
+          if [ -n "$BASE_REF" ] && [ -f "$switch" ]; then
+            if git fetch --quiet --no-tags --depth=1 --filter=blob:none origin "+refs/heads/$BASE_REF:refs/remotes/origin/mac-grants-base" \
+              && git show refs/remotes/origin/mac-grants-base:scripts/ci/mac-grants.json > "$switch.live"; then
+              mv "$switch.live" "$switch"
+            else
+              echo '{"jobs": []}' > "$switch"
+              echo "::warning::could not read scripts/ci/mac-grants.json at the tip of $BASE_REF; no scheduler grant this run"
+            fi
+          fi
+          if [ -f scripts/ci/mac_grants.py ] && [ -f "$switch" ]; then python3 scripts/ci/mac_grants.py; fi
       - name: Check whether this job read the pool snapshot
         id: pool-snapshot-fetched
         if: ${{ !cancelled() }}

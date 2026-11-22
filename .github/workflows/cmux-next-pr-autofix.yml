@@ -303,7 +303,22 @@ jobs:
         env:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-        run: if [ -f "$RUNNER_TEMP/placement/scripts/ci/mac_grants.py" ]; then python3 "$RUNNER_TEMP/placement/scripts/ci/mac_grants.py"; fi
+          BASE_REF: ${{ github.base_ref }}
+        # The switch comes from the base branch's tip, not pull_request.base.sha: GitHub keeps that sha from the
+        # PR's last base update, so a PR not rebased since #49470 turned the switch off kept getting per-run labels
+        # no runner took (2026-11-22: seven action-exports jobs queued up to 283 min). A failed read is off.
+        run: |
+          switch="$RUNNER_TEMP/placement/scripts/ci/mac-grants.json"
+          if [ -n "$BASE_REF" ] && [ -f "$switch" ]; then
+            if git fetch --quiet --no-tags --depth=1 --filter=blob:none origin "+refs/heads/$BASE_REF:refs/remotes/origin/mac-grants-base" \
+              && git show refs/remotes/origin/mac-grants-base:scripts/ci/mac-grants.json > "$switch.live"; then
+              mv "$switch.live" "$switch"
+            else
+              echo '{"jobs": []}' > "$switch"
+              echo "::warning::could not read scripts/ci/mac-grants.json at the tip of $BASE_REF; no scheduler grant this run"
+            fi
+          fi
+          if [ -f "$RUNNER_TEMP/placement/scripts/ci/mac_grants.py" ]; then python3 "$RUNNER_TEMP/placement/scripts/ci/mac_grants.py"; fi
 
   # The exports from this merge commit's cmux-next generated-files job (see the header), or a miss
   # (hit=false) and action-exports regenerates them. Every step is continue-on-error and the wait is
