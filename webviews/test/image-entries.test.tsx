@@ -176,8 +176,8 @@ try {
     const image = host.querySelector<HTMLImageElement>(".cv-user__images img")!;
     expect(image).not.toBeNull();
     expect(host.querySelector(".cv-user__image-placeholder")).toBeNull();
-    // 400×200 is 2:1: the whole image, 120px tall (UserBubble.tsx sentImageSize).
-    expect(image.style.width).toBe("240px");
+    // 400×200 is 2:1: the whole image, 160px tall (userBubbleModel.ts sentImageSize, #48558).
+    expect(image.style.width).toBe("320px");
     expect(image.getAttribute("decoding")).toBe("async");
     expect(reads).toBe(0);
     act(() => root.unmount());
@@ -217,11 +217,12 @@ try {
     expect(host.querySelector(".cv-user__image-placeholder")).toBeNull();
     expect(host.querySelector<HTMLImageElement>(".cv-user__images img")).toBe(first);
     expect(first.getAttribute("src")).toBe(src);
-    // An image that then fails to draw keeps its shape: 2:1 at 120px tall.
+    // An image that then fails to draw keeps its shape: 300×150 is under 160px tall, so it keeps
+    // its own size, never magnified (sentImageSize, #48558).
     await act(async () => {
       first.dispatchEvent(new dom.window.Event("error"));
     });
-    expect(host.querySelector<HTMLElement>(".cv-user__image-failed")!.style.width).toBe("240px");
+    expect(host.querySelector<HTMLElement>(".cv-user__image-failed")!.style.width).toBe("300px");
     act(() => root.unmount());
   });
 
