@@ -528,6 +528,8 @@ impl Hub {
                 &fork_env,
                 &id,
                 all,
+                crate::agent_tools::takes_http(session.meta().agent_capabilities.as_ref()),
+                std::path::Path::new(&cwd),
                 codex,
             );
             // The person's own stdio `cmux` entry learns which chat starts it, where cmux gives none.
@@ -641,7 +643,9 @@ impl Hub {
             schema: META_SCHEMA.into(),
             id: id.clone(),
             name,
+            handle: None,
             name_given,
+            former_names: Vec::new(),
             harness: parent_meta.harness.clone(),
             harness_argv: parent_meta.harness_argv.clone(),
             spawn_argv: None,
@@ -733,6 +737,7 @@ impl Hub {
             usage_limits: parent_meta.usage_limits.clone(),
             available_commands: parent_meta.available_commands.clone(),
             goal: None,
+            task_list: None,
             permission_rules: None,
             tags: Default::default(),
             unread: false,
@@ -740,6 +745,7 @@ impl Hub {
             unread_turns: 0,
             last_return: None,
             away_recap: None,
+            rolling_summary: None,
             read_through: Default::default(),
             claude_unstored: false,
             // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
@@ -747,6 +753,7 @@ impl Hub {
             throwaway: false,
             hibernated_ms: 0,
             idle_launch: None,
+            start_level: None,
             moved_to: None,
             claude_profile: None,
             last_turn: None,

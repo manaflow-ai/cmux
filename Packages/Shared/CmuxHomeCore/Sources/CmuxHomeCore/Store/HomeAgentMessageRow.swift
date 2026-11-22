@@ -70,6 +70,13 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
     /// For an agents row: whether each agent, in the order of its `peers`, has a report newer than the one
     /// the person last opened (its unread dot). Empty for other rows.
     public var peerUnread: [Bool] = []
+    /// For an agents row: when each agent's current task began, in the order of its `peers`: the Chief's first
+    /// message to it since its last report or stop (a follow-up tell to a working agent keeps the start); nil
+    /// when the Chief sent it nothing in this row. Empty for other rows. The pill's working time counts from it.
+    public var peerStarted: [Date?] = []
+    /// For an agents row: when each agent, in the order of its `peers`, reported or stopped (its task's end);
+    /// nil while it works or waits in the queue. Empty for other rows. The pill's total ends at it.
+    public var peerEnded: [Date?] = []
     /// For a message row: true when it is the Chief's message to an agent that waits in the Chief's queue
     /// (``HomeAgentRun/Message/queued``), so its pill says Queued, not Working. False for other rows.
     public var queued = false
