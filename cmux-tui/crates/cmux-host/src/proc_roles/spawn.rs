@@ -1,6 +1,6 @@
 //! Starting one role process (server.md 5.1): program resolution and
-//! checks, a cleared environment, its own process group, output into the
-//! ring log, and the notify descriptor.
+//! checks, a cleared environment, a process group that dies with cmux-host,
+//! output into the ring log, and the notify descriptor.
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader};
@@ -99,12 +99,32 @@ pub fn environment(
     env
 }
 
+/// A role process in a group of its own that dies with cmux-host: a
+/// SIGKILL or crash of cmux-host takes the role and everything it started
+/// in its group with it ([`cmux_process::ChildGroup`]; the group's watchdog,
+/// not the role, leads it). Dropping it kills what is left of the group.
+pub struct RoleChild {
+    pub child: Child,
+    group: cmux_process::ChildGroup,
+}
+
+impl RoleChild {
+    pub fn id(&self) -> u32 {
+        self.child.id()
+    }
+
+    /// Signals the role's whole group. Its id stays reserved while this
+    /// value lives (the watchdog leads it and is reaped on drop).
+    pub fn signal_group(&self, signal: i32) {
+        let _ = self.group.signal(signal);
+    }
+}
+
 /// Starts `spec`: returns the child; helper threads report its output,
 /// notifications and exit to `tx`. The caller reaps the child after the
-/// exit message (the waiter does not reap, so the process group id stays
-/// reserved until the supervisor has seen the exit).
+/// exit message.
 #[cfg(unix)]
-pub fn start(spec: &RoleSpec, paths: &RolePaths, tx: &Sender<Msg>) -> Result<Child, String> {
+pub fn start(spec: &RoleSpec, paths: &RolePaths, tx: &Sender<Msg>) -> Result<RoleChild, String> {
     use std::os::fd::AsRawFd;
     use std::os::unix::process::CommandExt;
 
@@ -130,6 +150,7 @@ pub fn start(spec: &RoleSpec, paths: &RolePaths, tx: &Sender<Msg>) -> Result<Chi
         Readiness::Notify => Some(std::io::pipe().map_err(|e| e.to_string())?),
         Readiness::Started => None,
     };
+    let group = cmux_process::ChildGroup::new().map_err(|e| format!("role group: {e}"))?;
     let mut command = Command::new(&program);
     command
         .args(&spec.args)
@@ -146,7 +167,7 @@ pub fn start(spec: &RoleSpec, paths: &RolePaths, tx: &Sender<Msg>) -> Result<Chi
         .stdin(Stdio::null())
         .stdout(out_w)
         .stderr(err_w)
-        .process_group(0);
+        .process_group(group.id());
     if let privilege::Identity::Drop(user) = &identity {
         // std clears the supplementary groups, then sets gid and uid,
         // before `pre_exec` and exec (least privilege: no extra groups).
@@ -200,7 +221,7 @@ pub fn start(spec: &RoleSpec, paths: &RolePaths, tx: &Sender<Msg>) -> Result<Chi
             .map_err(|e| e.to_string())?;
     }
     watch_exit(&name, pid, tx);
-    Ok(child)
+    Ok(RoleChild { child, group })
 }
 
 /// Starts the thread that reports `pid`'s exit (without reaping it).
@@ -258,7 +279,7 @@ fn read_line_capped(
 }
 
 #[cfg(not(unix))]
-pub fn start(_spec: &RoleSpec, _paths: &RolePaths, _tx: &Sender<Msg>) -> Result<Child, String> {
+pub fn start(_spec: &RoleSpec, _paths: &RolePaths, _tx: &Sender<Msg>) -> Result<RoleChild, String> {
     Err("process roles need a Unix host".to_owned())
 }
 
