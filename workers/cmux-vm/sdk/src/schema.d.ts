@@ -1510,7 +1510,7 @@ export interface components {
             pendingSnapshotId?: string;
             retryAfterSeconds?: components["schemas"]["Int"];
             /** @enum {string} */
-            budget?: "snapshots" | "vms" | "rate" | "capacity" | "mesh.perTenant" | "device.perMesh" | "firewallRule.perMesh" | "firewallRule.perResource" | "firewallRule.account" | "aclApply.perMeshPerMinute" | "enrollmentCode.perMeshPerHour" | "address.perDevice" | "agent_vms" | "agent_usd_per_hour";
+            budget?: "snapshots" | "vms" | "rate" | "capacity" | "mesh.perTenant" | "device.perMesh" | "firewallRule.perMesh" | "firewallRule.perResource" | "firewallRule.account" | "aclApply.perMeshPerMinute" | "enrollmentCode.perMeshPerHour" | "address.perDevice" | "agent_vms" | "agent_usd_per_hour" | "agent_running_vms" | "agent_usd_per_day" | "agent_usd_per_month";
             /** @enum {string} */
             _tag: "QuotaExceeded";
         };
