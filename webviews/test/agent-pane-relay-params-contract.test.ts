@@ -96,9 +96,10 @@ const policyKnown = new Map(
 /// What the page sends through the relay that the relay is known to refuse, each with why it stays.
 /// Nothing else may be here: a new entry is a decision about the relay, not a way to make this pass.
 const KNOWN_REFUSED: Record<string, string> = {
-  // Labs preview only (direct.ts liveTreeStatus): the pane relay does not serve `_acpmux/info`, which
-  // reads any session's record; the preview shows nothing in the app until the relay scopes it.
-  "_acpmux/info": "Labs live-tree preview; the relay does not serve _acpmux/info",
+  // Sent by the page, refused by both relay tables today; whether the pane relay serves them is the
+  // relay owners' call (inbox_threads reads a session's inbox; acpmux refuses it to agents).
+  "_acpmux/browser_workspaces": "browser device workspace list; not in the relay tables yet",
+  "_acpmux/inbox_threads": "a session's inbox threads; not in the relay tables yet",
 };
 
 /// Sites whose params type the checker cannot read (`method what`), each with why it is allowed for
@@ -111,6 +112,7 @@ const OPAQUE_OK = new Map<string, string>(
       "startSession/watchLive take caller-built params (newSessionParams, schemas/agent-pane/session-new-params.json covers its shape)",
     ],
     ["_acpmux/ledger", "History > Costs passes ledgerModel.ts's query through"],
+    ["_acpmux/perf", "the Inspector's Perf tab and perfReporter.ts pass perf_watch.rs's op params through"],
     ["_acpmux/team_audit", "History > Team passes teamAuditModel.ts's query through"],
     ["_acpmux/review_queue", "History > Waiting on you passes queueModel.ts's query through"],
     ["_acpmux/review_verdict", "the review card passes its verdict through"],
