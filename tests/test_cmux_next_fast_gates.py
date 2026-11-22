@@ -567,6 +567,8 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("check:fixed-waits", module.CHECKS)
         self.assertIn("check:effect-cleanup", module.CHECKS)
         self.assertIn("typecheck", module.CHECKS)  # #23763's TS2339 hid behind a red base
+        self.assertIn("check:surface-bypass", module.CHECKS)
+        self.assertEqual(module.CHECK_CLASSES["check:surface-bypass"], module.LINT)  # advisory on the nightly
 
     def test_no_web_check_waits_on_an_earlier_red(self):
         # #23763 (2026-10-21): the bundle build was red on the base, so `Build the web bundles` failed and every
@@ -1609,6 +1611,16 @@ class WebviewsChecksGate(unittest.TestCase):
         base = self.findings({"check:fixed-waits": "  test/a.test.ts: 3 fixed waits, baseline 2\n"}, "red base")
         self.findings({"check:fixed-waits": "  test/a.test.ts: 4 fixed waits, baseline 2\n"}, "the merge")
         self.assertEqual(self.gate(base).returncode, 1)
+
+    def test_a_new_ratchet_the_base_has_no_script_for_is_not_charged_for_its_baselined_findings(self):
+        # check:surface-bypass lands with its script and baseline: the base cannot run it, so its findings are not new.
+        base = self.findings({}, "base without the script")
+        commit(self.repo, {"webviews/scripts/check-surface-bypass.ts": "// the ratchet\n",
+                           "webviews/findings/check:surface-bypass": "  src/a.tsx: 3 raw-button, baseline 3\n"},
+               "the transition")
+        result = self.gate(base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("check:surface-bypass is new; base has no command", result.stdout)
 
     def test_every_check_runs_after_a_red_one(self):
         base = self.findings({}, "base")
