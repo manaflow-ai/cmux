@@ -53,9 +53,7 @@ fn crate_set(lines: &str) -> BTreeSet<String> {
 fn release_builds_use_the_release_features() {
     let script = std::fs::read_to_string(crate_dir().join("scripts/build-channel.sh")).unwrap();
     assert!(
-        script
-            .lines()
-            .any(|line| line.trim() == format!("FEATURES={RELEASE_FEATURES}")),
+        script.lines().any(|line| line.trim() == format!("FEATURES={RELEASE_FEATURES}")),
         "scripts/build-channel.sh must build with FEATURES={RELEASE_FEATURES}"
     );
     let release = std::fs::read_to_string(crate_dir().join("scripts/release.py")).unwrap();
@@ -68,8 +66,7 @@ fn release_builds_use_the_release_features() {
     let workflow = crate_dir().join("../../../.github/workflows/cmux-rd-release.yml");
     if let Ok(text) = std::fs::read_to_string(&workflow) {
         assert!(
-            text.lines()
-                .any(|line| line.trim() == format!("FEATURES: {RELEASE_FEATURES}")),
+            text.lines().any(|line| line.trim() == format!("FEATURES: {RELEASE_FEATURES}")),
             "cmux-rd-release.yml must build with FEATURES: {RELEASE_FEATURES}"
         );
     }
@@ -81,10 +78,10 @@ fn release_builds_use_the_release_features() {
 fn channel_build_drops_debuginfo() {
     let script = std::fs::read_to_string(crate_dir().join("scripts/build-channel.sh")).unwrap();
     assert!(
-        script.lines().any(|line| line
-            .trim_start()
-            .starts_with("CARGO_PROFILE_RELEASE_STRIP=debuginfo ")
-            && line.contains("cargo zigbuild")),
+        script
+            .lines()
+            .any(|line| line.trim_start().starts_with("CARGO_PROFILE_RELEASE_STRIP=debuginfo ")
+                && line.contains("cargo zigbuild")),
         "scripts/build-channel.sh must build with CARGO_PROFILE_RELEASE_STRIP=debuginfo"
     );
 }
@@ -110,11 +107,7 @@ fn release_crates_pass_the_license_gate() {
 fn notices_and_gate_read_one_crate_list_that_covers_cargo_tree() {
     for target in TARGETS {
         let gated = release_py(&["crates", "--target", target]);
-        assert!(
-            gated.status.success(),
-            "release.py crates for {target}:\n{}",
-            text(&gated.stderr)
-        );
+        assert!(gated.status.success(), "release.py crates for {target}:\n{}", text(&gated.stderr));
         let noticed = release_py(&["notices", "--list", "--target", target]);
         assert!(
             noticed.status.success(),
@@ -150,11 +143,7 @@ fn notices_and_gate_read_one_crate_list_that_covers_cargo_tree() {
             ])
             .output()
             .expect("run cargo tree");
-        assert!(
-            tree.status.success(),
-            "cargo tree for {target}:\n{}",
-            text(&tree.stderr)
-        );
+        assert!(tree.status.success(), "cargo tree for {target}:\n{}", text(&tree.stderr));
         let linked = crate_set(&text(&tree.stdout));
         let missed: Vec<&String> = linked.difference(&gated).collect();
         assert!(
@@ -196,10 +185,8 @@ fn fabricated_metadata(deps: &[Dep]) -> String {
 }
 
 fn gate_on(name: &str, deps: &[Dep]) -> Output {
-    let dir = std::env::temp_dir().join(format!(
-        "cmux-rd-license-gate-{}-{name}",
-        std::process::id()
-    ));
+    let dir =
+        std::env::temp_dir().join(format!("cmux-rd-license-gate-{}-{name}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("metadata.json");
     std::fs::write(&file, fabricated_metadata(deps)).unwrap();
@@ -213,18 +200,9 @@ const REGISTRY: Option<&str> = Some("registry+https://github.com/rust-lang/crate
 #[test]
 fn the_license_gate_stops_a_third_party_gpl_or_unlicensed_crate() {
     for (case, deps) in [
-        (
-            "gpl",
-            vec![("gpl-thing", Some("GPL-2.0-only"), REGISTRY, None)],
-        ),
-        (
-            "lgpl",
-            vec![("lgpl-thing", Some("LGPL-2.1-or-later"), REGISTRY, None)],
-        ),
-        (
-            "agpl-and-mit",
-            vec![("agpl-thing", Some("MIT AND AGPL-3.0"), REGISTRY, None)],
-        ),
+        ("gpl", vec![("gpl-thing", Some("GPL-2.0-only"), REGISTRY, None)]),
+        ("lgpl", vec![("lgpl-thing", Some("LGPL-2.1-or-later"), REGISTRY, None)]),
+        ("agpl-and-mit", vec![("agpl-thing", Some("MIT AND AGPL-3.0"), REGISTRY, None)]),
         ("no-license", vec![("bare-thing", None, REGISTRY, None)]),
         // An own crate's name from a registry is not our crate.
         (
@@ -233,16 +211,8 @@ fn the_license_gate_stops_a_third_party_gpl_or_unlicensed_crate() {
         ),
     ] {
         let out = gate_on(case, &deps);
-        assert!(
-            !out.status.success(),
-            "{case}: the gate passed:\n{}",
-            text(&out.stdout)
-        );
-        assert!(
-            text(&out.stdout).contains("STOP"),
-            "{case}: no STOP row:\n{}",
-            text(&out.stdout)
-        );
+        assert!(!out.status.success(), "{case}: the gate passed:\n{}", text(&out.stdout));
+        assert!(text(&out.stdout).contains("STOP"), "{case}: no STOP row:\n{}", text(&out.stdout));
     }
 }
 
@@ -251,39 +221,16 @@ fn the_license_gate_passes_own_permissive_and_unlinked_crates() {
     let deps = [
         ("cmux-rd-core", Some("GPL-3.0-or-later"), None, None),
         ("serde", Some("MIT OR Apache-2.0"), REGISTRY, None),
-        (
-            "either-thing",
-            Some("GPL-3.0-or-later OR MIT"),
-            REGISTRY,
-            None,
-        ),
+        ("either-thing", Some("GPL-3.0-or-later OR MIT"), REGISTRY, None),
         ("mpl-thing", Some("MPL-2.0"), REGISTRY, None),
         // Not linked: a dev-only and a build-only dependency.
-        (
-            "gpl-test-helper",
-            Some("GPL-3.0-only"),
-            REGISTRY,
-            Some("dev"),
-        ),
-        (
-            "gpl-build-helper",
-            Some("GPL-3.0-only"),
-            REGISTRY,
-            Some("build"),
-        ),
+        ("gpl-test-helper", Some("GPL-3.0-only"), REGISTRY, Some("dev")),
+        ("gpl-build-helper", Some("GPL-3.0-only"), REGISTRY, Some("build")),
     ];
     let out = gate_on("pass", &deps);
-    assert!(
-        out.status.success(),
-        "the gate stopped:\n{}{}",
-        text(&out.stdout),
-        text(&out.stderr)
-    );
+    assert!(out.status.success(), "the gate stopped:\n{}{}", text(&out.stdout), text(&out.stderr));
     let report = text(&out.stdout);
-    assert!(
-        report.contains("| mpl-thing | 1.0.0 | MPL-2.0 | listed, no stop"),
-        "{report}"
-    );
+    assert!(report.contains("| mpl-thing | 1.0.0 | MPL-2.0 | listed, no stop"), "{report}");
     assert!(
         !report.contains("gpl-test-helper") && !report.contains("gpl-build-helper"),
         "{report}"
@@ -299,15 +246,7 @@ fn codec_findings(features: &str, target: &str) -> Vec<String> {
         .arg("tree")
         .args(["--locked", "--manifest-path"])
         .arg(crate_dir().join("Cargo.toml"))
-        .args([
-            "--no-default-features",
-            "--features",
-            features,
-            "-e",
-            "normal",
-            "--target",
-            target,
-        ])
+        .args(["--no-default-features", "--features", features, "-e", "normal", "--target", target])
         .args(["--prefix", "none", "-f", "{p} [{f}]"])
         .output()
         .expect("run cargo tree");
