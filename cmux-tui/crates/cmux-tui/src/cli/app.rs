@@ -47,6 +47,7 @@ mod open;
 mod open_link;
 mod page;
 mod published;
+mod record;
 mod renderers;
 mod right;
 mod run;
@@ -217,6 +218,8 @@ pub(super) enum AppCommand {
     Published(cmux_apps::cli::Parsed),
     /// `cmux app launch-times`: the app's recorded launches, read from its file (app/launch_times.rs).
     LaunchTimes(launch_times::Command),
+    /// `cmux window record` / `cmux pane record`: a clip from the app's own screenshots (app/record.rs).
+    Record(record::Request),
 }
 
 /// Whether `args` (after the global options) is the classic `cmux identify`,
@@ -389,6 +392,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                 pick: None,
             }
         }
+        ("window", Some("record")) => record::parse(record::Noun::Window, rest)?,
         ("window", Some("list")) => AppCommand::Call {
             method: "snapshot.get",
             params: json!({}),
@@ -836,6 +840,20 @@ pub(super) fn new_window_spelling(name: &str, args: &[String]) -> Option<(String
     Some((format!("{noun} move-to-new-window"), rest))
 }
 
+/// `cmux pane record …` (`pane` is not an app scope: its other verbs are app actions or the mux's):
+/// the recording, or `None` for any other words.
+pub(super) fn run_pane_record(global: &GlobalArgs, args: &[String]) -> Option<i32> {
+    if args.first().map(String::as_str) != Some("pane")
+        || args.get(1).map(String::as_str) != Some("record")
+    {
+        return None;
+    }
+    Some(match record::parse(record::Noun::Pane, &args[1..]) {
+        Ok(command) => run(global, command),
+        Err(error) => failure("usage.invalid", &error.0, global.output, 2),
+    })
+}
+
 /// Runs `<noun> <verb…> [--flags]` as the app action with that CLI name.
 /// `None` when no app answers or the app has no CLI action by that name, so
 /// the caller reports its own usage error. One connection, one `action.run`.
@@ -891,6 +909,8 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, command)),
         AppCommand::Published(parsed) => return Ran::Done(published::run(global, parsed)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, command)),
+        // Its own connections, one per capture in flight.
+        AppCommand::Record(request) => return Ran::Done(record::run(global, request.clone())),
         _ => {}
     }
     let mut stream = match connect_command(global) {
@@ -1028,6 +1048,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::ChatPerf { params, seconds } => {
             return Ran::Done(chat_perf::run(global, stream, params, seconds));
         }
+        AppCommand::Record(request) => return Ran::Done(record::run(global, request)),
         AppCommand::Settings(command) => return Ran::Done(command.run(global)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Version => return Ran::Done(version::run(global)),
