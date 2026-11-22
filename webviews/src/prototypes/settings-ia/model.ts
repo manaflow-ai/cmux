@@ -7,6 +7,7 @@
 import { categoryById, shownCategories, shownSidebarSections, type Category } from "../../pages/settings/categories";
 import { rowsByKey, type SchemaRow } from "../../pages/settings/schema";
 import { filterRows, type SearchGroup } from "../../pages/settings/search";
+import { soundTitle } from "../../pages/settings/format";
 import { text } from "../../pages/settings/strings";
 
 /** One page of the six-page navigation: the categories it shows open (`essentials`) and the ones
@@ -105,6 +106,7 @@ export type ControlPreview =
 
 export function controlOf(row: SchemaRow): ControlPreview {
   if (row.kind === "toggle") return { kind: "switch", on: row.default === true };
+  if (row.kind === "sound") return { kind: "popup", label: soundTitle(String(row.default ?? "default")) };
   const choice = row.choices?.find((item) => item.value === row.default);
   if (choice) return { kind: "popup", label: text(choice.title) };
   if (row.default_label) return { kind: "popup", label: text(row.default_label) };

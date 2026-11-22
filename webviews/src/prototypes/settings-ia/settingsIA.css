@@ -13,7 +13,7 @@
   position: relative;
   box-sizing: border-box;
   height: 100%;
-  min-height: 0;
+  min-height: 100vh;
   overflow: hidden;
   background: var(--sia-bg);
   color: var(--sia-text);
@@ -537,6 +537,9 @@
 }
 .sia-c-item[aria-selected="true"] {
   background: color-mix(in srgb, var(--sia-accent) 28%, transparent);
+}
+.sia-c-item[aria-selected="true"] .sia-c-item-crumb {
+  color: var(--sia-text-2);
 }
 .sia-c-item-text {
   flex: 1;
