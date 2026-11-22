@@ -67,7 +67,8 @@ impl Supervisor {
             }
             // Safe mode: no host, no stream, no mount; the place shows its
             // native view (R5).
-            if super::safe_mode_bisect::held_off(inner, app) && super::safe_mode::holds_off(package)
+            if super::safe_mode_bisect::held_off(&inner, app)
+                && super::safe_mode::holds_off(package)
             {
                 return Err(ApiError::new("apps.safe_mode", super::safe_mode::OFF));
             }
