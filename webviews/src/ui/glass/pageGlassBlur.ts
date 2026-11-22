@@ -8,19 +8,23 @@
 // does not draw blurs what it covers in place (seeThroughBlur.ts), and glass.css drops its underlay
 // (data-glass-over), so it reads as the agent pane's menus do: a tint over the page, blurred.
 //
-// Which surfaces: those portalled into <body> (Base UI's default container, every page without a
-// UiProvider container) that the App is not drawing (no data-host-glass-drawn="1"; hostGlass.ts
+// Which surfaces: every popup glass (.ui-popup.ui-glass: Base UI's menus and popovers and a page's own,
+// like the diff toolbar's) portalled into <body> (Base UI's default container, every page without a
+// UiProvider container, and the diff toolbar's createPortal) that the App is not drawing (no data-host-glass-drawn="1"; hostGlass.ts
 // blurs those itself) and that are not closing (data-ending-style: the blur is all or nothing, so a
 // closing surface fades out on its underlay, as hostGlass.ts does). What they cover: <body>'s other
-// element children (the page's root), never another popup.
+// element children (the page's root), never another popup. A popup drawn in place in the page (the
+// diff's options menu) cannot be seen from <body> without watching the page: it calls
+// useInPlaceGlassBlur, which blurs what it covers along its ancestors (coveredInPlace).
 //
 // Cost: nothing in WebKit (its backdrop takes in the page; attachSeeThroughBlur returns at once) or
 // outside a see-through page (glass.css applies no filter there). Otherwise one MutationObserver on
 // <body>'s direct children (never its subtree, so the page's own updates never reach it) and, while
 // a surface is open, one on that surface's own attributes. The blur's own cost is seeThroughBlur's.
-import { attachSeeThroughBlur, type CoveredCandidates } from "./seeThroughBlur";
+import type { RefObject } from "react";
+import { attachSeeThroughBlur, type CoveredCandidates, useSeeThroughBlur } from "./seeThroughBlur";
 
-const COVER = "[data-host-glass-cover].ui-glass";
+const COVER = ".ui-popup.ui-glass";
 const DRAWN = "data-host-glass-drawn";
 const ENDING = "data-ending-style";
 
@@ -40,6 +44,33 @@ export const underBodyPortal: CoveredCandidates = (surface) => {
       child !== own && child.localName !== "svg" && child.localName !== "script" && !child.querySelector(COVER),
   );
 };
+
+/** What a popup drawn in place covers: at each level from it up to <body>, the siblings of the
+ * element holding it (the page beside the menu: the file list, the diff), minus other popups. */
+export const coveredInPlace: CoveredCandidates = (surface) => {
+  const body = surface.ownerDocument.body;
+  const covered: Element[] = [];
+  for (let node: Element | null = surface; node && node !== body; node = node.parentElement) {
+    const parent: Element | null = node.parentElement;
+    if (!parent) break;
+    for (const child of parent.children)
+      if (
+        child !== node &&
+        child.localName !== "svg" &&
+        child.localName !== "script" &&
+        !child.matches(COVER) &&
+        !child.querySelector(COVER)
+      )
+        covered.push(child);
+  }
+  return covered;
+};
+
+/** A popup drawn in place in the page (not portalled into <body>, where installPageGlassBlur finds
+ * it) blurs what it covers while `open`. */
+export function useInPlaceGlassBlur(surface: RefObject<HTMLElement | null>, open: boolean): void {
+  useSeeThroughBlur(surface, open, coveredInPlace);
+}
 
 /** Whether the page blurs under `surface` now: not drawn by the App and not closing. */
 export function pageBlursUnder(surface: Element): boolean {
