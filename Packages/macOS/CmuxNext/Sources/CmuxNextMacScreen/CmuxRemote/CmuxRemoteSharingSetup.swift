@@ -17,6 +17,8 @@ struct CmuxRemoteSharingSetup {
     /// Whether the person has said yes to Share This Mac on this Mac (`macScreen.shareWithoutAsking`).
     var consented: @MainActor () -> Bool
     var rememberConsent: @MainActor () -> Void
+    /// Says who turned sharing on with no sheet; tests record it.
+    var announce: @MainActor (CmuxRemoteShareCaller?, NSWindow?) -> Void = { caller, window in caller?.announce(in: window) }
 
     init(host: MacScreenHubHost, consent: CmuxRemoteShareConsent = CmuxRemoteShareConsent(given: { false }, remember: {})) {
         refresh = {
@@ -32,12 +34,14 @@ struct CmuxRemoteSharingSetup {
 
     /// `remote.confirm {action: share}` for this Mac. With the person's earlier yes and Screen
     /// Recording granted it turns sharing on at once (Accessibility stays optional, as in the
-    /// guide); otherwise it shows the guide, whose completion is that yes.
-    func ownerRequest(in window: NSWindow?) async throws -> Bool {
+    /// guide); otherwise it shows the guide, whose completion is that yes. Sharing turned on with
+    /// no sheet says who asked (`caller`), quietly in `window` (``CmuxRemoteShareCaller``).
+    func ownerRequest(in window: NSWindow?, by caller: CmuxRemoteShareCaller?) async throws -> Bool {
         if consented() {
             let permissions = await refresh()
             if permissions.screen, !Task.isCancelled {
                 try await enable()
+                announce(caller, window)
                 return true
             }
         }
@@ -69,7 +73,7 @@ struct CmuxRemoteSharingSetup {
         }
         if consented() {
             return .applied(result: {
-                do { return .success(["shared": .bool(try await ownerRequest(in: window))]) }
+                do { return .success(["shared": .bool(try await ownerRequest(in: window, by: CmuxRemoteShareCaller(invocation: invocation)))]) }
                 catch { return .failure(ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))) }
             })
         }

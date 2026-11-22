@@ -81,7 +81,9 @@ remove each, including which folders it shares with cmux classic.
 Settings live in `~/.config/cmux/cmux-next.json` and key bindings in
 `~/.config/cmux/keybindings.json`. Both reload when you save and keep your comments when
 Settings writes to them. [dotfiles.md](dotfiles.md) has example files, editor completion and the
-`cmux config` commands for scripts and agents.
+`cmux config` commands for scripts and agents. To change how the agent chat's transcript looks, by
+named look (cmux, Claude, Codex, Studio) or by token, see
+[transcript-customization.md](transcript-customization.md).
 
 ## Moving between two cmux-next builds
 

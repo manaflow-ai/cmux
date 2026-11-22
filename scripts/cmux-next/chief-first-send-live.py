@@ -249,7 +249,7 @@ def one_round(n, env):
             waited = f"waited for the owner ({'pressed Return again in ' + str(shown[0]) + ': ' + json.dumps(pressed[0])[:80] if pressed else 'sent by itself'}); "
             drive = {"ok": True}
         sent_at = time.time() - started
-        home = rpc("debug.home") or {}
+        home = rpc("debug.home", {"paths": True}) or {}  # paths: the owner's cache file
         cache = (home.get("chief_owner") or {}).get("cache")
         if not drive.get("ok"):
             return False, f"send refused at {sent_at:.1f}s: {json.dumps(drive)[:300]}; at the send {json.dumps(before)}; debug.home {json.dumps(home)[:1500]}", cache
@@ -258,7 +258,7 @@ def one_round(n, env):
             time.sleep(3)  # test harness: a duplicate would follow within the same catch-up
             count = logged(text)
         reached_at = time.time() - started
-        home = rpc("debug.home") or {}
+        home = rpc("debug.home", {"paths": True}) or {}  # paths: the owner's cache file
         cache = (home.get("chief_owner") or {}).get("cache") or cache
         detail = (f"{waited}{'settled' if settled else 'immediate'}: composer {shown_at:.1f}s, send {sent_at:.1f}s, "
                   f"in the brain's log x{count} by {reached_at:.1f}s; at the send {json.dumps(before)}")
