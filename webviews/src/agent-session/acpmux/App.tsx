@@ -110,7 +110,6 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
-  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -119,13 +118,14 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
+  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  withCloudStartFolder,
   withDraftFolder,
   shownCloudStartPick,
+  withCloudStartFolder,
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import {
@@ -567,6 +567,7 @@ import { viewerImages } from "./summary/chatGallery";
 import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
+import { startDevMotionAudit, useStreamAppendDeclaration } from "./devMotionAudit";
 import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools } from "./header/ChatHeaderTools";
 import { HEADER_ACTIONS, guardedChatMenu, menuGroups, type ChatMenuItem } from "./header/chatHeaderToolsModel";
@@ -603,8 +604,6 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
@@ -613,6 +612,8 @@ import {
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   pageOnOtherMachine,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
@@ -2533,6 +2534,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // rules it has not read yet. A chat on another machine or in the cloud gets none.
   const [rules, setRules] = useState<ForumRule[]>([]);
   const turnWorking = snapshot.isWorking;
+  // A streaming reply grows the transcript at its end: a declared layout move.
+  useStreamAppendDeclaration(turnWorking);
   // Only once the chat's summary says where it runs: a remote chat never shows this Mac's rules.
   const rulesLocal = snapshot.summary !== undefined && healthLocal;
   useEffect(() => {
@@ -8837,6 +8840,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         setPreviewHost(host.transport === "preview");
         // Links copy in this build's scheme; only the hostless mock page falls back to Release's.
         setLinkScheme(host.linkScheme, mock ? FALLBACK_LINK_SCHEME : undefined);
+        // Dev builds judge every layout move against the layout-motion contract (devMotionAudit.ts).
+        if (!mock) startDevMotionAudit(host.linkScheme);
         if (mock) markMockPage();
         if (mock)
           setCheckpointVariant(
