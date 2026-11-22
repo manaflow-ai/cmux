@@ -260,7 +260,7 @@ Option-click on the + (a tab of the selected tab's kind) goes to the same place.
 
 ## `tabs.newTabTemplate`
 
-The layout of the New Tab page. On every template but `minimal`, the template dots under the page switch it in place and save the choice here.
+The layout of the New Tab page. On `classic`, the template dots under the page switch it in place and save the choice here.
 
 ```json
 {
@@ -269,15 +269,12 @@ The layout of the New Tab page. On every template but `minimal`, the template do
 ```
 
 - `minimal` (the default): the composer, with its folder and machine, and nothing else.
-- `cards`: one rounded field with the Search and Ask switch (Tab switches), the project and agent chips under it, and three recent chats as tall cards.
-- `default`: one field with agent rows, recent chats as cards, and Tools.
-- `composer`: one large prompt field, with nothing else.
-- `threads`: the field and the recent chats as a list.
-- `console`: a monospace field with a `>` prompt and the recent chats as lines.
 - `classic`: the Terminal, Browser and Agent switch.
-- `terminal`: the `cards` screen. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
+- `terminal`: the `minimal` page. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
 
-Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
+Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate classic`.
+
+The Cards, Default, Threads and Console pages no longer ship as templates: each is now a New Tab page you build and edit yourself with [`tabs.newTabApp`](#tabsnewtabapp). Start from its folder in `skills/cmux-customization/templates/` (`newtab-cards`, `newtab-calm`, `newtab-threads`, `newtab-console`): copy it to `~/.config/cmux/customize`, then run `cmux settings set tabs.newTabApp local/customize`. A config that still names `cards`, `default`, `threads`, `console` or the older `composer` shows `minimal`.
 
 ## `tabs.newTabApp`
 
@@ -1093,7 +1090,7 @@ shows the same keys.
     "omnibar": {
       "remoteSuggestions": true,
       "inlineAutocomplete": true,
-      "maxRows": 8,
+      "maxRows": 6,
       "calculator": true,
       "showFullURLs": false,
       "glass": "off",
@@ -1123,7 +1120,7 @@ shows the same keys.
 - `omnibar.inlineAutocomplete`: complete the typed text to a site's address in the field
   when the text is the start of the host and you typed that address before or visited it
   at least 4 times. Default: `true`.
-- `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `8`.
+- `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `6`.
 - `omnibar.showFullURLs`: show the whole address, with `https://` and `www.`, when you are not
   editing it (Chrome's "Always Show Full URLs"; the address bar's right-click menu toggles it).
   Default: `false`.

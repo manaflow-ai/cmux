@@ -254,6 +254,33 @@ export async function loadRun(
   };
 }
 
+export type LoadToolsOptions = {
+  /// Tool calls to add, and milliseconds between a call and its result (and its result and the next call).
+  count?: number;
+  gap_ms?: number;
+  /// Leave the turn running after them (the next `loadTools` adds to it); false ends it.
+  keep_open?: boolean;
+};
+
+/// `debug.agent_pane load_tools`: short tool calls arrive in the open chat's running turn, each its
+/// call and then its result, with no text between them, as a busy coordinator's do. Each call adds one
+/// row; whatever else renders is waste (render-counts.bench.ts `tool`).
+export async function loadTools(
+  host: { sessionId(): string | undefined; rowCount(): number },
+  options: LoadToolsOptions = {},
+): Promise<Record<string, unknown>> {
+  const mock = MockAcpmuxSocket.live;
+  const session = host.sessionId();
+  if (!mock || !session) return { error: "no load session (run load_seed first)" };
+  const before = host.rowCount();
+  const added = await mock.addLoadTools(session, {
+    count: Math.max(0, Math.floor(options.count ?? 10)),
+    gapMs: Math.max(0, options.gap_ms ?? 60),
+    keepOpen: options.keep_open ?? false,
+  });
+  return { ...added, rows_before: before };
+}
+
 export type LoadTickOptions = {
   seconds?: number;
   /// Milliseconds between the running command's output updates.

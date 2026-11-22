@@ -4,6 +4,54 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// The team's SSO connections, without secrets (owners and admins).
+    SsoConnectionListOp {
+        name: "sso.connection.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session],
+        params: SsoConnectionListParams,
+        result: SsoConnectionListResult,
+        error: SsoConnectionListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionListParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionListResult {
+    pub team: TeamId,
+    pub connections: Vec<SsoConnection>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes sso.connection.list declares.
+    SsoConnectionListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Seal the OIDC client secret (owners and admins). The secret is never returned, logged or recorded in events.
+    SsoConnectionSetSecretOp {
+        name: "sso.connection.set_secret",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: SsoConnectionSetSecretParams,
+        result: SsoConnection,
+        error: SsoConnectionSetSecretError,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SsoConnectionSetSecretParams {
     pub connection: SsoConnectionId,
@@ -849,50 +897,4 @@ pub struct TeamEnrollmentTokenCreateParams {
     pub allowed_domains: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<i64>,
-}
-
-wire_errors! {
-    /// The error codes team.enrollment_token.create declares.
-    TeamEnrollmentTokenCreateError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyInvalid = "policy.invalid",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// List enrollment tokens and managed devices (owners and admins).
-    TeamEnrollmentTokenListOp {
-        name: "team.enrollment_token.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session],
-        params: TeamEnrollmentTokenListParams,
-        result: TeamEnrollmentTokenListResult,
-        error: TeamEnrollmentTokenListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamEnrollmentTokenListParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamEnrollmentTokenListResult {
-    pub team: TeamId,
-    pub tokens: Vec<EnrollmentToken>,
-    pub devices: Vec<ManagedDevice>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes team.enrollment_token.list declares.
-    TeamEnrollmentTokenListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
 }

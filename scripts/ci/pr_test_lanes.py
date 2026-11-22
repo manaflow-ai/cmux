@@ -22,7 +22,10 @@ pull request into BRANCH, and returns the `run:` text that event can execute:
   - ci-guards.yml's guard steps that `scripts/ci/guards-local.sh` runs (its
     default `ci` group, `--group X`, `--all`, or `--feat-routes FILE`: the groups
     detect_linux_guard_changes.classify_feat can route a feat-cmux-next change
-    to), through run_ci_guards.py's plan.
+    to), through run_ci_guards.py's plan;
+  - the step table's steps (ci/steps.toml) of each job a step runs through
+    `ci/run run --job JOB`: the job's setup and every step's `run`, since which
+    steps run is routed by the change's paths.
 
 The registry validator adds what those steps reach indirectly (the
 verify-local.py recipe, workload profiles) and the runner lanes they invoke.
@@ -41,6 +44,8 @@ from pathlib import Path
 WORKFLOWS = Path(".github/workflows")
 ACTIONS = Path(".github/actions")
 GUARDS_LOCAL = re.compile(r"scripts/ci/(?:guards-local\.sh|run_ci_guards\.py)(?P<args>[^\n]*)")
+STEP_TABLE = Path("ci/steps.toml")
+STEP_TABLE_RUN = re.compile(r"(?:ci/run|scripts/ci/ci_steps\.py)\s+run\s[^\n]*?--job[ =](?P<job>[A-Za-z0-9_-]+)")
 LOCAL_WORKFLOW = re.compile(r"^\./\.github/workflows/([A-Za-z0-9_.-]+\.ya?ml)$")
 LOCAL_ACTION = re.compile(r"^\./\.github/actions/([A-Za-z0-9_.-]+)/?$")
 STATUS_FUNCTIONS = ("always()", "cancelled()", "failure()")
@@ -59,6 +64,10 @@ class Unknown:
 UNKNOWN = Unknown()
 # The pull request's label names: unknown, except that a lane cannot depend on one.
 LABELS = Unknown()
+# A job scripts/ci/affected-jobs.json pull_request_skip lists (affected_jobs.PR_SKIP_IF): a pull request skips it,
+# and the feat-cmux-next push that lands the pull request runs it, its red naming the pull requests in its range.
+# That push is the job's lane (the fix-forward the replay measured), so the guard reads as true here.
+PR_SKIP_IF = "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci'))"
 
 
 # --- GitHub Actions expressions, three-valued -------------------------------------------
@@ -252,6 +261,7 @@ def evaluate(condition: object, context: dict[str, object]) -> object:
     text = str(condition).strip()
     if text.startswith("${{") and text.endswith("}}"):
         text = text[3:-2]
+    text = text.replace(PR_SKIP_IF, "true")
     if not text.strip():
         return True
     try:
@@ -430,6 +440,21 @@ def guards_local_texts(root: Path, run: str) -> list[str]:
     return texts
 
 
+def step_table_texts(root: Path, run: str) -> list[str]:
+    """The step table's commands each `ci/run run --job JOB` in `run` can execute: the job's setup and steps."""
+    jobs = {match.group("job") for match in STEP_TABLE_RUN.finditer(run)}
+    if not jobs or not (root / STEP_TABLE).is_file():
+        return []
+    import ci_steps  # noqa: PLC0415 - imported only where a step runs the table
+
+    try:
+        table = ci_steps.load(root / STEP_TABLE)
+    except (OSError, ValueError):
+        return []
+    texts = [command for job, command in table.setup.items() if job in jobs]
+    return texts + [step.run for step in table.steps.values() if step.job in jobs]
+
+
 def action_texts(root: Path, name: str) -> list[str]:
     for filename in ("action.yml", "action.yaml"):
         path = root / ACTIONS / name / filename
@@ -467,6 +492,7 @@ def workflow_texts(root: Path, name: str, context: dict[str, object], seen: tupl
             if run:
                 texts.append(run)
                 texts += guards_local_texts(root, run)
+                texts += step_table_texts(root, run)
             action = LOCAL_ACTION.match(str(step.get("uses", "")))
             if action:
                 texts += action_texts(root, action.group(1))

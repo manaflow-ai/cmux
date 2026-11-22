@@ -635,7 +635,8 @@ class TriggerRunnerTests(unittest.TestCase):
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         # Only a member of the Linux pool, so the nightly runner label policy can read it (HQ
         # tests/test_runner_label_policy.py); a stale or unset pool takes the 4 vCPU member.
-        self.assertIn("contains(fromJSON('[\"cmux-fleet-linux-x64\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux", runs_on)
+        # It holds a write token, so it reads only the ephemeral_only pool (tests/test_ci_ephemeral_pool_readers.py).
+        self.assertNotIn("fromJSON(vars.RUNNER_POOLS).linux)", runs_on)
         self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runs_on)
 
     def test_a_persons_dispatch_is_not_replaced_by_the_next_push(self):

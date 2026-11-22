@@ -11,6 +11,8 @@
 //! workspace lands),
 //! auto-archive's plan (`auto_archive_plan`: which idle workspaces are due
 //! and when to look again),
+//! the sidebar's settled chats (`sidebar_settle_plan`: which seen, finished
+//! chats fold behind Settled, and what Archive Settled Chats archives),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
@@ -239,6 +241,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&auto_archive::plan(&request)).map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_settle_plan" => {
+                use cmux_layout_reducer::settle;
+                let request: settle::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&settle::plan(&request)).map_err(|_| ERR_INVALID)?
+            }
             b"keep_awake_plan" => {
                 use cmux_layout_reducer::keep_awake;
                 let request: keep_awake::Request =
@@ -268,6 +276,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_row_layout::respond(&request))
                     .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_nav" => {
+                use cmux_layout_reducer::sidebar_nav;
+                let request: sidebar_nav::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_nav::respond(&request)).map_err(|_| ERR_INVALID)?
             }
             b"sidebar_section_customization" => {
                 let request: cmux_layout_reducer::sidebar_section_customization::Request =

@@ -139,9 +139,11 @@ import Testing
 
 /// The key row: classic cmux iOS's keys in its default order.
 @Suite struct TerminalKeyRowTests {
-    @Test func theRowIsClassicsOrder() {
-        #expect(Array(KeyBarKey.row.prefix(10)) == [
+    @Test func theRowIsClassicsOrderWithTheArrowsBeforeTheAgents() {
+        // Leo, 2026-11-21: arrows "left of the weird claude/codex/ollama ... buttons".
+        #expect(Array(KeyBarKey.row.prefix(17)) == [
             .control, .alternate, .command, .shift, .paste, .tab, .escape, .returnKey, .chord("c"), .chord("d"),
+            .up, .down, .left, .right, .launcher(.claude), .launcher(.codex), .launcher(.ollama),
         ])
         #expect(Array(KeyBarKey.row.suffix(3)) == [.zoomOut, .zoomIn, .hideChrome])
         #expect(Set(KeyBarKey.row).count == KeyBarKey.row.count)
@@ -149,6 +151,20 @@ import Testing
         #expect(!KeyBarKey.row.contains(.composer))
         #expect(KeyBarKey.chord("l").label == "Clear")
         #expect(KeyBarKey.control.label == "⌃")
+    }
+
+    @Test func everyLayoutHasEveryKeyOnceAndTheArrowsBeforeTheAgents() {
+        let reference = Set(KeyBarLayout.standard.scroller)
+        for layout in KeyBarLayout.allCases {
+            let row = layout.scroller
+            #expect(Set(row) == reference, "\(layout)")
+            #expect(row.count == reference.count, "\(layout)")
+            #expect(row.last == .hideChrome)
+            let lastArrow = row.lastIndex { KeyBarKey.arrows.contains($0) }
+            let firstAgent = row.firstIndex { if case .launcher = $0 { true } else { false } }
+            #expect(lastArrow! < firstAgent!, "\(layout)")
+        }
+        #expect(KeyBarLayout.standard == .arrowsBeforeAgents)
     }
 
     @Test func launchersTypeClassicsCommands() {

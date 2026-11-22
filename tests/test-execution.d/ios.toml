@@ -2,6 +2,10 @@
 # scripts/ci/test_execution_registry.py says how the registry is split and read.
 
 [[test]]
+path = "tests/test_ios_app_package_paths.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_app_review_gate.py"
 lane = "linux-guard"
 
@@ -28,6 +32,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ios_ffi_cache.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_gate_screen_diff.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/ios_gate_screen_diff.py, the App Review gate report's warn-only screen diff against feat-cmux-next (identical, changed justified and unjustified, new, removed, no baseline, every PNG filter); run python3 tests/test_ios_gate_screen_diff.py yourself after changing it (under a second, no build, no Pillow)."
 
 [[test]]
 path = "tests/test_ios_internal_builder.py"

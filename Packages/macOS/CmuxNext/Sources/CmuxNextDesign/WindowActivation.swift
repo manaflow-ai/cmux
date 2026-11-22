@@ -4,7 +4,7 @@ public import AppKit
 /// startup, `UpdateRelaunchFocus`), windows that open or come forward are ordered in without taking
 /// key, so the app the user is in keeps the keyboard.
 @MainActor public protocol ActivationRefusing: AnyObject {
-    var refusesActivation: Bool { get }
+    var refusesActivation: Bool { get set }
 }
 
 /// The one owner of window ordering, key-window changes and app activation.

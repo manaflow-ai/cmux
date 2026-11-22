@@ -67,6 +67,8 @@ public final class SettingsApplier {
         if design.hideLoneChatTab != snapshot.hideLoneChatTab { design.hideLoneChatTab = snapshot.hideLoneChatTab }
         if design.stripScrollbar != snapshot.stripScrollbar { design.stripScrollbar = snapshot.stripScrollbar }
         if design.sidebarSections != snapshot.sidebarSections { design.sidebarSections = snapshot.sidebarSections }
+        let agentBadges = AgentBadgesExperiment(switches: snapshot.experimentSwitches)
+        if design.agentBadges != agentBadges { design.agentBadges = agentBadges }
         if design.hoverCardsEnabled != snapshot.hoverCards.enabled { design.hoverCardsEnabled = snapshot.hoverCards.enabled }
         let pageDeveloperTools = AppPageDevToolsSetting().value(in: snapshot.root)
         if design.pageDeveloperTools != pageDeveloperTools { design.pageDeveloperTools = pageDeveloperTools }
@@ -74,6 +76,7 @@ public final class SettingsApplier {
         if design.inactiveWindowDim != snapshot.inactiveWindowDim { design.inactiveWindowDim = snapshot.inactiveWindowDim }
         if design.wallpaperTint != snapshot.wallpaperTint { design.wallpaperTint = snapshot.wallpaperTint }
         if design.agentGlowEnabled != snapshot.agentGlow { design.agentGlowEnabled = snapshot.agentGlow }
+        if design.previousGlass != snapshot.previousGlass { design.previousGlass = snapshot.previousGlass }
         let hoverCardDelay = Duration.milliseconds(Int(snapshot.hoverCards.delayMilliseconds.rounded()))
         if design.hoverCardDelay != hoverCardDelay { design.hoverCardDelay = hoverCardDelay }
         let workspaceHoverCard = snapshot.hoverCards.workspaceCardOptions

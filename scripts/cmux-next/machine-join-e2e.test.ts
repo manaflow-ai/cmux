@@ -67,6 +67,10 @@ const HOST_RD = `${HOME}/.local/bin/cmux-rd`
 const VIEWER_USER = "cmuxview-1-1"
 const VIEWER_HOME = "/tmp/machine-join-e2e.test/viewer"
 const shareOpts: Options = { ...opts, share: { cmuxRd: CMUX_RD, viewerUser: VIEWER_USER, viewerHome: VIEWER_HOME, hub: DEV_DEVICE_HUB } }
+/** share_install: channel: the join line's cmux-rd step installs the host's cmux-rd, whose sha256 the channel names. */
+const JOIN_SCRIPT = "/tmp/machine-join-e2e.test/bin/machine-join.sh"
+const RD_SHA = "c".repeat(64)
+const channelOpts: Options = { ...opts, share: { ...shareOpts.share!, install: { joinScript: JOIN_SCRIPT, sha256: RD_SHA } } }
 /** What `cmux-rd view` writes to its --stats-file (view/stream.rs). */
 const VIEW_REPORT = {
   view: {
@@ -86,6 +90,7 @@ const VIEW_REPORT = {
 }
 
 interface Knobs {
+  doctor?: ChildResult
   /** What the --bench script prints and how it exits. */
   bench?: ChildResult
   mintStatus?: number
@@ -190,6 +195,10 @@ interface ShareKnobs {
   requests?: string
   /** Where ~/.local/bin/cmux-rd resolves to. */
   linkTarget?: string
+  /** share_install: channel. ~/.local/bin/cmux-rd is there before the join. */
+  rdBeforeJoin?: boolean
+  /** What the join line's cmux-rd step leaves: the channel's build (default), nothing, another build or a link. */
+  rdInstall?: "channel" | "nothing" | "other" | "link"
   /** Files the viewer leaves in its home (keys under HOME, for tarOf). */
   viewerHomeFiles?: Record<string, string>
 }
@@ -368,6 +377,9 @@ function world(k: Knobs = {}) {
   // Once the daemon runs: when each status read started and ended.
   const statusReads: Array<{ start: number; end: number }> = []
   const acpmux = async (args: string[], stdin: string | undefined, signal?: AbortSignal, timeoutMs = 60_000): Promise<ChildResult> => {
+    if (args.join(" ") === "host doctor --here --json") {
+      return k.doctor ?? { code: 1, stdout: JSON.stringify({ report: { steps: [] } }) + "\n", stderr: "" }
+    }
     if (args.join(" ") === "host join --status --json") {
       const delay = daemonUp ? (k.statusDelays?.[daemonStatusReads] ?? k.statusDelayMs) : undefined
       if (delay !== undefined) {
@@ -469,8 +481,28 @@ function world(k: Knobs = {}) {
     }
     return { code: 1, stdout: "", stderr: "unknown viewer command\n" }
   }
+  // share_install: channel. What is at ~/.local/bin/cmux-rd, and the join line's cmux-rd step runs.
+  let hostRdFile: "absent" | "channel" | "other" | "link" = sk.rdBeforeJoin ? "other" : "absent"
+  const rdSteps: Array<{ cmd: string[]; joined: boolean; daemonUp: boolean }> = []
   const hostRun = (cmd: string[]): ChildResult | undefined => {
     if (cmd[0] === "id") return { code: 0, stdout: "1001\n", stderr: "" }
+    if (cmd[0] === "ls" && cmd[3] === HOST_RD) return hostRdFile === "absent" ? { code: 2, stdout: "", stderr: "No such file or directory\n" } : { code: 0, stdout: `${HOST_RD}\n`, stderr: "" }
+    if (cmd[0] === "/usr/bin/env" && cmd[1] === "CMUX_JOIN_STEP=cmux-rd") {
+      rdSteps.push({ cmd, joined, daemonUp })
+      const left = sk.rdInstall ?? "channel"
+      if (left !== "nothing") hostRdFile = left
+      return left === "nothing"
+        ? { code: 0, stdout: "", stderr: "cmux join: warning: cmux-rd did not install (cannot download cmux-rd for x86_64-unknown-linux-gnu)\n" }
+        : { code: 0, stdout: "", stderr: "cmux join: installed cmux-rd\n" }
+    }
+    if (cmd[0] === "stat" && cmd[2] === "%F" && cmd[4] === HOST_RD) {
+      if (hostRdFile === "absent") return { code: 1, stdout: "", stderr: "No such file or directory\n" }
+      return { code: 0, stdout: hostRdFile === "link" ? "symbolic link\n" : "regular file\n", stderr: "" }
+    }
+    if (cmd[0] === "sha256sum" && cmd[2] === HOST_RD) {
+      if (hostRdFile === "absent") return { code: 1, stdout: "", stderr: "No such file or directory\n" }
+      return { code: 0, stdout: `${hostRdFile === "other" ? "b".repeat(64) : RD_SHA}  ${HOST_RD}\n`, stderr: "" }
+    }
     if (cmd[0] === "readlink") return { code: 0, stdout: `${sk.linkTarget ?? CMUX_RD}\n`, stderr: "" }
     if (cmd[0] !== "/usr/bin/env" || cmd[1] !== "XDG_RUNTIME_DIR=/run/user/1001" || cmd[2] !== "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus") return undefined
     const rest = cmd.slice(3)
@@ -605,6 +637,7 @@ function world(k: Knobs = {}) {
     viewerRuns,
     viewerSpawns,
     hostCmds,
+    rdSteps,
     now: () => clock,
     evidenceText: () => files[`written:${opts.evidence}`] ?? ""
   }
@@ -708,7 +741,7 @@ describe("the full run", () => {
     expect(e.reason).toBe("joined, heartbeat, listed, consent none, mode 600, revoked, no secrets found")
     expect(e.result).toBe("pass")
     expect(Object.keys(JSON.parse(w.evidenceText())).sort()).toEqual(
-      ["consent", "credentialFileMode", "hubOrigin", "joinTokenId", "list", "machineId", "name", "reason", "result", "revoke", "run", "secretScan", "status", "teamId"].sort()
+      ["consent", "credentialFileMode", "hubOrigin", "joinSeconds", "joinTokenId", "list", "machineId", "name", "reason", "result", "revoke", "run", "secretScan", "status", "teamId"].sort()
     )
     expect(e).toMatchObject({
       hubOrigin: DEV_PLATFORM,
@@ -722,6 +755,7 @@ describe("the full run", () => {
       secretScan: { home: { cmj: 0, cmm: 0, credentialFileCmm: 1 }, log: { cmj: 0, cmm: 0 }, evidence: { cmj: 0, cmm: 0 } },
       revoke: { revokedListed: true, statusRevoked: true }
     })
+    expect(e.joinSeconds).toBeGreaterThanOrEqual(0)
     expect(e.status.heartbeatAgeSeconds).toBeLessThan(90)
     assertNoSecretEscaped(w)
   })
@@ -758,6 +792,15 @@ describe("the full run", () => {
 })
 
 describe("failure paths", () => {
+  test("a missing doctor report fails and still revokes the machine", async () => {
+    const w = world({ doctor: { code: 64, stdout: "", stderr: "unknown command\n" } })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("doctor: no machine-readable report")
+    expect(e.revoke.revokedListed).toBe(true)
+    assertNoSecretEscaped(w)
+  })
+
   test("a refused mint fails without starting acpmux, and the install is revoked", async () => {
     const w = world({ mintStatus: 429 })
     const e = await runE2E(opts, env, w.deps)
@@ -1484,7 +1527,7 @@ describe("the zero-touch share", () => {
         rest[0] === "/bin/kill" ||
         a.includes("/bin/kill") ||
         (rest[0] === HOST_RD && rest.slice(1).join(" ") === "linux-host requests") ||
-        (rest[0] === opts.acpmux && ["host join --status --json", "share-host status --json"].includes(rest.slice(1).join(" ")))
+        (rest[0] === opts.acpmux && ["host join --status --json", "host doctor --here --json", "share-host status --json"].includes(rest.slice(1).join(" ")))
       )
     }
     return w.runs.slice(started + 1).filter((r) => r.argv[3] === opts.user && !reads(r.argv)).map((r) => r.argv.slice(14).join(" "))
@@ -1658,6 +1701,56 @@ describe("the zero-touch share", () => {
     expect(e.reason).toContain("share: linux-host requests on the host is not empty")
   })
 
+  test("share_install channel: the join line installs the channel's cmux-rd, then the share passes as before", async () => {
+    const w = world({ share: {} })
+    const e = await runE2E(channelOpts, shareEnv, w.deps)
+    expect(e.reason).toBe("joined, heartbeat, listed, consent none, mode 600, shared with no step on the host, another account refused, revoked, no secrets found")
+    expect(e.result).toBe("pass")
+    expect(e.share).toMatchObject({ install: "channel", channelInstall: { regularFile: true, sha256Matches: true }, hostSteps: 0, deviceId: "dev_host1" })
+    // Once, as the joined user, through the root-owned script's cmux-rd step: after the join, before the daemon.
+    expect(w.rdSteps).toHaveLength(1)
+    expect(w.rdSteps[0]!.cmd).toEqual(["/usr/bin/env", "CMUX_JOIN_STEP=cmux-rd", "CMUX_JOIN_INTERACTIVE=0", "/bin/sh", JOIN_SCRIPT])
+    expect(w.rdSteps[0]).toMatchObject({ joined: true, daemonUp: false })
+    const step = w.runs.find((r) => r.argv.includes("CMUX_JOIN_STEP=cmux-rd"))!
+    expect(step.argv.slice(0, 4)).toEqual(["sudo", "-n", "-u", opts.user])
+    expect(step.stdin).toBeUndefined()
+    // No link to the run's build: the host's cmux-rd is the channel's.
+    expect(w.runs.some((r) => r.argv.includes("readlink"))).toBe(false)
+    expect(hostStepsAfterDaemon(w)).toEqual([])
+    expect(w.runs.some((r) => r.argv.includes("enable"))).toBe(false)
+    // The viewer still uses the run's build.
+    expect(w.viewerSpawns[0]!.cmd[0]).toBe(CMUX_RD)
+    assertNoSecretEscaped(w, USERS)
+  })
+
+  test("share_install channel: a join that leaves no cmux-rd, another build or a link fails the share", async () => {
+    for (const rdInstall of ["nothing", "other", "link"] as const) {
+      const w = world({ share: { rdInstall } })
+      const e = await runE2E(channelOpts, shareEnv, w.deps)
+      expect(e.result).toBe("fail")
+      expect(e.reason).toContain("share: the join did not install the channel's cmux-rd at ~/.local/bin/cmux-rd")
+      expect(e.share!.channelInstall).toEqual({
+        regularFile: rdInstall === "other",
+        sha256Matches: rdInstall === "link"
+      })
+      // The share does not run on it; the join's checks and the revoke still do.
+      expect(w.viewerSpawns).toEqual([])
+      expect(e.revoke.revokedListed).toBe(true)
+    }
+    const w = world({ share: { rdInstall: "nothing" } })
+    const e = await runE2E(channelOpts, shareEnv, w.deps)
+    expect(e.reason).toContain("(cmux join: warning: cmux-rd did not install (cannot download cmux-rd for x86_64-unknown-linux-gnu))")
+  })
+
+  test("share_install channel: a cmux-rd already in place before the join stops the share", async () => {
+    const w = world({ share: { rdBeforeJoin: true } })
+    const e = await runE2E(channelOpts, shareEnv, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("share: ~/.local/bin/cmux-rd is there before the join, so the join's install is not tested")
+    expect(w.rdSteps).toEqual([])
+    expect(e.revoke.revokedListed).toBe(true)
+  })
+
   test("a host cmux-rd that is not the run's build stops the share before the join", async () => {
     const w = world({ share: { linkTarget: "/usr/local/bin/cmux-rd" } })
     const e = await runE2E(shareOpts, shareEnv, w.deps)
@@ -1685,12 +1778,19 @@ describe("the zero-touch share", () => {
     expect(refusal({ ...shareOpts, share: { ...shareOpts.share!, viewerUser: "root" } })).toContain("viewer user")
     expect(refusal({ ...shareOpts, share: { ...shareOpts.share!, viewerHome: HOME } })).toContain("viewer home")
     expect(refusal({ ...shareOpts, share: { ...shareOpts.share!, cmuxRd: "cmux-rd" } })).toContain("cmux-rd")
+    expect(refusal(channelOpts)).toBeUndefined()
+    const install = channelOpts.share!.install!
+    expect(refusal({ ...channelOpts, share: { ...channelOpts.share!, install: { ...install, joinScript: "machine-join.sh" } } })).toContain("join script")
+    expect(refusal({ ...channelOpts, share: { ...channelOpts.share!, install: { ...install, sha256: "C".repeat(64) } } })).toContain("sha256")
+    expect(refusal({ ...channelOpts, share: { ...channelOpts.share!, install: { ...install, sha256: "" } } })).toContain("sha256")
   })
 
   test("share flags parse; without them there is no share", () => {
     const base = ["--origin", DEV_PLATFORM, "--acpmux", opts.acpmux, "--user", opts.user, "--home", HOME, "--name", "ci-join-1", "--evidence", opts.evidence, "--run", "1", "--sha", opts.sha]
     expect(parseArgs(base).share).toBeUndefined()
-    expect(parseArgs([...base, "--share-cmux-rd", CMUX_RD, "--viewer-user", VIEWER_USER, "--viewer-home", VIEWER_HOME, "--device-hub", DEV_DEVICE_HUB]).share).toEqual(shareOpts.share)
+    const share = [...base, "--share-cmux-rd", CMUX_RD, "--viewer-user", VIEWER_USER, "--viewer-home", VIEWER_HOME, "--device-hub", DEV_DEVICE_HUB]
+    expect(parseArgs(share).share).toEqual(shareOpts.share)
+    expect(parseArgs([...share, "--share-install-script", JOIN_SCRIPT, "--share-rd-sha256", RD_SHA]).share).toEqual(channelOpts.share)
   })
 
   test("the list, the device and the report parsers", () => {

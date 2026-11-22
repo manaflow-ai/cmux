@@ -14,8 +14,7 @@ pub(super) const TOOLS: &[&str] = &["watch_add", "watch_ls", "watch_rm"];
 
 /// The instruction the server gives with the tools.
 pub(super) const STEER: &str = "To learn when other sessions finish or get blocked, call \
-watch_add once with them instead of polling them with ls, last or info: the daemon wakes this chat \
-with one message when one of them is done, even across restarts.";
+watch_add once instead of polling ls, last or info.";
 
 pub(super) fn tools() -> Vec<Value> {
     vec![
