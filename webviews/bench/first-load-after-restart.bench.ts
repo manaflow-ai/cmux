@@ -169,7 +169,10 @@ const VIEWPORT = { width: 1200, height: 800 };
 /// HEIGHT_DELTA=N: the relaunch's viewport is N px shorter than the warm one (0, the default, is the same).
 const HEIGHT_DELTA = Number(process.env.HEIGHT_DELTA ?? 0);
 if (!Number.isFinite(HEIGHT_DELTA) || Math.abs(HEIGHT_DELTA) > 64) throw new Error("HEIGHT_DELTA must be within 64");
-const RELAUNCH_VIEWPORT = { width: VIEWPORT.width, height: VIEWPORT.height - HEIGHT_DELTA };
+const RELAUNCH_VIEWPORT = {
+  width: VIEWPORT.width,
+  height: VIEWPORT.height - HEIGHT_DELTA,
+};
 /// PAGES=N: the recorded page and N-1 other restored chat pages load at once, as a restart restores every
 /// workspace's chats (1, the default, is the recorded page alone).
 const PAGES = Number(process.env.PAGES ?? 1);
@@ -180,6 +183,11 @@ const chatSnapshotSource = path.join(webviews, "src/agent-session/acpmux/chatSna
 
 /// RUNNING=1: the chat's last turn is still running when the app restarts, as a working agent's is.
 const RUNNING = process.env.RUNNING === "1";
+/// BOUND=1 (goal settled-page-ceiling, bench/settled-page.bench.ts): after each round, the page's settled DOM (scripts
+/// removed, the scroller's offset kept) loads as a static document in the same context state (the warm renderer for a
+/// reopen, a new cold context for a relaunch), and `boundMs` is its first paint from navigation: what putting the final
+/// pixels up costs with no app code. The rounds in FIRST_LOAD_JSON carry it.
+const BOUND = process.env.BOUND === "1";
 /// CPU=N slows each relaunched page's CPU N times (CDP Emulation.setCPUThrottlingRate), as a loaded
 /// Mac does after an update (Leo's cosmic-gray, 2026-11-16: load1 150 on 15 cores, 100-570 ms frames for
 /// 40 s after the restart): a settle that takes several frames then shows each of them. 1 (the default) is off.
@@ -230,7 +238,10 @@ const REPORTED = {
       category: "thought_level",
       type: "select",
       currentValue: "high",
-      options: ["low", "medium", "high"].map((level) => ({ value: level, name: level })),
+      options: ["low", "medium", "high"].map((level) => ({
+        value: level,
+        name: level,
+      })),
     },
   ],
 };
@@ -270,7 +281,12 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
     case "_acpmux/attach": {
       // As the daemon does: the newest `limit` events within `maxBytes`, and hasMore while older ones remain.
       const { page, hasMore } = newest(Number(params.limit ?? 400), Infinity, params.maxBytes);
-      return { session, lastSeq: events.at(-1)?.seq ?? 0, events: page, hasMore };
+      return {
+        session,
+        lastSeq: events.at(-1)?.seq ?? 0,
+        events: page,
+        hasMore,
+      };
     }
     case "_acpmux/events": {
       // The prompt index (hub/paging.rs prompt_index): every prompt before `beforeSeq`, each cut to its text.
@@ -278,8 +294,15 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
         const before = params.beforeSeq === undefined ? Infinity : Number(params.beforeSeq);
         const prompts = events
           .filter((event) => event.kind === "user_message" && event.seq < before)
-          .map((event) => ({ ...event, msg: { text: String((event.msg as { text?: string }).text ?? "") } }));
-        return { events: prompts, hasMore: false, lastSeq: events.at(-1)?.seq ?? 0 };
+          .map((event) => ({
+            ...event,
+            msg: { text: String((event.msg as { text?: string }).text ?? "") },
+          }));
+        return {
+          events: prompts,
+          hasMore: false,
+          lastSeq: events.at(-1)?.seq ?? 0,
+        };
       }
       if (params.beforeSeq !== undefined) {
         const { page, hasMore } = newest(Number(params.limit ?? 400), Number(params.beforeSeq), params.maxBytes);
@@ -299,7 +322,11 @@ type Painted = FrameRecord & {
   /// The live root was held clear (opacity 0) with no copy over it: nothing of the chat showed.
   rootHidden: boolean;
 };
-type LayoutShiftSeen = { at: number; value: number; moved: { node: string; from: number[]; to: number[] }[] };
+type LayoutShiftSeen = {
+  at: number;
+  value: number;
+  moved: { node: string; from: number[]; to: number[] }[];
+};
 type Recording = {
   frames: Painted[];
   /// The layout-shift entries' sum over the recording (none with recent input).
@@ -315,7 +342,12 @@ type Recording = {
 };
 type BenchWindow = {
   __firstLoad: Recording;
-  __benchHost: { tailAskedAt: number; tailCalls: number; readyAnsweredAt: number; asks: number[] };
+  __benchHost: {
+    tailAskedAt: number;
+    tailCalls: number;
+    readyAnsweredAt: number;
+    asks: number[];
+  };
   __cmuxChatSnapshotMiss?: string;
   __cmuxChatSnapshotShown?: { at: number; swappedAt?: number };
   captureSnapshot: (doc: Document, theme: string) => ChatSnapshot | undefined;
@@ -340,7 +372,12 @@ function installHost({
 }) {
   /// `asks`: when the page asked for a socket to acpmux (ms from navigation): each `transport.open` over
   /// the bridge, each `new WebSocket` to it on the dev slot's transport.
-  const asked = { tailAskedAt: 0, tailCalls: 0, readyAnsweredAt: 0, asks: [] as number[] };
+  const asked = {
+    tailAskedAt: 0,
+    tailCalls: 0,
+    readyAnsweredAt: 0,
+    asks: [] as number[],
+  };
   (window as unknown as { __benchHost: typeof asked }).__benchHost = asked;
   if (!bridge) {
     const Native = window.WebSocket;
@@ -356,8 +393,11 @@ function installHost({
   const transport = (method: string, params: Record<string, unknown> | undefined): Promise<Own> | undefined => {
     if (!bridge || !["transport.open", "transport.send", "transport.close"].includes(method)) return undefined;
     if (method === "transport.open") asked.asks.push(performance.now());
-    const call = (window as unknown as { __benchTransport: (method: string, params: unknown) => Promise<Own> })
-      .__benchTransport;
+    const call = (
+      window as unknown as {
+        __benchTransport: (method: string, params: unknown) => Promise<Own>;
+      }
+    ).__benchTransport;
     return call(method, params ?? {});
   };
   // Wrap the dev host's real ready answer, withholding it just as a daemon handoff does; over the bridge
@@ -387,10 +427,23 @@ function installHost({
             if (envelope)
               return reply.ok
                 ? { t: "ok", id: request.id, value: reply.value }
-                : { t: "err", id: request.id, code: reply.code, message: reply.message, details: { origin: "native" } };
+                : {
+                    t: "err",
+                    id: request.id,
+                    code: reply.code,
+                    message: reply.message,
+                    details: { origin: "native" },
+                  };
             return reply.ok
               ? reply
-              : { ok: false, error: { code: reply.code, message: reply.message, origin: "native" } };
+              : {
+                  ok: false,
+                  error: {
+                    code: reply.code,
+                    message: reply.message,
+                    origin: "native",
+                  },
+                };
           }
           if (!["ready", "handshake"].includes(method)) return post(request);
           // A refusal the host names (a coded error, not a recovery): the pane says it at once, with Retry.
@@ -398,7 +451,13 @@ function installHost({
             const code = "acpmux.unavailable";
             const message = "acpmux is not running";
             return envelope
-              ? { t: "err", id: request.id, code, message, details: { origin: "native" } }
+              ? {
+                  t: "err",
+                  id: request.id,
+                  code,
+                  message,
+                  details: { origin: "native" },
+                }
               : { ok: false, error: { code, message, origin: "native" } };
           }
           if (readyDelayMs > 0) {
@@ -406,10 +465,17 @@ function installHost({
             await new Promise((done) => setTimeout(done, Math.max(0, readyDelayMs - performance.now())));
             asked.readyAnsweredAt = performance.now();
           }
-          const reply = (await post(request)) as { ok?: boolean; t?: string; value?: Record<string, unknown> };
+          const reply = (await post(request)) as {
+            ok?: boolean;
+            t?: string;
+            value?: Record<string, unknown>;
+          };
           if (bridge && (reply?.ok || reply?.t === "ok") && reply.value) {
             const { endpoint: _endpoint, token: _token, ...value } = reply.value;
-            return { ...reply, value: { ...value, transport: "acpmux-bridge" } };
+            return {
+              ...reply,
+              value: { ...value, transport: "acpmux-bridge" },
+            };
           }
           return reply;
         };
@@ -470,7 +536,11 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
     },
   };
   (window as unknown as { __firstLoad: typeof recording }).__firstLoad = recording;
-  type Source = { node?: Node | null; previousRect: DOMRectReadOnly; currentRect: DOMRectReadOnly };
+  type Source = {
+    node?: Node | null;
+    previousRect: DOMRectReadOnly;
+    currentRect: DOMRectReadOnly;
+  };
   /// A box by its class names and its parent's first one ("acpmux-main > div.acpmux-dock").
   const named = (node: Node | null | undefined): string => {
     if (!(node instanceof Element)) return node?.nodeName ?? "?";
@@ -516,7 +586,11 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
         const box = row.getBoundingClientRect();
         if (box.height <= 0 || box.bottom <= view.top || box.top >= view.bottom) continue;
         if (Number(getComputedStyle(row).opacity) === 0) continue;
-        rows.push({ id: row.dataset.rowId ?? "", top: box.top, text: row.textContent ?? "" });
+        rows.push({
+          id: row.dataset.rowId ?? "",
+          top: box.top,
+          text: row.textContent ?? "",
+        });
       }
     rows.sort((a, b) => a.top - b.top);
     const composer = rootHidden
@@ -559,7 +633,11 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
 }
 
 type CpuProfile = {
-  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number }; children?: number[] }[];
+  nodes: {
+    id: number;
+    callFrame: { functionName: string; url: string; lineNumber: number };
+    children?: number[];
+  }[];
   samples: number[];
   timeDeltas: number[];
 };
@@ -664,6 +742,8 @@ type Round = {
   lastAskMs: number | null;
   /// Bytes the daemon sent the page over the link this round.
   bytesDown: number;
+  /// BOUND=1: the settled DOM's first paint as a static document, ms from navigation; else null.
+  boundMs: number | null;
 };
 
 const releases: [string, () => unknown][] = [];
@@ -677,7 +757,13 @@ try {
   let downUntil = 0;
   let wireT0 = 0;
   /// This relaunch's socket timeline (epoch ms).
-  let load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0 };
+  let load = {
+    refused: 0,
+    socketOpenedAt: 0,
+    initializeAnsweredAt: 0,
+    attachAnsweredAt: 0,
+    bytesDown: 0,
+  };
   /// TRACE: the daemon calls a spare page made before its adopt event.
   const spareCalls: string[] = [];
   let servingSpare = false;
@@ -698,7 +784,11 @@ try {
         load.socketOpenedAt ||= Date.now();
       },
       message(ws, raw) {
-        const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
+        const message = JSON.parse(String(raw)) as {
+          id?: number;
+          method: string;
+          params?: Record<string, unknown>;
+        };
         if (message.id === undefined) return;
         if (servingSpare)
           spareCalls.push(
@@ -760,7 +850,10 @@ try {
     )
       .split("\n")
       .filter(Boolean);
-    const top = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: webviews, encoding: "utf8" }).trim();
+    const top = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd: webviews,
+      encoding: "utf8",
+    }).trim();
     for (const file of changed)
       priorSources.set(
         path.join(top, file),
@@ -774,14 +867,28 @@ try {
   }
   console.log(`pane source: ${sourceRef ?? "worktree"}`);
   await build({
-    plugins: [{ name: "immutable-pane-baseline", enforce: "pre", load: (id) => priorSources.get(id) }],
+    plugins: [
+      {
+        name: "immutable-pane-baseline",
+        enforce: "pre",
+        load: (id) => priorSources.get(id),
+      },
+    ],
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
     // PROFILE=1 keeps names, so the adopt profile names the pane's own functions.
-    build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
+    build: {
+      outDir: out,
+      emptyOutDir: true,
+      ...(PROFILE ? { minify: false } : {}),
+    },
     logLevel: "error",
   });
   const bundle = async (entry: string): Promise<string> => {
-    const built = await Bun.build({ entrypoints: [entry], format: "iife", target: "browser" });
+    const built = await Bun.build({
+      entrypoints: [entry],
+      format: "iife",
+      target: "browser",
+    });
     if (!built.success) throw new Error(built.logs.map(String).join("\n"));
     return await built.outputs[0]!.text();
   };
@@ -851,16 +958,25 @@ try {
 
   /// The copy the host serves this load (`__snapshot/chat.js`): null on the warm load, as with none kept.
   let servedCopy: ChatSnapshot | null = null;
+  /// BOUND=1: the settled copy of the round's page (`/__bound.html`).
+  let boundHtml = "";
   // A spare New Tab page's load (`servingSpare`) is served no restored chat: it is no chat's page until adopted.
   const script = (body: string) =>
-    new Response(body, { headers: { "Content-Type": "text/javascript", "Cache-Control": "no-store" } });
+    new Response(body, {
+      headers: {
+        "Content-Type": "text/javascript",
+        "Cache-Control": "no-store",
+      },
+    });
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
     async fetch(request) {
       const pathname = new URL(request.url).pathname;
       if (pathname === "/" || pathname === "/index.html")
-        return new Response(index, { headers: { "Content-Type": "text/html", "Cache-Control": "no-store" } });
+        return new Response(index, {
+          headers: { "Content-Type": "text/html", "Cache-Control": "no-store" },
+        });
       // As the page host answers it (AgentPageResources.swift): the globals, then the boot if it ran first.
       if (pathname === "/__snapshot/chat.js" && servingSpare)
         return script(`self.${SNAPSHOT_GLOBAL}=null;self.${SNAPSHOT_THEME_GLOBAL}=${JSON.stringify(THEME)};`);
@@ -869,6 +985,10 @@ try {
           `self.${SNAPSHOT_GLOBAL}=${JSON.stringify(servedCopy)};self.${SNAPSHOT_THEME_GLOBAL}=${JSON.stringify(THEME)};self.__cmuxRestoredChat=${JSON.stringify(PAPERCUT_CHAT)};self.dispatchEvent(new Event('cmux-restored-chat'));self.${SNAPSHOT_BOOT_GLOBAL}?.();`,
         );
       if (pathname === "/chat-snapshot.js") return script(bootScript);
+      if (pathname === "/__bound.html")
+        return new Response(boundHtml, {
+          headers: { "Content-Type": "text/html", "Cache-Control": "no-store" },
+        });
       const file = Bun.file(path.join(out, pathname));
       return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
     },
@@ -912,7 +1032,9 @@ try {
         .then(() =>
           page.evaluate((pushed) => {
             (
-              window as unknown as { cmuxAcpmuxTransport?: { receive(event: unknown): void } }
+              window as unknown as {
+                cmuxAcpmuxTransport?: { receive(event: unknown): void };
+              }
             ).cmuxAcpmuxTransport?.receive(pushed);
           }, event),
         )
@@ -934,11 +1056,22 @@ try {
         await connectDelay(LINK);
         const socket = new WebSocket(`ws://127.0.0.1:${daemon.port}/`);
         const opened = await new Promise<boolean>((resolve) => {
-          socket.addEventListener("open", () => resolve(true), { once: true });
-          socket.addEventListener("error", () => resolve(false), { once: true });
-          socket.addEventListener("close", () => resolve(false), { once: true });
+          socket.addEventListener("open", () => resolve(true), {
+            once: true,
+          });
+          socket.addEventListener("error", () => resolve(false), {
+            once: true,
+          });
+          socket.addEventListener("close", () => resolve(false), {
+            once: true,
+          });
         });
-        if (!opened) return { ok: false, code: "transport.connect_failed", message: "acpmux refused the socket" };
+        if (!opened)
+          return {
+            ok: false,
+            code: "transport.connect_failed",
+            message: "acpmux refused the socket",
+          };
         sockets.set(connection, socket);
         // LINK: daemon to page and page to daemon each go through one pipe of the simulated link, in order.
         const down = new LinkPipe(LINK);
@@ -953,7 +1086,10 @@ try {
           if (!sockets.delete(connection)) return;
           // The close is the last thing down the pipe; then the pipe stops.
           down.send("", () => {
-            push({ connection, closed: { code: event.code, reason: event.reason } });
+            push({
+              connection,
+              closed: { code: event.code, reason: event.reason },
+            });
             down.close();
             up.close();
           });
@@ -983,8 +1119,17 @@ try {
   const prepare = async (page: Page, tail: unknown, windowMs: number, readyDelayMs = 0, refuseUntilMs = 0) => {
     await installPaintedFrames(page);
     if (BRIDGE) await serveBridge(page);
-    await page.addInitScript(installHost, { tail, readyDelayMs, refuseUntilMs, bridge: BRIDGE });
-    await page.addInitScript(recordFrames, { windowMs, latest: LATEST, hostTag: SNAPSHOT_HOST_TAG });
+    await page.addInitScript(installHost, {
+      tail,
+      readyDelayMs,
+      refuseUntilMs,
+      bridge: BRIDGE,
+    });
+    await page.addInitScript(recordFrames, {
+      windowMs,
+      latest: LATEST,
+      hostTag: SNAPSHOT_HOST_TAG,
+    });
   };
 
   /// TRACE=1: the boxes in the page's bottom band (from the composer's top down), by class, so a composer
@@ -1029,7 +1174,10 @@ try {
         const w = window as unknown as BenchWindow;
         w.__firstLoad.stop();
         const snapshot = w.captureSnapshot(document, theme);
-        return { snapshot: snapshot ?? null, miss: snapshot ? "" : w.captureMiss() };
+        return {
+          snapshot: snapshot ?? null,
+          miss: snapshot ? "" : w.captureMiss(),
+        };
       }, THEME);
       if (TRACE) console.log(`warm bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
       if (!written.snapshot) throw new Error(`the settled page wrote no copy: ${written.miss}`);
@@ -1103,12 +1251,16 @@ try {
       }
       const start = await page.evaluate(
         ({ session, tail, recordMs }) => {
-          const w = window as unknown as BenchWindow & { __firstLoadUntil?: number };
+          const w = window as unknown as BenchWindow & {
+            __firstLoadUntil?: number;
+          };
           const at = performance.now();
           const shift = w.__firstLoad.layoutShift;
           w.__firstLoadUntil = at + recordMs;
           window.dispatchEvent(
-            new CustomEvent("acpmux-session-adopt", { detail: { sessionId: session, tail, scrollAnchor: null } }),
+            new CustomEvent("acpmux-session-adopt", {
+              detail: { sessionId: session, tail, scrollAnchor: null },
+            }),
           );
           return { at, shift, syncMs: performance.now() - at };
         },
@@ -1129,7 +1281,9 @@ try {
         };
       });
       if (cdp) {
-        const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
+        const { profile } = (await cdp.send("Profiler.stop")) as {
+          profile: CpuProfile;
+        };
         await cdp.detach();
         addProfile(profile, start.at, got.live > start.at ? got.live : start.at + RECORD_MS);
       }
@@ -1169,6 +1323,7 @@ try {
         socketOpenedMs: null,
         initializeAnsweredMs: null,
         attachAnsweredMs: null,
+        boundMs: null,
         // The spare connected before its adopt event: no socket ask is timed from the event.
         asks: 0,
         lastAskMs: null,
@@ -1177,6 +1332,39 @@ try {
     } finally {
       servingSpare = false;
       await page.close();
+    }
+  };
+
+  /// BOUND=1: the page's settled DOM, scripts removed, drawn as a static document to its first paint (ms from
+  /// navigation, the frames' clock): in `warm` (the reopen's renderer) or else a new cold context. The one script left
+  /// puts the scroller back at the round's offset before the first frame and marks that frame, as the in-page bound in
+  /// settled-page.bench.ts does.
+  const settledBound = async (page: Page, warm: Awaited<ReturnType<Browser["newContext"]>> | undefined) => {
+    const copy = await page.evaluate(() => {
+      const root = document.documentElement.cloneNode(true) as HTMLElement;
+      for (const one of root.querySelectorAll("script")) one.remove();
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+      return { html: root.outerHTML, scrollTop: scroller?.scrollTop ?? 0 };
+    });
+    const mark = `<script>{const s=document.querySelector(".acpmux-scroll");if(s)s.scrollTop=${copy.scrollTop};requestAnimationFrame(()=>setTimeout(()=>{self.__boundPaint=performance.now()},0))}</script>`;
+    boundHtml = `<!doctype html>${copy.html.replace(/<\/body>(?![\s\S]*<\/body>)/, () => `${mark}</body>`)}`;
+    const context = warm ?? (await browser.newContext({ viewport: RELAUNCH_VIEWPORT }));
+    const bound = await context.newPage();
+    try {
+      if (warm) await bound.setViewportSize(RELAUNCH_VIEWPORT);
+      if (CPU > 1) await (await context.newCDPSession(bound)).send("Emulation.setCPUThrottlingRate", { rate: CPU });
+      await bound.goto(`http://127.0.0.1:${statics.port}/__bound.html`, {
+        waitUntil: "load",
+      });
+      await bound.waitForFunction(
+        () => typeof (window as unknown as { __boundPaint?: number }).__boundPaint === "number",
+        undefined,
+        { timeout: 30_000 },
+      );
+      return await bound.evaluate(() => (window as unknown as { __boundPaint: number }).__boundPaint);
+    } finally {
+      if (warm) await bound.close();
+      else await context.close();
     }
   };
 
@@ -1201,7 +1389,13 @@ try {
           isRefused(mode) ? DOWN_MS : 0,
         );
       }
-      load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0 };
+      load = {
+        refused: 0,
+        socketOpenedAt: 0,
+        initializeAnsweredAt: 0,
+        attachAnsweredAt: 0,
+        bytesDown: 0,
+      };
       // acpmux is up for a reopen: only the page is new; a refusal comes from the host, the daemon is up.
       downMode = isReopen(mode) || isRefused(mode) ? undefined : mode;
       downUntil = isReopen(mode) ? 0 : Date.now() + DOWN_MS;
@@ -1218,7 +1412,11 @@ try {
         const launch = await page.evaluate(
           () =>
             (
-              window as unknown as { cmuxAcpmuxDebug?: { perfStats(): { launch: Record<string, number> } } }
+              window as unknown as {
+                cmuxAcpmuxDebug?: {
+                  perfStats(): { launch: Record<string, number> };
+                };
+              }
             ).cmuxAcpmuxDebug?.perfStats().launch ?? {},
         );
         const marks = Object.entries(launch)
@@ -1245,7 +1443,9 @@ try {
       if (mode.startsWith("native-ready") && got.readyAnsweredAt < DOWN_MS - 20)
         throw new Error(`native ready delay was not exercised: ${got.readyAnsweredAt}`);
       const since = (epoch: number) => (epoch ? epoch - got.origin : null);
+      const boundMs = BOUND ? await settledBound(page, context === warmContext ? context : undefined) : null;
       return {
+        boundMs,
         mode,
         metrics: classifyFrames(got.frames),
         frames: got.frames,
@@ -1301,7 +1501,12 @@ try {
     layoutShift: (r: Round) => r.layoutShift,
     frames: (r: Round) => r.metrics.frames,
   } as const;
-  const json: Record<string, unknown> = { turns: TURNS, downMs: DOWN_MS, recordMs: RECORD_MS, rounds: ROUNDS };
+  const json: Record<string, unknown> = {
+    turns: TURNS,
+    downMs: DOWN_MS,
+    recordMs: RECORD_MS,
+    rounds: ROUNDS,
+  };
   let failed = false;
   for (const [mode, rounds] of byMode) {
     console.log(
@@ -1534,12 +1739,20 @@ try {
     console.log(
       `reopen-spare adopt event's own task: p50 ${at(0.5).toFixed(1)} ms, p95 ${at(0.95).toFixed(1)} ms, max ${sorted.at(-1)!.toFixed(1)} ms (n=${sorted.length}${PROFILE ? ", profiled" : ""})`,
     );
-    json.adoptSync = { p50: at(0.5), p95: at(0.95), max: sorted.at(-1), n: sorted.length };
+    json.adoptSync = {
+      p50: at(0.5),
+      p95: at(0.95),
+      max: sorted.at(-1),
+      n: sorted.length,
+    };
     const middle = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? 0;
     console.log(
       `reopen-spare parked spare before its adopt: JS heap p50 ${middle(spareHeapMb).toFixed(2)} MB, DOM nodes p50 ${middle(spareNodes)}`,
     );
-    json.spare = { heapMbP50: middle(spareHeapMb), nodesP50: middle(spareNodes) };
+    json.spare = {
+      heapMbP50: middle(spareHeapMb),
+      nodesP50: middle(spareNodes),
+    };
   }
   console.log(`FIRST_LOAD_JSON ${JSON.stringify(json)}`);
   printProfile();
