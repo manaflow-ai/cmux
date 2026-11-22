@@ -186,6 +186,16 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 900_000,
     ownPart: true,
   },
+  // The sidebar chats page flung at 300 and 1,500 px a frame and jumped along its track at 200 to 10,000 Earlier
+  // rows, with every row mounted (the app's host today), a same-frame slice host and a one-frame-late one: work per
+  // frame and blank frames (the same ask). The web-ui-scroll part runs it too (`--only sidebar-chats-fling`).
+  {
+    name: "sidebar-chats-fling",
+    file: "sidebar-chats-fling.bench.ts",
+    args: ["200", "500", "1000", "10000"],
+    timeoutMs: 600_000,
+    ownPart: true,
+  },
   // The same clock tick and 30-row list update drawn by an app (scene ops) and by the first-party component:
   // main-thread ms and React commits per update. Run with `--only extension-parity`.
   {
