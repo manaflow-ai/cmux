@@ -107,7 +107,7 @@
     "_acpmux/peer_snapshot": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/peer_reconnect": {"params": ["name", "wait"], "acpmux": []},
     "_acpmux/retry": {"params": ["sessionId", "subagentId"], "acpmux": []},
-    "_acpmux/attach": {"params": ["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled", "hold"], "acpmux": []},
+    "_acpmux/attach": {"params": ["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled", "hold", "afterSeq"], "acpmux": []},
     "_acpmux/detach": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/view": {"params": ["sessionId", "visible"], "acpmux": []},
     "_acpmux/typing": {"params": ["sessionId", "on"], "acpmux": []},
@@ -182,7 +182,7 @@
     "_acpmux/prompt_coach": {"params": ["sessionId", "coachId"], "acpmux": []},
     "_acpmux/run_elsewhere/plan": {"params": ["sessionId", "command"], "acpmux": []},
     "_acpmux/run_elsewhere/start": {"params": ["sessionId", "command", "peer", "digest", "sendSecrets"], "acpmux": []},
-    "_acpmux/bg/output": {"params": ["sessionId", "id", "fromByte"], "acpmux": []},
+    "_acpmux/bg/output": {"params": ["sessionId", "id", "fromByte", "maxBytes"], "acpmux": []},
     "_acpmux/bg/stop": {"params": ["sessionId", "id"], "acpmux": []},
     "_acpmux/route/list": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/session/auth": {"params": ["sessionId", "target", "refresh"], "acpmux": []},
@@ -207,7 +207,8 @@
   "reply_shapes": {
     "_acpmux/status": {"object": {"peers": {"list": {"object": {"name": "string", "transport": {"scheme": "url"}, "connected": "bool", "state": "string", "lastSeen": "number", "attempts": "number", "health": {"object": {"unsupported": "bool", "load": {"list": "number"}, "cpus": "number", "ram": {"object": {"freeBytes": "number"}}, "pressure": {"object": {"cores": "number", "load_limit": "number", "ok": "bool", "over": {"list": "string"}}}}}}}}}},
     "_acpmux/peer_reconnect": {"object": {"peers": {"list": {"object": {"name": "string", "transport": {"scheme": "url"}, "connected": "bool", "state": "string", "lastSeen": "number", "attempts": "number", "error": "string"}}}}},
-    "_acpmux/peers": {"object": {"peers": {"list": {"object": {"name": "string", "state": "string", "lastSeen": "number", "error": "string"}}}}}
+    "_acpmux/peers": {"object": {"peers": {"list": {"object": {"name": "string", "state": "string", "lastSeen": "number", "error": "string"}}}}},
+    "_acpmux/move_targets": {"object": {"targets": {"list": {"object": {"id": "string", "label": "string", "kind": "string", "status": "string", "reason": "string", "room": "number"}}}, "pick": "string"}}
   },
   "history_replies": ["_acpmux/attach", "_acpmux/events"],
   "path_keys": ["cwd", "path", "additionalDirectories", "directory", "directories", "workingDirectory",
