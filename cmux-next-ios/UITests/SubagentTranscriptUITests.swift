@@ -63,7 +63,9 @@ final class SubagentTranscriptUITests: XCTestCase {
 
     @MainActor
     func testRunningTranscriptStreams() {
-        let app = launch("subagent", count: 10, stream: true)
+        // Text only: every token goes into the one answer, so a transcript that missed text growing
+        // inside an existing item would show none of them (no new items carry them in).
+        let app = launch("subagent", count: 10, stream: true, edge: "text")
         defer { app.terminate() }
         XCTAssertTrue(app.navigationBars["WireGuard dialer"].waitForExistence(timeout: 40), "the transcript opens\n\(app.debugDescription)")
         // Tokens stream into the running subagent's answer. A running transcript opens on its end

@@ -33,7 +33,9 @@ enum ListStressChatScreens {
             let store = AgentChatStore(source: source)
             seedTranscript(store, items: max(settings.count, 0), running: settings.streams, giant: settings.giant)
             // `late`: the stream starts after `edgeAfter` seconds (a reader at rest at the end first).
-            if settings.streams, settings.edge != "late", settings.edge != "follow" { live = streamTranscript(store, source: source, hz: settings.liveHz) }
+            if settings.streams, settings.edge != "late", settings.edge != "follow" {
+                live = streamTranscript(store, source: source, hz: settings.liveHz, textOnly: settings.edge == "text")
+            }
             let holder = RigStoreHolder(store: store)
             switch settings.edge {
             case "follow":
@@ -184,7 +186,9 @@ enum ListStressChatScreens {
     /// A token every 20 ms, a tool call every 500 ms (the answer goes on in a new message after
     /// it), and the 5 siblings changing state once a second.
     /// `hz` (`LIST_LIVE_HZ`): tokens a second instead of 50.
-    static func streamTranscript(_ store: AgentChatStore, source: RigSource, hz: Double? = nil) -> Task<Void, Never> {
+    /// `textOnly` (`CMUX_MOBILE_LIST_EDGE=text`): tokens into one answer and nothing else, so the
+    /// only change the transcript sees is text growing inside an existing item.
+    static func streamTranscript(_ store: AgentChatStore, source: RigSource, hz: Double? = nil, textOnly: Bool = false) -> Task<Void, Never> {
         let interval = Duration.seconds(1 / max(hz ?? 50, 0.1))
         return Task { @MainActor in
             var tick = 0
@@ -195,14 +199,14 @@ enum ListStressChatScreens {
                 if source.offline { continue }
                 tick += 1
                 store.receive(.subagentUpdate(subagentID: transcriptID, .agentMessageChunk(text: "token\(tick) ", messageId: "rig-live-m\(message)")))
-                if tick % 25 == 0 {
+                if tick % 25 == 0, !textOnly {
                     let id = "rig-live-c\(tick)"
                     store.receive(.subagentUpdate(subagentID: transcriptID, .toolCall(ACPToolCall(id: id, title: "swift build (\(tick))", kind: .execute))))
                     store.receive(.subagentUpdate(subagentID: transcriptID, .toolCallUpdate(ACPToolCallUpdate(toolCallId: id, status: .completed,
                                                                                                                 content: [.content(.text("Build complete"))]))))
                     message += 1
                 }
-                if tick % 50 == 0 {
+                if tick % 50 == 0, !textOnly {
                     for sibling in 0..<5 {
                         let state: AgentSubagent.State = (tick / 50 + sibling) % 2 == 0 ? .running : .completed
                         store.receive(.subagent(AgentSubagentChange(id: "rig-sib\(sibling)", state: state)))
