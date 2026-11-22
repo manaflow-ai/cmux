@@ -622,10 +622,9 @@ try {
   const newContext = async () => {
     const context = await browser.newContext({ viewport: VIEWPORT });
     await context.addInitScript(installFrameReader);
-    if (process.env.EXP_SKIP_RAIL === "1")
-      await context.addInitScript(() => {
-        (globalThis as { __expSkipRail?: boolean }).__expSkipRail = true;
-      });
+    await context.addInitScript(() => {
+      (globalThis as { __expSkipRail?: boolean }).__expSkipRail = true;
+    });
     return context;
   };
   const waitPainted = (page: Page, mark: string) =>
